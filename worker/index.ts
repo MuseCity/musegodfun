@@ -8,6 +8,7 @@ import { securityHeaders } from "../server/http-security";
 interface Env {
   ASSETS: Fetcher;
   LAUNCHPAD: DurableObjectNamespace<LaunchpadRuntime>;
+  CF_VERSION_METADATA: { id: string; tag?: string; timestamp: string };
 }
 
 export class LaunchpadRuntime extends DurableObject<Env> {
@@ -110,6 +111,11 @@ export default {
     const headers = new Headers(response.headers);
     for (const [key, value] of Object.entries(securityHeaders(url.protocol === "https:"))) headers.set(key, value);
     if (url.pathname === "/api" || url.pathname.startsWith("/api/")) headers.set("Cache-Control", "no-store");
+    if (url.pathname === "/build-info.json" || headers.get("Content-Type")?.includes("text/html")) {
+      headers.set("Cache-Control", url.pathname === "/build-info.json" ? "no-store" : "no-cache, max-age=0, must-revalidate");
+      if (env.CF_VERSION_METADATA?.id) headers.set("X-Worker-Version", env.CF_VERSION_METADATA.id);
+      if (/^[a-f0-9]{40}$/.test(env.CF_VERSION_METADATA?.tag || "")) headers.set("X-Source-Commit", env.CF_VERSION_METADATA.tag!);
+    }
     if (url.pathname.startsWith("/assets/") && response.ok) headers.set("Cache-Control", "public, max-age=31536000, immutable");
     return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
   },

@@ -85,6 +85,7 @@ import BuybackPage from "./components/BuybackPage";
 import FeeBreakdown from "./components/FeeBreakdown";
 import { ASSET_CATEGORIES, assetCategory, type AssetCategory } from "./lib/asset-categories";
 import assetLogos from "./lib/asset-logos.json";
+import { buildIdentity } from "./lib/build-info";
 
 function useResource<T>(path: string, version = 0) {
   const [data, setData] = useState<T | null>(null),
@@ -554,6 +555,17 @@ export function App() {
           </span>
           <span>Your meme token does not represent ownership of the underlying stock.</span>
           <External href="https://docs.doppler.lol/">Protocol docs</External>
+          <div className="build-provenance">
+            {buildIdentity.source === "github-actions" ? <>
+              <External href={`${buildIdentity.repository}/commit/${buildIdentity.commit}`}>
+                Source {buildIdentity.commit.slice(0, 7)}
+              </External>
+              <span aria-hidden="true">·</span>
+              <External href={buildIdentity.releaseUrl!}>Verify build</External>
+            </> : <span title={`Source base: ${buildIdentity.commit}`}>
+              Local build{buildIdentity.dirty ? " (dirty)" : ""} · {buildIdentity.commit.slice(0, 7)}
+            </span>}
+          </div>
         </footer>
       </div>
       {showHelp && (

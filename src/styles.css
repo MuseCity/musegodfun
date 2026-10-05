@@ -1649,6 +1649,7 @@ footer > a {
 }
 footer {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   padding: 25px 44px;
@@ -1665,6 +1666,13 @@ footer b {
 footer > a {
   color: #a0ad8f;
 }
+.build-provenance {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.build-provenance a { color: #a0ad8f; }
 .modal::backdrop {
   background: #111a09aa;
   backdrop-filter: blur(5px);

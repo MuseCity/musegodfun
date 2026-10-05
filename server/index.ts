@@ -10,8 +10,14 @@ const vite = process.env.NODE_ENV === "production" ? null : await (await import(
 });
 const { app, service } = createApp((app) => {
   if (!vite) {
-    app.use(express.static(resolve("dist")));
+    app.use(express.static(resolve("dist"), {
+      setHeaders(res, path) {
+        if (path.endsWith("/build-info.json")) res.setHeader("Cache-Control", "no-store");
+        else if (path.endsWith(".html")) res.setHeader("Cache-Control", "no-cache, max-age=0, must-revalidate");
+      },
+    }));
     app.get("/{*path}", (req, res) => {
+      res.setHeader("Cache-Control", "no-cache, max-age=0, must-revalidate");
       res.status(knownPage(req.path) ? 200 : 404).sendFile(resolve("dist/index.html"));
     });
   } else {

@@ -59,6 +59,14 @@ Local development retains the single Node runtime. Cloudflare production uses Wo
 
 ## Acceptance and evidence
 
+### Frontend release provenance
+
+Pushes to `master` build the exact clean GitHub event commit in GitHub Actions with Node 24.11.1 and the committed npm lockfile. The bundle embeds its full source SHA and immutable build-release URL. The shared footer links to that commit and release; local builds remain explicitly labeled local/dirty. Build identity is fixed to the loaded bundle and is not replaced by a newer runtime version.
+
+`/build-info.json` contains source/build identity and SHA-256 for every frontend artifact except itself. An immutable GitHub Release tagged `build-<runID>-<attempt>` stores the same manifest, frontend archive and candidate Worker version record. HTML must revalidate; the manifest uses `no-store`. Cloudflare's version metadata supplies `X-Source-Commit` and `X-Worker-Version` on HTML and manifest responses. No credentials, environment dump or application data enter the public build record.
+
+The production workflow uploads the candidate before activating it, verifies its immutable release/tag/attachment digests, then deploys the same built frontend at 100% traffic. Runs are serialized and stale source commits do not activate. Public GitHub Deployment status is successful only after both domains' manifest, HTML and every listed asset match the GitHub record, plus runtime readiness/configuration checks. Verification failure restores the preceding recorded Worker version and records the rollback result. Build records do not imply production success. Database/DO lifecycle migrations, route/domain and secret changes remain separate. Independent verification uses the public GitHub record as its reference, not an online page's self-reported SHA. Historical evidence remains dated and is not retroactively assigned a new source commit.
+
 The fixed $5,000 opening policy is published on both domains. [Local fixed-opening acceptance](evidence/fixed-opening-acceptance.json) records the implementation checks before publication; [production acceptance](evidence/fixed-opening-production.json) records the active Cloudflare version, public hashes, read-only price simulations and browser checks after publication. No real-wallet transaction is part of this release. Earlier dated publication evidence applies to the preceding versions.
 
 Mainnet evidence: Alchemy reports 4663; canonical modules/code/bindings, all 198 asset identities/precision, the curated PAIR policy and representative WETH/NVDA/USDG/cbBTC/MUSEGOD issuance simulations pass, with no signatures or writes.

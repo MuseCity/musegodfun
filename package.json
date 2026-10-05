@@ -20,9 +20,10 @@
     "test:buyback-source-fork": "tsx scripts/run.ts scripts/verify-buyback-source-fork.ts",
     "verify:robinhood": "tsx scripts/run.ts scripts/verify-robinhood.ts",
     "verify:asset-logos": "tsx scripts/verify-asset-logos.ts",
+    "verify:deployment": "tsx scripts/verify-deployment.ts",
     "test:robinhood-fork": "tsx scripts/run.ts scripts/test-robinhood-fork.ts",
     "dev:cloudflare": "wrangler dev",
-    "deploy:cloudflare": "npm run build && wrangler deploy"
+    "deploy:cloudflare": "tsx scripts/release.ts"
   },
   "dependencies": {
     "@vitejs/plugin-react": "6.1.1",
