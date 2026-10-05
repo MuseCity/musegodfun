@@ -1,4 +1,18 @@
-# musegod.fun fixed $5,000 opening publication — 2026-10-05
+# musegod.fun production release records
+
+Current publication follows the [immutable GitHub build workflow](https://github.com/MuseCity/musegodfun/actions/workflows/deploy.yml). The [production Deployment](https://github.com/MuseCity/musegodfun/deployments) records successful online verification, the exact source commit, active Worker version and its preceding rollback version. Each immutable Release includes `release.json`, `build-info.json` and the frozen frontend archive. These records supersede the dated versions below when a later release succeeds.
+
+The MUSEGOD release's [preflight](musegod-release-preflight.json) records the preceding 100% active version before the authorized commit/push. Its [local acceptance](musegod-acceptance.json) covers tests, runtime checks and isolated-fork execution. Production publication does not establish real-wallet mainnet trading.
+
+Rollback uses the previous version in the successful Deployment/Release record:
+
+```sh
+npx wrangler versions deploy PREVIOUS_VERSION_ID@100 --durable-objects-code-update-mode immediate --yes
+```
+
+Read back 100% traffic, `/readyz`, `/api/config` and the preceding immutable build's frontend hashes. Preserve secrets, database scopes, receipts, routes and domains.
+
+## Fixed $5,000 opening publication — 2026-10-05 (historical)
 
 Published application: [musegod.fun](https://musegod.fun) and [www.musegod.fun](https://www.musegod.fun). New issuance targets $5,000 at preview-time USD prices, with a five-minute expiry that includes simulation. The custom opening valuation control is removed. New plans, records and immutable metadata retain the price evidence; existing token records and already-broadcast transactions retain their original interpretation and recovery.
 

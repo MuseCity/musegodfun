@@ -53,7 +53,6 @@ import {
   shortAddress,
   poolCurrency,
   quoteAsset,
-  sortTokens,
   shareEquivalent,
   type RuntimeConfig,
   type Stock,
@@ -81,6 +80,8 @@ import { useWallet, type Quote } from "./lib/wallet";
 import type { LaunchPlan } from "../server/store";
 
 import TokenMarket from "./components/TokenMarket";
+import MusegodPage from "./components/MusegodPage";
+import { MUSEGOD } from "./lib/musegod";
 import BuybackPage from "./components/BuybackPage";
 import FeeBreakdown from "./components/FeeBreakdown";
 import { ASSET_CATEGORIES, assetCategory, type AssetCategory } from "./lib/asset-categories";
@@ -531,6 +532,8 @@ export function App() {
             <Rewards tokens={tokens.data ?? []} config={config.data} />
           ) : current === "buyback" ? (
             <BuybackPage config={config.data} />
+          ) : tokenAddress && sameAddress(tokenAddress, MUSEGOD.token) ? (
+            <MusegodPage config={config.data} navigate={navigate} />
           ) : tokenAddress ? (
             <TokenPage
               key={tokenAddress}
@@ -551,7 +554,7 @@ export function App() {
         </main>
         <footer>
           <span>
-            Built on <b>Doppler</b> + <b>Uniswap v4</b>
+            Launches: <b>Doppler</b> + <b>Uniswap v4</b>
           </span>
           <span>Your meme token does not represent ownership of the underlying stock.</span>
           <External href="https://docs.doppler.lol/">Protocol docs</External>
@@ -615,7 +618,40 @@ export function App() {
   );
 }
 
-function Explore({
+// Display entries are separate from verified launch records and their fee policy.
+export type ExploreToken = Pick<TokenRecord, "address" | "name" | "symbol" | "description" | "image" | "createdAt" | "mode"> & {
+  kind: "launch" | "musegod";
+  quote: Stock;
+};
+export function exploreTokens(
+  tokens: TokenRecord[], config: RuntimeConfig | null, search: string,
+  filter: string, order: "new" | "name",
+): ExploreToken[] {
+  const featured = deploymentChain(config ?? { mode: "robinhood", deploymentChainId: 4663 }) === 4663;
+  const entries: ExploreToken[] = tokens
+    .filter((token) => !featured || !sameAddress(token.address, MUSEGOD.token))
+    .map((token) => ({
+      kind: "launch", address: token.address, name: token.name, symbol: token.symbol,
+      description: token.description, image: token.image, createdAt: token.createdAt,
+      mode: token.mode, quote: quoteAsset(token),
+    }));
+  if (featured) {
+    const quote = assetsFor({ mode: "robinhood" }).find((asset) => sameAddress(asset.address, MUSEGOD.weth))!;
+    entries.push({ kind: "musegod", address: MUSEGOD.token, name: MUSEGOD.name,
+      symbol: MUSEGOD.symbol, description: MUSEGOD.description, image: MUSEGOD.image,
+      createdAt: MUSEGOD.createdAt, mode: config?.mode ?? "robinhood", quote });
+  }
+  const query = search.trim().toLowerCase();
+  return entries
+    .filter((entry) => (filter === "all" || entry.quote.ticker === filter) &&
+      `${entry.name} ${entry.symbol} ${entry.address}`.toLowerCase().includes(query))
+    .sort((a, b) => {
+      if (!query && filter === "all" && a.kind !== b.kind) return a.kind === "musegod" ? -1 : 1;
+      return order === "name" ? a.name.localeCompare(b.name) : b.createdAt - a.createdAt;
+    });
+}
+
+export function Explore({
   tokens,
   tokenError,
   stocks,
@@ -637,16 +673,7 @@ function Explore({
   const [search, setSearch] = useState(""),
     [filter, setFilter] = useState("all"),
     [order, setOrder] = useState("new");
-  const filtered = sortTokens(
-    (tokens ?? []).filter(
-      (t) =>
-        (filter === "all" || quoteAsset(t).ticker === filter) &&
-        `${t.name} ${t.symbol} ${t.address}`
-          .toLowerCase()
-          .includes(search.trim().toLowerCase()),
-    ),
-    order === "name" ? "name" : "new",
-  );
+  const filtered = exploreTokens(tokens ?? [], config, search, filter, order === "name" ? "name" : "new");
   return (
     <>
       <div className="page-heading">
@@ -700,20 +727,20 @@ function Explore({
         </div>
         <div className="intro-facts">
           <span>
-            <b>1B</b>Fixed supply
+            <b>1B</b>New launch supply
           </span>
           <span>
             <b>{stocks ? stocks.filter((s) => s.verified).length : "—"}</b>
             Verified paired assets
           </span>
           <span>
-            <b>1.05%</b>Nominal trading fee
+            <b>1.05%</b>New launch fee
           </span>
         </div>
       </div>
       <div className="section-heading">
         <h2>
-          Explore tokens <span className="count">{tokens?.length ?? "—"}</span>
+          Explore tokens <span className="count">{filtered.length}</span>
         </h2>
         <button
           className="icon-button"
@@ -728,7 +755,7 @@ function Explore({
         <div className="search-input">
           <Search size={17} />
           <input
-            aria-label="Search platform tokens"
+            aria-label="Search tokens"
             placeholder="Search by name, symbol, or contract address"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -758,36 +785,35 @@ function Explore({
           <option value="name">Name A–Z</option>
         </select>
       </div>
-      {tokenError ? (
-        <Notice kind="error">{tokenError}</Notice>
-      ) : loading ? (
-        <Loading />
-      ) : filtered.length ? (
+      {tokenError && <Notice kind="error">Platform launches could not be loaded: {tokenError}</Notice>}
+      {loading && <Loading />}
+      {filtered.length ? (
         <div className="token-grid">
           {filtered.map((t) => (
             <Link
               href={`/token/${t.address}`}
               key={t.address}
-              className="token-card"
+              className={`token-card${t.kind === "musegod" ? " featured-token" : ""}`}
             >
               <div className="token-card-top">
-                <TokenIcon name={t.name} image={t.image} />
-                <ArrowUpRight size={18} />
+                {t.kind === "musegod" ? <StockIcon stock={{ ticker: "MUSEGOD" }} /> : <TokenIcon name={t.name} image={t.image} />}
+                {t.kind === "musegod" ? <span className="featured-label"><Sparkles size={12} /> Featured</span> : <ArrowUpRight size={18} />}
               </div>
               <h3>{t.name}</h3>
               <span className="muted">${t.symbol}</span>
+              {t.kind === "musegod" && <span className="token-card-venue">SushiSwap v3</span>}
               <p>{t.description || "A new story starts here."}</p>
               <div className="token-card-bottom">
                 <span>
-                  <StockIcon stock={quoteAsset(t)} small />
-                  {quoteAsset(t).ticker} pair
+                  <StockIcon stock={t.quote} small />
+                  {t.quote.ticker} pair
                 </span>
                 <span>{t.mode === "fork" ? "Fork test" : t.mode === "robinhood" ? "Robinhood Chain" : "Base"}</span>
               </div>
             </Link>
           ))}
         </div>
-      ) : (
+      ) : !loading && !tokenError ? (
         <div className="empty-state">
           <div className="empty-symbol">
             <Sparkles size={29} />
@@ -807,13 +833,13 @@ function Explore({
             <ArrowUpRight size={16} />
           </Link>
         </div>
-      )}
+      ) : null}
       {stockError && (
         <Notice kind="error">Asset contract verification is unavailable: {stockError}</Notice>
       )}
       <div className="info-strip">
         <LockKeyhole size={18} />
-        <span>Fixed supply · Locked liquidity · Creator rewards</span>
+        <span>New launches: Fixed supply · Locked liquidity · Creator rewards</span>
         <span>New launches are listed after on-chain confirmation</span>
       </div>
     </>

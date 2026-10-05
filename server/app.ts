@@ -7,6 +7,8 @@ import { LaunchpadService, runtimeFromEnv } from "./service";
 import { redact } from "./config";
 import { MarketUnavailable } from "./snapshots";
 import { MarketReader } from "./market";
+import { MusegodReader } from "./musegod";
+import { MusegodMarketReader } from "./musegod-market";
 import { CHART_INTERVALS } from "../src/lib/market";
 import { BuybackReader, BuybackError } from "./buyback";
 import { BuybackBatchService } from "./buyback-batches";
@@ -33,6 +35,8 @@ const market = new MarketReader({
   store: service.store,
   apiKey: process.env.COINGECKO_API_KEY,
 });
+const musegod = new MusegodReader(service.client, service.runtime.config, () => service.assertNetwork());
+const musegodMarket = new MusegodMarketReader(service.runtime.config, service.store);
 const buyback = new BuybackReader(service.runtime.config.treasury);
 const buybackBatches = new BuybackBatchService(buyback, service.store, service.client, service.runtime.config);
 app.set("trust proxy", trustProxy);
@@ -245,6 +249,18 @@ app.get(
   "/api/tokens",
   route(async (_req, res) => res.json(await service.tokens())),
 );
+app.get("/api/musegod", route(async (_req, res) => res.json(await musegod.info())));
+app.get("/api/musegod/market/:section", route(async (req, res) => {
+  const section = z.enum(["summary", "candles", "trades"]).parse(req.params.section);
+  res.json(section === "candles"
+    ? await musegodMarket.candles(z.enum(CHART_INTERVALS).parse(req.query.interval || "1h"))
+    : await musegodMarket[section]());
+}));
+app.post("/api/musegod/quote", route(async (req, res) => {
+  const input = z.object({ side: z.enum(["buy", "sell"]), amount: z.string().max(100),
+    slippageBps: z.number().int().min(1).max(500).default(100) }).strict().parse(req.body);
+  res.json(await musegod.quote(input.side, input.amount, input.slippageBps));
+}));
 app.get(
   "/api/tokens/:address/market/:section",
   route(async (req, res) => {

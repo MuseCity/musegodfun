@@ -1,0 +1,85 @@
+{
+  "status": "passed",
+  "scope": "Real read-only MUSEGOD metadata and quotes in local workerd; database credentials are dummy and no hosted database access is authorized. Bankr persistence was verified separately in local Node SQLite and unit tests.",
+  "productionDeployment": false,
+  "mainnetSigning": "not_run",
+  "hostedDatabaseWrites": false,
+  "checks": [
+    {
+      "path": "/api/config",
+      "status": 200,
+      "body": {
+        "mode": "robinhood",
+        "deploymentChainId": 4663,
+        "chainId": 4663,
+        "treasury": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+        "writesEnabled": false,
+        "blockReason": "Mainnet is read-only. Connect a wallet to query balances and simulate issuance."
+      }
+    },
+    {
+      "path": "/api/musegod",
+      "status": 200,
+      "body": {
+        "name": "MUSEGOD",
+        "symbol": "MUSEGOD",
+        "address": "0x0379E228F6887c6F18bf394042ECAF81B308cb2e",
+        "image": "/asset-logos/MUSEGOD.png",
+        "description": "The MUSEGOD community token on Robinhood Chain. Trade ETH and MUSEGOD through its existing SushiSwap v3 pool.",
+        "quoteAddress": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+        "poolAddress": "0x071eE139277688d64B139Af1e44f79a9acf12e53",
+        "decimals": 18,
+        "totalSupply": "1000000000000000000000000000",
+        "tradeEnabled": false,
+        "tradeBlockReason": "Mainnet is read-only. Connect a wallet to query balances and simulate issuance."
+      }
+    },
+    {
+      "path": "/api/musegod/quote",
+      "status": 200,
+      "body": {
+        "protocol": "sushi-v3",
+        "chainId": 4663,
+        "deploymentChainId": 4663,
+        "token": "0x0379E228F6887c6F18bf394042ECAF81B308cb2e",
+        "poolAddress": "0x071eE139277688d64B139Af1e44f79a9acf12e53",
+        "side": "buy",
+        "amountIn": "1000000000000000",
+        "amountOut": "8940306629542505032337",
+        "minAmountOut": "8850903563247079982013",
+        "slippageBps": 100,
+        "quotedAt": 1791191849352,
+        "expiresAt": 1791191909352,
+        "blockNumber": "80673399",
+        "blockHash": "0xb1071b853227fd038bc5136213657cd3d28469bc8ee84dab43d3358bb15edbe9"
+      }
+    },
+    {
+      "path": "/api/musegod/quote",
+      "status": 200,
+      "body": {
+        "protocol": "sushi-v3",
+        "chainId": 4663,
+        "deploymentChainId": 4663,
+        "token": "0x0379E228F6887c6F18bf394042ECAF81B308cb2e",
+        "poolAddress": "0x071eE139277688d64B139Af1e44f79a9acf12e53",
+        "side": "sell",
+        "amountIn": "1000000000000000000000",
+        "amountOut": "109622703803241",
+        "minAmountOut": "108526476765208",
+        "slippageBps": 100,
+        "quotedAt": 1791191849359,
+        "expiresAt": 1791191909359,
+        "blockNumber": "80673404",
+        "blockHash": "0x8a4c297f39559ddfc2ff213149b666059e955233207e77815bf571711da94b6c"
+      }
+    },
+    {
+      "path": "/token/0x0379e228f6887c6f18bf394042ecaf81b308cb2e",
+      "status": 200,
+      "body": {
+        "htmlBytes": 611
+      }
+    }
+  ]
+}

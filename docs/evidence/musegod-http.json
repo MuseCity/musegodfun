@@ -1,0 +1,131 @@
+{
+  "observedAt": "2026-10-05T10:06:18.269Z",
+  "status": "passed",
+  "origin": "http://127.0.0.1:5192",
+  "scope": "Real read-only Robinhood quotes and Bankr market data through the specified local Node server.",
+  "mainnetSigning": "not_run",
+  "mainnetBroadcast": "not_run",
+  "snapshotStorageBackend": "not_identified_by_http",
+  "checks": [
+    {
+      "path": "/config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/tokens",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/musegod",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/musegod/market/summary",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/musegod/market/trades",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/musegod/market/candles?interval=1h",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/musegod/market/summary",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/musegod/quote",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/musegod/quote",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/musegod/quote",
+      "method": "POST",
+      "status": 400
+    },
+    {
+      "path": "/musegod/quote",
+      "method": "POST",
+      "status": 400
+    },
+    {
+      "path": "/musegod/market/holders",
+      "method": "GET",
+      "status": 400
+    }
+  ],
+  "info": {
+    "name": "MUSEGOD",
+    "symbol": "MUSEGOD",
+    "address": "0x0379E228F6887c6F18bf394042ECAF81B308cb2e",
+    "image": "/asset-logos/MUSEGOD.png",
+    "description": "The MUSEGOD community token on Robinhood Chain. Trade ETH and MUSEGOD through its existing SushiSwap v3 pool.",
+    "quoteAddress": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+    "poolAddress": "0x071eE139277688d64B139Af1e44f79a9acf12e53",
+    "decimals": 18,
+    "totalSupply": "1000000000000000000000000000",
+    "tradeEnabled": false,
+    "tradeBlockReason": "Mainnet is read-only. Connect a wallet to query balances and simulate issuance."
+  },
+  "quotes": [
+    {
+      "protocol": "sushi-v3",
+      "chainId": 4663,
+      "deploymentChainId": 4663,
+      "token": "0x0379E228F6887c6F18bf394042ECAF81B308cb2e",
+      "poolAddress": "0x071eE139277688d64B139Af1e44f79a9acf12e53",
+      "side": "buy",
+      "amountIn": "1000000000000000",
+      "amountOut": "9194321675405069712538",
+      "minAmountOut": "9102378458651019015412",
+      "slippageBps": 100,
+      "quotedAt": 1791194764477,
+      "expiresAt": 1791194824477,
+      "blockNumber": "80701784",
+      "blockHash": "0x1d42280e9c6e9426f2574da1aef5ccb7febb5c787f7b9b4d7ec2392f0b9b43fb"
+    },
+    {
+      "protocol": "sushi-v3",
+      "chainId": 4663,
+      "deploymentChainId": 4663,
+      "token": "0x0379E228F6887c6F18bf394042ECAF81B308cb2e",
+      "poolAddress": "0x071eE139277688d64B139Af1e44f79a9acf12e53",
+      "side": "sell",
+      "amountIn": "1000000000000000000000",
+      "amountOut": "106594066887438",
+      "minAmountOut": "105528126218563",
+      "slippageBps": 100,
+      "quotedAt": 1791194771927,
+      "expiresAt": 1791194831927,
+      "blockNumber": "80701854",
+      "blockHash": "0xac34d8ebd5594f2d455889830452d82d0fcbca8955f4a97663685a4feb7906fb"
+    }
+  ],
+  "market": {
+    "source": "Bankr",
+    "fetchedAt": "2026-10-05T10:06:04.073Z",
+    "priceUsd": 0.0002927386128105213,
+    "candleCount": 200,
+    "tradeCount": 30,
+    "candleWatermark": {
+      "blockNumber": 80693353,
+      "logIndex": 7,
+      "txHash": "0x8e44912940657663acfe7750ca7958a6d1147b5c126bad8968eea5d061e9412f"
+    },
+    "sharedSnapshotVerified": true
+  }
+}

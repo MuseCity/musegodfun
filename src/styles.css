@@ -752,6 +752,50 @@ main {
   transform: translateY(-2px);
   box-shadow: 0 8px 25px #505d2d09;
 }
+.token-card.featured-token {
+  border-color: #b8cf96;
+  background: #fcfef7;
+}
+.featured-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--green);
+  background: #eaf4d7;
+  border-radius: 5px;
+  padding: 5px 7px;
+  font-size: 10px;
+  font-weight: 700;
+}
+.token-card-venue {
+  display: block;
+  margin-top: 7px;
+  color: var(--green);
+  font-size: 11px;
+}
+.musegod-amount {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.musegod-trading-layout .balance {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.musegod-trading-layout .quote-summary > div {
+  align-items: flex-start;
+  gap: 12px;
+}
+.musegod-trading-layout .quote-summary b {
+  max-width: 65%;
+  text-align: right;
+}
+.musegod-transaction {
+  margin-top: 14px;
+  font-size: 12px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
 .token-card-top {
   display: flex;
   justify-content: space-between;

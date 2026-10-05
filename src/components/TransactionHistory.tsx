@@ -21,6 +21,7 @@ import {
   type RuntimeConfig,
 } from "../lib/config";
 import { errorMessage, hashSchema } from "../lib/validation";
+import { recoverMusegodTransaction } from "../lib/musegod-recovery";
 const labels = {
   pending: "Pending",
   success: "Confirmed",
@@ -60,6 +61,10 @@ export default function TransactionHistory({
     if (!config || (!transactionMatchesConfig(row, config) && !(config.mode === "base" && row.chainId === 4663))) return;
     const client = transactionClient(row.chainId);
     if (await client.getChainId() !== row.chainId) throw new Error("The transaction lookup RPC is on the wrong network");
+    if (row.musegodRecovery) {
+      await recoverMusegodTransaction(row, client);
+      return;
+    }
     if (row.action === "buyback" && row.batchId && row.buybackKind) {
       const trackedHash = (row.status === "cancelled" || row.status === "replaced") && row.replacement ? row.replacement : row.hash;
       const tracked = await api<BuybackBatch>(`/buyback/batches/${encodeURIComponent(row.batchId)}/track`, { kind: row.buybackKind, hash: trackedHash });
@@ -149,6 +154,15 @@ export default function TransactionHistory({
       const tx = await client.getTransaction({ hash: value });
       if (!sameAddress(tx.from, wallet.account!))
         throw new Error("This transaction does not belong to the connected wallet.");
+      const musegodRecord = transactions().find((row) => row.chainId === chainId &&
+        row.hash.toLowerCase() === value.toLowerCase() && sameAddress(row.account, tx.from) && row.musegodRecovery);
+      if (musegodRecord) {
+        // Manual lookup of a saved MUSEGOD hash must retain its fingerprint,
+        // nonce and scan progress instead of replacing it with a generic row.
+        await check(musegodRecord);
+        setHash("");
+        return;
+      }
       const row: Transaction = {
         hash: value,
         chainId,

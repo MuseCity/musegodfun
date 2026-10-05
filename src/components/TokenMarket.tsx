@@ -3,6 +3,7 @@ import { RefreshCw, TrendingUp, Users } from "lucide-react";
 import { formatUnits } from "viem";
 import { api } from "../lib/api";
 import { explorerFor, shortAddress, type TokenRecord } from "../lib/config";
+import { MUSEGOD } from "../lib/musegod";
 import {
   CHART_INTERVALS,
   type CandleData,
@@ -19,16 +20,17 @@ const usd = (n: number | null | undefined, precise = false) =>
     : `$${n.toLocaleString("en-US", precise ? { maximumSignificantDigits: 6 } : { notation: "compact", maximumFractionDigits: 2 })}`;
 const count = (n: number) =>
   n.toLocaleString("en-US", { notation: "compact", maximumFractionDigits: 2 });
+export type MarketToken = Pick<TokenRecord, "address" | "symbol" | "mode">;
 function useMarket<
   T extends { fetchedAt: string; status?: string; warning?: string },
->(token: TokenRecord, section: string, revision: number, enabled = true) {
+>(token: MarketToken, kind: "launch" | "musegod", section: string, revision: number, enabled = true) {
   const [result, setResult] = useState<{
     data: T | null;
     error: string;
     loading: boolean;
   }>({ data: null, error: "", loading: true });
   const previousPath = useRef("");
-  const path = `/tokens/${token.address}/market/${section}`;
+  const path = kind === "musegod" ? `/musegod/market/${section}` : `/tokens/${token.address}/market/${section}`;
   useEffect(() => {
     let active = true;
     const samePath = previousPath.current === path;
@@ -36,7 +38,7 @@ function useMarket<
     setResult((previous) => ({
       data: samePath ? previous.data : null,
       error: "",
-      loading: true,
+      loading: enabled,
     }));
     if (!enabled) return;
     if (token.mode === "fork") {
@@ -99,9 +101,11 @@ function Message({
 export default function TokenMarket({
   token,
   refreshKey,
+  kind = "launch",
 }: {
-  token: TokenRecord;
+  token: MarketToken;
   refreshKey: string;
+  kind?: "launch" | "musegod";
 }) {
   const [interval, setIntervalValue] = useState<ChartInterval>("1h"),
     [revision, setRevision] = useState(0);
@@ -112,28 +116,46 @@ export default function TokenMarket({
     setRevision((n) => n + 1);
   }, [refreshKey]);
   useEffect(() => {
+    let lastRefresh = Date.now();
+    const refreshVisible = () => {
+      if (document.visibilityState === "visible" && Date.now() - lastRefresh > 1000) {
+        lastRefresh = Date.now();
+        setRevision((n) => n + 1);
+      }
+    };
     const timer = setInterval(() => {
       if (document.visibilityState === "visible") setRevision((n) => n + 1);
-    }, 15 * 60_000);
-    return () => clearInterval(timer);
-  }, []);
-  const summary = useMarket<MarketSummary>(token, "summary", revision);
+    }, kind === "musegod" ? 60_000 : 15 * 60_000);
+    if (kind === "musegod") {
+      document.addEventListener("visibilitychange", refreshVisible);
+      window.addEventListener("focus", refreshVisible);
+    }
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", refreshVisible);
+      window.removeEventListener("focus", refreshVisible);
+    };
+  }, [kind]);
+  const summary = useMarket<MarketSummary>(token, kind, "summary", revision);
   const history = useMarket<CandleData>(
     token,
+    kind,
     `candles?interval=${interval}`,
     revision,
   );
   const trades = useMarket<TradeData>(
     token,
+    kind,
     "trades",
     revision,
-    tab === "trades",
+    tab === "trades" || kind === "musegod",
   );
   const holders = useMarket<HolderData>(
     token,
+    kind,
     "holders",
     revision,
-    tab === "holders",
+    kind === "launch" && tab === "holders",
   );
   const explorer = explorerFor(token);
   const stats = summary.data,
@@ -227,15 +249,15 @@ export default function TokenMarket({
         )}
         <div className="market-attribution">
           <a
-            href="https://www.coingecko.com/en/api"
+            href={kind === "musegod" ? MUSEGOD.sourceUrl : "https://www.coingecko.com/en/api"}
             target="_blank"
             rel="noreferrer"
           >
-            CoinGecko ↗
+            {kind === "musegod" ? "Bankr / Pools" : "CoinGecko"} ↗
           </a>
           <span>
             {stats
-              ? `Fetched at ${new Date(stats.fetchedAt).toLocaleTimeString("en-US")} · Shared 15-minute snapshot`
+              ? `Fetched at ${new Date(stats.fetchedAt).toLocaleTimeString("en-US")} · ${kind === "musegod" ? "Refreshes every minute while visible" : "Shared 15-minute snapshot"}`
               : "Update time appears after market data loads"}
           </span>
         </div>
@@ -297,15 +319,15 @@ export default function TokenMarket({
           >
             <TrendingUp size={16} /> Recent trades
           </button>
-          <button
+          {kind === "launch" && <button
             className={tab === "holders" ? "active" : ""}
             aria-pressed={tab === "holders"}
             onClick={() => setTab("holders")}
           >
             <Users size={16} /> Holders
-          </button>
+          </button>}
         </div>
-        {tab === "trades" ? (
+        {tab === "trades" || kind === "musegod" ? (
           <>
             <div className="feed-filter">
               <div className="intervals">
@@ -365,13 +387,13 @@ export default function TokenMarket({
                         <td title={String(t.amount)}>{count(t.amount)}</td>
                         <td>{usd(t.price, true)}</td>
                         <td>
-                          <a
+                          {t.account ? <a
                             href={explorer ? `${explorer}/address/${t.account}` : undefined}
                             target="_blank"
                             rel="noreferrer"
                           >
                             {shortAddress(t.account)} ↗
-                          </a>
+                          </a> : "—"}
                         </td>
                       </tr>
                     ))}
@@ -386,7 +408,7 @@ export default function TokenMarket({
               />
             )}
             <p className="feed-note">
-              {trades.data?.status === "stale" ? "Previous snapshot · " : ""}CoinGecko ·
+              {trades.data?.status === "stale" ? "Previous snapshot · " : ""}{kind === "musegod" ? "Bankr / Pools" : "CoinGecko"} ·
               Shows up to the latest 30 trades. Indexing may be delayed.
             </p>
           </>

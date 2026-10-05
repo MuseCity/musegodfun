@@ -1,0 +1,72 @@
+{
+  "observedAt": "2026-10-05T10:14:27.467001+00:00",
+  "worker": "musegod-fun",
+  "previousDeploymentId": "ec9f36df-5dd7-4e97-a07d-445fff805348",
+  "previousWorkerVersionId": "a6770186-1776-44d2-9a91-446181603ff5",
+  "previousTrafficPercent": 100,
+  "previousSourceCommit": "023c99a4f1bfdb8dd45fb47d98b3f3baa343da8a",
+  "previousImmutableBuild": "build-37282593930-1",
+  "deploymentPath": "GitHub Actions master push, immutable build release, version-only activation and both-origin verification",
+  "preservedBindings": [
+    {
+      "name": "ALCHEMY_API_KEY",
+      "type": "secret_text"
+    },
+    {
+      "name": "ASSETS",
+      "type": "assets"
+    },
+    {
+      "name": "CF_VERSION_METADATA",
+      "type": "version_metadata"
+    },
+    {
+      "name": "CHAIN_MODE",
+      "type": "plain_text"
+    },
+    {
+      "name": "ENABLE_MAINNET_TRANSACTIONS",
+      "type": "plain_text"
+    },
+    {
+      "name": "LAUNCHPAD",
+      "type": "durable_object_namespace"
+    },
+    {
+      "name": "NODE_ENV",
+      "type": "plain_text"
+    },
+    {
+      "name": "PINATA_JWT",
+      "type": "secret_text"
+    },
+    {
+      "name": "PLATFORM_TREASURY",
+      "type": "plain_text"
+    },
+    {
+      "name": "SUPABASE_DATA_SCOPE",
+      "type": "plain_text"
+    },
+    {
+      "name": "SUPABASE_SECRET_KEY",
+      "type": "secret_text"
+    },
+    {
+      "name": "SUPABASE_URL",
+      "type": "plain_text"
+    }
+  ],
+  "changes": {
+    "databaseSchema": false,
+    "databasePermissions": false,
+    "secrets": false,
+    "routes": false,
+    "domains": false,
+    "signingConfig": false,
+    "contracts": false
+  },
+  "mainnetSigning": "not_run",
+  "mainnetBroadcast": "not_run",
+  "rollbackCommand": "npx wrangler versions deploy a6770186-1776-44d2-9a91-446181603ff5@100 --durable-objects-code-update-mode immediate --yes"
+}

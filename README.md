@@ -6,7 +6,7 @@ A non-custodial meme launchpad on **Robinhood Chain (4663)**, built with Doppler
 - **198 paired assets:** 194 stocks/ETFs plus WETH, USDG, cbBTC and MUSEGOD.
 - **$5,000 opening market-cap target.** Preview prices expire after five minutes. Tick rounding and later asset-price changes affect actual USD value.
 
-**Status:** Published at [musegod.fun](https://musegod.fun). Real-wallet mainnet transactions remain unverified. Robinhood market history is unavailable; on-chain quotes work independently. Buyback and Base fee bridging are deferred. Base mode retains historical receipt recovery.
+**Status:** The application includes the MUSEGOD homepage recommendation, dedicated ETH trading and Bankr market page. Local acceptance is recorded in [MUSEGOD checks](docs/evidence/musegod-acceptance.json); [production deployments](https://github.com/MuseCity/musegodfun/deployments) identify which source build is active at [musegod.fun](https://musegod.fun). Other Robinhood launch market history remains unavailable. Real-wallet mainnet transactions remain unverified. Buyback and Base fee bridging are deferred. Base mode retains historical receipt recovery.
 
 ## Start locally
 
@@ -50,10 +50,14 @@ npm run verify:asset-logos
 | --- | --- |
 | `npm run verify:robinhood` | Mainnet reads and unsigned issuance simulations |
 | `npm run test:robinhood-fork` | Isolated creation, trades, claims and recovery; requires Anvil |
+| `npm run test:musegod-fork` | Router/source executable-code correspondence and isolated native ETH buy/approve/sell, refunds and failure rollback; requires Anvil |
+| `npm run test:musegod-http` | Running read-only local Node server on 5192, real MUSEGOD quotes and Bankr snapshots; uses local storage for acceptance |
 | `npm run test:http` | Running local server with valid treasury; mainnet reads and unsigned simulations |
 | `npm run verify:database` | Database persistence and backup/restore in isolated scopes |
 
 Fork results and public deployment checks **do not prove real-wallet mainnet execution**. See [chain acceptance](docs/evidence/robinhood-acceptance.md).
+
+The MUSEGOD integration uses its existing SushiSwap v3 MUSEGOD/WETH pool. Native ETH wraps/unwraps in each trade; the pool fee is 1% and the site adds no trading fee. Homepage recommendations remain separate from registered launch records and creator rewards. See [integration specification](docs/SPEC.md#musegod-featured-token-and-native-eth-trading) and [router/fork evidence](docs/evidence/musegod-fork.json).
 
 ## Cloudflare
 

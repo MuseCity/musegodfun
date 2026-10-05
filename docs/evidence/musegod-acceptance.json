@@ -1,0 +1,77 @@
+{
+  "status": "passed",
+  "observedAt": "2026-10-05T10:09:46.488046+00:00",
+  "scope": "Local implementation and acceptance of MUSEGOD recommendation, Bankr market page and native ETH trading. No publication or real-wallet mainnet transaction.",
+  "sourceBaseCommit": "023c99a4f1bfdb8dd45fb47d98b3f3baa343da8a",
+  "uncommitted": true,
+  "sourceSha256": {
+    "README.md": "438a6ab7b0e56c29ae8a689fe11c3fea1626735ad0c1b360922560bce00f8464",
+    "docs/SPEC.md": "f50707b4c337291ab41b7788c9768473ef6bb3d4ea5742fa6ac4e142f434afe5",
+    "package.json": "778dade790f6241ebabd2cdd7e7bab0672a04c8843f7717e5f591fe3751fa669",
+    "scripts/test-musegod-fork.ts": "742073eba700265443d61adb268682286f6791cb54cf5f127081e0a10ccd8a67",
+    "scripts/test-musegod-http.ts": "7d202184b6741af6ecf564bff4782258f44b4f8f5a36480c7459f1346ddd4d27",
+    "server/app.ts": "9951c465dda2b661c884a9730d54b2575633d1c65c1cfb06f05f113e0c2d6664",
+    "server/musegod-market.ts": "43504c25e0d0dbd296ba6c1bf504245958fe1710a5e2e3408e87c6bae1e762b2",
+    "server/musegod.ts": "276a938a7cc6e823bd446ecd85c82261d22a6694a91eb246837fff9a069fc3b4",
+    "server/snapshots.ts": "ff27c3c5ce61e1b6183cfa3b7f87ada52b4f0052006e71f811ae51527e855f78",
+    "src/App.tsx": "35a7245e639c5132a6f8a1e9c78c459877bbb67db77b59323ac5e82d75b939c9",
+    "src/components/MusegodPage.tsx": "8ed751373a5343919f7b4cc1de3e755a7bf8665c3ecc731f312d32622ce8fa7e",
+    "src/components/TokenMarket.tsx": "bba6123e44be211488653ed822db91862ab69ec8ed34e25a99f4ae58d0703cd1",
+    "src/components/TransactionHistory.tsx": "f016c12834c9ab532f3525bfdfdaed2805c4a2ddefd0c42cf2aec051ce9246f9",
+    "src/lib/market.ts": "4da31b7c43e4c40aab8e97d562a9aa39275b25ffcf803f883ca080d2d57ed1a3",
+    "src/lib/musegod-recovery.ts": "227dc2e51c29bb9c60c8c9f8021a3a8462602ca4b2e359c721453b9623a77c5a",
+    "src/lib/musegod-trade.ts": "3d9cccfcceaf8175da0711483b6c7621c95048ae789b4ca50cde64e95d099038",
+    "src/lib/musegod.ts": "6ba22ac85969a65cc44795fbf420fe1f2e7af0a4c89be860d985c147206c0322",
+    "src/lib/transactions.ts": "b76d79b19056e8089eac5d11d748e6bc8d3c08c4cca2ea55a51e7ec960641d6a",
+    "src/lib/wallet.tsx": "4d81ad384ecae1d3c214dac10315df6c2b178e359b65c58c0466386d4df94942",
+    "src/styles.css": "08c2de320bc92c9b7ea8ec5d7211c4937ce700ec9567cdd5fdd82397e46d091c",
+    "tests/musegod-explore.test.ts": "a2139316980be4ad63584d8e23de92c3adaff9b638c80a28121dd8d5d5104e65",
+    "tests/musegod-market.test.ts": "4346ee7ce3469f37d7085f3e6c4bd2c23be2af1fb6eb9ff7220510d15eb6d72b",
+    "tests/musegod-recovery.test.ts": "ea39c1dcc02c83650ef96500289419809801902337afcf94be432d2b7dfa72c1",
+    "tests/musegod.test.ts": "b8bca3ee8f0fa60f42823d6e15638e1b2f460c7afd7e24de3debc8be3c8ea023"
+  },
+  "checks": {
+    "unitTests": {
+      "passed": 266,
+      "failed": 0,
+      "skipped": 0
+    },
+    "nodeAndWorkerTypecheck": "passed",
+    "productionBuild": "passed",
+    "workerDryRun": "passed",
+    "nodeRealReadonlyHttp": 12,
+    "workerRealReadonlyHttp": 5,
+    "actualAppBuilderFork": 7,
+    "browserForkWalletFlow": "passed",
+    "desktopAnd390pxMobile": "passed",
+    "gitDiffCheck": "passed",
+    "secretScan": {
+      "filesChecked": 239,
+      "configuredSecretTypes": 5,
+      "hits": 0
+    }
+  },
+  "evidence": [
+    "musegod-fork.json",
+    "musegod-browser.json",
+    "musegod-http.json",
+    "musegod-worker.json"
+  ],
+  "productionDeployment": "not_run",
+  "realWalletMainnetSigning": "not_run",
+  "realWalletMainnetBroadcast": "not_run",
+  "hostedDatabaseWrites": false,
+  "preview": {
+    "url": "http://127.0.0.1:5192",
+    "writesEnabled": false,
+    "storage": "isolated local SQLite",
+    "network": "Robinhood mainnet reads only"
+  },
+  "boundaries": [
+    "Router executable-code correspondence is proved; compiler IPFS metadata content and official Sushi router-address announcement remain unverified.",
+    "Fork receipts and injected provider requests do not establish authenticated real-wallet mainnet execution.",
+    "Local workerd used dummy database credentials; hosted persistence was not revalidated by this change."
+  ],
+  "publicationAuthorization": "Separately authorized after local acceptance; see musegod-release-preflight.json and immutable GitHub production Deployment.",
+  "documentationRefresh": "README/SPEC publication status updated after local checks; executable implementation unchanged."
+}

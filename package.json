@@ -22,6 +22,8 @@
     "verify:asset-logos": "tsx scripts/verify-asset-logos.ts",
     "verify:deployment": "tsx scripts/verify-deployment.ts",
     "test:robinhood-fork": "tsx scripts/run.ts scripts/test-robinhood-fork.ts",
+    "test:musegod-fork": "tsx scripts/run.ts scripts/test-musegod-fork.ts",
+    "test:musegod-http": "tsx scripts/test-musegod-http.ts",
     "dev:cloudflare": "wrangler dev",
     "deploy:cloudflare": "tsx scripts/release.ts"
   },

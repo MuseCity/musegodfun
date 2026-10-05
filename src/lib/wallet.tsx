@@ -17,6 +17,7 @@ import {
   getAddress,
   serializeTypedData,
   formatEther,
+  keccak256,
   http,
   toHex,
   type Address,
@@ -46,6 +47,8 @@ import {
   type Transaction,
 } from "./transactions";
 import { api } from "./api";
+import { MUSEGOD_ROUTER_VERIFICATION, assertMusegodTradingEnabled, type MusegodQuote } from "./musegod";
+import { executeMusegodTrade } from "./musegod-trade";
 declare global {
   interface Window {
     ethereum?: Provider;
@@ -178,6 +181,9 @@ type WalletState = {
   buyback: (step: BuybackStep, config: RuntimeConfig, onHash?: (hash: Hash) => void) => Promise<Hash>;
   prepareBuyback: (input: BuybackPrepareInput, config: RuntimeConfig) => Promise<BuybackBatch>;
   balance: (token: Address) => Promise<bigint>;
+  balanceNative: () => Promise<bigint>;
+  tradeMusegod: (quote: MusegodQuote, config: RuntimeConfig, progress: (message: string) => void,
+    onHash?: (hash: Hash) => void) => Promise<Hash>;
 };
 // Preserve context identity when Vite updates the provider and its consumers
 // in the same batch. Production has no hot module data.
@@ -363,7 +369,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     config: Pick<RuntimeConfig, "chainId" | "deploymentChainId">,
     expected: Address,
     action: Transaction["action"],
-    extra: Pick<Transaction, "batchId" | "buybackKind" | "nonce"> = {},
+    extra: Pick<Transaction, "batchId" | "buybackKind" | "nonce" | "musegodRecovery"> = {},
   ) {
     saveTransaction({
       hash,
@@ -380,6 +386,18 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const client = transactionClient(config.chainId);
       if (await client.getChainId() !== config.chainId)
         throw new Error("The transaction lookup RPC is on the wrong network");
+      if (extra.musegodRecovery) {
+        try {
+          const submitted = await client.getTransaction({ hash });
+          if (sameAddress(submitted.from, expected) && submitted.to &&
+            sameAddress(submitted.to, extra.musegodRecovery.to) &&
+            keccak256(submitted.input) === extra.musegodRecovery.dataHash &&
+            submitted.value.toString() === extra.musegodRecovery.value) {
+            extra = { ...extra, nonce: submitted.nonce };
+            updateTransaction(hash, config.chainId, { nonce: submitted.nonce });
+          }
+        } catch { /* Recovery retries nonce discovery from the actual transaction. */ }
+      }
       const receipt = await client.waitForTransactionReceipt({
         hash,
         confirmations: 2,
@@ -415,6 +433,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         },
       });
       if (replaced) throw new Error("The transaction was cancelled or replaced. Check your transaction history.");
+      const [head, canonicalBlock] = await Promise.all([
+        client.getBlockNumber(), client.getBlock({ blockNumber: receipt.blockNumber }),
+      ]);
+      if (canonicalBlock.hash !== receipt.blockHash || head < receipt.blockNumber + 1n)
+        throw new Error("The transaction confirmation changed. Check its pending status in transaction history.");
       updateTransaction(receipt.transactionHash, config.chainId, {
         status: receipt.status === "success" ? "success" : "failed",
       });
@@ -597,6 +620,25 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       args: [account],
     });
   }
+  async function balanceNative() {
+    if (!account) throw new Error("No wallet connected");
+    if (await publicClient.getChainId() !== chainId) throw new Error("The balance RPC network differs from the wallet network.");
+    return publicClient.getBalance({ address: account });
+  }
+  async function tradeMusegod(quote: MusegodQuote, config: RuntimeConfig,
+    progress: (message: string) => void, onHash?: (hash: Hash) => void) {
+    if (!account) throw new Error("Connect your wallet first");
+    const expected = account;
+    return executeMusegodTrade(quote, config, {
+      account: expected, client: publicClient,
+      routerCodeHash: MUSEGOD_ROUTER_VERIFICATION.runtimeHash,
+      assertEnabled: () => { assertSigningEnabled(config); assertMusegodTradingEnabled(config); },
+      signer: (validate) => signer(config, expected, validate),
+      confirmed: (hash, action, request) => confirmed(hash, config, expected, action, {
+        musegodRecovery: { to: request.to, dataHash: keccak256(request.data), value: request.value.toString(), fromBlock: request.fromBlock },
+      }), progress, onHash,
+    });
+  }
   async function buyback(step: BuybackStep, config: RuntimeConfig, onHash?: (hash: Hash) => void) {
     if (!account) throw new Error("Connect the treasury wallet first");
     const expected = account;
@@ -713,6 +755,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         buyback: (...args) => exclusive(() => buyback(...args)),
         prepareBuyback: (...args) => exclusive(() => prepareBuyback(...args)),
         balance,
+        balanceNative,
+        tradeMusegod: (...args) => exclusive(() => tradeMusegod(...args)),
       }}
     >
       {children}

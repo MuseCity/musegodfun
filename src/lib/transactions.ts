@@ -1,6 +1,7 @@
 import type { Address, Hash } from "viem";
 import type { BuybackBatch, BuybackStepKind } from "./buyback";
 import { deploymentChain, type RuntimeConfig } from "./config";
+import { MUSEGOD } from "./musegod";
 export type Transaction = {
   hash: Hash;
   chainId: number;
@@ -15,7 +16,27 @@ export type Transaction = {
   batchId?: string;
   buybackKind?: "approval" | "deposit" | "burn";
   nonce?: number;
+  musegodRecovery?: {
+    to: Address;
+    dataHash: Hash;
+    value: string;
+    fromBlock: string;
+    checkedBlock?: string;
+  };
 };
+export function validMusegodRecovery(row: Pick<Transaction, "action" | "chainId" | "deploymentChainId" | "musegodRecovery">) {
+  const metadata = row.musegodRecovery;
+  if (!metadata || (row.chainId !== 4663 && !(row.chainId === 31337 && row.deploymentChainId === 4663)) ||
+    !["approval", "swap"].includes(row.action) ||
+    typeof metadata.to !== "string" || metadata.to.toLowerCase() !==
+      (row.action === "approval" ? MUSEGOD.token : MUSEGOD.router).toLowerCase() ||
+    typeof metadata.dataHash !== "string" || !/^0x[0-9a-f]{64}$/i.test(metadata.dataHash) ||
+    typeof metadata.value !== "string" || !/^(?:0|[1-9]\d{0,77})$/.test(metadata.value) ||
+    typeof metadata.fromBlock !== "string" || !/^\d{1,20}$/.test(metadata.fromBlock) ||
+    (metadata.checkedBlock !== undefined && (typeof metadata.checkedBlock !== "string" || !/^\d{1,20}$/.test(metadata.checkedBlock) ||
+      BigInt(metadata.checkedBlock) < BigInt(metadata.fromBlock)))) return false;
+  return BigInt(metadata.value) < 2n ** 256n;
+}
 const key = "musegod.transactions.v1";
 export function transactions(): Transaction[] {
   try {
@@ -49,6 +70,16 @@ export function transactions(): Transaction[] {
               )) &&
               Number.isFinite(x.at),
           )
+          .map((row) => {
+            if (row.musegodRecovery === undefined) return row;
+            if (!validMusegodRecovery(row)) {
+              const { musegodRecovery: _ignored, ...legacy } = row;
+              return legacy;
+            }
+            // Preserve old transaction rows; malformed recovery fields cannot
+            // authorize scans or turn a guessed nonce into an identity proof.
+            return Number.isSafeInteger(row.nonce) && row.nonce! >= 0 ? row : { ...row, nonce: undefined };
+          })
           .slice(-200)
       : [];
   } catch {

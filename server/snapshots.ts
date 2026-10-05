@@ -20,8 +20,9 @@ export class Snapshots {
   ) {}
   get<T extends { fetchedAt: string }>(
     key: string,
-    source: "CoinGecko" | "Blockscout",
+    source: "CoinGecko" | "Blockscout" | "Bankr",
     read: () => Promise<T>,
+    ttl = SNAPSHOT_TTL,
   ): Promise<T> {
     const inflight = this.inflight.get(key);
     if (inflight) return inflight as Promise<T>;
@@ -42,13 +43,13 @@ export class Snapshots {
         nextRefreshAt: new Date(next).toISOString(),
         warning,
       });
-      if (previous && now - previous.at < SNAPSHOT_TTL)
+      if (previous && now - previous.at < ttl)
         return Promise.resolve(
           present(
             previous.data as T,
             previous.at,
             false,
-            previous.at + SNAPSHOT_TTL,
+            previous.at + ttl,
           ),
         );
       const next = this.retryAt.get(key) || 0;
@@ -77,9 +78,9 @@ export class Snapshots {
           at = this.now();
         await this.store.saveSnapshot(key, data, at);
         this.retryAt.delete(key);
-        return present(data, at, false, at + SNAPSHOT_TTL);
+        return present(data, at, false, at + ttl);
       } catch {
-        const retry = this.now() + SNAPSHOT_TTL;
+        const retry = this.now() + ttl;
         this.retryAt.set(key, retry);
         if (previous && this.now() - previous.at < MAX_STALE)
           return present(

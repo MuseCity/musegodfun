@@ -1,5 +1,5 @@
 export type SnapshotMeta = {
-  source?: "CoinGecko" | "Blockscout";
+  source?: "CoinGecko" | "Blockscout" | "Bankr";
   status?: "fresh" | "stale" | "unavailable";
   nextRefreshAt?: string;
   warning?: string;
@@ -8,6 +8,7 @@ export const CHART_INTERVALS = ["1m", "5m", "15m", "1h", "4h", "1d"] as const;
 export type ChartInterval = (typeof CHART_INTERVALS)[number];
 export type MarketSummary = SnapshotMeta & {
   fetchedAt: string;
+  lastTradeAt?: string | null;
   priceUsd: number | null;
   fdvUsd: number | null;
   marketCapUsd: number | null;
@@ -33,11 +34,16 @@ export type Candle = {
 export type CandleData = SnapshotMeta & {
   fetchedAt: string;
   candles: Candle[];
+  watermark?: {
+    blockNumber: number;
+    logIndex: number;
+    txHash: string;
+  } | null;
 };
 export type MarketTrade = {
   id: string;
   hash: string;
-  account: string;
+  account: string | null;
   at: string;
   side: "buy" | "sell";
   amount: number;
