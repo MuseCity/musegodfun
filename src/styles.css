@@ -742,10 +742,14 @@ main {
   gap: 18px;
 }
 .token-card {
-  padding: 22px;
+  --card-muted: #68725f;
+  padding: 16px;
   background: #fff;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 20px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 .token-card:hover {
   border-color: #b8cf96;
@@ -769,7 +773,7 @@ main {
 }
 .token-card-venue {
   display: block;
-  margin-top: 7px;
+  margin-top: 6px;
   color: var(--green);
   font-size: 11px;
 }
@@ -796,42 +800,135 @@ main {
   line-height: 1.8;
   overflow-wrap: anywhere;
 }
-.token-card-top {
+.token-card-image {
+  aspect-ratio: 1;
+  width: 100%;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #f6f7f2;
+  display: grid;
+  place-items: center;
+  margin-bottom: 12px;
+}
+.token-card-image > img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  min-height: 0;
+}
+.token-card-image-fallback {
+  color: var(--green);
+  font-family: "Space Grotesk", sans-serif;
+  font-size: clamp(52px, 6vw, 88px);
+  font-weight: 500;
+}
+.token-card-name {
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  color: #aab298;
-  margin-bottom: 16px;
+  align-items: center;
+  gap: 8px;
 }
 .token-card h3 {
-  font-size: 18px;
-  overflow-wrap: anywhere;
-}
-.token-card > p {
-  font-size: 13px;
-  line-height: 1.8;
-  color: #8a927c;
-  margin: 13px 0 25px;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  font-size: 16px;
+  line-height: 1.4;
+  min-width: 0;
+  flex: 1;
   overflow: hidden;
-  min-height: 46px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.token-card-bottom {
+.token-card .featured-label {
+  flex-shrink: 0;
+  padding: 4px 6px;
+}
+.token-card-identity {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
   font-size: 11px;
-  color: #9ca48e;
-  border-top: 1px solid var(--line);
-  padding-top: 14px;
+  line-height: 1.6;
+  color: var(--card-muted);
 }
-.token-card-bottom > span:first-child {
+.token-card-symbol {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.token-card-pair {
   display: flex;
-  gap: 6px;
   align-items: center;
-  color: #6b785b;
+  gap: 5px;
+  flex-shrink: 0;
+}
+.token-card-quote-icon {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  overflow: hidden;
+  font-size: 7px;
+}
+.token-card-quote-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.token-card-metrics {
+  display: grid;
+  gap: 5px;
+  margin: 14px 0 10px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.token-card-metrics > div,
+.token-card-footer > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+.token-card-metrics dt {
+  color: var(--card-muted);
+}
+.token-card-metrics dd {
+  margin: 0;
+  font-weight: 700;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.token-card-metrics .neutral {
+  color: var(--card-muted);
+}
+.token-card-market-state {
+  min-height: 30px;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 2px 8px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--card-muted);
+  overflow-wrap: anywhere;
+  margin-bottom: 10px;
+}
+.token-card-market-state.stale {
+  color: #936c29;
+}
+.token-card-footer {
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--card-muted);
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+  margin-top: auto;
+}
+.token-card-network {
+  display: block;
+  text-align: right;
+  margin-top: 3px;
+  font-size: 10px;
 }
 
 .create-layout {

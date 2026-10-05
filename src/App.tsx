@@ -50,6 +50,7 @@ import {
   explorerFor,
   networkName,
   sameAddress,
+  listedTokens,
   shortAddress,
   poolCurrency,
   quoteAsset,
@@ -87,6 +88,8 @@ import FeeBreakdown from "./components/FeeBreakdown";
 import { ASSET_CATEGORIES, assetCategory, type AssetCategory } from "./lib/asset-categories";
 import assetLogos from "./lib/asset-logos.json";
 import { buildIdentity } from "./lib/build-info";
+import TokenCard from "./components/TokenCard";
+import { useTokenCardMarkets } from "./lib/token-card-market";
 
 function useResource<T>(path: string, version = 0) {
   const [data, setData] = useState<T | null>(null),
@@ -548,6 +551,7 @@ export function App() {
               stockError={stocks.error}
               loading={tokens.loading}
               config={config.data}
+              refreshVersion={version}
               refresh={() => setVersion((v) => v + 1)}
             />
           )}
@@ -619,7 +623,7 @@ export function App() {
 }
 
 // Display entries are separate from verified launch records and their fee policy.
-export type ExploreToken = Pick<TokenRecord, "address" | "name" | "symbol" | "description" | "image" | "createdAt" | "mode"> & {
+export type ExploreToken = Pick<TokenRecord, "address" | "name" | "symbol" | "description" | "image" | "createdAt" | "mode" | "creator"> & {
   kind: "launch" | "musegod";
   quote: Stock;
 };
@@ -633,13 +637,13 @@ export function exploreTokens(
     .map((token) => ({
       kind: "launch", address: token.address, name: token.name, symbol: token.symbol,
       description: token.description, image: token.image, createdAt: token.createdAt,
-      mode: token.mode, quote: quoteAsset(token),
+      mode: token.mode, creator: token.creator, quote: quoteAsset(token),
     }));
   if (featured) {
     const quote = assetsFor({ mode: "robinhood" }).find((asset) => sameAddress(asset.address, MUSEGOD.weth))!;
     entries.push({ kind: "musegod", address: MUSEGOD.token, name: MUSEGOD.name,
       symbol: MUSEGOD.symbol, description: MUSEGOD.description, image: MUSEGOD.image,
-      createdAt: MUSEGOD.createdAt, mode: config?.mode ?? "robinhood", quote });
+      createdAt: MUSEGOD.createdAt, mode: config?.mode ?? "robinhood", creator: null, quote });
   }
   const query = search.trim().toLowerCase();
   return entries
@@ -658,6 +662,7 @@ export function Explore({
   stockError,
   loading,
   config,
+  refreshVersion = 0,
   refresh,
 }: {
   tokens: TokenRecord[] | null;
@@ -666,14 +671,26 @@ export function Explore({
   stockError: string;
   loading: boolean;
   config: RuntimeConfig | null;
+  refreshVersion?: number;
   refresh: () => void;
 }) {
-  const assets = assetsFor(config ?? undefined);
-  const chainName = config ? networkName(config) : "Loading network…";
+  // Resource refreshes temporarily clear their data. Keep the confirmed
+  // directory visible, without carrying entries into another deployment.
+  const directory = useRef<{ config: RuntimeConfig | null; tokens: TokenRecord[] }>({ config: null, tokens: [] });
+  if (config && directory.current.config &&
+    (config.mode !== directory.current.config.mode || config.chainId !== directory.current.config.chainId ||
+      deploymentChain(config) !== deploymentChain(directory.current.config))) directory.current.tokens = [];
+  if (config) directory.current.config = config;
+  const displayConfig = config ?? directory.current.config;
+  if (tokens !== null) directory.current.tokens = displayConfig
+    ? listedTokens(tokens, displayConfig.mode, deploymentChain(displayConfig)) : tokens;
+  const assets = assetsFor(displayConfig ?? undefined);
+  const chainName = displayConfig ? networkName(displayConfig) : "Loading network…";
   const [search, setSearch] = useState(""),
     [filter, setFilter] = useState("all"),
     [order, setOrder] = useState("new");
-  const filtered = exploreTokens(tokens ?? [], config, search, filter, order === "name" ? "name" : "new");
+  const filtered = exploreTokens(directory.current.tokens, displayConfig, search, filter, order === "name" ? "name" : "new");
+  const markets = useTokenCardMarkets(directory.current.tokens, config, refreshVersion);
   return (
     <>
       <div className="page-heading">
@@ -789,29 +806,11 @@ export function Explore({
       {loading && <Loading />}
       {filtered.length ? (
         <div className="token-grid">
-          {filtered.map((t) => (
-            <Link
-              href={`/token/${t.address}`}
-              key={t.address}
-              className={`token-card${t.kind === "musegod" ? " featured-token" : ""}`}
-            >
-              <div className="token-card-top">
-                {t.kind === "musegod" ? <StockIcon stock={{ ticker: "MUSEGOD" }} /> : <TokenIcon name={t.name} image={t.image} />}
-                {t.kind === "musegod" ? <span className="featured-label"><Sparkles size={12} /> Featured</span> : <ArrowUpRight size={18} />}
-              </div>
-              <h3>{t.name}</h3>
-              <span className="muted">${t.symbol}</span>
-              {t.kind === "musegod" && <span className="token-card-venue">SushiSwap v3</span>}
-              <p>{t.description || "A new story starts here."}</p>
-              <div className="token-card-bottom">
-                <span>
-                  <StockIcon stock={t.quote} small />
-                  {t.quote.ticker} pair
-                </span>
-                <span>{t.mode === "fork" ? "Fork test" : t.mode === "robinhood" ? "Robinhood Chain" : "Base"}</span>
-              </div>
-            </Link>
-          ))}
+          {filtered.map((t) => <TokenCard key={t.address} token={t} onNavigate={navigate}
+            market={markets[t.address.toLowerCase()] ?? {
+              data: null, loading: !config,
+              error: t.mode === "fork" ? "Fork test" : "Market data unavailable",
+            }} />)}
         </div>
       ) : !loading && !tokenError ? (
         <div className="empty-state">
