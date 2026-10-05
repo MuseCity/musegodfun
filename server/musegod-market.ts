@@ -196,7 +196,8 @@ export class MusegodMarketReader {
       method: "GET",
       headers: { accept: "application/json" },
       signal: AbortSignal.timeout(15_000),
-      redirect: "error",
+      // Workerd supports manual/follow only. A 3xx fails response.ok below.
+      redirect: "manual",
     });
     if (!response.ok) throw new Error("The Bankr market provider is unavailable.");
     return response.json();

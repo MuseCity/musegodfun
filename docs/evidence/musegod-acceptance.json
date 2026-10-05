@@ -1,17 +1,17 @@
 {
   "status": "passed",
-  "observedAt": "2026-10-05T10:09:46.488046+00:00",
+  "observedAt": "2026-10-05T10:28:42.539819+00:00",
   "scope": "Local implementation and acceptance of MUSEGOD recommendation, Bankr market page and native ETH trading. No publication or real-wallet mainnet transaction.",
-  "sourceBaseCommit": "023c99a4f1bfdb8dd45fb47d98b3f3baa343da8a",
+  "sourceBaseCommit": "82d1863d4ef8c62c49850d7c0eefb8d4b0de9eee",
   "uncommitted": true,
   "sourceSha256": {
     "README.md": "438a6ab7b0e56c29ae8a689fe11c3fea1626735ad0c1b360922560bce00f8464",
-    "docs/SPEC.md": "f50707b4c337291ab41b7788c9768473ef6bb3d4ea5742fa6ac4e142f434afe5",
+    "docs/SPEC.md": "dbce08df9504575bd3cd9f78f90545183772d2a13e026024a9128855b6be880e",
     "package.json": "778dade790f6241ebabd2cdd7e7bab0672a04c8843f7717e5f591fe3751fa669",
     "scripts/test-musegod-fork.ts": "742073eba700265443d61adb268682286f6791cb54cf5f127081e0a10ccd8a67",
     "scripts/test-musegod-http.ts": "7d202184b6741af6ecf564bff4782258f44b4f8f5a36480c7459f1346ddd4d27",
     "server/app.ts": "9951c465dda2b661c884a9730d54b2575633d1c65c1cfb06f05f113e0c2d6664",
-    "server/musegod-market.ts": "43504c25e0d0dbd296ba6c1bf504245958fe1710a5e2e3408e87c6bae1e762b2",
+    "server/musegod-market.ts": "f1f755af4d72d359dc35da292bcb83ca981f9fdd4da481f36a0415c07e87c1f7",
     "server/musegod.ts": "276a938a7cc6e823bd446ecd85c82261d22a6694a91eb246837fff9a069fc3b4",
     "server/snapshots.ts": "ff27c3c5ce61e1b6183cfa3b7f87ada52b4f0052006e71f811ae51527e855f78",
     "src/App.tsx": "35a7245e639c5132a6f8a1e9c78c459877bbb67db77b59323ac5e82d75b939c9",
@@ -26,13 +26,14 @@
     "src/lib/wallet.tsx": "4d81ad384ecae1d3c214dac10315df6c2b178e359b65c58c0466386d4df94942",
     "src/styles.css": "08c2de320bc92c9b7ea8ec5d7211c4937ce700ec9567cdd5fdd82397e46d091c",
     "tests/musegod-explore.test.ts": "a2139316980be4ad63584d8e23de92c3adaff9b638c80a28121dd8d5d5104e65",
-    "tests/musegod-market.test.ts": "4346ee7ce3469f37d7085f3e6c4bd2c23be2af1fb6eb9ff7220510d15eb6d72b",
+    "tests/musegod-market.test.ts": "89c94002ffb6f9bfd04c92fb58f94ae82763f487469da1fca6771571d7315735",
     "tests/musegod-recovery.test.ts": "ea39c1dcc02c83650ef96500289419809801902337afcf94be432d2b7dfa72c1",
-    "tests/musegod.test.ts": "b8bca3ee8f0fa60f42823d6e15638e1b2f460c7afd7e24de3debc8be3c8ea023"
+    "tests/musegod.test.ts": "b8bca3ee8f0fa60f42823d6e15638e1b2f460c7afd7e24de3debc8be3c8ea023",
+    "tests/musegod-worker-market.test.ts": "d3ab1716a567f64f9a11ad3862fb6c56504ba7f2d971a3faff4b683460edba48"
   },
   "checks": {
     "unitTests": {
-      "passed": 266,
+      "passed": 267,
       "failed": 0,
       "skipped": 0
     },
@@ -49,7 +50,8 @@
       "filesChecked": 239,
       "configuredSecretTypes": 5,
       "hits": 0
-    }
+    },
+    "workerdBankrRuntime": "passed; real public Bankr data and separate synthetic redirect regression"
   },
   "evidence": [
     "musegod-fork.json",
@@ -73,5 +75,6 @@
     "Local workerd used dummy database credentials; hosted persistence was not revalidated by this change."
   ],
   "publicationAuthorization": "Separately authorized after local acceptance; see musegod-release-preflight.json and immutable GitHub production Deployment.",
-  "documentationRefresh": "README/SPEC publication status updated after local checks; executable implementation unchanged."
+  "documentationRefresh": "README/SPEC publication status updated after local checks; executable implementation unchanged.",
+  "marketRuntimeFix": "musegod-market-runtime.json"
 }

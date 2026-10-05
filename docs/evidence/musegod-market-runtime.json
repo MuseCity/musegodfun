@@ -1,0 +1,82 @@
+{
+  "observedAt": "2026-10-05T10:28:42.539819+00:00",
+  "status": "passed",
+  "initialProductionCommit": "82d1863d4ef8c62c49850d7c0eefb8d4b0de9eee",
+  "initialProductionVersion": "ec79ccbd-d29f-43a3-bb94-42a2938c0a62",
+  "initialProductionMarket": "503 for summary, candles and trades; no valid Bankr snapshots existed",
+  "rootCause": "Workerd rejects fetch redirect:error before sending the request; Node accepts it.",
+  "reproducedError": "Invalid redirect value, must be one of follow or manual.",
+  "fix": "Use redirect:manual and retain the response.ok check, which rejects every 3xx.",
+  "realRuntimeFixtureRegression": {
+    "runtime": "Workerd via the locked Wrangler dependencies",
+    "actualImplementation": "MusegodMarketReader and Snapshots",
+    "provider": "synthetic Bankr fixtures",
+    "summaryCandlesTrades": "passed",
+    "persistentSnapshotReadback": "passed",
+    "redirectDestinationRequested": false
+  },
+  "actualPublicBankrInWorkerd": {
+    "observedAt": "2026-10-05T10:27:39.119Z",
+    "runtime": "Workerd",
+    "storage": "isolated memory fixture",
+    "supplier": "actual public Bankr",
+    "httpStatus": 200,
+    "status": "passed",
+    "summary": {
+      "fetchedAt": "2026-10-05T10:27:37.273Z",
+      "lastTradeAt": "2026-10-05T10:24:17.000Z",
+      "priceUsd": 0.0002919613182373861,
+      "marketCapUsd": 291961.31823738606,
+      "fdvUsd": null,
+      "liquidityUsd": 132175.4627262196,
+      "periods": {
+        "m5": {
+          "change": -0.19071257009840104,
+          "volume": 69.89433805798615,
+          "buys": 0,
+          "sells": 1
+        },
+        "h1": {
+          "change": -2.9801368423312957,
+          "volume": 1127.8953171322944,
+          "buys": 2,
+          "sells": 5
+        },
+        "h6": {
+          "change": -7.744374023072319,
+          "volume": 13591.165617148428,
+          "buys": 54,
+          "sells": 30
+        },
+        "h24": {
+          "change": -46.686104310517244,
+          "volume": 75021.87028604721,
+          "buys": 277,
+          "sells": 186
+        }
+      },
+      "source": "Bankr",
+      "status": "fresh",
+      "nextRefreshAt": "2026-10-05T10:28:37.273Z"
+    },
+    "candleCount": 200,
+    "tradeCount": 30,
+    "snapshotCount": 4
+  },
+  "checks": {
+    "unitTests": {
+      "passed": 267,
+      "failed": 0,
+      "skipped": 0
+    },
+    "nodeAndWorkerTypecheck": "passed",
+    "productionBuild": "passed",
+    "workerUploadDryRun": "passed",
+    "gitDiffCheck": "passed"
+  },
+  "databaseSchemaChanges": false,
+  "permissionsChanges": false,
+  "secretsChanges": false,
+  "mainnetWalletSigning": "not_run",
+  "mainnetBroadcast": "not_run"
+}

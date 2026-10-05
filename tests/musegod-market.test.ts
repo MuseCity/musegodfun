@@ -52,18 +52,19 @@ function readerFixture() {
   const { store, rows } = memoryStore();
   let now = NOW;
   const calls: string[] = [];
-  let fault: "stats" | "all" | "rate" | "invalid" | "timeout" | null = null;
+  let fault: "stats" | "all" | "rate" | "redirect" | "invalid" | "timeout" | null = null;
   const fetcher: typeof fetch = async (input, init) => {
     const url = String(input);
     calls.push(url);
     assert.equal(new URL(url).origin, "https://api.bankr.bot");
     assert.equal(init?.method, "GET");
-    assert.equal(init?.redirect, "error");
+    assert.equal(init?.redirect, "manual");
     assert(init?.signal instanceof AbortSignal);
     assert.deepEqual(init?.headers, { accept: "application/json" });
     if (fault === "timeout") throw new DOMException("timeout", "TimeoutError");
     if (fault === "invalid") return new Response("invalid JSON");
     if (fault === "rate") return new Response("rate limited", { status: 429 });
+    if (fault === "redirect") return new Response(null, { status: 302, headers: { location: "https://other.invalid/" } });
     if (fault === "all" || (fault === "stats" && url.includes("/stats?")))
       return new Response("unavailable", { status: 502 });
     const data = url.includes("/ohlcv?") ? candles()
@@ -234,8 +235,8 @@ test("summary/chart/trades failures remain independent, retry after 60s and neve
   );
 });
 
-test("429/502, invalid JSON and network timeout cannot create a valid market snapshot", async () => {
-  for (const failure of ["all", "rate", "invalid", "timeout"] as const) {
+test("redirects, 429/502, invalid JSON and network timeout cannot create a valid market snapshot", async () => {
+  for (const failure of ["all", "rate", "redirect", "invalid", "timeout"] as const) {
     const f = readerFixture();
     f.fault(failure);
     await assert.rejects(() => f.reader.candles("1h"), MarketUnavailable);
