@@ -1,0 +1,25 @@
+{
+  "observedAt": "2026-10-05T00:23:57.442Z",
+  "backend": "Supabase",
+  "project": "vrhzgmulcyqqzkkforsl",
+  "scope": "isolated verification rows only",
+  "checks": [
+    "health",
+    "atomic concurrent quota",
+    "quota survives reconnect",
+    "snapshot readback",
+    "consistent backup / empty target restore",
+    "restore preserves quota",
+    "nonempty restore rejected",
+    "launch plan and pending hash survive reconnect",
+    "fee policy and original treasury survive reconnect and backup restore",
+    "idempotent token registration and replacement status",
+    "backup restores token and canonical receipt identity",
+    "orphan token removal",
+    "buyback batch amounts and receipt history survive reconnect and upsert",
+    "buyback batch scope isolation and 24-hour cleanup retention",
+    "version-2 backup preserves buyback batches",
+    "version-1 backup without buyback batches restores successfully",
+    "restore cannot overwrite a scope containing only buyback batches"
+  ]
+}

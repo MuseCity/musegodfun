@@ -1,0 +1,31 @@
+{
+  "category": "Crypto assets4",
+  "images": [
+    {
+      "height": 256,
+      "loaded": true,
+      "src": "/asset-logos/MUSEGOD.png",
+      "visible": true,
+      "width": 256
+    },
+    {
+      "height": 256,
+      "loaded": true,
+      "src": "/asset-logos/MUSEGOD.png",
+      "visible": true,
+      "width": 256
+    },
+    {
+      "height": 256,
+      "loaded": true,
+      "src": "/asset-logos/MUSEGOD.png",
+      "visible": true,
+      "width": 256
+    }
+  ],
+  "observedAt": "2026-10-04T03:29:18.121Z",
+  "scope": "Local production MUSEGOD logo update",
+  "selected": "MUSEGOD · MUSEGODToken issuer0x0379…cb2e",
+  "passed": true,
+  "sourceProof": "musegod-logo-source.json"
+}

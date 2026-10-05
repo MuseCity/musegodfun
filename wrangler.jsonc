@@ -1,0 +1,59 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "musegod-fun",
+  "account_id": "4b68bb6b6c38892162610027f25fbb0d",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-10-04",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "workers_dev": true,
+  "preview_urls": false,
+  "assets": {
+    "directory": "dist",
+    "binding": "ASSETS",
+    "run_worker_first": true,
+    "html_handling": "none"
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "LAUNCHPAD",
+        "class_name": "LaunchpadRuntime"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "LaunchpadRuntime"
+      ]
+    }
+  ],
+  "vars": {
+    "CHAIN_MODE": "robinhood",
+    "SUPABASE_DATA_SCOPE": "robinhood",
+    "PLATFORM_TREASURY": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+    "ENABLE_MAINNET_TRANSACTIONS": "true",
+    "SUPABASE_URL": "https://vrhzgmulcyqqzkkforsl.supabase.co",
+    "NODE_ENV": "production"
+  },
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true
+    }
+  },
+  "routes": [
+    {
+      "pattern": "musegod.fun/*",
+      "zone_id": "13efa20023853aca22c7d76fa60475cf"
+    },
+    {
+      "pattern": "www.musegod.fun/*",
+      "zone_id": "13efa20023853aca22c7d76fa60475cf"
+    }
+  ]
+}

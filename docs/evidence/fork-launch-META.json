@@ -1,0 +1,55 @@
+{
+  "scope": "local fork only",
+  "nodeInfo": {
+    "currentBlockNumber": "0x313b219",
+    "currentBlockTimestamp": 1790034185,
+    "currentBlockHash": "0x742c50bce3718d6ab1978df4ba41e64e4dc5a39bdf1834542b11ea75f8b30995",
+    "hardFork": "Osaka",
+    "transactionOrder": "fees",
+    "environment": {
+      "baseFee": "0x7",
+      "chainId": 31337,
+      "gasLimit": "0x17d78400",
+      "gasPrice": "0x3b9aca07"
+    },
+    "forkConfig": {
+      "forkUrl": "[redacted]",
+      "forkBlockNumber": 51622413,
+      "forkRetryBackoff": 1500
+    },
+    "network": "base"
+  },
+  "creator": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+  "treasury": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+  "stock": {
+    "ticker": "META",
+    "symbol": "METAc",
+    "name": "Meta",
+    "address": "0xb2000000000000000000008bC8786B856E61707C",
+    "decimals": 8,
+    "chainId": 8453,
+    "issuer": "Coinbase",
+    "standard": "B20",
+    "sourceUrl": "https://www.base.org/stocks"
+  },
+  "result": {
+    "tokenAddress": "0x981A5913faa3c3DAcebDBf2d2a8F396E057fBC24",
+    "poolId": "0x6236d89e473fb784b146ab1e15ee18f69196250213f27f480278346c6bc9dfee",
+    "transactionHash": "0xa880d8a21649d4b20ea64c28bc93560d6413a0f5129042d53671203e34a598df"
+  },
+  "state": {
+    "asset": "0x981A5913faa3c3DAcebDBf2d2a8F396E057fBC24",
+    "numeraire": "0xb2000000000000000000008bC8786B856E61707C",
+    "fee": 8388608,
+    "tickSpacing": 10,
+    "status": 2,
+    "poolKey": {
+      "currency0": "0x981A5913faa3c3DAcebDBf2d2a8F396E057fBC24",
+      "currency1": "0xb2000000000000000000008bC8786B856E61707C",
+      "fee": 8388608,
+      "tickSpacing": 10,
+      "hooks": "0xBDF938149ac6a781F94FAa0ed45E6A0e984c6544"
+    },
+    "farTick": 887260
+  }
+}

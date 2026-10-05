@@ -1,0 +1,810 @@
+{
+  "scope": "Isolated Robinhood mainnet state fork; execution chain 31337 only. No mainnet signing or broadcast.",
+  "observedAt": "2026-10-04T02:06:25.265Z",
+  "upstreamChainId": 4663,
+  "executionChainId": 31337,
+  "forkBlockNumber": "79566945",
+  "snapshotRestored": true,
+  "blockedUpstreamWrites": 0,
+  "fullFlowPassed": true,
+  "mainnetTransactionsSubmitted": false,
+  "curatedWhitelistPolicy": {
+    "excluded": [
+      "U",
+      "PAIR"
+    ],
+    "custom": [
+      "MUSEGOD"
+    ]
+  },
+  "representativeAssetsExpected": [
+    "WETH",
+    "NVDA",
+    "USDG",
+    "cbBTC",
+    "MUSEGOD"
+  ],
+  "baseFeeBridgingExecuted": false,
+  "buybackOrBurnExecuted": false,
+  "gasModelScope": "EVM contract flow only; not Robinhood sequencer, L1 data fee, or finality acceptance",
+  "creator": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+  "treasury": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+  "contracts": {
+    "airlock": "0xeb7C034704eF8Dcd2D32324c1545f62fB4aD0862",
+    "tokenFactory": "0x1B37D3a72082029c44B35B604Ea473617580b69a",
+    "tokenImplementation": "0x3Be8B97Fd0e713B5aBE0649Fa830223B6B4BC599",
+    "initializer": "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544",
+    "rehype": "0x5F9eB5f6726Fe88D5e39867967F5b833d2fA3215",
+    "noOpGovernance": "0x85f37f74Ef2478A770318bc810177a9835911aD7",
+    "noOpMigrator": "0xba2F330EDb16cD8056f5988d8CE19BbC63475A0e",
+    "poolManager": "0x8366a39CC670B4001A1121B8F6A443A643e40951",
+    "router": "0x8876789976dEcBfCbBbe364623C63652db8C0904",
+    "quoter": "0x8Dc178eFB8111BB0973Dd9d722ebeFF267c98F94",
+    "permit2": "0x000000000022D473030F116dDEE9F6B43aC78BA3"
+  },
+  "assets": [
+    {
+      "asset": {
+        "ticker": "WETH",
+        "symbol": "WETH",
+        "name": "Wrapped Ether",
+        "address": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+        "decimals": 18,
+        "category": "OTHERS",
+        "chainId": 4663,
+        "issuer": "Token issuer",
+        "standard": "ERC20",
+        "sourceUrl": "https://pair.fund/launch"
+      },
+      "funding": {
+        "kind": "real_WETH_deposit_on_local_fork",
+        "hash": "0x773e9494104f78121082ba46c5a320f617521d45e805ef3c368114ea808392df",
+        "amount": "20000000000000000"
+      },
+      "tokenAddress": "0x7704d2FABc81Ef633c9DBbA2443dB08432DdfC43",
+      "poolId": "0x723df6f2b592dc849a621f336a2df115db1600a13cea05913564262020516def",
+      "launchHash": "0x7e70e72c4fda2ca18a608b8e8702ddfc3283d180e2233b49ccbcbd6c401221b3",
+      "feePolicy": "creator-70-musegod-v2",
+      "feeTreasury": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+      "shares": [
+        "50000000000000000",
+        "665000000000000000",
+        "285000000000000000",
+        "700000000000000000",
+        "300000000000000000"
+      ],
+      "buy": {
+        "hash": "0xf3758fe6f576f9e650327faf48556db8803923518bcd30d13e8ee63494f90a26",
+        "amountIn": "10000000000000000",
+        "quotedOut": "981460838522973526740141",
+        "minOut": "971646230137743791472739"
+      },
+      "sell": {
+        "hash": "0xd592ba18b45dcf4b8508fdd2067ca1ddcfda666ff85ed0753d63cae4865c53ad",
+        "amountIn": "490730419261486763370070",
+        "quotedOut": "4913596465943782",
+        "minOut": "4864460501284344"
+      },
+      "bought": "981460838522973526740141",
+      "quoteReturned": "4913596465943782",
+      "payouts": [
+        {
+          "account": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+          "kind": "hook",
+          "hash": "0x01d3ac4acd77ae77e3c11717c8832057c83c9bcadc6e1336836fd5e473e7680f",
+          "estimatedGas": "120954",
+          "gasLimit": "151192",
+          "gasUsed": "111258",
+          "currencies": [
+            "WETH",
+            "RHWETH"
+          ],
+          "paid": [
+            "99938370003318",
+            "0"
+          ]
+        },
+        {
+          "account": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+          "kind": "LP",
+          "hash": "0x9dafc160f2fec2ef36cee2a3d4eb9b4ccdd314ad1853492fbe7146b36bb2d7ac",
+          "estimatedGas": "611134",
+          "gasLimit": "763917",
+          "gasUsed": "606160",
+          "currencies": [
+            "WETH",
+            "RHWETH"
+          ],
+          "paid": [
+            "3324999999999",
+            "166299368872812472687"
+          ]
+        },
+        {
+          "account": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+          "kind": "hook",
+          "hash": "0x737e305f47a10556048a17b40e9852f54b4cb3c1f4a526f477f2b3658e46b92b",
+          "estimatedGas": "115354",
+          "gasLimit": "144192",
+          "gasUsed": "110458",
+          "currencies": [
+            "WETH",
+            "RHWETH"
+          ],
+          "paid": [
+            "42830730001422",
+            "0"
+          ],
+          "platformAllocationReferenceOnly": [
+            {
+              "creator": "0",
+              "platform": "42830730001422",
+              "buyback": "34264584001137",
+              "operations": "8566146000284",
+              "remainder": "1"
+            },
+            {
+              "creator": "0",
+              "platform": "0",
+              "buyback": "0",
+              "operations": "0",
+              "remainder": "0"
+            }
+          ]
+        },
+        {
+          "account": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+          "kind": "LP",
+          "hash": "0x5f73bbdc5916de5a295516298b73de1b59729a33d7694162d13779f312b8424d",
+          "estimatedGas": "505725",
+          "gasLimit": "632156",
+          "gasUsed": "500751",
+          "currencies": [
+            "WETH",
+            "RHWETH"
+          ],
+          "paid": [
+            "1424999999999",
+            "71271158088348202580"
+          ],
+          "platformAllocationReferenceOnly": [
+            {
+              "creator": "0",
+              "platform": "1424999999999",
+              "buyback": "1139999999999",
+              "operations": "284999999999",
+              "remainder": "1"
+            },
+            {
+              "creator": "0",
+              "platform": "71271158088348202580",
+              "buyback": "57016926470678562064",
+              "operations": "14254231617669640516",
+              "remainder": "0"
+            }
+          ]
+        }
+      ],
+      "checks": [
+        "canonical creation",
+        "registration and idempotency",
+        "restart recovery",
+        "buy and sell exact raw unit balances",
+        "onchain beneficiary shares",
+        "separate hook and LP claim preview/receipt/balance equality for creator and treasury"
+      ]
+    },
+    {
+      "asset": {
+        "ticker": "NVDA",
+        "symbol": "NVDA",
+        "name": "NVIDIA",
+        "address": "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC",
+        "decimals": 18,
+        "category": "STOCK",
+        "chainId": 4663,
+        "issuer": "Robinhood",
+        "standard": "ERC20",
+        "sourceUrl": "https://pair.fund/launch"
+      },
+      "funding": {
+        "kind": "verified_existing_inventory_transfer_on_local_fork",
+        "donor": "0x8366a39CC670B4001A1121B8F6A443A643e40951",
+        "hash": "0xe925f24f4765280fb3425c4323007b82154de4988233080b001118ea398c04c9",
+        "amount": "20000000000000000",
+        "donorBefore": "25703552783745202735124"
+      },
+      "tokenAddress": "0x773C7C8Ec87295D30645a7Eee3a7B942450609FE",
+      "poolId": "0xce887da3178ef72f7b0dd8dfc3ad29eb182642af17b85a301f63353e4247c433",
+      "launchHash": "0xcabb77adf0821639d9b8a8416f3f199ee576675be019c02aa16c85a1a9c89929",
+      "feePolicy": "creator-70-musegod-v2",
+      "feeTreasury": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+      "shares": [
+        "50000000000000000",
+        "665000000000000000",
+        "285000000000000000",
+        "700000000000000000",
+        "300000000000000000"
+      ],
+      "buy": {
+        "hash": "0xc9f6cea109ae06e0cf8e67a347112fb9c13e020fa76a7e09ff27108b0f3d1c47",
+        "amountIn": "10000000000000000",
+        "quotedOut": "98786401188024622326592",
+        "minOut": "97798537176144376103326"
+      },
+      "sell": {
+        "hash": "0x06d9f7ceaa6635b7f5c3cf1a416605e6c29dea2846fd6f60e58f0fc4edd5a32c",
+        "amountIn": "49393200594012311163296",
+        "quotedOut": "4897405775384685",
+        "minOut": "4848431717630838"
+      },
+      "bought": "98786401188024622326592",
+      "quoteReturned": "4897405775384685",
+      "payouts": [
+        {
+          "account": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+          "kind": "hook",
+          "hash": "0x4bac3e87df7a7617300b1262a59c4c516f2376d8a47d73dd794f7dc4bd2dfd33",
+          "estimatedGas": "137909",
+          "gasLimit": "172386",
+          "gasUsed": "128213",
+          "currencies": [
+            "NVDA",
+            "RHNVDA"
+          ],
+          "paid": [
+            "99380147129697",
+            "0"
+          ]
+        },
+        {
+          "account": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+          "kind": "LP",
+          "hash": "0x66d31256ee06fbcf663f9b30f15333ad85eb97b0965dd9825acc15b044048299",
+          "estimatedGas": "637720",
+          "gasLimit": "797150",
+          "gasUsed": "632746",
+          "currencies": [
+            "NVDA",
+            "RHNVDA"
+          ],
+          "paid": [
+            "3324999999999",
+            "16738432677057247780"
+          ]
+        },
+        {
+          "account": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+          "kind": "hook",
+          "hash": "0x1b71a3851330e335ddb24474a3b00a11286605f1e13cb72e823a2d1591ae21f2",
+          "estimatedGas": "132309",
+          "gasLimit": "165386",
+          "gasUsed": "127413",
+          "currencies": [
+            "NVDA",
+            "RHNVDA"
+          ],
+          "paid": [
+            "42591491627013",
+            "0"
+          ],
+          "platformAllocationReferenceOnly": [
+            {
+              "creator": "0",
+              "platform": "42591491627013",
+              "buyback": "34073193301610",
+              "operations": "8518298325402",
+              "remainder": "1"
+            },
+            {
+              "creator": "0",
+              "platform": "0",
+              "buyback": "0",
+              "operations": "0",
+              "remainder": "0"
+            }
+          ]
+        },
+        {
+          "account": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+          "kind": "LP",
+          "hash": "0x54938cb3af45e807c9471df7c2f9854c1966824aab9be4ca57320a94b226577f",
+          "estimatedGas": "523868",
+          "gasLimit": "654835",
+          "gasUsed": "518894",
+          "currencies": [
+            "NVDA",
+            "RHNVDA"
+          ],
+          "paid": [
+            "1424999999999",
+            "7173614004453106191"
+          ],
+          "platformAllocationReferenceOnly": [
+            {
+              "creator": "0",
+              "platform": "1424999999999",
+              "buyback": "1139999999999",
+              "operations": "284999999999",
+              "remainder": "1"
+            },
+            {
+              "creator": "0",
+              "platform": "7173614004453106191",
+              "buyback": "5738891203562484952",
+              "operations": "1434722800890621238",
+              "remainder": "1"
+            }
+          ]
+        }
+      ],
+      "checks": [
+        "canonical creation",
+        "registration and idempotency",
+        "restart recovery",
+        "buy and sell exact raw unit balances",
+        "onchain beneficiary shares",
+        "separate hook and LP claim preview/receipt/balance equality for creator and treasury"
+      ]
+    },
+    {
+      "asset": {
+        "ticker": "USDG",
+        "symbol": "USDG",
+        "name": "Global Dollar",
+        "address": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        "decimals": 6,
+        "category": "OTHERS",
+        "chainId": 4663,
+        "issuer": "Token issuer",
+        "standard": "ERC20",
+        "sourceUrl": "https://pair.fund/launch"
+      },
+      "funding": {
+        "kind": "verified_existing_inventory_transfer_on_local_fork",
+        "donor": "0x8366a39CC670B4001A1121B8F6A443A643e40951",
+        "hash": "0xa3e3512db0ae6166375e872eb50ac1074a4f3d0168ba7664be94e62ddacdac63",
+        "amount": "20000000",
+        "donorBefore": "53508760241278"
+      },
+      "tokenAddress": "0x48e2519Bb914050077DfcC1D4785516d7E49312c",
+      "poolId": "0xc4c13dc97bcfec9e465cc202223e2ac6b24fe4ab6c76eccf64c652729cef1341",
+      "launchHash": "0xb742e16ffdc4fcbac4a275abb02dbfdd6843a381a32ff4dea2abfd11c5bb6f1f",
+      "feePolicy": "creator-70-musegod-v2",
+      "feeTreasury": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+      "shares": [
+        "50000000000000000",
+        "665000000000000000",
+        "285000000000000000",
+        "700000000000000000",
+        "300000000000000000"
+      ],
+      "buy": {
+        "hash": "0xf573b54559ea704a3a9bd2941fb6c02e5340252bc4dc034f1bf0bccc0ab48585",
+        "amountIn": "10000000",
+        "quotedOut": "67656149026987994304045524",
+        "minOut": "66979587536718114361005068"
+      },
+      "sell": {
+        "hash": "0x1bb174763ada6c2dfeebc9b852f05e246cfbebff4fa1760c774ced2981d56bd3",
+        "amountIn": "33828074513493997152022762",
+        "quotedOut": "5547209",
+        "minOut": "5491736"
+      },
+      "bought": "67656149026987994304045524",
+      "quoteReturned": "5547209",
+      "payouts": [
+        {
+          "account": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+          "kind": "hook",
+          "hash": "0xa12a76494bb5ed010629c80441319fe12c5362a77afe5baa74b0fbd5af1abf82",
+          "estimatedGas": "127669",
+          "gasLimit": "159586",
+          "gasUsed": "117973",
+          "currencies": [
+            "USDG",
+            "RHUSDG"
+          ],
+          "paid": [
+            "82903",
+            "0"
+          ]
+        },
+        {
+          "account": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+          "kind": "LP",
+          "hash": "0xa965289cd5bae58f51b3b53e5967e221a64ce57456c01c03c6431dd1381c8cbd",
+          "estimatedGas": "705157",
+          "gasLimit": "881446",
+          "gasUsed": "700183",
+          "currencies": [
+            "USDG",
+            "RHUSDG"
+          ],
+          "paid": [
+            "3325",
+            "11463702311836752363156"
+          ]
+        },
+        {
+          "account": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+          "kind": "hook",
+          "hash": "0x782e6db00d7a340afebb93ca6f3e6c98d3671081181b99a8306316200eeada86",
+          "estimatedGas": "122069",
+          "gasLimit": "152586",
+          "gasUsed": "117173",
+          "currencies": [
+            "USDG",
+            "RHUSDG"
+          ],
+          "paid": [
+            "35529",
+            "0"
+          ],
+          "platformAllocationReferenceOnly": [
+            {
+              "creator": "0",
+              "platform": "35529",
+              "buyback": "28423",
+              "operations": "7105",
+              "remainder": "1"
+            },
+            {
+              "creator": "0",
+              "platform": "0",
+              "buyback": "0",
+              "operations": "0",
+              "remainder": "0"
+            }
+          ]
+        },
+        {
+          "account": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+          "kind": "LP",
+          "hash": "0x819d5cd76cd1d99c2d98fb283ae6f38127a61ce48fe8cd63c017f6da1c60dd6a",
+          "estimatedGas": "513721",
+          "gasLimit": "642151",
+          "gasUsed": "508747",
+          "currencies": [
+            "USDG",
+            "RHUSDG"
+          ],
+          "paid": [
+            "1425",
+            "4913015276501465298495"
+          ],
+          "platformAllocationReferenceOnly": [
+            {
+              "creator": "0",
+              "platform": "1425",
+              "buyback": "1140",
+              "operations": "285",
+              "remainder": "0"
+            },
+            {
+              "creator": "0",
+              "platform": "4913015276501465298495",
+              "buyback": "3930412221201172238796",
+              "operations": "982603055300293059699",
+              "remainder": "0"
+            }
+          ]
+        }
+      ],
+      "checks": [
+        "canonical creation",
+        "registration and idempotency",
+        "restart recovery",
+        "buy and sell exact raw unit balances",
+        "onchain beneficiary shares",
+        "separate hook and LP claim preview/receipt/balance equality for creator and treasury"
+      ]
+    },
+    {
+      "asset": {
+        "ticker": "cbBTC",
+        "symbol": "cbBTC",
+        "name": "Coinbase Wrapped BTC",
+        "address": "0xCEC185eB182c47d1bA1EFc84e6959e18cd620Be4",
+        "decimals": 8,
+        "category": "OTHERS",
+        "chainId": 4663,
+        "issuer": "Token issuer",
+        "standard": "ERC20",
+        "sourceUrl": "https://pair.fund/launch"
+      },
+      "funding": {
+        "kind": "verified_existing_inventory_transfer_on_local_fork",
+        "donor": "0x8366a39CC670B4001A1121B8F6A443A643e40951",
+        "hash": "0xc923ec275e4e7d3752e514330884cf4e93e362210a0601c6f2884e89a0455d3e",
+        "amount": "2000000",
+        "donorBefore": "1173786085"
+      },
+      "tokenAddress": "0x0b43f9c9ade7F9b7CB2b5F3538B86B28C7854323",
+      "poolId": "0xeb0009fb9ef9d52ef36e1bdc70f4f0d51b660a9a8f6f310f3e29829731d04c0c",
+      "launchHash": "0x82b89b068f5693e1cb35667dec74c001636c13ce2ba73ba4ca566125078943fc",
+      "feePolicy": "creator-70-musegod-v2",
+      "feeTreasury": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+      "shares": [
+        "50000000000000000",
+        "665000000000000000",
+        "285000000000000000",
+        "700000000000000000",
+        "300000000000000000"
+      ],
+      "buy": {
+        "hash": "0x0704a04196eb5fc58432e789d3de450de25b102aa3fb4d1d1c00105a75760a33",
+        "amountIn": "1000000",
+        "quotedOut": "98786183708069144537226",
+        "minOut": "97798321870988453091853"
+      },
+      "sell": {
+        "hash": "0xc2c607933a5230ecebeb72a5c52f3311ba29ed6ba2625961b7344dccaa6d8ebc",
+        "amountIn": "49393091854034572268613",
+        "quotedOut": "489741",
+        "minOut": "484843"
+      },
+      "bought": "98786183708069144537226",
+      "quoteReturned": "489741",
+      "payouts": [
+        {
+          "account": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+          "kind": "hook",
+          "hash": "0x84b8445c588e55c4922e1dfc094df916bb532767136c3b35bb268c410c302a25",
+          "estimatedGas": "125284",
+          "gasLimit": "156605",
+          "gasUsed": "115588",
+          "currencies": [
+            "cbBTC",
+            "RHCBBTC"
+          ],
+          "paid": [
+            "6647",
+            "0"
+          ]
+        },
+        {
+          "account": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+          "kind": "LP",
+          "hash": "0x2fa891a1a017e9ddea76dd3d4fbe32b2a79933a50d56c041bc6834c8cd0745dc",
+          "estimatedGas": "619530",
+          "gasLimit": "774412",
+          "gasUsed": "614556",
+          "currencies": [
+            "cbBTC",
+            "RHCBBTC"
+          ],
+          "paid": [
+            "331",
+            "16738395827110801754"
+          ]
+        },
+        {
+          "account": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+          "kind": "hook",
+          "hash": "0x4905a28d7446f7fdb058487f5d31352cb0c3d2fcf7de730df6cd6261fbe474fc",
+          "estimatedGas": "119684",
+          "gasLimit": "149605",
+          "gasUsed": "114788",
+          "currencies": [
+            "cbBTC",
+            "RHCBBTC"
+          ],
+          "paid": [
+            "2849",
+            "0"
+          ],
+          "platformAllocationReferenceOnly": [
+            {
+              "creator": "0",
+              "platform": "2849",
+              "buyback": "2279",
+              "operations": "569",
+              "remainder": "1"
+            },
+            {
+              "creator": "0",
+              "platform": "0",
+              "buyback": "0",
+              "operations": "0",
+              "remainder": "0"
+            }
+          ]
+        },
+        {
+          "account": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+          "kind": "LP",
+          "hash": "0x6be70cf3cb215f8924ddaa454531803c3c1809e5be7c12a641abc4470ea9bef8",
+          "estimatedGas": "511791",
+          "gasLimit": "639738",
+          "gasUsed": "506817",
+          "currencies": [
+            "cbBTC",
+            "RHCBBTC"
+          ],
+          "paid": [
+            "142",
+            "7173598211618915037"
+          ],
+          "platformAllocationReferenceOnly": [
+            {
+              "creator": "0",
+              "platform": "142",
+              "buyback": "113",
+              "operations": "28",
+              "remainder": "1"
+            },
+            {
+              "creator": "0",
+              "platform": "7173598211618915037",
+              "buyback": "5738878569295132029",
+              "operations": "1434719642323783007",
+              "remainder": "1"
+            }
+          ]
+        }
+      ],
+      "checks": [
+        "canonical creation",
+        "registration and idempotency",
+        "restart recovery",
+        "buy and sell exact raw unit balances",
+        "onchain beneficiary shares",
+        "separate hook and LP claim preview/receipt/balance equality for creator and treasury"
+      ]
+    },
+    {
+      "asset": {
+        "ticker": "MUSEGOD",
+        "symbol": "MUSEGOD",
+        "name": "MUSEGOD",
+        "address": "0x0379E228F6887c6F18bf394042ECAF81B308cb2e",
+        "decimals": 18,
+        "category": "OTHERS",
+        "sourceUrl": "https://musegod.org/docs",
+        "chainId": 4663,
+        "issuer": "Token issuer",
+        "standard": "ERC20"
+      },
+      "funding": {
+        "kind": "verified_existing_inventory_transfer_on_local_fork",
+        "donor": "0x8366a39CC670B4001A1121B8F6A443A643e40951",
+        "hash": "0x5b80a89a5883d827a0f9d5c2a925b3591d18a507a750e1c6e3eccfdc6449e345",
+        "amount": "20000000000000000000",
+        "donorBefore": "286808613625574080868845"
+      },
+      "tokenAddress": "0xB1e0Afc3Cf60A829ca9aBB9C84C65aED49b380B9",
+      "poolId": "0xb85c4152b4bf11805f8b0801be6c0c53d48d91b05ef785deb1d30253cceb6549",
+      "launchHash": "0xff49ea6bcc2547fdc4b6c16addb9caf7579640e48584f3c9f6254ec74c48b6b5",
+      "feePolicy": "creator-70-musegod-v2",
+      "feeTreasury": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+      "shares": [
+        "50000000000000000",
+        "665000000000000000",
+        "285000000000000000",
+        "700000000000000000",
+        "300000000000000000"
+      ],
+      "buy": {
+        "hash": "0xa30569f5da04ac9d658e22cae5b05c30c2f5ac40a8582a3eea8032b7a176f046",
+        "amountIn": "10000000000000000000",
+        "quotedOut": "67627223946491942079290583",
+        "minOut": "66950951707027022658497677"
+      },
+      "sell": {
+        "hash": "0x6e4af2ce3c617b85f25a682e333d424d726f3b83a32928b024606627815573f1",
+        "amountIn": "33813611973245971039645291",
+        "quotedOut": "5546984828199521436",
+        "minOut": "5491514979917526221"
+      },
+      "bought": "67627223946491942079290583",
+      "quoteReturned": "5546984828199521436",
+      "payouts": [
+        {
+          "account": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+          "kind": "hook",
+          "hash": "0x8c304fcbf5c53812580dbe704e6c01970232836e618227b5f9d5f79720c6f0b3",
+          "estimatedGas": "199356",
+          "gasLimit": "249195",
+          "gasUsed": "186860",
+          "currencies": [
+            "MUSEGOD",
+            "RHMUSEGOD"
+          ],
+          "paid": [
+            "120155580317634192",
+            "0"
+          ]
+        },
+        {
+          "account": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+          "kind": "LP",
+          "hash": "0x231db636941384d7578237885e595cfcb85c6894b99cb37c054e09862046edfe",
+          "estimatedGas": "793643",
+          "gasLimit": "992053",
+          "gasUsed": "783069",
+          "currencies": [
+            "MUSEGOD",
+            "RHMUSEGOD"
+          ],
+          "paid": [
+            "3325000000000000",
+            "11458801227206286807089"
+          ]
+        },
+        {
+          "account": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+          "kind": "hook",
+          "hash": "0xfedcf759be263a535f4e65cb39bf90984e363cf7043c33914a5c1f7aa6eaea29",
+          "estimatedGas": "208056",
+          "gasLimit": "260070",
+          "gasUsed": "200360",
+          "currencies": [
+            "MUSEGOD",
+            "RHMUSEGOD"
+          ],
+          "paid": [
+            "51495248707557511",
+            "0"
+          ],
+          "platformAllocationReferenceOnly": [
+            {
+              "creator": "0",
+              "platform": "51495248707557511",
+              "buyback": "41196198966046008",
+              "operations": "10299049741511502",
+              "remainder": "1"
+            },
+            {
+              "creator": "0",
+              "platform": "0",
+              "buyback": "0",
+              "operations": "0",
+              "remainder": "0"
+            }
+          ]
+        },
+        {
+          "account": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+          "kind": "LP",
+          "hash": "0x85617ece9e384d4099380f53afa02ec96e4632b96f7e5b0d6ba7d24882ff4d8d",
+          "estimatedGas": "579501",
+          "gasLimit": "724376",
+          "gasUsed": "571727",
+          "currencies": [
+            "MUSEGOD",
+            "RHMUSEGOD"
+          ],
+          "paid": [
+            "1425000000000000",
+            "4910914811659837203038"
+          ],
+          "platformAllocationReferenceOnly": [
+            {
+              "creator": "0",
+              "platform": "1425000000000000",
+              "buyback": "1140000000000000",
+              "operations": "285000000000000",
+              "remainder": "0"
+            },
+            {
+              "creator": "0",
+              "platform": "4910914811659837203038",
+              "buyback": "3928731849327869762430",
+              "operations": "982182962331967440607",
+              "remainder": "1"
+            }
+          ]
+        }
+      ],
+      "checks": [
+        "canonical creation",
+        "registration and idempotency",
+        "restart recovery",
+        "buy and sell exact raw unit balances",
+        "onchain beneficiary shares",
+        "separate hook and LP claim preview/receipt/balance equality for creator and treasury"
+      ]
+    }
+  ]
+}

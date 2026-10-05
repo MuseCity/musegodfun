@@ -1,0 +1,52 @@
+{
+  "name": "musegodfun",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx server/index.ts",
+    "build": "npm run typecheck && vite build",
+    "start": "NODE_ENV=production tsx server/index.ts",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.worker.json",
+    "test": "tsx --test tests/*.test.ts",
+    "verify:base": "tsx scripts/run.ts scripts/verify-base.ts",
+    "test:fork": "tsx scripts/run.ts scripts/test-fork.ts",
+    "test:http": "tsx scripts/run.ts scripts/test-http.ts",
+    "db:backup": "tsx scripts/run.ts scripts/database.ts backup",
+    "db:restore": "tsx scripts/run.ts scripts/database.ts restore",
+    "storage:setup": "tsx scripts/run.ts scripts/setup-token-images.ts",
+    "verify:database": "tsx scripts/run.ts scripts/verify-database.ts",
+    "test:market-http": "tsx scripts/run.ts scripts/test-market-http.ts",
+    "test:all-fork": "tsx scripts/run.ts scripts/test-all-fork.ts",
+    "test:runtime-http": "tsx scripts/run.ts scripts/test-runtime-http.ts",
+    "test:buyback-http": "tsx scripts/run.ts scripts/test-buyback-http.ts",
+    "test:buyback-source-fork": "tsx scripts/run.ts scripts/verify-buyback-source-fork.ts",
+    "verify:robinhood": "tsx scripts/run.ts scripts/verify-robinhood.ts",
+    "verify:asset-logos": "tsx scripts/verify-asset-logos.ts",
+    "test:robinhood-fork": "tsx scripts/run.ts scripts/test-robinhood-fork.ts",
+    "dev:cloudflare": "wrangler dev",
+    "deploy:cloudflare": "npm run build && wrangler deploy"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "6.1.1",
+    "@whetstone-research/doppler-sdk": "1.0.43",
+    "express": "5.2.1",
+    "lightweight-charts": "5.2.0",
+    "lucide-react": "1.47.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "viem": "2.56.8",
+    "vite": "8.3.0",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20261004.1",
+    "@types/express": "5.0.6",
+    "@types/node": "26.6.2",
+    "@types/react": "18.3.31",
+    "@types/react-dom": "18.3.7",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2",
+    "wrangler": "4.147.0"
+  }
+}

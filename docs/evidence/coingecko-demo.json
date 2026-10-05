@@ -1,0 +1,20 @@
+{
+  "observedAt": "2026-10-03T14:45:11.911Z",
+  "status": "skipped",
+  "liveMarketVerified": false,
+  "scope": "Actual local Base catalog was read; no CoinGecko or holder verification was attempted",
+  "catalogCount": 0,
+  "reason": "No registered stock-paired mainnet pool is available. Synthetic fixtures are used only in unit tests.",
+  "skipped": [
+    "summary",
+    "candles:1m",
+    "candles:5m",
+    "candles:15m",
+    "candles:1h",
+    "candles:4h",
+    "candles:1d",
+    "trades",
+    "batch/cache reuse",
+    "holders"
+  ]
+}

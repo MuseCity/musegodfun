@@ -1,0 +1,36 @@
+{
+  "scope": "Local production browser paired-asset update; no wallet signing or transactions",
+  "observedAt": "2026-10-04T02:02:42.840115+00:00",
+  "url": "http://127.0.0.1:5188/create",
+  "supportedAssets": 198,
+  "removed": [
+    "U",
+    "PAIR"
+  ],
+  "added": {
+    "symbol": "MUSEGOD",
+    "address": "0x0379E228F6887c6F18bf394042ECAF81B308cb2e",
+    "decimals": 18,
+    "sourceUrl": "https://musegod.org/docs"
+  },
+  "checks": [
+    "MUSEGOD selectable with verified on-chain identity and official source link",
+    "Removed U exact contract search has no matching asset",
+    "Removed PAIR symbol search has no matching asset",
+    "MUSEGOD search returns selectable result",
+    "MUSEGOD draft selection survives reload",
+    "English language en-US and no Chinese copy observed",
+    "390x844 mobile without horizontal overflow"
+  ],
+  "desktop": {
+    "viewportWidth": 1111,
+    "scrollWidth": 1096,
+    "screenshot": "musegod-pair-desktop.jpg"
+  },
+  "mobile": {
+    "viewportWidth": 390,
+    "scrollWidth": 375,
+    "screenshot": "musegod-pair-mobile.jpg"
+  },
+  "mainnetTransactionsSubmitted": false
+}

@@ -1,0 +1,55 @@
+{
+  "scope": "local fork only",
+  "nodeInfo": {
+    "currentBlockNumber": "0x313b21a",
+    "currentBlockTimestamp": 1790034186,
+    "currentBlockHash": "0xd95fb54273dbea4f599bf00d6b0b09bc1aac64244e1fdd2064976f3702e2a9f4",
+    "hardFork": "Osaka",
+    "transactionOrder": "fees",
+    "environment": {
+      "baseFee": "0x7",
+      "chainId": 31337,
+      "gasLimit": "0x17d78400",
+      "gasPrice": "0x3b9aca07"
+    },
+    "forkConfig": {
+      "forkUrl": "[redacted]",
+      "forkBlockNumber": 51622413,
+      "forkRetryBackoff": 1500
+    },
+    "network": "base"
+  },
+  "creator": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+  "treasury": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+  "stock": {
+    "ticker": "AMZN",
+    "symbol": "AMZNc",
+    "name": "Amazon",
+    "address": "0xb200000000000000000000d9192b6B456483C2E8",
+    "decimals": 8,
+    "chainId": 8453,
+    "issuer": "Coinbase",
+    "standard": "B20",
+    "sourceUrl": "https://www.base.org/stocks"
+  },
+  "result": {
+    "tokenAddress": "0xE39E742c062CFF14A371902f02997f3793155cEF",
+    "poolId": "0x2de8a68f55df8721bd27a5a59d81dcaf762a86349650b76f3a2ae2883b80825e",
+    "transactionHash": "0x792d713d74beadc6c2246b3dba2b78f7c4df7c20c9e639b3b4148b61bface757"
+  },
+  "state": {
+    "asset": "0xE39E742c062CFF14A371902f02997f3793155cEF",
+    "numeraire": "0xb200000000000000000000d9192b6B456483C2E8",
+    "fee": 8388608,
+    "tickSpacing": 10,
+    "status": 2,
+    "poolKey": {
+      "currency0": "0xb200000000000000000000d9192b6B456483C2E8",
+      "currency1": "0xE39E742c062CFF14A371902f02997f3793155cEF",
+      "fee": 8388608,
+      "tickSpacing": 10,
+      "hooks": "0xBDF938149ac6a781F94FAa0ed45E6A0e984c6544"
+    },
+    "farTick": -887260
+  }
+}

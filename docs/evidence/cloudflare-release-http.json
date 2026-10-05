@@ -1,0 +1,649 @@
+{
+  "observedAt": "2026-10-05T00:26:36Z",
+  "declaredDeploymentVersion": "d4add883-f302-4424-97cd-612a9aeb0400",
+  "scope": "Public HTTP, current static assets and read-only RPC; no wallet signatures, transactions, plans or uploads",
+  "checks": [
+    {
+      "check": "HTML bytes match current dist",
+      "origin": "https://musegod.fun",
+      "path": "/",
+      "status": 200,
+      "exitCode": 0,
+      "elapsedSeconds": 1.11,
+      "passed": true,
+      "details": {
+        "localSha256": "d32a47da9bd88c4dd8049181e4a46938970299575e2e6780b7a26694879841c1",
+        "publicSha256": "d32a47da9bd88c4dd8049181e4a46938970299575e2e6780b7a26694879841c1",
+        "publicBytes": 611
+      },
+      "securityHeadersPassed": true
+    },
+    {
+      "check": "HTML bytes match current dist",
+      "origin": "https://musegod.fun",
+      "path": "/create",
+      "status": 200,
+      "exitCode": 0,
+      "elapsedSeconds": 1.3,
+      "passed": true,
+      "details": {
+        "localSha256": "d32a47da9bd88c4dd8049181e4a46938970299575e2e6780b7a26694879841c1",
+        "publicSha256": "d32a47da9bd88c4dd8049181e4a46938970299575e2e6780b7a26694879841c1",
+        "publicBytes": 611
+      },
+      "securityHeadersPassed": true
+    },
+    {
+      "check": "health",
+      "origin": "https://musegod.fun",
+      "path": "/healthz",
+      "status": 200,
+      "exitCode": 0,
+      "elapsedSeconds": 1.2,
+      "passed": true,
+      "details": {
+        "status": "ok"
+      },
+      "securityHeadersPassed": true
+    },
+    {
+      "check": "chain and database readiness",
+      "origin": "https://musegod.fun",
+      "path": "/readyz",
+      "status": 200,
+      "exitCode": 0,
+      "elapsedSeconds": 1.56,
+      "passed": true,
+      "details": {
+        "status": "ready",
+        "chainId": 4663,
+        "writesEnabled": true
+      },
+      "securityHeadersPassed": true
+    },
+    {
+      "check": "runtime configuration",
+      "origin": "https://musegod.fun",
+      "path": "/api/config",
+      "status": 200,
+      "exitCode": 0,
+      "elapsedSeconds": 1.01,
+      "passed": true,
+      "details": {
+        "mode": "robinhood",
+        "deploymentChainId": 4663,
+        "chainId": 4663,
+        "treasury": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+        "writesEnabled": true,
+        "blockReason": null
+      },
+      "securityHeadersPassed": true,
+      "apiNoStorePassed": true
+    },
+    {
+      "check": "empty token catalog",
+      "origin": "https://musegod.fun",
+      "path": "/api/tokens",
+      "status": 200,
+      "exitCode": 0,
+      "elapsedSeconds": 1.32,
+      "passed": true,
+      "details": [],
+      "securityHeadersPassed": true,
+      "apiNoStorePassed": true
+    },
+    {
+      "check": "198 verified paired assets",
+      "origin": "https://musegod.fun",
+      "path": "/api/stocks",
+      "status": 200,
+      "exitCode": 0,
+      "elapsedSeconds": 2.63,
+      "passed": true,
+      "details": {
+        "count": 198,
+        "verified": 198,
+        "unverified": []
+      },
+      "securityHeadersPassed": true,
+      "apiNoStorePassed": true
+    },
+    {
+      "check": "unknown route returns 404",
+      "origin": "https://musegod.fun",
+      "path": "/removed-project-route",
+      "status": 404,
+      "exitCode": 0,
+      "elapsedSeconds": 0.99,
+      "passed": true,
+      "securityHeadersPassed": true
+    },
+    {
+      "check": "HTML bytes match current dist",
+      "origin": "https://www.musegod.fun",
+      "path": "/",
+      "status": 200,
+      "exitCode": 0,
+      "elapsedSeconds": 1.28,
+      "passed": true,
+      "details": {
+        "localSha256": "d32a47da9bd88c4dd8049181e4a46938970299575e2e6780b7a26694879841c1",
+        "publicSha256": "d32a47da9bd88c4dd8049181e4a46938970299575e2e6780b7a26694879841c1",
+        "publicBytes": 611
+      },
+      "securityHeadersPassed": true
+    },
+    {
+      "check": "HTML bytes match current dist",
+      "origin": "https://www.musegod.fun",
+      "path": "/create",
+      "status": 200,
+      "exitCode": 0,
+      "elapsedSeconds": 1.15,
+      "passed": true,
+      "details": {
+        "localSha256": "d32a47da9bd88c4dd8049181e4a46938970299575e2e6780b7a26694879841c1",
+        "publicSha256": "d32a47da9bd88c4dd8049181e4a46938970299575e2e6780b7a26694879841c1",
+        "publicBytes": 611
+      },
+      "securityHeadersPassed": true
+    },
+    {
+      "check": "health",
+      "origin": "https://www.musegod.fun",
+      "path": "/healthz",
+      "status": 200,
+      "exitCode": 0,
+      "elapsedSeconds": 1.24,
+      "passed": true,
+      "details": {
+        "status": "ok"
+      },
+      "securityHeadersPassed": true
+    },
+    {
+      "check": "chain and database readiness",
+      "origin": "https://www.musegod.fun",
+      "path": "/readyz",
+      "status": 200,
+      "exitCode": 0,
+      "elapsedSeconds": 1.24,
+      "passed": true,
+      "details": {
+        "status": "ready",
+        "chainId": 4663,
+        "writesEnabled": true
+      },
+      "securityHeadersPassed": true
+    },
+    {
+      "check": "runtime configuration",
+      "origin": "https://www.musegod.fun",
+      "path": "/api/config",
+      "status": 200,
+      "exitCode": 0,
+      "elapsedSeconds": 1.1,
+      "passed": true,
+      "details": {
+        "mode": "robinhood",
+        "deploymentChainId": 4663,
+        "chainId": 4663,
+        "treasury": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+        "writesEnabled": true,
+        "blockReason": null
+      },
+      "securityHeadersPassed": true,
+      "apiNoStorePassed": true
+    },
+    {
+      "check": "empty token catalog",
+      "origin": "https://www.musegod.fun",
+      "path": "/api/tokens",
+      "status": 200,
+      "exitCode": 0,
+      "elapsedSeconds": 1.52,
+      "passed": true,
+      "details": [],
+      "securityHeadersPassed": true,
+      "apiNoStorePassed": true
+    },
+    {
+      "check": "198 verified paired assets",
+      "origin": "https://www.musegod.fun",
+      "path": "/api/stocks",
+      "status": 200,
+      "exitCode": 0,
+      "elapsedSeconds": 1.43,
+      "passed": true,
+      "details": {
+        "count": 198,
+        "verified": 198,
+        "unverified": []
+      },
+      "securityHeadersPassed": true,
+      "apiNoStorePassed": true
+    },
+    {
+      "check": "unknown route returns 404",
+      "origin": "https://www.musegod.fun",
+      "path": "/removed-project-route",
+      "status": 404,
+      "exitCode": 0,
+      "elapsedSeconds": 0.88,
+      "passed": true,
+      "securityHeadersPassed": true
+    },
+    {
+      "check": "static file bytes match current dist",
+      "origin": "https://musegod.fun",
+      "path": "/assets/ccip-BcfLc9_e.js",
+      "status": 200,
+      "exitCode": 0,
+      "elapsedSeconds": 1.38,
+      "passed": true,
+      "details": {
+        "localSha256": "e03b2f995c49aa80f5d369a6dac95a16fa5bfa318a2f6b4d947d9a7ab0b67622",
+        "publicSha256": "e03b2f995c49aa80f5d369a6dac95a16fa5bfa318a2f6b4d947d9a7ab0b67622",
+        "publicBytes": 2835,
+        "immutableCache": "public, max-age=31536000, immutable"
+      },
+      "securityHeadersPassed": true
+    },
+    {
+      "check": "static file bytes match current dist",
+      "origin": "https://musegod.fun",
+      "path": "/assets/PriceChart-BY4JpHD8.js",
+      "status": 200,
+      "exitCode": 0,
+      "elapsedSeconds": 1.7,
+      "passed": true,
+      "details": {
+        "localSha256": "17efa85ac59e445e61fe5bea4622891677d2e12f778110bbf0096953d1bfe227",
+        "publicSha256": "17efa85ac59e445e61fe5bea4622891677d2e12f778110bbf0096953d1bfe227",
+        "publicBytes": 165425,
+        "immutableCache": "public, max-age=31536000, immutable"
+      },
+      "securityHeadersPassed": true
+    },
+    {
+      "check": "static file bytes match current dist",
+      "origin": "https://musegod.fun",
+      "path": "/assets/index-BY5gpF3T.css",
+      "status": 200,
+      "exitCode": 0,
+      "elapsedSeconds": 1.12,
+      "passed": true,
+      "details": {
+        "localSha256": "f028fd800298f32f726c916bc9078c12741379ab51b8c6363504b7f84fe1c181",
+        "publicSha256": "f028fd800298f32f726c916bc9078c12741379ab51b8c6363504b7f84fe1c181",
+        "publicBytes": 47517,
+        "immutableCache": "public, max-age=31536000, immutable"
+      },
+      "securityHeadersPassed": true
+    },
+    {
+      "check": "static file bytes match current dist",
+      "origin": "https://musegod.fun",
+      "path": "/assets/index-FpPJZiEJ.js",
+      "status": 200,
+      "exitCode": 0,
+      "elapsedSeconds": 1.93,
+      "passed": true,
+      "details": {
+        "localSha256": "9af8b256e2ffa2c1406ac13701163990f4dfee0844481b54f921d10e0cf113f6",
+        "publicSha256": "9af8b256e2ffa2c1406ac13701163990f4dfee0844481b54f921d10e0cf113f6",
+        "publicBytes": 725054,
+        "immutableCache": "public, max-age=31536000, immutable"
+      },
+      "securityHeadersPassed": true
+    },
+    {
+      "check": "static file bytes match current dist",
+      "origin": "https://musegod.fun",
+      "path": "/asset-logos/MUSEGOD.png",
+      "status": 200,
+      "exitCode": 0,
+      "elapsedSeconds": 1.24,
+      "passed": true,
+      "details": {
+        "localSha256": "98b55e32d4619be5329ba589c7f17a24d44dde82d5853e3bd1e73ad2f4ab5840",
+        "publicSha256": "98b55e32d4619be5329ba589c7f17a24d44dde82d5853e3bd1e73ad2f4ab5840",
+        "publicBytes": 80800,
+        "immutableCache": "public, max-age=0, must-revalidate"
+      },
+      "securityHeadersPassed": true
+    },
+    {
+      "check": "static file bytes match current dist",
+      "origin": "https://musegod.fun",
+      "path": "/asset-logos/WETH.svg",
+      "status": 200,
+      "exitCode": 0,
+      "elapsedSeconds": 0.87,
+      "passed": true,
+      "details": {
+        "localSha256": "b07728f9941396befd107b3dd40758e0527d55b91561999809be7a43432db796",
+        "publicSha256": "b07728f9941396befd107b3dd40758e0527d55b91561999809be7a43432db796",
+        "publicBytes": 423,
+        "immutableCache": "public, max-age=0, must-revalidate"
+      },
+      "securityHeadersPassed": true
+    },
+    {
+      "check": "static file bytes match current dist",
+      "origin": "https://musegod.fun",
+      "path": "/asset-logos/AAPL.png",
+      "status": 200,
+      "exitCode": 0,
+      "elapsedSeconds": 0.9,
+      "passed": true,
+      "details": {
+        "localSha256": "2d754775796b8457afcd46ac105da51be5c355fa05bbcdef9f726b03eb53a3f8",
+        "publicSha256": "2d754775796b8457afcd46ac105da51be5c355fa05bbcdef9f726b03eb53a3f8",
+        "publicBytes": 606,
+        "immutableCache": "public, max-age=0, must-revalidate"
+      },
+      "securityHeadersPassed": true
+    },
+    {
+      "check": "RPC blocks eth_sendTransaction",
+      "origin": "https://musegod.fun",
+      "path": "/api/rpc",
+      "status": 403,
+      "exitCode": 0,
+      "elapsedSeconds": 0.96,
+      "passed": true,
+      "details": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32601,
+          "message": "Read-only RPC method allowlist"
+        }
+      },
+      "securityHeadersPassed": true,
+      "apiNoStorePassed": true,
+      "responseLayer": "application JSON"
+    },
+    {
+      "check": "RPC blocks eth_sendTransaction",
+      "origin": "https://musegod.fun",
+      "path": "/api/rpc/robinhood",
+      "status": 403,
+      "exitCode": 0,
+      "elapsedSeconds": 1.34,
+      "passed": true,
+      "details": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32601,
+          "message": "Read-only RPC method allowlist"
+        }
+      },
+      "securityHeadersPassed": true,
+      "apiNoStorePassed": true,
+      "responseLayer": "application JSON"
+    },
+    {
+      "check": "RPC blocks eth_sendRawTransaction",
+      "origin": "https://musegod.fun",
+      "path": "/api/rpc",
+      "status": 403,
+      "exitCode": 0,
+      "elapsedSeconds": 0.94,
+      "passed": true,
+      "details": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32601,
+          "message": "Read-only RPC method allowlist"
+        }
+      },
+      "securityHeadersPassed": true,
+      "apiNoStorePassed": true,
+      "responseLayer": "application JSON"
+    },
+    {
+      "check": "RPC blocks eth_sendRawTransaction",
+      "origin": "https://musegod.fun",
+      "path": "/api/rpc/robinhood",
+      "status": 403,
+      "exitCode": 0,
+      "elapsedSeconds": 1.01,
+      "passed": true,
+      "details": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32601,
+          "message": "Read-only RPC method allowlist"
+        }
+      },
+      "securityHeadersPassed": true,
+      "apiNoStorePassed": true,
+      "responseLayer": "application JSON"
+    },
+    {
+      "check": "RPC blocks eth_sign",
+      "origin": "https://musegod.fun",
+      "path": "/api/rpc",
+      "status": 403,
+      "exitCode": 0,
+      "elapsedSeconds": 1.09,
+      "passed": true,
+      "details": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32601,
+          "message": "Read-only RPC method allowlist"
+        }
+      },
+      "securityHeadersPassed": true,
+      "apiNoStorePassed": true,
+      "responseLayer": "application JSON"
+    },
+    {
+      "check": "RPC blocks eth_sign",
+      "origin": "https://musegod.fun",
+      "path": "/api/rpc/robinhood",
+      "status": 403,
+      "exitCode": 0,
+      "elapsedSeconds": 1.18,
+      "passed": true,
+      "details": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32601,
+          "message": "Read-only RPC method allowlist"
+        }
+      },
+      "securityHeadersPassed": true,
+      "apiNoStorePassed": true,
+      "responseLayer": "application JSON"
+    },
+    {
+      "check": "RPC blocks personal_sign",
+      "origin": "https://musegod.fun",
+      "path": "/api/rpc",
+      "status": 403,
+      "exitCode": 0,
+      "elapsedSeconds": 2.36,
+      "passed": true,
+      "details": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32601,
+          "message": "Read-only RPC method allowlist"
+        }
+      },
+      "securityHeadersPassed": true,
+      "apiNoStorePassed": true,
+      "responseLayer": "application JSON"
+    },
+    {
+      "check": "RPC blocks personal_sign",
+      "origin": "https://musegod.fun",
+      "path": "/api/rpc/robinhood",
+      "status": 403,
+      "exitCode": 0,
+      "elapsedSeconds": 1.17,
+      "passed": true,
+      "details": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32601,
+          "message": "Read-only RPC method allowlist"
+        }
+      },
+      "securityHeadersPassed": true,
+      "apiNoStorePassed": true,
+      "responseLayer": "application JSON"
+    },
+    {
+      "check": "RPC blocks eth_signTypedData_v4",
+      "origin": "https://musegod.fun",
+      "path": "/api/rpc",
+      "status": 403,
+      "exitCode": 0,
+      "elapsedSeconds": 2.3,
+      "passed": true,
+      "details": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32601,
+          "message": "Read-only RPC method allowlist"
+        }
+      },
+      "securityHeadersPassed": true,
+      "apiNoStorePassed": true,
+      "responseLayer": "application JSON"
+    },
+    {
+      "check": "RPC blocks eth_signTypedData_v4",
+      "origin": "https://musegod.fun",
+      "path": "/api/rpc/robinhood",
+      "status": 403,
+      "exitCode": 0,
+      "elapsedSeconds": 1.12,
+      "passed": true,
+      "details": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32601,
+          "message": "Read-only RPC method allowlist"
+        }
+      },
+      "securityHeadersPassed": true,
+      "apiNoStorePassed": true,
+      "responseLayer": "application JSON"
+    },
+    {
+      "check": "read-only RPC identifies chain",
+      "origin": "https://musegod.fun",
+      "path": "/api/rpc",
+      "status": 200,
+      "exitCode": 0,
+      "elapsedSeconds": 1.52,
+      "passed": true,
+      "details": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": "0x1237"
+      },
+      "securityHeadersPassed": true,
+      "apiNoStorePassed": true
+    },
+    {
+      "check": "malformed JSON rejected",
+      "origin": "https://musegod.fun",
+      "path": "/api/rpc",
+      "status": 422,
+      "exitCode": 0,
+      "elapsedSeconds": 1.26,
+      "passed": true,
+      "details": {
+        "error": "Expected property name or '}' in JSON at position 1 (line 1 column 2)"
+      },
+      "securityHeadersPassed": true,
+      "apiNoStorePassed": true,
+      "expectedStatus": 422,
+      "expectationSource": "server/app.ts error middleware maps non-Zod errors to 422",
+      "responseLayer": "application JSON"
+    },
+    {
+      "check": "malformed RPC schema rejected",
+      "origin": "https://musegod.fun",
+      "path": "/api/rpc",
+      "status": 400,
+      "exitCode": 0,
+      "elapsedSeconds": 1.01,
+      "passed": true,
+      "details": {
+        "error": "Invalid input: expected \"2.0\""
+      },
+      "securityHeadersPassed": true,
+      "apiNoStorePassed": true,
+      "expectedStatus": 400,
+      "expectationSource": "server/app.ts error middleware maps ZodError to 400",
+      "responseLayer": "application JSON"
+    },
+    {
+      "check": "cross-site rejected",
+      "origin": "https://musegod.fun",
+      "path": "/api/rpc",
+      "status": 403,
+      "exitCode": 0,
+      "elapsedSeconds": 1.08,
+      "passed": true,
+      "details": {
+        "error": "Cross-site request rejected"
+      },
+      "securityHeadersPassed": true,
+      "apiNoStorePassed": true,
+      "responseLayer": "application JSON"
+    },
+    {
+      "check": "oversize ingress rejected",
+      "origin": "https://musegod.fun",
+      "path": "/api/rpc",
+      "status": 413,
+      "exitCode": 0,
+      "elapsedSeconds": 1.5,
+      "passed": true,
+      "details": {
+        "error": "Request body is too large"
+      },
+      "securityHeadersPassed": true,
+      "apiNoStorePassed": true,
+      "responseLayer": "Worker ingress application JSON"
+    }
+  ],
+  "requestCount": 38,
+  "failed": [],
+  "passed": true,
+  "assetHashScope": "Both origins HTML/Create; four dist/assets build files and three logo spot checks at primary origin",
+  "finishedAt": "2026-10-05T00:27:04Z",
+  "securityHeadersExpected": {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+    "Cross-Origin-Opener-Policy": "same-origin-allow-popups",
+    "Strict-Transport-Security": "max-age=31536000",
+    "Content-Security-Policy required directive": "frame-ancestors 'none'",
+    "API Cache-Control": "no-store"
+  },
+  "notes": [
+    "Malformed-request status expectations were corrected after source inspection: existing application middleware returns 422 for JSON syntax errors and 400 for Zod schema errors. Both observed responses are application JSON, not Cloudflare bot pages.",
+    "Public success verifies HTTP/backend/static layers, not wallet connection or signed mainnet execution.",
+    "Deployment version is supplied by release orchestration; HTTP acceptance does not independently prove Cloudflare traffic configuration."
+  ]
+}

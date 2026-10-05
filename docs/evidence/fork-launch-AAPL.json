@@ -1,0 +1,55 @@
+{
+  "scope": "local fork only",
+  "nodeInfo": {
+    "currentBlockNumber": "0x313b217",
+    "currentBlockTimestamp": 1790034184,
+    "currentBlockHash": "0xa1117ff55f62e121b0ee56edc3f3a14dff205333e2e28672c6ab46e5943988cb",
+    "hardFork": "Osaka",
+    "transactionOrder": "fees",
+    "environment": {
+      "baseFee": "0x7",
+      "chainId": 31337,
+      "gasLimit": "0x17d78400",
+      "gasPrice": "0x3b9aca07"
+    },
+    "forkConfig": {
+      "forkUrl": "[redacted]",
+      "forkBlockNumber": 51622413,
+      "forkRetryBackoff": 1500
+    },
+    "network": "base"
+  },
+  "creator": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+  "treasury": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+  "stock": {
+    "ticker": "AAPL",
+    "symbol": "AAPLc",
+    "name": "Apple",
+    "address": "0xb200000000000000000000C2e324d24d7eEcd1fb",
+    "decimals": 8,
+    "chainId": 8453,
+    "issuer": "Coinbase",
+    "standard": "B20",
+    "sourceUrl": "https://www.base.org/stocks"
+  },
+  "result": {
+    "tokenAddress": "0xb33cE77bb5664604Ef7B627ef942c07C7e37eDf9",
+    "poolId": "0x304067c1baa008fc3eaf1a2a9e01e0cfd1fa806dd6e94fc394e44bf5da8ee4aa",
+    "transactionHash": "0xba4c76a29cdb8677ad80a94e02c3020d39a9a02047b013d2920a6592b2f7eae9"
+  },
+  "state": {
+    "asset": "0xb33cE77bb5664604Ef7B627ef942c07C7e37eDf9",
+    "numeraire": "0xb200000000000000000000C2e324d24d7eEcd1fb",
+    "fee": 8388608,
+    "tickSpacing": 10,
+    "status": 2,
+    "poolKey": {
+      "currency0": "0xb200000000000000000000C2e324d24d7eEcd1fb",
+      "currency1": "0xb33cE77bb5664604Ef7B627ef942c07C7e37eDf9",
+      "fee": 8388608,
+      "tickSpacing": 10,
+      "hooks": "0xBDF938149ac6a781F94FAa0ed45E6A0e984c6544"
+    },
+    "farTick": -887260
+  }
+}

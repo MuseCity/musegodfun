@@ -1,0 +1,55 @@
+{
+  "scope": "local fork only",
+  "nodeInfo": {
+    "currentBlockNumber": "0x313b27f",
+    "currentBlockTimestamp": 1790034287,
+    "currentBlockHash": "0x156a737e694344ca931885492cbfc4247118e9e1dba598ce3bc109af5d677046",
+    "hardFork": "Osaka",
+    "transactionOrder": "fees",
+    "environment": {
+      "baseFee": "0x7",
+      "chainId": 31337,
+      "gasLimit": "0x17d78400",
+      "gasPrice": "0x3b9aca07"
+    },
+    "forkConfig": {
+      "forkUrl": "[redacted]",
+      "forkBlockNumber": 51622413,
+      "forkRetryBackoff": 1500
+    },
+    "network": "base"
+  },
+  "creator": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+  "treasury": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+  "stock": {
+    "ticker": "MSFT",
+    "symbol": "MSFTc",
+    "name": "Microsoft",
+    "address": "0xB200000000000000000000Ab99cFa739E253872B",
+    "decimals": 8,
+    "chainId": 8453,
+    "issuer": "Coinbase",
+    "standard": "B20",
+    "sourceUrl": "https://www.base.org/stocks"
+  },
+  "result": {
+    "tokenAddress": "0x2ae4e260959A8411d7862a7dDA9161ba25230977",
+    "poolId": "0x29a5300d0c8fe6d97a7fa9eadd1f9991535aa443d6b0b844cefde26cc61df1a0",
+    "transactionHash": "0xfec8ee71c845f7b5644d4deab12a0491edcc4c3b0097c12c09cc1ec45a89941a"
+  },
+  "state": {
+    "asset": "0x2ae4e260959A8411d7862a7dDA9161ba25230977",
+    "numeraire": "0xB200000000000000000000Ab99cFa739E253872B",
+    "fee": 8388608,
+    "tickSpacing": 10,
+    "status": 2,
+    "poolKey": {
+      "currency0": "0x2ae4e260959A8411d7862a7dDA9161ba25230977",
+      "currency1": "0xB200000000000000000000Ab99cFa739E253872B",
+      "fee": 8388608,
+      "tickSpacing": 10,
+      "hooks": "0xBDF938149ac6a781F94FAa0ed45E6A0e984c6544"
+    },
+    "farTick": 887260
+  }
+}

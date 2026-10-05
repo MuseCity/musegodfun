@@ -1,0 +1,258 @@
+{
+  "createdAt": "2026-10-04T02:56:29.366Z",
+  "checkLayer": "local browser with production build",
+  "checks": [
+    {
+      "case": "category and query intersect",
+      "empty": true,
+      "result": "Showing 0 of 0 matching assetsClear filters",
+      "selected": "MUSEGOD · MUSEGODToken issuer0x0379…cb2e"
+    },
+    {
+      "case": "ETF search",
+      "names": [
+        "SPYSPDR S&P 500 ETF Trust"
+      ],
+      "result": "Showing 1 of 1 matching assetsClear filters",
+      "selected": "MUSEGOD · MUSEGODToken issuer0x0379…cb2e"
+    },
+    {
+      "case": "clear filters",
+      "category": "All assets198",
+      "query": "",
+      "result": "Showing 12 of 198 matching assets",
+      "selected": "MUSEGOD · MUSEGODToken issuer0x0379…cb2e"
+    },
+    {
+      "case": "contract address search",
+      "names": [
+        "NVDANVIDIA"
+      ],
+      "result": "Showing 1 of 1 matching assetsClear filters",
+      "selected": "MUSEGOD · MUSEGODToken issuer0x0379…cb2e"
+    },
+    {
+      "case": "expand all assets",
+      "count": 198,
+      "result": "Showing 198 of 198 matching assets",
+      "selected": "MUSEGOD · MUSEGODToken issuer0x0379…cb2e"
+    },
+    {
+      "case": "keyboard category resets expansion",
+      "category": "Penny stocks17",
+      "count": 12,
+      "result": "Showing 12 of 17 matching assetsClear filters",
+      "selected": "MUSEGOD · MUSEGODToken issuer0x0379…cb2e"
+    },
+    {
+      "case": "mobile layout",
+      "categoryButtons": [
+        {
+          "height": 44,
+          "label": "All assets198"
+        },
+        {
+          "height": 44,
+          "label": "Stocks160"
+        },
+        {
+          "height": 44,
+          "label": "ETFs17"
+        },
+        {
+          "height": 44,
+          "label": "Penny stocks17"
+        },
+        {
+          "height": 44,
+          "label": "Crypto assets4"
+        }
+      ],
+      "gridColumns": "136px 136px",
+      "hasChinese": false,
+      "scrollWidth": 375,
+      "selected": "MUSEGOD · MUSEGODToken issuer0x0379…cb2e",
+      "width": 390
+    },
+    {
+      "case": "final crypto logos including SVG",
+      "images": [
+        {
+          "height": 150,
+          "loaded": true,
+          "src": "/asset-logos/WETH.svg",
+          "width": 150
+        },
+        {
+          "height": 32,
+          "loaded": true,
+          "src": "/asset-logos/USDG.png",
+          "width": 32
+        },
+        {
+          "height": 32,
+          "loaded": true,
+          "src": "/asset-logos/cbBTC.svg",
+          "width": 32
+        },
+        {
+          "height": 256,
+          "loaded": true,
+          "src": "/asset-logos/MUSEGOD.png",
+          "width": 256
+        }
+      ],
+      "selected": "MUSEGOD · MUSEGODToken issuer0x0379…cb2e"
+    },
+    {
+      "case": "final stocks render",
+      "images": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "loaded": true,
+          "src": "/asset-logos/AAOI.png"
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "loaded": true,
+          "src": "/asset-logos/AAPL.png"
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "loaded": true,
+          "src": "/asset-logos/ABCL.png"
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "loaded": true,
+          "src": "/asset-logos/ADBE.png"
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "loaded": true,
+          "src": "/asset-logos/AEHR.png"
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "loaded": true,
+          "src": "/asset-logos/AEIS.png"
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "loaded": true,
+          "src": "/asset-logos/ALAB.png"
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "loaded": true,
+          "src": "/asset-logos/AMAT.png"
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "loaded": true,
+          "src": "/asset-logos/AMBA.png"
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "loaded": true,
+          "src": "/asset-logos/AMD.png"
+        },
+        {
+          "background": "rgb(31, 41, 55)",
+          "loaded": true,
+          "src": "/asset-logos/AMKR.png"
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "loaded": true,
+          "src": "/asset-logos/AMZN.png"
+        }
+      ],
+      "result": "Showing 12 of 160 matching assetsClear filters",
+      "selected": "MUSEGOD · MUSEGODToken issuer0x0379…cb2e"
+    },
+    {
+      "case": "final mobile production render",
+      "gridColumns": "136px 136px",
+      "hasChinese": false,
+      "images": [
+        {
+          "loaded": true,
+          "src": "/asset-logos/WETH.svg"
+        },
+        {
+          "loaded": true,
+          "src": "/asset-logos/USDG.png"
+        },
+        {
+          "loaded": true,
+          "src": "/asset-logos/cbBTC.svg"
+        },
+        {
+          "loaded": true,
+          "src": "/asset-logos/MUSEGOD.png"
+        }
+      ],
+      "scrollWidth": 375,
+      "selected": "MUSEGOD · MUSEGODToken issuer0x0379…cb2e",
+      "width": 390
+    },
+    {
+      "case": "homepage grouped quote filter",
+      "groups": [
+        {
+          "count": 160,
+          "label": "Stocks"
+        },
+        {
+          "count": 17,
+          "label": "ETFs"
+        },
+        {
+          "count": 17,
+          "label": "Penny stocks"
+        },
+        {
+          "count": 4,
+          "label": "Crypto assets"
+        }
+      ],
+      "hasChinese": false,
+      "images": [
+        {
+          "loaded": true,
+          "src": "/asset-logos/AAPL.png",
+          "visible": true
+        },
+        {
+          "loaded": true,
+          "src": "/asset-logos/AMZN.png",
+          "visible": true
+        },
+        {
+          "loaded": true,
+          "src": "/asset-logos/GOOGL.png",
+          "visible": true
+        },
+        {
+          "loaded": true,
+          "src": "/asset-logos/MSFT.png",
+          "visible": true
+        },
+        {
+          "loaded": true,
+          "src": "/asset-logos/NVDA.png",
+          "visible": true
+        },
+        {
+          "loaded": false,
+          "src": "/asset-logos/TSLA.png",
+          "visible": false
+        }
+      ]
+    }
+  ],
+  "completedAt": "2026-10-04T03:09:26.028Z",
+  "result": "passed",
+  "passedChecks": 11
+}

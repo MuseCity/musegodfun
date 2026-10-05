@@ -1,0 +1,55 @@
+{
+  "scope": "local fork only",
+  "nodeInfo": {
+    "currentBlockNumber": "0x313b27f",
+    "currentBlockTimestamp": 1790034287,
+    "currentBlockHash": "0x156a737e694344ca931885492cbfc4247118e9e1dba598ce3bc109af5d677046",
+    "hardFork": "Osaka",
+    "transactionOrder": "fees",
+    "environment": {
+      "baseFee": "0x7",
+      "chainId": 31337,
+      "gasLimit": "0x17d78400",
+      "gasPrice": "0x3b9aca07"
+    },
+    "forkConfig": {
+      "forkUrl": "[redacted]",
+      "forkBlockNumber": 51622413,
+      "forkRetryBackoff": 1500
+    },
+    "network": "base"
+  },
+  "creator": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+  "treasury": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+  "stock": {
+    "ticker": "MSTR",
+    "symbol": "MSTRc",
+    "name": "Strategy",
+    "address": "0xb2000000000000000000004884b426556b92883d",
+    "decimals": 8,
+    "chainId": 8453,
+    "issuer": "Coinbase",
+    "standard": "B20",
+    "sourceUrl": "https://www.base.org/stocks"
+  },
+  "result": {
+    "tokenAddress": "0xE3C16B25Fb214A0B158e770b79e9541Aa09A7B85",
+    "poolId": "0x61ea5abe1c617183d961cf631974d4f70643764fcb51d55c1588d98b991a036a",
+    "transactionHash": "0x74750804cc2edad8065d7c55d1fa518d0c5f780d06cfd2ead693747770779263"
+  },
+  "state": {
+    "asset": "0xE3C16B25Fb214A0B158e770b79e9541Aa09A7B85",
+    "numeraire": "0xb2000000000000000000004884b426556b92883d",
+    "fee": 8388608,
+    "tickSpacing": 10,
+    "status": 2,
+    "poolKey": {
+      "currency0": "0xb2000000000000000000004884b426556b92883d",
+      "currency1": "0xE3C16B25Fb214A0B158e770b79e9541Aa09A7B85",
+      "fee": 8388608,
+      "tickSpacing": 10,
+      "hooks": "0xBDF938149ac6a781F94FAa0ed45E6A0e984c6544"
+    },
+    "farTick": -887260
+  }
+}

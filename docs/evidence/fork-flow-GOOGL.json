@@ -1,0 +1,149 @@
+{
+  "scope": "Base fork only; test accounts and impersonated donor; no mainnet writes",
+  "observedAt": "2026-09-21T23:46:46.363Z",
+  "forkBlock": 51622413,
+  "creator": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+  "treasury": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+  "donor": "0x4446Adc0B8136Ffc55DdB7a488Ba5509Ace2A5ef",
+  "stock": {
+    "ticker": "GOOGL",
+    "symbol": "GOOGLc",
+    "name": "Alphabet",
+    "address": "0xb2000000000000000000002D0BA3164cc74f58B7",
+    "decimals": 8,
+    "chainId": 8453,
+    "issuer": "Coinbase",
+    "standard": "B20",
+    "sourceUrl": "https://www.base.org/stocks"
+  },
+  "nativeStock": {
+    "stock": {
+      "ticker": "GOOGL",
+      "symbol": "GOOGLc",
+      "name": "Alphabet",
+      "address": "0xb2000000000000000000002D0BA3164cc74f58B7",
+      "decimals": 8,
+      "chainId": 8453,
+      "issuer": "Coinbase",
+      "standard": "B20",
+      "sourceUrl": "https://www.base.org/stocks"
+    },
+    "name": "Alphabet Inc.",
+    "totalSupply": "611566591071",
+    "multiplierWad": "1000377118676784179"
+  },
+  "nodeVersion": "anvil/v1.6.0",
+  "result": {
+    "tokenAddress": "0xBd2d2d46E4597e6A57De958Ad9b090696AD7cF24",
+    "poolId": "0x3472401a4e810af0b9a6a196ed38181d2722e2312243472be25088795b50bbc6",
+    "transactionHash": "0xb650e4660e69dc44ed1fd551765c68453091521ef96f4c2f73c953e861b07468"
+  },
+  "state": {
+    "asset": "0xBd2d2d46E4597e6A57De958Ad9b090696AD7cF24",
+    "numeraire": "0xb2000000000000000000002D0BA3164cc74f58B7",
+    "fee": 8388608,
+    "tickSpacing": 10,
+    "status": 2,
+    "poolKey": {
+      "currency0": "0xb2000000000000000000002D0BA3164cc74f58B7",
+      "currency1": "0xBd2d2d46E4597e6A57De958Ad9b090696AD7cF24",
+      "fee": 8388608,
+      "tickSpacing": 10,
+      "hooks": "0xBDF938149ac6a781F94FAa0ed45E6A0e984c6544"
+    },
+    "farTick": -887260
+  },
+  "buy": {
+    "hash": "0xba7968365c192bd38bd096568a68c760fbfdb1287bc0bd2dff619d92d8cb1738",
+    "amountIn": "100000000",
+    "quoteOut": "9189067564565507937327499",
+    "minOut": "9097176888919852857954224"
+  },
+  "bought": "9189067564565507937327499",
+  "stockSpentOnBuy": "100000000",
+  "sell": {
+    "hash": "0x8b812570a58e393a8f6707f5293b82667680a3d2f61ee0fa47de914bcf18b20e",
+    "amountIn": "4594533782282753968663749",
+    "quoteOut": "50692694",
+    "minOut": "50185767"
+  },
+  "stockFromSell": "50692694",
+  "hookClaim": "0xadf857658d311ecb99e7e620852f42bfd8f75f7bff0ea58dcecb606e589b3730",
+  "lpClaim": "0x983cf0a0f5bbd32da9e759244b63672950b28f460c86dcb23da24a4fbd054107",
+  "displayedFees": {
+    "lp": {
+      "fees0": "33249",
+      "fees1": "1557001641366158420032"
+    },
+    "trade": {
+      "fees0": "714214",
+      "fees1": "0"
+    },
+    "poolKey": {
+      "currency0": "0xb2000000000000000000002D0BA3164cc74f58B7",
+      "currency1": "0xBd2d2d46E4597e6A57De958Ad9b090696AD7cF24",
+      "fee": 8388608,
+      "tickSpacing": 10,
+      "hooks": "0xBDF938149ac6a781F94FAa0ed45E6A0e984c6544"
+    }
+  },
+  "creatorStockFees": "747463",
+  "treasuryStockFees": "320340",
+  "creatorMemeFees": "1557001641366158420032",
+  "treasuryMemeFees": "667286417728353608585",
+  "treasuryDisplayed": {
+    "lp": {
+      "fees0": "14249",
+      "fees1": "667286417728353608585"
+    },
+    "trade": {
+      "fees0": "306091",
+      "fees1": "0"
+    },
+    "poolKey": {
+      "currency0": "0xb2000000000000000000002D0BA3164cc74f58B7",
+      "currency1": "0xBd2d2d46E4597e6A57De958Ad9b090696AD7cF24",
+      "fee": 8388608,
+      "tickSpacing": 10,
+      "hooks": "0xBDF938149ac6a781F94FAa0ed45E6A0e984c6544"
+    }
+  },
+  "treasuryHookClaim": "0xd58a8d1ae541899e3b6818b2370243bec33f6bedcf9d6e157275cd05e03a53f8",
+  "treasuryLpClaim": "0xf7990fd81cfae0b86994b122ce1a25ac5df40bee9c2bc537bc54225f3471cedd",
+  "previewBuy": {
+    "hash": "0xec753ce24896f76a36cc7976136195b82abdd8ef4993c82dc8c698a18155e29c",
+    "amountIn": "1000000",
+    "quoteOut": "92003330846758281966168",
+    "minOut": "91083297538290699146506"
+  },
+  "previewFees": {
+    "lp": {
+      "fees0": "331",
+      "fees1": "293551031628482548"
+    },
+    "trade": {
+      "fees0": "347159",
+      "fees1": "0"
+    },
+    "poolKey": {
+      "currency0": "0xb2000000000000000000002D0BA3164cc74f58B7",
+      "currency1": "0xBd2d2d46E4597e6A57De958Ad9b090696AD7cF24",
+      "fee": 8388608,
+      "tickSpacing": 10,
+      "hooks": "0xBDF938149ac6a781F94FAa0ed45E6A0e984c6544"
+    }
+  },
+  "checks": [
+    "service prepare",
+    "predicted and actual pool identity",
+    "receipt registration and idempotency",
+    "server restart recovery of pending launch",
+    "service quote buy/sell",
+    "creator displayed vs actual fees",
+    "platform displayed vs actual fees",
+    "frontend claim calldata for both contracts",
+    "native B20 precompile reads without code overrides",
+    "8-decimal stock input and 18-decimal meme input balance deltas",
+    "creator and platform stock AND meme fee balance deltas"
+  ]
+}

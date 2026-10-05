@@ -1,0 +1,216 @@
+{
+  "scope": "Base mainnet read-only; not transfer, solvency, or issuance-rights verification",
+  "observedAt": "2026-10-03T14:44:22.567Z",
+  "blockNumber": "52124646",
+  "blockHash": "0x45c497b5e925fc542fb5c3a38d2092a2bdef2750ebfd9e67e8861d3cd3806c8a",
+  "blockTimestamp": "1791038639",
+  "modules": [
+    {
+      "name": "airlock",
+      "address": "0x660eAaEdEBc968f8f3694354FA8EC0b4c5Ba8D12",
+      "hasCode": true
+    },
+    {
+      "name": "tokenFactory",
+      "address": "0x89C261C05B5F9b6BcBA07C199b8DeE7cFaD45292",
+      "hasCode": true,
+      "state": 1
+    },
+    {
+      "name": "tokenImplementation",
+      "address": "0xDB7B520bb5C3a2C5d4871198081911359f93be87",
+      "hasCode": true
+    },
+    {
+      "name": "initializer",
+      "address": "0xBDF938149ac6a781F94FAa0ed45E6A0e984c6544",
+      "hasCode": true,
+      "state": 3
+    },
+    {
+      "name": "rehype",
+      "address": "0x5F9eB5f6726Fe88D5e39867967F5b833d2fA3215",
+      "hasCode": true
+    },
+    {
+      "name": "noOpGovernance",
+      "address": "0xe7dfbd5b0A2C3B4464653A9beCdc489229eF090E",
+      "hasCode": true,
+      "state": 2
+    },
+    {
+      "name": "noOpMigrator",
+      "address": "0x6ddfED58D238Ca3195E49d8ac3d4cEa6386E5C33",
+      "hasCode": true,
+      "state": 4
+    },
+    {
+      "name": "poolManager",
+      "address": "0x498581fF718922c3f8e6A244956aF099B2652b2b",
+      "hasCode": true
+    },
+    {
+      "name": "router",
+      "address": "0x6fF5693b99212Da76ad316178A184AB56D299b43",
+      "hasCode": true
+    },
+    {
+      "name": "quoter",
+      "address": "0x0d5e0F971ED27FBfF6c2837bf31316121532048D",
+      "hasCode": true
+    },
+    {
+      "name": "permit2",
+      "address": "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+      "hasCode": true
+    }
+  ],
+  "stocks": [
+    {
+      "ticker": "NVDA",
+      "address": "0xb20000000000000000000078ee7ce2fE4908108C",
+      "symbol": "NVDAc",
+      "decimals": 8,
+      "name": "NVIDIA Corporation",
+      "issuer": "Coinbase",
+      "standard": "B20",
+      "sourceUrl": "https://www.base.org/stocks",
+      "totalSupply": "1932286527944",
+      "multiplierWad": "1000537939576369481",
+      "verified": true
+    },
+    {
+      "ticker": "AAPL",
+      "address": "0xb200000000000000000000C2e324d24d7eEcd1fb",
+      "symbol": "AAPLc",
+      "decimals": 8,
+      "name": "Apple Inc.",
+      "issuer": "Coinbase",
+      "standard": "B20",
+      "sourceUrl": "https://www.base.org/stocks",
+      "totalSupply": "845315491476",
+      "multiplierWad": "1000000000000000000",
+      "verified": true
+    },
+    {
+      "ticker": "GOOGL",
+      "address": "0xb2000000000000000000002D0BA3164cc74f58B7",
+      "symbol": "GOOGLc",
+      "decimals": 8,
+      "name": "Alphabet Inc.",
+      "issuer": "Coinbase",
+      "standard": "B20",
+      "sourceUrl": "https://www.base.org/stocks",
+      "totalSupply": "939135872274",
+      "multiplierWad": "1000377118676784179",
+      "verified": true
+    },
+    {
+      "ticker": "META",
+      "address": "0xb2000000000000000000008bC8786B856E61707C",
+      "symbol": "METAc",
+      "decimals": 8,
+      "name": "Meta Platforms Inc.",
+      "issuer": "Coinbase",
+      "standard": "B20",
+      "sourceUrl": "https://www.base.org/stocks",
+      "totalSupply": "531633316071",
+      "multiplierWad": "1000313792289598084",
+      "verified": true
+    },
+    {
+      "ticker": "AMZN",
+      "address": "0xb200000000000000000000d9192b6B456483C2E8",
+      "symbol": "AMZNc",
+      "decimals": 8,
+      "name": "Amazon.com Inc.",
+      "issuer": "Coinbase",
+      "standard": "B20",
+      "sourceUrl": "https://www.base.org/stocks",
+      "totalSupply": "991628027926",
+      "multiplierWad": "1000000000000000000",
+      "verified": true
+    },
+    {
+      "ticker": "MSFT",
+      "address": "0xB200000000000000000000Ab99cFa739E253872B",
+      "symbol": "MSFTc",
+      "decimals": 8,
+      "name": "Microsoft Corporation",
+      "issuer": "Coinbase",
+      "standard": "B20",
+      "sourceUrl": "https://www.base.org/stocks",
+      "totalSupply": "302982492071",
+      "multiplierWad": "1000000000000000000",
+      "verified": true
+    },
+    {
+      "ticker": "MSTR",
+      "address": "0xb2000000000000000000004884b426556b92883d",
+      "symbol": "MSTRc",
+      "decimals": 8,
+      "name": "Strategy Inc.",
+      "issuer": "Coinbase",
+      "standard": "B20",
+      "sourceUrl": "https://www.base.org/stocks",
+      "totalSupply": "1053586661733",
+      "multiplierWad": "1000000000000000000",
+      "verified": true
+    },
+    {
+      "ticker": "SNDK",
+      "address": "0xb200000000000000000000397293Cb8cda9a10c5",
+      "symbol": "SNDKc",
+      "decimals": 8,
+      "name": "Sandisk Corporation",
+      "issuer": "Coinbase",
+      "standard": "B20",
+      "sourceUrl": "https://www.base.org/stocks",
+      "totalSupply": "92115705272",
+      "multiplierWad": "1000000000000000000",
+      "verified": true
+    },
+    {
+      "ticker": "SPCX",
+      "address": "0xb2000000000000000000007b9fcbd005511aCBd5",
+      "symbol": "SPCXc",
+      "decimals": 8,
+      "name": "Space Exploration Technologies Corp.",
+      "issuer": "Coinbase",
+      "standard": "B20",
+      "sourceUrl": "https://www.base.org/stocks",
+      "totalSupply": "984903803964",
+      "multiplierWad": "1000000000000000000",
+      "verified": true
+    },
+    {
+      "ticker": "TSLA",
+      "address": "0xb2000000000000000000001e800a7f5189430cD0",
+      "symbol": "TSLAc",
+      "decimals": 8,
+      "name": "Tesla Inc.",
+      "issuer": "Coinbase",
+      "standard": "B20",
+      "sourceUrl": "https://www.base.org/stocks",
+      "totalSupply": "548454458201",
+      "multiplierWad": "1000000000000000000",
+      "verified": true
+    }
+  ],
+  "simulations": [
+    {
+      "ticker": "NVDA",
+      "quoteAddress": "0xb20000000000000000000078ee7ce2fE4908108C",
+      "method": "eth_call",
+      "success": true,
+      "predictedToken": "0x416e1D6FbD1858F6036649BD41193B3C2e0F707f"
+    },
+    {
+      "ticker": "GOOGL",
+      "quoteAddress": "0xb2000000000000000000002D0BA3164cc74f58B7",
+      "method": "eth_call",
+      "success": true,
+      "predictedToken": "0xC3A6785f478A497bE3F06241bF133E761208dbdD"
+    }
+  ]
+}

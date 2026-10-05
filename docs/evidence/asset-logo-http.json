@@ -1,0 +1,1592 @@
+{
+  "observedAt": "2026-10-04T03:29:45.213Z",
+  "scope": "Local production static images, HTTP image types and exact reviewed hashes",
+  "passed": 198,
+  "failed": 0,
+  "checks": [
+    {
+      "ticker": "AAOI",
+      "path": "/asset-logos/AAOI.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "30b9bfb6111413f7737b0f50e0f356b93d54b14c44f68bdaa23cdedd3cbcde04",
+      "bytes": 8063
+    },
+    {
+      "ticker": "AAPL",
+      "path": "/asset-logos/AAPL.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "2d754775796b8457afcd46ac105da51be5c355fa05bbcdef9f726b03eb53a3f8",
+      "bytes": 606
+    },
+    {
+      "ticker": "ABCL",
+      "path": "/asset-logos/ABCL.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "08b99501b281c484eb8c72ff5a5f2f42c7b3966252d593d6a026079c6d2534dd",
+      "bytes": 5171
+    },
+    {
+      "ticker": "ADBE",
+      "path": "/asset-logos/ADBE.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "6e57bca79840d4693637f2f30c389455e74b101cd755acf4e6e0cd35dd7e9ee1",
+      "bytes": 4301
+    },
+    {
+      "ticker": "AEHR",
+      "path": "/asset-logos/AEHR.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "5f1fc6fb65ae8c0764856288fbbb41d18d94517ac1080a033250ae950bcb47dd",
+      "bytes": 731
+    },
+    {
+      "ticker": "AEIS",
+      "path": "/asset-logos/AEIS.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "70aec8a6be3f715980350889b9e3e843fdd87e3b9745122e17bf8980541a4b4c",
+      "bytes": 5281
+    },
+    {
+      "ticker": "ALAB",
+      "path": "/asset-logos/ALAB.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "311ac14a95db2532d6c01f396365c631f7a2f93f3958bffb02d5fec0d1ac1e5f",
+      "bytes": 5745
+    },
+    {
+      "ticker": "AMAT",
+      "path": "/asset-logos/AMAT.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "c4b44d24f81a746d111bae2d072ca7ac3c0fcbda39184e00668031ad99fc8c9c",
+      "bytes": 5731
+    },
+    {
+      "ticker": "AMBA",
+      "path": "/asset-logos/AMBA.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "17fcbc12bb373d1e74a5a717125eea84752251e46e4d450fb89c66544f27747d",
+      "bytes": 5618
+    },
+    {
+      "ticker": "AMC",
+      "path": "/asset-logos/AMC.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "ed6ed38c50aa9ae0825e1a3895e491310c292162c6116ca10d1248a67e0b5c99",
+      "bytes": 3514
+    },
+    {
+      "ticker": "AMD",
+      "path": "/asset-logos/AMD.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "89d7527d8a589222d6ed015dde2f6b2cacaf9be598074ca0fdfc778c00bfebce",
+      "bytes": 558
+    },
+    {
+      "ticker": "AMKR",
+      "path": "/asset-logos/AMKR.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "2ce4ad2f15c614e40b54b03be934c9225698baa3376a03d27aaf1dde024433d6",
+      "bytes": 5730
+    },
+    {
+      "ticker": "AMZN",
+      "path": "/asset-logos/AMZN.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "89bc323904320b9c8cfc5dd3cf3b5243f11b6517121f7bcfc41bfb48b4ce38f2",
+      "bytes": 835
+    },
+    {
+      "ticker": "ANET",
+      "path": "/asset-logos/ANET.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "82bf495355f13885b285ff0eb20c80f02d3bcbcc1cc76792891d9e5d9bdc0eab",
+      "bytes": 2399
+    },
+    {
+      "ticker": "APLD",
+      "path": "/asset-logos/APLD.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "68e88642d45640e0afa4563eed9ef3947912f7f6d2800c683c6f56ba8f26188e",
+      "bytes": 10609
+    },
+    {
+      "ticker": "APP",
+      "path": "/asset-logos/APP.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "cb904d33c6fb9c5ebf08e787dba2b6d29db53270c1c2199def1443e39f5ef9a4",
+      "bytes": 4029
+    },
+    {
+      "ticker": "ASML",
+      "path": "/asset-logos/ASML.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "f5ccc6f303e12c53db019fbec6278ee735e2572eef5aa67ab635e05702cc245c",
+      "bytes": 17838
+    },
+    {
+      "ticker": "ASTS",
+      "path": "/asset-logos/ASTS.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "24bdbe295fecf6a9f8c3f39be709fb8ce4e3b65f9ad1164b0045d03464f26e82",
+      "bytes": 1438
+    },
+    {
+      "ticker": "AUR",
+      "path": "/asset-logos/AUR.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "31ad54c0ed24bab14ec2f3edee2e6cd21402d8299cf8ccea74b027ff7a7a3f5a",
+      "bytes": 1531
+    },
+    {
+      "ticker": "AVAV",
+      "path": "/asset-logos/AVAV.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "0b97df216f2b25e0756f0f1e310c7a8e4fec2007142dc3a72b55639fed8f7c7a",
+      "bytes": 4479
+    },
+    {
+      "ticker": "AVGO",
+      "path": "/asset-logos/AVGO.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "79e5f0a95a8824fecd271df9627562f8c275de7e6525acb0e2256e0878e74a55",
+      "bytes": 7313
+    },
+    {
+      "ticker": "AXON",
+      "path": "/asset-logos/AXON.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "793a96e0fe5a6dac7c98087ae89796e99d3b81d8719a2c9c173340229f75fbf4",
+      "bytes": 3235
+    },
+    {
+      "ticker": "AXTI",
+      "path": "/asset-logos/AXTI.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "d98853d62e7076211a21b55c5261fc465a88a70e4906cfa0669b5afd282bd27f",
+      "bytes": 3531
+    },
+    {
+      "ticker": "BA",
+      "path": "/asset-logos/BA.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "c47a4dd1b5af7ef8f68a9e43dd8b6b6a65a485c35633fc3f72f0eb720c112d66",
+      "bytes": 4687
+    },
+    {
+      "ticker": "BABA",
+      "path": "/asset-logos/BABA.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "5a7e3b5063c20db01cf7121d709bbf2bc730d9e655b58bfce82002f6e53d132c",
+      "bytes": 724
+    },
+    {
+      "ticker": "BB",
+      "path": "/asset-logos/BB.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "7fa97b21dfe4a85d7d5c2800eea22f62e53ddd251251502039eba5afa7bf6723",
+      "bytes": 3125
+    },
+    {
+      "ticker": "BE",
+      "path": "/asset-logos/BE.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "033f699af6d0093c9d7462fd5828b2c91591a02e60e7e9bf491a50ed610063e5",
+      "bytes": 939
+    },
+    {
+      "ticker": "BND",
+      "path": "/asset-logos/BND.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "2e3c9b60c7795cc9b6eda314f9b4db736c83bdfd419d124a833e1b37ce7218b8",
+      "bytes": 8004
+    },
+    {
+      "ticker": "BULL",
+      "path": "/asset-logos/BULL.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "5237cbf7afb8c5a29448e3127dbab9086c1b137e53fd306267982c6fef99a6aa",
+      "bytes": 16457
+    },
+    {
+      "ticker": "cbBTC",
+      "path": "/asset-logos/cbBTC.svg",
+      "status": 200,
+      "contentType": "image/svg+xml",
+      "sha256": "c08e8d3a4bfbb24dc8075b1783bb55a7ed62cd8c620787ab3602b0730a68256e",
+      "bytes": 1164
+    },
+    {
+      "ticker": "CBRS",
+      "path": "/asset-logos/CBRS.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "c606b375fad5d6d7c2b19e9b0bc4f490a452c6babfdd19b4decfa17651de71b1",
+      "bytes": 4240
+    },
+    {
+      "ticker": "CCL",
+      "path": "/asset-logos/CCL.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "925f188ad80b285a2ed61a17b793fcbf7a7d26bc841da79d79e232a16762d7a2",
+      "bytes": 4170
+    },
+    {
+      "ticker": "CEG",
+      "path": "/asset-logos/CEG.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "e59f878141fdf206f178064a2069a8ecb7878eb820c704ac9420a49ec317747c",
+      "bytes": 3831
+    },
+    {
+      "ticker": "CELH",
+      "path": "/asset-logos/CELH.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "5dfa316aafa463d54bcf36f609663bcf46c31e332996074b1ae01fc59e3e998d",
+      "bytes": 5566
+    },
+    {
+      "ticker": "CIEN",
+      "path": "/asset-logos/CIEN.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "85278cc5df3ffbacd9581b3b10d9bca4407d9087098dfe7e96d284989de02f4c",
+      "bytes": 8740
+    },
+    {
+      "ticker": "CLOV",
+      "path": "/asset-logos/CLOV.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "7a86e7f6fe5441ae9f001d2aba46185e3dcfd44f1ffd753e1606ef7fa7c2595d",
+      "bytes": 9846
+    },
+    {
+      "ticker": "CLS",
+      "path": "/asset-logos/CLS.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "e2c5ac626d526de15e0267bedb336ce0559592ac5e07ee3839cbd539e12f7397",
+      "bytes": 18996
+    },
+    {
+      "ticker": "CLSK",
+      "path": "/asset-logos/CLSK.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "f05a834804570a58493c88b81700c43d2fa8e62fc796e5def8579c32b2305e42",
+      "bytes": 15407
+    },
+    {
+      "ticker": "COHR",
+      "path": "/asset-logos/COHR.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "552ea7f575ce243ab9c330815c12cebedb7ecd585ad7fed333069a921b3768e3",
+      "bytes": 3060
+    },
+    {
+      "ticker": "COIN",
+      "path": "/asset-logos/COIN.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "21e675904ae589f3fd7859bcdbaec7e2e449dc3cc10f87644e99f43a8fe0d54c",
+      "bytes": 3598
+    },
+    {
+      "ticker": "COST",
+      "path": "/asset-logos/COST.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "eafb8eb8d28df955ded6165fca73bacead072841df086943291052f9dd3de30a",
+      "bytes": 7046
+    },
+    {
+      "ticker": "CRCL",
+      "path": "/asset-logos/CRCL.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "2f896f7a08d098a4fbfeff30d1025aabef0334d8f0a13662f5a980d503b44291",
+      "bytes": 3765
+    },
+    {
+      "ticker": "CRDO",
+      "path": "/asset-logos/CRDO.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "d081abb463bbe92138fd933bf17a4b458a98ec0f489c6713df13ac0f5f89daad",
+      "bytes": 13573
+    },
+    {
+      "ticker": "CRM",
+      "path": "/asset-logos/CRM.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "7a4333ed6f974bd61929f656fb73d749c29275a5e6ea847f56198b52657a4171",
+      "bytes": 5947
+    },
+    {
+      "ticker": "CRWD",
+      "path": "/asset-logos/CRWD.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "850866bea33ab5827e0cea49032968283618c86f077010e48fdc7045d28e03f5",
+      "bytes": 4078
+    },
+    {
+      "ticker": "CRWV",
+      "path": "/asset-logos/CRWV.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "c8d44c8ef580b0c573c5b1232325efbb97e042b5961afacff869da64d8889cba",
+      "bytes": 9927
+    },
+    {
+      "ticker": "CSCO",
+      "path": "/asset-logos/CSCO.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "06a7d7d036efd8d50f1202a959a4954ebc4457b96980a824fd54faf5ca2c4210",
+      "bytes": 6174
+    },
+    {
+      "ticker": "CTSH",
+      "path": "/asset-logos/CTSH.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "725a2aa3f3de86c7a4008dadd5309bb5c497ce4b0ee52429284e8f8dfeeac4dc",
+      "bytes": 2750
+    },
+    {
+      "ticker": "CVNA",
+      "path": "/asset-logos/CVNA.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "99c24f82503f6bb80d7ed5743a133ea4cebb5c4a3c17c4aa91311360723b273e",
+      "bytes": 13957
+    },
+    {
+      "ticker": "DDOG",
+      "path": "/asset-logos/DDOG.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "4606ca3c82026d9a43550abf4809fc3c8475b67acbf5d4e4c2a528149e81ad55",
+      "bytes": 6781
+    },
+    {
+      "ticker": "DELL",
+      "path": "/asset-logos/DELL.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "01620cc084b3d6aecfd1b0d22915cccf4cbef83de20ae8ea5f0502cc1999dbbb",
+      "bytes": 8706
+    },
+    {
+      "ticker": "DJT",
+      "path": "/asset-logos/DJT.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "fb58f59bb4a9a36e00f72fd60c574fd6e2db73b496dc6e1401384b068c21ada6",
+      "bytes": 3692
+    },
+    {
+      "ticker": "DOCN",
+      "path": "/asset-logos/DOCN.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "1f20fcc41bb50cd06179fe62c691279ff631076e972e8f93df98e71f3d6b892b",
+      "bytes": 4313
+    },
+    {
+      "ticker": "ELF",
+      "path": "/asset-logos/ELF.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "01656e3c23c51bed52b47aa04d2d0572b725afaa710eeab8ff18465b8aaccc2d",
+      "bytes": 8131
+    },
+    {
+      "ticker": "EWT",
+      "path": "/asset-logos/EWT.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "4c971025a99b3022dc4f1773f144f5b8c816feb196e7179cac40ed09fbb9d3bb",
+      "bytes": 5258
+    },
+    {
+      "ticker": "EWY",
+      "path": "/asset-logos/EWY.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "4c971025a99b3022dc4f1773f144f5b8c816feb196e7179cac40ed09fbb9d3bb",
+      "bytes": 5258
+    },
+    {
+      "ticker": "F",
+      "path": "/asset-logos/F.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "2dc8726431e8222a4f6f7ed997148e3a575e393cb64533e8c16e86380fde33c3",
+      "bytes": 4716
+    },
+    {
+      "ticker": "FICO",
+      "path": "/asset-logos/FICO.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "5c9284864edf389f800e6dcaeb809e7b6813cc8e991b9c1b7d7a83884aca243d",
+      "bytes": 4139
+    },
+    {
+      "ticker": "FIG",
+      "path": "/asset-logos/FIG.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "cf8bda1e1e8e263b5f9d096ff2af1d8f63bdb040ac7dd69587199b4fc9d34657",
+      "bytes": 6846
+    },
+    {
+      "ticker": "FISV",
+      "path": "/asset-logos/FISV.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "6d477d31478429c420eb9ee21ba96a69f9aa466d1ba41e430c16c95f83ba5acf",
+      "bytes": 3659
+    },
+    {
+      "ticker": "FIX",
+      "path": "/asset-logos/FIX.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "1b51b9883a8607c8d603c1aa397eabffff01710e8833e57630727acd9db79d6c",
+      "bytes": 3105
+    },
+    {
+      "ticker": "FLNC",
+      "path": "/asset-logos/FLNC.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "7bd45a73d8155b99edb265ad3e6897f1004491a4d9a5cf8bf15a32faf0656d31",
+      "bytes": 2627
+    },
+    {
+      "ticker": "FLY",
+      "path": "/asset-logos/FLY.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "adf6c8eac2e302af545c4b29a82f8d6f9ab9180d8db1e7a6a1b93983f49da3aa",
+      "bytes": 17992
+    },
+    {
+      "ticker": "FTNT",
+      "path": "/asset-logos/FTNT.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "f87c2bd0b6c56c41b40d1561bec876384841f9f92405aaf3e753a3b8faf3cfb1",
+      "bytes": 2666
+    },
+    {
+      "ticker": "FUTU",
+      "path": "/asset-logos/FUTU.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "4cc3179742ba4c718312a315eaf215c27b8273ae2bd4b482bea7dfac8c511eb3",
+      "bytes": 7361
+    },
+    {
+      "ticker": "GE",
+      "path": "/asset-logos/GE.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "6f0608448a5281687cc4981d11889b23f279afadcc5a5ef1ea9efee95fbdfd1c",
+      "bytes": 14983
+    },
+    {
+      "ticker": "GEV",
+      "path": "/asset-logos/GEV.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "56896a81068fd8a04061e2c9d139989381452e61dea3922566804b2dab3c4001",
+      "bytes": 2822
+    },
+    {
+      "ticker": "GLD",
+      "path": "/asset-logos/GLD.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "d58b0e4c4f2580bf2dccdb14aa5c7985527fbd59534a5f6a38def93528f3eb25",
+      "bytes": 22737
+    },
+    {
+      "ticker": "GLW",
+      "path": "/asset-logos/GLW.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "7b9c664c7cf4ecdc53549d3a593756decbf3d2385db147754c5fe363ccf32819",
+      "bytes": 4464
+    },
+    {
+      "ticker": "GLXY",
+      "path": "/asset-logos/GLXY.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "b2b246dcd68f03541ec7ca420ddbeff970b10d451d5058de7fd14aa6c2fc8f1b",
+      "bytes": 7046
+    },
+    {
+      "ticker": "GME",
+      "path": "/asset-logos/GME.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "a062701bc3fcf2057386bc9b2d50ff1aac488fca5b4bf8c1903e8eeff74d1499",
+      "bytes": 2898
+    },
+    {
+      "ticker": "GOOGL",
+      "path": "/asset-logos/GOOGL.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "5b44fe4d837d6f5e99b49aa57b6b419ca4c92a06b4503ca8d71663ab382de3bf",
+      "bytes": 5094
+    },
+    {
+      "ticker": "HII",
+      "path": "/asset-logos/HII.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "3227184253b97c5d674b468b483fcb5c399de3e91c00af66d89ab175071d2c41",
+      "bytes": 1493
+    },
+    {
+      "ticker": "HIMS",
+      "path": "/asset-logos/HIMS.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "9eefed81611948491383eb75c98c38037f13622eda508347f743bd4b72eb2d61",
+      "bytes": 17369
+    },
+    {
+      "ticker": "HPE",
+      "path": "/asset-logos/HPE.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "cc90464362cd4814eb0e13f5753a79d07d552f372b6eca80a96eec0aa89ae51e",
+      "bytes": 1348
+    },
+    {
+      "ticker": "HWM",
+      "path": "/asset-logos/HWM.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "49b498ef37e809623e846d241fcd65ce4b04cbc6cf8c23a402f1de18e9e93769",
+      "bytes": 3538
+    },
+    {
+      "ticker": "IBM",
+      "path": "/asset-logos/IBM.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "ca59c3fcce94d89ab98ff5f6de45d33a717bde49b0f2f0058935e24c1b59229b",
+      "bytes": 2781
+    },
+    {
+      "ticker": "IBRX",
+      "path": "/asset-logos/IBRX.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "e572a7131c021df645a5d11ac3b84cd233e1a0c53dfaa541c2d89e9ec79d1f57",
+      "bytes": 16254
+    },
+    {
+      "ticker": "INDA",
+      "path": "/asset-logos/INDA.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "4c971025a99b3022dc4f1773f144f5b8c816feb196e7179cac40ed09fbb9d3bb",
+      "bytes": 5258
+    },
+    {
+      "ticker": "INFQ",
+      "path": "/asset-logos/INFQ.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "b7d3841feeb2a5164b903b56181fbaf489d4a293e6fa93003f99499b5b09ae8e",
+      "bytes": 3612
+    },
+    {
+      "ticker": "INOD",
+      "path": "/asset-logos/INOD.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "2970c3da3fd67fd12046ce3c92e6a5a46e2d0f360e423cfd59fa0ba88a51c70d",
+      "bytes": 15452
+    },
+    {
+      "ticker": "INTC",
+      "path": "/asset-logos/INTC.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "fa59b43779d3aa510dae27cd9bce07f28b22e238458a8c7ecb6e88491de1b0d3",
+      "bytes": 653
+    },
+    {
+      "ticker": "INTU",
+      "path": "/asset-logos/INTU.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "cffe3e8908274dcd99ade7cd6176be9cf7b14d6f07ca06611cb08de597eab481",
+      "bytes": 2530
+    },
+    {
+      "ticker": "IONQ",
+      "path": "/asset-logos/IONQ.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "1ac6052881c06b4d3d5817e31ed45b01769ec98d49d64cc0e336d879701397ae",
+      "bytes": 5282
+    },
+    {
+      "ticker": "IREN",
+      "path": "/asset-logos/IREN.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "ee6a83952278fdffa9d01eca3c14c63bcc428ffb9cf774029db6576ffb084984",
+      "bytes": 16510
+    },
+    {
+      "ticker": "JBL",
+      "path": "/asset-logos/JBL.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "e973be2e8392dc63c3be3a861c399b266b12c151488d8f1df9eaa02d2bcb771b",
+      "bytes": 3396
+    },
+    {
+      "ticker": "JNJ",
+      "path": "/asset-logos/JNJ.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "60b3f6d05b8037673c188c082d4cc122b7e96bdd075d4d86c284edb4ff84e50c",
+      "bytes": 2612
+    },
+    {
+      "ticker": "JOBY",
+      "path": "/asset-logos/JOBY.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "2a93f398738bc848fbf9c5594ab5eeacc5343663a90cae0f03726d2e3f43bd33",
+      "bytes": 4497
+    },
+    {
+      "ticker": "KLAC",
+      "path": "/asset-logos/KLAC.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "9722a7a6086971556267c799672458e41640f5c87ec224e5d00c698f363b6121",
+      "bytes": 1935
+    },
+    {
+      "ticker": "KSS",
+      "path": "/asset-logos/KSS.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "1a495532fd393fd2757b74918e820ee50dfb1b90ee3ada5891dc4dd4b9609ed7",
+      "bytes": 2287
+    },
+    {
+      "ticker": "KTOS",
+      "path": "/asset-logos/KTOS.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "d3a5b740c6a42df5ccd624820cd753247f65bba9cc4b4877c5d278e59fc5beca",
+      "bytes": 5719
+    },
+    {
+      "ticker": "LHX",
+      "path": "/asset-logos/LHX.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "c16d85cbdcc7b4007515b70967dd131d7a8cea1ee8141dd5a627e9400b6d0667",
+      "bytes": 3138
+    },
+    {
+      "ticker": "LITE",
+      "path": "/asset-logos/LITE.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "58499df1eecc687d19cf9f74ef8f49e560acdfc70a21645e36f813f657451bd0",
+      "bytes": 9918
+    },
+    {
+      "ticker": "LLY",
+      "path": "/asset-logos/LLY.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "1f3068d038693f85b5ae58bb44bacb5138f22095fb9fca9d5555a9092d7d20d3",
+      "bytes": 5186
+    },
+    {
+      "ticker": "LMT",
+      "path": "/asset-logos/LMT.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "42bd089fc112354add4041a33c2d54b6f80292f7065e8853501102903e4938c2",
+      "bytes": 2428
+    },
+    {
+      "ticker": "LRCX",
+      "path": "/asset-logos/LRCX.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "66efa957034906c1ea7e942432c3c6d4670f06d31710ecdf745f6c78e743ea22",
+      "bytes": 6741
+    },
+    {
+      "ticker": "LULU",
+      "path": "/asset-logos/LULU.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "0ce6aa8860945d963cb799fbc22f03b5a8058b35fa26cb626bdf87066dc8d848",
+      "bytes": 8107
+    },
+    {
+      "ticker": "LUNR",
+      "path": "/asset-logos/LUNR.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "92dfec9297e9616951390289c5c3a611115bf67dcaf3e9491a9e77b6b94b444d",
+      "bytes": 3260
+    },
+    {
+      "ticker": "MDB",
+      "path": "/asset-logos/MDB.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "ddfea4c9ef6564059ad09159b864a1f8c5735673fc8060ebedaa6b2f7db2fd53",
+      "bytes": 4033
+    },
+    {
+      "ticker": "META",
+      "path": "/asset-logos/META.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "a3e388c1c46959fe8a77a0f82cca95d52214a86720594568035a51fe8c81a6bf",
+      "bytes": 1931
+    },
+    {
+      "ticker": "MOD",
+      "path": "/asset-logos/MOD.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "ce1664a48a5e556247375b80a3b46ba36abf27bd61cae5fa722e2f790a70be4d",
+      "bytes": 3154
+    },
+    {
+      "ticker": "MPWR",
+      "path": "/asset-logos/MPWR.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "3630c7a580a4d1d8e3d9070512059030b44de3494a9a3a8f70e617bc5f334766",
+      "bytes": 1583
+    },
+    {
+      "ticker": "MRNA",
+      "path": "/asset-logos/MRNA.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "4dc123fc8d31db52b574663ea178be0c031e11a7949ed154a16754730904af09",
+      "bytes": 2974
+    },
+    {
+      "ticker": "MRVL",
+      "path": "/asset-logos/MRVL.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "1ea180d5633b45786b3f83f03305320d9d33606ad75f3fb1b3bace9e244ac33a",
+      "bytes": 2441
+    },
+    {
+      "ticker": "MSFT",
+      "path": "/asset-logos/MSFT.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "b80e679046268e722888cb99736e49e24b1525ac1d055b1cf50d0d75cceee550",
+      "bytes": 380
+    },
+    {
+      "ticker": "MSTR",
+      "path": "/asset-logos/MSTR.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "dbc5c51d02a5197f5c90cbee1388d9df50436ae507cb0f270fd2bd56d3c40408",
+      "bytes": 4958
+    },
+    {
+      "ticker": "MTSI",
+      "path": "/asset-logos/MTSI.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "38a5e106ba99f24173801aa8d8c97a43ac1cda8d5dd429ec7f8e396b372ba144",
+      "bytes": 4231
+    },
+    {
+      "ticker": "MU",
+      "path": "/asset-logos/MU.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "438cfd9d81dd1c93ea502ebf26bc23815d9e1b13ac43404f5a6f0ca3d4a9d258",
+      "bytes": 680
+    },
+    {
+      "ticker": "MUSEGOD",
+      "path": "/asset-logos/MUSEGOD.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "98b55e32d4619be5329ba589c7f17a24d44dde82d5853e3bd1e73ad2f4ab5840",
+      "bytes": 80800
+    },
+    {
+      "ticker": "MXL",
+      "path": "/asset-logos/MXL.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "995002da904d192c302be081c0e9190aa37c6226b0bb793f3e6186764998071e",
+      "bytes": 3823
+    },
+    {
+      "ticker": "NAVN",
+      "path": "/asset-logos/NAVN.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "5a8e67f253db3a6a36813c39cc4376bc5ed1b22e75467b1ab5fc5d9f50ae8644",
+      "bytes": 3274
+    },
+    {
+      "ticker": "NBIS",
+      "path": "/asset-logos/NBIS.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "c2d8b049c17a2511cf288a97ebe3763de35843970d61ba657df8cdb89c1832e1",
+      "bytes": 1490
+    },
+    {
+      "ticker": "NET",
+      "path": "/asset-logos/NET.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "e45fd8edf567f20eaefef448312cb19d83bbb06f19ca554e74a61e4c6bc57c34",
+      "bytes": 3487
+    },
+    {
+      "ticker": "NFLX",
+      "path": "/asset-logos/NFLX.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "411a9bef0961b22cef324a5cb396cd841afaef3f0ad255692032a50c0ee5c90d",
+      "bytes": 3686
+    },
+    {
+      "ticker": "NNE",
+      "path": "/asset-logos/NNE.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "3aa53886855967ef9a159913f098b68400d45568d91443fa9964fb20c9ca6c26",
+      "bytes": 7803
+    },
+    {
+      "ticker": "NOW",
+      "path": "/asset-logos/NOW.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "db7006886b98e52bf48d2f8e05cca7f494f27fe263670b5975194acf2589e154",
+      "bytes": 2754
+    },
+    {
+      "ticker": "NU",
+      "path": "/asset-logos/NU.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "ad184fde98bfc27f3df17631fb413ed60e8a15b10c88c08b6f9abb6497428a6f",
+      "bytes": 16095
+    },
+    {
+      "ticker": "NVDA",
+      "path": "/asset-logos/NVDA.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "77a8862fa5b6f69f0d1e006f959109bf6b447884e7f4fd68d0d7a4baa6fe1592",
+      "bytes": 856
+    },
+    {
+      "ticker": "NVTS",
+      "path": "/asset-logos/NVTS.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "8496959bcd47ef4d8ee71864b60e1be93f19f3036010069452cfb69931a4e88d",
+      "bytes": 18155
+    },
+    {
+      "ticker": "OKLO",
+      "path": "/asset-logos/OKLO.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "aba0dd6b16eda54d1b0cc06ea47eb01aa2bcdcd32f97644e310e59826e6c7121",
+      "bytes": 10853
+    },
+    {
+      "ticker": "ON",
+      "path": "/asset-logos/ON.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "7dfe29fde8bd7c435010987c37fbefd7ecdb49505c3f4cba52b560f3f331b593",
+      "bytes": 4872
+    },
+    {
+      "ticker": "ONTO",
+      "path": "/asset-logos/ONTO.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "bfab798bd0eeae7574723477b658ab2ef0100f808ebe622723638373c209c778",
+      "bytes": 2831
+    },
+    {
+      "ticker": "ORCL",
+      "path": "/asset-logos/ORCL.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "6b75e289726a221080505bcc4c7e363e10f214db0f83aa34b4985a8104bbacc3",
+      "bytes": 657
+    },
+    {
+      "ticker": "OUST",
+      "path": "/asset-logos/OUST.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "0bb79b58d7af273b916e2b64c19daf1f2d4164b821c93bc5b4eb9b3680f84c53",
+      "bytes": 6123
+    },
+    {
+      "ticker": "P",
+      "path": "/asset-logos/P.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "e74f009797c55a7479c39d2e222a466435dc4c6818ac9c9f909d5e670b8bdfd7",
+      "bytes": 6218
+    },
+    {
+      "ticker": "PANW",
+      "path": "/asset-logos/PANW.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "eaa8b2c5995092f913aa43f28a37f587a57dce8c3a2bfbb7fdaefd6f34c15836",
+      "bytes": 5206
+    },
+    {
+      "ticker": "PATH",
+      "path": "/asset-logos/PATH.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "253b5df683c5b7a5c87f924f7ed8d05ce6d86bac9cfa30152e2b2cee735f495b",
+      "bytes": 3934
+    },
+    {
+      "ticker": "PENG",
+      "path": "/asset-logos/PENG.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "a50c6b4a06158f2c0fd2754f44595ddb59d43cfa3d8bbe53f8d3e1ecc28ef0e6",
+      "bytes": 17990
+    },
+    {
+      "ticker": "PFE",
+      "path": "/asset-logos/PFE.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "a5c5cae18b88d05272454d1c17b1a94a3af08ffa9929586046dd17bbd91435c3",
+      "bytes": 4190
+    },
+    {
+      "ticker": "PL",
+      "path": "/asset-logos/PL.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "e9fb09eecc5eb7213bd75c25dc29319d26f622ebfd33c6daf0d31f50171f4dde",
+      "bytes": 6366
+    },
+    {
+      "ticker": "PLTR",
+      "path": "/asset-logos/PLTR.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "39e630d29cef44e92b452f10eae611524fcee38f2bf891f377652ed98157a0b5",
+      "bytes": 790
+    },
+    {
+      "ticker": "POET",
+      "path": "/asset-logos/POET.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "488f9a019a5c5f1b130b0574d6b3c9b5615c6dc83083dc5ec0788af412bfc2fb",
+      "bytes": 2829
+    },
+    {
+      "ticker": "POWL",
+      "path": "/asset-logos/POWL.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "f6cab2326138599870f13b498d0c0bf92876043e53539e67965aac859051cdfc",
+      "bytes": 2189
+    },
+    {
+      "ticker": "PR",
+      "path": "/asset-logos/PR.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "152321f9484e2754d37e3a800bf12e63bfd8f88f183389f37dd0ff9f804286cc",
+      "bytes": 21021
+    },
+    {
+      "ticker": "PWR",
+      "path": "/asset-logos/PWR.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "d70f481ea40a8aa39780c3b8729cdad5f6774a064512541ac779a2453c9e1612",
+      "bytes": 6811
+    },
+    {
+      "ticker": "QBTS",
+      "path": "/asset-logos/QBTS.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "e725218794030d71398ccfa8776a8cec4859bfc05bbe85cc9553a2ae6a3be941",
+      "bytes": 2010
+    },
+    {
+      "ticker": "QCOM",
+      "path": "/asset-logos/QCOM.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "e0f41f529001e45331413552edbadb01a0c36a0a84e82ffa1ee714b20c4a639d",
+      "bytes": 6813
+    },
+    {
+      "ticker": "QQQ",
+      "path": "/asset-logos/QQQ.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "d8525b3f7d8cc9c921e8e4cceb89bd0d2d07e860717f83bae11d4c6852b105d8",
+      "bytes": 11683
+    },
+    {
+      "ticker": "QUBT",
+      "path": "/asset-logos/QUBT.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "b16a3ea7d078ead3157837d2983ed6d12b945655ba2b9a8f7158a347990d5bb5",
+      "bytes": 8569
+    },
+    {
+      "ticker": "RBLX",
+      "path": "/asset-logos/RBLX.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "30886c2dbaac9a5c100bed92e7cf2c0aa216c5f9e720e51e9642f8ca8db23d12",
+      "bytes": 3563
+    },
+    {
+      "ticker": "RCAT",
+      "path": "/asset-logos/RCAT.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "6e5fb6625147e189347848cee5d45649272ec9f2627f53c2514e0c05f101424e",
+      "bytes": 17528
+    },
+    {
+      "ticker": "RDDT",
+      "path": "/asset-logos/RDDT.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "4c7fda71be239e644aa0fa44481d4c57b6a0a6abe37dd759984b0425fbe58e27",
+      "bytes": 6964
+    },
+    {
+      "ticker": "RDW",
+      "path": "/asset-logos/RDW.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "4467ddea126889362a85a8c25d1fc22a445ddb666a2b83e86e0c0287caa45915",
+      "bytes": 5498
+    },
+    {
+      "ticker": "RGTI",
+      "path": "/asset-logos/RGTI.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "cbcd7b2125e9d2bf49cb8a37096750ee9ad9e6455f23321ba1472aceb82a68dc",
+      "bytes": 5471
+    },
+    {
+      "ticker": "RIVN",
+      "path": "/asset-logos/RIVN.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "93b489d194a19dc8790946245b6c7c227f88e5f44b9c7d19d39b2e307918d937",
+      "bytes": 2500
+    },
+    {
+      "ticker": "RKLB",
+      "path": "/asset-logos/RKLB.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "6fde41eef501d519e936d819f28b5218d9ef31298b2bc861b10eda9b275abb63",
+      "bytes": 3915
+    },
+    {
+      "ticker": "RUN",
+      "path": "/asset-logos/RUN.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "532203d7a73067c49a9441f7a039a4d6a7dae697517161fe6571e447d1fe12f1",
+      "bytes": 13685
+    },
+    {
+      "ticker": "SATS",
+      "path": "/asset-logos/SATS.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "833dee4439d399b47484f736bf661503affdd8fc83c2b73d919e7a9db532e882",
+      "bytes": 5485
+    },
+    {
+      "ticker": "SCHD",
+      "path": "/asset-logos/SCHD.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "6f500a3901ef0dac7c14a9003ac10b9e0920e6bcd0316c701eb9f715a114e608",
+      "bytes": 7668
+    },
+    {
+      "ticker": "SGOV",
+      "path": "/asset-logos/SGOV.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "ed448ce7d370bb252f2d347c60b101f7933e700e1faecfe8cd947f7642e36258",
+      "bytes": 2553
+    },
+    {
+      "ticker": "SHOP",
+      "path": "/asset-logos/SHOP.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "00864a251b0b373891569a88ed6ece9a0e516594656fca2fd3bcb9370bf13eb8",
+      "bytes": 7839
+    },
+    {
+      "ticker": "SHY",
+      "path": "/asset-logos/SHY.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "4c971025a99b3022dc4f1773f144f5b8c816feb196e7179cac40ed09fbb9d3bb",
+      "bytes": 5258
+    },
+    {
+      "ticker": "SIMO",
+      "path": "/asset-logos/SIMO.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "38d492f33e0b70d30eab7573d79be088898b231953b06893386caee4ff046cd0",
+      "bytes": 43169
+    },
+    {
+      "ticker": "SKHY",
+      "path": "/asset-logos/SKHY.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "f6f837c932a631385a0a30ab25b7d8098517b7320a3482c5082381d4e8ae8928",
+      "bytes": 6067
+    },
+    {
+      "ticker": "SLS",
+      "path": "/asset-logos/SLS.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "fd93ce1b1159ef6bc1158560aeda22fd7d1c15fc847c8f7c4714a07f3ccf39f1",
+      "bytes": 3865
+    },
+    {
+      "ticker": "SLV",
+      "path": "/asset-logos/SLV.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "e62ff19b62a21777f6d8a3e63b32bafb1b9c020d44f476c60f4f8bbf2ad968df",
+      "bytes": 681
+    },
+    {
+      "ticker": "SMCI",
+      "path": "/asset-logos/SMCI.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "02ee971c164df13726b7ffbd6a3088881219596f960d9a739a3409901e87815c",
+      "bytes": 7560
+    },
+    {
+      "ticker": "SMH",
+      "path": "/asset-logos/SMH.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "18a4b19cde6ff2e0591245b2728c6b86ddd7dc0c6b528ba32c01acf58a7aeeaf",
+      "bytes": 3305
+    },
+    {
+      "ticker": "SMR",
+      "path": "/asset-logos/SMR.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "4be5ed0815619f42e7dbf8f021e6477e1714ea1fbb745d11752dd1132a18e560",
+      "bytes": 2818
+    },
+    {
+      "ticker": "SNAP",
+      "path": "/asset-logos/SNAP.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "4b22fcc9dba5b69121df7209647c058d6232cf5bd0bac03ace07f7f131953167",
+      "bytes": 5030
+    },
+    {
+      "ticker": "SNDK",
+      "path": "/asset-logos/SNDK.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "cd99d4f78bb908fdd94f9510fc66e7129213995de105737ba2383ef7dd06e632",
+      "bytes": 5743
+    },
+    {
+      "ticker": "SNOW",
+      "path": "/asset-logos/SNOW.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "0ef97815cf8f90da267ddadaa2f41bfc7a110c65fa79ee76e51fbddfb1401aff",
+      "bytes": 9558
+    },
+    {
+      "ticker": "SOFI",
+      "path": "/asset-logos/SOFI.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "b4af696b673cc698af05f4de7e5e29b927e2606fe7928d4195bce55f9ec4df96",
+      "bytes": 4037
+    },
+    {
+      "ticker": "SOUN",
+      "path": "/asset-logos/SOUN.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "a0fceb80051db4b0decbc023877b1606318d1259602c1062a2ae5e751012195d",
+      "bytes": 59916
+    },
+    {
+      "ticker": "SOXX",
+      "path": "/asset-logos/SOXX.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "4c971025a99b3022dc4f1773f144f5b8c816feb196e7179cac40ed09fbb9d3bb",
+      "bytes": 5258
+    },
+    {
+      "ticker": "SPCX",
+      "path": "/asset-logos/SPCX.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "22086a111dee379791c99151082ff3864518b7e9c1b7497deb7660bc731e9a7a",
+      "bytes": 9002
+    },
+    {
+      "ticker": "SPMO",
+      "path": "/asset-logos/SPMO.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "aeb53c751377591ff667de69d4a8a434fe589b6d8355bb4232bd89381ba16d0a",
+      "bytes": 2687
+    },
+    {
+      "ticker": "SPY",
+      "path": "/asset-logos/SPY.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "86f09be5e368426defc3c995bf6639ea71f00f71965529393798b09d64b5a274",
+      "bytes": 620
+    },
+    {
+      "ticker": "TE",
+      "path": "/asset-logos/TE.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "67e14744a2ef0615c044a383f6f071fc827fd54b0dd328c1087b44160fa92082",
+      "bytes": 1906
+    },
+    {
+      "ticker": "TEAM",
+      "path": "/asset-logos/TEAM.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "9bac2f40f4b4e6e2350ba8b5f15a65b66bcd354010f7177af3568e74a8b56337",
+      "bytes": 4265
+    },
+    {
+      "ticker": "TEM",
+      "path": "/asset-logos/TEM.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "c3eb68954ed0ca1c21b13ef9abcb851cc9d39c3f88691d6800fa9d6ab67dcc9a",
+      "bytes": 2258
+    },
+    {
+      "ticker": "TER",
+      "path": "/asset-logos/TER.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "6636543fecd77eeb74b15d240fad6df01be55c4a90744ba9dd2ffa6a9f65bc2d",
+      "bytes": 2811
+    },
+    {
+      "ticker": "TSEM",
+      "path": "/asset-logos/TSEM.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "6e56195b5a328767547fdf0266a6e67cefbc4a19573e3c43a164cf2ee3cd8a0c",
+      "bytes": 14891
+    },
+    {
+      "ticker": "TSLA",
+      "path": "/asset-logos/TSLA.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "b47de7e50c5b44750a37d2676e0362da79e811336ad4ec7df77d3685a21e433f",
+      "bytes": 729
+    },
+    {
+      "ticker": "TSM",
+      "path": "/asset-logos/TSM.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "7af9d5e4492e947d069b08760745c4b54ecd9e5ffc16782bdb8f7af2f39ed1be",
+      "bytes": 3186
+    },
+    {
+      "ticker": "TTD",
+      "path": "/asset-logos/TTD.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "4444ca4c127c1a3a1d8b6476c162482a6ba542cca526b43c0891bb1913c7335c",
+      "bytes": 2860
+    },
+    {
+      "ticker": "TTWO",
+      "path": "/asset-logos/TTWO.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "53aed82b78a07f7b5be102020ee40b91d21478a90eb345ecbe9a3b793b5eb567",
+      "bytes": 3328
+    },
+    {
+      "ticker": "UMC",
+      "path": "/asset-logos/UMC.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "935c4abd8804df1b4da085b19a9da8224ec7209590376c8fb2158b3d9ad6b53c",
+      "bytes": 3328
+    },
+    {
+      "ticker": "UNH",
+      "path": "/asset-logos/UNH.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "d6d4905e5a440eac4bf2d289689ffae39804c4fcaf6e574b4a863634ee2a6950",
+      "bytes": 2107
+    },
+    {
+      "ticker": "UPS",
+      "path": "/asset-logos/UPS.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "140b410409ef96412d03de383f30b3e6be4a9c85048bc0aa56e560f6c546d0b4",
+      "bytes": 5874
+    },
+    {
+      "ticker": "USAR",
+      "path": "/asset-logos/USAR.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "9417496a4838856f58c86459ebca6f3794f04d9a6fa461d6698e3c3e20cb1a33",
+      "bytes": 12068
+    },
+    {
+      "ticker": "USDG",
+      "path": "/asset-logos/USDG.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "1873e7469ee4b55247aa6c65a93b6127953a55697f9cce2e2f072b8a556ed2da",
+      "bytes": 643
+    },
+    {
+      "ticker": "USO",
+      "path": "/asset-logos/USO.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "829df1e7bceff48e178a637275b1d2b07b996863f955579c7c6d682e917b2f65",
+      "bytes": 17364
+    },
+    {
+      "ticker": "VICR",
+      "path": "/asset-logos/VICR.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "ade2a4d731a81321e77121297d2c4d669b7e9909c9cc3d8a59c2f5ac843f0f7f",
+      "bytes": 22290
+    },
+    {
+      "ticker": "VRT",
+      "path": "/asset-logos/VRT.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "1f610fec857b1c2fb6eae10b7ccd1b3f6b39ce13a2392ded63494b9908ac0f71",
+      "bytes": 2570
+    },
+    {
+      "ticker": "VSAT",
+      "path": "/asset-logos/VSAT.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "e1218d10fc99e341a8429c70e54a9707a49af8f7b201cd15d7d8a8efe1d0701e",
+      "bytes": 4477
+    },
+    {
+      "ticker": "VST",
+      "path": "/asset-logos/VST.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "0bd3a06e070143ffdb5fe6d4b73dd7e9e7ca29e6618eb1ef2e870843d5724dac",
+      "bytes": 5242
+    },
+    {
+      "ticker": "VTI",
+      "path": "/asset-logos/VTI.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "2e3c9b60c7795cc9b6eda314f9b4db736c83bdfd419d124a833e1b37ce7218b8",
+      "bytes": 8004
+    },
+    {
+      "ticker": "WDAY",
+      "path": "/asset-logos/WDAY.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "b2e5351f3ab97457e98bea15e0482bcdd3b835c92a420c2c56b506612cfba812",
+      "bytes": 3952
+    },
+    {
+      "ticker": "WDC",
+      "path": "/asset-logos/WDC.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "f6a0caca3b733586dd843ca7b855056c2b20ebc1981c4cdbac69cc590b3ee890",
+      "bytes": 2487
+    },
+    {
+      "ticker": "WETH",
+      "path": "/asset-logos/WETH.svg",
+      "status": 200,
+      "contentType": "image/svg+xml",
+      "sha256": "b07728f9941396befd107b3dd40758e0527d55b91561999809be7a43432db796",
+      "bytes": 423
+    },
+    {
+      "ticker": "WULF",
+      "path": "/asset-logos/WULF.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "b0c4327651e5abf1116c1e09baff1486881b5d94bc5045b9b1ac083adfadfc20",
+      "bytes": 3570
+    },
+    {
+      "ticker": "WYFI",
+      "path": "/asset-logos/WYFI.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "0e65651800ffff8a0f0b8f31f71172c24f1db1ac95e1dd16ce6d6f69e1f5ccb6",
+      "bytes": 17391
+    },
+    {
+      "ticker": "XLK",
+      "path": "/asset-logos/XLK.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "cfb41a642aff865b7998666cc8f493a8f0fa8e797781b94198ee9750c140e4d5",
+      "bytes": 3459
+    },
+    {
+      "ticker": "XNDU",
+      "path": "/asset-logos/XNDU.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "66aa63b5a65964ea3418c5177a0c4a2bc223fea36d1ba323c68c501e3336f8c9",
+      "bytes": 3478
+    },
+    {
+      "ticker": "XOM",
+      "path": "/asset-logos/XOM.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "0f08fc3d81158008223aca2110184b728b2bc5d48eb142bd0e58f8794279d1b4",
+      "bytes": 2769
+    },
+    {
+      "ticker": "ZM",
+      "path": "/asset-logos/ZM.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "696cfa2df37de7a09c767a59d45aef19834775a14f64b984cc86850dcc654972",
+      "bytes": 4382
+    },
+    {
+      "ticker": "ZS",
+      "path": "/asset-logos/ZS.png",
+      "status": 200,
+      "contentType": "image/png",
+      "sha256": "a7e0def27fa522abfa9e943e4c98c7fca6b0c84b3652a6621bd8c224d0c79f30",
+      "bytes": 5144
+    }
+  ]
+}

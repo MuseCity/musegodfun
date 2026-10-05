@@ -1,0 +1,14 @@
+{
+  "observedAt": "2026-10-03T14:31:11.392Z",
+  "mainnetService": "http://127.0.0.1:5188",
+  "scope": "HTTP rejection and read-only checks; no wallet signatures, broadcasts or sample mainnet batches",
+  "forkScope": "Separate actual Express fork-mode process with temporary SQLite and a chainId-only local RPC fixture; not EVM fork trade evidence",
+  "checks": [
+    "missing, invalid and legacy unsigned budget authorization rejected before batch creation",
+    "invalid and non-whitelisted stocks and excessive amount precision rejected",
+    "invalid step kinds, malformed hashes and nonexistent batch tracking rejected",
+    "Robinhood RPC proxy rejects signing and transaction broadcasting",
+    "batch IDs unchanged after all negative HTTP requests",
+    "isolated fork-mode server rejects mainnet buyback statistics, quotes, batches and Robinhood RPC reads"
+  ]
+}

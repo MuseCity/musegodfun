@@ -1,0 +1,135 @@
+{
+  "checkedAt": "2026-10-05T00:26:36.891Z",
+  "project": "vrhzgmulcyqqzkkforsl",
+  "initialization": "Independent fresh application namespace; previous tables retained, no existing-data migration",
+  "migrationVersion": "20261005002038",
+  "tables": [
+    {
+      "rls": true,
+      "name": "musegod_buyback_batches",
+      "anonSelect": false,
+      "serviceDelete": true,
+      "serviceInsert": true,
+      "serviceSelect": true,
+      "serviceUpdate": true,
+      "authenticatedSelect": false
+    },
+    {
+      "rls": true,
+      "name": "musegod_pending_launches",
+      "anonSelect": false,
+      "serviceDelete": true,
+      "serviceInsert": true,
+      "serviceSelect": true,
+      "serviceUpdate": true,
+      "authenticatedSelect": false
+    },
+    {
+      "rls": true,
+      "name": "musegod_plans",
+      "anonSelect": false,
+      "serviceDelete": true,
+      "serviceInsert": true,
+      "serviceSelect": true,
+      "serviceUpdate": true,
+      "authenticatedSelect": false
+    },
+    {
+      "rls": true,
+      "name": "musegod_quota",
+      "anonSelect": false,
+      "serviceDelete": true,
+      "serviceInsert": true,
+      "serviceSelect": true,
+      "serviceUpdate": true,
+      "authenticatedSelect": false
+    },
+    {
+      "rls": true,
+      "name": "musegod_snapshots",
+      "anonSelect": false,
+      "serviceDelete": true,
+      "serviceInsert": true,
+      "serviceSelect": true,
+      "serviceUpdate": true,
+      "authenticatedSelect": false
+    },
+    {
+      "rls": true,
+      "name": "musegod_tokens",
+      "anonSelect": false,
+      "serviceDelete": true,
+      "serviceInsert": true,
+      "serviceSelect": true,
+      "serviceUpdate": true,
+      "authenticatedSelect": false
+    }
+  ],
+  "functions": [
+    {
+      "name": "musegod_backup",
+      "config": [
+        "search_path=\"\""
+      ],
+      "invoker": true,
+      "anonExecute": false,
+      "serviceExecute": true,
+      "authenticatedExecute": false
+    },
+    {
+      "name": "musegod_cleanup",
+      "config": [
+        "search_path=\"\""
+      ],
+      "invoker": true,
+      "anonExecute": false,
+      "serviceExecute": true,
+      "authenticatedExecute": false
+    },
+    {
+      "name": "musegod_find_plan",
+      "config": [
+        "search_path=\"\""
+      ],
+      "invoker": true,
+      "anonExecute": false,
+      "serviceExecute": true,
+      "authenticatedExecute": false
+    },
+    {
+      "name": "musegod_mark_launch",
+      "config": [
+        "search_path=\"\""
+      ],
+      "invoker": true,
+      "anonExecute": false,
+      "serviceExecute": true,
+      "authenticatedExecute": false
+    },
+    {
+      "name": "musegod_reserve_market_call",
+      "config": [
+        "search_path=\"\""
+      ],
+      "invoker": true,
+      "anonExecute": false,
+      "serviceExecute": true,
+      "authenticatedExecute": false
+    },
+    {
+      "name": "musegod_restore",
+      "config": [
+        "search_path=\"\""
+      ],
+      "invoker": true,
+      "anonExecute": false,
+      "serviceExecute": true,
+      "authenticatedExecute": false
+    }
+  ],
+  "oldTokenCount": 0,
+  "serverVersion": "170011",
+  "oldPendingCount": 0,
+  "productionTokenCount": 0,
+  "productionPendingCount": 0
+}

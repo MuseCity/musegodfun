@@ -1,0 +1,55 @@
+{
+  "scope": "local fork only",
+  "nodeInfo": {
+    "currentBlockNumber": "0x313b280",
+    "currentBlockTimestamp": 1790034288,
+    "currentBlockHash": "0x24151a6d6312a323e30434c94f3973a2b9e22beb022ff75fdc120bd6b8d4af98",
+    "hardFork": "Osaka",
+    "transactionOrder": "fees",
+    "environment": {
+      "baseFee": "0x7",
+      "chainId": 31337,
+      "gasLimit": "0x17d78400",
+      "gasPrice": "0x3b9aca07"
+    },
+    "forkConfig": {
+      "forkUrl": "[redacted]",
+      "forkBlockNumber": 51622413,
+      "forkRetryBackoff": 1500
+    },
+    "network": "base"
+  },
+  "creator": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+  "treasury": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+  "stock": {
+    "ticker": "SNDK",
+    "symbol": "SNDKc",
+    "name": "SanDisk",
+    "address": "0xb200000000000000000000397293Cb8cda9a10c5",
+    "decimals": 8,
+    "chainId": 8453,
+    "issuer": "Coinbase",
+    "standard": "B20",
+    "sourceUrl": "https://www.base.org/stocks"
+  },
+  "result": {
+    "tokenAddress": "0x3bc770CD85d59a148da509c67BbFf0a84c97D004",
+    "poolId": "0xee97b4b17dbacf0e0b10942a93f747d5871df8e167bf6759951ce1aea355e4af",
+    "transactionHash": "0x8c6e95b650a8d66311355035cbdf2facacd9ed7ef2722b88531ba31e0e424853"
+  },
+  "state": {
+    "asset": "0x3bc770CD85d59a148da509c67BbFf0a84c97D004",
+    "numeraire": "0xb200000000000000000000397293Cb8cda9a10c5",
+    "fee": 8388608,
+    "tickSpacing": 10,
+    "status": 2,
+    "poolKey": {
+      "currency0": "0x3bc770CD85d59a148da509c67BbFf0a84c97D004",
+      "currency1": "0xb200000000000000000000397293Cb8cda9a10c5",
+      "fee": 8388608,
+      "tickSpacing": 10,
+      "hooks": "0xBDF938149ac6a781F94FAa0ed45E6A0e984c6544"
+    },
+    "farTick": 887260
+  }
+}

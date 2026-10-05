@@ -1,0 +1,55 @@
+{
+  "scope": "local fork only",
+  "nodeInfo": {
+    "currentBlockNumber": "0x313b280",
+    "currentBlockTimestamp": 1790034288,
+    "currentBlockHash": "0x24151a6d6312a323e30434c94f3973a2b9e22beb022ff75fdc120bd6b8d4af98",
+    "hardFork": "Osaka",
+    "transactionOrder": "fees",
+    "environment": {
+      "baseFee": "0x7",
+      "chainId": 31337,
+      "gasLimit": "0x17d78400",
+      "gasPrice": "0x3b9aca07"
+    },
+    "forkConfig": {
+      "forkUrl": "[redacted]",
+      "forkBlockNumber": 51622413,
+      "forkRetryBackoff": 1500
+    },
+    "network": "base"
+  },
+  "creator": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+  "treasury": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+  "stock": {
+    "ticker": "SPCX",
+    "symbol": "SPCXc",
+    "name": "SpaceX",
+    "address": "0xb2000000000000000000007b9fcbd005511aCBd5",
+    "decimals": 8,
+    "chainId": 8453,
+    "issuer": "Coinbase",
+    "standard": "B20",
+    "sourceUrl": "https://www.base.org/stocks"
+  },
+  "result": {
+    "tokenAddress": "0x7AFD202B99Fe42E5A1Df29AA1b91AD2B9880911b",
+    "poolId": "0x825aae4c830c652942a7fcb3132dd3469839838038f1ff854ca8bc0c0994184d",
+    "transactionHash": "0xb47c9b71baf1d16030045158fd47353a13c4c4ef4bba337c8b28958911bbac07"
+  },
+  "state": {
+    "asset": "0x7AFD202B99Fe42E5A1Df29AA1b91AD2B9880911b",
+    "numeraire": "0xb2000000000000000000007b9fcbd005511aCBd5",
+    "fee": 8388608,
+    "tickSpacing": 10,
+    "status": 2,
+    "poolKey": {
+      "currency0": "0x7AFD202B99Fe42E5A1Df29AA1b91AD2B9880911b",
+      "currency1": "0xb2000000000000000000007b9fcbd005511aCBd5",
+      "fee": 8388608,
+      "tickSpacing": 10,
+      "hooks": "0xBDF938149ac6a781F94FAa0ed45E6A0e984c6544"
+    },
+    "farTick": 887260
+  }
+}

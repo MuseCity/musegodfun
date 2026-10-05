@@ -1,0 +1,20 @@
+{
+  "observedAt": "2026-10-04T03:29:45.219Z",
+  "referencePage": "https://pools.fun/token/0x0379e228f6887c6f18bf394042ecaf81b308cb2e",
+  "observedImageUrl": "https://peach-quiet-cat-229.mypinata.cloud/ipfs/bafkreiexg36mudbth2ete6lyz5pqfejop3k3fgbtlpt6izcka3yraykb6e",
+  "observedTokenAddress": "0x0379e228f6887c6f18bf394042ecaf81b308cb2e",
+  "originalFormat": "WebP",
+  "originalDimensions": [
+    1254,
+    1254
+  ],
+  "originalSha256": "9736fcca0c333e89327978cf5f02912e7ed5b298335be7e4644a06f1106141f1",
+  "localPath": "/asset-logos/MUSEGOD.png",
+  "localDimensions": [
+    256,
+    256
+  ],
+  "sha256": "98b55e32d4619be5329ba589c7f17a24d44dde82d5853e3bd1e73ad2f4ab5840",
+  "conversion": "1254x1254 WebP resized to 256x256 without cropping and saved as PNG",
+  "verification": "Exact MUSEGOD img src read from the rendered Pools page; original image visually compared; local PNG HTTP hash confirmed"
+}

@@ -1,0 +1,20 @@
+{
+  "observedAt": "2026-10-04T05:36:47.269Z",
+  "zone": "13efa20023853aca22c7d76fa60475cf",
+  "worker": "musegod-fun",
+  "routes": [
+    {
+      "id": "17892ff0fcf54172bfe73abf58623a8c",
+      "pattern": "musegod.fun/*",
+      "script": "musegod-fun",
+      "request_limit_fail_open": false
+    },
+    {
+      "id": "23ce0e73e4ab4ecfb1c6136ecf0f2923",
+      "pattern": "www.musegod.fun/*",
+      "script": "musegod-fun",
+      "request_limit_fail_open": false
+    }
+  ],
+  "dnsModified": false
+}

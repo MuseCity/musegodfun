@@ -1,0 +1,142 @@
+{
+  "checkedAt": "2026-10-04T12:50:24.417Z",
+  "target": "https://musegod.fun/create",
+  "cause": {
+    "observedFileInputs": 0,
+    "buttonAction": "Focused the Image URL input; file upload was not implemented"
+  },
+  "sourceRoot": "/Volumes/code/opc/musegodfun",
+  "publication": {
+    "status": "deployed_and_publicly_verified",
+    "deployed": true,
+    "currentVersion": "d4add883-f302-4424-97cd-612a9aeb0400",
+    "traffic": 100,
+    "publishedOn": "2026-10-05"
+  },
+  "implementation": {
+    "sourceTypes": [
+      "image/png",
+      "image/jpeg",
+      "image/webp",
+      "image/gif"
+    ],
+    "sourceLimitBytes": 5242880,
+    "imageMaxSide": 512,
+    "storedLimitBytes": 40960,
+    "storedType": "image/webp",
+    "gif": "first frame",
+    "storage": "private Supabase token-images bucket",
+    "addressing": "SHA-256, no overwrite",
+    "uploadLimit": "10/minute/IP within the existing API limits",
+    "metadata": "Public HTTPS image URL; retained external URL validation"
+  },
+  "verification": {
+    "unitTests": {
+      "passed": 166,
+      "failed": 0
+    },
+    "typecheck": "Node and Worker passed",
+    "productionBuild": "passed",
+    "workerDryRun": "passed",
+    "browser": {
+      "node": "http://127.0.0.1:5197/create",
+      "worker": "http://127.0.0.1:8797/create",
+      "realPNGUpload": "200; actual Supabase persistence and image retrieval; both previews decode at 256x256",
+      "duplicateUpload": "200; same immutable image URL",
+      "jpeg": "Synthetic 1200x900 browser JPEG uploaded through the actual API and decoded at 512x384",
+      "gif": "Synthetic transparent GIF uploaded through the actual API and decoded at 1x1",
+      "webp": "Actual downloaded WebP uploaded again; unchanged image URL",
+      "draftReload": "Passed; saved HTTPS URL and both decoded previews restored",
+      "oversize": "Synthetic 5 MiB + 1 byte selection rejected; previous image retained",
+      "errorRetry": "Injected JSON 503 retained previous image; subsequent actual JPEG upload succeeded",
+      "lateResponse": "Injected delayed success after Clear draft ignored; review blocked during upload",
+      "viewports": [
+        {
+          "width": 1440,
+          "height": 1000,
+          "horizontalOverflow": false
+        },
+        {
+          "width": 390,
+          "height": 844,
+          "horizontalOverflow": false
+        }
+      ],
+      "hiddenFileInput": "display:none; accessible upload/replace button",
+      "screenshots": [
+        "token-image-desktop.jpeg",
+        "token-image-mobile.jpeg"
+      ]
+    },
+    "httpUnitChecks": [
+      "Exact saved image bytes and MIME/cache headers",
+      "Cross-site POST rejected",
+      "Invalid upload rejected",
+      "Missing image returns 404",
+      "Ten per-IP uploads allowed; next rejected with 429 and Retry-After"
+    ],
+    "storageCheck": {
+      "generatedAt": "2026-10-04T12:46:06.703Z",
+      "scan": {
+        "checked": 207,
+        "matches": []
+      },
+      "bucket": {
+        "status": 200,
+        "id": "token-images",
+        "public": false,
+        "maxBytes": 40960,
+        "mime": [
+          "image/webp"
+        ]
+      },
+      "anonymousObjectReadStatus": 400
+    },
+    "localTransient": "One workerd upload during code hot reload returned 503; stable reload/retry subsequently returned 200 and decoded correctly",
+    "knownExistingWarnings": [
+      "Production external Google Fonts stylesheet blocked by CSP",
+      "Production external Cloudflare analytics script blocked by CSP",
+      "Vite reports the existing frontend chunk size warning"
+    ]
+  },
+  "boundaries": {
+    "publicUploadFlow": "passed",
+    "walletConnection": "not_run",
+    "walletSignature": "not_run",
+    "mainnetTransaction": "not_run",
+    "databaseSchemaChanges": "Fresh application namespace initialized independently; no existing-data migration",
+    "anonymousStoragePoliciesAdded": false,
+    "gitPush": false
+  },
+  "rollback": {
+    "runtimeCommand": "npx wrangler versions deploy d4add883-f302-4424-97cd-612a9aeb0400@100 --durable-objects-code-update-mode immediate --yes",
+    "preserve": [
+      "Supabase token-images objects",
+      "Existing Supabase records/scopes",
+      "Secrets",
+      "Receipts"
+    ],
+    "limitation": "Preserve the image read endpoint and Supabase objects when issued token metadata references uploaded URLs."
+  },
+  "recordType": "Local implementation verification plus current public release verification; obsolete local originals were removed after publication",
+  "publicVerification": {
+    "status": 200,
+    "duplicateStatus": 200,
+    "image": "https://musegod.fun/api/token-images/664bb923fda9a9fbaee8842ddb5216baa74aaa3e8d12e21ee139174372af5195.webp",
+    "storedBytes": 8178,
+    "retrievedSha256": "664bb923fda9a9fbaee8842ddb5216baa74aaa3e8d12e21ee139174372af5195",
+    "contentType": "image/webp",
+    "cacheControl": "public, max-age=31536000, immutable"
+  },
+  "publicBrowserVerification": {
+    "source": "public/asset-logos/MUSEGOD.png",
+    "upload": "successful through actual file chooser",
+    "decodedPreviews": 2,
+    "dimensions": [
+      256,
+      256
+    ],
+    "draftReload": "passed",
+    "screenshot": "cloudflare-release-create.jpg"
+  }
+}

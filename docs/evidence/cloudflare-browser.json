@@ -1,0 +1,80 @@
+{
+  "observedAt": "2026-10-04T05:43:26.965Z",
+  "url": "https://musegod.fun",
+  "checks": [
+    "English homepage, Robinhood Chain MAINNET, 198 verified assets and empty launch catalog",
+    "Create route renders identity fields, asset categories and verified issuer details",
+    "MUSEGOD search returns exactly one asset and selection uses 0x0379E228F6887c6F18bf394042ECAF81B308cb2e",
+    "390 by 844 create view has no horizontal overflow",
+    "Rewards displays disconnected-wallet prompt and fee allocation",
+    "Buyback remains Deferred with correct treasury and planned target",
+    "No application-origin browser errors or warnings",
+    "Temporary asset selection restored to initial WETH and blank fields; viewport reset"
+  ],
+  "home": {
+    "images": [
+      {
+        "complete": true,
+        "naturalWidth": 150,
+        "src": "/favicon.svg",
+        "visible": true
+      },
+      {
+        "complete": true,
+        "naturalWidth": 128,
+        "src": "/asset-logos/AAPL.png",
+        "visible": true
+      },
+      {
+        "complete": true,
+        "naturalWidth": 128,
+        "src": "/asset-logos/AMZN.png",
+        "visible": true
+      },
+      {
+        "complete": true,
+        "naturalWidth": 128,
+        "src": "/asset-logos/GOOGL.png",
+        "visible": true
+      },
+      {
+        "complete": true,
+        "naturalWidth": 128,
+        "src": "/asset-logos/MSFT.png",
+        "visible": true
+      },
+      {
+        "complete": true,
+        "naturalWidth": 128,
+        "src": "/asset-logos/NVDA.png",
+        "visible": true
+      },
+      {
+        "complete": false,
+        "naturalWidth": 0,
+        "src": "/asset-logos/TSLA.png",
+        "visible": false
+      }
+    ],
+    "scrollWidth": 1646,
+    "title": "musegod.fun · Memes meet stocks",
+    "url": "https://musegod.fun/",
+    "width": 1661
+  },
+  "mobile": {
+    "quoteSearch": "MUSEGOD",
+    "scrollWidth": 375,
+    "selectedMUSEGOD": true,
+    "url": "https://musegod.fun/create",
+    "width": 390
+  },
+  "applicationWarnings": [],
+  "walletExtensionWarningCount": 6,
+  "walletConnection": "not_run",
+  "walletSignature": "not_run",
+  "mainnetTransactions": "not_run",
+  "screenshots": [
+    "cloudflare-home.jpg",
+    "cloudflare-create-mobile.jpg"
+  ]
+}

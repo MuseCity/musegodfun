@@ -1,0 +1,68 @@
+{
+  "completedAt": "2026-10-05T08:37:03.584742+08:00",
+  "repository": "/Volumes/code/opc/musegodfun",
+  "scope": "Retired local names and obsolete files cleaned; session archives deleted after verified publication as requested",
+  "namespace": {
+    "package": "musegodfun",
+    "browserKeys": "musegod.*",
+    "databaseTablesAndRPCs": "musegod_*"
+  },
+  "initialCleanup": {
+    "removedFiles": 213,
+    "removedEvidenceFiles": 30,
+    "removedBytes": 34566837
+  },
+  "namespaceCleanup": {
+    "imageRepairCacheFilesRemoved": 22,
+    "historicalMigrationFilesReplaced": 3,
+    "browserCompatibilityFilesRemoved": 2,
+    "staleWorkerArtifactsRemoved": 2,
+    "freshSchema": "supabase/migrations/20261005000537_musegod_store.sql"
+  },
+  "archiveCleanup": {
+    "deletedDirectories": [
+      {
+        "directoryName": "20261004-205915-legacy-cleanup",
+        "files": 10,
+        "bytes": 18181970
+      },
+      {
+        "directoryName": "20261004-213743-namespace-cleanup",
+        "files": 351,
+        "bytes": 38429502
+      },
+      {
+        "directoryName": "20261005-database-cutover",
+        "files": 45,
+        "bytes": 41905990
+      }
+    ],
+    "removedFiles": 406,
+    "removedBytes": 98517462,
+    "archivesRetained": false,
+    "obsoleteArchiveRestoreInstructionsRemoved": true
+  },
+  "validation": {
+    "caseInsensitiveTextAndNameMatches": 0,
+    "unitTestsPassed": 166,
+    "typecheck": "Node/frontend and Worker passed",
+    "build": "passed; existing chunk size advisory",
+    "hostedDatabase": "Six new tables/RPCs created; isolated persistence, concurrency and restore checks passed",
+    "publicHTTPChecks": 38,
+    "staticAssetHashesMatched": 199,
+    "publicImageUploadAndReload": "passed",
+    "evidence": "docs/evidence/cloudflare-release.json"
+  },
+  "boundaries": {
+    "existingDataMigrated": false,
+    "existingTablesDropped": false,
+    "credentialsOrRuntimeDataRemoved": false,
+    "walletSigningPerformed": false,
+    "mainnetTransactionSubmitted": false,
+    "gitPush": false
+  },
+  "rollback": {
+    "workerBaseline": "d4add883-f302-4424-97cd-612a9aeb0400",
+    "procedure": "Redeploy the retained verified Worker version with immediate Durable Object code update; source recovery uses Git history. Local obsolete archive originals are intentionally no longer available."
+  }
+}

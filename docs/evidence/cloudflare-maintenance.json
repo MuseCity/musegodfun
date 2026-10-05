@@ -1,0 +1,25 @@
+{
+  "observedAt": "2026-10-04T05:49:53.998121+00:00",
+  "source": "Actual Cloudflare Wrangler live tail; sanitized summary only",
+  "worker": "musegod-fun",
+  "version": "2e14cfd9-9a58-414e-929d-4245412ed20f",
+  "httpEvents": 6,
+  "httpFailures": 0,
+  "alarms": [
+    {
+      "outcome": "ok",
+      "eventKind": "alarm",
+      "scheduledTime": "2026-10-04T05:48:46.569Z",
+      "logCount": 0,
+      "exceptionCount": 0
+    },
+    {
+      "outcome": "ok",
+      "eventKind": "alarm",
+      "scheduledTime": "2026-10-04T05:49:17.074Z",
+      "logCount": 0,
+      "exceptionCount": 0
+    }
+  ],
+  "mainnetTransactions": "not_run"
+}

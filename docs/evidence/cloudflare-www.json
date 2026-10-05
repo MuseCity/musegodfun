@@ -1,0 +1,27 @@
+{
+  "observedAt": "2026-10-04T05:42:42.262Z",
+  "origin": "https://www.musegod.fun",
+  "scope": "Read-only public readiness and configuration; no wallet signatures, chain writes or database verification mutations",
+  "checks": [
+    {
+      "path": "/readyz",
+      "status": 200,
+      "passed": true,
+      "chainId": 4663,
+      "writesEnabled": true,
+      "readiness": "ready"
+    },
+    {
+      "path": "/api/config",
+      "status": 200,
+      "passed": true,
+      "chainId": 4663,
+      "writesEnabled": true,
+      "mode": "robinhood",
+      "deploymentChainId": 4663,
+      "treasuryMatchesConfigured": true
+    }
+  ],
+  "passed": 2,
+  "failed": 0
+}

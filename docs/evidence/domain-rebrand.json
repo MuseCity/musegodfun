@@ -1,0 +1,93 @@
+{
+  "observedAt": "2026-10-04T02:18:57.157075+00:00",
+  "scope": "Domain and visible brand change in the local production application",
+  "domain": "musegod.fun",
+  "localProductionUrl": "http://127.0.0.1:5188/create",
+  "updated": [
+    "Sidebar wordmark and breadcrumb on all routes",
+    "Browser title and meta description",
+    "M favicon",
+    "Future token metadata platform identity",
+    "Shared client/server buyback typed-data application identity",
+    "Server startup banner",
+    "Current README and SPEC"
+  ],
+  "metadataPlatform": "musegod.fun",
+  "buybackAuthorization": {
+    "app": "musegod.fun",
+    "domainName": "MuseGod Buyback",
+    "scope": "Future bounded batch authorizations only; cross-chain execution remains deferred"
+  },
+  "validation": {
+    "unitTests": 159,
+    "unitFailures": 0,
+    "typecheck": "passed",
+    "productionBuild": "passed",
+    "httpChecks": 14,
+    "httpSkipped": [
+      {
+        "check": "live registered-pool state and swap quote",
+        "reason": "Catalog is empty; no deployed stock-paired pool exists to verify"
+      }
+    ],
+    "runtimeHttp": "6 checks passed",
+    "activeOldDomainResiduals": [],
+    "secretScanLeaks": [],
+    "browser": {
+      "pages": [
+        {
+          "brand": "musegod.fun",
+          "breadcrumb": "musegod.funDiscover what\u2019s next",
+          "oldDomainVisible": false,
+          "path": "/",
+          "title": "musegod.fun \u00b7 Memes meet stocks"
+        },
+        {
+          "brand": "musegod.fun",
+          "breadcrumb": "musegod.funCreator rewards",
+          "oldDomainVisible": false,
+          "path": "/rewards",
+          "title": "musegod.fun \u00b7 Memes meet stocks"
+        },
+        {
+          "brand": "musegod.fun",
+          "breadcrumb": "musegod.funMUSEGOD buyback and burn",
+          "oldDomainVisible": false,
+          "path": "/buyback",
+          "title": "musegod.fun \u00b7 Memes meet stocks"
+        },
+        {
+          "brand": "musegod.fun",
+          "breadcrumb": "musegod.funLaunch token",
+          "oldDomainVisible": false,
+          "path": "/create",
+          "title": "musegod.fun \u00b7 Memes meet stocks"
+        }
+      ],
+      "mobile": {
+        "hasChinese": false,
+        "language": "en-US",
+        "oldDomainVisible": false,
+        "path": "/create",
+        "scrollWidth": 375,
+        "title": "musegod.fun \u00b7 Memes meet stocks",
+        "width": 390
+      }
+    }
+  },
+  "screenshots": [
+    "musegod-domain-create-desktop.jpg",
+    "musegod-domain-home-desktop.jpg",
+    "musegod-domain-create-mobile.jpg"
+  ],
+  "preservation": [
+    "Previously encoded launch plans and deployed token metadata remain immutable",
+    "Existing browser storage keys, pending transaction recovery and database identities preserved",
+    "Historical release-readiness snapshot retains its observed domain and is explicitly marked historical"
+  ],
+  "formalDeploymentPerformed": false,
+  "dnsChanged": false,
+  "publicDomainRoutingVerified": false,
+  "mainnetTransactionsPerformed": false,
+  "rollbackSource": "Git source and retained verified Cloudflare version; obsolete local archive removed after publication"
+}

@@ -1,0 +1,55 @@
+{
+  "scope": "local fork only",
+  "nodeInfo": {
+    "currentBlockNumber": "0x313b281",
+    "currentBlockTimestamp": 1790034290,
+    "currentBlockHash": "0x704ba94d768baef7ec0566c20ce9577d87ff03115016b3c8403dc16a57640067",
+    "hardFork": "Osaka",
+    "transactionOrder": "fees",
+    "environment": {
+      "baseFee": "0x7",
+      "chainId": 31337,
+      "gasLimit": "0x17d78400",
+      "gasPrice": "0x3b9aca07"
+    },
+    "forkConfig": {
+      "forkUrl": "[redacted]",
+      "forkBlockNumber": 51622413,
+      "forkRetryBackoff": 1500
+    },
+    "network": "base"
+  },
+  "creator": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+  "treasury": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+  "stock": {
+    "ticker": "TSLA",
+    "symbol": "TSLAc",
+    "name": "Tesla",
+    "address": "0xb2000000000000000000001e800a7f5189430cD0",
+    "decimals": 8,
+    "chainId": 8453,
+    "issuer": "Coinbase",
+    "standard": "B20",
+    "sourceUrl": "https://www.base.org/stocks"
+  },
+  "result": {
+    "tokenAddress": "0x9aFd53a6c04d66dA067303Fe583a04A47ee975Eb",
+    "poolId": "0x383036ed800409a8b7dd4b3ef3c3fc1e2a276bcc0da0fb8c4591246731b608fe",
+    "transactionHash": "0x30896ce3782be2b7681fb2392b568985a155e535f7880ee019a76faefddb64ed"
+  },
+  "state": {
+    "asset": "0x9aFd53a6c04d66dA067303Fe583a04A47ee975Eb",
+    "numeraire": "0xb2000000000000000000001e800a7f5189430cD0",
+    "fee": 8388608,
+    "tickSpacing": 10,
+    "status": 2,
+    "poolKey": {
+      "currency0": "0x9aFd53a6c04d66dA067303Fe583a04A47ee975Eb",
+      "currency1": "0xb2000000000000000000001e800a7f5189430cD0",
+      "fee": 8388608,
+      "tickSpacing": 10,
+      "hooks": "0xBDF938149ac6a781F94FAa0ed45E6A0e984c6544"
+    },
+    "farTick": 887260
+  }
+}

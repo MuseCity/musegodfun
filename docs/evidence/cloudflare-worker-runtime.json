@@ -1,0 +1,33 @@
+{
+  "observedAt": "2026-10-04T05:34:23.500Z",
+  "url": "https://musegod-fun.dou3.workers.dev",
+  "checks": [
+    "health and actual chain/database readiness",
+    "preserved treasury and user-wallet signing configuration",
+    "application routes and HTTPS security headers",
+    "API JSON and unknown page/API 404",
+    "read RPC concurrently and on both paths",
+    "RPC rejects signing and broadcasting",
+    "cross-site and malformed body rejection",
+    "oversize body rejected before Node adapter",
+    "empty mainnet catalog, no invented pool",
+    "198 live paired assets verified",
+    "secrets absent from public API responses"
+  ],
+  "config": {
+    "mode": "robinhood",
+    "deploymentChainId": 4663,
+    "chainId": 4663,
+    "treasury": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+    "writesEnabled": true,
+    "blockReason": null
+  },
+  "assets": {
+    "count": 198,
+    "verified": 198,
+    "block": "79691644"
+  },
+  "mainnetWalletSignatures": "not_run",
+  "mainnetTransactions": "not_run",
+  "catalog": []
+}

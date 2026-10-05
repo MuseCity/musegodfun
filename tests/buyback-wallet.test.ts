@@ -1,0 +1,170 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { encodeFunctionData, erc20Abi, hashTypedData, toHex, type Hash } from "viem";
+import { assertBuybackStep, assertSameBuybackStep, assertBuybackRequest, transactionClient, buybackAuthorizationPayload, submitBuybackPreparation } from "../src/lib/wallet";
+import { RELAY_APPROVAL_PROXY, RELAY_DEPOSITORY, buybackAuthorizationTypedData, type BuybackStep, type BuybackBatch } from "../src/lib/buyback";
+import { MUSEGOD_BUYBACK } from "../src/lib/fee-policy";
+import { STOCKS, type RuntimeConfig } from "../src/lib/config";
+import { saveTransaction, transactions, updateTransaction, applyBuybackRecovery } from "../src/lib/transactions";
+
+const treasury = "0x1111111111111111111111111111111111111111";
+const other = "0x2222222222222222222222222222222222222222";
+const config: RuntimeConfig = { mode: "base", chainId: 8453, treasury, writesEnabled: true, blockReason: null };
+const amount = 12345n;
+function burn(): BuybackStep {
+  return {
+    batchId: "test-batch-001", kind: "burn", chainId: 4663, from: treasury,
+    to: MUSEGOD_BUYBACK.tokenAddress,
+    data: encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [MUSEGOD_BUYBACK.burnAddress, amount] }),
+    value: "0", expiresAt: Date.now() + 60_000, amount: amount.toString(), stockAddress: STOCKS[0].address, nonce: 7,
+  };
+}
+function approval(): BuybackStep {
+  return { ...burn(), kind: "approval", chainId: 8453, to: STOCKS[0].address,
+    data: encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [RELAY_APPROVAL_PROXY, amount] }) };
+}
+
+test("buyback signing remains mainnet opt-in and requires the configured treasury EOA account", () => {
+  const step = burn();
+  assert.doesNotThrow(() => assertBuybackStep(step, config, treasury));
+  assert.throws(() => assertBuybackStep(step, { ...config, writesEnabled: false }, treasury));
+  assert.throws(() => assertBuybackStep(step, { ...config, mode: "fork", chainId: 31337 }, treasury));
+  assert.throws(() => assertBuybackStep(step, config, other));
+  assert.throws(() => assertBuybackStep({ ...step, from: other }, config, treasury));
+  assert.throws(() => assertBuybackStep(step, { ...config, treasury: null }, treasury));
+  assert.throws(() => assertBuybackStep({ ...step, expiresAt: 1 }, config, treasury));
+  assert.throws(() => assertBuybackStep({ ...step, value: "1" }, config, treasury));
+  assert.throws(() => assertBuybackStep({ ...step, nonce: undefined }, config, treasury));
+  assert.throws(() => assertBuybackStep({ ...step, nonce: -1 }, config, treasury));
+});
+
+test("Robinhood signing can only transfer the exact batch amount of MUSEGOD to dead", () => {
+  const step = burn();
+  for (const changed of [
+    { chainId: 8453 as const }, { to: STOCKS[0].address }, { amount: "12346" },
+    { data: encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [other, amount] }) },
+    { data: encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [MUSEGOD_BUYBACK.burnAddress, amount] }) },
+    { data: `${step.data}00` as const },
+  ]) assert.throws(() => assertBuybackStep({ ...step, ...changed }, config, treasury));
+});
+
+test("Base buyback approvals bind whitelisted stock, exact amount and Relay spender", () => {
+  const step = approval();
+  assert.doesNotThrow(() => assertBuybackStep(step, config, treasury));
+  for (const changed of [
+    { to: MUSEGOD_BUYBACK.tokenAddress }, { chainId: 4663 as const }, { amount: "12346" },
+    { data: encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [other, amount] }) },
+    { data: encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [RELAY_APPROVAL_PROXY, 2n ** 256n - 1n] }) },
+    { data: `${step.data}00` as const },
+  ]) assert.throws(() => assertBuybackStep({ ...step, ...changed }, config, treasury));
+  const deposit: BuybackStep = { ...step, kind: "deposit", to: RELAY_DEPOSITORY, data: "0x12345678" };
+  // Full deposit calldata validation is performed by the server; the wallet
+  // adds target limits and exact equality with that freshly validated batch.
+  assert.doesNotThrow(() => assertBuybackStep(deposit, config, treasury));
+  assert.throws(() => assertBuybackStep({ ...deposit, to: other }, config, treasury));
+});
+
+test("fresh batch validation rejects changed destinations, amounts, accounts and calldata", () => {
+  const step = burn();
+  assert.doesNotThrow(() => assertSameBuybackStep(step, { ...step }));
+  for (const changed of [
+    { batchId: "different-batch" }, { kind: "deposit" as const }, { chainId: 8453 as const },
+    { from: other }, { to: other }, { data: "0x12345678" as const },
+    { amount: "1" }, { value: "1" }, { stockAddress: STOCKS[1].address }, { nonce: 8 },
+  ] as Partial<BuybackStep>[]) assert.throws(() => assertSameBuybackStep(step, { ...step, ...changed }));
+});
+
+test("buyback provider transport rejects messages and any write differing from the fixed step", () => {
+  const step = burn();
+  const tx = { from: treasury, to: step.to, data: step.data, value: "0x0", chainId: toHex(step.chainId), nonce: toHex(step.nonce!) };
+  assert.doesNotThrow(() => assertBuybackRequest({ method: "eth_sendTransaction", params: [tx] }, step));
+  assert.doesNotThrow(() => assertBuybackRequest({ method: "eth_chainId" }, step));
+  for (const method of ["personal_sign", "eth_sign", "eth_signTypedData_v4", "eth_sendRawTransaction", "wallet_sendCalls"])
+    assert.throws(() => assertBuybackRequest({ method, params: [tx] }, step));
+  for (const changed of [
+    { to: other }, { from: other }, { value: "0x1" }, { data: "0x12345678" },
+    { chainId: "0x2105" }, { authorizationList: [] }, { nonce: "0x8" }, { nonce: undefined },
+  ]) assert.throws(() => assertBuybackRequest({ method: "eth_sendTransaction", params: [{ ...tx, ...changed }] }, step));
+  assert.throws(() => transactionClient(1));
+  assert.equal(transactionClient(4663).chain?.id, 4663);
+});
+
+test("budget authorization serializes the exact app, account, asset, raw amount, claims, nonce and expiry", () => {
+  const input = { stockAddress: STOCKS[0].address, amount: "0.01", claimHashes: [`0x${"a".repeat(64)}` as Hash] };
+  const nonce = `0x${"b".repeat(64)}` as Hash;
+  const expiry = 1_800_000_300_000;
+  const serialized = JSON.parse(buybackAuthorizationPayload(input, treasury, nonce, expiry));
+  assert.equal(serialized.primaryType, "PrepareBuyback");
+  assert.equal(serialized.domain.name, "MuseGod Buyback");
+  assert.equal(Number(serialized.domain.chainId), 8453);
+  assert.equal(serialized.message.app, "musegod.fun");
+  assert.equal(serialized.message.treasury.toLowerCase(), treasury);
+  assert.equal(serialized.message.amountIn, "1000000");
+  assert.equal(serialized.message.expiresAt, String(expiry));
+  const expected = hashTypedData(buybackAuthorizationTypedData(input, treasury, nonce, expiry));
+  assert.equal(hashTypedData(serialized), expected, "Wallet JSON and server typed-data verification must hash identically");
+  for (const changed of [
+    { ...input, amount: "0.02" }, { ...input, stockAddress: STOCKS[1].address },
+    { ...input, claimHashes: [] },
+  ]) assert.notEqual(hashTypedData(buybackAuthorizationTypedData(changed, treasury, nonce, expiry)), expected);
+  assert.notEqual(hashTypedData(buybackAuthorizationTypedData(input, other, nonce, expiry)), expected);
+  assert.notEqual(hashTypedData(buybackAuthorizationTypedData(input, treasury, `0x${"c".repeat(64)}`, expiry)), expected);
+  assert.notEqual(hashTypedData(buybackAuthorizationTypedData(input, treasury, nonce, expiry + 1)), expected);
+});
+
+test("wallet preparation submits the authorization and exact budget in the HTTP route's flat body", async () => {
+  const originalFetch = globalThis.fetch;
+  const input = { stockAddress: STOCKS[0].address, amount: "0.01", claimHashes: [`0x${"a".repeat(64)}` as Hash] };
+  const authorization = { nonce: `0x${"b".repeat(64)}` as Hash, expiresAt: Date.now() + 300_000, signature: `0x${"c".repeat(130)}` as Hash };
+  let calls = 0;
+  globalThis.fetch = async (url, options) => {
+    calls++;
+    assert.equal(url, "/api/buyback/batches");
+    assert.equal(options?.method, "POST");
+    assert.deepEqual(JSON.parse(options?.body as string), { ...input, authorization });
+    return new Response(JSON.stringify({ id: "prepared-batch" }), { status: 200 });
+  };
+  try {
+    const result = await submitBuybackPreparation(input, authorization);
+    assert.equal(result.id, "prepared-batch");
+    assert.equal(calls, 1);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("buyback pending and replacement records retain batch linkage across browser reloads on both chains", () => {
+  const oldStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  const oldWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  const values = new Map<string, string>();
+  Object.defineProperty(globalThis, "localStorage", { configurable: true, value: { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value) } });
+  Object.defineProperty(globalThis, "window", { configurable: true, value: new EventTarget() });
+  try {
+    const sourceHash = `0x${"a".repeat(64)}` as Hash;
+    const burnHash = `0x${"b".repeat(64)}` as Hash;
+    const replacement = `0x${"c".repeat(64)}` as Hash;
+    saveTransaction({ hash: sourceHash, chainId: 8453, account: treasury, action: "buyback", batchId: "batch-a", buybackKind: "deposit", status: "pending", at: 1 });
+    saveTransaction({ hash: burnHash, chainId: 4663, account: treasury, action: "buyback", batchId: "batch-a", buybackKind: "burn", nonce: 7, status: "pending", at: 2 });
+    assert.equal(transactions().length, 2);
+    updateTransaction(burnHash, 4663, { status: "replaced", replacement });
+    saveTransaction({ hash: replacement, chainId: 4663, account: treasury, action: "buyback", batchId: "batch-a", buybackKind: "burn", nonce: 7, status: "pending", at: 3 });
+    assert.equal(transactions().find((t) => t.hash === burnHash)?.replacement, replacement);
+    assert.equal(transactions().find((t) => t.hash === burnHash)?.nonce, 7);
+    assert.equal(transactions().find((t) => t.hash === replacement)?.batchId, "batch-a");
+    assert.equal(transactions().find((t) => t.hash === sourceHash)?.status, "pending");
+    saveTransaction({ hash: `0x${"d".repeat(64)}`, chainId: 4663, account: treasury, action: "buyback", batchId: "batch-a", buybackKind: "deposit", status: "pending", at: 4 });
+    assert.equal(transactions().length, 3, "Invalid source transaction on Robinhood must not restore");
+    const cancellationHash = `0x${"e".repeat(64)}` as Hash;
+    const batch = { id: "batch-a", quote: { treasury }, cancellations: [{ kind: "burn", hash: cancellationHash,
+      nonce: 7, status: "success", verifiedCanonical: false, blockHash: `0x${"f".repeat(64)}`, blockNumber: "10" }] } as unknown as BuybackBatch;
+    assert.equal(applyBuybackRecovery(batch, "burn", cancellationHash), false);
+    assert.equal(transactions().find((t) => t.hash === replacement)?.status, "pending", "Unverified cancellation must not release the local pending record");
+    batch.cancellations![0].verifiedCanonical = true;
+    assert.equal(applyBuybackRecovery(batch, "deposit", cancellationHash), false);
+    assert.equal(applyBuybackRecovery(batch, "burn", cancellationHash), true);
+    assert.equal(transactions().find((t) => t.hash === replacement)?.status, "cancelled");
+    assert.equal(transactions().find((t) => t.hash === replacement)?.replacement, cancellationHash);
+    assert.equal(transactions().find((t) => t.hash === sourceHash)?.status, "pending", "Cancellation only updates its original chain, batch, kind and nonce");
+  } finally {
+    if (oldStorage) Object.defineProperty(globalThis, "localStorage", oldStorage); else Reflect.deleteProperty(globalThis, "localStorage");
+    if (oldWindow) Object.defineProperty(globalThis, "window", oldWindow); else Reflect.deleteProperty(globalThis, "window");
+  }
+});
