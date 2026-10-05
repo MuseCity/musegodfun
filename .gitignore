@@ -12,3 +12,6 @@ dist/
 .dev.vars
 .dev.vars.*
 supabase/.temp/
+contracts/out/
+contracts/cache/
+contracts/broadcast/

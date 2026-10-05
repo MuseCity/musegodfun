@@ -25,7 +25,13 @@
     "test:musegod-fork": "tsx scripts/run.ts scripts/test-musegod-fork.ts",
     "test:musegod-http": "tsx scripts/test-musegod-http.ts",
     "dev:cloudflare": "wrangler dev",
-    "deploy:cloudflare": "tsx scripts/release.ts"
+    "deploy:cloudflare": "tsx scripts/release.ts",
+    "test:launch-guard": "forge test --root contracts",
+    "build:launch-guard": "forge build --root contracts",
+    "verify:launch-guard": "tsx scripts/deploy-launch-guard.ts",
+    "test:launch-curve-fork": "tsx scripts/run.ts scripts/test-launch-curve-fork.ts",
+    "test:launch-browser": "tsx scripts/test-launch-browser.mjs",
+    "test:launch-fork-browser": "tsx scripts/test-launch-fork-browser.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "6.1.1",

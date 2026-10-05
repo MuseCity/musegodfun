@@ -2861,6 +2861,81 @@ footer > a {
 .launch-review .plan-result > span {
   min-width: 0;
 }
+.first-buy-panel .optional {
+  margin-left: 7px;
+  font-size: 12px;
+  font-weight: 400;
+  color: #77866a;
+}
+.first-buy-panel > label {
+  display: grid;
+  gap: 9px;
+  margin-top: 20px;
+}
+.first-buy-panel input {
+  width: 100%;
+  min-width: 0;
+}
+.first-buy-slippage {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 16px 0;
+  font-size: 12px;
+}
+.first-buy-slippage > div {
+  display: flex;
+  gap: 6px;
+}
+.first-buy-slippage button {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  padding: 8px 11px;
+}
+.first-buy-slippage button[aria-pressed="true"] {
+  background: #e7f2d5;
+  border-color: #8ba762;
+  color: #40552c;
+}
+.first-buy-panel > .muted,
+.first-buy-preview > p {
+  font-size: 12px;
+  line-height: 1.6;
+}
+.first-buy-preview {
+  margin: 20px 0;
+}
+.first-buy-preview h3 {
+  font-size: 15px;
+  margin-bottom: 10px;
+}
+.first-buy-preview .review-facts dt {
+  flex-shrink: 1;
+}
+.first-buy-preview .review-facts dd {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.first-buy-preview > p {
+  margin-top: 12px;
+  color: #77866a;
+}
+.launch-curve-model svg text {
+  fill: #71815d;
+  font-size: 9px;
+}
+.launch-curve-model figcaption,
+.launch-curve-model .curve-tail-note {
+  font-size: 10px;
+  line-height: 1.6;
+  color: #77866a;
+}
+.launch-curve-model .curve-tail-note {
+  margin-top: 8px;
+}
 @media (max-width: 1100px) and (min-width: 761px) {
   .social-fields {
     grid-template-columns: 1fr;

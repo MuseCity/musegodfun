@@ -1,0 +1,88 @@
+{
+  "scope": "Local browser UI with explicitly injected wallet/API/RPC fixtures. No real-wallet or chain settlement proof.",
+  "observedAt": "2026-10-05T12:22:23.235Z",
+  "origin": "http://127.0.0.1:5191",
+  "checks": [
+    {
+      "mode": "success",
+      "viewport": "desktop",
+      "walletCalls": 2,
+      "plans": 1,
+      "status": "passed"
+    },
+    {
+      "mode": "plain",
+      "viewport": "desktop",
+      "walletCalls": 1,
+      "plans": 1,
+      "status": "passed"
+    },
+    {
+      "mode": "duplicate",
+      "viewport": "desktop",
+      "walletCalls": 2,
+      "plans": 1,
+      "status": "passed"
+    },
+    {
+      "mode": "stale_page",
+      "viewport": "desktop",
+      "walletCalls": 0,
+      "plans": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "reject_approval",
+      "viewport": "desktop",
+      "walletCalls": 0,
+      "plans": 1,
+      "status": "passed"
+    },
+    {
+      "mode": "expiry",
+      "viewport": "desktop",
+      "walletCalls": 1,
+      "plans": 1,
+      "status": "passed"
+    },
+    {
+      "mode": "account_change",
+      "viewport": "desktop",
+      "walletCalls": 1,
+      "plans": 1,
+      "status": "passed"
+    },
+    {
+      "mode": "network_change",
+      "viewport": "desktop",
+      "walletCalls": 1,
+      "plans": 1,
+      "status": "passed"
+    },
+    {
+      "mode": "simulation_failure",
+      "viewport": "desktop",
+      "walletCalls": 1,
+      "plans": 1,
+      "status": "passed"
+    },
+    {
+      "mode": "pending",
+      "viewport": "desktop",
+      "walletCalls": 2,
+      "plans": 1,
+      "status": "passed"
+    },
+    {
+      "mode": "success",
+      "viewport": "mobile 390x844",
+      "walletCalls": 2,
+      "status": "passed"
+    }
+  ],
+  "screenshots": [
+    "launch-curve-desktop-review.png",
+    "launch-curve-mobile-review.png"
+  ],
+  "productionPublication": "not_run"
+}

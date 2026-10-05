@@ -1,0 +1,30 @@
+{
+  "scope": "HTTP checks against local Robinhood Chain service; tests only read and simulate, no mainnet transactions",
+  "observedAt": "2026-10-05T12:13:25.394Z",
+  "origin": "http://127.0.0.1:5191",
+  "checks": [
+    "Robinhood Chain runtime: browser signing disabled",
+    "Missing curve handshake rejects issuance",
+    "Stale curve handshake rejects issuance",
+    "198 paired assets verified with native precision, supply and block metadata",
+    "Unknown pages and APIs return 404",
+    "Catalog contains only registered active-chain paired assets and no preloaded project",
+    "Read-only RPC resolves to chain 4663",
+    "Transaction-sending RPC method blocked",
+    "Cross-origin mutation rejected",
+    "Unsafe slippage rejected before RPC work",
+    "Malformed registration rejected",
+    "Fixed $5,000 mainnet launch simulation with a bound USD price snapshot; no signature",
+    "Client-supplied valuations and prices rejected before simulation",
+    "Removed U and PAIR are rejected by production issuance API",
+    "MUSEGOD fixed $5,000 issuance simulation uses same-chain five-minute TWAP; no signature",
+    "Base fee bridging cannot prepare a transaction in this release",
+    "Unknown API returns JSON 404"
+  ],
+  "skipped": [
+    {
+      "check": "live registered-pool state and swap quote",
+      "reason": "Catalog is empty; no deployed stock-paired pool exists to verify"
+    }
+  ]
+}

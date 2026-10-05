@@ -4,7 +4,8 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BuildInfo } from "../src/lib/build-info";
-import { assertBuildManifest, assertFrozenBuild, assertReleaseCheckout, publishCandidate, ReleaseFailure, requireSingleActiveVersion, runtimeVarsFromBindings, snapshotBuild, type ReleaseLifecycle } from "../scripts/release-policy";
+import { assertBuildManifest, assertFrozenBuild, assertLaunchRuntime, assertReleaseCheckout, publishCandidate, ReleaseFailure, requireSingleActiveVersion, runtimeVarsFromBindings, snapshotBuild, type ReleaseLifecycle } from "../scripts/release-policy";
+import { CURVE_POLICY } from "../src/lib/launch-curve";
 
 const commit = "a".repeat(40), newerCommit = "b".repeat(40);
 const previousVersion = "11111111-1111-4111-8111-111111111111", candidateVersion = "22222222-2222-4222-8222-222222222222";
@@ -42,6 +43,19 @@ test("rollback keeps previous runtime expectations and excludes secret bindings"
   const candidateVars = { ...vars, ENABLE_MAINNET_TRANSACTIONS: "false" };
   assert.notDeepEqual(runtimeVarsFromBindings(bindings), candidateVars, "Rollback must retain old expectations when candidate vars changed");
   assert.throws(() => runtimeVarsFromBindings([{ name: "CHAIN_MODE", type: "plain_text" }]), /Cannot inspect/);
+});
+
+test("publication verifies the curve and configured guard, while legacy rollback remains available", () => {
+  const guard = "0x1111111111111111111111111111111111111111";
+  assertLaunchRuntime({ curvePolicy: CURVE_POLICY, launchGuard: guard }, { LAUNCH_GUARD_ADDRESS: guard });
+  assertLaunchRuntime({ curvePolicy: CURVE_POLICY, launchGuard: null }, {});
+  for (const runtime of [{ curvePolicy: CURVE_POLICY, launchGuard: null },
+    { curvePolicy: CURVE_POLICY, launchGuard: "0x2222222222222222222222222222222222222222" },
+    { curvePolicy: "old", launchGuard: guard }, {}])
+    assert.throws(() => assertLaunchRuntime(runtime, { LAUNCH_GUARD_ADDRESS: guard }), /does not match/);
+  assert.throws(() => assertLaunchRuntime({ curvePolicy: CURVE_POLICY }, {}), /does not match/);
+  assertLaunchRuntime({}, {}, false);
+  assert.throws(() => assertLaunchRuntime({}, { LAUNCH_GUARD_ADDRESS: guard }, false), /does not match/);
 });
 
 test("frozen inventory detects replacements and additions, and manifest covers encoded paths", () => {

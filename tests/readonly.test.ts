@@ -60,11 +60,11 @@ test("Base launch tracking rejects mismatched calldata or targets; read-only rol
     runtime: { config: { mode: "base", chainId: 8453, writesEnabled: false } },
     assertNetwork: async () => { networkChecks++; },
     client: {
-      getTransaction: async () => ({ to: target, from: account, input }),
+      getTransaction: async () => ({ to: target, from: account, input, value: 0n }),
       getTransactionReceipt: async () => { throw new Error("receipt pending"); },
     },
     store: {
-      findPlan: async (creator: string, data: string) => creator === account && data === "0x1234" ? { id: planId } : null,
+      findPlan: async (creator: string, data: string) => creator === account && data === "0x1234" ? { id: planId, creator: account, data: "0x1234" } : null,
       trackLaunch: async (...args: unknown[]) => { tracked.push(args); },
       pendingLaunches: async () => [],
     },
@@ -75,7 +75,7 @@ test("Base launch tracking rejects mismatched calldata or targets; read-only rol
   await assert.rejects(() => service.trackLaunch(hash, planId), /does not match the issuance preview/);
   input = "0x1234";
   target = CONTRACTS.router;
-  await assert.rejects(() => service.trackLaunch(hash, planId), /Airlock/);
+  await assert.rejects(() => service.trackLaunch(hash, planId), /outer transaction/);
   assert.equal(tracked.length, 1, "Invalid tracking must not occupy the persistent queue");
   await assert.rejects(() => service.register(hash), /receipt pending/);
   const before = networkChecks;

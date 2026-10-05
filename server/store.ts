@@ -2,23 +2,9 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { Address, Hex } from "viem";
-import type { LaunchInput } from "../src/lib/validation";
 import type { TokenRecord } from "../src/lib/config";
-import type { FeePolicy } from "../src/lib/fee-policy";
-import type { OpeningValuation } from "../src/lib/opening-valuation";
-export type LaunchPlan = {
-  id: Hex;
-  creator: Address;
-  data: Hex;
-  tokenAddress: Address;
-  poolId: Hex;
-  draft: LaunchInput & { openingCap?: string };
-  preparedAt: number;
-  gas: string | null;
-  feePolicy?: FeePolicy;
-  feeTreasury?: Address;
-  openingValuation?: OpeningValuation;
-};
+import type { LaunchPlan } from "../src/lib/launch-plan";
+export type { LaunchPlan } from "../src/lib/launch-plan";
 export type BuybackBatchRecord = Record<string, unknown> & { id: string };
 export function assertBuybackBatchId(id: unknown): asserts id is string {
   if (typeof id !== "string" || id.length === 0 || id.length > 200)

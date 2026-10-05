@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url";
 import { setTimeout as waitForPropagation } from "node:timers/promises";
 import type { BuildInfo } from "../src/lib/build-info";
 import { readBuildIdentity, REPOSITORY } from "./build-info";
-import { assertBuildManifest, assertFrozenBuild, assertReleaseCheckout, publishCandidate, ReleaseFailure, requireSingleActiveVersion, runtimeVarsFromBindings, sha256, snapshotBuild } from "./release-policy";
+import { assertBuildManifest, assertFrozenBuild, assertLaunchRuntime, assertReleaseCheckout, publishCandidate, ReleaseFailure, requireSingleActiveVersion, runtimeVarsFromBindings, sha256, snapshotBuild } from "./release-policy";
 
 const repositorySlug = "MuseCity/musegodfun", workerName = "musegod-fun";
 const origins = ["https://musegod.fun", "https://www.musegod.fun"];
@@ -117,13 +117,14 @@ function wrangler(args: string[], env: NodeJS.ProcessEnv = {}) {
   execFileSync(resolve("node_modules/.bin/wrangler"), args, { stdio: "inherit", env: { ...process.env, ...env }, timeout: 300_000 });
 }
 
-async function checkRuntime(origin: string, config: WranglerConfig) {
+async function checkRuntime(origin: string, config: WranglerConfig, requireLaunchPolicy = true) {
   const headers = { "Cache-Control": "no-cache" };
   const ready = await (await request(`${origin}/readyz`, { headers })).json() as { status: string; chainId: number; writesEnabled: boolean };
-  const runtime = await (await request(`${origin}/api/config`, { headers })).json() as { mode: string; chainId: number; deploymentChainId: number; treasury: string; writesEnabled: boolean };
+  const runtime = await (await request(`${origin}/api/config`, { headers })).json() as { mode: string; chainId: number; deploymentChainId: number; treasury: string; writesEnabled: boolean; curvePolicy?: string; launchGuard?: string | null };
   const writesEnabled = config.vars.ENABLE_MAINNET_TRANSACTIONS === "true";
   if (ready.status !== "ready" || ready.chainId !== 4663 || ready.writesEnabled !== writesEnabled || runtime.mode !== "robinhood" || runtime.chainId !== 4663 || runtime.deploymentChainId !== 4663 || runtime.writesEnabled !== writesEnabled || runtime.treasury?.toLowerCase() !== config.vars.PLATFORM_TREASURY?.toLowerCase())
     throw new Error(`Readiness/runtime configuration check failed for ${origin}`);
+  assertLaunchRuntime(runtime, config.vars, requireLaunchPolicy);
 }
 
 async function main() {
@@ -260,7 +261,7 @@ async function main() {
           const response = await request(`${origin}/`, { headers: { "Cache-Control": "no-cache" } });
           const version = response.headers.get("X-Worker-Version");
           if (version && version !== previous) throw new Error(`Rollback origin still serves a different Worker: ${origin}`);
-          await checkRuntime(origin, previousConfig);
+          await checkRuntime(origin, previousConfig, false);
           describe(`Rollback origin checked: ${origin}; ${version ? `Worker ${version}` : "HTTP 200 (legacy version has no metadata header)"}`);
         }
       },

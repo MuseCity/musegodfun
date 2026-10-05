@@ -28,8 +28,8 @@ import {
 } from "./config";
 import { launchSchema, minimumOutput, type LaunchInput } from "./validation";
 import { FEE_POLICY, FEE_SHARES, MUSEGOD_BUYBACK } from "./fee-policy";
+import { CURVE_POLICY, buildLaunchCurves, LAUNCH_CURVE_TICK_SPACING } from "./launch-curve";
 import {
-  OPENING_CAP_USD,
   assertOpeningValuation,
   openingCapInQuote,
   type OpeningValuation,
@@ -85,6 +85,7 @@ export function tokenMetadata(input: LaunchInput, openingValuation: OpeningValua
       quote: input.quoteAddress,
       openingCap: openingCapInQuote(openingValuation),
       openingValuation,
+      curvePolicy: CURVE_POLICY,
       feePolicy: FEE_POLICY,
       feeDistribution: {
         basis: "total_fees",
@@ -141,7 +142,6 @@ export function buildLaunch(
       shares: (WAD * BigInt(FEE_SHARES.platformNet)) / 10_000n,
     },
   ]);
-  const cap = OPENING_CAP_USD;
   const builder = sdk
     .buildMulticurveAuction()
     .tokenConfig({
@@ -160,20 +160,9 @@ export function buildLaunch(
       numeraireDecimals: stock.decimals,
       tokenDecimals: 18,
       fee: 500,
-      tickSpacing: 10,
+      tickSpacing: LAUNCH_CURVE_TICK_SPACING,
       beneficiaries: lpBeneficiaries,
-      curves: [
-        {
-          marketCap: { start: cap, end: cap * 10 },
-          numPositions: 10,
-          shares: (WAD * 90n) / 100n,
-        },
-        {
-          marketCap: { start: cap * 10, end: "max" },
-          numPositions: 1,
-          shares: (WAD * 10n) / 100n,
-        },
-      ],
+      curves: buildLaunchCurves(),
     })
     .withRehypeDopplerHookInitializer({
       hookAddress: contracts.rehype,

@@ -49,6 +49,8 @@ import {
 import { api } from "./api";
 import { MUSEGOD_ROUTER_VERIFICATION, assertMusegodTradingEnabled, type MusegodQuote } from "./musegod";
 import { executeMusegodTrade } from "./musegod-trade";
+import type { LaunchPlan, LaunchTransaction } from "./launch-plan";
+import { assertLaunchRequest, assertLaunchWalletPlan, bufferedLaunchGas, executeLaunchPlan, type LaunchSimulation } from "./launch-wallet";
 declare global {
   interface Window {
     ethereum?: Provider;
@@ -173,6 +175,8 @@ type WalletState = {
     config: RuntimeConfig,
     onHash?: (hash: Hash) => void,
   ) => Promise<Hash>;
+  launch: (plan: LaunchPlan, config: RuntimeConfig, progress: (message: string) => void,
+    onHash?: (hash: Hash) => void, assertCurrent?: () => void) => Promise<Hash>;
   trade: (
     quote: Quote,
     config: RuntimeConfig,
@@ -326,7 +330,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       setConnection((previous) => ({ ...previous, error: errorMessage(e) }));
     }
   }
-  async function signer(config: RuntimeConfig, expected: Address, validateAction?: () => Promise<unknown>) {
+  async function signer(config: RuntimeConfig, expected: Address, validateAction?: (current: RuntimeConfig) => Promise<unknown>,
+    guardRequest?: (request: Parameters<Provider["request"]>[0]) => void) {
     assertSigningEnabled(config);
     assertTransactionStorage();
     if (transactions().filter((t) => t.status === "pending").length >= 100)
@@ -349,7 +354,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         rpcChainId !== config.chainId
       )
         throw new Error("The platform configuration or RPC network has changed. Refresh and preview again.");
-      await validateAction?.();
+      await validateAction?.(current);
       await controller.current!.validate(expected, config.chainId, p);
     };
     await validate();
@@ -358,6 +363,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       chain: walletChain(config),
       transport: custom({
         request: async (request: Parameters<Provider["request"]>[0]) => {
+          guardRequest?.(request);
           await validate();
           return p.request(request);
         },
@@ -406,6 +412,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           updateTransaction(hash, config.chainId, {
             status: r.reason === "cancelled" ? "cancelled" : "replaced",
             replacement: r.transaction.hash,
+            ...(action === "launch" ? { nonce: r.transaction.nonce } : {}),
             ...(action === "buyback" ? { registered: false } : {}),
           });
           replaced = r.reason !== "repriced";
@@ -467,15 +474,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     const expected = account;
     const contracts = contractsFor(config);
     if (
-      ![contracts.airlock, contracts.initializer, contracts.rehype].some((a) =>
+      ![contracts.initializer, contracts.rehype].some((a) =>
         sameAddress(a, to),
       )
     )
       throw new Error("The transaction target is not allowed");
-    const validateLaunch = sameAddress(to, contracts.airlock)
-      ? () => api("/launch/validate", { creator: expected, data })
-      : undefined;
-    const wallet = await signer(config, expected, validateLaunch);
+    const wallet = await signer(config, expected);
     await publicClient
       .call({ account: expected, to, data })
       .catch((error: unknown) => {
@@ -487,10 +491,58 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       hash,
       config,
       expected,
-      sameAddress(to, contracts.airlock) ? "launch" : "claim",
+      "claim",
     );
     onHash?.(hash);
     return confirmation;
+  }
+  async function launch(plan: LaunchPlan, config: RuntimeConfig, progress: (message: string) => void,
+    onHash?: (hash: Hash) => void, assertCurrent?: () => void) {
+    if (!account) throw new Error("Connect your wallet first");
+    const expected = account;
+    const validate = async (frozen: LaunchPlan, current: RuntimeConfig) => {
+      assertCurrent?.();
+      assertLaunchWalletPlan(frozen, current, expected);
+      const result = await api<{ valid: true; curvePolicy: string }>("/launch/validate", {
+        creator: expected, data: frozen.data,
+      });
+      if (result.valid !== true || result.curvePolicy !== frozen.curvePolicy)
+        throw new Error("The launch preview has changed. Run a new preview.");
+      assertCurrent?.();
+    };
+    const signingWallet = (transaction: LaunchTransaction, frozen: LaunchPlan) => signer(config, expected,
+      (current) => validate(frozen, current),
+      (request) => assertLaunchRequest(request, { ...transaction, from: expected, chainId: config.chainId }));
+    return executeLaunchPlan(plan, config, expected, {
+      validate: async (frozen) => { await signer(config, expected, (current) => validate(frozen, current)); },
+      balance: (token) => publicClient.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [expected] }),
+      allowance: (token, spender) => publicClient.readContract({ address: token, abi: erc20Abi, functionName: "allowance", args: [expected, spender] }),
+      approve: async (transaction, frozen) => {
+        await publicClient.call({ account: expected, to: transaction.to, data: transaction.data, value: 0n })
+          .catch((error: unknown) => { throw simulationError(error); });
+        const [estimate, block] = await Promise.all([
+          publicClient.estimateGas({ account: expected, to: transaction.to, data: transaction.data, value: 0n }),
+          publicClient.getBlock(),
+        ]);
+        const gas = bufferedLaunchGas(estimate, block.gasLimit);
+        const wallet = await signingWallet(transaction, frozen);
+        const hash = await wallet.sendTransaction({ to: transaction.to, data: transaction.data, value: 0n, gas });
+        progress(`Waiting for first buy approval · ${hash}`);
+        await confirmed(hash, config, expected, "approval");
+      },
+      simulate: (frozen) => api<LaunchSimulation>("/launch/simulate", { creator: expected, data: frozen.data }),
+      submit: async (transaction, gas, frozen) => {
+        const block = await publicClient.getBlock();
+        const bufferedGas = bufferedLaunchGas(gas, block.gasLimit);
+        const wallet = await signingWallet(transaction, frozen);
+        const hash = await wallet.sendTransaction({ to: transaction.to, data: transaction.data, value: 0n, gas: bufferedGas });
+        const confirmation = confirmed(hash, config, expected, "launch");
+        onHash?.(hash);
+        progress(`Waiting for on-chain launch confirmation · ${hash}`);
+        return confirmation;
+      },
+      progress,
+    });
   }
   async function trade(
     quote: Quote,
@@ -751,6 +803,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         disconnect,
         switchChain,
         send: (...args) => exclusive(() => send(...args)),
+        launch: (...args) => exclusive(() => launch(...args)),
         trade: (...args) => exclusive(() => trade(...args)),
         buyback: (...args) => exclusive(() => buyback(...args)),
         prepareBuyback: (...args) => exclusive(() => prepareBuyback(...args)),

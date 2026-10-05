@@ -181,7 +181,7 @@ app.post(
     res.status(202).json({ status: "pending" });
   }),
 );
-app.get("/api/config", (_req, res) => res.json(service.runtime.config));
+app.get("/api/config", route(async (_req, res) => res.json(await service.config())));
 let buybackStats: MUSEGODStats | null = null;
 let buybackStatsPending: Promise<MUSEGODStats> | null = null;
 let buybackQuoting = false;
@@ -304,12 +304,17 @@ app.post(
     }
     preparing = true;
     try {
-      res.json(await service.prepare(req.body.draft, req.body.creator));
+      res.json(await service.prepare(req.body.draft, req.body.creator, req.body.expectedCurvePolicy, req.body.firstBuy));
     } finally {
       preparing = false;
     }
   }),
 );
+app.post("/api/launch/simulate", route(async (req, res) => {
+  const { creator, data } = z.object({ creator: addressSchema,
+    data: z.string().regex(/^0x(?:[0-9a-fA-F]{2})+$/).max(60_000) }).strict().parse(req.body);
+  res.json(await service.simulateLaunch(creator, data as Hex));
+}));
 app.post(
   "/api/launch/register",
   route(async (req, res) =>

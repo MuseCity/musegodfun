@@ -14,6 +14,7 @@ import { claimFeesAbi, permit2Abi, swapTransaction } from "../src/lib/protocol";
 import { allocateFeeIncome, FEE_POLICY } from "../src/lib/fee-policy";
 import { LaunchpadService } from "../server/service";
 import { OPENING_CAP_USD, OPENING_POLICY } from "../src/lib/opening-valuation";
+import { CURVE_POLICY } from "../src/lib/launch-curve";
 import { redact, runtimeFromEnv } from "../server/config";
 import { startRobinhoodFork } from "./robinhood-fork";
 
@@ -135,10 +136,10 @@ try {
       name: `Robinhood ${ticker} Fork Proof`, symbol: `RH${ticker.toUpperCase()}`,
       description: "Isolated local Robinhood Chain fork acceptance. No mainnet transaction.",
       image: "", quoteAddress: asset.address,
-    }, creator);
+    }, creator, CURVE_POLICY);
     assert.equal(plan.feePolicy, FEE_POLICY);
     assert(sameAddress(plan.feeTreasury!, treasury));
-    assert.deepEqual(await service.validateLaunch(creator, plan.data), { valid: true, feePolicy: FEE_POLICY });
+    assert.deepEqual(await service.validateLaunch(creator, plan.data), { valid: true, feePolicy: FEE_POLICY, curvePolicy: CURVE_POLICY });
     const launchHash = await wallet.sendTransaction({ to: contracts.airlock, data: plan.data, value: 0n });
     await service.trackLaunch(launchHash, plan.id);
     await confirmed(launchHash);

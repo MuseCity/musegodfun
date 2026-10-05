@@ -1,0 +1,320 @@
+{
+  "observedAt": "2026-10-05T12:45:14.543Z",
+  "scope": "Local implementation and acceptance. Models, unsigned simulations, injected UI fixtures and actual local-fork receipts are separate evidence layers.",
+  "curvePolicy": "multicurve-97-3-v1",
+  "baseCommit": "0a366ab62789ed891bf4f2eabaf9d1903a303292",
+  "workingTree": "uncommitted implementation",
+  "engineering": {
+    "typescript": {
+      "command": "npm test",
+      "passed": 308,
+      "failed": 0
+    },
+    "foundry": {
+      "command": "npm run test:launch-guard",
+      "passed": 25,
+      "failed": 0,
+      "fuzzRuns": 256,
+      "compiler": "0.8.24",
+      "evmVersion": "cancun",
+      "openzeppelin": "5.7.0"
+    },
+    "typecheck": {
+      "targets": [
+        "Node/browser",
+        "Cloudflare Worker"
+      ],
+      "status": "passed"
+    },
+    "build": {
+      "status": "passed",
+      "note": "Existing large-chunk warning remains."
+    },
+    "diffCheck": "passed"
+  },
+  "curve": {
+    "supply": "1000000000000000000000000000",
+    "openingFdvUsd": 5000,
+    "mainEndFdvUsd": 1310720000,
+    "weightsBps": [
+      2067,
+      1473,
+      1050,
+      748,
+      533,
+      380,
+      271,
+      293,
+      325,
+      353,
+      346,
+      323,
+      302,
+      282,
+      264,
+      246,
+      230,
+      214,
+      300
+    ],
+    "segments": 19,
+    "positionsPerSegment": 1,
+    "tickSpacing": 10,
+    "decimalsTested": [
+      6,
+      8,
+      18
+    ],
+    "tokenOrdersTested": [
+      "currency0",
+      "currency1"
+    ],
+    "checks": [
+      "integer weights sum to one WAD",
+      "contiguous tick ranges",
+      "SDK-safe tail maximum",
+      "actual mint rounding",
+      "tick USD boundary error within approximately 0.100045 percent",
+      "unmarked historical curves are not backfilled"
+    ]
+  },
+  "execution": {
+    "report": "launch-curve-fork.json",
+    "status": "passed",
+    "executionChainId": 31337,
+    "pairs": [
+      "USDG",
+      "cbBTC",
+      "WETH",
+      "NVDA",
+      "MUSEGOD"
+    ],
+    "plainAndGuardedPaths": 10,
+    "mainBoundaryCrossings": 18,
+    "tailEntered": true,
+    "reverseReturnedToOpeningRange": true,
+    "restartAndSnapshotReorg": "passed",
+    "upstreamWriteAttempts": 0,
+    "phases": [
+      {
+        "scope": "5 paired assets plain + guarded, trades and fee payouts",
+        "forkBlockNumber": "80773258",
+        "sourceHash": "05ebd1302dd2345e64441bee405d4cc6b72184e58e12c43b14b25be83558e559",
+        "guardArtifactHash": "520657031eebf6cee17ef3bd3ae63785857c609ca1798c1e57e8705bb29d570a",
+        "guard": "0xf99add941432ec09b498ea1b680be13f2e717d88",
+        "snapshotRestored": true,
+        "blockedUpstreamWrites": 0
+      },
+      {
+        "scope": "WETH all boundaries + tail + reverse",
+        "forkBlockNumber": "80790825",
+        "sourceHash": "35d75b3e7eef3b2a8181e7cc817be8e1b924f90be6b39493c8ea0660cb5f55b2",
+        "guardArtifactHash": "520657031eebf6cee17ef3bd3ae63785857c609ca1798c1e57e8705bb29d570a",
+        "guard": "0xf99add941432ec09b498ea1b680be13f2e717d88",
+        "snapshotRestored": true
+      },
+      {
+        "scope": "Actual desktop and mobile production-build browser with local unlocked Anvil wallet",
+        "report": "docs/evidence/launch-curve-fork-browser.json",
+        "forkBlockNumber": null,
+        "executionReceiptBlocks": [
+          "80783082",
+          "80783089"
+        ],
+        "curvePolicy": "multicurve-97-3-v1",
+        "guard": "0xf99add941432ec09b498ea1b680be13f2e717d88",
+        "guardArtifactHash": "520657031eebf6cee17ef3bd3ae63785857c609ca1798c1e57e8705bb29d570a",
+        "observedAt": "2026-10-05T12:32:42.175Z",
+        "checksPassed": true,
+        "note": "Browser uses the prior retained fork; its initial upstream fork block was not captured in its context. Receipt blocks are observed execution blocks."
+      }
+    ],
+    "gasUsed": {
+      "guardDeployment": "888931",
+      "plainLaunch": {
+        "minimum": "5577411",
+        "maximum": "5663125"
+      },
+      "guardedLaunch": {
+        "minimum": "5881632",
+        "maximum": "6070065"
+      },
+      "boundaryBuys": {
+        "minimum": "467900",
+        "maximum": "636482"
+      },
+      "reverseSell": "976095"
+    },
+    "gasScope": "Local EVM execution only; does not prove Robinhood Nitro sequencer or L1 gas costs."
+  },
+  "browser": {
+    "injectedFixtures": {
+      "report": "launch-curve-browser.json",
+      "status": "passed",
+      "checks": 11,
+      "modes": [
+        {
+          "mode": "success",
+          "viewport": "desktop"
+        },
+        {
+          "mode": "plain",
+          "viewport": "desktop"
+        },
+        {
+          "mode": "duplicate",
+          "viewport": "desktop"
+        },
+        {
+          "mode": "stale_page",
+          "viewport": "desktop"
+        },
+        {
+          "mode": "reject_approval",
+          "viewport": "desktop"
+        },
+        {
+          "mode": "expiry",
+          "viewport": "desktop"
+        },
+        {
+          "mode": "account_change",
+          "viewport": "desktop"
+        },
+        {
+          "mode": "network_change",
+          "viewport": "desktop"
+        },
+        {
+          "mode": "simulation_failure",
+          "viewport": "desktop"
+        },
+        {
+          "mode": "pending",
+          "viewport": "desktop"
+        },
+        {
+          "mode": "success",
+          "viewport": "mobile 390x844"
+        }
+      ]
+    },
+    "actualLocalFork": {
+      "report": "launch-curve-fork-browser.json",
+      "status": "passed",
+      "viewports": [
+        {
+          "width": 1440,
+          "height": 1000
+        },
+        {
+          "width": 390,
+          "height": 844
+        }
+      ],
+      "assetVerification": {
+        "source": "actual /api/stocks, warmed before browser navigation",
+        "count": 198,
+        "verified": 198,
+        "elapsedMs": 72234
+      },
+      "checks": [
+        "exact approval plus one guard transaction",
+        "wallet balance delta equals simulated net output in raw units",
+        "minimum output and receipt verification",
+        "allowance consumed to zero",
+        "registered token survives refresh"
+      ],
+      "coldReadBoundary": "First cold 198-asset read exceeded the browser request timeout and kept launch disabled. Actual API verification was warmed before the successful production-build journeys; this is not a cold-load latency pass."
+    },
+    "modelScreenshot": "launch-curve-model.png"
+  },
+  "http": {
+    "report": "launch-curve-http.json",
+    "passed": 17,
+    "skipped": [
+      {
+        "check": "live registered-pool state and swap quote",
+        "reason": "Catalog is empty; no deployed stock-paired pool exists to verify"
+      }
+    ]
+  },
+  "independentReviews": [
+    {
+      "scope": "immutable guard, exact ABI and signer target restrictions",
+      "status": "no remaining blocker"
+    },
+    {
+      "scope": "backend frozen plan, verified guard identity, registration and recovery",
+      "status": "no remaining blocker",
+      "resolved": [
+        "Concurrent config verification could inherit another request's guard; state is now local to each request.",
+        "Unconfirmed or orphaned reverted receipts could prematurely stop recovery; canonical two-confirmation proof is now required."
+      ],
+      "regressionTests": "tests/launch-service.test.ts"
+    }
+  ],
+  "deployment": {
+    "draft": "../launch-guard-deployment.md",
+    "artifact": "../../contracts/artifacts/MusegodLaunchGuard.json",
+    "compilerInput": "../../contracts/artifacts/MusegodLaunchGuard.compiler-input.json",
+    "compilerInputSha256": "e2f63905883be445d2c8fe0ebea913fedf8046d85aa30e290aab8e638af98ff6",
+    "dependenciesReadOnlyAtBlock": "80761243",
+    "mainnetDeployment": "not_run",
+    "realFunds": "not_run",
+    "websitePublication": "not_run",
+    "externalAudit": "not_run",
+    "rollback": "Use the guard-aware backend with ENABLE_MAINNET_TRANSACTIONS=false; optionally remove LAUNCH_GUARD_ADDRESS. Preserve stored plans and broadcast hashes."
+  },
+  "cleanup": {
+    "localForkNodes": "stopped",
+    "temporaryForkDatabases": "removed",
+    "snapshots": "restored",
+    "testBrowsers": "closed",
+    "productionState": "unchanged"
+  },
+  "sourceSha256": {
+    "src/lib/launch-curve.ts": "774791278c2f38c10e011b47d65a94069dd291e4d9a8bfed2163c46fdb35f8e5",
+    "src/lib/protocol.ts": "746197c01a2d8897835eebeb468ffc3f217579d6428cbe133b8e81babe06c024",
+    "src/lib/launch-plan.ts": "4c100eb7bdc74e747e3ff1c439d45d107787b7afe65647a8bd48de4d67dff9d9",
+    "src/lib/launch-guard.ts": "e0a07b347360d829a678718af90b6b968c3b2f27a35264f469e8d629cbf5e883",
+    "src/lib/launch-wallet.ts": "c88148d645cf76e40901a3cff3390cc53f1caf3c3d6152daebc7d9c6f38a6898",
+    "src/lib/wallet.tsx": "5f35e46341a6b0df3eb02aca26bcb466fcc34085541fbfee4a18084ae53c38fd",
+    "src/App.tsx": "926e170261e99a660ef8a18c43784796610a5c6366b4b0a28c13980138a200b3",
+    "src/components/LaunchCurve.tsx": "455992a4f1bf207fc35baaca7f47b4c153d15117b48291c3267a79d017b0b218",
+    "src/styles.css": "a8fe7ad38f868bd9c6058dc892d3953e7df35b690841303fd618e13d1e8a6cca",
+    "server/service.ts": "2dea3f69d33ee7eeb52f9cc02617dcc61b14f3260f0ef789d278bdd0390470b4",
+    "server/launch-guard.ts": "1b037a23eb31e5b51948a5e240835afbf9e43abdc11408ee96a5e5d7658b1e23",
+    "server/launch-verification.ts": "b94cb9056dd664bcbc06a48d7331a5ce47211771d695808c7bb304b4ac0c2d71",
+    "server/app.ts": "45addb8133029c3dd87d3f0e9bad353e575414644fefd9eaafa8ff622031dcbb",
+    "server/config.ts": "69739179e9256e4f74c257a4bd47f589e829deb9cf5239cccede253c610efed0",
+    "contracts/src/MusegodLaunchGuard.sol": "cb5bf89bc6de22ef1a8dd133e1e22e61ac1541c759bb2076e91eaacd2eaa3a47",
+    "contracts/src/interfaces/IDopplerBundler.sol": "e9bf47f65286efe51ff8f2b2b56e2afaa738fbaccb2c2458570f40395b5f13e8",
+    "contracts/test/MusegodLaunchGuard.t.sol": "1c9c35fef49ab90a88b0ee0d03a83026c438f9fd7aad50e2a4a61a4b3f5bc5b6",
+    "contracts/foundry.toml": "b6a85302f02f4fe913d8226d10b1509a62fd9869897c7e6f439f1be608c73ca1",
+    "contracts/lib/openzeppelin-contracts/dependency-lock.json": "5d9f3c317c73466cfb880e6982b0a12f70dbcc91d5c55eae8a0d6734786796da",
+    "scripts/test-launch-curve-fork.ts": "0d62109822bb529d31feff22c3cca15a8e85c4698b24d294f188c43c9ee78f5e",
+    "scripts/test-launch-browser.mjs": "cf1c413f49cb42c3112a77ff9f62c846eeb0c6b640440fb0d97442ac25db461f",
+    "scripts/test-launch-fork-browser.mjs": "9914f7a1c5180e7909ad547600a34fe81ecd6505dc71002211c2c7593f6001e9",
+    "scripts/deploy-launch-guard.ts": "be0845e9a60bac5e3c611623cffb803f857dcc18aaa23816ac5c142863fa48e7",
+    "tests/launch-curve.test.ts": "6c4bd30146c63b2b49d7ea6cef64f6f999eec3cdbd619e663fa44209aaad5fff",
+    "tests/launch-service.test.ts": "f1483d557c7ee18cb3f95c93dc7bb52cfd0de865d69378c8241665fbc9f8b06d",
+    "tests/launch-wallet.test.ts": "6cbde19af69d3d556c90098a37419817b8a2ab8c1092ae05faef983c47d02c37",
+    "docs/SPEC.md": "43eb5fc8cac8e0107e7575b3e34697506cc80cd991d133800bfe77b69887375c",
+    "docs/launch-guard-deployment.md": "6cf5b1777cdf27d447c28d557077c485011839fd1b2099068f7d4ee3cd758a02"
+  },
+  "evidenceSha256": {
+    "docs/evidence/launch-curve-fork.json": "b4e67c06b3612a6538c76593a38fa860a5401490ae36decc2bdf6cd5efc16591",
+    "docs/evidence/launch-curve-browser.json": "c2228d542e0872e692cffc7512ecc6e17535ee70b9b7a22194a1a839df4aacab",
+    "docs/evidence/launch-curve-fork-browser.json": "1548f274b8dd7aad9a3dd5fe90ba346f20a245120c5c22232d3ebfd65114dea2",
+    "docs/evidence/launch-curve-http.json": "0e09d32206b8d5d7ec99e53e107cf982716f72c8e299e32ecaddf9a77dd1a1fe",
+    "docs/evidence/launch-curve-model.png": "f91b531db7c3059b379b7b142d4142a8082af78630b4ea414f1e72c34a196f3e",
+    "docs/evidence/launch-curve-desktop-review.png": "58c080da3d857ddd7ab85acdf85f34425d89c66919c907071f653914dbab2de2",
+    "docs/evidence/launch-curve-mobile-review.png": "96319a8724c8ce600be6bf4200823c1d39db16990af0f5a18ba34714087c92f2",
+    "docs/evidence/launch-curve-fork-desktop-review.png": "27239537270bc150f935374439e619d958f9c38afa7b770321d89e867ec5d022",
+    "docs/evidence/launch-curve-fork-mobile-review.png": "a846b8879373ee39c28fc82aa36566e1b918a54ca6d5d32fa6ae61c79e0ca8f6",
+    "contracts/artifacts/MusegodLaunchGuard.json": "520657031eebf6cee17ef3bd3ae63785857c609ca1798c1e57e8705bb29d570a",
+    "contracts/artifacts/MusegodLaunchGuard.compiler-input.json": "e2f63905883be445d2c8fe0ebea913fedf8046d85aa30e290aab8e638af98ff6",
+    "contracts/artifacts/dependency-verification.json": "f272759cd08f37ddfa4a60ccb7ca5bdb6f43fe017691ba992e9c22d45305d775"
+  }
+}

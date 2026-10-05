@@ -1,3 +1,4 @@
+import { CURVE_POLICY } from "../src/lib/launch-curve";
 import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
 import { assetsFor, networkName, type TokenRecord } from "../src/lib/config";
@@ -28,8 +29,14 @@ const config = await call("/config");
 assert.equal(config.status, 200);
 assert(["base", "robinhood"].includes(config.body.mode));
 const STOCKS = assetsFor(config.body), chainId = config.body.chainId;
+assert.equal(config.body.curvePolicy, CURVE_POLICY);
 assert.equal(config.body.writesEnabled, process.env.ENABLE_MAINNET_TRANSACTIONS === "true");
 checks.push(`${networkName(config.body)} runtime: browser signing ${config.body.writesEnabled ? "enabled" : "disabled"}`);
+for (const expectedCurvePolicy of [undefined, "old-curve-v1"]) {
+  const stale = await call("/launch/prepare", { expectedCurvePolicy });
+  assert.equal(stale.status, 422); assert.match(stale.body.error, /curve policy has changed/);
+  checks.push(`${expectedCurvePolicy ? "Stale" : "Missing"} curve handshake rejects issuance`);
+}
 const stocks = await call("/stocks");
 assert.equal(stocks.status, 200);
 assert.equal(stocks.body.length, STOCKS.length);
@@ -106,6 +113,7 @@ const badHash = await call("/launch/register", { hash: "0x1234" });
 assert.equal(badHash.status, 400);
 checks.push("Malformed registration rejected");
 const invalidPlan = await call("/launch/prepare", {
+    expectedCurvePolicy: CURVE_POLICY,
   draft: {
     name: "Test",
     symbol: "TEST",
@@ -123,6 +131,7 @@ assertOpeningValuation(invalidPlan.body.openingValuation, STOCKS[0].address, 466
 checks.push("Fixed $5,000 mainnet launch simulation with a bound USD price snapshot; no signature");
 for (const field of [{ openingCap: "100" }, { marketCapUsd: 1 }, { quotePriceUsd: "1" }, { openingValuation: invalidPlan.body.openingValuation }]) {
   const rejected = await call("/launch/prepare", {
+    expectedCurvePolicy: CURVE_POLICY,
     draft: { name: "Tampered", symbol: "BAD", description: "", image: "", quoteAddress: STOCKS[0].address, ...field },
     creator: "0x0000000000000000000000000000000000000001",
   });
@@ -135,6 +144,7 @@ if (config.body.mode === "robinhood") {
     "0x6b1d42927b1a84ec28fa88d4fc6fa7af404966be",
   ]) {
     const removed = await call("/launch/prepare", {
+    expectedCurvePolicy: CURVE_POLICY,
       draft: { name: "Removed pair", symbol: "REMOVED", description: "", image: "", quoteAddress },
       creator: "0x0000000000000000000000000000000000000001",
     });
@@ -144,6 +154,7 @@ if (config.body.mode === "robinhood") {
   const musegod = STOCKS.find((asset) => asset.symbol === "MUSEGOD")!;
   assert(musegod);
   const simulation = await call("/launch/prepare", {
+    expectedCurvePolicy: CURVE_POLICY,
     draft: { name: "MUSEGOD pair check", symbol: "MGCHECK", description: "", image: "",
       quoteAddress: musegod.address },
     creator: "0x0000000000000000000000000000000000000001",

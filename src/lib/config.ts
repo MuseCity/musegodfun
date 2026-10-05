@@ -37,6 +37,8 @@ export const ROBINHOOD_CONTRACTS = {
   quoter: getAddress("0x8dc178efb8111bb0973dd9d722ebeff267c98f94"),
   permit2: CONTRACTS.permit2,
 };
+export const ROBINHOOD_BUNDLER = getAddress("0xf45588E8e0B1df9dB9ae7E20eCE5726AE931357c");
+export const ROBINHOOD_BUNDLER_CODE_HASH = "0x8d7c135bd087b74d2f2d1362593f23b824d5752bebe6a3c8bc6db0a6fa75e066" as const;
 export type ContractRegistry = typeof CONTRACTS;
 export type Stock = {
   ticker: string;
@@ -97,6 +99,8 @@ export type RuntimeConfig = {
   treasury: Address | null;
   writesEnabled: boolean;
   blockReason: string | null;
+  curvePolicy?: string;
+  launchGuard?: Address | null;
 };
 export type StockStatus = Stock & {
   verified: boolean;
@@ -124,6 +128,7 @@ export type TokenRecord = {
   openingCap: string;
   // Absent on historical launches, whose openingCap remains in paired units.
   openingValuation?: OpeningValuation;
+  curvePolicy?: string;
   mode: "base" | "robinhood" | "fork";
   deploymentChainId?: 8453 | 4663;
   // Absent for older launches. Never backfill

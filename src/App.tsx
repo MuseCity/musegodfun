@@ -1,6 +1,6 @@
 import { dopplerUrl } from "./lib/doppler";
 import TransactionHistory from "./components/TransactionHistory";
-import { updateTransaction } from "./lib/transactions";
+import { transactions, updateTransaction } from "./lib/transactions";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ArrowDown,
@@ -55,6 +55,7 @@ import {
   poolCurrency,
   quoteAsset,
   shareEquivalent,
+  SUPPLY,
   type RuntimeConfig,
   type Stock,
   type StockStatus,
@@ -62,9 +63,11 @@ import {
 } from "./lib/config";
 import {
   errorMessage,
+  amountSchema,
   launchSchema,
   minimumOutput,
   restoreDraft,
+  parseAmount,
   safeImage,
   safeSocialLink,
   type LaunchInput,
@@ -72,13 +75,15 @@ import {
 import { api } from "./lib/api";
 import {
   OPENING_CAP_USD,
-  OPENING_POLICY,
   assertOpeningValuation,
 } from "./lib/opening-valuation";
 import { TOKEN_IMAGE_ACCEPT } from "./lib/token-image";
 import { prepareTokenImage } from "./lib/image-upload";
-import { useWallet, type Quote } from "./lib/wallet";
+import { transactionClient, useWallet, type Quote } from "./lib/wallet";
 import type { LaunchPlan } from "../server/store";
+import { CURVE_POLICY, LAUNCH_CURVE_MAIN_END_USD } from "./lib/launch-curve";
+import LaunchCurve from "./components/LaunchCurve";
+import { pendingLaunchResolution, terminalLaunchIsCanonical, type PendingLaunchResolution } from "./lib/launch-wallet";
 
 import TokenMarket from "./components/TokenMarket";
 import MusegodPage from "./components/MusegodPage";
@@ -321,50 +326,14 @@ function TxLink({ hash, config }: { hash: string; config: RuntimeConfig }) {
 }
 const feePercent = (basisPoints: number) => `${basisPoints / 100}%`;
 const openingCapUsdLabel = `$${OPENING_CAP_USD.toLocaleString("en-US")}`;
-function Curve({ ticker, cap, fixedUsd = false }: { ticker: string; cap?: string; fixedUsd?: boolean }) {
-  return (
-    <div className="curve">
-      <div className="curve-label">
-        <span>Supply curve</span>
-        <span>Priced in {ticker}</span>
-      </div>
-      <svg
-        viewBox="0 0 340 132"
-        role="img"
-        aria-label="Illustrative launch curve showing price increasing with sold supply; not historical market data"
-      >
-        <defs>
-          <linearGradient id="curve-fill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#bcf26b" stopOpacity=".65" />
-            <stop offset="100%" stopColor="#bcf26b" stopOpacity="0" />
-          </linearGradient>
-        </defs>
-        <path
-          d="M0 30H340 M0 65H340 M0 100H340"
-          stroke="#e4e7df"
-          strokeDasharray="3 5"
-        />
-        <path
-          d="M0 117C100 117 200 113 253 95C300 80 309 47 330 10L330 132H0Z"
-          fill="url(#curve-fill)"
-        />
-        <path
-          d="M0 117C100 117 200 113 253 95C300 80 309 47 330 10"
-          fill="none"
-          stroke="#6c981c"
-          strokeWidth="2.5"
-        />
-        <circle cx="1" cy="117" r="3" fill="#6c981c" />
-      </svg>
-      <div className="curve-label">
-        <span>
-          {fixedUsd ? <>Opens at <b>{openingCapUsdLabel}</b> market cap</> : <>Opening valuation {cap || "—"} {ticker}</>}
-        </span>
-        <span>Supply →</span>
-      </div>
-      <small>Illustrative curve · Not historical prices or a return forecast</small>
-    </div>
-  );
+function restoreFirstBuy() {
+  try {
+    const saved = JSON.parse(localStorage.getItem("musegod.launch.draft") || "null")?.firstBuy;
+    if (saved && typeof saved.amount === "string" && saved.amount.length <= 40 &&
+      [50, 100, 200, 500].includes(saved.slippageBps))
+      return { amount: saved.amount, slippageBps: saved.slippageBps as number };
+  } catch { /* Invalid saved first buys use the default. */ }
+  return { amount: "0", slippageBps: 100 };
 }
 
 export function App() {
@@ -869,7 +838,8 @@ function CreatePage({
       } catch {
         return restoreDraft(null, config ?? undefined);
       }
-    });
+    }),
+    [firstBuy, setFirstBuy] = useState(restoreFirstBuy);
   const [query, setQuery] = useState(""),
     [category, setCategory] = useState<AssetCategory>("all"),
     [showAllAssets, setShowAllAssets] = useState(false),
@@ -917,6 +887,7 @@ function CreatePage({
     if (!config || assets.some((asset) => sameAddress(asset.address, draft.quoteAddress))) return;
     generation.current++;
     setDraft((previous) => ({ ...previous, quoteAddress: assets[0].address }));
+    setFirstBuy((previous) => ({ ...previous, amount: "0" }));
     setPlan(null);
     setReview(false);
     setInvalidField("");
@@ -944,14 +915,14 @@ function CreatePage({
     setDraftSaved(false);
     const timer = setTimeout(() => {
       try {
-        localStorage.setItem("musegod.launch.draft", JSON.stringify(draft));
+        localStorage.setItem("musegod.launch.draft", JSON.stringify({ ...draft, firstBuy }));
         setDraftSaved(true);
       } catch {
         setDraftSaved(false);
       }
     }, 250);
     return () => clearTimeout(timer);
-  }, [draft]);
+  }, [draft, firstBuy]);
   useEffect(() => {
     if (!config) return;
     try {
@@ -964,6 +935,37 @@ function CreatePage({
       /* Storage may be unavailable. */
     }
   }, [config?.chainId, config?.deploymentChainId]);
+  useEffect(() => {
+    if (!config || !txHash) return;
+    let active = true;
+    const check = async () => {
+      const result = pendingLaunchResolution(txHash, transactions(), config);
+      if (result.hash.toLowerCase() !== txHash.toLowerCase()) {
+        try { localStorage.setItem(pendingLaunchKey(config), result.hash); } catch { /* Transaction history still retains the replacement chain. */ }
+        if (active) setTxHash(result.hash);
+        return;
+      }
+      if (!result.terminal) return;
+      const canonical = await terminalLaunchProof(result);
+      if (!active || !canonical) return;
+      try { localStorage.removeItem(pendingLaunchKey(config)); } catch { /* The failed hash remains visible in transaction history. */ }
+      setTxHash(null); setPlan(null);
+    };
+    const onChange = () => { void check(); };
+    onChange();
+    window.addEventListener("musegod:transactions", onChange);
+    return () => { active = false; window.removeEventListener("musegod:transactions", onChange); };
+  }, [txHash, config?.chainId, config?.deploymentChainId]);
+  async function terminalLaunchProof(result: PendingLaunchResolution) {
+    if (!config || !result.terminal) return false;
+    const client = transactionClient(config.chainId);
+    if (await client.getChainId().catch(() => null) !== config.chainId) return false;
+    return terminalLaunchIsCanonical(result, {
+      receipt: (hash) => client.getTransactionReceipt({ hash }),
+      transaction: (hash) => client.getTransaction({ hash }),
+      head: () => client.getBlockNumber(), block: (blockNumber) => client.getBlock({ blockNumber }),
+    });
+  }
   function update<K extends keyof LaunchInput>(key: K, value: LaunchInput[K]) {
     if (key === "image") {
       imageUpload.current++;
@@ -972,6 +974,17 @@ function CreatePage({
     }
     generation.current++;
     setDraft((d) => ({ ...d, [key]: value }));
+    if (key === "quoteAddress" && !sameAddress(String(value), draft.quoteAddress))
+      setFirstBuy((previous) => ({ ...previous, amount: "0" }));
+    setInvalidField("");
+    setReview(false);
+    setPlan(null);
+    setError("");
+    setMessage("");
+  }
+  function updateFirstBuy(next: typeof firstBuy) {
+    generation.current++;
+    setFirstBuy(next);
     setInvalidField("");
     setReview(false);
     setPlan(null);
@@ -1003,6 +1016,10 @@ function CreatePage({
     if (uploadingImage) return;
     setError("");
     setMessage("");
+    if (txHash && !confirmed) {
+      setError("A launch transaction is already submitted. Recover its status before preparing another launch.");
+      return;
+    }
     const result = launchSchema.safeParse(draft);
     if (!result.success) {
       const issue = result.error.issues[0];
@@ -1019,6 +1036,23 @@ function CreatePage({
       setError("Wait for the selected asset contract’s identity to be verified before continuing.");
       return;
     }
+    try {
+      const amount = firstBuy.amount || "0";
+      amountSchema.parse(amount);
+      if ((amount.split(".")[1]?.length ?? 0) > stock.decimals)
+        throw new Error(`The amount supports up to ${stock.decimals} decimal places`);
+      if (Number(amount) !== 0) {
+        parseAmount(amount, stock.decimals);
+        if (!config.launchGuard) throw new Error("First buys are unavailable on this network. Set the amount to 0 to launch without a buy.");
+      }
+      if (![50, 100, 200, 500].includes(firstBuy.slippageBps)) throw new Error("Choose a supported first buy slippage");
+      setFirstBuy({ ...firstBuy, amount });
+    } catch (e) {
+      setInvalidField("firstBuy");
+      setError(errorMessage(e));
+      requestAnimationFrame(() => document.getElementById("launch-first-buy")?.focus());
+      return;
+    }
     setDraft(result.data);
     setPlan(null);
     setReview(true);
@@ -1032,16 +1066,29 @@ function CreatePage({
     setBusy(true);
     try {
       if (!wallet.account) throw new Error("Connect a wallet first");
+      if (txHash && !confirmed) throw new Error("Recover the submitted launch before preparing another launch.");
+      if (config?.curvePolicy !== CURVE_POLICY)
+        throw new Error("The launch curve policy has changed. Refresh this page before previewing.");
       const next = await api<LaunchPlan>("/launch/prepare", {
         draft,
         creator: wallet.account,
+        expectedCurvePolicy: CURVE_POLICY,
+        firstBuy,
       });
       if (request !== generation.current) return;
       if (next.feePolicy !== FEE_POLICY || !next.feeTreasury || !config?.treasury || !sameAddress(next.feeTreasury, config.treasury))
         throw new Error("The launch fee policy or treasury address does not match. Refresh and preview again.");
       assertOpeningValuation(next.openingValuation, stock.address, deploymentChain(config));
+      if (next.curvePolicy !== CURVE_POLICY || !next.transaction)
+        throw new Error("The launch curve policy does not match. Refresh and preview again.");
+      const requestedBuy = Number(firstBuy.amount || "0") > 0;
+      if (!!next.firstBuy !== requestedBuy || (next.firstBuy && (
+        next.firstBuy.amountIn !== parseAmount(firstBuy.amount, stock.decimals).toString() ||
+        next.firstBuy.slippageBps !== firstBuy.slippageBps ||
+        !sameAddress(next.firstBuy.quoteAddress, stock.address) || !sameAddress(next.firstBuy.recipient, wallet.account))))
+        throw new Error("The first buy preview does not match your requested amount or wallet. Preview again.");
       setPlan(next);
-      setMessage("On-chain simulation succeeded. No transaction has been sent.");
+      setMessage(next.firstBuy ? "First buy quoted. The complete transaction will be simulated after any required approval." : "On-chain simulation succeeded. No transaction has been sent.");
     } catch (e) {
       if (request === generation.current) setError(errorMessage(e));
     } finally {
@@ -1063,14 +1110,19 @@ function CreatePage({
     if (!plan || !config) return;
     setBusy(true);
     setError("");
+    const request = generation.current;
+    const current = () => {
+      if (request !== generation.current) throw new Error("The draft or wallet has changed. Run a new preview.");
+    };
     try {
+      if (txHash && !confirmed) throw new Error("Recover the submitted launch before confirming another launch.");
       assertOpeningValuation(plan.openingValuation, stock.address, deploymentChain(config));
       if (!wallet.account || !sameAddress(plan.creator, wallet.account))
         throw new Error("The wallet has changed. Preview again.");
-      const hash = await wallet.send(
-        contractsFor(config).airlock,
-        plan.data,
+      const hash = await wallet.launch(
+        plan,
         config,
+        setMessage,
         (h) => {
           setTxHash(h);
           localStorage.setItem(pendingLaunchKey(config!), h);
@@ -1079,6 +1131,7 @@ function CreatePage({
             setMessage("The transaction hash is saved. Registration will be retried when you resume checking."),
           );
         },
+        current,
       );
       const token = await register(hash);
       localStorage.removeItem(pendingLaunchKey(config!));
@@ -1090,17 +1143,31 @@ function CreatePage({
     }
   }
   async function recover() {
-    const hash =
+    const savedHash =
       txHash ??
       (localStorage.getItem(
         pendingLaunchKey(config!),
       ) as Hex | null);
-    if (!hash) {
+    if (!savedHash) {
       setError("There is no launch transaction to recover.");
       return;
     }
     setBusy(true);
+    setError("");
+    setMessage("");
     try {
+      const result = pendingLaunchResolution(savedHash, transactions(), config!);
+      if (await terminalLaunchProof(result)) {
+        localStorage.removeItem(pendingLaunchKey(config!));
+        setTxHash(null); setPlan(null);
+        setMessage("The launch did not complete on-chain. You can prepare a new preview.");
+        return;
+      }
+      const hash = result.hash;
+      if (hash.toLowerCase() !== savedHash.toLowerCase()) {
+        setTxHash(hash);
+        localStorage.setItem(pendingLaunchKey(config!), hash);
+      }
       const token = await register(hash);
       localStorage.removeItem(pendingLaunchKey(config!));
       navigate(`/token/${token.address}`);
@@ -1477,6 +1544,29 @@ function CreatePage({
               </div>
             </details>
           </section>
+          <section className="panel first-buy-panel" aria-labelledby="first-buy-heading">
+            <div className="panel-heading"><div>
+              <h2 id="first-buy-heading">First buy <span className="optional">Optional</span></h2>
+              <p>Buy your token in the same transaction as its launch. Leave the amount at 0 to launch without buying.</p>
+            </div></div>
+            <label htmlFor="launch-first-buy">Spend {stock.symbol}
+              <input id="launch-first-buy" name="firstBuy" inputMode="decimal" autoComplete="off"
+                aria-invalid={invalidField === "firstBuy"}
+                aria-describedby={invalidField === "firstBuy" ? "launch-error-firstBuy" : "launch-first-buy-help"}
+                value={firstBuy.amount} onChange={(event) => updateFirstBuy({ ...firstBuy, amount: event.target.value })} />
+              <FieldError name="firstBuy" invalidField={invalidField} error={error} />
+            </label>
+            <div className="first-buy-slippage">
+              <span>Slippage tolerance</span>
+              <div role="group" aria-label="First buy slippage tolerance">
+                {[50, 100, 200, 500].map((bps) => <button type="button" key={bps}
+                  aria-pressed={firstBuy.slippageBps === bps}
+                  onClick={() => updateFirstBuy({ ...firstBuy, slippageBps: bps })}>{bps / 100}%</button>)}
+              </div>
+            </div>
+            <p id="launch-first-buy-help" className="muted">The amount uses {stock.symbol} tokens. Changing the quote asset resets it to 0. Trading fees are included in the preview; network gas is separate.</p>
+            {!config.launchGuard && <p className="muted">First buys are currently unavailable on this network. You can launch with an amount of 0.</p>}
+          </section>
         </form>
         <aside className="preview-column" aria-label="Live launch preview">
           <section className="preview-card">
@@ -1533,7 +1623,7 @@ function CreatePage({
                   Platform income is allocated <b>{feePercent(FEE_SHARES.platformBuyback)}</b> to buybacks and <b>{feePercent(FEE_SHARES.platformOperations)}</b> to operations
                 </li>
                 <li>
-                  Launch costs only <b>{chainName} network gas</b>
+                  {Number(firstBuy.amount || "0") > 0 ? <>Optional first buy plus <b>{chainName} network gas</b></> : <>Launch costs only <b>{chainName} network gas</b></>}
                 </li>
               </ul>
             </div>
@@ -1542,9 +1632,11 @@ function CreatePage({
                 How the launch curve works
                 <ChevronRight size={15} />
               </summary>
-              <Curve ticker={stock.symbol} fixedUsd />
+              <LaunchCurve ticker={stock.symbol} curvePolicy={CURVE_POLICY}
+                openingValuation={plan?.openingValuation} quoteDecimals={stock.decimals}
+                tokenAddress={plan?.tokenAddress} quoteAddress={stock.address} />
               <p>
-                All 1 billion tokens enter the pool: 90% spans $5,000 to $50,000 market cap, and 10% supplies the remaining liquidity. The curve uses the quote asset’s USD reference price at preview time. Tick rounding and later asset price changes may affect the USD market cap. Buys move the price up and sells move it down.
+                All 1 billion tokens enter the pool: 97% spans {openingCapUsdLabel} to ${LAUNCH_CURVE_MAIN_END_USD.toLocaleString("en-US")} market cap across 18 adjacent price doublings. The remaining 3% supplies a higher price tail with a finite limit. The initial positions are fixed at launch. The quote asset’s USD reference price sets the opening valuation; tick rounding and later asset price changes affect USD market cap. Buys move the price up and sells move it down.
               </p>
             </details>
             <div className="fee-heading">
@@ -1579,6 +1671,7 @@ function CreatePage({
                 setUploadingImage(false);
                 setImageError("");
                 setDraft(restoreDraft(null, config ?? undefined));
+                setFirstBuy({ amount: "0", slippageBps: 100 });
                 setQuery("");
                 setPlan(null);
                 setReview(false);
@@ -1594,11 +1687,12 @@ function CreatePage({
             <Notice kind="error">{error}</Notice>
           )}
           {message && !review && <Notice kind="success">{message}</Notice>}
+          {txHash && !confirmed && <Notice>A launch transaction is already submitted. Recover its status before preparing another launch.</Notice>}
           <button
             type="submit"
             form="launch-form"
             className="primary full"
-            disabled={busy || uploadingImage || !status?.verified}
+            disabled={busy || !!txHash || uploadingImage || !status?.verified}
           >
             Review and continue
             <ArrowRight size={17} />
@@ -1689,16 +1783,33 @@ function CreatePage({
             </div>
             <div>
               <dt>Launch cost</dt>
-              <dd>Network gas only</dd>
+              <dd>{Number(firstBuy.amount || "0") > 0 ? `${firstBuy.amount} ${stock.symbol} + network gas` : "Network gas only"}</dd>
             </div>
+            {Number(firstBuy.amount || "0") > 0 && <div>
+              <dt>First buy slippage</dt><dd>{firstBuy.slippageBps / 100}%</dd>
+            </div>}
           </dl>
+          {plan?.firstBuy && <section className="first-buy-preview" aria-label="First buy preview">
+            <h3>Your first buy</h3>
+            <dl className="review-facts">
+              <div><dt>You spend</dt><dd>{plan.firstBuy.amount} {stock.symbol}</dd></div>
+              <div><dt>Estimated tokens received</dt><dd><NumberText value={plan.firstBuy.expectedAmountOut} decimals={18} /> {draft.symbol}</dd></div>
+              <div><dt>Minimum tokens received</dt><dd><NumberText value={plan.firstBuy.minAmountOut} decimals={18} /> {draft.symbol}</dd></div>
+              <div><dt>Share of total supply</dt><dd>{formatUnits(BigInt(plan.firstBuy.expectedAmountOut) * 100_000_000n / SUPPLY, 6)}%</dd></div>
+              <div><dt>Recipient</dt><dd><code>{plan.firstBuy.recipient}</code></dd></div>
+              <div><dt>Preview expires</dt><dd>{new Date(plan.firstBuy.deadline * 1000).toLocaleString("en-US")}</dd></div>
+              <div><dt>Slippage tolerance</dt><dd>{plan.firstBuy.slippageBps / 100}%</dd></div>
+              <div><dt>Approval amount</dt><dd>{plan.firstBuy.amount} {stock.symbol} only</dd></div>
+            </dl>
+            <p>The first buy waives the creator and platform portion of the trading fee. Protocol and liquidity fees are included; network gas is separate. Any required token approval happens first; the complete launch and buy is then simulated before wallet confirmation. If the buy fails, the launch also reverts. A confirmed approval remains in place.</p>
+          </section>}
           <div className="review-progress">
             <span className="complete">
               <Check size={14} />
               Parameter check
             </span>
             <ChevronRight size={14} />
-            <span className={plan ? "complete" : ""}>On-chain simulation</span>
+            <span className={plan ? "complete" : ""}>{Number(firstBuy.amount || "0") > 0 ? "First buy preview" : "On-chain simulation"}</span>
             <ChevronRight size={14} />
             <span>Wallet confirmation</span>
           </div>
@@ -1713,6 +1824,8 @@ function CreatePage({
             <Notice kind="error">The launch preview has expired. Simulate again to refresh the quote asset’s USD reference price.</Notice>
           )}
           {wallet.error && <Notice kind="error">{wallet.error}</Notice>}
+          {wallet.account && wallet.chainId !== config.chainId && <button className="secondary full" disabled={busy}
+            onClick={() => void wallet.switchChain(config.chainId)}>Switch wallet to {chainName}</button>}
           {!wallet.account ? (
             <button
               className="primary full"
@@ -1725,7 +1838,7 @@ function CreatePage({
           ) : !plan || (planExpired && !busy) ? (
             <button
               className="primary full"
-              disabled={busy || !config?.treasury}
+              disabled={busy || !!txHash || !config?.treasury}
               onClick={() => void simulate()}
             >
               {busy ? (
@@ -1733,21 +1846,21 @@ function CreatePage({
               ) : (
                 <ShieldCheck size={17} />
               )}
-              {busy ? "Simulating launch…" : planExpired ? "Simulate again" : "Simulate launch"}
+              {busy ? "Preparing launch preview…" : planExpired ? "Refresh preview" : Number(firstBuy.amount || "0") > 0 ? "Preview launch and first buy" : "Simulate launch"}
             </button>
           ) : (
             <>
               <div className="plan-result">
                 <CheckCircle2 size={16} />
                 <span>
-                  Simulation passed · Predicted token address
+                  {plan.firstBuy ? "First buy quoted" : "Simulation passed"} · Predicted token address
                   <br />
                   <code>{plan.tokenAddress}</code>
                 </span>
               </div>
               <button
                 className="primary full"
-                disabled={busy || !config?.writesEnabled || wallet.chainId !== config.chainId}
+                disabled={busy || !!txHash || !config?.writesEnabled || wallet.chainId !== config.chainId}
                 onClick={() => void launch()}
               >
                 {busy ? (
@@ -1755,7 +1868,7 @@ function CreatePage({
                 ) : (
                   <Rocket size={17} />
                 )}
-                {busy ? "Waiting for confirmation…" : "Confirm launch · Sign in wallet"}
+                {busy ? "Waiting for confirmation…" : plan.firstBuy ? "Confirm launch and first buy" : "Confirm launch · Sign in wallet"}
               </button>
             </>
           )}
@@ -1978,7 +2091,9 @@ function TokenPage({
             </FeeBreakdown>
             <details className="launch-curve-details">
               <summary>View launch curve</summary>
-              <Curve ticker={stock.symbol} cap={token.openingCap} fixedUsd={token.openingValuation?.policy === OPENING_POLICY} />
+              <LaunchCurve ticker={stock.symbol} curvePolicy={token.curvePolicy}
+                openingValuation={token.openingValuation} quoteDecimals={stock.decimals}
+                tokenAddress={token.address} quoteAddress={stock.address} />
             </details>
           </section>
           <FeeCard token={token} config={config} />

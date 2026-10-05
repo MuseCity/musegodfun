@@ -1,0 +1,2470 @@
+{
+  "scope": "Isolated mainnet-state fork, execution chain 31337; no production signing, deployment or writes.",
+  "observedAt": "2026-10-05T12:38:58.844Z",
+  "upstreamChainId": 4663,
+  "executionChainId": 31337,
+  "forkBlockNumber": "80790825",
+  "curvePolicy": "multicurve-97-3-v1",
+  "sourceHash": "35d75b3e7eef3b2a8181e7cc817be8e1b924f90be6b39493c8ea0660cb5f55b2",
+  "guardArtifactHash": "520657031eebf6cee17ef3bd3ae63785857c609ca1798c1e57e8705bb29d570a",
+  "creator": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+  "treasury": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+  "guard": "0xf99add941432ec09b498ea1b680be13f2e717d88",
+  "guardDeployment": {
+    "hash": "0xdfbd9f3d3ca4b4ca27077b0953c5d36f880fc9985cd08971806b375703d69229",
+    "gasUsed": "888931"
+  },
+  "snapshotRestored": true,
+  "blockedUpstreamWrites": 0,
+  "phases": [
+    {
+      "scope": "5 paired assets plain + guarded, trades and fee payouts",
+      "forkBlockNumber": "80773258",
+      "sourceHash": "05ebd1302dd2345e64441bee405d4cc6b72184e58e12c43b14b25be83558e559",
+      "guardArtifactHash": "520657031eebf6cee17ef3bd3ae63785857c609ca1798c1e57e8705bb29d570a",
+      "guard": "0xf99add941432ec09b498ea1b680be13f2e717d88",
+      "snapshotRestored": true,
+      "blockedUpstreamWrites": 0
+    },
+    {
+      "scope": "WETH all boundaries + tail + reverse",
+      "forkBlockNumber": "80790825",
+      "sourceHash": "35d75b3e7eef3b2a8181e7cc817be8e1b924f90be6b39493c8ea0660cb5f55b2",
+      "guardArtifactHash": "520657031eebf6cee17ef3bd3ae63785857c609ca1798c1e57e8705bb29d570a",
+      "guard": "0xf99add941432ec09b498ea1b680be13f2e717d88",
+      "snapshotRestored": true
+    },
+    {
+      "scope": "Actual desktop and mobile production-build browser with local unlocked Anvil wallet",
+      "report": "docs/evidence/launch-curve-fork-browser.json",
+      "forkBlockNumber": null,
+      "executionReceiptBlocks": [
+        "80783082",
+        "80783089"
+      ],
+      "curvePolicy": "multicurve-97-3-v1",
+      "guard": "0xf99add941432ec09b498ea1b680be13f2e717d88",
+      "guardArtifactHash": "520657031eebf6cee17ef3bd3ae63785857c609ca1798c1e57e8705bb29d570a",
+      "observedAt": "2026-10-05T12:32:42.175Z",
+      "checksPassed": true,
+      "note": "Browser uses the prior retained fork; its initial upstream fork block was not captured in its context. Receipt blocks are observed execution blocks."
+    }
+  ],
+  "mainnetTransactionsSubmitted": false,
+  "fullFlowPassed": true,
+  "executionError": null,
+  "cleanupError": null,
+  "gasModelScope": "Local EVM execution only; does not prove Robinhood Nitro sequencer or L1 gas costs.",
+  "assets": [
+    {
+      "asset": {
+        "ticker": "USDG",
+        "symbol": "USDG",
+        "name": "Global Dollar",
+        "address": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        "decimals": 6,
+        "category": "OTHERS",
+        "chainId": 4663,
+        "issuer": "Token issuer",
+        "standard": "ERC20",
+        "sourceUrl": "https://pair.fund/launch"
+      },
+      "funding": {
+        "kind": "verified_existing_inventory_transfer_on_local_fork",
+        "donor": "0x8366a39CC670B4001A1121B8F6A443A643e40951",
+        "hash": "0xe60bdd2315be5f4118a0ee08487ed0503302675ef1dc620e7b20146948e9b945",
+        "amount": "40000000",
+        "donorBefore": "53136937934693"
+      },
+      "firstBuy": false,
+      "tokenAddress": "0xE9b868833581Fa47366da3Ac8f26D8B4Ad2B980b",
+      "poolId": "0xb43fd0de3997b392a9a835c1bfe12d2b26d7de1b37b00ad3774deddef5a9a32c",
+      "hash": "0x227e022bf184a33f90b646467221851dad2b663300fbb05f4eda21247c660458",
+      "estimatedGas": "5668179",
+      "gasLimit": "8552268",
+      "gasUsed": "5588579",
+      "simulation": {
+        "valid": true,
+        "gas": "5668179",
+        "amountOut": null,
+        "simulatedAt": 1791202136591
+      },
+      "openingValuation": {
+        "policy": "fixed-usd-5000-v1",
+        "marketCapUsd": 5000,
+        "chainId": 4663,
+        "quoteAddress": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        "quotedAt": 1791202085174,
+        "expiresAt": 1791202385174,
+        "blockNumber": "80773264",
+        "blockHash": "0x9fe227756791c70a64d0c3a4ec6121bc41ac4a866ebe777f605929beb9570f12",
+        "quotePriceUsd": "1.00014839",
+        "source": "Chainlink",
+        "sourceUpdatedAt": 1791128414000,
+        "feed": "0x61B7e5650328764B076A108EFF5fa7282a1B9aD2"
+      },
+      "buy": {
+        "hash": "0x70bac820bb8b2fb8d03ffb42330c6663fc1439763bf42b3b13e0426462642fde",
+        "estimatedGas": "665260",
+        "gasLimit": "1047890",
+        "gasUsed": "606691",
+        "amountIn": "10000000",
+        "amountOut": "1973252961461251093748214",
+        "quotedOut": "1973252961461251093748214",
+        "minOut": "1953520431846638582810731",
+        "after": {
+          "sqrtPriceX96": "35331299915756298720388037039088714506",
+          "tick": 398333,
+          "liquidity": "1578447281705268269",
+          "lpFee": 500
+        }
+      },
+      "sell": {
+        "hash": "0x15d9aa2aa77e274762f77ddcae9cf117708cfa8c9447437078f90e6bc5bebb20",
+        "estimatedGas": "369764",
+        "gasLimit": "604646",
+        "gasUsed": "358099",
+        "amountIn": "986626480730625546874107",
+        "amountOut": "4902332",
+        "quotedOut": "4902332",
+        "minOut": "4853308",
+        "after": {
+          "sqrtPriceX96": "35380797621356081390772995816915990755",
+          "tick": 398361,
+          "liquidity": "1578447281705268269",
+          "lpFee": 500
+        }
+      },
+      "payouts": [
+        {
+          "account": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+          "kind": "hook",
+          "hash": "0x4a2bbb9a2dcbc66631354229bfc9458bd9e9ef166d48a1b24963a3afa4307ec3",
+          "gasUsed": "117973",
+          "paid": [
+            "66619",
+            "0"
+          ]
+        },
+        {
+          "account": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+          "kind": "LP",
+          "hash": "0x66531e3296cf8ae0358ac02bdeccdb2239d3ad84428f75a234dc7549d5cd1b85",
+          "gasUsed": "1045852",
+          "paid": [
+            "3324",
+            "334349277360120597257"
+          ]
+        },
+        {
+          "account": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+          "kind": "hook",
+          "hash": "0x388a242a61f12f9958b2d564946027262c5ef19a8ec4ab03e7986c86f7174ed7",
+          "gasUsed": "117173",
+          "paid": [
+            "28551",
+            "0"
+          ]
+        },
+        {
+          "account": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+          "kind": "LP",
+          "hash": "0x1bb10e921f3b5101667dbb9cce76b7c7faa0437c602bffa7f3ad52b91fceaa44",
+          "gasUsed": "935740",
+          "paid": [
+            "1424",
+            "143292547440051684538"
+          ]
+        }
+      ],
+      "feePolicy": "creator-70-musegod-v2",
+      "checks": [
+        "canonical receipt registration",
+        "exact input/output raw balances",
+        "minimum outputs",
+        "creator and treasury hook and LP fee receipt/payout equality",
+        "guarded output and residual checks"
+      ],
+      "proofPhase": "previous_assets_run",
+      "forkBlockNumber": "80773258",
+      "guard": null
+    },
+    {
+      "asset": {
+        "ticker": "USDG",
+        "symbol": "USDG",
+        "name": "Global Dollar",
+        "address": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        "decimals": 6,
+        "category": "OTHERS",
+        "chainId": 4663,
+        "issuer": "Token issuer",
+        "standard": "ERC20",
+        "sourceUrl": "https://pair.fund/launch"
+      },
+      "funding": {
+        "kind": "verified_existing_inventory_transfer_on_local_fork",
+        "donor": "0x8366a39CC670B4001A1121B8F6A443A643e40951",
+        "hash": "0xe60bdd2315be5f4118a0ee08487ed0503302675ef1dc620e7b20146948e9b945",
+        "amount": "40000000",
+        "donorBefore": "53136937934693"
+      },
+      "firstBuy": true,
+      "tokenAddress": "0x6a57E5e2069E33410075717b63D9E7F68773c36f",
+      "poolId": "0x00acae224faac4a5fbf8fef00159afd85f94c9c0561afb76178c2e36b4bbb845",
+      "hash": "0x14cd71573355a6e481b5e65b284330bbf32b05eeb5282bda426a7264da7fc074",
+      "estimatedGas": "6126962",
+      "gasLimit": "9240443",
+      "gasUsed": "5897257",
+      "simulation": {
+        "valid": true,
+        "gas": "6126962",
+        "amountOut": "798227667983416750675068",
+        "simulatedAt": 1791202195650
+      },
+      "openingValuation": {
+        "policy": "fixed-usd-5000-v1",
+        "marketCapUsd": 5000,
+        "chainId": 4663,
+        "quoteAddress": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        "quotedAt": 1791202143404,
+        "expiresAt": 1791202443404,
+        "blockNumber": "80773291",
+        "blockHash": "0x517c53c5e51e5b54e3cd3fbc428d722a46ac7538eacd908cb3a3f47e481c4e1a",
+        "quotePriceUsd": "1.00014839",
+        "source": "Chainlink",
+        "sourceUpdatedAt": 1791128414000,
+        "feed": "0x61B7e5650328764B076A108EFF5fa7282a1B9aD2"
+      },
+      "firstBuyReceipt": {
+        "events": [
+          {
+            "eventName": "Bundled",
+            "args": {
+              "recipient": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+              "amountIn": "4000000",
+              "amountOut": "798227667983416750675068",
+              "poolKey": {
+                "currency0": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+                "currency1": "0x6a57E5e2069E33410075717b63D9E7F68773c36f",
+                "fee": 8388608,
+                "tickSpacing": 10,
+                "hooks": "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544"
+              }
+            }
+          },
+          {
+            "eventName": "GuardedLaunch",
+            "args": {
+              "creator": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+              "asset": "0x6a57E5e2069E33410075717b63D9E7F68773c36f",
+              "numeraire": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+              "amountIn": "4000000",
+              "amountOut": "798227667983416750675068",
+              "minAmountOut": "790245391303582583168317",
+              "deadline": "1791202443",
+              "poolId": "0x00acae224faac4a5fbf8fef00159afd85f94c9c0561afb76178c2e36b4bbb845"
+            }
+          }
+        ],
+        "amountIn": "4000000",
+        "amountOut": "798227667983416750675068",
+        "minAmountOut": "790245391303582583168317",
+        "guardResidualBalance": "0",
+        "guardToBundlerAllowance": "0",
+        "creatorToGuardAllowance": "0"
+      },
+      "buy": {
+        "hash": "0x2cc704e66203d9141bc8c9820fc62fce2f547336149c05d0844925d767dc07f3",
+        "estimatedGas": "561869",
+        "gasLimit": "892803",
+        "gasUsed": "507257",
+        "amountIn": "10000000",
+        "amountOut": "1968796686958197776450968",
+        "quotedOut": "1968796686958197776450968",
+        "minOut": "1949108720088615798686458",
+        "after": {
+          "sqrtPriceX96": "35291437636821237734710194838967169395",
+          "tick": 398311,
+          "liquidity": "1578447281705268269",
+          "lpFee": 500
+        }
+      },
+      "sell": {
+        "hash": "0x5d55b2c9040469a4cc64080a5b0b4f1a59bdeb28b0dbc08ae02266c1f548a15b",
+        "estimatedGas": "369764",
+        "gasLimit": "604646",
+        "gasUsed": "358099",
+        "amountIn": "1383512177470807263563018",
+        "amountOut": "6886018",
+        "quotedOut": "6886018",
+        "minOut": "6817157",
+        "after": {
+          "sqrtPriceX96": "35360846556804261464457151857324485577",
+          "tick": 398350,
+          "liquidity": "1578447281705268269",
+          "lpFee": 500
+        }
+      },
+      "payouts": [
+        {
+          "account": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+          "kind": "hook",
+          "hash": "0x645257160770113520d601a8d1f7033f5dc9a266ef55cd2e2e004abd24459dc1",
+          "gasUsed": "117961",
+          "paid": [
+            "66619",
+            "0"
+          ]
+        },
+        {
+          "account": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+          "kind": "LP",
+          "hash": "0x755d9606eda4e72b5e5853a243577255e581e9d4966c3bb9309a43b50a146a27",
+          "gasUsed": "1045840",
+          "paid": [
+            "4654",
+            "466299553084729483040"
+          ]
+        },
+        {
+          "account": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+          "kind": "hook",
+          "hash": "0x49e1e64843029b6bcb53192580ea89a1f3d88636b7a50c0d855e54d2e8b522e0",
+          "gasUsed": "100061",
+          "paid": [
+            "28551",
+            "0"
+          ]
+        },
+        {
+          "account": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+          "kind": "LP",
+          "hash": "0x3eb9c0415a66225877754260fc39a5f537382acf4a34afb218030064a9dc8ba5",
+          "gasUsed": "935728",
+          "paid": [
+            "1994",
+            "199842665607741207017"
+          ]
+        }
+      ],
+      "feePolicy": "creator-70-musegod-v2",
+      "checks": [
+        "canonical receipt registration",
+        "exact input/output raw balances",
+        "minimum outputs",
+        "creator and treasury hook and LP fee receipt/payout equality",
+        "guarded output and residual checks"
+      ],
+      "proofPhase": "previous_assets_run",
+      "forkBlockNumber": "80773258",
+      "guard": "0xf99add941432ec09b498ea1b680be13f2e717d88"
+    },
+    {
+      "asset": {
+        "ticker": "cbBTC",
+        "symbol": "cbBTC",
+        "name": "Coinbase Wrapped BTC",
+        "address": "0xCEC185eB182c47d1bA1EFc84e6959e18cd620Be4",
+        "decimals": 8,
+        "category": "OTHERS",
+        "chainId": 4663,
+        "issuer": "Token issuer",
+        "standard": "ERC20",
+        "sourceUrl": "https://pair.fund/launch"
+      },
+      "funding": {
+        "kind": "verified_existing_inventory_transfer_on_local_fork",
+        "donor": "0x8366a39CC670B4001A1121B8F6A443A643e40951",
+        "hash": "0x52989fc5d95236af24c1b0df3901f44e82c1a011e25f2b605ff7938622f64f26",
+        "amount": "4000000",
+        "donorBefore": "1085824052"
+      },
+      "firstBuy": false,
+      "tokenAddress": "0xF793F6781Cf7d674C83cc6a34c5a657bF2a57C4f",
+      "poolId": "0x51f50b4c0868986565b3cfdbb2d2658d5d7b172552d19b1f4a765aba2f3267c8",
+      "hash": "0x8394927df5cc2676c6c05640e336e279063792e0d3a219ca7737f5a39958b9d5",
+      "estimatedGas": "5669799",
+      "gasLimit": "8554698",
+      "gasUsed": "5590199",
+      "simulation": {
+        "valid": true,
+        "gas": "5669799",
+        "amountOut": null,
+        "simulatedAt": 1791202255931
+      },
+      "openingValuation": {
+        "policy": "fixed-usd-5000-v1",
+        "marketCapUsd": 5000,
+        "chainId": 4663,
+        "quoteAddress": "0xCEC185eB182c47d1bA1EFc84e6959e18cd620Be4",
+        "quotedAt": 1791202206002,
+        "expiresAt": 1791202506002,
+        "blockNumber": "80773324",
+        "blockHash": "0xbda6ad43d086aab8706c243cb17a06c4834cd28ba2f2748ae809b0002615001b",
+        "quotePriceUsd": "85972.13945443",
+        "source": "Chainlink",
+        "sourceUpdatedAt": 1791191768000,
+        "feed": "0x0009cD492adf8167f9eEBf1293556A673530a21a"
+      },
+      "buy": {
+        "hash": "0xe63243c234dfd79953cd7c9b7bc63e285034b5a71276da35354f08b1b24cc4fb",
+        "estimatedGas": "689463",
+        "gasLimit": "1084194",
+        "gasUsed": "625344",
+        "amountIn": "1000000",
+        "amountOut": "136790460371360645387516720",
+        "quotedOut": "136790460371360645387516720",
+        "minOut": "135422555767647038933641552",
+        "after": {
+          "sqrtPriceX96": "837212843418062397370830190492688515133",
+          "tick": 461643,
+          "liquidity": "53766975050382675",
+          "lpFee": 500
+        }
+      },
+      "sell": {
+        "hash": "0x060f40d8d16865ed00d01adafa3eff4b3316c6be98caaa12dae62c2c59b1b373",
+        "estimatedGas": "365599",
+        "gasLimit": "598398",
+        "gasUsed": "354073",
+        "amountIn": "68395230185680322693758360",
+        "amountOut": "540990",
+        "quotedOut": "540990",
+        "minOut": "535580",
+        "after": {
+          "sqrtPriceX96": "937946034992820229302981097866559104762",
+          "tick": 463915,
+          "liquidity": "53766975050382675",
+          "lpFee": 500
+        }
+      },
+      "payouts": [
+        {
+          "account": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+          "kind": "hook",
+          "hash": "0x806e7d495cf06367dd818907e7c83927693583008b795958aad0a735c0a7b64a",
+          "gasUsed": "115600",
+          "paid": [
+            "8243",
+            "0"
+          ]
+        },
+        {
+          "account": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+          "kind": "LP",
+          "hash": "0x38af405a37588e151adb7e223f6f530426ecce2d4fb6faa76180483a200a91b3",
+          "gasUsed": "1041874",
+          "paid": [
+            "333",
+            "23177865417241773395289"
+          ]
+        },
+        {
+          "account": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+          "kind": "hook",
+          "hash": "0xa74d65a79aef5c9624df11463a13a720fe894abc0466b91fc008ff03544f2b9f",
+          "gasUsed": "114800",
+          "paid": [
+            "3532",
+            "0"
+          ]
+        },
+        {
+          "account": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+          "kind": "LP",
+          "hash": "0x43f77bee14404369d495d78f6fef34ab7abd5d2bd07ce0f2dbae8d757cb15f65",
+          "gasUsed": "934135",
+          "paid": [
+            "142",
+            "9933370893103617169409"
+          ]
+        }
+      ],
+      "feePolicy": "creator-70-musegod-v2",
+      "checks": [
+        "canonical receipt registration",
+        "exact input/output raw balances",
+        "minimum outputs",
+        "creator and treasury hook and LP fee receipt/payout equality",
+        "guarded output and residual checks"
+      ],
+      "proofPhase": "previous_assets_run",
+      "forkBlockNumber": "80773258",
+      "guard": null
+    },
+    {
+      "asset": {
+        "ticker": "cbBTC",
+        "symbol": "cbBTC",
+        "name": "Coinbase Wrapped BTC",
+        "address": "0xCEC185eB182c47d1bA1EFc84e6959e18cd620Be4",
+        "decimals": 8,
+        "category": "OTHERS",
+        "chainId": 4663,
+        "issuer": "Token issuer",
+        "standard": "ERC20",
+        "sourceUrl": "https://pair.fund/launch"
+      },
+      "funding": {
+        "kind": "verified_existing_inventory_transfer_on_local_fork",
+        "donor": "0x8366a39CC670B4001A1121B8F6A443A643e40951",
+        "hash": "0x52989fc5d95236af24c1b0df3901f44e82c1a011e25f2b605ff7938622f64f26",
+        "amount": "4000000",
+        "donorBefore": "1085824052"
+      },
+      "firstBuy": true,
+      "tokenAddress": "0x6F9d0B39A655CFD9C10305EF47A37e934C408dC5",
+      "poolId": "0x2d85dadb34443dc7838e579d92c430c768db6d92a0fecf94eeedfd4f60532ef5",
+      "hash": "0xbac6827f2519c1a01c7207b398015bcc542a05ef39c709f2dad6265a917c61a6",
+      "estimatedGas": "6110819",
+      "gasLimit": "9216228",
+      "gasUsed": "5881632",
+      "simulation": {
+        "valid": true,
+        "gas": "6110819",
+        "amountOut": "62602703921995090584283163",
+        "simulatedAt": 1791202315842
+      },
+      "openingValuation": {
+        "policy": "fixed-usd-5000-v1",
+        "marketCapUsd": 5000,
+        "chainId": 4663,
+        "quoteAddress": "0xCEC185eB182c47d1bA1EFc84e6959e18cd620Be4",
+        "quotedAt": 1791202261949,
+        "expiresAt": 1791202561949,
+        "blockNumber": "80773354",
+        "blockHash": "0xf723b7cf7ff3904da74e9760b7e41493b7024e8e8748696f5f22976bd3954e72",
+        "quotePriceUsd": "85972.13945443",
+        "source": "Chainlink",
+        "sourceUpdatedAt": 1791191768000,
+        "feed": "0x0009cD492adf8167f9eEBf1293556A673530a21a"
+      },
+      "firstBuyReceipt": {
+        "events": [
+          {
+            "eventName": "Bundled",
+            "args": {
+              "recipient": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+              "amountIn": "400000",
+              "amountOut": "62602703921995090584283163",
+              "poolKey": {
+                "currency0": "0x6F9d0B39A655CFD9C10305EF47A37e934C408dC5",
+                "currency1": "0xCEC185eB182c47d1bA1EFc84e6959e18cd620Be4",
+                "fee": 8388608,
+                "tickSpacing": 10,
+                "hooks": "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544"
+              }
+            }
+          },
+          {
+            "eventName": "GuardedLaunch",
+            "args": {
+              "creator": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+              "asset": "0x6F9d0B39A655CFD9C10305EF47A37e934C408dC5",
+              "numeraire": "0xCEC185eB182c47d1bA1EFc84e6959e18cd620Be4",
+              "amountIn": "400000",
+              "amountOut": "62602703921995090584283163",
+              "minAmountOut": "61976676882775139678440331",
+              "deadline": "1791202561",
+              "poolId": "0x2d85dadb34443dc7838e579d92c430c768db6d92a0fecf94eeedfd4f60532ef5"
+            }
+          }
+        ],
+        "amountIn": "400000",
+        "amountOut": "62602703921995090584283163",
+        "minAmountOut": "61976676882775139678440331",
+        "guardResidualBalance": "0",
+        "guardToBundlerAllowance": "0",
+        "creatorToGuardAllowance": "0"
+      },
+      "buy": {
+        "hash": "0x8e089ffc2cac3d8b213ad0f2b483edc616def55100b5731cf9f5dc4b328c664a",
+        "estimatedGas": "564740",
+        "gasLimit": "897110",
+        "gasUsed": "505239",
+        "amountIn": "1000000",
+        "amountOut": "115577683905394774007213675",
+        "quotedOut": "115577683905394774007213675",
+        "minOut": "114421907066340826267141538",
+        "after": {
+          "sqrtPriceX96": "8087041131743886299",
+          "tick": -460130,
+          "liquidity": "53766975006589534",
+          "lpFee": 500
+        }
+      },
+      "sell": {
+        "hash": "0xf75ee311a0f21d6478281469197831e289b68a450597d1e3fbeb4c22e417df82",
+        "estimatedGas": "363834",
+        "gasLimit": "595751",
+        "gasUsed": "352363",
+        "amountIn": "89090193913694932295748419",
+        "amountOut": "785663",
+        "quotedOut": "785663",
+        "minOut": "777806",
+        "after": {
+          "sqrtPriceX96": "6917636280015109489",
+          "tick": -463254,
+          "liquidity": "53766975006589534",
+          "lpFee": 500
+        }
+      },
+      "payouts": [
+        {
+          "account": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+          "kind": "hook",
+          "hash": "0x739f99a94d94d0ef0f388a92e63e98220171c56a1b643bde557e4b6abac0b959",
+          "gasUsed": "115600",
+          "paid": [
+            "8101",
+            "0"
+          ]
+        },
+        {
+          "account": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+          "kind": "LP",
+          "hash": "0x4fbb875d01a56d32d222e00c71af11b2841667d4d4d88f9f4199c2ebc73064ee",
+          "gasUsed": "1043913",
+          "paid": [
+            "466",
+            "29991258172299692000857"
+          ]
+        },
+        {
+          "account": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+          "kind": "hook",
+          "hash": "0x496e016e75f8074ed9541c9ff8a8d7bb1c09b7e513aef11ef4c7b63f1d89e8d4",
+          "gasUsed": "97700",
+          "paid": [
+            "3471",
+            "0"
+          ]
+        },
+        {
+          "account": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+          "kind": "LP",
+          "hash": "0x8d0293ef94a98407a4ae392b88d7049d60bdc2c8b1e0259ee383c8274b4f82c8",
+          "gasUsed": "936174",
+          "paid": [
+            "199",
+            "12853396359557010857510"
+          ]
+        }
+      ],
+      "feePolicy": "creator-70-musegod-v2",
+      "checks": [
+        "canonical receipt registration",
+        "exact input/output raw balances",
+        "minimum outputs",
+        "creator and treasury hook and LP fee receipt/payout equality",
+        "guarded output and residual checks"
+      ],
+      "proofPhase": "previous_assets_run",
+      "forkBlockNumber": "80773258",
+      "guard": "0xf99add941432ec09b498ea1b680be13f2e717d88"
+    },
+    {
+      "asset": {
+        "ticker": "WETH",
+        "symbol": "WETH",
+        "name": "Wrapped Ether",
+        "address": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+        "decimals": 18,
+        "category": "OTHERS",
+        "chainId": 4663,
+        "issuer": "Token issuer",
+        "standard": "ERC20",
+        "sourceUrl": "https://pair.fund/launch"
+      },
+      "funding": {
+        "kind": "real_WETH_deposit_on_local_fork",
+        "hash": "0x3e42240cb515ab84ad82fd7b75b9e46d8c64d98faa5dbff9d4f3ea5e9a45dd94",
+        "amount": "40000000000000000"
+      },
+      "firstBuy": false,
+      "tokenAddress": "0xe06C5D3011162BD3C2Ea2Fa69ab8aECdF4a8adf2",
+      "poolId": "0x3770c4a73282b30111a347cdf05b49c34ae34f0433ccb9597ca2584a7ce19df1",
+      "hash": "0x2575a6bcabb18d4f0daef4c530b3707574a7fdcc2a277f6fd260dde751f9f25e",
+      "estimatedGas": "5666459",
+      "gasLimit": "8549688",
+      "gasUsed": "5586859",
+      "simulation": {
+        "valid": true,
+        "gas": "5666459",
+        "amountOut": null,
+        "simulatedAt": 1791202375649
+      },
+      "openingValuation": {
+        "policy": "fixed-usd-5000-v1",
+        "marketCapUsd": 5000,
+        "chainId": 4663,
+        "quoteAddress": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+        "quotedAt": 1791202323784,
+        "expiresAt": 1791202623784,
+        "blockNumber": "80773390",
+        "blockHash": "0x7c5496aa7c7cbd4d485ec034444e214c73e2c4339e7df266653260292e9102bc",
+        "quotePriceUsd": "2722.8",
+        "source": "Chainlink",
+        "sourceUpdatedAt": 1791183229000,
+        "feed": "0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9"
+      },
+      "buy": {
+        "hash": "0x7cc415b2f60e2267d943f9d3258efb6b7ca7e2dda8eb8ef36051b096fc98207c",
+        "estimatedGas": "647603",
+        "gasLimit": "1021404",
+        "gasUsed": "589583",
+        "amountIn": "10000000000000000",
+        "amountOut": "5344593958280647249764474",
+        "quotedOut": "5344593958280647249764474",
+        "minOut": "5291148018697840777266829",
+        "after": {
+          "sqrtPriceX96": "1834393829461342691679697017424148",
+          "tick": 201007,
+          "liquidity": "30255963623630619536710",
+          "lpFee": 500
+        }
+      },
+      "sell": {
+        "hash": "0xe2daa1e6992428d1f40300e3441b7941d0bfd877b1ab212f6a422e732ddc8ec7",
+        "estimatedGas": "388680",
+        "gasLimit": "633020",
+        "gasUsed": "356541",
+        "amountIn": "2672296979140323624882237",
+        "amountOut": "4913873728114117",
+        "quotedOut": "4913873728114117",
+        "minOut": "4864734990832975",
+        "after": {
+          "sqrtPriceX96": "1841387998326443911582022544114180",
+          "tick": 201084,
+          "liquidity": "30255963623630619536710",
+          "lpFee": 500
+        }
+      },
+      "payouts": [
+        {
+          "account": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+          "kind": "hook",
+          "hash": "0xbdb5bb7d4adb2da4aa523f60b6e52b01b004f78d9c4e148c29164b4d90be77f2",
+          "gasUsed": "111270",
+          "paid": [
+            "99947956943354",
+            "0"
+          ]
+        },
+        {
+          "account": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+          "kind": "LP",
+          "hash": "0xfbd8ca6e782af4876f7b4704c046a990661e95403503ce6a8960f72d87abc77a",
+          "gasUsed": "1033663",
+          "paid": [
+            "3324999999999",
+            "905591509367914165374"
+          ]
+        },
+        {
+          "account": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+          "kind": "hook",
+          "hash": "0xfa745af8734d45e977a991256bb50fa1ae55ab845ff6b9b61e55167562613802",
+          "gasUsed": "110470",
+          "paid": [
+            "42834838690008",
+            "0"
+          ]
+        },
+        {
+          "account": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+          "kind": "LP",
+          "hash": "0xd614a37bbd5771ae81db036094f39d293f7d6df23e49bde75c63861b32c61b99",
+          "gasUsed": "928254",
+          "paid": [
+            "1424999999999",
+            "388110646871963213732"
+          ]
+        }
+      ],
+      "feePolicy": "creator-70-musegod-v2",
+      "checks": [
+        "canonical receipt registration",
+        "exact input/output raw balances",
+        "minimum outputs",
+        "creator and treasury hook and LP fee receipt/payout equality",
+        "guarded output and residual checks"
+      ],
+      "proofPhase": "previous_assets_run",
+      "forkBlockNumber": "80773258",
+      "guard": null
+    },
+    {
+      "asset": {
+        "ticker": "WETH",
+        "symbol": "WETH",
+        "name": "Wrapped Ether",
+        "address": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+        "decimals": 18,
+        "category": "OTHERS",
+        "chainId": 4663,
+        "issuer": "Token issuer",
+        "standard": "ERC20",
+        "sourceUrl": "https://pair.fund/launch"
+      },
+      "funding": {
+        "kind": "real_WETH_deposit_on_local_fork",
+        "hash": "0x3e42240cb515ab84ad82fd7b75b9e46d8c64d98faa5dbff9d4f3ea5e9a45dd94",
+        "amount": "40000000000000000"
+      },
+      "firstBuy": true,
+      "tokenAddress": "0xf39181C89383267b1030Ebf8b17eF8309B141979",
+      "poolId": "0x09960465b6465fd34fd77ffe229ee4e4cb8b1723abc417d55e1da2660261007e",
+      "hash": "0xb8c49221f131bd44911ae30ba4fc6ef13d2b7f6d721ffe9cd054e5392fe5589e",
+      "estimatedGas": "6114043",
+      "gasLimit": "9221064",
+      "gasUsed": "5884368",
+      "simulation": {
+        "valid": true,
+        "gas": "6114043",
+        "amountOut": "2168302209468953639991352",
+        "simulatedAt": 1791202435745
+      },
+      "openingValuation": {
+        "policy": "fixed-usd-5000-v1",
+        "marketCapUsd": 5000,
+        "chainId": 4663,
+        "quoteAddress": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+        "quotedAt": 1791202381569,
+        "expiresAt": 1791202681569,
+        "blockNumber": "80773417",
+        "blockHash": "0xb47b846916a6b0c4b933153af73f6ac7fd71430af058c5ee5420afdc19370210",
+        "quotePriceUsd": "2722.8",
+        "source": "Chainlink",
+        "sourceUpdatedAt": 1791183229000,
+        "feed": "0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9"
+      },
+      "firstBuyReceipt": {
+        "events": [
+          {
+            "eventName": "Bundled",
+            "args": {
+              "recipient": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+              "amountIn": "4000000000000000",
+              "amountOut": "2168302209468953639991352",
+              "poolKey": {
+                "currency0": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+                "currency1": "0xf39181C89383267b1030Ebf8b17eF8309B141979",
+                "fee": 8388608,
+                "tickSpacing": 10,
+                "hooks": "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544"
+              }
+            }
+          },
+          {
+            "eventName": "GuardedLaunch",
+            "args": {
+              "creator": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+              "asset": "0xf39181C89383267b1030Ebf8b17eF8309B141979",
+              "numeraire": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+              "amountIn": "4000000000000000",
+              "amountOut": "2168302209468953639991352",
+              "minAmountOut": "2146619187374264103591438",
+              "deadline": "1791202681",
+              "poolId": "0x09960465b6465fd34fd77ffe229ee4e4cb8b1723abc417d55e1da2660261007e"
+            }
+          }
+        ],
+        "amountIn": "4000000000000000",
+        "amountOut": "2168302209468953639991352",
+        "minAmountOut": "2146619187374264103591438",
+        "guardResidualBalance": "0",
+        "guardToBundlerAllowance": "0",
+        "creatorToGuardAllowance": "0"
+      },
+      "buy": {
+        "hash": "0x6544e8ea3c5eb90b1b12e6e6583320f418357f1f91eebb5e2d92b3f0c89111cc",
+        "estimatedGas": "544635",
+        "gasLimit": "866952",
+        "gasUsed": "490560",
+        "amountIn": "10000000000000000",
+        "amountOut": "5311917795830742000758800",
+        "quotedOut": "5311917795830742000758800",
+        "minOut": "5258798617872434580751212",
+        "after": {
+          "sqrtPriceX96": "1828798689674516310299997532588506",
+          "tick": 200946,
+          "liquidity": "30255963623630619536710",
+          "lpFee": 500
+        }
+      },
+      "sell": {
+        "hash": "0xa627be645466a1b8195c51fa7c54ddb25a490876c1efffeb31e63a81fc57902b",
+        "estimatedGas": "388684",
+        "gasLimit": "633026",
+        "gasUsed": "356545",
+        "amountIn": "3740110002649847820375076",
+        "amountOut": "6908938073515085",
+        "quotedOut": "6908938073515085",
+        "minOut": "6839848692779934",
+        "after": {
+          "sqrtPriceX96": "1838587631972764362476670368968275",
+          "tick": 201053,
+          "liquidity": "30255963623630619536710",
+          "lpFee": 500
+        }
+      },
+      "payouts": [
+        {
+          "account": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+          "kind": "hook",
+          "hash": "0x61676ab90344569bf9a93c82d37833162e3c46eb298c3fe9e769fe38f10e8dfa",
+          "gasUsed": "111258",
+          "paid": [
+            "113347588340963",
+            "0"
+          ]
+        },
+        {
+          "account": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+          "kind": "LP",
+          "hash": "0x10a9b7fbf761ea0be67de0ab2bbf913853109721e540b45ae44a5526ac79b814",
+          "gasUsed": "1033651",
+          "paid": [
+            "4654999999999",
+            "1260535081272569709663"
+          ]
+        },
+        {
+          "account": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+          "kind": "hook",
+          "hash": "0x8278375b70503bd0d52394eabc1e6c4a020c05a462a9e643e860629d4184c810",
+          "gasUsed": "93358",
+          "paid": [
+            "48577537860413",
+            "0"
+          ]
+        },
+        {
+          "account": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+          "kind": "LP",
+          "hash": "0xc20e7b10065b6db52b30156198b0e8fbae2abebae5efe26e0468b4e739850a89",
+          "gasUsed": "928242",
+          "paid": [
+            "1994999999999",
+            "540229320545387018427"
+          ]
+        }
+      ],
+      "feePolicy": "creator-70-musegod-v2",
+      "checks": [
+        "canonical receipt registration",
+        "exact input/output raw balances",
+        "minimum outputs",
+        "creator and treasury hook and LP fee receipt/payout equality",
+        "guarded output and residual checks"
+      ],
+      "proofPhase": "previous_assets_run",
+      "forkBlockNumber": "80773258",
+      "guard": "0xf99add941432ec09b498ea1b680be13f2e717d88"
+    },
+    {
+      "asset": {
+        "ticker": "NVDA",
+        "symbol": "NVDA",
+        "name": "NVIDIA",
+        "address": "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC",
+        "decimals": 18,
+        "category": "STOCK",
+        "chainId": 4663,
+        "issuer": "Robinhood",
+        "standard": "ERC20",
+        "sourceUrl": "https://pair.fund/launch"
+      },
+      "funding": {
+        "kind": "verified_existing_inventory_transfer_on_local_fork",
+        "donor": "0x8366a39CC670B4001A1121B8F6A443A643e40951",
+        "hash": "0xe1738c48d7f322b738b4f6135f8458e02064c7439ab79c7670e5ea4fd4b23ed4",
+        "amount": "40000000000000000",
+        "donorBefore": "25468532711005777051819"
+      },
+      "firstBuy": false,
+      "tokenAddress": "0x4F8c37ed19B9E918B61c10DcAa8866b407125178",
+      "poolId": "0xbcb8178f00e26772dbdf8dd4f03b52321ca495d3d90c02898395bc2d6d507d35",
+      "hash": "0x705b1f4bd6f1c08eccac38dd8c5307a2187d741ab396ab949993a16a0c77d8d9",
+      "estimatedGas": "5657011",
+      "gasLimit": "8535516",
+      "gasUsed": "5577411",
+      "simulation": {
+        "valid": true,
+        "gas": "5657011",
+        "amountOut": null,
+        "simulatedAt": 1791202499844
+      },
+      "openingValuation": {
+        "policy": "fixed-usd-5000-v1",
+        "marketCapUsd": 5000,
+        "chainId": 4663,
+        "quoteAddress": "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC",
+        "quotedAt": 1791202445005,
+        "expiresAt": 1791202745005,
+        "blockNumber": "80773450",
+        "blockHash": "0xfb3e2414fc88b59458d8a4b1c6a1d3d2612cd51c89b96bc1518fb663a8cab7f7",
+        "quotePriceUsd": "235.407336814500231708",
+        "source": "Robinhood",
+        "sourceUpdatedAt": 1791202437525
+      },
+      "buy": {
+        "hash": "0x6218c87c7d7b2c4b31f26b2cb5e99047e1614823738f473b7877d349279400b1",
+        "estimatedGas": "649501",
+        "gasLimit": "1024251",
+        "gasUsed": "586621",
+        "amountIn": "10000000000000000",
+        "amountOut": "465435941183127473714179",
+        "quotedOut": "465435941183127473714179",
+        "minOut": "460781581771296198977037",
+        "after": {
+          "sqrtPriceX96": "11555814182977035410781567",
+          "tick": -176667,
+          "liquidity": "102887083863105721626628",
+          "lpFee": 500
+        }
+      },
+      "sell": {
+        "hash": "0x6b1efc04a47e38e7f8b8563c89723c51483642b1ca44aadbb2df97e775f4315f",
+        "estimatedGas": "431920",
+        "gasLimit": "697880",
+        "gasUsed": "398258",
+        "amountIn": "232717970591563736857089",
+        "amountOut": "4897186742377589",
+        "quotedOut": "4897186742377589",
+        "minOut": "4848214874953813",
+        "after": {
+          "sqrtPriceX96": "11552005014373276730650626",
+          "tick": -176674,
+          "liquidity": "102887083863105721626628",
+          "lpFee": 500
+        }
+      },
+      "payouts": [
+        {
+          "account": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+          "kind": "hook",
+          "hash": "0x36220072553ff74dfe3dc39304907653a90d9c6b4af420e20d8544c69dc39e7c",
+          "gasUsed": "128201",
+          "paid": [
+            "99372616865883",
+            "0"
+          ]
+        },
+        {
+          "account": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+          "kind": "LP",
+          "hash": "0xde8cc7fb981ee037cd637cea2203f60cf40b3c89d213e2b38c26b6836e0726d1",
+          "gasUsed": "1061076",
+          "paid": [
+            "3324999999999",
+            "78863771463323431300"
+          ]
+        },
+        {
+          "account": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+          "kind": "hook",
+          "hash": "0x7fc542a95a6d64f64e9e95c3f1b9b026f5613dad221ae76408f024a73895bc98",
+          "gasUsed": "127401",
+          "paid": [
+            "42588264371093",
+            "0"
+          ]
+        },
+        {
+          "account": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+          "kind": "LP",
+          "hash": "0xe184d0d09995c0f60786a46646cb985f28ddbb609c5856b009279220d7659d53",
+          "gasUsed": "947224",
+          "paid": [
+            "1424999999999",
+            "33798759198567184843"
+          ]
+        }
+      ],
+      "feePolicy": "creator-70-musegod-v2",
+      "checks": [
+        "canonical receipt registration",
+        "exact input/output raw balances",
+        "minimum outputs",
+        "creator and treasury hook and LP fee receipt/payout equality",
+        "guarded output and residual checks"
+      ],
+      "proofPhase": "previous_assets_run",
+      "forkBlockNumber": "80773258",
+      "guard": null
+    },
+    {
+      "asset": {
+        "ticker": "NVDA",
+        "symbol": "NVDA",
+        "name": "NVIDIA",
+        "address": "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC",
+        "decimals": 18,
+        "category": "STOCK",
+        "chainId": 4663,
+        "issuer": "Robinhood",
+        "standard": "ERC20",
+        "sourceUrl": "https://pair.fund/launch"
+      },
+      "funding": {
+        "kind": "verified_existing_inventory_transfer_on_local_fork",
+        "donor": "0x8366a39CC670B4001A1121B8F6A443A643e40951",
+        "hash": "0xe1738c48d7f322b738b4f6135f8458e02064c7439ab79c7670e5ea4fd4b23ed4",
+        "amount": "40000000000000000",
+        "donorBefore": "25468532711005777051819"
+      },
+      "firstBuy": true,
+      "tokenAddress": "0xee1b626e7C73Cf3F578046ac3E22f641d723629c",
+      "poolId": "0x95504d2bc3535d18e8c694ad8debbccd7164f780b097e38264ac6a13fc4378ff",
+      "hash": "0xc78d78f27fa77a6928a4dc51fbd673d22f2d4376f6811aa0f288b7133e1da057",
+      "estimatedGas": "6125100",
+      "gasLimit": "9237650",
+      "gasUsed": "5899924",
+      "simulation": {
+        "valid": true,
+        "gas": "6125100",
+        "amountOut": "188035981126323136577763",
+        "simulatedAt": 1791202558854
+      },
+      "openingValuation": {
+        "policy": "fixed-usd-5000-v1",
+        "marketCapUsd": 5000,
+        "chainId": 4663,
+        "quoteAddress": "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC",
+        "quotedAt": 1791202506890,
+        "expiresAt": 1791202806890,
+        "blockNumber": "80773480",
+        "blockHash": "0x4b01bdf76ce720ba14bf456bff89e54d5bd3c4725428a9783f4e92f779f31876",
+        "quotePriceUsd": "235.377313559725292791",
+        "source": "Robinhood",
+        "sourceUpdatedAt": 1791202497579
+      },
+      "firstBuyReceipt": {
+        "events": [
+          {
+            "eventName": "Bundled",
+            "args": {
+              "recipient": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+              "amountIn": "4000000000000000",
+              "amountOut": "188035981126323136577763",
+              "poolKey": {
+                "currency0": "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC",
+                "currency1": "0xee1b626e7C73Cf3F578046ac3E22f641d723629c",
+                "fee": 8388608,
+                "tickSpacing": 10,
+                "hooks": "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544"
+              }
+            }
+          },
+          {
+            "eventName": "GuardedLaunch",
+            "args": {
+              "creator": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+              "asset": "0xee1b626e7C73Cf3F578046ac3E22f641d723629c",
+              "numeraire": "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC",
+              "amountIn": "4000000000000000",
+              "amountOut": "188035981126323136577763",
+              "minAmountOut": "186155621315059905211985",
+              "deadline": "1791202806",
+              "poolId": "0x95504d2bc3535d18e8c694ad8debbccd7164f780b097e38264ac6a13fc4378ff"
+            }
+          }
+        ],
+        "amountIn": "4000000000000000",
+        "amountOut": "188035981126323136577763",
+        "minAmountOut": "186155621315059905211985",
+        "guardResidualBalance": "0",
+        "guardToBundlerAllowance": "0",
+        "creatorToGuardAllowance": "0"
+      },
+      "buy": {
+        "hash": "0x9b113d5c2cf40a9c26debc95d02a3e4d289e3fc515eddb9ad1ba8a1859355f49",
+        "estimatedGas": "578911",
+        "gasLimit": "918366",
+        "gasUsed": "518973",
+        "amountIn": "10000000000000000",
+        "amountOut": "465187286576634599087724",
+        "quotedOut": "465187286576634599087724",
+        "minOut": "460535413710868253096846",
+        "after": {
+          "sqrtPriceX96": "543053284246814150673503082716631",
+          "tick": 176661,
+          "liquidity": "102763036607320148816510",
+          "lpFee": 500
+        }
+      },
+      "sell": {
+        "hash": "0xe9b334372eb749b491899065579f1152dba2db90b2d5260ee924e8f62950a83f",
+        "estimatedGas": "431995",
+        "gasLimit": "697992",
+        "gasUsed": "398331",
+        "amountIn": "326611633851478867832743",
+        "amountOut": "6875791345758469",
+        "quotedOut": "6875791345758469",
+        "minOut": "6807033432300884",
+        "after": {
+          "sqrtPriceX96": "543304969113668202739821286753111",
+          "tick": 176670,
+          "liquidity": "102763036607320148816510",
+          "lpFee": 500
+        }
+      },
+      "payouts": [
+        {
+          "account": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+          "kind": "hook",
+          "hash": "0xa52fce8268a790e51fe5ecfff2c9910a625115cbafc2be10f48e3b94a96af388",
+          "gasUsed": "128213",
+          "paid": [
+            "112663284969523",
+            "0"
+          ]
+        },
+        {
+          "account": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+          "kind": "LP",
+          "hash": "0xdc6367398feffa5b72d335ff1b308ddab8ebfb51d2c1711185ac4edd76e6a060",
+          "gasUsed": "1059113",
+          "paid": [
+            "4654999999999",
+            "110082621125792425110"
+          ]
+        },
+        {
+          "account": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+          "kind": "hook",
+          "hash": "0xa9aed38192573d213f2111c15f3db4ddf4dcce5b8089faa6ebd63326232ba70b",
+          "gasUsed": "110313",
+          "paid": [
+            "48284264986938",
+            "0"
+          ]
+        },
+        {
+          "account": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+          "kind": "LP",
+          "hash": "0xedd39ab239844f1654ed10f9e1d3aea429a2d349cd1e7123fb5e2230ccdd4c5c",
+          "gasUsed": "945261",
+          "paid": [
+            "1994999999999",
+            "47178266196768182190"
+          ]
+        }
+      ],
+      "feePolicy": "creator-70-musegod-v2",
+      "checks": [
+        "canonical receipt registration",
+        "exact input/output raw balances",
+        "minimum outputs",
+        "creator and treasury hook and LP fee receipt/payout equality",
+        "guarded output and residual checks"
+      ],
+      "proofPhase": "previous_assets_run",
+      "forkBlockNumber": "80773258",
+      "guard": "0xf99add941432ec09b498ea1b680be13f2e717d88"
+    },
+    {
+      "asset": {
+        "ticker": "MUSEGOD",
+        "symbol": "MUSEGOD",
+        "name": "MUSEGOD",
+        "address": "0x0379E228F6887c6F18bf394042ECAF81B308cb2e",
+        "decimals": 18,
+        "category": "OTHERS",
+        "sourceUrl": "https://musegod.org/docs",
+        "chainId": 4663,
+        "issuer": "Token issuer",
+        "standard": "ERC20"
+      },
+      "funding": {
+        "kind": "verified_existing_inventory_transfer_on_local_fork",
+        "donor": "0x8366a39CC670B4001A1121B8F6A443A643e40951",
+        "hash": "0x179b82bd9e6e10b016e870d07511d81a6ccbbf5f65ab5ccb1430b5d8dc126451",
+        "amount": "40000000000000000000",
+        "donorBefore": "284397949356854354807707"
+      },
+      "firstBuy": false,
+      "tokenAddress": "0xacC955C046Cbaeb66352F9585826A14184348317",
+      "poolId": "0x1821a0fa47748e58276a68286f303c7cca2cdc9e13c5df273527a4af41326c54",
+      "hash": "0xe67575b2b5fc223c8d85f083e9c5dd533471b0cd6c6cfb23722c48a7a1a813ff",
+      "estimatedGas": "5742725",
+      "gasLimit": "8664087",
+      "gasUsed": "5663125",
+      "simulation": {
+        "valid": true,
+        "gas": "5742725",
+        "amountOut": null,
+        "simulatedAt": 1791202622380
+      },
+      "openingValuation": {
+        "policy": "fixed-usd-5000-v1",
+        "marketCapUsd": 5000,
+        "chainId": 4663,
+        "quoteAddress": "0x0379E228F6887c6F18bf394042ECAF81B308cb2e",
+        "quotedAt": 1791202572601,
+        "expiresAt": 1791202872601,
+        "blockNumber": "80773516",
+        "blockHash": "0xe5bf37be1f18fbba726e4c75645218bfc92a47c97a0a7a49f8dc22017994a0da",
+        "quotePriceUsd": "0.000293133694761039",
+        "source": "SushiSwap V3 TWAP",
+        "sourceUpdatedAt": 1791183229000,
+        "feed": "0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9",
+        "pool": "0x071eE139277688d64B139Af1e44f79a9acf12e53",
+        "twapSeconds": 300
+      },
+      "buy": {
+        "hash": "0x0606ab21e9908aa661ca04ed773903caab011f2e2584f4a91d429a938ca50702",
+        "estimatedGas": "813312",
+        "gasLimit": "1269968",
+        "gasUsed": "739753",
+        "amountIn": "10000000000000000000",
+        "amountOut": "579885265491754568252",
+        "quotedOut": "579885265491754568252",
+        "minOut": "574086412836837022569",
+        "after": {
+          "sqrtPriceX96": "606514862089511778064317572713",
+          "tick": 40709,
+          "liquidity": "92207081400121577837501777",
+          "lpFee": 500
+        }
+      },
+      "sell": {
+        "hash": "0xe3800eed3d607af257cf17221637d6fabd933c71b3152a9e460bc77a3d9dff04",
+        "estimatedGas": "596840",
+        "gasLimit": "945260",
+        "gasUsed": "529290",
+        "amountIn": "289942632745877284126",
+        "amountOut": "4895602700513000970",
+        "quotedOut": "4895602700513000970",
+        "minOut": "4846646673507870960",
+        "after": {
+          "sqrtPriceX96": "606515111095725480434584959213",
+          "tick": 40709,
+          "liquidity": "92207081400121577837501777",
+          "lpFee": 500
+        }
+      },
+      "payouts": [
+        {
+          "account": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+          "kind": "hook",
+          "hash": "0x7a7a23805971b74d9de260eba675d101be2872d39d1e28adbe048939ad57ee6b",
+          "gasUsed": "186860",
+          "paid": [
+            "99318175227406310",
+            "0"
+          ]
+        },
+        {
+          "account": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+          "kind": "LP",
+          "hash": "0x27344c58ec2570eb7291083ea5fe2bf32d61bee979f6f3f3ce5f18ff73697d68",
+          "gasUsed": "1125524",
+          "paid": [
+            "3324999999999999",
+            "98256140117672964"
+          ]
+        },
+        {
+          "account": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+          "kind": "hook",
+          "hash": "0x4599286173b9d2251e333d380f92b8113ed5402d23f492b98015788d66ce7c28",
+          "gasUsed": "200360",
+          "paid": [
+            "42564932240316990",
+            "0"
+          ]
+        },
+        {
+          "account": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+          "kind": "LP",
+          "hash": "0x485b4127c9f5f6196aa38449280d514a23619e937c0037247a9db951ee2d4285",
+          "gasUsed": "1034287",
+          "paid": [
+            "1424999999999999",
+            "42109774336145556"
+          ]
+        }
+      ],
+      "feePolicy": "creator-70-musegod-v2",
+      "checks": [
+        "canonical receipt registration",
+        "exact input/output raw balances",
+        "minimum outputs",
+        "creator and treasury hook and LP fee receipt/payout equality",
+        "guarded output and residual checks"
+      ],
+      "proofPhase": "previous_assets_run",
+      "forkBlockNumber": "80773258",
+      "guard": null
+    },
+    {
+      "asset": {
+        "ticker": "MUSEGOD",
+        "symbol": "MUSEGOD",
+        "name": "MUSEGOD",
+        "address": "0x0379E228F6887c6F18bf394042ECAF81B308cb2e",
+        "decimals": 18,
+        "category": "OTHERS",
+        "sourceUrl": "https://musegod.org/docs",
+        "chainId": 4663,
+        "issuer": "Token issuer",
+        "standard": "ERC20"
+      },
+      "funding": {
+        "kind": "verified_existing_inventory_transfer_on_local_fork",
+        "donor": "0x8366a39CC670B4001A1121B8F6A443A643e40951",
+        "hash": "0x179b82bd9e6e10b016e870d07511d81a6ccbbf5f65ab5ccb1430b5d8dc126451",
+        "amount": "40000000000000000000",
+        "donorBefore": "284397949356854354807707"
+      },
+      "firstBuy": true,
+      "tokenAddress": "0x0b44502080a6E387A422E04047495af73816029A",
+      "poolId": "0xdda8340dde6196b4490c68c22faf64f511878ab7d2862c882d71d542c782cce5",
+      "hash": "0x9e18c0482544aa6c620c85fee9e8a962bc209e734e7f3837c292332f086df072",
+      "estimatedGas": "6310371",
+      "gasLimit": "9515556",
+      "gasUsed": "6070065",
+      "simulation": {
+        "valid": true,
+        "gas": "6310371",
+        "amountOut": "234180045023309632516",
+        "simulatedAt": 1791202682243
+      },
+      "openingValuation": {
+        "policy": "fixed-usd-5000-v1",
+        "marketCapUsd": 5000,
+        "chainId": 4663,
+        "quoteAddress": "0x0379E228F6887c6F18bf394042ECAF81B308cb2e",
+        "quotedAt": 1791202630018,
+        "expiresAt": 1791202930018,
+        "blockNumber": "80773546",
+        "blockHash": "0x1e22c0a3c4f28744f8a8a5701d3b8ca742a6936f7fa21d191269e9d0392e4ef7",
+        "quotePriceUsd": "0.000293133694761039",
+        "source": "SushiSwap V3 TWAP",
+        "sourceUpdatedAt": 1791183229000,
+        "feed": "0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9",
+        "pool": "0x071eE139277688d64B139Af1e44f79a9acf12e53",
+        "twapSeconds": 300
+      },
+      "firstBuyReceipt": {
+        "events": [
+          {
+            "eventName": "Bundled",
+            "args": {
+              "recipient": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+              "amountIn": "4000000000000000000",
+              "amountOut": "234180045023309632516",
+              "poolKey": {
+                "currency0": "0x0379E228F6887c6F18bf394042ECAF81B308cb2e",
+                "currency1": "0x0b44502080a6E387A422E04047495af73816029A",
+                "fee": 8388608,
+                "tickSpacing": 10,
+                "hooks": "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544"
+              }
+            }
+          },
+          {
+            "eventName": "GuardedLaunch",
+            "args": {
+              "creator": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+              "asset": "0x0b44502080a6E387A422E04047495af73816029A",
+              "numeraire": "0x0379E228F6887c6F18bf394042ECAF81B308cb2e",
+              "amountIn": "4000000000000000000",
+              "amountOut": "234180045023309632516",
+              "minAmountOut": "231838244573076536190",
+              "deadline": "1791202930",
+              "poolId": "0xdda8340dde6196b4490c68c22faf64f511878ab7d2862c882d71d542c782cce5"
+            }
+          }
+        ],
+        "amountIn": "4000000000000000000",
+        "amountOut": "234180045023309632516",
+        "minAmountOut": "231838244573076536190",
+        "guardResidualBalance": "0",
+        "guardToBundlerAllowance": "0",
+        "creatorToGuardAllowance": "0"
+      },
+      "buy": {
+        "hash": "0x264d4f6d6bced4447a19e900f3809a1a2123e7bbd879a90e01788e7b91dfa753",
+        "estimatedGas": "626050",
+        "gasLimit": "989075",
+        "gasUsed": "559050",
+        "amountIn": "10000000000000000000",
+        "amountOut": "579884880534589284314",
+        "quotedOut": "579884880534589284314",
+        "minOut": "574086031729243391470",
+        "after": {
+          "sqrtPriceX96": "606514660771941197769658818976",
+          "tick": 40709,
+          "liquidity": "92207081400121577837501777",
+          "lpFee": 500
+        }
+      },
+      "sell": {
+        "hash": "0x848fdce0b4c56982ad5d185c444324c96989ac3f4820b3c30e9a265274d198bf",
+        "estimatedGas": "506989",
+        "gasLimit": "810483",
+        "gasUsed": "459591",
+        "amountIn": "407032462778949458415",
+        "amountOut": "6872636140336643969",
+        "quotedOut": "6872636140336643969",
+        "minOut": "6803909778933277529",
+        "after": {
+          "sqrtPriceX96": "606515010336306571279274346867",
+          "tick": 40709,
+          "liquidity": "92207081400121577837501777",
+          "lpFee": 500
+        }
+      },
+      "payouts": [
+        {
+          "account": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+          "kind": "hook",
+          "hash": "0x6e14ccdd512426a905b642513f518b531d47f6656fd18756b3b5b2a380e403b1",
+          "gasUsed": "186860",
+          "paid": [
+            "112598248333274272",
+            "0"
+          ]
+        },
+        {
+          "account": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+          "kind": "LP",
+          "hash": "0xce0edc48f9938f8e6013b93b47f765927f77a24bcdc9b17709b69f8f097b9296",
+          "gasUsed": "1132905",
+          "paid": [
+            "4654999999999999",
+            "137188507375403355"
+          ]
+        },
+        {
+          "account": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+          "kind": "hook",
+          "hash": "0x476ca3838cf8d9d869ed19267a388a4affd55623f63a5ad376fb78d3180c6ec5",
+          "gasUsed": "155588",
+          "paid": [
+            "48256392142831830",
+            "0"
+          ]
+        },
+        {
+          "account": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+          "kind": "LP",
+          "hash": "0xd7d4f1904950d854125ac34e072a28af2748d08ef321e32fa6cf719b73e1339b",
+          "gasUsed": "970097",
+          "paid": [
+            "1994999999999999",
+            "58795074589458580"
+          ]
+        }
+      ],
+      "feePolicy": "creator-70-musegod-v2",
+      "checks": [
+        "canonical receipt registration",
+        "exact input/output raw balances",
+        "minimum outputs",
+        "creator and treasury hook and LP fee receipt/payout equality",
+        "guarded output and residual checks"
+      ],
+      "proofPhase": "previous_assets_run",
+      "forkBlockNumber": "80773258",
+      "guard": "0xf99add941432ec09b498ea1b680be13f2e717d88"
+    }
+  ],
+  "boundaries": [
+    {
+      "index": 0,
+      "tail": false,
+      "canonicalTarget": -194230,
+      "targetTick": 194230,
+      "before": {
+        "sqrtPriceX96": "1848396300359791648570360477870294",
+        "tick": 201160,
+        "liquidity": "0",
+        "lpFee": 500
+      },
+      "effectiveLiquidity": "30255963623630619536710",
+      "desiredOut": "206699999999999999999999621",
+      "targetQuote": {
+        "token": "0xaDfDb816Cb812EA56A9E586c7a58D9178C5C0994",
+        "side": "buy",
+        "amountIn": "553563129601478492",
+        "amountOut": "208979890535338716925332279",
+        "currencyIn": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+        "poolKey": {
+          "currency0": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+          "currency1": "0xaDfDb816Cb812EA56A9E586c7a58D9178C5C0994",
+          "fee": 8388608,
+          "tickSpacing": 10,
+          "hooks": "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544"
+        },
+        "slippageBps": 100,
+        "quotedAt": 1791203929502,
+        "expiresAt": 1791203989502
+      },
+      "hash": "0x4518af70e7748879e82fef5063d678d71fcae8fd0f14b5e561162bff79f5558b",
+      "estimatedGas": "696001",
+      "gasLimit": "1094001",
+      "gasUsed": "636482",
+      "amountIn": "553563683164608193",
+      "amountOut": "208980037039506175615796620",
+      "quotedOut": "208980037039506175615796620",
+      "minOut": "206890236669111113859638653",
+      "after": {
+        "sqrtPriceX96": "1300930732567634252750034371096391",
+        "tick": 194134,
+        "liquidity": "30489392692960699221174",
+        "lpFee": 500
+      }
+    },
+    {
+      "index": 1,
+      "tail": false,
+      "canonicalTarget": -187300,
+      "targetTick": 187300,
+      "before": {
+        "sqrtPriceX96": "1300930732567634252750034371096391",
+        "tick": 194134,
+        "liquidity": "30489392692960699221174",
+        "lpFee": 500
+      },
+      "effectiveLiquidity": "30489392692960699221174",
+      "desiredOut": "144913414805245651917389919",
+      "targetQuote": {
+        "token": "0xaDfDb816Cb812EA56A9E586c7a58D9178C5C0994",
+        "side": "buy",
+        "amountIn": "779743389109999182",
+        "amountOut": "146526613657165527886215914",
+        "currencyIn": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+        "poolKey": {
+          "currency0": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+          "currency1": "0xaDfDb816Cb812EA56A9E586c7a58D9178C5C0994",
+          "fee": 8388608,
+          "tickSpacing": 10,
+          "hooks": "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544"
+        },
+        "slippageBps": 100,
+        "quotedAt": 1791203930801,
+        "expiresAt": 1791203990801
+      },
+      "hash": "0xfac11bb348a8f0d49dd3404e222a1e1541cf27d593c0130ae9eb3c397c2e33a0",
+      "estimatedGas": "576318",
+      "gasLimit": "914477",
+      "gasUsed": "521263",
+      "amountIn": "779744168853388391",
+      "amountOut": "146526716877172617381178260",
+      "quotedOut": "146526716877172617381178260",
+      "minOut": "145061449708400891207366477",
+      "after": {
+        "sqrtPriceX96": "920009414033971395136824698295048",
+        "tick": 187205,
+        "liquidity": "30696362246870888874683",
+        "lpFee": 500
+      }
+    },
+    {
+      "index": 2,
+      "tail": false,
+      "canonicalTarget": -180360,
+      "targetTick": 180360,
+      "before": {
+        "sqrtPriceX96": "920009414033971395136824698295048",
+        "tick": 187205,
+        "liquidity": "30696362246870888874683",
+        "lpFee": 500
+      },
+      "effectiveLiquidity": "30696362246870888874683",
+      "desiredOut": "103311991503483385163864435",
+      "targetQuote": {
+        "token": "0xaDfDb816Cb812EA56A9E586c7a58D9178C5C0994",
+        "side": "buy",
+        "amountIn": "1112111667319197626",
+        "amountOut": "104460935547372969732797961",
+        "currencyIn": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+        "poolKey": {
+          "currency0": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+          "currency1": "0xaDfDb816Cb812EA56A9E586c7a58D9178C5C0994",
+          "fee": 8388608,
+          "tickSpacing": 10,
+          "hooks": "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544"
+        },
+        "slippageBps": 100,
+        "quotedAt": 1791203931219,
+        "expiresAt": 1791203991219
+      },
+      "hash": "0x9a867dd397f4bf50a81bb8301f4b1b6a6b0698e8c9d0b1c4bbe515727a9982bc",
+      "estimatedGas": "582538",
+      "gasLimit": "923807",
+      "gasUsed": "527289",
+      "amountIn": "1112112779430865045",
+      "amountOut": "104461009097362282671067063",
+      "quotedOut": "104461009097362282671067063",
+      "minOut": "103416399006388659844356392",
+      "after": {
+        "sqrtPriceX96": "650283133904751157757496804345826",
+        "tick": 180265,
+        "liquidity": "30975319164115157029302",
+        "lpFee": 500
+      }
+    },
+    {
+      "index": 3,
+      "tail": false,
+      "canonicalTarget": -173430,
+      "targetTick": 173430,
+      "before": {
+        "sqrtPriceX96": "650283133904751157757496804345826",
+        "tick": 180265,
+        "liquidity": "30975319164115157029302",
+        "lpFee": 500
+      },
+      "effectiveLiquidity": "30975319164115157029302",
+      "desiredOut": "73597723118907068541101571",
+      "targetQuote": {
+        "token": "0xaDfDb816Cb812EA56A9E586c7a58D9178C5C0994",
+        "side": "buy",
+        "amountIn": "1584992961915864073",
+        "amountOut": "74416975460242403180802547",
+        "currencyIn": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+        "poolKey": {
+          "currency0": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+          "currency1": "0xaDfDb816Cb812EA56A9E586c7a58D9178C5C0994",
+          "fee": 8388608,
+          "tickSpacing": 10,
+          "hooks": "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544"
+        },
+        "slippageBps": 100,
+        "quotedAt": 1791203931710,
+        "expiresAt": 1791203991710
+      },
+      "hash": "0x850cb4d3396f61c86e9e38c5783b3ca01655652839a098d5d3a58aa8c8ab45c3",
+      "estimatedGas": "582900",
+      "gasLimit": "924350",
+      "gasUsed": "527641",
+      "amountIn": "1584994546908826088",
+      "amountOut": "74417027881659949211807462",
+      "quotedOut": "74417027881659949211807462",
+      "minOut": "73672857602843349719689387",
+      "after": {
+        "sqrtPriceX96": "459860039974282517050118941575488",
+        "tick": 173335,
+        "liquidity": "31211663457803983773207",
+        "lpFee": 500
+      }
+    },
+    {
+      "index": 4,
+      "tail": false,
+      "canonicalTarget": -166500,
+      "targetTick": 166500,
+      "before": {
+        "sqrtPriceX96": "459860039974282517050118941575488",
+        "tick": 173335,
+        "liquidity": "31211663457803983773207",
+        "lpFee": 500
+      },
+      "effectiveLiquidity": "31211663457803983773207",
+      "desiredOut": "52442753828334727552157512",
+      "targetQuote": {
+        "token": "0xaDfDb816Cb812EA56A9E586c7a58D9178C5C0994",
+        "side": "buy",
+        "amountIn": "2258399556289129742",
+        "amountOut": "53026528310470049409194967",
+        "currencyIn": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+        "poolKey": {
+          "currency0": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+          "currency1": "0xaDfDb816Cb812EA56A9E586c7a58D9178C5C0994",
+          "fee": 8388608,
+          "tickSpacing": 10,
+          "hooks": "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544"
+        },
+        "slippageBps": 100,
+        "quotedAt": 1791203932085,
+        "expiresAt": 1791203992085
+      },
+      "hash": "0x34d939ebbe0ad73380bba59062645d80f98c241860d6636cd7871c99552d4548",
+      "estimatedGas": "591850",
+      "gasLimit": "937775",
+      "gasUsed": "536313",
+      "amountIn": "2258401814688686131",
+      "amountOut": "53026565664306371329515816",
+      "quotedOut": "53026565664306371329515816",
+      "minOut": "52496300007663307616220657",
+      "after": {
+        "sqrtPriceX96": "325200528646045538786294642249019",
+        "tick": 166405,
+        "liquidity": "31466527394274487302778",
+        "lpFee": 500
+      }
+    },
+    {
+      "index": 5,
+      "tail": false,
+      "canonicalTarget": -159570,
+      "targetTick": 159570,
+      "before": {
+        "sqrtPriceX96": "325200528646045538786294642249019",
+        "tick": 166405,
+        "liquidity": "31466527394274487302778",
+        "lpFee": 500
+      },
+      "effectiveLiquidity": "31466527394274487302778",
+      "desiredOut": "37389152649867690928774412",
+      "targetQuote": {
+        "token": "0xaDfDb816Cb812EA56A9E586c7a58D9178C5C0994",
+        "side": "buy",
+        "amountIn": "3219666270466969795",
+        "amountOut": "37805355697477964687119439",
+        "currencyIn": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+        "poolKey": {
+          "currency0": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+          "currency1": "0xaDfDb816Cb812EA56A9E586c7a58D9178C5C0994",
+          "fee": 8388608,
+          "tickSpacing": 10,
+          "hooks": "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544"
+        },
+        "slippageBps": 100,
+        "quotedAt": 1791203932341,
+        "expiresAt": 1791203992341
+      },
+      "hash": "0xc474c343f2904148948fd71a08f9e2ba166ac3fc8a989ed392d19587f7b4ac40",
+      "estimatedGas": "583090",
+      "gasLimit": "924635",
+      "gasUsed": "527825",
+      "amountIn": "3219669490133240361",
+      "amountOut": "37805382329028067189827655",
+      "quotedOut": "37805382329028067189827655",
+      "minOut": "37427328505737786517929378",
+      "after": {
+        "sqrtPriceX96": "229972720212970115168580752980717",
+        "tick": 159475,
+        "liquidity": "31732919204266058397137",
+        "lpFee": 500
+      }
+    },
+    {
+      "index": 6,
+      "tail": false,
+      "canonicalTarget": -152640,
+      "targetTick": 152640,
+      "before": {
+        "sqrtPriceX96": "229972720212970115168580752980717",
+        "tick": 159475,
+        "liquidity": "31732919204266058397137",
+        "lpFee": 500
+      },
+      "effectiveLiquidity": "31732919204266058397137",
+      "desiredOut": "26664495303940051095598949",
+      "targetQuote": {
+        "token": "0xaDfDb816Cb812EA56A9E586c7a58D9178C5C0994",
+        "side": "buy",
+        "amountIn": "4591441316637034594",
+        "amountOut": "26962973267224122393758116",
+        "currencyIn": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+        "poolKey": {
+          "currency0": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+          "currency1": "0xaDfDb816Cb812EA56A9E586c7a58D9178C5C0994",
+          "fee": 8388608,
+          "tickSpacing": 10,
+          "hooks": "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544"
+        },
+        "slippageBps": 100,
+        "quotedAt": 1791203932767,
+        "expiresAt": 1791203992767
+      },
+      "hash": "0xa8c2b373b795d40a8d9138690d2ae9eac97ae395b36a97e6f5ff07d2992db870",
+      "estimatedGas": "582198",
+      "gasLimit": "923297",
+      "gasUsed": "526961",
+      "amountIn": "4591445908078351331",
+      "amountOut": "26962992371783074922531064",
+      "quotedOut": "26962992371783074922531064",
+      "minOut": "26693362448065244173305753",
+      "after": {
+        "sqrtPriceX96": "162889078972465262198893645381980",
+        "tick": 152577,
+        "liquidity": "48515875149278680268029",
+        "lpFee": 500
+      }
+    },
+    {
+      "index": 7,
+      "tail": false,
+      "canonicalTarget": -145710,
+      "targetTick": 145710,
+      "before": {
+        "sqrtPriceX96": "162889078972465262198893645381980",
+        "tick": 152577,
+        "liquidity": "48515875149278680268029",
+        "lpFee": 500
+      },
+      "effectiveLiquidity": "48515875149278680268029",
+      "desiredOut": "28987755891349241317444481",
+      "targetQuote": {
+        "token": "0xaDfDb816Cb812EA56A9E586c7a58D9178C5C0994",
+        "side": "buy",
+        "amountIn": "9965294422928453040",
+        "amountOut": "29311334103978760265896456",
+        "currencyIn": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+        "poolKey": {
+          "currency0": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+          "currency1": "0xaDfDb816Cb812EA56A9E586c7a58D9178C5C0994",
+          "fee": 8388608,
+          "tickSpacing": 10,
+          "hooks": "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544"
+        },
+        "slippageBps": 100,
+        "quotedAt": 1791203933175,
+        "expiresAt": 1791203993175
+      },
+      "hash": "0x8ee987a3f2f090fd167c93c4dfe92f768f531cd76b91b75340f499ae415b351a",
+      "estimatedGas": "582778",
+      "gasLimit": "924167",
+      "gasUsed": "527521",
+      "amountIn": "9965304388222876068",
+      "amountOut": "29311354844880116156242569",
+      "quotedOut": "29311354844880116156242569",
+      "minOut": "29018241296431314994680143",
+      "after": {
+        "sqrtPriceX96": "115198142275562620181018266232477",
+        "tick": 145648,
+        "liquidity": "76006580730295605397629",
+        "lpFee": 500
+      }
+    },
+    {
+      "index": 8,
+      "tail": false,
+      "canonicalTarget": -138770,
+      "targetTick": 138770,
+      "before": {
+        "sqrtPriceX96": "115198142275562620181018266232477",
+        "tick": 145648,
+        "liquidity": "76006580730295605397629",
+        "lpFee": 500
+      },
+      "effectiveLiquidity": "76006580730295605397629",
+      "desiredOut": "32161456696612606738343202",
+      "targetQuote": {
+        "token": "0xaDfDb816Cb812EA56A9E586c7a58D9178C5C0994",
+        "side": "buy",
+        "amountIn": "22118231174901626701",
+        "amountOut": "32520001153406143061215655",
+        "currencyIn": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+        "poolKey": {
+          "currency0": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+          "currency1": "0xaDfDb816Cb812EA56A9E586c7a58D9178C5C0994",
+          "fee": 8388608,
+          "tickSpacing": 10,
+          "hooks": "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544"
+        },
+        "slippageBps": 100,
+        "quotedAt": 1791203933415,
+        "expiresAt": 1791203993415
+      },
+      "hash": "0x397a6ab4e38be5ec7009caad80d69b083919df42c4547a43a9c1fa97c299e6d7",
+      "estimatedGas": "576798",
+      "gasLimit": "915197",
+      "gasUsed": "521728",
+      "amountIn": "22118253293132801702",
+      "amountOut": "32520024147011980646165761",
+      "quotedOut": "32520024147011980646165761",
+      "minOut": "32194823905541860839704103",
+      "after": {
+        "sqrtPriceX96": "81419334976619371025612798842969",
+        "tick": 138707,
+        "liquidity": "116938931118416667538458",
+        "lpFee": 500
+      }
+    },
+    {
+      "index": 9,
+      "tail": false,
+      "canonicalTarget": -131840,
+      "targetTick": 131840,
+      "before": {
+        "sqrtPriceX96": "81419334976619371025612798842969",
+        "tick": 138707,
+        "liquidity": "116938931118416667538458",
+        "lpFee": 500
+      },
+      "effectiveLiquidity": "116938931118416667538458",
+      "desiredOut": "34924852264562035892954005",
+      "targetQuote": {
+        "token": "0xaDfDb816Cb812EA56A9E586c7a58D9178C5C0994",
+        "side": "buy",
+        "amountIn": "48055455547763033004",
+        "amountOut": "35314159427363405072738239",
+        "currencyIn": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+        "poolKey": {
+          "currency0": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+          "currency1": "0xaDfDb816Cb812EA56A9E586c7a58D9178C5C0994",
+          "fee": 8388608,
+          "tickSpacing": 10,
+          "hooks": "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544"
+        },
+        "slippageBps": 100,
+        "quotedAt": 1791203933823,
+        "expiresAt": 1791203993823
+      },
+      "hash": "0x0e6634762a5201a481cf0996912aad9d6fdd24a9053a493b7634ae275901f0b0",
+      "estimatedGas": "581219",
+      "gasLimit": "921828",
+      "gasUsed": "526012",
+      "amountIn": "48055503603218580867",
+      "amountOut": "35314184379707980165297659",
+      "quotedOut": "35314184379707980165297659",
+      "minOut": "34961042535910900363644682",
+      "after": {
+        "sqrtPriceX96": "57558027303281310566987329042591",
+        "tick": 131770,
+        "liquidity": "162082462995679579903850",
+        "lpFee": 500
+      }
+    },
+    {
+      "index": 10,
+      "tail": false,
+      "canonicalTarget": -124910,
+      "targetTick": 124910,
+      "before": {
+        "sqrtPriceX96": "57558027303281310566987329042591",
+        "tick": 131770,
+        "liquidity": "162082462995679579903850",
+        "lpFee": 500
+      },
+      "effectiveLiquidity": "162082462995679579903850",
+      "desiredOut": "34192663001454401583223389",
+      "targetQuote": {
+        "token": "0xaDfDb816Cb812EA56A9E586c7a58D9178C5C0994",
+        "side": "buy",
+        "amountIn": "94110528232314771119",
+        "amountOut": "34573827627030684815241016",
+        "currencyIn": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+        "poolKey": {
+          "currency0": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+          "currency1": "0xaDfDb816Cb812EA56A9E586c7a58D9178C5C0994",
+          "fee": 8388608,
+          "tickSpacing": 10,
+          "hooks": "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544"
+        },
+        "slippageBps": 100,
+        "quotedAt": 1791203934229,
+        "expiresAt": 1791203994229
+      },
+      "hash": "0x8451a833bf5987ec8bfcd7e0a2f28ceba68e66ed1b68fca1b6fc25eb10ce8e3b",
+      "estimatedGas": "581629",
+      "gasLimit": "922443",
+      "gasUsed": "526410",
+      "amountIn": "94110622342843003533",
+      "amountOut": "34573852049332749968883954",
+      "quotedOut": "34573852049332749968883954",
+      "minOut": "34228113528839422469195114",
+      "after": {
+        "sqrtPriceX96": "40696500372975770589353743207495",
+        "tick": 124837,
+        "liquidity": "213962648673120182258910",
+        "lpFee": 500
+      }
+    },
+    {
+      "index": 11,
+      "tail": false,
+      "canonicalTarget": -117980,
+      "targetTick": 117980,
+      "before": {
+        "sqrtPriceX96": "40696500372975770589353743207495",
+        "tick": 124837,
+        "liquidity": "213962648673120182258910",
+        "lpFee": 500
+      },
+      "effectiveLiquidity": "213962648673120182258910",
+      "desiredOut": "31901183526038923628938506",
+      "targetQuote": {
+        "token": "0xaDfDb816Cb812EA56A9E586c7a58D9178C5C0994",
+        "side": "buy",
+        "amountIn": "175604819694173348528",
+        "amountOut": "32256926474359671251328531",
+        "currencyIn": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+        "poolKey": {
+          "currency0": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+          "currency1": "0xaDfDb816Cb812EA56A9E586c7a58D9178C5C0994",
+          "fee": 8388608,
+          "tickSpacing": 10,
+          "hooks": "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544"
+        },
+        "slippageBps": 100,
+        "quotedAt": 1791203934496,
+        "expiresAt": 1791203994496
+      },
+      "hash": "0xed7941596bb865926ed79b1ea8ef8cfc69332d5fbfb59ef6eaa94d4eb15abffc",
+      "estimatedGas": "577120",
+      "gasLimit": "915680",
+      "gasUsed": "522040",
+      "amountIn": "175604995298993042801",
+      "amountOut": "32256949264402005796310911",
+      "quotedOut": "32256949264402005796310911",
+      "minOut": "31934379771757985738347801",
+      "after": {
+        "sqrtPriceX96": "28779576856996146205278510004169",
+        "tick": 117907,
+        "liquidity": "282890198498733676424583",
+        "lpFee": 500
+      }
+    },
+    {
+      "index": 12,
+      "tail": false,
+      "canonicalTarget": -111050,
+      "targetTick": 111050,
+      "before": {
+        "sqrtPriceX96": "28779576856996146205278510004169",
+        "tick": 117907,
+        "liquidity": "282890198498733676424583",
+        "lpFee": 500
+      },
+      "effectiveLiquidity": "282890198498733676424583",
+      "desiredOut": "29827788104928628022096569",
+      "targetQuote": {
+        "token": "0xaDfDb816Cb812EA56A9E586c7a58D9178C5C0994",
+        "side": "buy",
+        "amountIn": "328321149490532513260",
+        "amountOut": "30160395131533288565259692",
+        "currencyIn": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+        "poolKey": {
+          "currency0": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+          "currency1": "0xaDfDb816Cb812EA56A9E586c7a58D9178C5C0994",
+          "fee": 8388608,
+          "tickSpacing": 10,
+          "hooks": "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544"
+        },
+        "slippageBps": 100,
+        "quotedAt": 1791203934886,
+        "expiresAt": 1791203994886
+      },
+      "hash": "0x06fc956949aab4fc31325dd1d9b776b8c3b05f0d1e46e4149f8ac61894894379",
+      "estimatedGas": "582714",
+      "gasLimit": "924071",
+      "gasUsed": "527461",
+      "amountIn": "328321477811682003892",
+      "amountOut": "30160416439502678688005980",
+      "quotedOut": "30160416439502678688005980",
+      "minOut": "29858812275107651901125920",
+      "after": {
+        "sqrtPriceX96": "20351901000430169263291754071989",
+        "tick": 110977,
+        "liquidity": "373088318142722770119845",
+        "lpFee": 500
+      }
+    },
+    {
+      "index": 13,
+      "tail": false,
+      "canonicalTarget": -104110,
+      "targetTick": 104110,
+      "before": {
+        "sqrtPriceX96": "20351901000430169263291754071989",
+        "tick": 110977,
+        "liquidity": "373088318142722770119845",
+        "lpFee": 500
+      },
+      "effectiveLiquidity": "373088318142722770119845",
+      "desiredOut": "27851994422801869559274641",
+      "targetQuote": {
+        "token": "0xaDfDb816Cb812EA56A9E586c7a58D9178C5C0994",
+        "side": "buy",
+        "amountIn": "613346912597606611480",
+        "amountOut": "28162297031408103903038024",
+        "currencyIn": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+        "poolKey": {
+          "currency0": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+          "currency1": "0xaDfDb816Cb812EA56A9E586c7a58D9178C5C0994",
+          "fee": 8388608,
+          "tickSpacing": 10,
+          "hooks": "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544"
+        },
+        "slippageBps": 100,
+        "quotedAt": 1791203935281,
+        "expiresAt": 1791203995281
+      },
+      "hash": "0xc0afc502fb0a321cd285e2924325417361ce74cb2143e8c56d531fc3324e4192",
+      "estimatedGas": "582990",
+      "gasLimit": "924485",
+      "gasUsed": "527729",
+      "amountIn": "613347525944519209186",
+      "amountOut": "28162316919294822500266485",
+      "quotedOut": "28162316919294822500266485",
+      "minOut": "27880693750101874275263820",
+      "after": {
+        "sqrtPriceX96": "14385322592803443534221812402466",
+        "tick": 104037,
+        "liquidity": "494746863188523839022023",
+        "lpFee": 500
+      }
+    },
+    {
+      "index": 14,
+      "tail": false,
+      "canonicalTarget": -97180,
+      "targetTick": 97180,
+      "before": {
+        "sqrtPriceX96": "14385322592803443534221812402466",
+        "tick": 104037,
+        "liquidity": "494746863188523839022023",
+        "lpFee": 500
+      },
+      "effectiveLiquidity": "494746863188523839022023",
+      "desiredOut": "26075318988895921744203087",
+      "targetQuote": {
+        "token": "0xaDfDb816Cb812EA56A9E586c7a58D9178C5C0994",
+        "side": "buy",
+        "amountIn": "1148789359330865983311",
+        "amountOut": "26366074962301864890554650",
+        "currencyIn": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+        "poolKey": {
+          "currency0": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+          "currency1": "0xaDfDb816Cb812EA56A9E586c7a58D9178C5C0994",
+          "fee": 8388608,
+          "tickSpacing": 10,
+          "hooks": "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544"
+        },
+        "slippageBps": 100,
+        "quotedAt": 1791203935664,
+        "expiresAt": 1791203995664
+      },
+      "hash": "0x5af3e08505e9a8334b01693f917d745656e5a2be67a19a2c24a0325fc82b7fb3",
+      "estimatedGas": "583222",
+      "gasLimit": "924833",
+      "gasUsed": "527953",
+      "amountIn": "1148790508120225314276",
+      "amountOut": "26366093589264293293497811",
+      "quotedOut": "26366093589264293293497811",
+      "minOut": "26102432653371650360562832",
+      "after": {
+        "sqrtPriceX96": "10172680570831875703928616940838",
+        "tick": 97107,
+        "liquidity": "651913153700258422196436",
+        "lpFee": 500
+      }
+    },
+    {
+      "index": 15,
+      "tail": false,
+      "canonicalTarget": -90250,
+      "targetTick": 90250,
+      "before": {
+        "sqrtPriceX96": "10172680570831875703928616940838",
+        "tick": 97107,
+        "liquidity": "651913153700258422196436",
+        "lpFee": 500
+      },
+      "effectiveLiquidity": "651913153700258422196436",
+      "desiredOut": "24295782686763768701170027",
+      "targetQuote": {
+        "token": "0xaDfDb816Cb812EA56A9E586c7a58D9178C5C0994",
+        "side": "buy",
+        "amountIn": "2140431732295034253481",
+        "amountOut": "24566717616876761729953902",
+        "currencyIn": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+        "poolKey": {
+          "currency0": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+          "currency1": "0xaDfDb816Cb812EA56A9E586c7a58D9178C5C0994",
+          "fee": 8388608,
+          "tickSpacing": 10,
+          "hooks": "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544"
+        },
+        "slippageBps": 100,
+        "quotedAt": 1791203936243,
+        "expiresAt": 1791203996243
+      },
+      "hash": "0x84d505532e69f890f09589f64db1a0b3dd61ed6a1f8e421fc7a291ab2a8e968b",
+      "estimatedGas": "573937",
+      "gasLimit": "910905",
+      "gasUsed": "518956",
+      "amountIn": "2140433872726766548615",
+      "amountOut": "24566734973755084996654066",
+      "quotedOut": "24566734973755084996654066",
+      "minOut": "24321067624017534146687525",
+      "after": {
+        "sqrtPriceX96": "7193913027570743556789917521558",
+        "tick": 90177,
+        "liquidity": "861902195866227549049012",
+        "lpFee": 500
+      }
+    },
+    {
+      "index": 16,
+      "tail": false,
+      "canonicalTarget": -83320,
+      "targetTick": 83320,
+      "before": {
+        "sqrtPriceX96": "7193913027570743556789917521558",
+        "tick": 90177,
+        "liquidity": "861902195866227549049012",
+        "lpFee": 500
+      },
+      "effectiveLiquidity": "861902195866227549049012",
+      "desiredOut": "22716522400404640392241137",
+      "targetQuote": {
+        "token": "0xaDfDb816Cb812EA56A9E586c7a58D9178C5C0994",
+        "side": "buy",
+        "amountIn": "4001824813135562857315",
+        "amountOut": "22969824787775690079848654",
+        "currencyIn": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+        "poolKey": {
+          "currency0": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+          "currency1": "0xaDfDb816Cb812EA56A9E586c7a58D9178C5C0994",
+          "fee": 8388608,
+          "tickSpacing": 10,
+          "hooks": "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544"
+        },
+        "slippageBps": 100,
+        "quotedAt": 1791203936649,
+        "expiresAt": 1791203996649
+      },
+      "hash": "0x17925a6ef406d682f6c20e36b11131132fefa124991a24824ebb745abc2bf61b",
+      "estimatedGas": "581739",
+      "gasLimit": "922608",
+      "gasUsed": "526516",
+      "amountIn": "4001828814960375992977",
+      "amountOut": "22969841015185195807967329",
+      "quotedOut": "22969841015185195807967329",
+      "minOut": "22740142605033343849887655",
+      "after": {
+        "sqrtPriceX96": "5087238282176765287114352477982",
+        "tick": 83247,
+        "liquidity": "1134016670285583888781229",
+        "lpFee": 500
+      }
+    },
+    {
+      "index": 17,
+      "tail": false,
+      "canonicalTarget": -76390,
+      "targetTick": 76390,
+      "before": {
+        "sqrtPriceX96": "5087238282176765287114352477982",
+        "tick": 83247,
+        "liquidity": "1134016670285583888781229",
+        "lpFee": 500
+      },
+      "effectiveLiquidity": "1134016670285583888781229",
+      "desiredOut": "21134970246580641829138371",
+      "targetQuote": {
+        "token": "0xaDfDb816Cb812EA56A9E586c7a58D9178C5C0994",
+        "side": "buy",
+        "amountIn": "7445201965784141981826",
+        "amountOut": "21366916921030175897765579",
+        "currencyIn": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+        "poolKey": {
+          "currency0": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+          "currency1": "0xaDfDb816Cb812EA56A9E586c7a58D9178C5C0994",
+          "fee": 8388608,
+          "tickSpacing": 10,
+          "hooks": "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544"
+        },
+        "slippageBps": 100,
+        "quotedAt": 1791203937089,
+        "expiresAt": 1791203997089
+      },
+      "hash": "0xa50a641857af870b2ba7e57cdfd28069fb71746cc247fe91d06211957db2abbe",
+      "estimatedGas": "582515",
+      "gasLimit": "923772",
+      "gasUsed": "527269",
+      "amountIn": "7445209410986107766067",
+      "amountOut": "21366931768136592990533110",
+      "quotedOut": "21366931768136592990533110",
+      "minOut": "21153262450455227060627778",
+      "after": {
+        "sqrtPriceX96": "3581413149894717226947554091096",
+        "tick": 76227,
+        "liquidity": "658288722390488922230479",
+        "lpFee": 500
+      }
+    },
+    {
+      "index": 18,
+      "tail": true,
+      "canonicalTarget": -69450,
+      "targetTick": 69450,
+      "before": {
+        "sqrtPriceX96": "3581413149894717226947554091096",
+        "tick": 76227,
+        "liquidity": "658288722390488922230479",
+        "lpFee": 500
+      },
+      "effectiveLiquidity": "658288722390488922230479",
+      "desiredOut": "8552616862083609404105926",
+      "targetQuote": {
+        "token": "0xaDfDb816Cb812EA56A9E586c7a58D9178C5C0994",
+        "side": "buy",
+        "amountIn": "6054721429516557934743",
+        "amountOut": "8648346323205107656640419",
+        "currencyIn": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+        "poolKey": {
+          "currency0": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+          "currency1": "0xaDfDb816Cb812EA56A9E586c7a58D9178C5C0994",
+          "fee": 8388608,
+          "tickSpacing": 10,
+          "hooks": "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544"
+        },
+        "slippageBps": 100,
+        "quotedAt": 1791203937537,
+        "expiresAt": 1791203997537
+      },
+      "hash": "0x3c9db2febf173239924edefd69d4cb71949341b63229cb459fe8eac22fc9f509",
+      "estimatedGas": "521246",
+      "gasLimit": "831869",
+      "gasUsed": "467900",
+      "amountIn": "6054727484237987451400",
+      "amountOut": "8648352432684128860546826",
+      "quotedOut": "8648352432684128860546826",
+      "minOut": "8561868908357287571941357",
+      "after": {
+        "sqrtPriceX96": "2540012327809430579945696610733",
+        "tick": 69355,
+        "liquidity": "658288722390488922230479",
+        "lpFee": 500
+      }
+    },
+    {
+      "reverse": true,
+      "capital": {
+        "kind": "real_WETH_deposit_on_local_fork",
+        "hash": "0x93e24ff20fa3c17599f30b8b1417b659dacc08db7887ebaebca9c988ff8d53bd",
+        "amount": "100000000000000000000000"
+      },
+      "opening": {
+        "sqrtPriceX96": "1848396300359791648570360477870294",
+        "tick": 201160,
+        "liquidity": "0",
+        "lpFee": 500
+      },
+      "atTail": {
+        "sqrtPriceX96": "2540012327809430579945696610733",
+        "tick": 69355,
+        "liquidity": "658288722390488922230479",
+        "lpFee": 500
+      },
+      "crossedMainBoundaries": 18,
+      "hash": "0x03326eb2d1ed369762ba35989ec781d0c4ac28ae71abdbbe6c4bd114abecd481",
+      "estimatedGas": "1033008",
+      "gasLimit": "1599512",
+      "gasUsed": "976095",
+      "amountIn": "978396783083976168192096401",
+      "amountOut": "21570533015322038121681",
+      "quotedOut": "21570533015322038121681",
+      "minOut": "21354827685168817740464",
+      "after": {
+        "sqrtPriceX96": "1845809041822451736727072301222776",
+        "tick": 201131,
+        "liquidity": "30255963623630619536710",
+        "lpFee": 500
+      }
+    }
+  ]
+}

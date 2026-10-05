@@ -1,0 +1,56 @@
+{
+  "observedAt": "2026-10-05T12:32:42.175Z",
+  "chainId": 31337,
+  "curvePolicy": "multicurve-97-3-v1",
+  "scope": "Actual local API, official contracts on isolated fork and local unlocked Anvil test account; no real user wallet, mainnet transaction or publication.",
+  "guard": "0xf99add941432ec09b498ea1b680be13f2e717d88",
+  "checks": [
+    {
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "status": "passed",
+      "token": "0x10f53A231b324573609028F929a4028591612AEe",
+      "poolId": "0xc755307ff74bb6625f3338c255dfda9c370ea7975e4656b7d133627d7aa4f76e",
+      "screenshot": "docs/evidence/launch-curve-fork-desktop-review.png",
+      "approvalHash": "0xc86ef3b7810a63814c4e7f5d23970e488e94ead5c378e044faa2e989ee434ea3",
+      "launchHash": "0xbf985d1bb11876eea1d81de720a79fe462632dafd4e7b80e39c0ae16bfa4aa5f",
+      "blockNumber": "80783082",
+      "amountIn": "100000000000000",
+      "expectedAmountOut": "54370476689502852856885",
+      "minAmountOut": "53826771922607824328316",
+      "actualAmountOut": "54370476689502852856885",
+      "gasUsed": "5838749",
+      "guardAllowanceAfter": "0",
+      "reloadRegisteredToken": true
+    },
+    {
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "status": "passed",
+      "token": "0x0A8E71de0F0c6C21545B8Efa8913F34fde707ACb",
+      "poolId": "0x9064a0ed7c20cf6631b57a5d4ec6e40e6373832e67cc2712aff256ef7db5d5aa",
+      "screenshot": "docs/evidence/launch-curve-fork-mobile-review.png",
+      "approvalHash": "0x282d3ad608a467db0bf49ec31fff42ee7e3f1a305418f1eaadcafb4b86660c71",
+      "launchHash": "0xa479f218209585e7024adbb1331cffc0b356f35a31ab19eef452c3f7684f4952",
+      "blockNumber": "80783089",
+      "amountIn": "100000000000000",
+      "expectedAmountOut": "54370476689502852856817",
+      "minAmountOut": "53826771922607824328248",
+      "actualAmountOut": "54370476689502852856817",
+      "gasUsed": "5824003",
+      "guardAllowanceAfter": "0",
+      "reloadRegisteredToken": true
+    }
+  ],
+  "productionPublication": "not_run",
+  "assetVerification": {
+    "source": "actual /api/stocks, warmed before browser navigation",
+    "count": 198,
+    "verified": 198,
+    "elapsedMs": 72234
+  }
+}

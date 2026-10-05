@@ -1,5 +1,6 @@
 import { validTreasury } from "../src/lib/validation";
 import { networkName, type RuntimeConfig } from "../src/lib/config";
+import { CURVE_POLICY } from "../src/lib/launch-curve";
 export function loadEnvironment() {
   try { process.loadEnvFile(".env"); }
   catch (e) {
@@ -33,7 +34,7 @@ export function runtimeFromEnv(): { config: RuntimeConfig; rpcUrl: string; dataD
   if (mode !== "fork" && mainnetFlag === "true" && !treasury) throw new Error("Mainnet signing requires a valid PLATFORM_TREASURY");
   const writesEnabled = !!treasury && (mode === "fork" || mainnetFlag === "true");
   return {
-    config: { mode, deploymentChainId, chainId: mode === "fork" ? 31337 : deploymentChainId, treasury, writesEnabled,
+    config: { mode, deploymentChainId, chainId: mode === "fork" ? 31337 : deploymentChainId, treasury, writesEnabled, curvePolicy: CURVE_POLICY, launchGuard: null,
       blockReason: !treasury ? "The platform treasury is not configured. Browsing and drafts are available."
         : !writesEnabled ? "Mainnet is read-only. Connect a wallet to query balances and simulate issuance." : null },
     rpcUrl, dataDir: process.env.DATA_DIR || `.data/${mode}${mode === "fork" ? `-${deploymentChainId}` : ""}`,

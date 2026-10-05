@@ -1,13 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { airlockAbi, computePoolId } from "@whetstone-research/doppler-sdk/evm";
-import { encodeAbiParameters, encodeEventTopics, type Hex } from "viem";
+import { airlockAbi, computePoolId, DopplerSDK } from "@whetstone-research/doppler-sdk/evm";
+import { createPublicClient, http, encodeFunctionData, keccak256, encodeAbiParameters, encodeEventTopics, type Hex } from "viem";
 import { LaunchpadService } from "../server/service";
 import type { LaunchPlan } from "../server/store";
 import { CONTRACTS, STOCKS, ROBINHOOD_STOCKS, SUPPLY, type TokenRecord } from "../src/lib/config";
 import { allocateFeeIncome, FEE_POLICIES, FEE_POLICY, feePolicyFor } from "../src/lib/fee-policy";
 import { LAUNCH_PRICE_TTL } from "../src/lib/opening-valuation";
 import { syntheticOpeningValuation } from "./fixtures";
+import { buildLaunch } from "../src/lib/protocol";
+import { CURVE_POLICY } from "../src/lib/launch-curve";
+import { serializePrepared } from "../src/lib/launch-plan";
 
 const creator = "0x1111111111111111111111111111111111111111";
 const treasury = "0x2222222222222222222222222222222222222222";
@@ -24,7 +27,7 @@ const poolKey = {
 } as const;
 
 function planFixture(): LaunchPlan {
-  return {
+  const plan: LaunchPlan = {
     id: `0x${"c".repeat(64)}`,
     creator,
     data: "0x1234",
@@ -43,7 +46,20 @@ function planFixture(): LaunchPlan {
     feePolicy: FEE_POLICY,
     feeTreasury: treasury,
     openingValuation: syntheticOpeningValuation(),
+    curvePolicy: CURVE_POLICY,
   };
+  freeze(plan);
+  return plan;
+}
+function freeze(plan: LaunchPlan) {
+  const sdk = new DopplerSDK<8453 | 4663>({ publicClient: createPublicClient({ transport: http("http://127.0.0.1:1") }), chainId: 8453 });
+  const params = sdk.factory.encodeCreateMulticurveParams(buildLaunch(sdk, (({ openingCap, ...draft }) => draft)(plan.draft), creator, treasury, creator, plan.openingValuation!, undefined, plan.openingValuation!.chainId));
+  const data = encodeFunctionData({ abi: airlockAbi, functionName: "create", args: [params] });
+  plan.data = data; plan.id = keccak256(data);
+  plan.transaction = { to: CONTRACTS.airlock, data, value: "0" };
+  plan.prepared = serializePrepared({ chainId: 8453, account: creator, airlock: CONTRACTS.airlock, createParams: params,
+    prediction: { tokenAddress: asset, poolOrHookAddress: CONTRACTS.initializer, governanceAddress: creator, timelockAddress: creator, poolKey, poolId: plan.poolId, tokenIsCurrency0: false },
+    transaction: { ...plan.transaction, value: 0n }, gasEstimate: { status: "unavailable" } });
 }
 
 function validationService(plan: LaunchPlan | null, configuredTreasury: string | null = treasury) {
@@ -59,14 +75,14 @@ function validationService(plan: LaunchPlan | null, configuredTreasury: string |
 test("launch signing validates the exact creator, calldata and current fee policy", async () => {
   const plan = planFixture();
   const service = validationService(plan);
-  assert.deepEqual(await service.validateLaunch(creator, plan.data), { valid: true, feePolicy: FEE_POLICY });
-  await assert.rejects(() => service.validateLaunch(treasury, plan.data), /fee policy has changed/);
-  await assert.rejects(() => service.validateLaunch(creator, "0x5678"), /fee policy has changed/);
+  assert.deepEqual(await service.validateLaunch(creator, plan.data), { valid: true, feePolicy: FEE_POLICY, curvePolicy: CURVE_POLICY });
+  await assert.rejects(() => service.validateLaunch(treasury, plan.data), /curve policy has changed/);
+  await assert.rejects(() => service.validateLaunch(creator, "0x5678"), /curve policy has changed/);
   plan.feePolicy = "musegod-80-v1";
   await assert.rejects(() => service.validateLaunch(creator, plan.data), /fee policy has changed/);
   delete plan.feePolicy;
   await assert.rejects(() => service.validateLaunch(creator, plan.data), /fee policy has changed/);
-  await assert.rejects(() => validationService(null).validateLaunch(creator, plan.data), /fee policy has changed/);
+  await assert.rejects(() => validationService(null).validateLaunch(creator, plan.data), /curve policy has changed/);
 });
 
 test("launch signing rejects changed or absent treasury and expired previews", async () => {
@@ -95,7 +111,7 @@ test("previous issuance previews cannot sign a removed pair or a different deplo
   }
   plan.draft.quoteAddress = ROBINHOOD_STOCKS.find((asset) => asset.symbol === "MUSEGOD")!.address;
   plan.openingValuation = syntheticOpeningValuation(plan.draft.quoteAddress, "0.000005", { chainId: 4663 });
-  assert.deepEqual(await service.validateLaunch(creator, plan.data), { valid: true, feePolicy: FEE_POLICY });
+  await assert.rejects(() => service.validateLaunch(creator, plan.data), /parameters changed/);
 });
 
 test("launch signing rejects old unsigned previews, changed quote evidence and price expiry", async () => {
@@ -119,6 +135,7 @@ for (const [legacyPolicy, usdSnapshot] of [
 ] as const)
 test(`already broadcast ${legacyPolicy ?? "unmarked"}${usdSnapshot ? " fixed USD" : ""} launches retain their original valuation`, async () => {
   const plan = planFixture();
+  delete plan.curvePolicy; delete plan.prepared; delete plan.transaction;
   plan.feePolicy = legacyPolicy;
   delete plan.openingValuation;
   if (!legacyPolicy) delete plan.feeTreasury;
@@ -137,7 +154,7 @@ test(`already broadcast ${legacyPolicy ?? "unmarked"}${usdSnapshot ? " fixed USD
     runtime: { config: { mode: "base", chainId: 8453, treasury: otherTreasury, writesEnabled: false } },
     assertNetwork: async () => {},
     client: {
-      getTransaction: async () => ({ to: CONTRACTS.airlock, from: creator, input: plan.data }),
+      getTransaction: async () => ({ to: CONTRACTS.airlock, from: creator, input: plan.data, value: 0n }),
       getTransactionReceipt: async () => ({
         status: "success", from: creator, to: CONTRACTS.airlock,
         blockNumber: 10n, blockHash,
@@ -161,7 +178,7 @@ test(`already broadcast ${legacyPolicy ?? "unmarked"}${usdSnapshot ? " fixed USD
       launchStatus: async (...args: unknown[]) => statuses.push(args),
     },
   }) as LaunchpadService;
-  await assert.rejects(() => service.validateLaunch(creator, plan.data), /fee policy has changed|preview expired/);
+  await assert.rejects(() => service.validateLaunch(creator, plan.data), /curve policy has changed|fee policy has changed|preview expired/);
   await service.trackLaunch(hash, plan.id);
   await service.reconcile();
   assert.equal(tracked.length, 2);

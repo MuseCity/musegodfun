@@ -1,0 +1,29 @@
+{
+  "chainId": 4663,
+  "blockNumber": "80761243",
+  "blockHash": "0x17794cd537022b0d6bd86fcc12ec17ee9004d8b2c522093531f5f0de315dc195",
+  "blockTimestamp": "1791200845",
+  "dependencies": [
+    {
+      "name": "bundler",
+      "address": "0xf45588E8e0B1df9dB9ae7E20eCE5726AE931357c",
+      "runtimeBytes": 6953,
+      "runtimeHash": "0x8d7c135bd087b74d2f2d1362593f23b824d5752bebe6a3c8bc6db0a6fa75e066"
+    },
+    {
+      "name": "airlock",
+      "address": "0xeb7C034704eF8Dcd2D32324c1545f62fB4aD0862",
+      "runtimeBytes": 5695,
+      "runtimeHash": "0x86b37100cbe9841771c452a592985b4e921254b127a380246073b84ec953f7f8"
+    },
+    {
+      "name": "poolManager",
+      "address": "0x8366a39CC670B4001A1121B8F6A443A643e40951",
+      "runtimeBytes": 24009,
+      "runtimeHash": "0xbd3881180b547f5fe817545743cfb4343e96b1bc6640dcd70c106b0066e95626"
+    }
+  ],
+  "compilerInputSha256": "e2f63905883be445d2c8fe0ebea913fedf8046d85aa30e290aab8e638af98ff6",
+  "productionDeployment": "not_run",
+  "localDeployment": "not_run"
+}

@@ -8,6 +8,9 @@ import {
   feeClaimsInitializerAbi,
   feesManagerAbi,
   tickToMarketCap,
+  airlockAbi,
+  computePoolId,
+  DYNAMIC_FEE_FLAG,
 } from "@whetstone-research/doppler-sdk/evm";
 import {
   createPublicClient,
@@ -27,6 +30,7 @@ import {
   DEAD,
   STOCKS,
   ROBINHOOD_STOCKS,
+  ROBINHOOD_CONTRACTS,
   SUPPLY,
   WAD,
   poolCurrency,
@@ -35,6 +39,7 @@ import {
   listedTokens,
 } from "../src/lib/config";
 import { FEE_POLICY, FEE_SHARES, MUSEGOD_BUYBACK } from "../src/lib/fee-policy";
+import { CURVE_POLICY } from "../src/lib/launch-curve";
 import { OPENING_CAP_USD, OPENING_POLICY, LAUNCH_PRICE_TTL, assertOpeningValuation, openingCapInQuote } from "../src/lib/opening-valuation";
 import {
   beneficiaries,
@@ -110,7 +115,7 @@ test("quote-unit opening valuation uses integer precision without the retired 1 
   assert.throws(() => openingCapInQuote(syntheticOpeningValuation(STOCKS[0].address, "0")), /USD price/);
 });
 
-test("6, 8 and 18 decimal pairs encode a $5,000 opening and $50,000 curve boundary", () => {
+test("6, 8 and 18 decimal pairs encode a $5,000 opening and contiguous doubling ranges", () => {
   const robinhoodSdk = new DopplerSDK<4663>({
     publicClient: createPublicClient({ chain: { ...base, id: 4663 }, transport: http() }),
     chainId: 4663,
@@ -124,21 +129,23 @@ test("6, 8 and 18 decimal pairs encode a $5,000 opening and $50,000 curve bounda
     const valuation = syntheticOpeningValuation(stock.address, quotePriceUsd, { chainId: 4663 });
     const params = buildLaunch(robinhoodSdk, { ...draft, quoteAddress: stock.address }, creator, treasury, owner, valuation, undefined, 4663);
     const openingTick = params.pool.curves[0].tickLower;
-    const tenfoldTick = params.pool.curves[0].tickUpper;
+    const doubledTick = params.pool.curves[0].tickUpper;
     const capAt = (tick: number) => tickToMarketCap({
       tick, tokenIsToken0: true, tokenSupply: SUPPLY,
       numerairePriceUSD: Number(quotePriceUsd), tokenDecimals: 18, numeraireDecimals: stock.decimals,
     });
     assert(capAt(openingTick) >= OPENING_CAP_USD);
     assert(capAt(openingTick) < OPENING_CAP_USD * 1.0001 ** 10);
-    assert(capAt(tenfoldTick) >= OPENING_CAP_USD * 10);
-    assert(capAt(tenfoldTick) < OPENING_CAP_USD * 10 * 1.0001 ** 10);
-    assert.equal(params.pool.curves[1].tickLower, tenfoldTick);
+    assert(capAt(doubledTick) >= OPENING_CAP_USD * 2);
+    assert(capAt(doubledTick) < OPENING_CAP_USD * 2 * 1.0001 ** 10);
+    assert.equal(params.pool.curves[1].tickLower, doubledTick);
+    assert.equal(params.pool.curves.length, 19);
+    assert(params.pool.curves.every((curve) => curve.numPositions === 1));
     assert(openingTick % 10 === 0);
     const encoded = robinhoodSdk.factory.encodeCreateMulticurveParams(params);
     const [pool] = decodeAbiParameters(parseAbiParameters("(uint24 fee, int24 tickSpacing, int24 farTick, (int24 tickLower, int24 tickUpper, uint16 numPositions, uint256 shares)[] curves, (address beneficiary, uint96 shares)[] beneficiaries, address dopplerHook, bytes onInitializationDopplerHookCalldata, bytes graduationDopplerHookCalldata)"), encoded.poolInitializerData);
     assert(pool.curves[0].tickLower === openingTick);
-    assert(pool.curves[0].tickUpper === tenfoldTick);
+    assert(pool.curves[0].tickUpper === doubledTick);
     assert.throws(() => buildLaunch(robinhoodSdk, { ...draft, quoteAddress: stock.address }, creator, treasury, owner,
       { ...valuation, quoteAddress: STOCKS[0].address }, undefined, 4663), /does not match/);
   }
@@ -155,6 +162,24 @@ test("service preparation derives the cap and consumes price validity during sim
     chainId: 4663,
   });
   context.mock.method(robinhoodSdk, "getAirlockOwner", async () => owner);
+  context.mock.method(robinhoodSdk.factory, "prepareCreateMulticurve", async (params: Parameters<typeof robinhoodSdk.factory.prepareCreateMulticurve>[0]) => {
+    now += simulationTime;
+    const createParams = robinhoodSdk.factory.encodeCreateMulticurveParams(params);
+    const poolKey = {
+      currency0: creator, currency1: stock.address, fee: DYNAMIC_FEE_FLAG,
+      tickSpacing: 10, hooks: ROBINHOOD_CONTRACTS.initializer,
+    };
+    return {
+      chainId: 4663, account: creator, airlock: ROBINHOOD_CONTRACTS.airlock, createParams,
+      prediction: {
+        tokenAddress: creator, poolOrHookAddress: creator, governanceAddress: zeroAddress,
+        timelockAddress: zeroAddress, poolKey, poolId: computePoolId(poolKey), tokenIsCurrency0: true,
+      },
+      transaction: { to: ROBINHOOD_CONTRACTS.airlock,
+        data: encodeFunctionData({ abi: airlockAbi, functionName: "create", args: [createParams] }), value: 0n },
+      gasEstimate: { status: "estimated", gas: 1_000_000n },
+    };
+  });
   const service = Object.assign(Object.create(LaunchpadService.prototype), {
     runtime: { config: { mode: "robinhood", chainId: 4663, treasury, writesEnabled: true } },
     assertNetwork: async () => {},
@@ -168,24 +193,19 @@ test("service preparation derives the cap and consumes price validity during sim
         if (functionName === "latestRoundData") return [1n, 3000_00000000n, 1n, BigInt(now / 1000), 1n];
         throw new Error(`Unexpected fixture read: ${functionName}`);
       },
-      simulateContract: async () => {
-        now += simulationTime;
-        return { result: [creator] };
-      },
-      estimateGas: async () => 1000000n,
     },
     store: { savePlan: async (plan: LaunchPlan) => saved.push(plan) },
   }) as LaunchpadService;
   const input = { ...draft, quoteAddress: stock.address };
-  const plan = await service.prepare(input, creator);
+  const plan = await service.prepare(input, creator, CURVE_POLICY);
   assert.equal(plan.draft.openingCap, "1.666666666666666666");
   assert.equal(plan.openingValuation?.quotePriceUsd, "3000");
   assert.equal(plan.openingValuation?.marketCapUsd, OPENING_CAP_USD);
   assert.equal(plan.openingValuation?.expiresAt, now + LAUNCH_PRICE_TTL);
-  await assert.rejects(() => service.prepare({ ...input, openingCap: "5000" }, creator));
+  await assert.rejects(() => service.prepare({ ...input, openingCap: "5000" }, creator, CURVE_POLICY));
   assert.equal(saved.length, 1);
   simulationTime = LAUNCH_PRICE_TTL;
-  await assert.rejects(() => service.prepare(input, creator), /price expired/);
+  await assert.rejects(() => service.prepare(input, creator, CURVE_POLICY), /price expired/);
   assert.equal(saved.length, 1, "An expired quote must not become a saved signing preview");
 });
 

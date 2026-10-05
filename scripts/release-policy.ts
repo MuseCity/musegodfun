@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { BuildInfo } from "../src/lib/build-info";
+import { CURVE_POLICY } from "../src/lib/launch-curve";
 
 export function assertReleaseCheckout(expected: string, actual: string, status: string): void {
   if (!/^[a-f0-9]{40}$/.test(expected) || actual !== expected)
@@ -18,6 +19,17 @@ export function runtimeVarsFromBindings(bindings: { name: string; type: string; 
     actual[binding.name] = binding.text;
   }
   return actual;
+}
+
+export function assertLaunchRuntime(runtime: { curvePolicy?: string; launchGuard?: string | null },
+  vars: Record<string, string>, required = true): void {
+  const expectedGuard = vars.LAUNCH_GUARD_ADDRESS || null;
+  // Older rollback versions can predate the curve handshake and guard support.
+  if (!required && !expectedGuard) return;
+  if (runtime.curvePolicy !== CURVE_POLICY || (expectedGuard
+    ? runtime.launchGuard?.toLowerCase() !== expectedGuard.toLowerCase()
+    : runtime.launchGuard !== null))
+    throw new Error("Launch curve or verified guard runtime configuration does not match the release");
 }
 
 export function snapshotBuild(directory: string): Record<string, string> {
