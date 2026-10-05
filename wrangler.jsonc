@@ -39,6 +39,7 @@
     "SUPABASE_DATA_SCOPE": "robinhood",
     "PLATFORM_TREASURY": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
     "ENABLE_MAINNET_TRANSACTIONS": "true",
+    "LAUNCH_GUARD_ADDRESS": "0xfD919E60eB32AE9d02A89D6D9bAB94E2634cDE29",
     "SUPABASE_URL": "https://vrhzgmulcyqqzkkforsl.supabase.co",
     "NODE_ENV": "production"
   },

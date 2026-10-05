@@ -1,6 +1,12 @@
-# Launch guard deployment draft
+# Launch guard deployment
 
-Status: production deployment, real funds and public site publication are **not run**. This document is a manual review point, not deployment authorization.
+The guard was deployed on Robinhood Chain mainnet (4663) on 2026-10-05 after user authorization. Its entire runtime and immutable dependencies match the reviewed artifact, and Sourcify verified both creation and runtime as `exact_match`. Mainnet token launches, first buys and trades were not performed as part of this deployment.
+
+- Guard: [`0xfD919E60eB32AE9d02A89D6D9bAB94E2634cDE29`](https://robinhoodchain.blockscout.com/address/0xfD919E60eB32AE9d02A89D6D9bAB94E2634cDE29).
+- Deployment: [`0xf0f4556f507bdf7d322267d2398a5661b804320f14ec09fff5d1d8697f09890f`](https://robinhoodchain.blockscout.com/tx/0xf0f4556f507bdf7d322267d2398a5661b804320f14ec09fff5d1d8697f09890f), block `80859015`.
+- Gas used: `888931`; actual gas cost: `0.000018139525986 ETH`.
+- [Deployment and source verification evidence](evidence/launch-guard-mainnet.json). [Sourcify verification](https://sourcify.dev/server/v2/contract/4663/0xfD919E60eB32AE9d02A89D6D9bAB94E2634cDE29). The Blockscout verification mirror was blocked by its Cloudflare challenge and is not confirmed.
+- `wrangler.jsonc` configures this verified address. The [production deployment record](https://github.com/MuseCity/musegodfun/deployments) identifies the active website release; CI requires both domains to expose the same verified guard before reporting success.
 
 ## Pinned deployment input
 
@@ -21,7 +27,7 @@ The ABI mirrors the official [Doppler Bundler source](https://github.com/whetsto
 2. Run `npx tsx scripts/deploy-launch-guard.ts --output contracts/artifacts/dependency-verification.json` for block-pinned, read-only Robinhood verification. This path performs no signing.
 3. Run the application's isolated fork tests. To deploy only on an existing local fork, run `npx tsx scripts/deploy-launch-guard.ts --rpc http://127.0.0.1:8547 --deploy-local --output contracts/artifacts/local-deployment.json`. The script rejects non-loopback URLs and every chain except 31337 before its deployment call, requires Anvil node identity, and uses only the local node's unlocked account. It has no private-key or production broadcast mode.
 4. Inspect independent review and fork receipts. Confirm exact ERC20 sender/guard deltas, minimum output, deadline equality, recipient, no vesting, residual allowance zero and preserved guard donations.
-5. For any future manually approved production deployment, submit the reviewed creation bytecode with this one constructor argument, preserve the deployment transaction and compiler input, and verify the source before enabling first buys. A new address alone is insufficient.
+5. Any replacement production deployment requires its own authorization. Submit the reviewed creation bytecode with this one constructor argument, preserve the deployment transaction and compiler input, and verify the source before enabling first buys. A new address alone is insufficient. The completed deployment used a one-time local signer; no private key is part of the repository or Worker configuration.
 6. Compare the entire deployed runtime with the exported template after substituting the official Bundler address at every immutable reference; read `bundler()` and verify its runtime, `airlock()` and `poolManager()` again at one block. Record chain, block hash, address, runtime hash and constructor argument. Only then set `LAUNCH_GUARD_ADDRESS` and enable the guarded path. `/api/config` exposes this address only after a fresh verification succeeds.
 
 ## Behavior and limits
@@ -32,7 +38,7 @@ The guard does not enforce Musegod's curve version, module allowlist, creator sp
 
 ## Stop signing and rollback
 
-Before enabling first buys, retain this guard-aware build. Set `ENABLE_MAINNET_TRANSACTIONS=false` to disable new mainnet signing while preserving guarded transaction registration and pending recovery; removing `LAUNCH_GUARD_ADDRESS` additionally disables new first-buy previews. Stop signing if guard runtime or dependency identity differs, quotes expire, or receipt verification fails. Retain already-broadcast transaction hashes and frozen plans; do not generate a replacement salt while the outcome is unknown.
+The verified pre-enablement rollback baseline is commit `9966794190bdef2947924ee99cedd3e6d0a8805f`, Worker `ec948bde-ca0d-418a-949e-1b78a6c32ce3`; it supports guarded receipt recovery while leaving new first buys disabled. Set `ENABLE_MAINNET_TRANSACTIONS=false` to disable all new mainnet signing while preserving guarded transaction registration and pending recovery; removing `LAUNCH_GUARD_ADDRESS` disables new first-buy previews. Stop signing if guard runtime or dependency identity differs, quotes expire, or receipt verification fails. Retain already-broadcast transaction hashes and frozen plans; do not generate a replacement salt while the outcome is unknown.
 
 Do not revert the backend to an Airlock-only release after any guarded transaction has been broadcast. A stopped-signing build must continue to understand the guard's outer transaction, official `Bundled` event, `GuardedLaunch` event and old direct-Airlock recovery. Application rollback cannot change deployed pools, existing metadata or this guard's immutable dependency.
 
