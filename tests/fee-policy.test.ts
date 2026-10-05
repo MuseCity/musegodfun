@@ -6,6 +6,8 @@ import { LaunchpadService } from "../server/service";
 import type { LaunchPlan } from "../server/store";
 import { CONTRACTS, STOCKS, ROBINHOOD_STOCKS, SUPPLY, type TokenRecord } from "../src/lib/config";
 import { allocateFeeIncome, FEE_POLICIES, FEE_POLICY, feePolicyFor } from "../src/lib/fee-policy";
+import { LAUNCH_PRICE_TTL } from "../src/lib/opening-valuation";
+import { syntheticOpeningValuation } from "./fixtures";
 
 const creator = "0x1111111111111111111111111111111111111111";
 const treasury = "0x2222222222222222222222222222222222222222";
@@ -40,6 +42,7 @@ function planFixture(): LaunchPlan {
     gas: null,
     feePolicy: FEE_POLICY,
     feeTreasury: treasury,
+    openingValuation: syntheticOpeningValuation(),
   };
 }
 
@@ -91,15 +94,42 @@ test("previous issuance previews cannot sign a removed pair or a different deplo
     await assert.rejects(() => service.validateLaunch(creator, plan.data), /no longer supported/);
   }
   plan.draft.quoteAddress = ROBINHOOD_STOCKS.find((asset) => asset.symbol === "MUSEGOD")!.address;
+  plan.openingValuation = syntheticOpeningValuation(plan.draft.quoteAddress, "0.000005", { chainId: 4663 });
   assert.deepEqual(await service.validateLaunch(creator, plan.data), { valid: true, feePolicy: FEE_POLICY });
 });
 
-for (const legacyPolicy of [undefined, "musegod-80-v1"] as const)
-test(`already broadcast ${legacyPolicy ?? "unmarked"} launches recover without adopting v2`, async () => {
+test("launch signing rejects old unsigned previews, changed quote evidence and price expiry", async () => {
+  const plan = planFixture();
+  const service = validationService(plan);
+  delete plan.openingValuation;
+  await assert.rejects(() => service.validateLaunch(creator, plan.data), /market cap policy has changed/);
+  plan.openingValuation = syntheticOpeningValuation(STOCKS[1].address);
+  await assert.rejects(() => service.validateLaunch(creator, plan.data), /does not match/);
+  plan.openingValuation = syntheticOpeningValuation(STOCKS[0].address, "100", { chainId: 4663 });
+  await assert.rejects(() => service.validateLaunch(creator, plan.data), /does not match/);
+  const quotedAt = Date.now() - LAUNCH_PRICE_TTL;
+  plan.openingValuation = syntheticOpeningValuation(STOCKS[0].address, "100", {
+    quotedAt, expiresAt: quotedAt + LAUNCH_PRICE_TTL, sourceUpdatedAt: quotedAt,
+  });
+  await assert.rejects(() => service.validateLaunch(creator, plan.data), /price expired/);
+});
+
+for (const [legacyPolicy, usdSnapshot] of [
+  [undefined, false], ["musegod-80-v1", false], [FEE_POLICY, false], [FEE_POLICY, true],
+] as const)
+test(`already broadcast ${legacyPolicy ?? "unmarked"}${usdSnapshot ? " fixed USD" : ""} launches retain their original valuation`, async () => {
   const plan = planFixture();
   plan.feePolicy = legacyPolicy;
+  delete plan.openingValuation;
   if (!legacyPolicy) delete plan.feeTreasury;
   plan.preparedAt = Date.now() - 86_400_000;
+  if (usdSnapshot) {
+    plan.openingValuation = syntheticOpeningValuation(STOCKS[0].address, "100", {
+      quotedAt: plan.preparedAt, expiresAt: plan.preparedAt + LAUNCH_PRICE_TTL,
+      sourceUpdatedAt: plan.preparedAt,
+    });
+    plan.draft.openingCap = "50";
+  }
   const saved: TokenRecord[] = [];
   const tracked: unknown[][] = [];
   const statuses: unknown[][] = [];
@@ -131,7 +161,7 @@ test(`already broadcast ${legacyPolicy ?? "unmarked"} launches recover without a
       launchStatus: async (...args: unknown[]) => statuses.push(args),
     },
   }) as LaunchpadService;
-  await assert.rejects(() => service.validateLaunch(creator, plan.data), /fee policy has changed/);
+  await assert.rejects(() => service.validateLaunch(creator, plan.data), /fee policy has changed|preview expired/);
   await service.trackLaunch(hash, plan.id);
   await service.reconcile();
   assert.equal(tracked.length, 2);
@@ -139,6 +169,8 @@ test(`already broadcast ${legacyPolicy ?? "unmarked"} launches recover without a
   assert.equal(saved[0].address, asset);
   assert.equal(saved[0].feePolicy, legacyPolicy, "Recovery must preserve the original immutable fee policy");
   assert.equal(saved[0].feeTreasury, legacyPolicy ? treasury : undefined);
+  assert.equal(saved[0].openingCap, usdSnapshot ? "50" : "100", "Recovery preserves original paired-unit valuation");
+  assert.deepEqual(saved[0].openingValuation, plan.openingValuation, "Recovery preserves original USD evidence only when it exists");
   assert.deepEqual(statuses, [[hash, "confirmed", blockHash]]);
 });
 

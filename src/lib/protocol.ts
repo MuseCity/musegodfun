@@ -28,6 +28,12 @@ import {
 } from "./config";
 import { launchSchema, minimumOutput, type LaunchInput } from "./validation";
 import { FEE_POLICY, FEE_SHARES, MUSEGOD_BUYBACK } from "./fee-policy";
+import {
+  OPENING_CAP_USD,
+  assertOpeningValuation,
+  openingCapInQuote,
+  type OpeningValuation,
+} from "./opening-valuation";
 
 export const routerAbi = parseAbi([
   "function execute(bytes commands, bytes[] inputs, uint256 deadline) payable",
@@ -61,7 +67,8 @@ export function beneficiaries(entries: BeneficiaryData[]): BeneficiaryData[] {
     throw new Error("Fee shares must total 100%");
   return result;
 }
-export function tokenMetadata(input: LaunchInput, chainId: 8453 | 4663 = 8453) {
+export function tokenMetadata(input: LaunchInput, openingValuation: OpeningValuation, chainId: 8453 | 4663 = 8453) {
+  assertOpeningValuation(openingValuation, input.quoteAddress, chainId);
   return {
     name: input.name,
     symbol: input.symbol,
@@ -76,7 +83,8 @@ export function tokenMetadata(input: LaunchInput, chainId: 8453 | 4663 = 8453) {
       platform: "musegod.fun",
       chainId,
       quote: input.quoteAddress,
-      openingCap: input.openingCap,
+      openingCap: openingCapInQuote(openingValuation),
+      openingValuation,
       feePolicy: FEE_POLICY,
       feeDistribution: {
         basis: "total_fees",
@@ -100,6 +108,7 @@ export function buildLaunch(
   creator: Address,
   treasury: Address,
   protocolOwner: Address,
+  openingValuation: OpeningValuation,
   salt?: Hex,
   chainId: 8453 | 4663 = 8453,
 ) {
@@ -107,6 +116,7 @@ export function buildLaunch(
   const draft = launchSchema.parse(input),
     stock = stockByAddress(draft.quoteAddress);
   if (stock.chainId !== chainId) throw new Error("The paired asset is on a different deployment network");
+  assertOpeningValuation(openingValuation, stock.address, chainId);
   const lpBeneficiaries = beneficiaries([
     {
       beneficiary: protocolOwner,
@@ -131,16 +141,14 @@ export function buildLaunch(
       shares: (WAD * BigInt(FEE_SHARES.platformNet)) / 10_000n,
     },
   ]);
-  const cap = Number(draft.openingCap);
-  // The SDK only needs a consistent unit for both marketCap and numerairePrice.
-  // numerairePrice=1 makes the curves denominated in stock-token units, NOT USD.
+  const cap = OPENING_CAP_USD;
   const builder = sdk
     .buildMulticurveAuction()
     .tokenConfig({
       type: "dopplerERC20V1",
       name: draft.name,
       symbol: draft.symbol,
-      tokenURI: `data:application/json,${encodeURIComponent(JSON.stringify(tokenMetadata(draft, chainId)))}`,
+      tokenURI: `data:application/json,${encodeURIComponent(JSON.stringify(tokenMetadata(draft, openingValuation, chainId)))}`,
     })
     .saleConfig({
       initialSupply: SUPPLY,
@@ -148,7 +156,7 @@ export function buildLaunch(
       numeraire: stock.address,
     })
     .withCurves({
-      numerairePrice: 1,
+      numerairePrice: Number(openingValuation.quotePriceUsd),
       numeraireDecimals: stock.decimals,
       tokenDecimals: 18,
       fee: 500,

@@ -8,6 +8,7 @@ import { TokenImages, validateTokenImage } from "../server/token-images";
 import { MAX_TOKEN_IMAGE_BYTES } from "../src/lib/token-image";
 import { launchSchema, restoreDraft } from "../src/lib/validation";
 import { tokenMetadata } from "../src/lib/protocol";
+import { syntheticOpeningValuation } from "./fixtures";
 import { createApp } from "../server/app";
 
 // An actual 2 × 3 WebP encoded by Chrome's canvas, including its colour profile.
@@ -74,7 +75,7 @@ test("Pinata receives public WebP uploads and duplicate uploads retain their met
     const draft = { ...restoreDraft(null), name: "Image Test", symbol: "IMG", image: uploaded.image };
     assert.equal(launchSchema.parse(draft).image, uploaded.image);
     assert.equal(restoreDraft(JSON.stringify(draft)).image, uploaded.image);
-    assert.equal(tokenMetadata(launchSchema.parse(draft), 4663).image, uploaded.image);
+    assert.equal(tokenMetadata(launchSchema.parse(draft), syntheticOpeningValuation(draft.quoteAddress)).image, uploaded.image);
   } finally { globalThis.fetch = originalFetch; }
 });
 

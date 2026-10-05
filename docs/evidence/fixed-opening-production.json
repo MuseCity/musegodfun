@@ -1,0 +1,726 @@
+{
+  "observedAt": "2026-10-05T05:59:38.182Z",
+  "scope": "User-authorized deployment and Git commit of fixed-usd-5000-v1. Public runtime, build identity, read-only USD price simulation and synthetic-provider browser verification only",
+  "policy": "fixed-usd-5000-v1",
+  "domains": [
+    "https://musegod.fun",
+    "https://www.musegod.fun"
+  ],
+  "release": {
+    "accountId": "4b68bb6b6c38892162610027f25fbb0d",
+    "worker": "musegod-fun",
+    "deploymentId": "e726cd88-661f-448d-9165-226c06fc3b01",
+    "versionId": "b6398b84-9852-45fd-9d99-292bd5d513c8",
+    "trafficPercentage": 100,
+    "deployedAt": "2026-10-05T05:52:37.624462Z",
+    "uploadTag": "fixed-opening-5000",
+    "workerScriptEtag": "224052fca1fad96d073f136c2461defe1fa8b161961cfd8a27b3dc737ea0afae",
+    "compatibilityDate": "2026-10-04",
+    "compatibilityFlags": [
+      "nodejs_compat"
+    ],
+    "sourceBaselineCommit": "019fa11a77d5f783c11e88f7ee03b97e852b6226",
+    "sourceFileHashes": {
+      "server/opening-price.ts": "2c5fb5cc568bb49a595dce0d0f553028269265c3d598ab16d99eab7a8652f2e1",
+      "server/service.ts": "871de24d57a35fb94f24c127138baff8c2706c9193adecfcd813b02fcfccd509",
+      "src/lib/opening-valuation.ts": "7d6ae636c1f6cc638a003cedb27d7e1c0364cc53f02a7d92a12123cd2452fda9",
+      "src/lib/protocol.ts": "cf32a0091c4b160d68e39407a13527a4f8ac9c4457e014386d9fb90b15dc45fb",
+      "src/lib/validation.ts": "8a77659996984add0224d51281ff03cb323c1c37fb531b23805d4654231b7ce5",
+      "src/App.tsx": "e12db2d6ab189bcda4c9d557fef3d08fa6ca113cf523df24ced14c8c0d2fa556",
+      "src/styles.css": "1620496e5e102329f646607d56e575ca3f6894ba45f817e86e709f3334454f9c"
+    }
+  },
+  "preservation": {
+    "bindings": [
+      {
+        "name": "ALCHEMY_API_KEY",
+        "type": "secret_text"
+      },
+      {
+        "name": "ASSETS",
+        "type": "assets"
+      },
+      {
+        "name": "CHAIN_MODE",
+        "text": "robinhood",
+        "type": "plain_text"
+      },
+      {
+        "name": "ENABLE_MAINNET_TRANSACTIONS",
+        "text": "true",
+        "type": "plain_text"
+      },
+      {
+        "class_name": "LaunchpadRuntime",
+        "name": "LAUNCHPAD",
+        "namespace_id": "c8a77d910da540ca90bab930bae908c5",
+        "type": "durable_object_namespace"
+      },
+      {
+        "name": "NODE_ENV",
+        "text": "production",
+        "type": "plain_text"
+      },
+      {
+        "name": "PINATA_JWT",
+        "type": "secret_text"
+      },
+      {
+        "name": "PLATFORM_TREASURY",
+        "text": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+        "type": "plain_text"
+      },
+      {
+        "name": "SUPABASE_DATA_SCOPE",
+        "text": "robinhood",
+        "type": "plain_text"
+      },
+      {
+        "name": "SUPABASE_SECRET_KEY",
+        "type": "secret_text"
+      },
+      {
+        "name": "SUPABASE_URL",
+        "text": "https://vrhzgmulcyqqzkkforsl.supabase.co",
+        "type": "plain_text"
+      }
+    ],
+    "stableBindingsMatchedPriorVersion": true,
+    "routeIdsAndPatternsUnchanged": true,
+    "routes": [
+      {
+        "id": "0fe0b421ae634a7face873f43d23a1fc",
+        "pattern": "www.musegod.fun/*",
+        "script": "musegod-fun",
+        "request_limit_fail_open": false
+      },
+      {
+        "id": "972ed8ab21124eebbe76882872d27176",
+        "pattern": "musegod.fun/*",
+        "script": "musegod-fun",
+        "request_limit_fail_open": false
+      }
+    ],
+    "subdomain": {
+      "enabled": true,
+      "previews_enabled": false
+    },
+    "observability": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "redact_query_string": false,
+      "logs": {
+        "enabled": true,
+        "head_sampling_rate": 1,
+        "persist": true,
+        "invocation_logs": true
+      },
+      "traces": {
+        "enabled": false,
+        "persist": true,
+        "head_sampling_rate": 1
+      }
+    },
+    "existingWritesEnabled": true,
+    "schemaMigrationsRun": 0,
+    "secretUpdates": 0,
+    "dnsWriteCalls": 0,
+    "routeWriteCalls": 0,
+    "dnsReadback": {
+      "status": 403,
+      "independentlyVerified": false,
+      "reason": "Current Wrangler OAuth scopes do not allow DNS-record reads (HTTP 403); the version-only publication issued no DNS mutations"
+    },
+    "historicalTokensAndReceiptsRetained": true
+  },
+  "prepublicationVerification": {
+    "unit": {
+      "passed": 188,
+      "failed": 0,
+      "skipped": 0
+    },
+    "typecheck": {
+      "node": "passed",
+      "worker": "passed"
+    },
+    "build": "passed",
+    "workerDryRun": "passed",
+    "sourceHashesMatched": true,
+    "localAcceptance": "fixed-opening-acceptance.json",
+    "isolatedFork": "Five representative assets completed creation, registration, initial pool price before first trade, buy, sell and creator/treasury fee claims; snapshots restored; no mainnet transactions"
+  },
+  "publicHttp": {
+    "observedAt": "2026-10-05T05:55:41.685Z",
+    "checks": [
+      {
+        "origin": "https://musegod.fun",
+        "check": "/healthz",
+        "pass": true
+      },
+      {
+        "origin": "https://musegod.fun",
+        "check": "/readyz",
+        "pass": true
+      },
+      {
+        "origin": "https://musegod.fun",
+        "check": "existing chain, treasury and browser signing flag preserved",
+        "pass": true
+      },
+      {
+        "origin": "https://musegod.fun",
+        "check": "HTML matches final local build and security headers retained",
+        "pass": true
+      },
+      {
+        "origin": "https://musegod.fun",
+        "check": "all 4 current JS/CSS assets match local SHA256",
+        "pass": true
+      },
+      {
+        "origin": "https://musegod.fun",
+        "check": "server RPC rejects every signing and broadcast method",
+        "pass": true
+      },
+      {
+        "origin": "https://musegod.fun",
+        "check": "198 paired asset identities remain available",
+        "pass": true
+      },
+      {
+        "origin": "https://musegod.fun",
+        "check": "client-supplied cap, price and snapshot rejected",
+        "pass": true
+      },
+      {
+        "origin": "https://musegod.fun",
+        "check": "unmatched unsigned preview invalid",
+        "pass": true
+      },
+      {
+        "origin": "https://musegod.fun",
+        "check": "unknown route remains 404",
+        "pass": true
+      },
+      {
+        "origin": "https://musegod.fun",
+        "check": "WETH: verified fixed USD target, five-minute snapshot including simulation, and final server validation",
+        "pass": true
+      },
+      {
+        "origin": "https://musegod.fun",
+        "check": "NVDA: verified fixed USD target, five-minute snapshot including simulation, and final server validation",
+        "pass": true
+      },
+      {
+        "origin": "https://musegod.fun",
+        "check": "USDG: verified fixed USD target, five-minute snapshot including simulation, and final server validation",
+        "pass": true
+      },
+      {
+        "origin": "https://musegod.fun",
+        "check": "cbBTC: verified fixed USD target, five-minute snapshot including simulation, and final server validation",
+        "pass": true
+      },
+      {
+        "origin": "https://musegod.fun",
+        "check": "MUSEGOD: verified fixed USD target, five-minute snapshot including simulation, and final server validation",
+        "pass": true
+      },
+      {
+        "origin": "https://www.musegod.fun",
+        "check": "/healthz",
+        "pass": true
+      },
+      {
+        "origin": "https://www.musegod.fun",
+        "check": "/readyz",
+        "pass": true
+      },
+      {
+        "origin": "https://www.musegod.fun",
+        "check": "existing chain, treasury and browser signing flag preserved",
+        "pass": true
+      },
+      {
+        "origin": "https://www.musegod.fun",
+        "check": "HTML matches final local build and security headers retained",
+        "pass": true
+      },
+      {
+        "origin": "https://www.musegod.fun",
+        "check": "all 4 current JS/CSS assets match local SHA256",
+        "pass": true
+      },
+      {
+        "origin": "https://www.musegod.fun",
+        "check": "server RPC rejects every signing and broadcast method",
+        "pass": true
+      },
+      {
+        "origin": "https://www.musegod.fun",
+        "check": "198 paired asset identities remain available",
+        "pass": true
+      },
+      {
+        "origin": "https://www.musegod.fun",
+        "check": "client-supplied cap, price and snapshot rejected",
+        "pass": true
+      },
+      {
+        "origin": "https://www.musegod.fun",
+        "check": "unmatched unsigned preview invalid",
+        "pass": true
+      },
+      {
+        "origin": "https://www.musegod.fun",
+        "check": "unknown route remains 404",
+        "pass": true
+      },
+      {
+        "origin": "https://www.musegod.fun",
+        "check": "WETH: verified fixed USD target, five-minute snapshot including simulation, and final server validation",
+        "pass": true
+      }
+    ],
+    "assets": [
+      {
+        "origin": "https://musegod.fun",
+        "path": "/assets/PriceChart-C360r0Em.js",
+        "sha256": "14868aa1af49dd2a868f0f4180d85105ff3fd5003b18ba27cd0eaef058f82735"
+      },
+      {
+        "origin": "https://musegod.fun",
+        "path": "/assets/ccip-CmIEiEX3.js",
+        "sha256": "d9be208d390a48887a15a554347d927d84337a7051fb94f61899f7b808f59ec5"
+      },
+      {
+        "origin": "https://musegod.fun",
+        "path": "/assets/index-DQkMmNUJ.css",
+        "sha256": "e74637431f3ed9c3212530497f8ea07a38730a54f4c86c7ecd66d919c3725d1b"
+      },
+      {
+        "origin": "https://musegod.fun",
+        "path": "/assets/index-Gg6mYscB.js",
+        "sha256": "9fcf016f87066a0db58acbdea6675c285d09f227486f4a9830290602b89198fd"
+      },
+      {
+        "origin": "https://www.musegod.fun",
+        "path": "/assets/PriceChart-C360r0Em.js",
+        "sha256": "14868aa1af49dd2a868f0f4180d85105ff3fd5003b18ba27cd0eaef058f82735"
+      },
+      {
+        "origin": "https://www.musegod.fun",
+        "path": "/assets/ccip-CmIEiEX3.js",
+        "sha256": "d9be208d390a48887a15a554347d927d84337a7051fb94f61899f7b808f59ec5"
+      },
+      {
+        "origin": "https://www.musegod.fun",
+        "path": "/assets/index-DQkMmNUJ.css",
+        "sha256": "e74637431f3ed9c3212530497f8ea07a38730a54f4c86c7ecd66d919c3725d1b"
+      },
+      {
+        "origin": "https://www.musegod.fun",
+        "path": "/assets/index-Gg6mYscB.js",
+        "sha256": "9fcf016f87066a0db58acbdea6675c285d09f227486f4a9830290602b89198fd"
+      }
+    ],
+    "snapshots": [
+      {
+        "origin": "https://musegod.fun",
+        "symbol": "WETH",
+        "decimals": 18,
+        "preparedAt": 1791179724258,
+        "openingCapInPairedUnits": "1.847309686295730106",
+        "openingValuation": {
+          "policy": "fixed-usd-5000-v1",
+          "marketCapUsd": 5000,
+          "chainId": 4663,
+          "quoteAddress": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+          "quotedAt": 1791179724088,
+          "expiresAt": 1791180024088,
+          "blockNumber": "80555702",
+          "blockHash": "0x5389ef27865636a485e2afd74d652147b806c2631ab9448eea7907782d0f6622",
+          "quotePriceUsd": "2706.63876073",
+          "source": "Chainlink",
+          "sourceUpdatedAt": 1791173896000,
+          "feed": "0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9"
+        },
+        "finalServerValidationPassed": true
+      },
+      {
+        "origin": "https://musegod.fun",
+        "symbol": "NVDA",
+        "decimals": 18,
+        "preparedAt": 1791179725725,
+        "openingCapInPairedUnits": "21.247005916385410157",
+        "openingValuation": {
+          "policy": "fixed-usd-5000-v1",
+          "marketCapUsd": 5000,
+          "chainId": 4663,
+          "quoteAddress": "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC",
+          "quotedAt": 1791179725610,
+          "expiresAt": 1791180025610,
+          "blockNumber": "80555716",
+          "blockHash": "0xf9dd5c342f668acfaddc11717fb35f7665a601ae1d44fa084944d86120c561af",
+          "quotePriceUsd": "235.327274801767061261",
+          "source": "Robinhood",
+          "sourceUpdatedAt": 1791179722610
+        },
+        "finalServerValidationPassed": true
+      },
+      {
+        "origin": "https://musegod.fun",
+        "symbol": "USDG",
+        "decimals": 6,
+        "preparedAt": 1791179727236,
+        "openingCapInPairedUnits": "4999.258160081625487593",
+        "openingValuation": {
+          "policy": "fixed-usd-5000-v1",
+          "marketCapUsd": 5000,
+          "chainId": 4663,
+          "quoteAddress": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+          "quotedAt": 1791179727122,
+          "expiresAt": 1791180027122,
+          "blockNumber": "80555731",
+          "blockHash": "0x834cbbb70e82d7e53a18a44056d39e51a360583839488fb7f8d9e67e9965fd39",
+          "quotePriceUsd": "1.00014839",
+          "source": "Chainlink",
+          "sourceUpdatedAt": 1791128414000,
+          "feed": "0x61B7e5650328764B076A108EFF5fa7282a1B9aD2"
+        },
+        "finalServerValidationPassed": true
+      },
+      {
+        "origin": "https://musegod.fun",
+        "symbol": "cbBTC",
+        "decimals": 8,
+        "preparedAt": 1791179728540,
+        "openingCapInPairedUnits": "0.058460391480749016",
+        "openingValuation": {
+          "policy": "fixed-usd-5000-v1",
+          "marketCapUsd": 5000,
+          "chainId": 4663,
+          "quoteAddress": "0xCEC185eB182c47d1bA1EFc84e6959e18cd620Be4",
+          "quotedAt": 1791179728424,
+          "expiresAt": 1791180028424,
+          "blockNumber": "80555744",
+          "blockHash": "0x1e6bd2f9582d78c3ba505e45d7d7f11864a7647ad0c9a48e75ee6f3e98b17ae8",
+          "quotePriceUsd": "85527.9937981",
+          "source": "Chainlink",
+          "sourceUpdatedAt": 1791174813000,
+          "feed": "0x0009cD492adf8167f9eEBf1293556A673530a21a"
+        },
+        "finalServerValidationPassed": true
+      },
+      {
+        "origin": "https://musegod.fun",
+        "symbol": "MUSEGOD",
+        "decimals": 18,
+        "preparedAt": 1791179730664,
+        "openingCapInPairedUnits": "15672727.928459790458319652",
+        "openingValuation": {
+          "policy": "fixed-usd-5000-v1",
+          "marketCapUsd": 5000,
+          "chainId": 4663,
+          "quoteAddress": "0x0379E228F6887c6F18bf394042ECAF81B308cb2e",
+          "quotedAt": 1791179730549,
+          "expiresAt": 1791180030549,
+          "blockNumber": "80555762",
+          "blockHash": "0x9832ab9952c1881615b47db013464b83377a1691e986c974a15770c5f89db686",
+          "quotePriceUsd": "0.000319025508694029",
+          "source": "SushiSwap V3 TWAP",
+          "sourceUpdatedAt": 1791173896000,
+          "feed": "0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9",
+          "pool": "0x071eE139277688d64B139Af1e44f79a9acf12e53",
+          "twapSeconds": 300
+        },
+        "finalServerValidationPassed": true
+      },
+      {
+        "origin": "https://www.musegod.fun",
+        "symbol": "WETH",
+        "decimals": 18,
+        "preparedAt": 1791179740803,
+        "openingCapInPairedUnits": "1.847309686295730106",
+        "openingValuation": {
+          "policy": "fixed-usd-5000-v1",
+          "marketCapUsd": 5000,
+          "chainId": 4663,
+          "quoteAddress": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+          "quotedAt": 1791179740687,
+          "expiresAt": 1791180040687,
+          "blockNumber": "80555857",
+          "blockHash": "0xd105afc38e860ef2024ef5346477c5cc756af2b63335f14f40873f4a5bef33cb",
+          "quotePriceUsd": "2706.63876073",
+          "source": "Chainlink",
+          "sourceUpdatedAt": 1791173896000,
+          "feed": "0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9"
+        },
+        "finalServerValidationPassed": true
+      }
+    ],
+    "walletSignaturesRequested": false,
+    "mainnetTransactionsSubmitted": false,
+    "boundary": "Public HTTP, server simulation and validation only; no real wallet or transaction receipt"
+  },
+  "browser": {
+    "deploymentVersion": "b6398b84-9852-45fd-9d99-292bd5d513c8",
+    "completedAt": "2026-10-05T05:57:44.255Z",
+    "allPassed": true,
+    "domains": [
+      {
+        "checks": [
+          {
+            "name": "desktopCreate",
+            "overflow": false,
+            "pass": true,
+            "viewport": [
+              1440,
+              1000
+            ]
+          },
+          {
+            "evidence": "legacy localStorage openingCap=987654 discarded while identity and social fields restore",
+            "name": "oldDraftRestore",
+            "pass": true
+          },
+          {
+            "name": "assetSwitch",
+            "pass": true,
+            "switches": [
+              {
+                "fixedCap": true,
+                "selected": true,
+                "ticker": "USDG"
+              },
+              {
+                "fixedCap": true,
+                "selected": true,
+                "ticker": "AAPL"
+              },
+              {
+                "fixedCap": true,
+                "selected": true,
+                "ticker": "WETH"
+              }
+            ]
+          },
+          {
+            "name": "desktopReview",
+            "overflow": false,
+            "pass": true
+          },
+          {
+            "evidence": "production server prepare response with real upstream pricing and RPC; synthetic test account provider only",
+            "name": "realReadOnlyWethSimulation",
+            "pass": true,
+            "result": {
+              "openingValuation": {
+                "blockHash": "0x8e1b6a8d70ae3c31067aa676fb6091c426ac986069a3f60dcecbce61b3ba6948",
+                "blockNumber": "80555306",
+                "chainId": 4663,
+                "expiresAt": 1791179983419,
+                "feed": "0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9",
+                "marketCapUsd": 5000,
+                "policy": "fixed-usd-5000-v1",
+                "quoteAddress": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+                "quotePriceUsd": "2706.63876073",
+                "quotedAt": 1791179683419,
+                "source": "Chainlink",
+                "sourceUpdatedAt": 1791173896000
+              },
+              "preparedAt": 1791179683535,
+              "status": 200,
+              "tokenAddress": "0x568d1F0586C77174fad5E214f03c3aA6e23E88F0"
+            }
+          },
+          {
+            "name": "mobileReview",
+            "overflow": false,
+            "pass": true,
+            "viewport": [
+              390,
+              844
+            ]
+          },
+          {
+            "name": "mobileCreate",
+            "overflow": false,
+            "pass": true,
+            "viewport": [
+              390,
+              844
+            ]
+          },
+          {
+            "name": "frameworkErrorOverlay",
+            "pass": true
+          },
+          {
+            "name": "consoleAndPageErrors",
+            "pass": true,
+            "consoleErrors": [],
+            "pageErrors": ""
+          }
+        ],
+        "signingRequests": [],
+        "url": "https://musegod.fun/create",
+        "walletRequests": [
+          "eth_requestAccounts",
+          "eth_chainId"
+        ],
+        "consoleErrors": [],
+        "pageErrors": "",
+        "allPassed": true
+      },
+      {
+        "checks": [
+          {
+            "name": "desktopCreate",
+            "overflow": false,
+            "pass": true,
+            "viewport": [
+              1440,
+              1000
+            ]
+          },
+          {
+            "evidence": "legacy localStorage openingCap=987654 discarded while identity and social fields restore",
+            "name": "oldDraftRestore",
+            "pass": true
+          },
+          {
+            "name": "assetSwitch",
+            "pass": true,
+            "switches": [
+              {
+                "fixedCap": true,
+                "selected": true,
+                "ticker": "USDG"
+              },
+              {
+                "fixedCap": true,
+                "selected": true,
+                "ticker": "AAPL"
+              },
+              {
+                "fixedCap": true,
+                "selected": true,
+                "ticker": "WETH"
+              }
+            ]
+          },
+          {
+            "name": "desktopReview",
+            "overflow": false,
+            "pass": true
+          },
+          {
+            "name": "mobileReview",
+            "overflow": false,
+            "pass": true,
+            "viewport": [
+              390,
+              844
+            ]
+          },
+          {
+            "evidence": "production server prepare response with real upstream pricing and RPC; synthetic test account provider only",
+            "name": "realReadOnlyWethSimulation",
+            "pass": true,
+            "result": {
+              "openingValuation": {
+                "blockHash": "0xfef45925ceba0f4fcd7cecf083f507d33ce8c5db15864c55d8fd614dc7be9f07",
+                "blockNumber": "80556665",
+                "chainId": 4663,
+                "expiresAt": 1791180123134,
+                "feed": "0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9",
+                "marketCapUsd": 5000,
+                "policy": "fixed-usd-5000-v1",
+                "quoteAddress": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+                "quotePriceUsd": "2706.63876073",
+                "quotedAt": 1791179823134,
+                "source": "Chainlink",
+                "sourceUpdatedAt": 1791173896000
+              },
+              "preparedAt": 1791179823248,
+              "status": 200,
+              "tokenAddress": "0x50AD74508d0c873096534EF5cC225Ee77092691B"
+            }
+          },
+          {
+            "name": "mobileCreate",
+            "overflow": false,
+            "pass": true,
+            "viewport": [
+              390,
+              844
+            ]
+          },
+          {
+            "name": "frameworkErrorOverlay",
+            "pass": true
+          },
+          {
+            "name": "consoleAndPageErrors",
+            "pass": true,
+            "consoleErrors": [],
+            "pageErrors": ""
+          }
+        ],
+        "signingRequests": [],
+        "url": "https://www.musegod.fun/create",
+        "walletRequests": [
+          "eth_requestAccounts",
+          "eth_chainId"
+        ],
+        "consoleErrors": [],
+        "pageErrors": "",
+        "allPassed": true
+      }
+    ],
+    "notes": [
+      "Real production server price and RPC simulation evidence uses a synthetic test account provider that refuses every method except eth_accounts, eth_requestAccounts, eth_chainId",
+      "No transaction was signed or sent",
+      "Headless Chromium desktop 1440x1000 and mobile viewport 390x844; mobile checks do not claim real-device testing",
+      "Offscreen controls were activated through DOM click where headless coordinate clicks did not trigger; validation uses resulting live React UI state"
+    ],
+    "screenshots": [
+      "fixed-opening-production-desktop.png",
+      "fixed-opening-production-mobile.png",
+      "fixed-opening-production-www-simulation.png"
+    ]
+  },
+  "configuredSecretScan": {
+    "observedAt": "2026-10-05T06:00:13.720Z",
+    "checkedFiles": 374,
+    "configuredSecretsChecked": [
+      "ALCHEMY_API_KEY",
+      "COINGECKO_API_KEY",
+      "SUPABASE_SECRET_KEY",
+      "SUPABASE_DB_URL",
+      "PINATA_API_KEY",
+      "PINATA_API_SECRET",
+      "PINATA_JWT"
+    ],
+    "oauthChecked": true,
+    "matchCount": 0
+  },
+  "walletExecution": {
+    "realWalletConnected": "not_run",
+    "signaturesRequested": false,
+    "mainnetTransactionsSubmitted": false,
+    "issuanceReceipts": "not_run",
+    "tradeReceipts": "not_run",
+    "feeClaimReceipts": "not_run"
+  },
+  "boundary": "A verified deployment and server simulation do not establish authenticated wallet execution, a mainnet receipt, physical-phone testing, or an external audit. USD 5000 is a preview-time target; ticks and subsequent paired-asset price changes cause deviations.",
+  "rollback": {
+    "versionId": "32684bca-f328-4f45-910e-73f089e471c5",
+    "precedingDeploymentId": "ffe9a11d-c064-40cf-a62a-07295683dd89",
+    "command": "npx wrangler versions deploy 32684bca-f328-4f45-910e-73f089e471c5@100 --durable-objects-code-update-mode immediate --yes",
+    "validation": "Read back the preceding version at 100%, health/readiness/config, and the preceding Pinata asset hashes. Preserve encrypted secrets, database scopes/tables, historical receipts and Pinata pins.",
+    "precedingEvidence": "token-image-pinata.json"
+  }
+}

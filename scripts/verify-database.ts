@@ -67,7 +67,7 @@ try {
   await store.trackLaunch(replacedHash, plan.id);
   assert.equal((await connect(scope).pendingLaunches()).length, 2);
   const token: TokenRecord = {
-    ...plan.draft, address: plan.tokenAddress, creator: plan.creator,
+    ...plan.draft, openingCap: plan.draft.openingCap!, address: plan.tokenAddress, creator: plan.creator,
     poolId: plan.poolId, transactionHash: hash, blockNumber: "1", createdAt: now, mode: "base",
     feePolicy: plan.feePolicy, feeTreasury: plan.feeTreasury,
   };

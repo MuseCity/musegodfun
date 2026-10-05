@@ -7,6 +7,7 @@ import {
   DopplerSDK,
   feeClaimsInitializerAbi,
   feesManagerAbi,
+  tickToMarketCap,
 } from "@whetstone-research/doppler-sdk/evm";
 import {
   createPublicClient,
@@ -34,6 +35,7 @@ import {
   listedTokens,
 } from "../src/lib/config";
 import { FEE_POLICY, FEE_SHARES, MUSEGOD_BUYBACK } from "../src/lib/fee-policy";
+import { OPENING_CAP_USD, OPENING_POLICY, LAUNCH_PRICE_TTL, assertOpeningValuation, openingCapInQuote } from "../src/lib/opening-valuation";
 import {
   beneficiaries,
   buildLaunch,
@@ -55,7 +57,7 @@ import {
 } from "../src/lib/validation";
 import { Store, type LaunchPlan } from "../server/store";
 import { runtimeFromEnv, LaunchpadService } from "../server/service";
-import { syntheticToken } from "./fixtures";
+import { syntheticToken, syntheticOpeningValuation } from "./fixtures";
 
 const creator = "0x0000000000000000000000000000000000000001" as Address;
 const treasury = "0x0000000000000000000000000000000000000002" as Address;
@@ -66,19 +68,135 @@ const draft = {
   description: "",
   image: "",
   quoteAddress: STOCKS[0].address,
-  openingCap: "100",
 };
 const sdk = new DopplerSDK<8453>({
   publicClient: createPublicClient({ chain: base, transport: http() }),
   chainId: 8453,
 });
 
+test("fixed USD valuation validates its exact asset, policy, evidence and five-minute price expiry", () => {
+  const quotedAt = 1_800_000_000_000;
+  const snapshot = syntheticOpeningValuation(STOCKS[0].address, "100", {
+    quotedAt, expiresAt: quotedAt + LAUNCH_PRICE_TTL, sourceUpdatedAt: quotedAt,
+  });
+  assert.equal(snapshot.policy, OPENING_POLICY);
+  assert.equal(snapshot.marketCapUsd, OPENING_CAP_USD);
+  assert.doesNotThrow(() => assertOpeningValuation(snapshot, STOCKS[0].address, 8453, quotedAt));
+  assert.doesNotThrow(() => assertOpeningValuation(snapshot, STOCKS[0].address, 8453, snapshot.expiresAt - 1));
+  assert.throws(() => assertOpeningValuation(snapshot, STOCKS[0].address, 8453, snapshot.expiresAt), /expired/);
+  assert.throws(() => assertOpeningValuation(snapshot, STOCKS[0].address, 8453, quotedAt - 1), /expired/);
+  assert.throws(() => assertOpeningValuation(undefined, STOCKS[0].address, 8453, quotedAt), /policy has changed/);
+  assert.throws(() => assertOpeningValuation({ ...snapshot, policy: "future-v2" }, STOCKS[0].address, 8453, quotedAt), /policy has changed/);
+  assert.throws(() => assertOpeningValuation({ ...snapshot, marketCapUsd: 6000 }, STOCKS[0].address, 8453, quotedAt), /policy has changed/);
+  assert.throws(() => assertOpeningValuation(snapshot, STOCKS[1].address, 8453, quotedAt), /does not match/);
+  assert.throws(() => assertOpeningValuation(snapshot, STOCKS[0].address, 4663, quotedAt), /does not match/);
+  for (const quotePriceUsd of ["0", "-1", "NaN", "Infinity", "1e3", "1.0000000000000000001"])
+    assert.throws(() => assertOpeningValuation({ ...snapshot, quotePriceUsd }, STOCKS[0].address, 8453, quotedAt), /USD price/);
+  for (const patch of [
+    { expiresAt: snapshot.expiresAt + 1 }, { blockHash: "0xabcd" },
+    { blockNumber: "1e3" }, { sourceUpdatedAt: 0 }, { source: "unverified" },
+    { source: "Chainlink" }, { source: "SushiSwap V3 TWAP", pool: creator, twapSeconds: 60 },
+  ]) assert.throws(() => assertOpeningValuation({ ...snapshot, ...patch }, STOCKS[0].address, 8453, quotedAt));
+});
+
+test("quote-unit opening valuation uses integer precision without the retired 1 to 1,000,000 range", () => {
+  for (const [price, expected] of [
+    ["3000", "1.666666666666666666"],
+    ["100000", "0.05"],
+    ["0.000005", "1000000000"],
+    ["0.000000000000000001", "5000000000000000000000"],
+  ]) assert.equal(openingCapInQuote(syntheticOpeningValuation(STOCKS[0].address, price)), expected);
+  assert.equal(openingCapInQuote(syntheticOpeningValuation()), "50");
+  assert.throws(() => openingCapInQuote(syntheticOpeningValuation(STOCKS[0].address, "0")), /USD price/);
+});
+
+test("6, 8 and 18 decimal pairs encode a $5,000 opening and $50,000 curve boundary", () => {
+  const robinhoodSdk = new DopplerSDK<4663>({
+    publicClient: createPublicClient({ chain: { ...base, id: 4663 }, transport: http() }),
+    chainId: 4663,
+  });
+  // Controlled prices exercise each decimal/valuation branch, not live evidence.
+  for (const [ticker, quotePriceUsd] of [
+    ["USDG", "1"], ["WETH", "3000"], ["cbBTC", "100000"],
+    ["NVDA", "150"], ["MUSEGOD", "0.000005"],
+  ]) {
+    const stock = ROBINHOOD_STOCKS.find((asset) => asset.ticker === ticker)!;
+    const valuation = syntheticOpeningValuation(stock.address, quotePriceUsd, { chainId: 4663 });
+    const params = buildLaunch(robinhoodSdk, { ...draft, quoteAddress: stock.address }, creator, treasury, owner, valuation, undefined, 4663);
+    const openingTick = params.pool.curves[0].tickLower;
+    const tenfoldTick = params.pool.curves[0].tickUpper;
+    const capAt = (tick: number) => tickToMarketCap({
+      tick, tokenIsToken0: true, tokenSupply: SUPPLY,
+      numerairePriceUSD: Number(quotePriceUsd), tokenDecimals: 18, numeraireDecimals: stock.decimals,
+    });
+    assert(capAt(openingTick) >= OPENING_CAP_USD);
+    assert(capAt(openingTick) < OPENING_CAP_USD * 1.0001 ** 10);
+    assert(capAt(tenfoldTick) >= OPENING_CAP_USD * 10);
+    assert(capAt(tenfoldTick) < OPENING_CAP_USD * 10 * 1.0001 ** 10);
+    assert.equal(params.pool.curves[1].tickLower, tenfoldTick);
+    assert(openingTick % 10 === 0);
+    const encoded = robinhoodSdk.factory.encodeCreateMulticurveParams(params);
+    const [pool] = decodeAbiParameters(parseAbiParameters("(uint24 fee, int24 tickSpacing, int24 farTick, (int24 tickLower, int24 tickUpper, uint16 numPositions, uint256 shares)[] curves, (address beneficiary, uint96 shares)[] beneficiaries, address dopplerHook, bytes onInitializationDopplerHookCalldata, bytes graduationDopplerHookCalldata)"), encoded.poolInitializerData);
+    assert(pool.curves[0].tickLower === openingTick);
+    assert(pool.curves[0].tickUpper === tenfoldTick);
+    assert.throws(() => buildLaunch(robinhoodSdk, { ...draft, quoteAddress: stock.address }, creator, treasury, owner,
+      { ...valuation, quoteAddress: STOCKS[0].address }, undefined, 4663), /does not match/);
+  }
+});
+
+test("service preparation derives the cap and consumes price validity during simulation", async (context) => {
+  let now = 1_800_000_000_000;
+  let simulationTime = 0;
+  context.mock.method(Date, "now", () => now);
+  const stock = ROBINHOOD_STOCKS.find((asset) => asset.ticker === "WETH")!;
+  const saved: LaunchPlan[] = [];
+  const robinhoodSdk = new DopplerSDK<4663>({
+    publicClient: createPublicClient({ chain: { ...base, id: 4663 }, transport: http() }),
+    chainId: 4663,
+  });
+  context.mock.method(robinhoodSdk, "getAirlockOwner", async () => owner);
+  const service = Object.assign(Object.create(LaunchpadService.prototype), {
+    runtime: { config: { mode: "robinhood", chainId: 4663, treasury, writesEnabled: true } },
+    assertNetwork: async () => {},
+    sdk: robinhoodSdk,
+    client: {
+      getBlock: async () => ({ number: 10n, hash: `0x${"a".repeat(64)}`, timestamp: BigInt(now / 1000) }),
+      readContract: async ({ address, functionName }: { address: string; functionName: string }) => {
+        if (address.toLowerCase() === stock.address.toLowerCase())
+          return { name: stock.name, symbol: stock.symbol, decimals: stock.decimals, totalSupply: 1n }[functionName];
+        if (functionName === "decimals") return 8;
+        if (functionName === "latestRoundData") return [1n, 3000_00000000n, 1n, BigInt(now / 1000), 1n];
+        throw new Error(`Unexpected fixture read: ${functionName}`);
+      },
+      simulateContract: async () => {
+        now += simulationTime;
+        return { result: [creator] };
+      },
+      estimateGas: async () => 1000000n,
+    },
+    store: { savePlan: async (plan: LaunchPlan) => saved.push(plan) },
+  }) as LaunchpadService;
+  const input = { ...draft, quoteAddress: stock.address };
+  const plan = await service.prepare(input, creator);
+  assert.equal(plan.draft.openingCap, "1.666666666666666666");
+  assert.equal(plan.openingValuation?.quotePriceUsd, "3000");
+  assert.equal(plan.openingValuation?.marketCapUsd, OPENING_CAP_USD);
+  assert.equal(plan.openingValuation?.expiresAt, now + LAUNCH_PRICE_TTL);
+  await assert.rejects(() => service.prepare({ ...input, openingCap: "5000" }, creator));
+  assert.equal(saved.length, 1);
+  simulationTime = LAUNCH_PRICE_TTL;
+  await assert.rejects(() => service.prepare(input, creator), /price expired/);
+  assert.equal(saved.length, 1, "An expired quote must not become a saved signing preview");
+});
+
 test("launch accepts only whitelisted stocks and rejects arbitrary quote assets", () => {
   assert.equal(launchSchema.parse({ ...draft, symbol: "meme" }).symbol, "MEME");
   for (const quoteAddress of [syntheticToken().address, creator, zeroAddress])
     assert.throws(() => launchSchema.parse({ ...draft, quoteAddress }));
-  for (const openingCap of ["0", "0.9", "1000001", "1e3", "-1", "NaN"])
+  for (const openingCap of ["5000", "0", "0.9", "1000001", "1e3", "-1", "NaN"])
     assert.throws(() => launchSchema.parse({ ...draft, openingCap }));
+  for (const field of ["openingCapUsd", "openingValuation", "quotePriceUsd"])
+    assert.throws(() => launchSchema.parse({ ...draft, [field]: "5000" }));
 });
 
 const removedRobinhoodAssets = [
@@ -97,11 +215,10 @@ test("Robinhood issuance rejects removed U/PAIR and accepts the verified MUSEGOD
   assert.equal(musegod.chainId, 4663);
   assert.equal(musegod.decimals, 18);
   assert.equal(musegod.sourceUrl, "https://musegod.org/docs");
-  const input = launchSchema.parse({
-    ...draft, quoteAddress: musegod.address, openingCap: "1.000000000000000001",
-  });
-  assert.equal(parseAmount(input.openingCap, musegod.decimals), 1000000000000000001n);
-  assert.throws(() => launchSchema.parse({ ...input, openingCap: "1.0000000000000000001" }));
+  const input = launchSchema.parse({ ...draft, quoteAddress: musegod.address });
+  assert.equal(input.quoteAddress, musegod.address);
+  assert.equal(parseAmount("1.000000000000000001", musegod.decimals), 1000000000000000001n);
+  assert.throws(() => parseAmount("1.0000000000000000001", musegod.decimals));
   assert.equal(ROBINHOOD_STOCKS.filter((asset) => asset.category !== "OTHERS").length, 194);
   assert.deepEqual(ROBINHOOD_STOCKS.filter((asset) => asset.category === "OTHERS").map((asset) => asset.symbol),
     ["WETH", "USDG", "cbBTC", "MUSEGOD"]);
@@ -110,10 +227,10 @@ test("Robinhood issuance rejects removed U/PAIR and accepts the verified MUSEGOD
 test("removed Robinhood pairs cannot return through saved drafts or the active catalog", () => {
   const config = { mode: "robinhood" as const };
   for (const quoteAddress of removedRobinhoodAssets) {
-    const restored = restoreDraft(JSON.stringify({ ...draft, quoteAddress }), config);
+    const restored = restoreDraft(JSON.stringify({ ...draft, quoteAddress, openingCap: "777" }), config);
     assert.equal(restored.quoteAddress, ROBINHOOD_STOCKS[0].address);
     assert.equal(restored.name, draft.name);
-    assert.equal(restored.openingCap, draft.openingCap);
+    assert.equal("openingCap" in restored, false);
   }
   const musegod = stockByAddress(MUSEGOD_BUYBACK.tokenAddress);
   assert.equal(restoreDraft(JSON.stringify({ ...draft, quoteAddress: musegod.address }), config).quoteAddress, musegod.address);
@@ -133,13 +250,14 @@ test("launch social links validate before encoding and survive draft restore", (
   assert.equal(restoreDraft(JSON.stringify(input)).website, input.website);
   assert.equal(restoreDraft(JSON.stringify(input)).twitter, input.twitter);
   assert.equal(restoreDraft(JSON.stringify(input)).telegram, input.telegram);
-  const encoded = tokenMetadata(input);
+  const valuation = syntheticOpeningValuation(input.quoteAddress);
+  const encoded = tokenMetadata(input, valuation);
   assert.equal(encoded.external_url, input.website);
   assert.deepEqual(encoded.socials, {
     twitter: input.twitter,
     telegram: input.telegram,
   });
-  const built = buildLaunch(sdk, input, creator, treasury, owner);
+  const built = buildLaunch(sdk, input, creator, treasury, owner, valuation);
   const params = sdk.factory.encodeCreateMulticurveParams(built);
   assert(
     params.tokenFactoryData.includes(
@@ -395,10 +513,11 @@ test("every stock builds the fixed supply, immutable fee policy and official mod
   for (const stock of STOCKS) {
     const params = buildLaunch(
       sdk,
-      { ...draft, quoteAddress: stock.address, openingCap: "1000" },
+      { ...draft, quoteAddress: stock.address },
       creator,
       treasury,
       owner,
+      syntheticOpeningValuation(stock.address),
     );
     assert.equal(params.sale.initialSupply, SUPPLY);
     assert.equal(params.sale.numTokensToSell, SUPPLY);
@@ -431,10 +550,11 @@ test("every stock builds the fixed supply, immutable fee policy and official mod
   }
   const same = buildLaunch(
     sdk,
-    { ...draft, openingCap: "1000" },
+    draft,
     creator,
     creator,
     creator,
+    syntheticOpeningValuation(),
   );
   assert.deepEqual(same.pool.beneficiaries, [
     { beneficiary: creator, shares: WAD },
@@ -442,7 +562,7 @@ test("every stock builds the fixed supply, immutable fee policy and official mod
   assert.deepEqual(same.dopplerHook?.feeBeneficiaries, [
     { beneficiary: creator, shares: WAD },
   ]);
-  const creatorIsTreasury = buildLaunch(sdk, draft, creator, creator, owner);
+  const creatorIsTreasury = buildLaunch(sdk, draft, creator, creator, owner, syntheticOpeningValuation());
   assert.deepEqual(creatorIsTreasury.pool.beneficiaries, [
     { beneficiary: creator, shares: (WAD * 95n) / 100n },
     { beneficiary: owner, shares: (WAD * 5n) / 100n },
@@ -450,12 +570,12 @@ test("every stock builds the fixed supply, immutable fee policy and official mod
   assert.deepEqual(creatorIsTreasury.dopplerHook?.feeBeneficiaries, [
     { beneficiary: creator, shares: WAD },
   ]);
-  const treasuryIsOwner = buildLaunch(sdk, draft, creator, owner, owner);
+  const treasuryIsOwner = buildLaunch(sdk, draft, creator, owner, owner, syntheticOpeningValuation());
   assert.deepEqual(treasuryIsOwner.pool.beneficiaries, [
     { beneficiary: creator, shares: (WAD * 665n) / 1000n },
     { beneficiary: owner, shares: (WAD * 335n) / 1000n },
   ]);
-  const creatorIsOwner = buildLaunch(sdk, draft, creator, treasury, creator);
+  const creatorIsOwner = buildLaunch(sdk, draft, creator, treasury, creator, syntheticOpeningValuation());
   assert.deepEqual(creatorIsOwner.pool.beneficiaries, [
     { beneficiary: creator, shares: (WAD * 715n) / 1000n },
     { beneficiary: treasury, shares: (WAD * 285n) / 1000n },
@@ -464,7 +584,7 @@ test("every stock builds the fixed supply, immutable fee policy and official mod
 
 test("SDK calldata retains exact v2 shares after all recipient overlaps", () => {
   for (const [c, t, p] of [[creator, treasury, owner], [creator, creator, owner], [creator, treasury, creator], [creator, owner, owner], [creator, creator, creator]] as const) {
-    const plan = buildLaunch(sdk, draft, c, t, p);
+    const plan = buildLaunch(sdk, draft, c, t, p, syntheticOpeningValuation());
     const encoded = sdk.factory.encodeCreateMulticurveParams(plan);
     const [pool] = decodeAbiParameters(parseAbiParameters("(uint24 fee, int24 tickSpacing, int24 farTick, (int24 tickLower, int24 tickUpper, uint16 numPositions, uint256 shares)[] curves, (address beneficiary, uint96 shares)[] beneficiaries, address dopplerHook, bytes onInitializationDopplerHookCalldata, bytes graduationDopplerHookCalldata)"), encoded.poolInitializerData);
     assert.equal(pool.fee, 500);
@@ -483,8 +603,11 @@ test("SDK calldata retains exact v2 shares after all recipient overlaps", () => 
 });
 
 test("new metadata identifies the MuseGod fee policy without rewriting older launches", () => {
-  const metadata = tokenMetadata(launchSchema.parse(draft));
+  const valuation = syntheticOpeningValuation();
+  const metadata = tokenMetadata(launchSchema.parse(draft), valuation);
   assert.equal(metadata.properties.platform, "musegod.fun");
+  assert.equal(metadata.properties.openingCap, "50");
+  assert.deepEqual(metadata.properties.openingValuation, valuation);
   assert.equal(metadata.properties.feePolicy, "creator-70-musegod-v2");
   assert.equal(metadata.properties.feePolicy, FEE_POLICY);
   assert.deepEqual(metadata.properties.buyback, {

@@ -2,9 +2,9 @@ import { runtimeFromEnv, redact } from "../server/config";
 import { mkdir, writeFile } from "node:fs/promises";
 import { createPublicClient, http } from "viem";
 import { base } from "viem/chains";
-import { airlockAbi, DopplerSDK } from "@whetstone-research/doppler-sdk/evm";
+import { airlockAbi } from "@whetstone-research/doppler-sdk/evm";
 import { CONTRACTS, STOCKS } from "../src/lib/config";
-import { assertStock, buildLaunch } from "../src/lib/protocol";
+import { assertStock } from "../src/lib/protocol";
 // The public endpoint rate-limits bursts of code and archive reads. Serialize
 // transport requests for this offline verifier and retry only explicit limits.
 let rpcQueue = Promise.resolve();
@@ -103,50 +103,9 @@ for (let i = 0; i < STOCKS.length; i += 6) {
     )),
   );
 }
-// eth_call only: creator is a test address; fee destination is the configured treasury.
-const sdk = new DopplerSDK<8453>({ publicClient: client, chainId: 8453 });
-const owner = await client.readContract({
-  address: CONTRACTS.airlock,
-  abi: airlockAbi,
-  functionName: "owner",
-  blockNumber,
-});
-const creator = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
-const treasury = runtimeFromEnv().config.treasury;
-if (!treasury) throw new Error("主网模拟需要正式 PLATFORM_TREASURY");
-const simulations = [];
-for (const ticker of ["NVDA", "GOOGL"]) {
-  const stock = STOCKS.find((s) => s.ticker === ticker)!;
-  const params = buildLaunch(
-    sdk,
-    {
-      name: "B20 read-only simulation",
-      symbol: "B20SIM",
-      description: "eth_call only",
-      image: "",
-      quoteAddress: stock.address,
-      openingCap: "100",
-    },
-    creator,
-    treasury,
-    owner,
-  );
-  const result = await client.simulateContract({
-    address: CONTRACTS.airlock,
-    abi: airlockAbi,
-    functionName: "create",
-    args: [sdk.factory.encodeCreateMulticurveParams(params)],
-    account: creator,
-    blockNumber,
-  });
-  simulations.push({
-    ticker,
-    quoteAddress: stock.address,
-    method: "eth_call",
-    success: true,
-    predictedToken: result.result[0],
-  });
-}
+// Base is retained for historical receipt/asset reads. New fixed-USD
+// issuance is scoped to Robinhood; do not simulate it with a fabricated price.
+const simulations: never[] = [];
 const result = {
   scope:
     "Base mainnet read-only; not transfer, solvency, or issuance-rights verification",
@@ -157,6 +116,7 @@ const result = {
   modules,
   stocks,
   simulations,
+  issuanceSimulation: "not_run: new fixed-USD issuance is scoped to Robinhood Chain",
 };
 await mkdir("docs/evidence", { recursive: true });
 await writeFile(

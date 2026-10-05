@@ -1,0 +1,971 @@
+{
+  "observedAt": "2026-10-05T03:34:52.539Z",
+  "scope": "Local implementation and verification of fixed-usd-5000-v1; no production deployment, real browser-wallet signing, or mainnet transactions",
+  "policy": {
+    "id": "fixed-usd-5000-v1",
+    "openingMarketCapUsd": 5000,
+    "firstCurveEndMarketCapUsd": 50000,
+    "snapshotTtlMs": 300000,
+    "simulationConsumesTtl": true,
+    "supplyTokens": "1000000000",
+    "firstCurveShare": "90%",
+    "liquidityTailShare": "10%"
+  },
+  "implementation": [
+    "Removed custom valuation input, presets, and saved draft valuation; create, live preview, confirmation and curve copy use Opens at $5,000 market cap",
+    "Server rejects caller-provided opening cap, USD price and price evidence before provider work",
+    "Stocks and ETFs use official USD bid/ask midpoint multiplied by verified same-block uiMultiplier; halted, paused, stale, incorrect-chain and incorrect-contract sources fail closed",
+    "WETH, USDG and cbBTC use pinned Robinhood Chain Chainlink USD feeds, actual decimals, complete positive rounds and heartbeat checks",
+    "MUSEGOD uses its canonical Sushi V3 pool five-minute TWAP multiplied by ETH/USD from the same block; identity, liquidity, factory, and observation history verified",
+    "Snapshots bind exact deployment, asset, USD target, source, source timestamp, block height/hash, and expiry; same-height block reorganizations rejected",
+    "SDK receives real USD numerairePrice; existing openingCap stores derived paired-asset units, separate from transaction decimals",
+    "Old unsigned previews cannot sign; historic tokens and already-broadcast transactions retain original records and recover even when snapshots expire",
+    "JSON plan/token/immutable metadata fields require no database migration; supply and fee policy preserved"
+  ],
+  "localChecks": {
+    "unit": {
+      "passed": 188,
+      "failed": 0,
+      "skipped": 0,
+      "evidence": ".cache/fixed-opening-unit.log",
+      "scope": "Synthetic fixtures and controlled failure injection; no claim of authenticated production behavior",
+      "requiredCases": [
+        "6/8/18 decimals",
+        "derived quote cap below 1 and above 1000000",
+        "client price/cap forgery",
+        "wrong asset and chain",
+        "stale/future quotes and rounds",
+        "halted/paused stock oracle",
+        "incomplete TWAP history and no liquidity",
+        "same-height block reorganization",
+        "five-minute expiry includes simulation",
+        "old unsigned preview invalidation",
+        "legacy and expired-but-broadcast receipt recovery"
+      ]
+    },
+    "typecheck": {
+      "node": "passed",
+      "worker": "passed"
+    },
+    "productionBuild": {
+      "passed": true,
+      "warning": "Existing bundle-size warning; no compilation failure",
+      "javascript": "dist/assets/index-Gg6mYscB.js",
+      "stylesheet": "dist/assets/index-DQkMmNUJ.css"
+    },
+    "http": {
+      "node": {
+        "scope": "HTTP checks against local Robinhood Chain service; tests only read and simulate, no mainnet transactions",
+        "observedAt": "2026-10-05T03:25:45.672Z",
+        "origin": "http://127.0.0.1:5188",
+        "checks": [
+          "Robinhood Chain runtime: browser signing disabled",
+          "198 paired assets verified with native precision, supply and block metadata",
+          "Unknown pages and APIs return 404",
+          "Catalog contains only registered active-chain paired assets and no preloaded project",
+          "Read-only RPC resolves to chain 4663",
+          "Transaction-sending RPC method blocked",
+          "Cross-origin mutation rejected",
+          "Unsafe slippage rejected before RPC work",
+          "Malformed registration rejected",
+          "Fixed $5,000 mainnet launch simulation with a bound USD price snapshot; no signature",
+          "Client-supplied valuations and prices rejected before simulation",
+          "Removed U and PAIR are rejected by production issuance API",
+          "MUSEGOD fixed $5,000 issuance simulation uses same-chain five-minute TWAP; no signature",
+          "Base fee bridging cannot prepare a transaction in this release",
+          "Unknown API returns JSON 404"
+        ],
+        "skipped": [
+          {
+            "check": "live registered-pool state and swap quote",
+            "reason": "Catalog is empty; no deployed stock-paired pool exists to verify"
+          }
+        ]
+      },
+      "worker": {
+        "scope": "HTTP checks against local Robinhood Chain service; tests only read and simulate, no mainnet transactions",
+        "observedAt": "2026-10-05T03:25:55.888Z",
+        "origin": "http://127.0.0.1:8787",
+        "checks": [
+          "Robinhood Chain runtime: browser signing disabled",
+          "198 paired assets verified with native precision, supply and block metadata",
+          "Unknown pages and APIs return 404",
+          "Catalog contains only registered active-chain paired assets and no preloaded project",
+          "Read-only RPC resolves to chain 4663",
+          "Transaction-sending RPC method blocked",
+          "Cross-origin mutation rejected",
+          "Unsafe slippage rejected before RPC work",
+          "Malformed registration rejected",
+          "Fixed $5,000 mainnet launch simulation with a bound USD price snapshot; no signature",
+          "Client-supplied valuations and prices rejected before simulation",
+          "Removed U and PAIR are rejected by production issuance API",
+          "MUSEGOD fixed $5,000 issuance simulation uses same-chain five-minute TWAP; no signature",
+          "Base fee bridging cannot prepare a transaction in this release",
+          "Unknown API returns JSON 404"
+        ],
+        "skipped": [
+          {
+            "check": "live registered-pool state and swap quote",
+            "reason": "Catalog is empty; no deployed stock-paired pool exists to verify"
+          }
+        ]
+      }
+    },
+    "productionRuntimeHttp": {
+      "node": {
+        "origin": "http://127.0.0.1:5189",
+        "observedAt": "2026-10-05T03:31:01.106Z",
+        "checks": [
+          "health",
+          "explicit browser signing configuration and valid treasury",
+          "RPC proxy rejects every signing / broadcast method even when wallet signing is enabled",
+          "cross-origin requests and unverifiable launch tracking rejected",
+          "production headers and unknown route",
+          "keys absent from production bundle and responses"
+        ],
+        "readiness": {
+          "status": "ready",
+          "chainId": 4663,
+          "writesEnabled": false
+        },
+        "readyStatus": 200,
+        "runtimeReady": true
+      },
+      "worker": {
+        "origin": "http://127.0.0.1:8787",
+        "observedAt": "2026-10-05T03:31:34.615Z",
+        "checks": [
+          "health",
+          "explicit browser signing configuration and valid treasury",
+          "RPC proxy rejects every signing / broadcast method even when wallet signing is enabled",
+          "cross-origin requests and unverifiable launch tracking rejected",
+          "production headers and unknown route",
+          "keys absent from production bundle and responses"
+        ],
+        "readiness": {
+          "status": "ready",
+          "chainId": 4663,
+          "writesEnabled": false
+        },
+        "readyStatus": 200,
+        "runtimeReady": true
+      }
+    }
+  },
+  "liveReadOnly": {
+    "observedAt": "2026-10-05T03:26:01.689Z",
+    "chainId": 4663,
+    "blockNumber": "80467873",
+    "blockHash": "0x1efc23f35d2d90f1cf41e3e3a424a69869d99abbb1c3cd5a7a37d88839616c3f",
+    "canonicalModulesVerified": 11,
+    "assetIdentitiesVerified": 198,
+    "officialStockAddressesMatched": 194,
+    "simulations": [
+      {
+        "ticker": "WETH",
+        "quoteAddress": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+        "decimals": 18,
+        "method": "eth_call",
+        "success": true,
+        "predictedToken": "0x1c9346614c0938a4153063860599bfF3b4a43386",
+        "openingValuation": {
+          "policy": "fixed-usd-5000-v1",
+          "marketCapUsd": 5000,
+          "chainId": 4663,
+          "quoteAddress": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+          "quotedAt": 1791170755890,
+          "expiresAt": 1791171055890,
+          "blockNumber": "80467986",
+          "blockHash": "0xfb9be583aa1cb2ae0816d031ba9c65aa106599fa23523ed4eb1681f7e3bd68ca",
+          "quotePriceUsd": "2722.7564",
+          "source": "Chainlink",
+          "sourceUpdatedAt": 1791170475000,
+          "feed": "0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9"
+        }
+      },
+      {
+        "ticker": "NVDA",
+        "quoteAddress": "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC",
+        "decimals": 18,
+        "method": "eth_call",
+        "success": true,
+        "predictedToken": "0xa275876404B289e12c8c29E9908eFadCd4C6604D",
+        "openingValuation": {
+          "policy": "fixed-usd-5000-v1",
+          "marketCapUsd": 5000,
+          "chainId": 4663,
+          "quoteAddress": "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC",
+          "quotedAt": 1791170757905,
+          "expiresAt": 1791171057905,
+          "blockNumber": "80468002",
+          "blockHash": "0x15d71e1228ac974652db6067f5e27c43fdb1b5867224f5043c6d5596a9f2f22c",
+          "quotePriceUsd": "235.76261199600367557",
+          "source": "Robinhood",
+          "sourceUpdatedAt": 1791170748138
+        }
+      },
+      {
+        "ticker": "USDG",
+        "quoteAddress": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        "decimals": 6,
+        "method": "eth_call",
+        "success": true,
+        "predictedToken": "0xF6Cd5f6fd858e0A8E5DB2Aa8d87084D7f9Dcc5a5",
+        "openingValuation": {
+          "policy": "fixed-usd-5000-v1",
+          "marketCapUsd": 5000,
+          "chainId": 4663,
+          "quoteAddress": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+          "quotedAt": 1791170758711,
+          "expiresAt": 1791171058711,
+          "blockNumber": "80468021",
+          "blockHash": "0xe8ec7e5958541dce1e5970c42163810742bc03d259308cf8a86ecdc5f7231bad",
+          "quotePriceUsd": "1.00014839",
+          "source": "Chainlink",
+          "sourceUpdatedAt": 1791128414000,
+          "feed": "0x61B7e5650328764B076A108EFF5fa7282a1B9aD2"
+        }
+      },
+      {
+        "ticker": "cbBTC",
+        "quoteAddress": "0xCEC185eB182c47d1bA1EFc84e6959e18cd620Be4",
+        "decimals": 8,
+        "method": "eth_call",
+        "success": true,
+        "predictedToken": "0x4454bc20f8bDE57cbaaBB8383da5303F6D2F86b4",
+        "openingValuation": {
+          "policy": "fixed-usd-5000-v1",
+          "marketCapUsd": 5000,
+          "chainId": 4663,
+          "quoteAddress": "0xCEC185eB182c47d1bA1EFc84e6959e18cd620Be4",
+          "quotedAt": 1791170759602,
+          "expiresAt": 1791171059602,
+          "blockNumber": "80468029",
+          "blockHash": "0x9a939865966d05b81593bf08789d63395d894517acbb26944802d87f41de7f5d",
+          "quotePriceUsd": "86441.94713154",
+          "source": "Chainlink",
+          "sourceUpdatedAt": 1791167520000,
+          "feed": "0x0009cD492adf8167f9eEBf1293556A673530a21a"
+        }
+      },
+      {
+        "ticker": "MUSEGOD",
+        "quoteAddress": "0x0379E228F6887c6F18bf394042ECAF81B308cb2e",
+        "decimals": 18,
+        "method": "eth_call",
+        "success": true,
+        "predictedToken": "0x70B77BBDf8984FFEE7247374C64f3877d34FeD92",
+        "openingValuation": {
+          "policy": "fixed-usd-5000-v1",
+          "marketCapUsd": 5000,
+          "chainId": 4663,
+          "quoteAddress": "0x0379E228F6887c6F18bf394042ECAF81B308cb2e",
+          "quotedAt": 1791170761303,
+          "expiresAt": 1791171061303,
+          "blockNumber": "80468036",
+          "blockHash": "0x0cb65890bba31298d086bdd70bf2d073182568ca521c72d05b529d0619f6fd69",
+          "quotePriceUsd": "0.000291667086753351",
+          "source": "SushiSwap V3 TWAP",
+          "sourceUpdatedAt": 1791170475000,
+          "feed": "0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9",
+          "pool": "0x071eE139277688d64B139Af1e44f79a9acf12e53",
+          "twapSeconds": 300
+        }
+      }
+    ],
+    "signaturesRequested": false,
+    "mainnetTransactionsSubmitted": false
+  },
+  "isolatedFork": {
+    "observedAt": "2026-10-05T03:28:27.883Z",
+    "upstreamChainId": 4663,
+    "executionChainId": 31337,
+    "forkBlockNumber": "80467872",
+    "snapshotRestored": true,
+    "blockedUpstreamWrites": 0,
+    "fullFlowPassed": true,
+    "roundingRelativeBound": 0.0010004601200209236,
+    "initialPriceReadBeforeFirstTrade": true,
+    "assets": [
+      {
+        "symbol": "WETH",
+        "decimals": 18,
+        "openingValuation": {
+          "policy": "fixed-usd-5000-v1",
+          "marketCapUsd": 5000,
+          "chainId": 4663,
+          "quoteAddress": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+          "quotedAt": 1791170748556,
+          "expiresAt": 1791171048556,
+          "blockNumber": "80467875",
+          "blockHash": "0x473b8021b411faa933b634f629dc9fb3ff15adf50c92fc909b2503d0f572e498",
+          "quotePriceUsd": "2722.7564",
+          "source": "Chainlink",
+          "sourceUpdatedAt": 1791170475000,
+          "feed": "0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9"
+        },
+        "initialPoolPrice": {
+          "blockNumber": "80467878",
+          "sqrtPriceX96": "1848396300359791648570360477870294",
+          "memeIs0": false,
+          "actualOpeningCapUsd": 5002.392607272343
+        },
+        "tokenAddress": "0xd11bBf89b49789709674B807697122eE5634CB3D",
+        "poolId": "0x12df2a00c7fdb8470b990d7f52aebd1b3a9b71cc4f65af14c721a52dcb3e4d10",
+        "launchHash": "0x300cb420cffd8dc354295e93df6a8fb170a2919680dca9c4c88bc79f52a38563",
+        "buyHash": "0x4d6fd025994135ae1dbbd989eb4cac89d9039c07c4002d2fd51bd673d8b70080",
+        "sellHash": "0x6162a51ac7c49783a97fcc5df2dc6e90636640da6af44f0a9af71c6e05a91f29",
+        "feeClaimsVerified": [
+          {
+            "beneficiary": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+            "kind": "hook",
+            "hash": "0x49d8be9e9a63ef8ae3e212eb06bf71b3b750393148584e07bc53deaa30fa77de",
+            "paid": [
+              "102683905220067",
+              "0"
+            ]
+          },
+          {
+            "beneficiary": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+            "kind": "LP",
+            "hash": "0xa00e2a9eb9c6cabcbeb11dfad1552d1288435c4fd9f15c890d868b5029f28649",
+            "paid": [
+              "3324999999999",
+              "876347532794587079296"
+            ]
+          },
+          {
+            "beneficiary": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+            "kind": "hook",
+            "hash": "0x70d099493812645c86379fdb606ce493fdc8f32495e00f28eb96c8f2e3043007",
+            "paid": [
+              "44007387951457",
+              "0"
+            ]
+          },
+          {
+            "beneficiary": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+            "kind": "LP",
+            "hash": "0x36bded55fc1e18dda1858e132e8b126cf98fc1ba83e862ef6488ef51fdbeab2c",
+            "paid": [
+              "1424999999999",
+              "375577514054823033984"
+            ]
+          }
+        ],
+        "checks": [
+          "canonical creation",
+          "registration and idempotency",
+          "restart recovery",
+          "buy and sell exact raw unit balances",
+          "onchain beneficiary shares",
+          "separate hook and LP claim preview/receipt/balance equality for creator and treasury"
+        ]
+      },
+      {
+        "symbol": "NVDA",
+        "decimals": 18,
+        "openingValuation": {
+          "policy": "fixed-usd-5000-v1",
+          "marketCapUsd": 5000,
+          "chainId": 4663,
+          "quoteAddress": "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC",
+          "quotedAt": 1791170782297,
+          "expiresAt": 1791171082297,
+          "blockNumber": "80467905",
+          "blockHash": "0x003bdceeba3d0d235f25fcd93d6f6190305e3d393e2faac4da3cbf1d3348db21",
+          "quotePriceUsd": "235.747600368616206111",
+          "source": "Robinhood",
+          "sourceUpdatedAt": 1791170778387
+        },
+        "initialPoolPrice": {
+          "blockNumber": "80467908",
+          "sqrtPriceX96": "543828994112221323550299752392673",
+          "memeIs0": false,
+          "actualOpeningCapUsd": 5003.590185264155
+        },
+        "tokenAddress": "0xF92A1908465D4eeB48c9C276ecF7Ab4Edb9e01D6",
+        "poolId": "0x16f35a9f15b816e721c8f7d5d7e624edfc6913d00db7176d779d6694fa9c84cb",
+        "launchHash": "0xcb0d45d443cd7861b14399b61a373f309932d101018185b140b483c4fea4ef3c",
+        "buyHash": "0x192abc2b325342ac0039baa5ee95e5ee1d19e10a4079307a846dd8358bcc06e0",
+        "sellHash": "0xfff8934e769bb0662ac56f11e323d12d8eba8ff6ded54e78555d0c83843d9d26",
+        "feeClaimsVerified": [
+          {
+            "beneficiary": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+            "kind": "hook",
+            "hash": "0x025d03969a5819c4a9533367ff4ef21c47e0f81589c5be4a835e12be596df62e",
+            "paid": [
+              "99610585128165",
+              "0"
+            ]
+          },
+          {
+            "beneficiary": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+            "kind": "LP",
+            "hash": "0x46b6062fd84aba289d381ad9f8573ba7762869cdbca793bb92102c1792f8c137",
+            "paid": [
+              "3325000000000",
+              "78713707398669891980"
+            ]
+          },
+          {
+            "beneficiary": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+            "kind": "hook",
+            "hash": "0xb72823c6095cd6ca8110b3e01ddf2f371f7e5b90dca18c5a595ea71d65db1430",
+            "paid": [
+              "42690250769213",
+              "0"
+            ]
+          },
+          {
+            "beneficiary": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+            "kind": "LP",
+            "hash": "0xa6a31df1f8205c25d7c7f00f779b55443d33368743345a3fcd84609e5c3987c6",
+            "paid": [
+              "1425000000000",
+              "33734446028001382277"
+            ]
+          }
+        ],
+        "checks": [
+          "canonical creation",
+          "registration and idempotency",
+          "restart recovery",
+          "buy and sell exact raw unit balances",
+          "onchain beneficiary shares",
+          "separate hook and LP claim preview/receipt/balance equality for creator and treasury"
+        ]
+      },
+      {
+        "symbol": "USDG",
+        "decimals": 6,
+        "openingValuation": {
+          "policy": "fixed-usd-5000-v1",
+          "marketCapUsd": 5000,
+          "chainId": 4663,
+          "quoteAddress": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+          "quotedAt": 1791170810814,
+          "expiresAt": 1791171110814,
+          "blockNumber": "80467938",
+          "blockHash": "0x57ca1123ab66e66db86ead2ae2ad3d2a701a80174dd226e2013d523756ecbb7a",
+          "quotePriceUsd": "1.00014839",
+          "source": "Chainlink",
+          "sourceUpdatedAt": 1791128414000,
+          "feed": "0x61B7e5650328764B076A108EFF5fa7282a1B9aD2"
+        },
+        "initialPoolPrice": {
+          "blockNumber": "80467941",
+          "sqrtPriceX96": "177167137816297390992",
+          "memeIs0": true,
+          "actualOpeningCapUsd": 5001.16992516768
+        },
+        "tokenAddress": "0x05E2B502699DE279ca6b846481B8b88Bca220BC6",
+        "poolId": "0x6e02902fb80d5755fa6a9d743e718b6bb7b75a8a6eb40273c607454bcefc8881",
+        "launchHash": "0xcc1703785cbeefc9d0609e98bd11346f239df0abcbc0a7295db343ee609b9ab9",
+        "buyHash": "0xb60507b91be771f9997e6044efd4fe4c05cff1ef9be4e3edefa686e01c3847f3",
+        "sellHash": "0xc707f9fb421255d7487ec27fbebe09137b4f006e2d9159827073740bfdd504ad",
+        "feeClaimsVerified": [
+          {
+            "beneficiary": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+            "kind": "hook",
+            "hash": "0x98e47e2f0a684b6d7c3fae77de6367465ba7304c92747debfc42f1a2b6f8c301",
+            "paid": [
+              "67432",
+              "0"
+            ]
+          },
+          {
+            "beneficiary": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+            "kind": "LP",
+            "hash": "0x449479484de52294034ac3557aefe98ae8fa5d83fc677e99bd7ea452971d4bf7",
+            "paid": [
+              "3324",
+              "330280063960670059711"
+            ]
+          },
+          {
+            "beneficiary": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+            "kind": "hook",
+            "hash": "0x27ab3b2ac85bf38f18c10d34ede52d5a9385a7cddbd90e7772fd231c264b2813",
+            "paid": [
+              "28899",
+              "0"
+            ]
+          },
+          {
+            "beneficiary": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+            "kind": "LP",
+            "hash": "0xb8aa10e8c68265a040428ba9e3b200d3e317712abe64630b296f765e9e3528cb",
+            "paid": [
+              "1424",
+              "141548598840287168447"
+            ]
+          }
+        ],
+        "checks": [
+          "canonical creation",
+          "registration and idempotency",
+          "restart recovery",
+          "buy and sell exact raw unit balances",
+          "onchain beneficiary shares",
+          "separate hook and LP claim preview/receipt/balance equality for creator and treasury"
+        ]
+      },
+      {
+        "symbol": "cbBTC",
+        "decimals": 8,
+        "openingValuation": {
+          "policy": "fixed-usd-5000-v1",
+          "marketCapUsd": 5000,
+          "chainId": 4663,
+          "quoteAddress": "0xCEC185eB182c47d1bA1EFc84e6959e18cd620Be4",
+          "quotedAt": 1791170841099,
+          "expiresAt": 1791171141099,
+          "blockNumber": "80467968",
+          "blockHash": "0x2b93895e18e29a072c3e0c7fb4c06138a54f25762b66c6c21d0a6dffa58aa23b",
+          "quotePriceUsd": "86441.94713154",
+          "source": "Chainlink",
+          "sourceUpdatedAt": 1791167520000,
+          "feed": "0x0009cD492adf8167f9eEBf1293556A673530a21a"
+        },
+        "initialPoolPrice": {
+          "blockNumber": "80467971",
+          "sqrtPriceX96": "1041483104851743937052789718074530417677",
+          "memeIs0": false,
+          "actualOpeningCapUsd": 5002.409612080514
+        },
+        "tokenAddress": "0xf6f7CD8A848bED5a538C1005Cc09b0F55fA253B4",
+        "poolId": "0xfcdda5786cfe14825d5d82054fb0d9d4aa1bb97d317ced2c36d3c04bf9fe33bc",
+        "launchHash": "0x20d78b2e04b46bf01db630619c1a0da38fd100f8406a015849200aac1b10f823",
+        "buyHash": "0x7667807b2fed869d8e996c16a1b7d55d7472bc93ff00eb0e42600eff6a92d5db",
+        "sellHash": "0xb811325fb2f3d5ee5cf7870eac38643217c1e9c89945e6bafef092dd6aa1e7e6",
+        "feeClaimsVerified": [
+          {
+            "beneficiary": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+            "kind": "hook",
+            "hash": "0xa45056ac595302e7ab0cbb768210041ab1dc346aa7e8e1f2dcb9f40b5d47c70d",
+            "paid": [
+              "8726",
+              "0"
+            ]
+          },
+          {
+            "beneficiary": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+            "kind": "LP",
+            "hash": "0x9aa2d049691c6f1630fd09ba512b6301e7d2f753bb5798c588a07ac95db0436d",
+            "paid": [
+              "333",
+              "17536851256805762118945"
+            ]
+          },
+          {
+            "beneficiary": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+            "kind": "hook",
+            "hash": "0x2b7ea8f623f96980878be741fe4b8a39e5fa4f18411471a37dfd36c15b87c7d3",
+            "paid": [
+              "3739",
+              "0"
+            ]
+          },
+          {
+            "beneficiary": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+            "kind": "LP",
+            "hash": "0x41adebb7950ac5b62b6bdccb263d730793e9e05ae2e1e857ecdbeac92be49c5a",
+            "paid": [
+              "142",
+              "7515793395773898050976"
+            ]
+          }
+        ],
+        "checks": [
+          "canonical creation",
+          "registration and idempotency",
+          "restart recovery",
+          "buy and sell exact raw unit balances",
+          "onchain beneficiary shares",
+          "separate hook and LP claim preview/receipt/balance equality for creator and treasury"
+        ]
+      },
+      {
+        "symbol": "MUSEGOD",
+        "decimals": 18,
+        "openingValuation": {
+          "policy": "fixed-usd-5000-v1",
+          "marketCapUsd": 5000,
+          "chainId": 4663,
+          "quoteAddress": "0x0379E228F6887c6F18bf394042ECAF81B308cb2e",
+          "quotedAt": 1791170877669,
+          "expiresAt": 1791171177669,
+          "blockNumber": "80468001",
+          "blockHash": "0x13e294ffa0c2f7a99caa52feeb87a112f2c64b668b5922472005554964a1506f",
+          "quotePriceUsd": "0.000291200815843896",
+          "source": "SushiSwap V3 TWAP",
+          "sourceUpdatedAt": 1791170475000,
+          "feed": "0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9",
+          "pool": "0x071eE139277688d64B139Af1e44f79a9acf12e53",
+          "twapSeconds": 300
+        },
+        "initialPoolPrice": {
+          "blockNumber": "80468004",
+          "sqrtPriceX96": "604396373181610948560838505686",
+          "memeIs0": false,
+          "actualOpeningCapUsd": 5003.893475131292
+        },
+        "tokenAddress": "0xfaE474f518C4bD55097104489cf43201aE38817F",
+        "poolId": "0xc2e652e6896e41c576cdce7194bcfd1e7afe6ad5aa720432456f92f21c74e956",
+        "launchHash": "0x8a980067e71c25bd56f45ae2c2d5ca7bc53d7b8e247d869cb8f13ab9cd4088b7",
+        "buyHash": "0x9324265aec455750fc38d22254835e087f25f8663325488fd8b8aa608c25db87",
+        "sellHash": "0xd08bfe5dacbdad85ac7bddbd350b7fb089771dab4ac99613556682a08057e74a",
+        "feeClaimsVerified": [
+          {
+            "beneficiary": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+            "kind": "hook",
+            "hash": "0xbc049b88d52c70085369ae644e902959a51c2a5f3cef6814aafc4a3b5444de98",
+            "paid": [
+              "99318468749490849",
+              "0"
+            ]
+          },
+          {
+            "beneficiary": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+            "kind": "LP",
+            "hash": "0x5e7a32052cfe888068082abd328f5e1d9702633b6a96abc1e6b45b5c37835fbe",
+            "paid": [
+              "3324999999999999",
+              "97570432812101492"
+            ]
+          },
+          {
+            "beneficiary": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+            "kind": "hook",
+            "hash": "0xe2e1e957162d8b62e30e35c28e665b8ae1e9bdebc36909ef8f493c29a1fd14d4",
+            "paid": [
+              "42565058035496078",
+              "0"
+            ]
+          },
+          {
+            "beneficiary": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+            "kind": "LP",
+            "hash": "0x94ae0d8d9417e6401b3467123388be05b991426ecbd6143602cc73ae8d3a758f",
+            "paid": [
+              "1424999999999999",
+              "41815899776614925"
+            ]
+          }
+        ],
+        "checks": [
+          "canonical creation",
+          "registration and idempotency",
+          "restart recovery",
+          "buy and sell exact raw unit balances",
+          "onchain beneficiary shares",
+          "separate hook and LP claim preview/receipt/balance equality for creator and treasury"
+        ]
+      }
+    ],
+    "boundary": "Real contracts and balances on isolated Anvil only; not Nitro gas accounting, Robinhood finality, mainnet settlement, or real browser-wallet execution"
+  },
+  "browser": {
+    "environment": {
+      "url": "http://127.0.0.1:5188/create",
+      "chainId": 4663,
+      "writesEnabled": false,
+      "session": "fixed-opening-ui"
+    },
+    "checks": [
+      {
+        "name": "desktopCreate",
+        "pass": true,
+        "viewport": [
+          1440,
+          1000
+        ],
+        "overflow": false,
+        "fixedOpeningCopy": true,
+        "oldInputAbsent": true
+      },
+      {
+        "name": "oldDraftRestore",
+        "pass": true,
+        "evidence": "browser local storage reload",
+        "inputOpeningCap": "987654",
+        "restoredName": "Fixed Cap Browser",
+        "restoredSymbol": "FIVEK",
+        "restoredDescription": "Fixed opening target verification",
+        "restoredSocials": true,
+        "savedOpeningCapAbsent": true
+      },
+      {
+        "name": "assetSwitch",
+        "pass": true,
+        "assets": [
+          "USDG",
+          "WETH"
+        ],
+        "fixedOpeningCopy": true
+      },
+      {
+        "name": "desktopReview",
+        "pass": true,
+        "viewport": [
+          1440,
+          1000
+        ],
+        "fixedOpeningCopy": true,
+        "overflow": false
+      },
+      {
+        "name": "realReadOnlySimulation",
+        "pass": true,
+        "evidence": "real local server prepare response using live Chainlink and RPC; synthetic provider supplies test account only",
+        "status": 200,
+        "source": "Chainlink",
+        "chainId": 4663,
+        "quoteAddress": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+        "quotePriceUsd": "2722.7564",
+        "marketCapUsd": 5000,
+        "policy": "fixed-usd-5000-v1",
+        "blockNumber": "80465689",
+        "blockHash": "0x902c1d7090c5d1cd5a469106faa9271ec2afd846a081ca3a410f8266a1db09c6",
+        "feed": "0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9",
+        "quotedAt": 1791170519972,
+        "expiresAt": 1791170819972,
+        "preparedAt": 1791170520937,
+        "walletRequests": [
+          "eth_requestAccounts",
+          "eth_chainId"
+        ]
+      },
+      {
+        "name": "mobileCreate",
+        "pass": true,
+        "viewport": [
+          390,
+          844
+        ],
+        "fixedOpeningCopy": true,
+        "oldInputAbsent": true,
+        "overflow": false
+      },
+      {
+        "name": "mobileReview",
+        "pass": true,
+        "viewport": [
+          390,
+          844
+        ],
+        "fixedOpeningCopy": true,
+        "overflow": false,
+        "fix": "Mobile review facts stack labels above values, avoiding single-character wrapping for long allocation labels; screenshot visually inspected"
+      },
+      {
+        "name": "expiryResimulation",
+        "pass": true,
+        "evidence": "synthetic prepare response has one second left in five minute TTL; DOM activation",
+        "expiryMessage": true,
+        "resimulateButton": true,
+        "walletButtonAbsent": true
+      },
+      {
+        "name": "invalidPriceRejected",
+        "pass": true,
+        "evidence": "synthetic prepare response quotePriceUsd=0; DOM activation",
+        "error": "The paired asset USD price is unavailable. Run a new simulation.",
+        "walletButtonAbsent": true
+      },
+      {
+        "name": "wrongAssetRejected",
+        "pass": true,
+        "evidence": "synthetic prepare response changes bound quoteAddress; DOM activation",
+        "error": "The opening valuation does not match this paired asset or network. Run a new simulation.",
+        "walletButtonAbsent": true
+      },
+      {
+        "name": "mobileReviewAfterFix",
+        "overflow": false,
+        "pass": true,
+        "valueWidths": [
+          301,
+          301,
+          301,
+          301,
+          301,
+          301,
+          301,
+          301,
+          301
+        ],
+        "viewport": [
+          390,
+          844
+        ]
+      },
+      {
+        "evidence": "synthetic delayed prepare response after wallet accountsChanged",
+        "name": "lateResponseDiscard",
+        "pass": true,
+        "result": "stale plan discarded and Simulate launch enabled after activeSimulation ref fix"
+      },
+      {
+        "name": "navigationHome",
+        "pass": true,
+        "path": "/"
+      },
+      {
+        "name": "frameworkErrors",
+        "pass": true
+      },
+      {
+        "name": "consoleAndPageErrors",
+        "pass": true,
+        "consoleErrors": [],
+        "pageErrors": ""
+      }
+    ],
+    "screenshots": [
+      "fixed-opening-desktop-review.png",
+      "fixed-opening-mobile-review.png",
+      "fixed-opening-worker-mobile.png"
+    ],
+    "notes": [
+      "Headless Chromium at desktop and mobile viewport; not a real mobile device",
+      "Offscreen CLI coordinate click sometimes did not fire; DOM click activation used for fault states",
+      "No signing or transaction sending performed; synthetic provider refuses every method except eth_accounts, eth_requestAccounts, eth_chainId"
+    ],
+    "finalWalletRequests": [
+      "eth_accounts",
+      "eth_chainId",
+      "eth_chainId",
+      "eth_chainId",
+      "eth_chainId"
+    ],
+    "signingRequests": [],
+    "browserErrors": "",
+    "consoleErrors": [],
+    "completedAt": "2026-10-05T03:27:30.634Z",
+    "allPassed": true,
+    "finalWorkerBuild": {
+      "origin": "http://127.0.0.1:8787/create",
+      "viewport": [
+        390,
+        844
+      ],
+      "fixedCopy": true,
+      "oldInputAbsent": true,
+      "overflow": false,
+      "consoleErrors": [],
+      "productionAssets": [
+        "index-Gg6mYscB.js",
+        "index-DQkMmNUJ.css"
+      ]
+    }
+  },
+  "temporaryTestDataCleanup": {
+    "observedAt": "2026-10-05T03:33:23.390Z",
+    "results": [
+      {
+        "scope": "verify-fixed-opening-worker-1791170427",
+        "before": {
+          "musegod_plans": 4,
+          "musegod_tokens": 0,
+          "musegod_snapshots": 0,
+          "musegod_quota": 0,
+          "musegod_pending_launches": 0,
+          "musegod_buyback_batches": 0
+        },
+        "after": {
+          "musegod_plans": 0,
+          "musegod_tokens": 0,
+          "musegod_snapshots": 0,
+          "musegod_quota": 0,
+          "musegod_pending_launches": 0,
+          "musegod_buyback_batches": 0
+        }
+      },
+      {
+        "scope": "verify-fixed-opening-node-production-1791171020",
+        "before": {
+          "musegod_plans": 0,
+          "musegod_tokens": 0,
+          "musegod_snapshots": 0,
+          "musegod_quota": 0,
+          "musegod_pending_launches": 0,
+          "musegod_buyback_batches": 0
+        },
+        "after": {
+          "musegod_plans": 0,
+          "musegod_tokens": 0,
+          "musegod_snapshots": 0,
+          "musegod_quota": 0,
+          "musegod_pending_launches": 0,
+          "musegod_buyback_batches": 0
+        }
+      }
+    ],
+    "productionScopesModified": false
+  },
+  "limitations": [
+    "$5,000 is a preview-time USD target; pool tick rounding and later paired-asset price changes cause deviations",
+    "Live catalog-pool HTTP quote check explicitly skipped because the isolated test catalog is empty; full trading verified separately on five fork pools",
+    "Desktop and mobile browser checks used headless Chromium at 1440px/390px, not a physical phone or real wallet",
+    "Local-only change; no Cloudflare publication, mainnet signature, issuance, trade, fee claim, bridge, buyback or burn",
+    "Fixed-USD new issuance is configured for Robinhood Chain; Base historical receipt recovery retained"
+  ],
+  "rollback": "Discard only this change's tracked source/test/script/document diff and new pricing modules; retain existing .env/.dev.vars, database scopes, historical receipts, pinned assets, and prior deployment versions. No deployed pools or immutable metadata changed.",
+  "primaryReferences": [
+    "https://docs.robinhood.com/chain/stock-token-apis/",
+    "https://api.robinhood.com/rhj/assets/",
+    "https://docs.chain.link/data-feeds/price-feeds/addresses",
+    "https://api.bankr.bot/token-launches/0x0379e228f6887c6f18bf394042ecaf81b308cb2e"
+  ],
+  "sourceBaselineCommit": "019fa11a77d5f783c11e88f7ee03b97e852b6226",
+  "sourceFileHashes": {
+    "server/opening-price.ts": "2c5fb5cc568bb49a595dce0d0f553028269265c3d598ab16d99eab7a8652f2e1",
+    "server/service.ts": "871de24d57a35fb94f24c127138baff8c2706c9193adecfcd813b02fcfccd509",
+    "src/lib/opening-valuation.ts": "7d6ae636c1f6cc638a003cedb27d7e1c0364cc53f02a7d92a12123cd2452fda9",
+    "src/lib/protocol.ts": "cf32a0091c4b160d68e39407a13527a4f8ac9c4457e014386d9fb90b15dc45fb",
+    "src/lib/validation.ts": "8a77659996984add0224d51281ff03cb323c1c37fb531b23805d4654231b7ce5",
+    "src/App.tsx": "e12db2d6ab189bcda4c9d557fef3d08fa6ca113cf523df24ced14c8c0d2fa556",
+    "src/styles.css": "1620496e5e102329f646607d56e575ca3f6894ba45f817e86e709f3334454f9c"
+  },
+  "priceSourceVerification": {
+    "observedAt": "2026-10-05T03:35:53+00:00",
+    "chainlinkDirectory": "https://reference-data-directory.vercel.app/feeds-robinhood-mainnet.json",
+    "chainlinkAuthority": "https://docs.robinhood.com/chain/oracles-and-price-feeds/",
+    "feeds": [
+      {
+        "name": "ETH / USD",
+        "proxyAddress": "0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9",
+        "heartbeatSeconds": 86400,
+        "listedDecimals": 8
+      },
+      {
+        "name": "USDG / USD",
+        "proxyAddress": "0x61B7e5650328764B076A108EFF5fa7282a1B9aD2",
+        "heartbeatSeconds": 86400,
+        "listedDecimals": 8
+      },
+      {
+        "name": "CBBTC / USD",
+        "proxyAddress": "0x0009cD492adf8167f9eEBf1293556A673530a21a",
+        "heartbeatSeconds": 86400,
+        "listedDecimals": 8
+      }
+    ],
+    "runtimeReadsActualDecimals": true,
+    "musegodPool": {
+      "provenance": [
+        "https://musegod.org/docs",
+        "https://api.bankr.bot/token-launches/0x0379e228f6887c6f18bf394042ecaf81b308cb2e"
+      ],
+      "onchainIdentityReadBlock": "80453001",
+      "pool": "0x071eE139277688d64B139Af1e44f79a9acf12e53",
+      "factory": "0xE51960f1B45f1C9FB6D166E6a884F866fC70433B",
+      "fee": 10000,
+      "canonicalFactoryGetPoolMatched": true,
+      "observationSeconds": 300,
+      "boundary": "Pool provenance comes from issuer docs and launch record; factory, fee, token identity, liquidity and observation history are pinned-block onchain reads"
+    }
+  }
+}

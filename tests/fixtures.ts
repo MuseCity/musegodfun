@@ -1,4 +1,23 @@
 import { STOCKS, type TokenRecord } from "../src/lib/config";
+import { OPENING_CAP_USD, OPENING_POLICY, LAUNCH_PRICE_TTL, type OpeningValuation } from "../src/lib/opening-valuation";
+import type { Address } from "viem";
+
+// A controlled USD price for unit tests, never a source for issuance.
+export function syntheticOpeningValuation(
+  quoteAddress: Address = STOCKS[0].address,
+  quotePriceUsd = "100",
+  overrides: Partial<OpeningValuation> = {},
+): OpeningValuation {
+  const quotedAt = Date.now();
+  return {
+    policy: OPENING_POLICY, marketCapUsd: OPENING_CAP_USD,
+    chainId: 8453, quoteAddress, quotePriceUsd,
+    quotedAt, expiresAt: quotedAt + LAUNCH_PRICE_TTL,
+    source: "Robinhood", sourceUpdatedAt: quotedAt,
+    blockNumber: "1", blockHash: `0x${"a".repeat(64)}`,
+    ...overrides,
+  };
+}
 
 // Synthetic records are unit-test input only. They are not deployed assets,
 // verified listings, live market pools, or fixtures for the mainnet database.

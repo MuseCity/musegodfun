@@ -6,6 +6,7 @@ import { airlockAbi, DopplerSDK } from "@whetstone-research/doppler-sdk/evm";
 import { assetsFor, contractsFor, sameAddress } from "../src/lib/config";
 import { buildLaunch } from "../src/lib/protocol";
 import { runtimeFromEnv } from "../server/config";
+import { readOpeningValuation } from "../server/opening-price";
 
 const runtime = runtimeFromEnv();
 assert.equal(runtime.config.mode, "robinhood", "Use CHAIN_MODE=robinhood");
@@ -130,16 +131,17 @@ const simulations = [];
 for (const ticker of ["WETH", "NVDA", "USDG", "cbBTC", "MUSEGOD"]) {
   const asset = assets.find((row) => row.ticker === ticker);
   assert(asset);
+  const openingValuation = await readOpeningValuation(client, asset, 4663);
   const params = buildLaunch(sdk, {
     name: "Robinhood Read-only Simulation", symbol: "RHSIM",
     description: "Read-only eth_call. No signature or broadcast.", image: "",
-    quoteAddress: asset.address, openingCap: ticker === "WETH" ? "10" : "100",
-  }, creator, runtime.config.treasury, owner, undefined, 4663);
+    quoteAddress: asset.address,
+  }, creator, runtime.config.treasury, owner, openingValuation, undefined, 4663);
   const simulation = await client.simulateContract({ address: contracts.airlock,
     abi: airlockAbi, functionName: "create",
-    args: [sdk.factory.encodeCreateMulticurveParams(params)], account: creator, blockNumber });
+    args: [sdk.factory.encodeCreateMulticurveParams(params)], account: creator, blockNumber: BigInt(openingValuation.blockNumber) });
   simulations.push({ ticker, quoteAddress: asset.address, decimals: asset.decimals,
-    method: "eth_call", success: true, predictedToken: simulation.result[0] });
+    method: "eth_call", success: true, predictedToken: simulation.result[0], openingValuation });
 }
 assert.equal((await client.getBlock({ blockNumber })).hash, block.hash, "Evidence block must stay canonical");
 await mkdir(".cache", { recursive: true });

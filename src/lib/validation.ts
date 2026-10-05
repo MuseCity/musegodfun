@@ -67,21 +67,8 @@ export const launchSchema = z
         return false;
       }
     }, "Select a supported pairing asset"),
-    openingCap: amountSchema.refine(
-      (s) => Number(s) >= 1 && Number(s) <= 1_000_000,
-      "The opening valuation must be between 1 and 1,000,000 pairing tokens",
-    ),
   })
-  .superRefine((input, ctx) => {
-    let stock;
-    try { stock = stockByAddress(input.quoteAddress); } catch { return; }
-    if ((input.openingCap.split(".")[1]?.length ?? 0) > stock.decimals)
-      ctx.addIssue({
-        code: "custom",
-        path: ["openingCap"],
-        message: `The opening valuation supports up to ${stock.decimals} decimal places`,
-      });
-  });
+  .strict();
 export type LaunchInput = z.infer<typeof launchSchema>;
 export function restoreDraft(raw: string | null, config?: Pick<RuntimeConfig, "mode" | "deploymentChainId">): LaunchInput {
   const assets = assetsFor(config);
@@ -94,7 +81,6 @@ export function restoreDraft(raw: string | null, config?: Pick<RuntimeConfig, "m
     twitter: "",
     telegram: "",
     quoteAddress: assets[0].address,
-    openingCap: "100",
   };
   try {
     const saved = JSON.parse(raw || "null");
@@ -108,7 +94,6 @@ export function restoreDraft(raw: string | null, config?: Pick<RuntimeConfig, "m
       ["website", 500],
       ["twitter", 500],
       ["telegram", 500],
-      ["openingCap", 64],
     ] as const) {
       if (typeof saved[key] === "string")
         draft[key] = saved[key].slice(0, limit);

@@ -48,7 +48,7 @@ test("Robinhood signing uses its active chain and existing opt-in gate", async (
     "A provider on Base must not receive the Robinhood transaction");
 });
 
-test("draft restoration stays on the active deployment and validates each asset precision", () => {
+test("draft restoration stays on the active deployment and discards custom opening valuations", () => {
   const asset = assetsFor(robinhood)[0];
   const savedRobinhood = JSON.stringify({ name: "Saved RH draft", quoteAddress: assetsFor(robinhood).find((a) => a.ticker === "NVDA")!.address });
   assert.equal(restoreDraft(savedRobinhood).quoteAddress, JSON.parse(savedRobinhood).quoteAddress, "An initial render before config arrives must not discard the saved Robinhood pair");
@@ -56,6 +56,7 @@ test("draft restoration stays on the active deployment and validates each asset 
   const saved = JSON.stringify({ name: "Saved draft", quoteAddress: STOCKS[0].address, openingCap: "100" });
   assert.equal(restoreDraft(saved, robinhood).quoteAddress, asset.address);
   assert.equal(restoreDraft(saved, robinhood).name, "Saved draft");
+  assert.equal("openingCap" in restoreDraft(saved, robinhood), false);
   assert.equal(restoreDraft(saved, { mode: "base" }).quoteAddress, STOCKS[0].address);
   assert.equal(restoreDraft(null, fork).quoteAddress, asset.address);
   const input = { ...restoreDraft(null, robinhood), name: "Test asset", symbol: "TEST" };

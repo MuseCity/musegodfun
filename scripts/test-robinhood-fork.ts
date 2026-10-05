@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import {
-  createPublicClient, createWalletClient, encodeFunctionData, erc20Abi, formatUnits,
+  createPublicClient, createWalletClient, encodeAbiParameters, encodeFunctionData, erc20Abi, formatUnits, keccak256,
   http, parseAbi, parseAbiItem, parseEther, parseUnits, toHex, zeroAddress,
   type Address, type Hash,
 } from "viem";
@@ -13,6 +13,7 @@ import { contractsFor, ROBINHOOD_STOCKS, SUPPLY, WAD, sameAddress } from "../src
 import { claimFeesAbi, permit2Abi, swapTransaction } from "../src/lib/protocol";
 import { allocateFeeIncome, FEE_POLICY } from "../src/lib/fee-policy";
 import { LaunchpadService } from "../server/service";
+import { OPENING_CAP_USD, OPENING_POLICY } from "../src/lib/opening-valuation";
 import { redact, runtimeFromEnv } from "../server/config";
 import { startRobinhoodFork } from "./robinhood-fork";
 
@@ -133,7 +134,7 @@ try {
     const plan = await service.prepare({
       name: `Robinhood ${ticker} Fork Proof`, symbol: `RH${ticker.toUpperCase()}`,
       description: "Isolated local Robinhood Chain fork acceptance. No mainnet transaction.",
-      image: "", quoteAddress: asset.address, openingCap: ticker === "WETH" ? "10" : "100",
+      image: "", quoteAddress: asset.address,
     }, creator);
     assert.equal(plan.feePolicy, FEE_POLICY);
     assert(sameAddress(plan.feeTreasury!, treasury));
@@ -153,6 +154,8 @@ try {
     assert.equal((await service.register(launchHash)).address, registered.address);
     assert.equal(registered.mode, "fork");
     assert.equal(registered.feePolicy, FEE_POLICY);
+    assert.equal(registered.openingValuation?.policy, OPENING_POLICY);
+    assert.equal(registered.openingValuation.marketCapUsd, OPENING_CAP_USD);
     const pool = await sdk.getMulticurvePool(registered.address);
     const state = await pool.getState();
     assert.equal(state.status, 2);
@@ -161,6 +164,23 @@ try {
     assert(sameAddress(state.poolKey.hooks, contracts.initializer));
     assert.equal((await service.state(registered.address)).token.poolId, plan.poolId);
     assert.equal(await client.readContract({ address: registered.address, abi: erc20Abi, functionName: "totalSupply" }), SUPPLY);
+    // Uniswap v4 StateLibrary: pools mapping is storage slot 6; Slot0's
+    // low 160 bits contain sqrtPriceX96. Read the actual new pool before buys.
+    const priceBlock = await client.getBlockNumber();
+    const slot = keccak256(encodeAbiParameters([{ type: "bytes32" }, { type: "uint256" }], [registered.poolId, 6n]));
+    const slot0 = await client.readContract({ address: contracts.poolManager,
+      abi: parseAbi(["function extsload(bytes32 slot) view returns(bytes32)"]),
+      functionName: "extsload", args: [slot], blockNumber: priceBlock });
+    const sqrtPriceX96 = BigInt(slot0) & ((1n << 160n) - 1n);
+    assert(sqrtPriceX96 > 0n);
+    const memeIs0 = sameAddress(state.poolKey.currency0, registered.address);
+    const squared = sqrtPriceX96 * sqrtPriceX96, q192 = 1n << 192n;
+    const numerator = (memeIs0 ? squared : q192) * 10n ** 18n;
+    const denominator = (memeIs0 ? q192 : squared) * 10n ** BigInt(asset.decimals);
+    const actualOpeningCapUsd = Number(numerator) / Number(denominator)
+      * Number(registered.openingValuation.quotePriceUsd) * 1_000_000_000;
+    assert(Math.abs(actualOpeningCapUsd / OPENING_CAP_USD - 1) <= 1.0001 ** 10 - 1 + 1e-8,
+      `${ticker}: initial pool valuation ${actualOpeningCapUsd} exceeds tickSpacing=10 rounding tolerance`);
     const owner = await sdk.getAirlockOwner();
     const readShare = (contract: Address, account: Address) => client.readContract({
       address: contract, abi: sharesAbi, functionName: "getShares", args: [registered.poolId, account],
@@ -244,6 +264,8 @@ try {
     }
     evidence.push({ asset, funding, tokenAddress: registered.address, poolId: registered.poolId,
       launchHash, feePolicy: registered.feePolicy, feeTreasury: registered.feeTreasury,
+      openingValuation: registered.openingValuation,
+      initialPoolPrice: { blockNumber: priceBlock, sqrtPriceX96, memeIs0, actualOpeningCapUsd },
       shares, buy, sell, bought, quoteReturned, payouts,
       checks: ["canonical creation", "registration and idempotency", "restart recovery",
         "buy and sell exact raw unit balances", "onchain beneficiary shares",

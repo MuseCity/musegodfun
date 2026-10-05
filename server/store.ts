@@ -5,17 +5,19 @@ import type { Address, Hex } from "viem";
 import type { LaunchInput } from "../src/lib/validation";
 import type { TokenRecord } from "../src/lib/config";
 import type { FeePolicy } from "../src/lib/fee-policy";
+import type { OpeningValuation } from "../src/lib/opening-valuation";
 export type LaunchPlan = {
   id: Hex;
   creator: Address;
   data: Hex;
   tokenAddress: Address;
   poolId: Hex;
-  draft: LaunchInput;
+  draft: LaunchInput & { openingCap?: string };
   preparedAt: number;
   gas: string | null;
   feePolicy?: FeePolicy;
   feeTreasury?: Address;
+  openingValuation?: OpeningValuation;
 };
 export type BuybackBatchRecord = Record<string, unknown> & { id: string };
 export function assertBuybackBatchId(id: unknown): asserts id is string {

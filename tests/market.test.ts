@@ -56,7 +56,6 @@ test("all catalog assets require stock quotes with 8/18 precision and no stablec
       name: "No",
       symbol: "NO",
       quoteAddress: unsupported,
-      openingCap: "100",
       description: "",
       image: "",
     }).success,

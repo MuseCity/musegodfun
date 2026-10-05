@@ -31,6 +31,8 @@ import {
 } from "../src/lib/config";
 import { assertStock, buildLaunch } from "../src/lib/protocol";
 import { FEE_POLICY } from "../src/lib/fee-policy";
+import { assertOpeningValuation, openingCapInQuote } from "../src/lib/opening-valuation";
+import { readOpeningValuation } from "./opening-price";
 import {
   addressSchema,
   launchSchema,
@@ -165,6 +167,8 @@ export class LaunchpadService {
     if (!this.assets.some((asset) => sameAddress(asset.address, draft.quoteAddress)))
       throw new Error("The paired asset is not supported on the active network");
     await assertStock(this.client, draft.quoteAddress);
+    const chainId = deploymentChain(this.runtime.config);
+    const openingValuation = await readOpeningValuation(this.client, stockByAddress(draft.quoteAddress), chainId);
     const protocolOwner = await this.sdk.getAirlockOwner();
     // Provide account for simulation without any wallet or private key on the server.
     const params = buildLaunch(
@@ -173,8 +177,9 @@ export class LaunchpadService {
       creator,
       treasury,
       protocolOwner,
+      openingValuation,
       undefined,
-      deploymentChain(this.runtime.config),
+      chainId,
     );
     const createParams = this.sdk.factory.encodeCreateMulticurveParams(params);
     const simulation = await this.client
@@ -214,12 +219,15 @@ export class LaunchpadService {
       data,
       tokenAddress,
       poolId: computePoolId(key),
-      draft,
+      draft: { ...draft, openingCap: openingCapInQuote(openingValuation) },
       preparedAt: Date.now(),
       gas: gas?.toString() ?? null,
       feePolicy: FEE_POLICY,
       feeTreasury: treasury,
+      openingValuation,
     };
+    // Pricing validity includes time spent simulating and estimating gas.
+    assertOpeningValuation(openingValuation, draft.quoteAddress, chainId);
     await this.store.savePlan(plan);
     return plan;
   }
@@ -235,6 +243,7 @@ export class LaunchpadService {
       Date.now() - plan.preparedAt > 300_000
     )
       throw new Error("The issuance preview expired or the treasury changed. Simulate again.");
+    assertOpeningValuation(plan.openingValuation, plan.draft.quoteAddress, deploymentChain(this.runtime.config));
     return { valid: true, feePolicy: plan.feePolicy };
   }
   async trackLaunch(hash: Hex, planId: string) {
@@ -307,6 +316,7 @@ export class LaunchpadService {
     if (supply !== SUPPLY) throw new Error("Supply verification failed.");
     const token: TokenRecord = {
       ...plan.draft,
+      openingCap: plan.draft.openingCap ?? (plan.openingValuation ? openingCapInQuote(plan.openingValuation) : ""),
       address: plan.tokenAddress,
       creator: plan.creator,
       poolId: plan.poolId,
@@ -317,6 +327,7 @@ export class LaunchpadService {
       deploymentChainId: deploymentChain(this.runtime.config),
       feePolicy: plan.feePolicy,
       feeTreasury: plan.feeTreasury,
+      openingValuation: plan.openingValuation,
     };
     await this.store.saveToken(token);
     await this.store.launchStatus(hash, "confirmed", receipt.blockHash);

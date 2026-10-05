@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { readFile, writeFile, readdir } from "node:fs/promises";
 import { loadEnvironment } from "../server/config";
 loadEnvironment();
-const root = "http://127.0.0.1:5188";
+const root = process.env.TEST_APP_URL || "http://127.0.0.1:5188";
+assert(["127.0.0.1", "localhost", "[::1]"].includes(new URL(root).hostname), "Runtime checks are local only");
 const checks: string[] = [];
 const call = async (path: string, body?: unknown, origin?: string) =>
   fetch(root + path, {
@@ -93,14 +94,14 @@ checks.push("keys absent from production bundle and responses");
 const ready = await call("/readyz");
 const readiness = await ready.json();
 await writeFile(
-  "docs/evidence/runtime-http.json",
+  new URL(root).port === "8787" ? ".cache/fixed-opening-runtime-worker.json" : ".cache/fixed-opening-runtime-node.json",
   JSON.stringify(
     {
       observedAt: new Date().toISOString(),
       checks,
       readiness,
       readyStatus: ready.status,
-      mainnetVerified: readiness.status === "ready",
+      runtimeReady: readiness.status === "ready",
     },
     null,
     2,

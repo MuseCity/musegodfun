@@ -2,6 +2,7 @@ import { getAddress, type Address } from "viem";
 import stockData from "./stocks.json";
 import robinhoodData from "./robinhood-assets.json";
 import type { FeePolicy } from "./fee-policy";
+import type { OpeningValuation } from "./opening-valuation";
 
 export const SUPPLY = 1_000_000_000n * 10n ** 18n;
 export const WAD = 10n ** 18n;
@@ -121,6 +122,8 @@ export type TokenRecord = {
   blockNumber: string | null;
   createdAt: number;
   openingCap: string;
+  // Absent on historical launches, whose openingCap remains in paired units.
+  openingValuation?: OpeningValuation;
   mode: "base" | "robinhood" | "fork";
   deploymentChainId?: 8453 | 4663;
   // Absent for older launches. Never backfill

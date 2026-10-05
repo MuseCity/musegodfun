@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
 import { assetsFor, networkName, type TokenRecord } from "../src/lib/config";
 import { FEE_POLICY } from "../src/lib/fee-policy";
+import { assertOpeningValuation } from "../src/lib/opening-valuation";
 
 const origin = process.env.TEST_APP_URL || "http://127.0.0.1:5188";
 assert(
@@ -19,7 +20,7 @@ async function call(
     method: body === undefined ? "GET" : "POST",
     headers: { "content-type": "application/json", ...headers },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    signal: AbortSignal.timeout(35000),
+    signal: AbortSignal.timeout(path === "/launch/prepare" ? 190000 : 35000),
   });
   return { status: response.status, body: await response.json() };
 }
@@ -111,7 +112,6 @@ const invalidPlan = await call("/launch/prepare", {
     description: "",
     image: "",
     quoteAddress: STOCKS[0].address,
-    openingCap: "100",
   },
   creator: "0x0000000000000000000000000000000000000001",
 });
@@ -119,14 +119,23 @@ assert.equal(invalidPlan.status, 200);
 assert(invalidPlan.body.data.startsWith("0x"));
 assert.equal(invalidPlan.body.feePolicy, FEE_POLICY);
 assert.equal(invalidPlan.body.feeTreasury.toLowerCase(), config.body.treasury.toLowerCase());
-checks.push("Mainnet launch simulation with current fee policy and configured treasury; no signature");
+assertOpeningValuation(invalidPlan.body.openingValuation, STOCKS[0].address, 4663);
+checks.push("Fixed $5,000 mainnet launch simulation with a bound USD price snapshot; no signature");
+for (const field of [{ openingCap: "100" }, { marketCapUsd: 1 }, { quotePriceUsd: "1" }, { openingValuation: invalidPlan.body.openingValuation }]) {
+  const rejected = await call("/launch/prepare", {
+    draft: { name: "Tampered", symbol: "BAD", description: "", image: "", quoteAddress: STOCKS[0].address, ...field },
+    creator: "0x0000000000000000000000000000000000000001",
+  });
+  assert.equal(rejected.status, 400);
+}
+checks.push("Client-supplied valuations and prices rejected before simulation");
 if (config.body.mode === "robinhood") {
   for (const quoteAddress of [
     "0xce24439f2d9c6a2289f741120fe202248b666666",
     "0x6b1d42927b1a84ec28fa88d4fc6fa7af404966be",
   ]) {
     const removed = await call("/launch/prepare", {
-      draft: { name: "Removed pair", symbol: "REMOVED", description: "", image: "", quoteAddress, openingCap: "100" },
+      draft: { name: "Removed pair", symbol: "REMOVED", description: "", image: "", quoteAddress },
       creator: "0x0000000000000000000000000000000000000001",
     });
     assert.equal(removed.status, 400, "Removed U/PAIR must be rejected before simulation");
@@ -136,14 +145,16 @@ if (config.body.mode === "robinhood") {
   assert(musegod);
   const simulation = await call("/launch/prepare", {
     draft: { name: "MUSEGOD pair check", symbol: "MGCHECK", description: "", image: "",
-      quoteAddress: musegod.address, openingCap: "1.000000000000000001" },
+      quoteAddress: musegod.address },
     creator: "0x0000000000000000000000000000000000000001",
   });
   assert.equal(simulation.status, 200);
   assert.equal(simulation.body.draft.quoteAddress, musegod.address);
   assert.equal(simulation.body.feePolicy, FEE_POLICY);
   assert.equal(simulation.body.feeTreasury.toLowerCase(), config.body.treasury.toLowerCase());
-  checks.push("MUSEGOD production issuance simulation preserves 18 decimals and existing fee policy; no signature");
+  assertOpeningValuation(simulation.body.openingValuation, musegod.address, 4663);
+  assert.equal(simulation.body.openingValuation.source, "SushiSwap V3 TWAP");
+  checks.push("MUSEGOD fixed $5,000 issuance simulation uses same-chain five-minute TWAP; no signature");
 }
 const deferred = await call("/buyback/quote", { stockAddress: STOCKS[0].address, amount: "1" });
 assert.equal(deferred.body.code, "CROSS_CHAIN_DEFERRED");
@@ -159,7 +170,7 @@ const report = {
   skipped,
 };
 await writeFile(
-  "docs/evidence/http-checks.json",
+  new URL(origin).port === "8787" ? ".cache/fixed-opening-http-worker.json" : ".cache/fixed-opening-http-node.json",
   JSON.stringify(report, null, 2) + "\n",
 );
 console.log(`PASS: ${checks.length} HTTP checks; ${skipped.length} explicitly skipped checks`);

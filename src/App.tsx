@@ -70,6 +70,11 @@ import {
   type LaunchInput,
 } from "./lib/validation";
 import { api } from "./lib/api";
+import {
+  OPENING_CAP_USD,
+  OPENING_POLICY,
+  assertOpeningValuation,
+} from "./lib/opening-valuation";
 import { TOKEN_IMAGE_ACCEPT } from "./lib/token-image";
 import { prepareTokenImage } from "./lib/image-upload";
 import { useWallet, type Quote } from "./lib/wallet";
@@ -310,7 +315,8 @@ function TxLink({ hash, config }: { hash: string; config: RuntimeConfig }) {
   );
 }
 const feePercent = (basisPoints: number) => `${basisPoints / 100}%`;
-function Curve({ ticker, cap }: { ticker: string; cap: string }) {
+const openingCapUsdLabel = `$${OPENING_CAP_USD.toLocaleString("en-US")}`;
+function Curve({ ticker, cap, fixedUsd = false }: { ticker: string; cap?: string; fixedUsd?: boolean }) {
   return (
     <div className="curve">
       <div className="curve-label">
@@ -347,7 +353,7 @@ function Curve({ ticker, cap }: { ticker: string; cap: string }) {
       </svg>
       <div className="curve-label">
         <span>
-          Opening valuation {cap || "—"} {ticker}
+          {fixedUsd ? <>Opens at <b>{openingCapUsdLabel}</b> market cap</> : <>Opening valuation {cap || "—"} {ticker}</>}
         </span>
         <span>Supply →</span>
       </div>
@@ -814,10 +820,10 @@ function CreatePage({
   refresh: () => void;
 }) {
   const generation = useRef(0);
+  const activeSimulation = useRef<number | null>(null);
   const formRef = useRef<HTMLFormElement>(null),
     imageInput = useRef<HTMLInputElement>(null),
     imageUpload = useRef(0),
-    advancedRef = useRef<HTMLDetailsElement>(null),
     reviewDialog = useRef<HTMLDialogElement>(null);
   const wallet = useWallet(),
     [draft, setDraft] = useState<LaunchInput>(() => {
@@ -836,6 +842,7 @@ function CreatePage({
     [message, setMessage] = useState(""),
     [review, setReview] = useState(false),
     [plan, setPlan] = useState<LaunchPlan | null>(null),
+    [planExpired, setPlanExpired] = useState(false),
     [busy, setBusy] = useState(false),
     [uploadingImage, setUploadingImage] = useState(false),
     [imageError, setImageError] = useState(""),
@@ -885,6 +892,17 @@ function CreatePage({
       if (dialog?.open) dialog.close();
     };
   }, [review]);
+  useEffect(() => {
+    if (!plan?.openingValuation) {
+      setPlanExpired(false);
+      return;
+    }
+    const remaining = plan.openingValuation.expiresAt - Date.now();
+    setPlanExpired(remaining <= 0);
+    if (remaining <= 0) return;
+    const timer = setTimeout(() => setPlanExpired(true), remaining);
+    return () => clearTimeout(timer);
+  }, [plan]);
   useEffect(() => {
     setDraftSaved(false);
     const timer = setTimeout(() => {
@@ -954,8 +972,6 @@ function CreatePage({
       const field = String(issue?.path[0] ?? "");
       setInvalidField(field);
       setError(errorMessage(result.error));
-      if (field === "openingCap" && advancedRef.current)
-        advancedRef.current.open = true;
       requestAnimationFrame(() => {
         const input = formRef.current?.elements.namedItem(field);
         if (input instanceof HTMLElement) input.focus();
@@ -972,7 +988,10 @@ function CreatePage({
   }
   async function simulate() {
     const request = ++generation.current;
+    activeSimulation.current = request;
     setError("");
+    setMessage("");
+    setPlan(null);
     setBusy(true);
     try {
       if (!wallet.account) throw new Error("Connect a wallet first");
@@ -983,12 +1002,16 @@ function CreatePage({
       if (request !== generation.current) return;
       if (next.feePolicy !== FEE_POLICY || !next.feeTreasury || !config?.treasury || !sameAddress(next.feeTreasury, config.treasury))
         throw new Error("The launch fee policy or treasury address does not match. Refresh and preview again.");
+      assertOpeningValuation(next.openingValuation, stock.address, deploymentChain(config));
       setPlan(next);
       setMessage("On-chain simulation succeeded. No transaction has been sent.");
     } catch (e) {
       if (request === generation.current) setError(errorMessage(e));
     } finally {
-      if (request === generation.current) setBusy(false);
+      if (request === activeSimulation.current) {
+        activeSimulation.current = null;
+        setBusy(false);
+      }
     }
   }
   async function register(hash: Hex) {
@@ -1004,8 +1027,7 @@ function CreatePage({
     setBusy(true);
     setError("");
     try {
-      if (Date.now() - plan.preparedAt > 300_000)
-        throw new Error("The launch preview has expired. Run the on-chain simulation again.");
+      assertOpeningValuation(plan.openingValuation, stock.address, deploymentChain(config));
       if (!wallet.account || !sameAddress(plan.creator, wallet.account))
         throw new Error("The wallet has changed. Preview again.");
       const hash = await wallet.send(
@@ -1418,58 +1440,6 @@ function CreatePage({
               </div>
             </details>
           </section>
-          <details className="panel launch-advanced" ref={advancedRef}>
-            <summary>
-              <div>
-                <b>Adjust opening valuation</b>
-                <span>
-                  Current: {draft.openingCap || "—"} {stock.symbol}
-                </span>
-              </div>
-              <ChevronRight size={18} />
-            </summary>
-            <div className="advanced-content">
-              <p className="muted">
-                Denominated in {stock.symbol}{" "} tokens. You can keep the default. The valuation is not an amount you need to pay.
-              </p>
-              <label className="cap-input">
-                Opening fully diluted valuation
-                <div className="input-suffix">
-                  <input
-                    name="openingCap"
-                    aria-label="Opening fully diluted valuation"
-                    aria-describedby={
-                      invalidField === "openingCap"
-                        ? "launch-error-openingCap"
-                        : undefined
-                    }
-                    aria-invalid={invalidField === "openingCap"}
-                    inputMode="decimal"
-                    value={draft.openingCap}
-                    onChange={(e) => update("openingCap", e.target.value)}
-                  />
-                  <FieldError
-                    name="openingCap"
-                    invalidField={invalidField}
-                    error={error}
-                  />
-                  <span>{stock.symbol}</span>
-                </div>
-              </label>
-              <div className="preset-row">
-                {["25", "100", "500"].map((cap) => (
-                  <button
-                    type="button"
-                    className={draft.openingCap === cap ? "chosen" : ""}
-                    key={cap}
-                    onClick={() => update("openingCap", cap)}
-                  >
-                    {cap} {stock.symbol}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </details>
         </form>
         <aside className="preview-column" aria-label="Live launch preview">
           <section className="preview-card">
@@ -1508,10 +1478,7 @@ function CreatePage({
                   <b>1,000,000,000 tokens</b>{" "}Fixed supply, all deposited into the pool
                 </li>
                 <li>
-                  Opening valuation{" "}
-                  <b>
-                    {draft.openingCap || "—"} {stock.symbol}
-                  </b>
+                  Opens at <b>{openingCapUsdLabel}</b> market cap
                 </li>
                 <li>
                   A trading pool settled in <b>{stock.symbol}</b>
@@ -1538,9 +1505,9 @@ function CreatePage({
                 How the launch curve works
                 <ChevronRight size={15} />
               </summary>
-              <Curve ticker={stock.symbol} cap={draft.openingCap} />
+              <Curve ticker={stock.symbol} fixedUsd />
               <p>
-                All 1 billion tokens enter the pool: 90% spans the opening valuation to 10 times that valuation, and 10% supplies the remaining liquidity. Buys move the price up and sells move it down.
+                All 1 billion tokens enter the pool: 90% spans $5,000 to $50,000 market cap, and 10% supplies the remaining liquidity. The curve uses the quote asset’s USD reference price at preview time. Tick rounding and later asset price changes may affect the USD market cap. Buys move the price up and sells move it down.
               </p>
             </details>
             <div className="fee-heading">
@@ -1658,9 +1625,9 @@ function CreatePage({
               <dd>1 billion tokens · 100% in the pool</dd>
             </div>
             <div>
-              <dt>Opening valuation</dt>
+              <dt>Opening market cap</dt>
               <dd>
-                {draft.openingCap} {stock.symbol}
+                Opens at <b>{openingCapUsdLabel}</b> market cap
               </dd>
             </div>
             <div>
@@ -1699,7 +1666,15 @@ function CreatePage({
             <span>Wallet confirmation</span>
           </div>
           {error && <Notice kind="error">{error}</Notice>}
-          {message && <Notice kind="success">{message}</Notice>}
+          {message && !planExpired && <Notice kind="success">{message}</Notice>}
+          {plan && !planExpired && (
+            <p className="launch-caption">
+              Set using the quote asset’s USD reference price at preview time. This preview is valid for five minutes, including simulation time.
+            </p>
+          )}
+          {planExpired && !busy && (
+            <Notice kind="error">The launch preview has expired. Simulate again to refresh the quote asset’s USD reference price.</Notice>
+          )}
           {wallet.error && <Notice kind="error">{wallet.error}</Notice>}
           {!wallet.account ? (
             <button
@@ -1710,7 +1685,7 @@ function CreatePage({
               {wallet.connecting ? "Connecting…" : "Connect wallet to continue"}
               <Wallet size={16} />
             </button>
-          ) : !plan ? (
+          ) : !plan || (planExpired && !busy) ? (
             <button
               className="primary full"
               disabled={busy || !config?.treasury}
@@ -1721,7 +1696,7 @@ function CreatePage({
               ) : (
                 <ShieldCheck size={17} />
               )}
-              {busy ? "Simulating launch…" : "Simulate launch"}
+              {busy ? "Simulating launch…" : planExpired ? "Simulate again" : "Simulate launch"}
             </button>
           ) : (
             <>
@@ -1966,7 +1941,7 @@ function TokenPage({
             </FeeBreakdown>
             <details className="launch-curve-details">
               <summary>View launch curve</summary>
-              <Curve ticker={stock.symbol} cap={token.openingCap} />
+              <Curve ticker={stock.symbol} cap={token.openingCap} fixedUsd={token.openingValuation?.policy === OPENING_POLICY} />
             </details>
           </section>
           <FeeCard token={token} config={config} />
