@@ -3,6 +3,7 @@ import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { setTimeout as waitForPropagation } from "node:timers/promises";
 import type { BuildInfo } from "../src/lib/build-info";
 import { readBuildIdentity, REPOSITORY } from "./build-info";
 import { assertBuildManifest, assertFrozenBuild, assertReleaseCheckout, publishCandidate, ReleaseFailure, requireSingleActiveVersion, runtimeVarsFromBindings, sha256, snapshotBuild } from "./release-policy";
@@ -10,6 +11,34 @@ import { assertBuildManifest, assertFrozenBuild, assertReleaseCheckout, publishC
 const repositorySlug = "MuseCity/musegodfun", workerName = "musegod-fun";
 const origins = ["https://musegod.fun", "https://www.musegod.fun"];
 const apiVersion = "2026-03-10";
+
+// CI alone tolerates a bounded edge propagation window. The standalone verifier stays strict.
+export async function verifyProductionCandidate(candidate: string, checks: {
+  activeVersion(): Promise<string>;
+  assertFrozen(): void;
+  verifyOrigin(origin: string): Promise<void>;
+  describe(message: string): void;
+  wait(milliseconds: number): Promise<unknown>;
+}): Promise<void> {
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    checks.assertFrozen();
+    if (await checks.activeVersion() !== candidate) throw new Error("Candidate changed before production verification");
+    let passed = false, failure: unknown;
+    try {
+      // Restart the whole pair on every attempt; results from different rounds cannot be combined.
+      for (const origin of origins) await checks.verifyOrigin(origin);
+      passed = true;
+    } catch (error) { failure = error; }
+    // Source/artifact changes and external activations never enter the retry path.
+    checks.assertFrozen();
+    if (await checks.activeVersion() !== candidate) throw new Error("Candidate changed during production verification");
+    if (passed) return;
+    const reason = failure instanceof Error ? failure.message : String(failure);
+    checks.describe(`Production verification attempt ${attempt}/3 failed: ${reason}${attempt < 3 ? "; retrying both origins in 10 seconds" : "; retry budget exhausted"}`);
+    if (attempt === 3) throw new Error("Production verification failed after 3 complete attempts", { cause: failure });
+    await checks.wait(10_000);
+  }
+}
 
 interface ReleaseAsset { id: number; name: string; digest: string; state: string; browser_download_url: string }
 interface GitHubRelease { id: number; upload_url: string; tag_name: string; target_commitish: string; draft: boolean; immutable: boolean; html_url: string; assets: ReleaseAsset[] }
@@ -219,13 +248,13 @@ async function main() {
         describe(`Deployment ${deploymentId}: ${state}; ${description}`);
       },
       activate,
-      verify: async () => {
-        for (const origin of origins) {
+      verify: async (candidate) => verifyProductionCandidate(candidate, {
+        activeVersion, assertFrozen, describe, wait: waitForPropagation,
+        verifyOrigin: async (origin) => {
           execFileSync("npm", ["run", "verify:deployment", "--", "--release", buildId, "--origin", origin], { stdio: "inherit", timeout: 240_000 });
           await checkRuntime(origin, config);
-        }
-        assertFrozen();
-      },
+        },
+      }),
       verifyRollback: async (previous) => {
         for (const origin of origins) {
           const response = await request(`${origin}/`, { headers: { "Cache-Control": "no-cache" } });

@@ -154,7 +154,14 @@ export async function verifyDeployment(options: DeploymentVerificationOptions): 
         current = next.href;
         continue;
       }
-      check(response.status === 200, `Expected HTTP 200 for ${current}, received ${response.status}`);
+      if (response.status !== 200) {
+        const diagnostic = kind === "origin"
+          ? ["x-worker-version", "x-source-commit", "cf-cache-status", "cf-ray", "content-type"]
+            .map(name => `${name}=${(response.headers.get(name) ?? "missing").slice(0, 128)}`).join(", ")
+          : "";
+        await response.body?.cancel();
+        fail(`Expected HTTP 200 for ${current}, received ${response.status}${diagnostic ? ` (${diagnostic})` : ""}`);
+      }
       check(!response.redirected && (!response.url || response.url === current), `Unexpected followed redirect for ${current}`);
       const reader = response.body?.getReader();
       if (!reader) return { bytes: Buffer.alloc(0), headers: response.headers };

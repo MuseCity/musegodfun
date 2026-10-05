@@ -168,6 +168,21 @@ test("deployment verification rejects missing files, HTTP errors and same or cro
   }
 });
 
+test("failed origin responses report Worker and cache metadata without accepting fallback HTML", async () => {
+  const data = fixture();
+  data.overrides.set(`${origin}/assets/app.css`, () => new Response("old fallback HTML", {
+    status: 404, headers: { "x-worker-version": previousVersion, "cf-cache-status": "HIT", "content-type": "text/html" },
+  }));
+  await assert.rejects(verifyDeployment({ release: tag, origin, fetch: data.fetcher }), error => {
+    assert.ok(error instanceof Error);
+    assert.match(error.message, /received 404/);
+    assert.ok(error.message.includes(`x-worker-version=${previousVersion}`));
+    assert.match(error.message, /cf-cache-status=HIT/);
+    assert.match(error.message, /content-type=text\/html/);
+    return true;
+  });
+});
+
 test("deployment verification checks GitHub asset digests and release record hashes", async () => {
   const data = fixture();
   data.overrides.set(`${downloadRoot}frontend.tar.gz`, () => new Response(Buffer.from("altered bytes")));
