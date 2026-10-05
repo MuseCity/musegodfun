@@ -110,8 +110,6 @@ export default {
     const headers = new Headers(response.headers);
     for (const [key, value] of Object.entries(securityHeaders(url.protocol === "https:"))) headers.set(key, value);
     if (url.pathname === "/api" || url.pathname.startsWith("/api/")) headers.set("Cache-Control", "no-store");
-    if (/^\/api\/token-images\/[a-f0-9]{64}\.webp$/.test(url.pathname) && (response.ok || response.status === 304))
-      headers.set("Cache-Control", "public, max-age=31536000, immutable");
     if (url.pathname.startsWith("/assets/") && response.ok) headers.set("Cache-Control", "public, max-age=31536000, immutable");
     return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
   },

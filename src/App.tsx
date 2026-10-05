@@ -70,7 +70,7 @@ import {
   type LaunchInput,
 } from "./lib/validation";
 import { api } from "./lib/api";
-import { tokenImageSource, TOKEN_IMAGE_ACCEPT } from "./lib/token-image";
+import { TOKEN_IMAGE_ACCEPT } from "./lib/token-image";
 import { prepareTokenImage } from "./lib/image-upload";
 import { useWallet, type Quote } from "./lib/wallet";
 import type { LaunchPlan } from "../server/store";
@@ -210,7 +210,7 @@ function TokenIcon({ name, image }: { name: string; image?: string }) {
       {image && safeImage(image) ? (
         <img
           key={image}
-          src={tokenImageSource(safeImage(image))}
+          src={safeImage(image)}
           alt=""
           referrerPolicy="no-referrer"
           onError={(e) => {

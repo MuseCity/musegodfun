@@ -328,6 +328,21 @@ test("errors redact both secret values and upstream URLs; Alchemy takes preceden
     else process.env.ALCHEMY_API_KEY = old;
   }
 });
+test("errors redact all server-only Pinata credentials", () => {
+  const names = ["PINATA_API_KEY", "PINATA_API_SECRET", "PINATA_JWT"];
+  const previous = names.map(name => process.env[name]);
+  try {
+    const values = names.map((name, index) => `${name.toLowerCase()}-test-${index}`);
+    names.forEach((name, index) => { process.env[name] = values[index]; });
+    const message = redact(new Error(values.join(" ")));
+    for (const value of values) assert.equal(message.includes(value), false);
+  } finally {
+    names.forEach((name, index) => {
+      if (previous[index] === undefined) delete process.env[name];
+      else process.env[name] = previous[index];
+    });
+  }
+});
 
 test("fork tokens and unreviewed / mismatched pools cannot link to mainnet Doppler", async () => {
   const { dopplerUrl } = await import("../src/lib/doppler");

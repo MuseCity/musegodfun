@@ -14,7 +14,6 @@
     "test:http": "tsx scripts/run.ts scripts/test-http.ts",
     "db:backup": "tsx scripts/run.ts scripts/database.ts backup",
     "db:restore": "tsx scripts/run.ts scripts/database.ts restore",
-    "storage:setup": "tsx scripts/run.ts scripts/setup-token-images.ts",
     "verify:database": "tsx scripts/run.ts scripts/verify-database.ts",
     "test:market-http": "tsx scripts/run.ts scripts/test-market-http.ts",
     "test:all-fork": "tsx scripts/run.ts scripts/test-all-fork.ts",

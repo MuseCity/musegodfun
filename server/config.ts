@@ -43,7 +43,7 @@ export function redact(value: unknown): string {
   let message = value instanceof Error ? value.message : String(value);
   if (/BASE_MAINNET is not enabled|ROBINHOOD_MAINNET is not enabled/.test(message))
     return `Enable ${networkName(runtimeFromEnv().config)} in the Alchemy application.`;
-  for (const name of ["ALCHEMY_API_KEY", "COINGECKO_API_KEY", "BASE_RPC_URL", "ROBINHOOD_RPC_URL", "FORK_RPC_URL", "SUPABASE_SECRET_KEY", "SUPABASE_DB_URL"]) {
+  for (const name of ["ALCHEMY_API_KEY", "COINGECKO_API_KEY", "BASE_RPC_URL", "ROBINHOOD_RPC_URL", "FORK_RPC_URL", "SUPABASE_SECRET_KEY", "SUPABASE_DB_URL", "PINATA_API_KEY", "PINATA_API_SECRET", "PINATA_JWT"]) {
     const secret = process.env[name];
     if (secret) message = message.split(secret).join("[redacted]");
   }

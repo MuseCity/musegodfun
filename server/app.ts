@@ -1,7 +1,6 @@
 import express from "express";
 import { securityHeaders } from "./http-security";
-import { TokenImages, tokenImageKey } from "./token-images";
-import { join } from "node:path";
+import { TokenImages } from "./token-images";
 import { z } from "zod";
 import type { Hex } from "viem";
 import { LaunchpadService, runtimeFromEnv } from "./service";
@@ -29,9 +28,7 @@ export function createApp(
 ) {
 const app = express(),
   service = new LaunchpadService(runtimeFromEnv());
-const images = new TokenImages(join(service.runtime.dataDir, "token-images"),
-  service.runtime.config.mode === "fork" ? undefined : process.env.SUPABASE_URL,
-  process.env.SUPABASE_SECRET_KEY);
+const images = new TokenImages(process.env.PINATA_JWT);
 const market = new MarketReader({
   store: service.store,
   apiKey: process.env.COINGECKO_API_KEY,
@@ -116,12 +113,6 @@ app.post("/api/token-images", route(async (req, res) => {
     return;
   }
   res.json(await images.upload(req.body));
-}));
-app.get("/api/token-images/:key", route(async (req, res) => {
-  const key = tokenImageKey.parse(req.params.key), image = await images.get(key);
-  if (!image) { res.status(404).json({ error: "Token image not found" }); return; }
-  res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
-  res.type("image/webp").send(image);
 }));
 let readyCheck: Promise<boolean> | undefined,
   readyAt = 0;

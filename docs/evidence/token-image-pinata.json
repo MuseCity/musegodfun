@@ -1,0 +1,559 @@
+{
+  "observedAt": "2026-10-05T01:38:23.418Z",
+  "publication": "production_verified",
+  "provider": {
+    "api": "https://uploads.pinata.cloud/v3/files",
+    "network": "public",
+    "authentication": "server-only PINATA_JWT",
+    "gateway": "https://gateway.pinata.cloud/ipfs/<CID>"
+  },
+  "realPinataUpload": {
+    "observedAt": "2026-10-05T01:05:45.365Z",
+    "provider": "Pinata v3",
+    "network": "public IPFS",
+    "image": "https://gateway.pinata.cloud/ipfs/bafkreiebyzlmh7ugj63nybyjo5bg7h4sgxg7l6atbwohwr3kezvwdpjpim",
+    "uploadStatus": 200,
+    "gatewayStatus": 200,
+    "contentType": "image/webp",
+    "bytes": 550,
+    "sha256": "81c656c3fe864fb6dc070977426f9f9235cdf5f8130d9c7b476a266b61bd2f43",
+    "preparedBrowserBytesMatch": true
+  },
+  "localRuntimes": {
+    "node": {
+      "origin": "http://127.0.0.1:5193",
+      "browserFileSelection": true,
+      "duplicateCIDStable": true,
+      "previewDecoded": true,
+      "refreshPersisted": true
+    },
+    "worker": {
+      "origin": "http://127.0.0.1:5194",
+      "uploadStatus": 200,
+      "multipartUploadVerified": true,
+      "replaceImage": {
+        "image": "https://gateway.pinata.cloud/ipfs/bafkreig5crmbff6z7oek3xt7ep2hlkqhtx7alnww74wictduham363u3ay",
+        "storedImage": "https://gateway.pinata.cloud/ipfs/bafkreig5crmbff6z7oek3xt7ep2hlkqhtx7alnww74wictduham363u3ay",
+        "replaced": true,
+        "overflow": false,
+        "preview": [
+          {
+            "src": "https://gateway.pinata.cloud/ipfs/bafkreig5crmbff6z7oek3xt7ep2hlkqhtx7alnww74wictduham363u3ay",
+            "width": 128,
+            "height": 128
+          },
+          {
+            "src": "https://gateway.pinata.cloud/ipfs/bafkreig5crmbff6z7oek3xt7ep2hlkqhtx7alnww74wictduham363u3ay",
+            "width": 128,
+            "height": 128
+          }
+        ],
+        "alerts": []
+      },
+      "afterRefresh": {
+        "image": "https://gateway.pinata.cloud/ipfs/bafkreig5crmbff6z7oek3xt7ep2hlkqhtx7alnww74wictduham363u3ay",
+        "storedImage": "https://gateway.pinata.cloud/ipfs/bafkreig5crmbff6z7oek3xt7ep2hlkqhtx7alnww74wictduham363u3ay",
+        "overflow": false,
+        "preview": [
+          {
+            "src": "https://gateway.pinata.cloud/ipfs/bafkreig5crmbff6z7oek3xt7ep2hlkqhtx7alnww74wictduham363u3ay",
+            "width": 128,
+            "height": 128
+          },
+          {
+            "src": "https://gateway.pinata.cloud/ipfs/bafkreig5crmbff6z7oek3xt7ep2hlkqhtx7alnww74wictduham363u3ay",
+            "width": 128,
+            "height": 128
+          }
+        ],
+        "alerts": []
+      },
+      "signingEnabled": false,
+      "dataScope": "restore-pinata-upload-check-20261005"
+    }
+  },
+  "injectedBrowserScenarios": {
+    "uploadFailure": {
+      "status": 503,
+      "previousImagePreserved": true
+    },
+    "lateResponseAfterClear": {
+      "image": "",
+      "storedImage": "",
+      "cleared": true
+    }
+  },
+  "checks": {
+    "unitTests": {
+      "passed": 169,
+      "failed": 0
+    },
+    "nodeAndWorkerTypecheck": "passed",
+    "build": "passed",
+    "workerDryRun": "passed",
+    "secretScan": {
+      "generatedFiles": 207,
+      "configuredSecrets": 7,
+      "matches": 0
+    },
+    "desktopAndMobile": "preview decoded; no mobile horizontal overflow",
+    "review": "independent targeted test update; six upload and removal tests passed",
+    "readerRemoval": {
+      "reason": "product has not formally launched",
+      "oldImageGETStatus": 404,
+      "immutableImageCacheRemoved": true,
+      "supabaseAndLocalImageReadersRemoved": true,
+      "frontendURLRewriteRemoved": true,
+      "targetedTestsPassed": 6
+    },
+    "releaseSecretScan": {
+      "observedAt": "2026-10-05T01:39:02.891Z",
+      "trackedSourceAndEvidenceFiles": 358,
+      "generatedFiles": 207,
+      "publicEvidenceFiles": 5,
+      "configuredSecrets": 7,
+      "matches": 0,
+      "temporarySecretsFileRemoved": true
+    }
+  },
+  "boundaries": {
+    "productionUpdated": true,
+    "workerProductionSecretInstalled": true,
+    "walletSigning": "not_run",
+    "tokenIssuance": "not_run",
+    "databaseMigration": "not_required",
+    "testImagePins": "two public non-sensitive image CIDs remain pinned in Pinata",
+    "gitPush": "not_requested"
+  },
+  "productionRelease": {
+    "observedAt": "2026-10-05T01:30:34.621Z",
+    "worker": "musegod-fun",
+    "version": "32684bca-f328-4f45-910e-73f089e471c5",
+    "deployment": "ffe9a11d-c064-40cf-a62a-07295683dd89",
+    "traffic": 100,
+    "rollbackVersion": "d4add883-f302-4424-97cd-612a9aeb0400",
+    "secretBindings": [
+      "ALCHEMY_API_KEY",
+      "PINATA_JWT",
+      "SUPABASE_SECRET_KEY"
+    ],
+    "unchangedPublicBindings": true,
+    "unchangedScriptRuntime": true,
+    "sourceCompatibilityDate": "2026-10-04",
+    "sourceCompatibilityFlags": [
+      "nodejs_compat"
+    ]
+  },
+  "productionHTTP": {
+    "observedAt": "2026-10-05T01:32:04.820Z",
+    "requestedDeploymentVersion": "32684bca-f328-4f45-910e-73f089e471c5",
+    "scope": "Production read-only HTTP checks; local dist byte comparison; no uploads, wallet signing or broadcasts",
+    "requestConcurrency": 2,
+    "requestTimeoutMs": 30000,
+    "localAssetCount": 4,
+    "localAssetNames": [
+      "PriceChart-DjbW9nDt.js",
+      "ccip-uhhX-X1A.js",
+      "index-BY5gpF3T.css",
+      "index-CS8IlGkS.js"
+    ],
+    "totalChecks": 22,
+    "passedChecks": 22,
+    "failedChecks": 0,
+    "results": [
+      {
+        "host": "musegod.fun",
+        "kind": "config",
+        "path": "/api/config",
+        "passed": true,
+        "status": 200,
+        "finalUrl": "https://musegod.fun/api/config",
+        "cacheControl": "no-store",
+        "securityHeadersPassed": true,
+        "mode": "robinhood",
+        "chainId": 4663,
+        "deploymentChainId": 4663,
+        "writesEnabled": true,
+        "issues": []
+      },
+      {
+        "host": "musegod.fun",
+        "kind": "blockedRpc",
+        "path": "/api/rpc",
+        "passed": true,
+        "status": 403,
+        "finalUrl": "https://musegod.fun/api/rpc",
+        "cacheControl": "no-store",
+        "securityHeadersPassed": true,
+        "method": "eth_sendRawTransaction",
+        "errorCode": -32601,
+        "issues": []
+      },
+      {
+        "host": "musegod.fun",
+        "kind": "blockedRpc",
+        "path": "/api/rpc/robinhood",
+        "passed": true,
+        "status": 403,
+        "finalUrl": "https://musegod.fun/api/rpc/robinhood",
+        "cacheControl": "no-store",
+        "securityHeadersPassed": true,
+        "method": "eth_sendRawTransaction",
+        "errorCode": -32601,
+        "issues": []
+      },
+      {
+        "host": "musegod.fun",
+        "kind": "oldImage",
+        "path": "/api/token-images/0000000000000000000000000000000000000000000000000000000000000000.webp",
+        "passed": true,
+        "status": 404,
+        "finalUrl": "https://musegod.fun/api/token-images/0000000000000000000000000000000000000000000000000000000000000000.webp",
+        "cacheControl": "no-store",
+        "securityHeadersPassed": true,
+        "immutableCache": false,
+        "issues": []
+      },
+      {
+        "host": "musegod.fun",
+        "kind": "asset",
+        "path": "/assets/ccip-uhhX-X1A.js",
+        "passed": true,
+        "status": 200,
+        "finalUrl": "https://musegod.fun/assets/ccip-uhhX-X1A.js",
+        "cacheControl": "public, max-age=31536000, immutable",
+        "securityHeadersPassed": true,
+        "expectedSha256": "72690c7c28d12704a397986df65b47d5efcf49e5597f0125c8f4f8bc2635bb6b",
+        "observedSha256": "72690c7c28d12704a397986df65b47d5efcf49e5597f0125c8f4f8bc2635bb6b",
+        "byteMatch": true,
+        "bytes": 2835,
+        "issues": []
+      },
+      {
+        "host": "musegod.fun",
+        "kind": "asset",
+        "path": "/assets/index-BY5gpF3T.css",
+        "passed": true,
+        "status": 200,
+        "finalUrl": "https://musegod.fun/assets/index-BY5gpF3T.css",
+        "cacheControl": "public, max-age=31536000, immutable",
+        "securityHeadersPassed": true,
+        "expectedSha256": "f028fd800298f32f726c916bc9078c12741379ab51b8c6363504b7f84fe1c181",
+        "observedSha256": "f028fd800298f32f726c916bc9078c12741379ab51b8c6363504b7f84fe1c181",
+        "byteMatch": true,
+        "bytes": 47517,
+        "issues": []
+      },
+      {
+        "host": "musegod.fun",
+        "kind": "asset",
+        "path": "/assets/index-CS8IlGkS.js",
+        "passed": true,
+        "status": 200,
+        "finalUrl": "https://musegod.fun/assets/index-CS8IlGkS.js",
+        "cacheControl": "public, max-age=31536000, immutable",
+        "securityHeadersPassed": true,
+        "expectedSha256": "1e955d2de19bff17c98052970250a0bc37eb6b7aef43d4170541dd0f3ebc9f72",
+        "observedSha256": "1e955d2de19bff17c98052970250a0bc37eb6b7aef43d4170541dd0f3ebc9f72",
+        "byteMatch": true,
+        "bytes": 724918,
+        "issues": []
+      },
+      {
+        "host": "musegod.fun",
+        "kind": "asset",
+        "path": "/assets/PriceChart-DjbW9nDt.js",
+        "passed": true,
+        "status": 200,
+        "finalUrl": "https://musegod.fun/assets/PriceChart-DjbW9nDt.js",
+        "cacheControl": "public, max-age=31536000, immutable",
+        "securityHeadersPassed": true,
+        "expectedSha256": "7076fe629e6026151aff86fef8aa87d2dd0aef0c4eda7afa4e4b400d10e25c1c",
+        "observedSha256": "7076fe629e6026151aff86fef8aa87d2dd0aef0c4eda7afa4e4b400d10e25c1c",
+        "byteMatch": true,
+        "bytes": 165425,
+        "issues": []
+      },
+      {
+        "host": "musegod.fun",
+        "kind": "page",
+        "path": "/create",
+        "passed": true,
+        "status": 200,
+        "finalUrl": "https://musegod.fun/create",
+        "cacheControl": "public, max-age=0, must-revalidate",
+        "securityHeadersPassed": true,
+        "expectedSha256": "46f77ffebab217f231ba98949dc0fb79f25926f5287de96b0e05b12df6c7fe8a",
+        "observedSha256": "46f77ffebab217f231ba98949dc0fb79f25926f5287de96b0e05b12df6c7fe8a",
+        "byteMatch": true,
+        "bytes": 611,
+        "issues": []
+      },
+      {
+        "host": "musegod.fun",
+        "kind": "health",
+        "path": "/healthz",
+        "passed": true,
+        "status": 200,
+        "finalUrl": "https://musegod.fun/healthz",
+        "cacheControl": null,
+        "securityHeadersPassed": true,
+        "runtimeStatus": "ok",
+        "issues": []
+      },
+      {
+        "host": "musegod.fun",
+        "kind": "ready",
+        "path": "/readyz",
+        "passed": true,
+        "status": 200,
+        "finalUrl": "https://musegod.fun/readyz",
+        "cacheControl": null,
+        "securityHeadersPassed": true,
+        "runtimeStatus": "ready",
+        "chainId": 4663,
+        "writesEnabled": true,
+        "issues": []
+      },
+      {
+        "host": "www.musegod.fun",
+        "kind": "config",
+        "path": "/api/config",
+        "passed": true,
+        "status": 200,
+        "finalUrl": "https://www.musegod.fun/api/config",
+        "cacheControl": "no-store",
+        "securityHeadersPassed": true,
+        "mode": "robinhood",
+        "chainId": 4663,
+        "deploymentChainId": 4663,
+        "writesEnabled": true,
+        "issues": []
+      },
+      {
+        "host": "www.musegod.fun",
+        "kind": "blockedRpc",
+        "path": "/api/rpc",
+        "passed": true,
+        "status": 403,
+        "finalUrl": "https://www.musegod.fun/api/rpc",
+        "cacheControl": "no-store",
+        "securityHeadersPassed": true,
+        "method": "eth_sendRawTransaction",
+        "errorCode": -32601,
+        "issues": []
+      },
+      {
+        "host": "www.musegod.fun",
+        "kind": "blockedRpc",
+        "path": "/api/rpc/robinhood",
+        "passed": true,
+        "status": 403,
+        "finalUrl": "https://www.musegod.fun/api/rpc/robinhood",
+        "cacheControl": "no-store",
+        "securityHeadersPassed": true,
+        "method": "eth_sendRawTransaction",
+        "errorCode": -32601,
+        "issues": []
+      },
+      {
+        "host": "www.musegod.fun",
+        "kind": "oldImage",
+        "path": "/api/token-images/0000000000000000000000000000000000000000000000000000000000000000.webp",
+        "passed": true,
+        "status": 404,
+        "finalUrl": "https://www.musegod.fun/api/token-images/0000000000000000000000000000000000000000000000000000000000000000.webp",
+        "cacheControl": "no-store",
+        "securityHeadersPassed": true,
+        "immutableCache": false,
+        "issues": []
+      },
+      {
+        "host": "www.musegod.fun",
+        "kind": "asset",
+        "path": "/assets/ccip-uhhX-X1A.js",
+        "passed": true,
+        "status": 200,
+        "finalUrl": "https://www.musegod.fun/assets/ccip-uhhX-X1A.js",
+        "cacheControl": "public, max-age=31536000, immutable",
+        "securityHeadersPassed": true,
+        "expectedSha256": "72690c7c28d12704a397986df65b47d5efcf49e5597f0125c8f4f8bc2635bb6b",
+        "observedSha256": "72690c7c28d12704a397986df65b47d5efcf49e5597f0125c8f4f8bc2635bb6b",
+        "byteMatch": true,
+        "bytes": 2835,
+        "issues": []
+      },
+      {
+        "host": "www.musegod.fun",
+        "kind": "asset",
+        "path": "/assets/index-BY5gpF3T.css",
+        "passed": true,
+        "status": 200,
+        "finalUrl": "https://www.musegod.fun/assets/index-BY5gpF3T.css",
+        "cacheControl": "public, max-age=31536000, immutable",
+        "securityHeadersPassed": true,
+        "expectedSha256": "f028fd800298f32f726c916bc9078c12741379ab51b8c6363504b7f84fe1c181",
+        "observedSha256": "f028fd800298f32f726c916bc9078c12741379ab51b8c6363504b7f84fe1c181",
+        "byteMatch": true,
+        "bytes": 47517,
+        "issues": []
+      },
+      {
+        "host": "www.musegod.fun",
+        "kind": "asset",
+        "path": "/assets/index-CS8IlGkS.js",
+        "passed": true,
+        "status": 200,
+        "finalUrl": "https://www.musegod.fun/assets/index-CS8IlGkS.js",
+        "cacheControl": "public, max-age=31536000, immutable",
+        "securityHeadersPassed": true,
+        "expectedSha256": "1e955d2de19bff17c98052970250a0bc37eb6b7aef43d4170541dd0f3ebc9f72",
+        "observedSha256": "1e955d2de19bff17c98052970250a0bc37eb6b7aef43d4170541dd0f3ebc9f72",
+        "byteMatch": true,
+        "bytes": 724918,
+        "issues": []
+      },
+      {
+        "host": "www.musegod.fun",
+        "kind": "asset",
+        "path": "/assets/PriceChart-DjbW9nDt.js",
+        "passed": true,
+        "status": 200,
+        "finalUrl": "https://www.musegod.fun/assets/PriceChart-DjbW9nDt.js",
+        "cacheControl": "public, max-age=31536000, immutable",
+        "securityHeadersPassed": true,
+        "expectedSha256": "7076fe629e6026151aff86fef8aa87d2dd0aef0c4eda7afa4e4b400d10e25c1c",
+        "observedSha256": "7076fe629e6026151aff86fef8aa87d2dd0aef0c4eda7afa4e4b400d10e25c1c",
+        "byteMatch": true,
+        "bytes": 165425,
+        "issues": []
+      },
+      {
+        "host": "www.musegod.fun",
+        "kind": "page",
+        "path": "/create",
+        "passed": true,
+        "status": 200,
+        "finalUrl": "https://www.musegod.fun/create",
+        "cacheControl": "public, max-age=0, must-revalidate",
+        "securityHeadersPassed": true,
+        "expectedSha256": "46f77ffebab217f231ba98949dc0fb79f25926f5287de96b0e05b12df6c7fe8a",
+        "observedSha256": "46f77ffebab217f231ba98949dc0fb79f25926f5287de96b0e05b12df6c7fe8a",
+        "byteMatch": true,
+        "bytes": 611,
+        "issues": []
+      },
+      {
+        "host": "www.musegod.fun",
+        "kind": "health",
+        "path": "/healthz",
+        "passed": true,
+        "status": 200,
+        "finalUrl": "https://www.musegod.fun/healthz",
+        "cacheControl": null,
+        "securityHeadersPassed": true,
+        "runtimeStatus": "ok",
+        "issues": []
+      },
+      {
+        "host": "www.musegod.fun",
+        "kind": "ready",
+        "path": "/readyz",
+        "passed": true,
+        "status": 200,
+        "finalUrl": "https://www.musegod.fun/readyz",
+        "cacheControl": null,
+        "securityHeadersPassed": true,
+        "runtimeStatus": "ready",
+        "chainId": 4663,
+        "writesEnabled": true,
+        "issues": []
+      }
+    ]
+  },
+  "productionBrowserUpload": {
+    "origin": "https://musegod.fun/create",
+    "nativeFileSelection": true,
+    "afterUpload": {
+      "capture": {
+        "bytes": 550,
+        "sha256": "81c656c3fe864fb6dc070977426f9f9235cdf5f8130d9c7b476a266b61bd2f43",
+        "status": 200,
+        "result": {
+          "image": "https://gateway.pinata.cloud/ipfs/bafkreiebyzlmh7ugj63nybyjo5bg7h4sgxg7l6atbwohwr3kezvwdpjpim"
+        }
+      },
+      "image": "https://gateway.pinata.cloud/ipfs/bafkreiebyzlmh7ugj63nybyjo5bg7h4sgxg7l6atbwohwr3kezvwdpjpim",
+      "storedImage": "https://gateway.pinata.cloud/ipfs/bafkreiebyzlmh7ugj63nybyjo5bg7h4sgxg7l6atbwohwr3kezvwdpjpim",
+      "preview": [
+        {
+          "src": "https://gateway.pinata.cloud/ipfs/bafkreiebyzlmh7ugj63nybyjo5bg7h4sgxg7l6atbwohwr3kezvwdpjpim",
+          "complete": true,
+          "width": 2,
+          "height": 3
+        },
+        {
+          "src": "https://gateway.pinata.cloud/ipfs/bafkreiebyzlmh7ugj63nybyjo5bg7h4sgxg7l6atbwohwr3kezvwdpjpim",
+          "complete": true,
+          "width": 2,
+          "height": 3
+        }
+      ],
+      "alerts": []
+    },
+    "afterRefresh": {
+      "observedAt": "2026-10-05T01:37:24.316Z",
+      "image": "https://gateway.pinata.cloud/ipfs/bafkreiebyzlmh7ugj63nybyjo5bg7h4sgxg7l6atbwohwr3kezvwdpjpim",
+      "storedImage": "https://gateway.pinata.cloud/ipfs/bafkreiebyzlmh7ugj63nybyjo5bg7h4sgxg7l6atbwohwr3kezvwdpjpim",
+      "preview": [
+        {
+          "src": "https://gateway.pinata.cloud/ipfs/bafkreiebyzlmh7ugj63nybyjo5bg7h4sgxg7l6atbwohwr3kezvwdpjpim",
+          "complete": true,
+          "width": 2,
+          "height": 3
+        },
+        {
+          "src": "https://gateway.pinata.cloud/ipfs/bafkreiebyzlmh7ugj63nybyjo5bg7h4sgxg7l6atbwohwr3kezvwdpjpim",
+          "complete": true,
+          "width": 2,
+          "height": 3
+        }
+      ],
+      "alerts": []
+    },
+    "mobile": {
+      "observedAt": "2026-10-05T01:37:46.147Z",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "overflow": false,
+      "image": "https://gateway.pinata.cloud/ipfs/bafkreiebyzlmh7ugj63nybyjo5bg7h4sgxg7l6atbwohwr3kezvwdpjpim",
+      "storedImage": "https://gateway.pinata.cloud/ipfs/bafkreiebyzlmh7ugj63nybyjo5bg7h4sgxg7l6atbwohwr3kezvwdpjpim",
+      "preview": [
+        {
+          "src": "https://gateway.pinata.cloud/ipfs/bafkreiebyzlmh7ugj63nybyjo5bg7h4sgxg7l6atbwohwr3kezvwdpjpim",
+          "complete": true,
+          "width": 2,
+          "height": 3
+        },
+        {
+          "src": "https://gateway.pinata.cloud/ipfs/bafkreiebyzlmh7ugj63nybyjo5bg7h4sgxg7l6atbwohwr3kezvwdpjpim",
+          "complete": true,
+          "width": 2,
+          "height": 3
+        }
+      ],
+      "alerts": []
+    },
+    "publicGateway": {
+      "observedAt": "2026-10-05T01:37:52.365Z",
+      "image": "https://gateway.pinata.cloud/ipfs/bafkreiebyzlmh7ugj63nybyjo5bg7h4sgxg7l6atbwohwr3kezvwdpjpim",
+      "status": 200,
+      "contentType": "image/webp",
+      "bytes": 550,
+      "sha256": "81c656c3fe864fb6dc070977426f9f9235cdf5f8130d9c7b476a266b61bd2f43",
+      "preparedBrowserBytesMatch": true
+    }
+  }
+}

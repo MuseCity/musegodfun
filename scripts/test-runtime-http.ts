@@ -78,6 +78,9 @@ for (const secret of [
   "COINGECKO_API_KEY",
   "SUPABASE_SECRET_KEY",
   "SUPABASE_DB_URL",
+  "PINATA_API_KEY",
+  "PINATA_API_SECRET",
+  "PINATA_JWT",
 ]
   .map((k) => process.env[k])
   .filter(Boolean))

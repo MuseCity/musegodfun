@@ -1,12 +1,9 @@
 import { createHash } from "node:crypto";
 import { Buffer } from "node:buffer";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
 import { z } from "zod";
 import { MAX_TOKEN_IMAGE_BYTES, TOKEN_IMAGE_SIZE } from "../src/lib/token-image";
 
-export const TOKEN_IMAGE_BUCKET = "token-images";
-export const tokenImageKey = z.string().regex(/^[a-f0-9]{64}\.webp$/, "Invalid token image address");
+const pinataResponse = z.object({ data: z.object({ cid: z.string().regex(/^b[a-z2-7]{20,120}$/) }) });
 const uploadSchema = z.object({
   image: z.string().max(4 * Math.ceil(MAX_TOKEN_IMAGE_BYTES / 3) + 23)
     .regex(/^data:image\/webp;base64,[A-Za-z0-9+/]+={0,2}$/, "Upload a prepared WebP image"),
@@ -50,57 +47,30 @@ export function validateTokenImage(bytes: Uint8Array) {
 }
 
 export class TokenImages {
-  constructor(private readonly directory: string, private readonly url?: string, private readonly key?: string) {
-    if (url && (!/^https:\/\/[a-z0-9]+\.supabase\.co$/.test(url) || !key))
-      throw new Error("Invalid token image storage configuration");
-  }
-  private headers() {
-    return {
-      apikey: this.key!,
-      ...(this.key!.startsWith("eyJ") ? { Authorization: `Bearer ${this.key}` } : {}),
-    };
-  }
-  async get(rawKey: string): Promise<Uint8Array | null> {
-    const key = tokenImageKey.parse(rawKey);
-    if (this.url) {
-      const response = await fetch(`${this.url}/storage/v1/object/${TOKEN_IMAGE_BUCKET}/${key}`, {
-        headers: this.headers(), signal: AbortSignal.timeout(15_000),
-      });
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({})) as { code?: string; statusCode?: string | number };
-        if (response.status === 404 || error.code === "NoSuchKey" || Number(error.statusCode) === 404) return null;
-        throw new Error("Image storage is unavailable. Try again later.");
-      }
-      return Buffer.from(await response.arrayBuffer());
-    }
-    try { return await readFile(join(this.directory, key)); }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
-      throw error;
-    }
-  }
+  constructor(private readonly pinataJwt?: string) {}
   async upload(body: unknown): Promise<{ image: string }> {
     const input = uploadSchema.parse(body), encoded = input.image.slice("data:image/webp;base64,".length);
     const bytes = Buffer.from(encoded, "base64");
     if (bytes.toString("base64") !== encoded) throw new Error("The uploaded image encoding is invalid.");
     validateTokenImage(bytes);
+    const jwt = this.pinataJwt?.trim();
+    if (!jwt) throw new Error("Token image uploads require server-side PINATA_JWT configuration.");
     const key = `${createHash("sha256").update(bytes).digest("hex")}.webp`;
-    if (this.url) {
-      const response = await fetch(`${this.url}/storage/v1/object/${TOKEN_IMAGE_BUCKET}/${key}`, {
-        method: "POST", headers: { ...this.headers(), "content-type": "image/webp", "x-upsert": "false" },
-        body: new Uint8Array(bytes).buffer, signal: AbortSignal.timeout(15_000),
+    const form = new FormData();
+    form.append("network", "public");
+    form.append("file", new Blob([new Uint8Array(bytes).buffer], { type: "image/webp" }), key);
+    form.append("name", key);
+    form.append("cid_version", "v1");
+    try {
+      const response = await fetch("https://uploads.pinata.cloud/v3/files", {
+        method: "POST", headers: { Authorization: `Bearer ${jwt}` },
+        body: form, signal: AbortSignal.timeout(15_000),
       });
-      if (!response.ok) {
-        // A content hash identifies immutable bytes; repeated uploads are safe.
-        const saved = [400, 409].includes(response.status) ? await this.get(key) : null;
-        if (!saved || createHash("sha256").update(saved).digest("hex") !== key.slice(0, -5))
-          throw new Error("The image could not be saved. Try uploading again.");
-      }
-    } else {
-      await mkdir(this.directory, { recursive: true });
-      try { await writeFile(join(this.directory, key), bytes, { flag: "wx" }); }
-      catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; }
+      if (!response.ok) throw new Error("Pinata upload rejected");
+      const { data } = pinataResponse.parse(await response.json());
+      return { image: `https://gateway.pinata.cloud/ipfs/${data.cid}` };
+    } catch {
+      throw new Error("The image could not be saved to Pinata. Try uploading again.");
     }
-    return { image: `https://musegod.fun/api/token-images/${key}` };
   }
 }
