@@ -36,6 +36,7 @@ const actions = {
   claim: "Claim",
   recovered: "Manual recovery",
   buyback: "Buyback and burn",
+  engine: "Public buyback engine",
 };
 export default function TransactionHistory({
   config,

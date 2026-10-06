@@ -32,6 +32,7 @@ export type LaunchPlan = {
   gas: string | null;
   feePolicy?: FeePolicy;
   feeTreasury?: Address;
+  feeEngine?: Address;
   openingValuation?: OpeningValuation;
   // Historical plans remain recoverable without these new signing fields.
   curvePolicy?: string;

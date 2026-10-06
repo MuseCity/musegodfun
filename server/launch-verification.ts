@@ -6,11 +6,13 @@ import { launchGuardAbi } from "../src/lib/launch-guard";
 import { restorePrepared, type LaunchPlan } from "../src/lib/launch-plan";
 import { minimumOutput, parseAmount } from "../src/lib/validation";
 import { stockByAddress } from "../src/lib/config";
+import { assertEngineFeeCalldata } from "../src/lib/protocol";
 
 export function assertPlanIntegrity(plan: LaunchPlan, contracts: ContractRegistry) {
   if (!plan.prepared || !plan.transaction || plan.curvePolicy !== CURVE_POLICY)
     throw new Error("The frozen issuance preview is missing. Run a new preview.");
   const p = restorePrepared(plan.prepared), buy = plan.firstBuy;
+  assertEngineFeeCalldata(plan, p.createParams.poolInitializerData);
   if (!sameAddress(p.airlock, contracts.airlock) || !sameAddress(p.account, plan.creator) ||
     !sameAddress(p.createParams.numeraire, plan.draft.quoteAddress) ||
     !sameAddress(p.prediction.tokenAddress, plan.tokenAddress) || p.prediction.poolId !== plan.poolId ||

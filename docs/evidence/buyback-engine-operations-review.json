@@ -1,0 +1,779 @@
+{
+  "schemaVersion": 1,
+  "reviewedClientDate": "2026-10-06",
+  "status": "passed",
+  "independentDeploymentReviewer": "root/burn_contract",
+  "independentEngineForwarderAndAppReviewer": "root/oracle_executor",
+  "oracleExecutorAuthor": "root/oracle_executor",
+  "oracleExecutorIndependentReviewer": "root/burn_contract",
+  "deploymentSourceHash": "de4217b574baf6fd48794a7e090dcbe9dc44c6de85502dc822f7d588628dc48e",
+  "forkSourceHash": "fac5801480a5b5ff4502877e4ebd2b22f4a8dbc96e300043d9f7431d9d42f6d0",
+  "configHash": "dbc667ccfae630298336172414fd7ba1c17e47307b58bb229f730f327faa6621",
+  "artifactHashes": {
+    "MusegodBuybackOracle": "aa755d7bd5bc35fcedfe043bc0ecd551b6791077e0f6ea7e8c0285e8db224bb5",
+    "MusegodFeeEngine": "3af77fe0be37e206ae2e4622f9aca40b8ac91c474bab9dc25cc4a8c45e870bb7",
+    "MusegodBuybackExecutor": "e44156799583795ba9bdefb5ad8c3a0f2a74118fb2b799b02d7d1ef8ac7f1640",
+    "MusegodWethForwarder": "66ef1c8e0e7deb1108f4a90b699eeed5882c855e32c4fe3ea5b2fd2a780b57bb"
+  },
+  "appBundle": {
+    "paths": [
+      "server/buyback-engine.ts",
+      "server/service.ts",
+      "server/config.ts",
+      "src/lib/buyback-engine.ts",
+      "src/lib/config.ts",
+      "src/lib/launch-wallet.ts",
+      "src/lib/wallet.tsx",
+      "src/components/BuybackEngine.tsx",
+      "src/components/FeeBreakdown.tsx",
+      "scripts/buyback-keeper.ts",
+      "tests/buyback-engine.test.ts",
+      "tests/buyback-keeper.test.ts"
+    ],
+    "hashEncoding": "Ordered path + NUL + file bytes + NUL",
+    "sha256": "6c1aa6af9438b158c0ad27c568af25ba0fff984e6c454abdd7a143edfe282907"
+  },
+  "checks": {
+    "foundry": {
+      "passed": 112,
+      "failed": 0,
+      "forwarderIndependentlyRun": 26,
+      "engineIndependentlyRun": 33,
+      "fuzzRunsPerCase": 256
+    },
+    "application": {
+      "passed": 348,
+      "failed": 0
+    },
+    "relatedAppImplementerChecks": {
+      "passed": 77,
+      "failed": 0
+    },
+    "independentOperationsChecks": {
+      "passed": 39,
+      "failed": 0
+    },
+    "routerTraceControls": {
+      "positive": 6,
+      "negative": 10,
+      "status": "passed_in_memory_unit_controls_not_fork_proof"
+    },
+    "typecheck": "Node and Worker passed; current fork receipt fix included",
+    "build": "passed against frozen app bundle; existing chunk-size advisory",
+    "diffCheck": "passed",
+    "mainnetReadOnlyDependencyPreflight": "passed; Automation counterfactual_not_deployed at block 81366893",
+    "currentFourContractTestCommand": {
+      "passed": 87,
+      "failed": 0,
+      "includesForwarder": true
+    },
+    "deploymentAddressFix": {
+      "passed": 7,
+      "failed": 0,
+      "independentReview": "passed"
+    }
+  },
+  "fixedFindings": [
+    {
+      "priority": 2,
+      "problem": "Address-value filtering removed protocol dependencies whose address equalled Automation, weakening the deployment receiver exclusion.",
+      "resolution": "Exclude only the automation key, preserve matching dependency values, include existing module addresses, and test both collision cases.",
+      "independentRecheck": "passed"
+    },
+    {
+      "priority": 2,
+      "problem": "Deployment reverification reset existing Automation configuration, signatures and native execution records to pending/not_run.",
+      "resolution": "Preserve complete existing rule evidence when all deployment graph fields match; initialize pending only for a new or rebound graph. Regression verifies preservation and reset cases.",
+      "independentRecheck": "passed"
+    },
+    {
+      "priority": 2,
+      "problem": "Successful fork settlement compared a transaction receipt against pre-send Oracle and Quoter estimates.",
+      "resolution": "Read Oracle at the receipt block and verify exact Flash, Executed, pool output and DEAD/caller token receipts. Keep pre-send quotes separate; preserve actual receipts before subsequent assertions.",
+      "independentRecheck": "passed by both reviewers; final run market refusal branch only"
+    },
+    {
+      "priority": 2,
+      "problem": "Price-floor rejection could be confused with an unrelated settlement failure.",
+      "resolution": "Safety requires six actual Router02 trace reverts with exact seven-field input and standard Too little received error, all AMM quotes below fixed floor and protected balances/allowances unchanged. Receipt burn flags remain false.",
+      "independentRecheck": "passed; 18 final fork traces independently decoded"
+    },
+    {
+      "priority": 2,
+      "problem": "Bootstrap reverification could mislabel missing Automation code, discard Forwarder receipts or assert a missing Engine.",
+      "resolution": "Preserve graph-bound evidence, explicitly label counterfactual receiver and return legitimate pending Engine status. Production Engine additionally requires full passed review and explicitly nonfixture code/policy evidence.",
+      "independentRecheck": "passed"
+    },
+    {
+      "priority": 2,
+      "problem": "Deployed Oracle receipt used lowercase while the viem getter used checksum case, causing a valid binding to fail strict string equality.",
+      "resolution": "Compare the two valid EVM addresses case-insensitively. Existing confirmed Oracle and Swapper stages are verified and reused, without additional broadcasts.",
+      "independentRecheck": "passed by root/burn_contract; seven deployment tests pass"
+    },
+    {
+      "priority": 2,
+      "problem": "Unbuffered gas quote fell below the next block base fee, and long Viem request details hid the RPC rejection reason.",
+      "resolution": "Use a twofold fresh gas quote/reserve and redact transaction payloads before showing shortMessage/details. A separately reviewed one-off recovery keeps the original sender/nonce/create calldata/value=0, durably retains both submission hashes, caps replacement gas price at four times the original, and requires two-confirmation canonical success.",
+      "independentRecheck": "passed by root/burn_contract",
+      "originalRejectedHash": "0x3bd68615b5570b4330505e9807028f6cf4fb40c15151bf64bd7746f872fc4eab",
+      "recoveryScriptHash": "8f4adced868673d9ee526ab6834f2664cf391cb6156f7941398858dde277c861",
+      "actualRpcReason": "max fee per gas less than block base fee: maxFeePerGas 20038000 baseFee 20528000"
+    }
+  ],
+  "remainingCodeFindings": [],
+  "evidenceBoundaries": [
+    "Code presence does not prove Splits Automation identity, current rules, or immutable downstream custody; delegated EOAs can also have code.",
+    "Automation is Treasury-owned with a 1-of-n server signer; its rules and implementation can change under workspace authority.",
+    "Only statically unmapped fee assets use Automation. Mapped stale/paused/unavailable assets cannot bypass the Engine Oracle guard.",
+    "External Automation quotes do not inherit the 99% Engine Oracle floor. WETH-to-MUSEGOD retains the 98.5% offer factor.",
+    "Automation-forwarded amounts are neither bought nor burned and receive no second 80/20 allocation. Operations treasury stays separate.",
+    "Configured manifest metadata is an activation declaration, not live server-policy proof. An actual rule readback and real receipts are separate evidence.",
+    "Native price/route/threshold availability does not guarantee every paired asset or dust is automatically processed.",
+    "The fixed Kyber compressed executor is address/runtime pinned; complete source-level third-party auditing was not obtained.",
+    "Fixed Forwarder authority covers all source Treasury WETH up to its allowance, including non-fee deposits. Native Automation and allowance remain human-controlled."
+  ],
+  "nativeSetup": {
+    "status": "setup_signatures_and_onchain_initialization_verified",
+    "browser": "Chrome",
+    "workspace": "musegodfun",
+    "page": "https://app.splits.org/accounts/0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a/",
+    "name": "MUSEGOD buyback",
+    "outputToken": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+    "network": 4663,
+    "allocationBps": 10000,
+    "initialSweepTarget": "Workspace Treasury: creation UI only listed existing workspace accounts",
+    "finalRecipient": "Splits Treasury 0xb3C11Aa2148521A3ef6d446672b720A63a2D8349; Forwarder bridges canonical WETH to fixed Swapper",
+    "ruleSignature": "Saved native policy observed in official authenticated UI; no separate cryptographic rule-signature proof claimed",
+    "nativeExecution": "not_run",
+    "screenshot": "docs/evidence/buyback-automation-rules.png",
+    "fundsConnected": false,
+    "account": "0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a",
+    "accountTypeObserved": "Automation",
+    "savedDestinationAccount": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+    "savedOutputAllocation": "WETH 100%",
+    "robinhoodContractCode": "0x363d3d373d3d363d7f360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc545af43d6000803e6038573d6000fd5b3d6000f3",
+    "robinhoodReadBlocks": [
+      "81445752"
+    ],
+    "currentEditorExternalSwapperSupport": "not_available_in_observed_UI",
+    "proposedSupportedRoute": "Automation -> existing Splits Treasury -> fixed WETH Forwarder -> Swapper",
+    "wethAllowance": "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+    "approvalCoverage": "All source Treasury WETH, including ordinary and future deposits, up to the human-signed cap; no fee provenance",
+    "currentTreasuryCustomBuilder": "Custom visible after account initialization",
+    "walletConnect": "supported_by_Splits_but_WETH_RobinScan_implementation_ABI_missing; no approval form",
+    "customProposalApi": "Two proposals created once, signed by human and reconciled against canonical UserOperation receipts; temporary key invalid",
+    "forwarder": "0x3b6d01e627fe6e06c831e0f9f57ac976a88309ff",
+    "proposalDrafts": {
+      "status": "both human-signed and canonically confirmed",
+      "automationInitialization": {
+        "account": "0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a",
+        "chainId": 4663,
+        "calls": [
+          {
+            "to": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+            "data": "0x70a08231000000000000000000000000ada3348d6fc8ecf7cc2dbca931d038b4b2913e3a",
+            "value": "0"
+          }
+        ],
+        "memo": "Initialize MUSEGOD Automation on Robinhood with a token balance query; no asset transfer"
+      },
+      "unlimitedWethAllowanceCandidate": {
+        "account": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+        "chainId": 4663,
+        "calls": [
+          {
+            "to": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+            "data": "0x095ea7b30000000000000000000000003b6d01e627fe6e06c831e0f9f57ac976a88309ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "value": "0"
+          }
+        ],
+        "memo": "Authorize all source Treasury WETH, including future and ordinary deposits, to the fixed MUSEGOD Forwarder"
+      },
+      "apiWriteKeyCreated": true,
+      "counterfactualInitializationHandling": "Both actual account runtimes verified after successful official UserOperations",
+      "onchainAllowanceSignatureCompleted": true
+    },
+    "onchainObservation": {
+      "blockNumber": "81445752",
+      "blockHash": "0x40d534561ea88a4ace1d67cda0ada215d6bc1ba4355b8f22e3c73856015bc165",
+      "automationCode": "0x363d3d373d3d363d7f360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc545af43d6000803e6038573d6000fd5b3d6000f3",
+      "sourceCode": "0x363d3d373d3d363d7f360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc545af43d6000803e6038573d6000fd5b3d6000f3",
+      "sourceWeth": "0",
+      "sourceAllowance": "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+      "nativeExecution": "not_run"
+    },
+    "apiKeyApprovalScreenshot": "docs/evidence/buyback-api-key-approval.jpg",
+    "allowanceCapDecision": {
+      "choice": "unlimited",
+      "humanAuthorized": true,
+      "requestedToken": "WETH",
+      "spender": "0x3b6d01e627fe6e06c831e0f9f57ac976a88309ff",
+      "scope": "All source Treasury WETH, including ordinary deposits and future income",
+      "onchainApproval": "MAX_UINT256_verified",
+      "apiKeyCreationAuthorized": true
+    },
+    "temporaryApiKeyPlan": {
+      "purpose": "Generate the setup proposals for human signature only",
+      "scope": "read and write",
+      "creationAuthorized": true,
+      "revocation": "Revoke after proposal creation; not a claim of automatic expiry",
+      "runtimeBuybackDependency": false,
+      "authorizedByHuman": "Explicit user request: allow creation of the temporary key",
+      "created": true,
+      "name": "MUSEGOD one-time setup rw",
+      "uiSelectedScopes": [
+        "read",
+        "write"
+      ],
+      "ownerScopeGranted": false,
+      "revoked": true,
+      "identityQuery": "Replacement key previously read/write; now invalid-key HTTP 401",
+      "scopeVerified": [
+        "read",
+        "write"
+      ],
+      "runtimeScopeObservation": {
+        "initialScopes": [
+          "write"
+        ],
+        "whoamiHttp": 403,
+        "code": "insufficient_scope",
+        "message": "This operation requires read scope, but your key has scopes write",
+        "replacementScopes": [
+          "read",
+          "write"
+        ],
+        "ownerGranted": false,
+        "temporaryKeysCreated": 2,
+        "bothToBeRevoked": true,
+        "layer": "historical_scope_resolution_before_proposal_creation_and_key_invalidation"
+      },
+      "proposalPreparationCompleted": true,
+      "originalKeyStatus": {
+        "httpStatus": 401,
+        "errorCode": "invalid_api_key_authorization"
+      },
+      "revocationStatus": "HTTP_401_invalid_api_key_authorization_verified",
+      "deleteConfirmationScreenshot": "docs/evidence/buyback-key-delete-confirmation.jpg",
+      "revocationVerifiedAt": "2026-10-06T07:12:34.102Z",
+      "localKeyFilesRemoved": true,
+      "inMemoryKeyBindingsCleared": true,
+      "permanentDeletionAgentAction": "not_run; no final deletion action performed by agent",
+      "beforeRevocationReplacementKeyStatus": {
+        "httpStatus": 200,
+        "scopes": [
+          "read",
+          "write"
+        ]
+      },
+      "currentReplacementKeyStatus": {
+        "httpStatus": 401,
+        "errorCode": "invalid_api_key_authorization",
+        "layer": "current_read_only_authentication_check"
+      }
+    },
+    "apiAccountReadback": [
+      {
+        "name": "MUSEGOD buyback [Automation]",
+        "address": "0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a",
+        "type": "SPLITS_VAULT_V1",
+        "role": "AUTOMATION",
+        "isArchived": false
+      },
+      {
+        "name": "Treasury",
+        "address": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+        "type": "SPLITS_VAULT_V1",
+        "role": "TREASURY",
+        "isArchived": false
+      }
+    ],
+    "createdSetupProposals": [
+      {
+        "kind": "automationInitialization",
+        "status": "COMPLETED",
+        "memo": "MUSEGOD setup automationInitialization 5cef0fa2-6e5b-43e6-88ea-af16126101ef",
+        "request": {
+          "account": "0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a",
+          "chainId": 4663,
+          "calls": [
+            {
+              "to": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+              "data": "0x70a08231000000000000000000000000ada3348d6fc8ecf7cc2dbca931d038b4b2913e3a",
+              "value": "0"
+            }
+          ],
+          "memo": "MUSEGOD setup automationInitialization 5cef0fa2-6e5b-43e6-88ea-af16126101ef",
+          "name": "Initialize MUSEGOD Automation on Robinhood"
+        },
+        "id": "46eb33a7-2f40-4ca3-a442-5b5564799d78",
+        "readback": {
+          "id": "46eb33a7-2f40-4ca3-a442-5b5564799d78",
+          "status": "CREATED",
+          "chainId": 4663,
+          "account": "0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a",
+          "transactionHash": null,
+          "userOpHash": "0x",
+          "layer": "historical_unsigned_API_readback"
+        },
+        "chainSignature": "confirmed_successful_user_operation",
+        "apiOriginalSignUrl": "not retained: original no-query validation stopped before URL storage",
+        "signUrl": "https://app.splits.org/accounts/0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a/transactions/46eb33a7-2f40-4ca3-a442-5b5564799d78/",
+        "browserCallsVerified": true,
+        "currentCallsVerification": "official browser Show calls exact target/value/data verified",
+        "browserCall": {
+          "to": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+          "value": "0",
+          "data": "0x70a08231000000000000000000000000ada3348d6fc8ecf7cc2dbca931d038b4b2913e3a"
+        },
+        "browserReview": {
+          "approvalNeeded": 1,
+          "gasFees": "Sponsored ~ $0.00",
+          "signatureSubmitted": false,
+          "screenshot": "docs/evidence/buyback-init-proposal.jpg",
+          "layer": "historical_pre_signature_review"
+        },
+        "initialValidationFailure": "Expected values to be strictly equal:\n+ actual - expected\n\n+ '?transactionId=46eb33a7-2f40-4ca3-a442-5b5564799d78'\n- ''\n",
+        "counterfactualInitialization": "receipt_and_actual_runtime_verified",
+        "browserStatus": "Completed",
+        "signedCallsVerified": true,
+        "screenshot": "docs/evidence/buyback-init-completed.jpg",
+        "receipt": {
+          "transactionHash": "0x6ac0559a6b104d942b919edffa291517a04d3d1225951ac67ccc733a0179635c",
+          "userOpHash": "0xa64b20582cd9c69665924a9ade9896c70649ac778db8fccdfcdf381a82323189",
+          "status": "success",
+          "blockNumber": "81439616",
+          "blockHash": "0x50a404e1e89f755c7882847dda9cab81a63e6fb1f1dbaecb20f4b7e6efd25d36",
+          "confirmations": "6137",
+          "canonical": true,
+          "sender": "0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a",
+          "entryPoint": "0x0000000071727de22e5e9d8baf0edac6f37da032",
+          "callDataHash": "0xc3690ed62770036514d2866d3868a85806a2604904d9bc935a019bf9b77a6695",
+          "initializationDataHash": "0x449ef6f55ee8be3105af3c5a20f6b748462d5b3339cc1deaadd7eb65f04d7d5c",
+          "exactRequestedCallVerified": true,
+          "userOperationSuccess": true,
+          "accountRuntimeHash": "0xaaa52c8cc8a0e3fd27ce756cc6b4e70c51423e9b597b11f32d3e49f8b1fc890d"
+        }
+      },
+      {
+        "kind": "unlimitedWethAllowance",
+        "status": "COMPLETED",
+        "memo": "MUSEGOD setup unlimitedWethAllowance 81f8aa08-4dd0-458b-a45c-0b9ccf86550a",
+        "request": {
+          "account": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+          "chainId": 4663,
+          "calls": [
+            {
+              "to": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+              "data": "0x095ea7b30000000000000000000000003b6d01e627fe6e06c831e0f9f57ac976a88309ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "value": "0"
+            }
+          ],
+          "memo": "MUSEGOD setup unlimitedWethAllowance 81f8aa08-4dd0-458b-a45c-0b9ccf86550a",
+          "name": "MUSEGOD unlimited WETH Forwarder approval"
+        },
+        "id": "308c2e86-1482-4075-8615-1c3241c474fc",
+        "signUrl": "https://app.splits.org/accounts/0xb3C11Aa2148521A3ef6d446672b720A63a2D8349/transactions/308c2e86-1482-4075-8615-1c3241c474fc/",
+        "calls": [
+          {
+            "to": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+            "data": "0x095ea7b30000000000000000000000003b6d01e627fe6e06c831e0f9f57ac976a88309ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "value": "0"
+          }
+        ],
+        "chainId": 4663,
+        "account": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+        "creationCallsVerified": true,
+        "chainSignature": "confirmed_successful_user_operation",
+        "counterfactualInitialization": "receipt_and_actual_runtime_verified",
+        "readback": {
+          "id": "308c2e86-1482-4075-8615-1c3241c474fc",
+          "status": "CREATED",
+          "chainId": 4663,
+          "account": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+          "transactionHash": null,
+          "userOpHash": "0x",
+          "layer": "historical_unsigned_API_readback"
+        },
+        "readbackCallsVerified": false,
+        "currentCallsVerification": "official browser Show calls and state-change preview verified",
+        "browserCallsVerified": true,
+        "browserCall": {
+          "to": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+          "data": "0x095ea7b30000000000000000000000003b6d01e627fe6e06c831e0f9f57ac976a88309ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "value": "0"
+        },
+        "browserReview": {
+          "account": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+          "stateChange": "Approve spend Unlimited WETH",
+          "approvalNeeded": 1,
+          "gasFees": "Sponsored ~ $0.00",
+          "signatureSubmitted": false,
+          "screenshot": "docs/evidence/buyback-weth-approval-proposal.jpg",
+          "layer": "historical_pre_signature_review"
+        },
+        "browserStatus": "Completed",
+        "signedCallsVerified": true,
+        "screenshot": "docs/evidence/buyback-weth-approval-completed.jpg",
+        "receipt": {
+          "transactionHash": "0x583c08587322eceec51bf2b16f17b0ad01d9fc68a1d8816df72095f424cdf456",
+          "userOpHash": "0x364998405fc0f9a9225ea0b1ddae0c9076f7d5d37e2c98ae0a65e60ea23029ce",
+          "status": "success",
+          "blockNumber": "81440133",
+          "blockHash": "0x9a2f6fa6790bbd860b4d85e5e52bd9f2cb91c84c26520bb632143978712fb322",
+          "confirmations": "5620",
+          "canonical": true,
+          "sender": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+          "entryPoint": "0x0000000071727de22e5e9d8baf0edac6f37da032",
+          "callDataHash": "0x18714f347c7aa6490c036b4fd09e3c75e78ff15ea3bd4f11ab61f68da2b62a15",
+          "initializationDataHash": "0x8b3e3f7c661af0dc456efa806c123bf36c673bcbf4b375bdcf994ab478acafc3",
+          "exactRequestedCallVerified": true,
+          "userOperationSuccess": true,
+          "accountRuntimeHash": "0xaaa52c8cc8a0e3fd27ce756cc6b4e70c51423e9b597b11f32d3e49f8b1fc890d"
+        }
+      }
+    ],
+    "proposalPreparationReview": {
+      "reviewer": "root/burn_contract",
+      "status": "passed",
+      "finalHelperSha256": "f489ce78c92ce5789ec6538567f9ec68bf500b03ef92c8d020fdb73ba3fc900b",
+      "fixes": [
+        "Explicit literal read/write scopes required by the live API; no owner",
+        "Single-kind durable creation journal and no repeated unknown POST",
+        "Exact account/chain/call checks and honest missing-call readback state",
+        "Public signing URL ID handling and empty 0x userOpHash placeholder",
+        "Official browser exact-call verification before human handoff"
+      ],
+      "signingPerformedByAgent": false
+    },
+    "postProposalOnchainObservation": {
+      "blockNumber": "81438062",
+      "automationCode": "0x",
+      "sourceCode": "0x",
+      "sourceAllowance": "0",
+      "nativeSignatureReceipts": "not_verified",
+      "layer": "historical_pre_signature_snapshot"
+    },
+    "observedAt": "2026-10-06T07:12:34.101Z",
+    "sourceTreasuryContractCode": "0x363d3d373d3d363d7f360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc545af43d6000803e6038573d6000fd5b3d6000f3",
+    "savedPolicyReadback": {
+      "status": "configured",
+      "account": "0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a",
+      "network": 4663,
+      "outputToken": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+      "allocationBps": 10000,
+      "recipient": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+      "automaticTriggerUsd": 5,
+      "automationThreshold": "1 of 2",
+      "robinhoodEnabled": true,
+      "layer": "official_authenticated_saved_policy_UI_readback",
+      "screenshot": "docs/evidence/buyback-policy-live.jpg"
+    },
+    "historicalPreInitializationReadBlocks": [
+      "81189434",
+      "81190207"
+    ],
+    "accountAuthorityReadback": {
+      "blockNumber": "81449137",
+      "accounts": [
+        {
+          "address": "0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a",
+          "owner": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+          "threshold": 1,
+          "signerCount": 2,
+          "implementation": "0x15ec0Fa66A0D96a64d67C58368641fBE9325F3FA"
+        },
+        {
+          "address": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+          "owner": "0xEc10eBE3B5085a1d636137975755C8cF90ac2B5d",
+          "threshold": 1,
+          "signerCount": 1,
+          "implementation": "0x15ec0Fa66A0D96a64d67C58368641fBE9325F3FA"
+        },
+        {
+          "address": "0xEc10eBE3B5085a1d636137975755C8cF90ac2B5d",
+          "owner": "unavailable",
+          "threshold": "unavailable",
+          "signerCount": "unavailable",
+          "implementation": "unavailable"
+        }
+      ],
+      "moduleChecks": [
+        {
+          "address": "0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a",
+          "module": "0x3B6d01e627Fe6e06C831E0f9f57aC976a88309Ff",
+          "enabled": false
+        },
+        {
+          "address": "0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a",
+          "module": "0xd5C256e6411a6835543F2bCd763341639e3Cf56f",
+          "enabled": false
+        },
+        {
+          "address": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+          "module": "0x3B6d01e627Fe6e06C831E0f9f57aC976a88309Ff",
+          "enabled": false
+        },
+        {
+          "address": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+          "module": "0xd5C256e6411a6835543F2bCd763341639e3Cf56f",
+          "enabled": false
+        }
+      ],
+      "otherModulesEnumeration": "not_available_in_reference_ABI",
+      "referenceSource": "https://github.com/0xSplits/splits-contracts-monorepo/tree/main/packages/smart-vaults",
+      "referenceSourceRuntimeExactMatch": "not_verified"
+    }
+  },
+  "forkEvidence": {
+    "path": "docs/evidence/buyback-engine-fork.json",
+    "sha256": "7aac31f2903edf5741a346b78fdd270d68708ec6e73ae049d79501b71ee36969",
+    "status": "passed_full_real_account_and_allowance_acceptance",
+    "blockNumber": "81451830",
+    "sourceHash": "fac5801480a5b5ff4502877e4ebd2b22f4a8dbc96e300043d9f7431d9d42f6d0",
+    "fullWethSettlementSafetyPassed": true,
+    "fullWethFeeBurnFlowPassed": true,
+    "fullUnpricedFeeAutomationTransferPassed": true,
+    "fullSourceWethForwarderFlowPassed": true,
+    "accountCodeFixtures": [],
+    "policyMetadataFixtureOnly": false,
+    "actualMuseBurned": {
+      "WETH_FEE": "55249103397181121708",
+      "SOURCE_WETH": "751862606427875714590",
+      "USDG": "14049962893479029078"
+    },
+    "sourceWethForwarded": "100000000000000",
+    "sourceApprovalFixture": false,
+    "preexistingSourceBridgeStateRestored": true,
+    "conversions": [
+      {
+        "ticker": "USDG",
+        "status": "passed"
+      },
+      {
+        "ticker": "cbBTC",
+        "status": "rejected_or_unavailable"
+      }
+    ],
+    "snapshotRestored": true,
+    "snapshotContractRemovalVerified": true,
+    "blockedUpstreamWrites": 0,
+    "nativeSplitsAutomationExecution": "not_run",
+    "mainnetTransactionSubmitted": false,
+    "independentReceiptReviewer": "root/burn_contract",
+    "independentlyDecodedSuccessfulSettlements": 3,
+    "receiptBlockOracleAndTokenTransfersVerified": true,
+    "actualMuseBurnedLayer": "isolated fork only; not mainnet/native scheduled receipts"
+  },
+  "deploymentGate": "passed full review, actual receiver/source code, signed MAX allowance and saved policy; fresh nonfixture acceptance verified before Engine deploy",
+  "mainnetDeployment": "deployed_verified",
+  "reviewerSubmittedMainnetTransactions": false,
+  "reviewerChangedRuntimePermissions": false,
+  "contractSpecificIndependentReview": {
+    "OracleAndExecutor": {
+      "reviewer": "root/burn_contract",
+      "status": "passed",
+      "author": "root/oracle_executor",
+      "checks": "Source paths, exact Oracle precision/feed guards/TWAP/math constants/Splits ABI, Executor callback/balance/approval/profit guards; fixed deployment graph additionally verified"
+    },
+    "EngineAndForwarder": {
+      "reviewer": "root/oracle_executor",
+      "status": "passed",
+      "author": "root/burn_contract",
+      "checks": "Source review, Engine33/Forwarder26 tests and exact Forwarder artifact comparison"
+    },
+    "deploymentAndFork": {
+      "reviewer": "root/burn_contract",
+      "status": "passed",
+      "author": "root",
+      "checks": "39 related operations tests, strict price rejection controls, receipt-block success verification, durable recovery and bootstrap permissions"
+    }
+  },
+  "mainnetContracts": {
+    "oracle": {
+      "address": "0x768c2a29a345ed37202902f8b556d326bab832fd",
+      "runtimeHash": "0xe0a8457bc4f9d8452ef6001e5f938c3cef3957e210eb8485b31480554ec66e38",
+      "compilerInputSha256": "02fb498c616c503c0649f9771a2a6820c2d9f391368b0273d752fa0c0f97c515",
+      "creationHash": "0x29ff8980758694adbb44a6f0dda656144744721bcd8738ce97b64aea044785f8",
+      "sourceVerification": {
+        "matchId": "54942838",
+        "creationMatch": "exact_match",
+        "runtimeMatch": "exact_match",
+        "verifiedAt": "2026-10-06T05:38:40Z",
+        "match": "exact_match",
+        "chainId": "4663",
+        "address": "0x768c2a29a345ED37202902f8B556D326BAB832Fd"
+      }
+    },
+    "swapper": {
+      "address": "0xE8834943A4eD3758f3b5930E3EEfb43568B222b3",
+      "runtimeHash": "0x1351b40a6311cef8fe6c92d6939441e8502f5bbc8bf35e39288049a30222f1e5",
+      "creationHash": "0xd9fd8863c67e5ad7cb04f8efaf8b269c7be0821a69cad80d9a8cadbf3daa3e76"
+    },
+    "engine": {
+      "address": "0x2f1fd06e3b6dd81123629d08a74a6279ea03797f",
+      "runtimeHash": "0xff5ceacfcf537ef7de39a6d946f5d1ead7875d27fc43d7aae95a3ad231e4b903",
+      "compilerInputSha256": "df0a561894afa7c5fb518a59e49977b7256b66d3a58cb3341524d02116450519",
+      "creationHash": "0x44ced087fdec7473f472a4b9c7f6b2f322aee3ab4c469607de500d98a9ba2a45",
+      "sourceVerification": {
+        "matchId": "54977177",
+        "creationMatch": "exact_match",
+        "runtimeMatch": "exact_match",
+        "verifiedAt": "2026-10-06T07:35:51Z",
+        "match": "exact_match",
+        "chainId": "4663",
+        "address": "0x2f1FD06e3b6Dd81123629d08a74A6279Ea03797f"
+      }
+    },
+    "executor": {
+      "address": "0x787b6a964c3e86a005b8fda87991e088178a8455",
+      "runtimeHash": "0x9e92469807c4246e0f2f8c6ab06d3290aefc3f07f29280ef1227a42b7644fb47",
+      "compilerInputSha256": "ba2660e0fd4130afe3537fd80efee15425af1ea36ad281ff996fd57d5a267b89",
+      "creationHash": "0x2da0fa17a50552a86adb09caec1ec26f834ff842b052a712b1579fae5b1db66d",
+      "sourceVerification": {
+        "matchId": "54942885",
+        "creationMatch": "exact_match",
+        "runtimeMatch": "exact_match",
+        "verifiedAt": "2026-10-06T05:38:47Z",
+        "match": "exact_match",
+        "chainId": "4663",
+        "address": "0x787b6a964C3e86A005B8Fda87991e088178A8455"
+      }
+    },
+    "forwarder": {
+      "address": "0x3b6d01e627fe6e06c831e0f9f57ac976a88309ff",
+      "runtimeHash": "0xb4b128362018d95493bb39bfd6c522dfb7783ac31a5ab14e10f518a7c90e499a",
+      "compilerInputSha256": "dec080af1c5e87eb28ee590ba2b1bc84b161e8aa19f5c9bb0e35bd62a5ffdae3",
+      "creationHash": "0xabcf1b6de90f038ba3a7b59e9e44a143f78d5eb478e6cf94d3db81959c7f67e4",
+      "sourceVerification": {
+        "matchId": "54942850",
+        "creationMatch": "exact_match",
+        "runtimeMatch": "exact_match",
+        "verifiedAt": "2026-10-06T05:38:43Z",
+        "match": "exact_match",
+        "chainId": "4663",
+        "address": "0x3B6d01e627Fe6e06C831E0f9f57aC976a88309Ff"
+      }
+    }
+  },
+  "mainnetCanonicalReceiptCheck": {
+    "passed": true,
+    "valueOfEveryTransaction": "0",
+    "nonces": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "totalDeploymentGasWei": "170812993964000",
+    "verificationBlock": "81461850",
+    "receipts": [
+      {
+        "stage": "oracle",
+        "hash": "0x29ff8980758694adbb44a6f0dda656144744721bcd8738ce97b64aea044785f8",
+        "blockNumber": "81377822",
+        "blockHash": "0x4415721ab4caf0e0b9ac5db09ffc6ca8e978854825aad4d276043017c3dac05d",
+        "confirmations": "84029",
+        "status": "success",
+        "canonical": true,
+        "from": "0xd5c256e6411a6835543f2bcd763341639e3cf56f",
+        "nonce": 1,
+        "value": "0",
+        "calldataHashVerified": true
+      },
+      {
+        "stage": "swapper",
+        "hash": "0xd9fd8863c67e5ad7cb04f8efaf8b269c7be0821a69cad80d9a8cadbf3daa3e76",
+        "blockNumber": "81377871",
+        "blockHash": "0xea8465bffcd681f8940ad18b15080b435b64a3c7340a7a2815c3b07c7c540cf9",
+        "confirmations": "83980",
+        "status": "success",
+        "canonical": true,
+        "from": "0xd5c256e6411a6835543f2bcd763341639e3cf56f",
+        "nonce": 2,
+        "value": "0",
+        "calldataHashVerified": true
+      },
+      {
+        "stage": "forwarder",
+        "hash": "0xabcf1b6de90f038ba3a7b59e9e44a143f78d5eb478e6cf94d3db81959c7f67e4",
+        "blockNumber": "81390993",
+        "blockHash": "0x87514b47740e18d71af968288fbe1d7f57233bec455ad63a35f689bfefd7f719",
+        "confirmations": "70858",
+        "status": "success",
+        "canonical": true,
+        "from": "0xd5c256e6411a6835543f2bcd763341639e3cf56f",
+        "nonce": 3,
+        "value": "0",
+        "calldataHashVerified": true
+      },
+      {
+        "stage": "executor",
+        "hash": "0x2da0fa17a50552a86adb09caec1ec26f834ff842b052a712b1579fae5b1db66d",
+        "blockNumber": "81391267",
+        "blockHash": "0xed0783067c04c51ea7d50f4e66d539ad304cd90676a3065a8c3b04a77b290536",
+        "confirmations": "70584",
+        "status": "success",
+        "canonical": true,
+        "from": "0xd5c256e6411a6835543f2bcd763341639e3cf56f",
+        "nonce": 4,
+        "value": "0",
+        "calldataHashVerified": true
+      },
+      {
+        "stage": "engine",
+        "hash": "0x44ced087fdec7473f472a4b9c7f6b2f322aee3ab4c469607de500d98a9ba2a45",
+        "blockNumber": "81459143",
+        "blockHash": "0xc5a5f5d5ac334304eb5f94b4f20804d501cfdea2e4c7d0f45956d6ec00fa2b73",
+        "confirmations": "2708",
+        "status": "success",
+        "canonical": true,
+        "from": "0xd5c256e6411a6835543f2bcd763341639e3cf56f",
+        "nonce": 5,
+        "value": "0",
+        "calldataHashVerified": true
+      }
+    ]
+  },
+  "postSignatureForkScriptReview": {
+    "reviewer": "root/burn_contract",
+    "author": "root/oracle_executor",
+    "status": "passed_source_and_frozen_execution_evidence",
+    "sourceHash": "fac5801480a5b5ff4502877e4ebd2b22f4a8dbc96e300043d9f7431d9d42f6d0",
+    "typecheck": "Node and Worker passed",
+    "scope": "Existing live helpers and actual MAX allowance; no account-code/policy/approval fixtures",
+    "productionSourceChanged": false,
+    "nativeScheduledRun": "not_run",
+    "evidenceSha256": "7aac31f2903edf5741a346b78fdd270d68708ec6e73ae049d79501b71ee36969"
+  },
+  "postDeploymentAppGraph": {
+    "status": "passed_mainnet_read_only_graph_activation_check",
+    "graph": {
+      "oracle": "0x768c2a29a345ED37202902f8B556D326BAB832Fd",
+      "swapper": "0xE8834943A4eD3758f3b5930E3EEfb43568B222b3",
+      "engine": "0x2f1FD06e3b6Dd81123629d08a74A6279Ea03797f",
+      "executor": "0x787b6a964C3e86A005B8Fda87991e088178A8455",
+      "forwarder": "0x3B6d01e627Fe6e06C831E0f9f57aC976a88309Ff",
+      "operationsTreasury": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+      "automationReceiver": "0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a",
+      "automationTreasury": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+      "blockNumber": "81460551",
+      "sourceDeployed": true,
+      "sourceWeth": "0",
+      "sourceAllowance": "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+      "sourceForwarded": "0",
+      "sourceAvailable": "0"
+    },
+    "layer": "five actual runtimes and getters, all37feeds and source code/allowance; no fee execution"
+  },
+  "postDeploymentIndependentEngineReview": {
+    "reviewer": "root/burn_contract",
+    "status": "passed",
+    "scope": "Engine canonical receipt, exact full creation data, all 11 named immutable runtime bindings, unchanged source/artifacts and Sourcify exact match",
+    "publicRpc": "https://rpc.mainnet.chain.robinhood.com",
+    "blockNumber": "81461089",
+    "confirmations": 1947,
+    "signingPerformedByReviewer": false
+  }
+}

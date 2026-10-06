@@ -27,11 +27,31 @@ export const FEE_POLICIES = {
     platformBuyback: 8000,
     platformOperations: 2000,
   },
+  "creator-70-musegod-swapper-v3": {
+    id: "creator-70-musegod-swapper-v3",
+    protocol: 500,
+    creator: 6650,
+    platform: 2850,
+    buyback: 2280,
+    operations: 570,
+    creatorNet: 7000,
+    platformNet: 3000,
+    platformBuyback: 8000,
+    platformOperations: 2000,
+  },
 } as const;
 export type FeePolicy = keyof typeof FEE_POLICIES;
 export type FeePolicyConfig = (typeof FEE_POLICIES)[FeePolicy];
 export const FEE_POLICY = "creator-70-musegod-v2" as const;
 export const FEE_SHARES = FEE_POLICIES[FEE_POLICY];
+export const ENGINE_FEE_POLICY = "creator-70-musegod-swapper-v3" as const;
+
+// The engine policy is opt-in after server-side deployment verification. Base
+// and installations without an engine retain the existing treasury policy.
+export function launchFeePolicy(config?: { mode?: string; deploymentChainId?: number; feePolicy?: string } | null): FeePolicy {
+  return config?.feePolicy === ENGINE_FEE_POLICY && (config.mode === "robinhood" || config.deploymentChainId === 4663)
+    ? ENGINE_FEE_POLICY : FEE_POLICY;
+}
 
 export function feePolicyFor(policy: string | null | undefined): FeePolicyConfig | null {
   return policy && Object.hasOwn(FEE_POLICIES, policy)
@@ -58,6 +78,7 @@ export function allocateFeeIncome(input: {
   account: Address;
   creator: Address | null;
   treasury?: Address | null;
+  engine?: Address | null;
 }): FeeIncomeAllocation | null {
   if (input.amount < 0n) throw new Error("Fee income cannot be negative");
   const policy = feePolicyFor(input.feePolicy);
@@ -65,6 +86,19 @@ export function allocateFeeIncome(input: {
   const account = input.account.toLowerCase();
   const isCreator = input.creator?.toLowerCase() === account;
   const isPlatform = input.treasury?.toLowerCase() === account;
+  if (policy.id === ENGINE_FEE_POLICY) {
+    const isEngine = input.engine?.toLowerCase() === account;
+    if (isEngine && (isCreator || isPlatform)) throw new Error("The fee engine must be a distinct beneficiary");
+    if (isEngine) return { creator: 0n, platform: input.amount, buyback: input.amount, operations: 0n, remainder: 0n };
+    if (!isCreator && !isPlatform) return null;
+    // Engine receipts have already been split on-chain. The operations
+    // beneficiary must not apply the old platform 80/20 split again.
+    const both = isCreator && isPlatform;
+    const denominator = BigInt(policy.creator + policy.operations);
+    const creator = isCreator ? both ? input.amount * BigInt(policy.creator) / denominator : input.amount : 0n;
+    const operations = isPlatform ? both ? input.amount * BigInt(policy.operations) / denominator : input.amount : 0n;
+    return { creator, platform: operations, buyback: 0n, operations, remainder: input.amount - creator - operations };
+  }
   if (!isCreator && !isPlatform) return null;
   const both = isCreator && isPlatform;
   const creator = isCreator

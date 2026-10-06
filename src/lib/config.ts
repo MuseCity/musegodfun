@@ -101,6 +101,12 @@ export type RuntimeConfig = {
   blockReason: string | null;
   curvePolicy?: string;
   launchGuard?: Address | null;
+  feePolicy?: FeePolicy;
+  feeEngine?: Address | null;
+  buybackExecutor?: Address | null;
+  automationReceiver?: Address | null;
+  automationTreasury?: Address | null;
+  wethForwarder?: Address | null;
 };
 export type StockStatus = Stock & {
   verified: boolean;
@@ -135,6 +141,7 @@ export type TokenRecord = {
   // these from current policy/config: deployed beneficiary shares are fixed.
   feePolicy?: FeePolicy;
   feeTreasury?: Address;
+  feeEngine?: Address;
 };
 
 // Currency ordering changes with the deployed meme address; never assume the

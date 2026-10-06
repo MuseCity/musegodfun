@@ -12,6 +12,7 @@ import { MusegodMarketReader } from "./musegod-market";
 import { CHART_INTERVALS } from "../src/lib/market";
 import { BuybackReader, BuybackError } from "./buyback";
 import { BuybackBatchService } from "./buyback-batches";
+import { BuybackEngineReader } from "./buyback-engine";
 import type { MUSEGODStats } from "../src/lib/buyback";
 import {
   addressSchema,
@@ -39,6 +40,7 @@ const musegod = new MusegodReader(service.client, service.runtime.config, () => 
 const musegodMarket = new MusegodMarketReader(service.runtime.config, service.store);
 const buyback = new BuybackReader(service.runtime.config.treasury);
 const buybackBatches = new BuybackBatchService(buyback, service.store, service.client, service.runtime.config);
+const buybackEngine = new BuybackEngineReader(service.client, () => service.config(), () => service.tokens(), (address, engine) => service.engineClaimPreview(address, engine));
 app.set("trust proxy", trustProxy);
 app.disable("x-powered-by");
 app.set("json replacer", (_key: string, value: unknown) =>
@@ -182,6 +184,15 @@ app.post(
   }),
 );
 app.get("/api/config", route(async (_req, res) => res.json(await service.config())));
+app.get("/api/buyback/engine", route(async (_req, res) => res.json(await buybackEngine.read())));
+let engineQuoting = false;
+app.post("/api/buyback/engine/quote", route(async (req, res) => {
+  const input = z.object({ token: addressSchema, amount: z.string().regex(/^[1-9]\d{0,77}$/), caller: addressSchema }).strict().parse(req.body);
+  if (engineQuoting) { res.status(429).json({ error: "Another conversion preview is in progress. Try again shortly." }); return; }
+  engineQuoting = true;
+  try { res.json(await buybackEngine.conversionQuote(input.token, input.amount, input.caller)); }
+  finally { engineQuoting = false; }
+}));
 let buybackStats: MUSEGODStats | null = null;
 let buybackStatsPending: Promise<MUSEGODStats> | null = null;
 let buybackQuoting = false;

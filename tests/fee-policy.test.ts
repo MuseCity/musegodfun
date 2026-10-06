@@ -5,7 +5,7 @@ import { createPublicClient, http, encodeFunctionData, keccak256, encodeAbiParam
 import { LaunchpadService } from "../server/service";
 import type { LaunchPlan } from "../server/store";
 import { CONTRACTS, STOCKS, ROBINHOOD_STOCKS, SUPPLY, type TokenRecord } from "../src/lib/config";
-import { allocateFeeIncome, FEE_POLICIES, FEE_POLICY, feePolicyFor } from "../src/lib/fee-policy";
+import { allocateFeeIncome, ENGINE_FEE_POLICY, FEE_POLICIES, FEE_POLICY, feePolicyFor, type FeeIncomeAllocation } from "../src/lib/fee-policy";
 import { LAUNCH_PRICE_TTL } from "../src/lib/opening-valuation";
 import { syntheticOpeningValuation } from "./fixtures";
 import { buildLaunch } from "../src/lib/protocol";
@@ -210,16 +210,17 @@ test("policy versions preserve their distinct gross, net and platform-income bas
 
 test("fee allocation floors each layer without allocating more than actual income", () => {
   for (const feePolicy of Object.keys(FEE_POLICIES) as (keyof typeof FEE_POLICIES)[]) {
+    if (feePolicy === ENGINE_FEE_POLICY) continue; // v3 is split on-chain, covered separately.
     const policy = FEE_POLICIES[feePolicy];
     for (const amount of [0n, 1n, 2n, 9n, 10n, 11n, 99n, 100n, 101n, 123456789n, 900719925474099300000000000000001n]) {
-      const creatorOnly = allocateFeeIncome({ feePolicy, amount, account: creator, creator, treasury })!;
+      const creatorOnly: FeeIncomeAllocation = allocateFeeIncome({ feePolicy, amount, account: creator, creator, treasury })!;
       assert.deepEqual(creatorOnly, { creator: amount, platform: 0n, buyback: 0n, operations: 0n, remainder: 0n });
-      const platformOnly = allocateFeeIncome({ feePolicy, amount, account: treasury, creator, treasury })!;
+      const platformOnly: FeeIncomeAllocation = allocateFeeIncome({ feePolicy, amount, account: treasury, creator, treasury })!;
       assert.equal(platformOnly.platform, amount);
       assert.equal(platformOnly.creator, 0n);
       assert.equal(platformOnly.buyback, amount * BigInt(policy.platformBuyback) / 10000n);
       assert.equal(platformOnly.operations, amount * BigInt(policy.platformOperations) / 10000n);
-      const shared = allocateFeeIncome({ feePolicy, amount, account: creator, creator, treasury: creator })!;
+      const shared: FeeIncomeAllocation = allocateFeeIncome({ feePolicy, amount, account: creator, creator, treasury: creator })!;
       assert.equal(shared.creator, amount * BigInt(policy.creatorNet) / 10000n);
       assert.equal(shared.platform, amount * BigInt(policy.platformNet) / 10000n);
       assert.equal(shared.buyback, shared.platform * BigInt(policy.platformBuyback) / 10000n);

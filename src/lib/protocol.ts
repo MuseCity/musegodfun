@@ -5,10 +5,12 @@ import type {
 } from "@whetstone-research/doppler-sdk/evm";
 import {
   encodeAbiParameters,
+  decodeAbiParameters,
   encodeFunctionData,
   erc20Abi,
   getAddress,
   parseAbi,
+  parseAbiParameters,
   type Address,
   type Hex,
   type PublicClient,
@@ -27,7 +29,7 @@ import {
   stockByAddress,
 } from "./config";
 import { launchSchema, minimumOutput, type LaunchInput } from "./validation";
-import { FEE_POLICY, FEE_SHARES, MUSEGOD_BUYBACK } from "./fee-policy";
+import { ENGINE_FEE_POLICY, FEE_POLICY, FEE_SHARES, MUSEGOD_BUYBACK } from "./fee-policy";
 import { CURVE_POLICY, buildLaunchCurves, LAUNCH_CURVE_TICK_SPACING } from "./launch-curve";
 import {
   assertOpeningValuation,
@@ -67,7 +69,7 @@ export function beneficiaries(entries: BeneficiaryData[]): BeneficiaryData[] {
     throw new Error("Fee shares must total 100%");
   return result;
 }
-export function tokenMetadata(input: LaunchInput, openingValuation: OpeningValuation, chainId: 8453 | 4663 = 8453) {
+export function tokenMetadata(input: LaunchInput, openingValuation: OpeningValuation, chainId: 8453 | 4663 = 8453, feeEngine?: Address) {
   assertOpeningValuation(openingValuation, input.quoteAddress, chainId);
   return {
     name: input.name,
@@ -86,7 +88,8 @@ export function tokenMetadata(input: LaunchInput, openingValuation: OpeningValua
       openingCap: openingCapInQuote(openingValuation),
       openingValuation,
       curvePolicy: CURVE_POLICY,
-      feePolicy: FEE_POLICY,
+      feePolicy: feeEngine ? ENGINE_FEE_POLICY : FEE_POLICY,
+      ...(feeEngine ? { feeEngine } : {}),
       feeDistribution: {
         basis: "total_fees",
         protocolBps: FEE_SHARES.protocol,
@@ -97,7 +100,7 @@ export function tokenMetadata(input: LaunchInput, openingValuation: OpeningValua
         basis: "platform_income",
         buybackBps: FEE_SHARES.platformBuyback,
         operationsBps: FEE_SHARES.platformOperations,
-        execution: "treasury_manual_allocation",
+        execution: feeEngine ? "permissionless_weth_swapper" : "treasury_manual_allocation",
       },
       buyback: MUSEGOD_BUYBACK,
     },
@@ -112,12 +115,15 @@ export function buildLaunch(
   openingValuation: OpeningValuation,
   salt?: Hex,
   chainId: 8453 | 4663 = 8453,
+  feeEngine?: Address,
 ) {
   const contracts = contractsFor({ mode: chainId === 4663 ? "robinhood" : "base" });
   const draft = launchSchema.parse(input),
     stock = stockByAddress(draft.quoteAddress);
   if (stock.chainId !== chainId) throw new Error("The paired asset is on a different deployment network");
   assertOpeningValuation(openingValuation, stock.address, chainId);
+  if (feeEngine && (chainId !== 4663 || [creator, treasury, protocolOwner, DEAD, "0x0000000000000000000000000000000000000000"].some((address) => sameAddress(feeEngine, address))))
+    throw new Error("The fee engine must be a distinct Robinhood Chain beneficiary");
   const lpBeneficiaries = beneficiaries([
     {
       beneficiary: protocolOwner,
@@ -129,8 +135,9 @@ export function buildLaunch(
     },
     {
       beneficiary: treasury,
-      shares: (WAD * BigInt(FEE_SHARES.platform)) / 10_000n,
+      shares: (WAD * BigInt(feeEngine ? FEE_SHARES.operations : FEE_SHARES.platform)) / 10_000n,
     },
+    ...(feeEngine ? [{ beneficiary: feeEngine, shares: WAD * BigInt(FEE_SHARES.buyback) / 10_000n }] : []),
   ]);
   const hookBeneficiaries = beneficiaries([
     {
@@ -139,8 +146,9 @@ export function buildLaunch(
     },
     {
       beneficiary: treasury,
-      shares: (WAD * BigInt(FEE_SHARES.platformNet)) / 10_000n,
+      shares: (WAD * BigInt(feeEngine ? FEE_SHARES.platformNet * FEE_SHARES.platformOperations / 10_000 : FEE_SHARES.platformNet)) / 10_000n,
     },
+    ...(feeEngine ? [{ beneficiary: feeEngine, shares: WAD * BigInt(FEE_SHARES.platformNet * FEE_SHARES.platformBuyback / 10_000) / 10_000n }] : []),
   ]);
   const builder = sdk
     .buildMulticurveAuction()
@@ -148,7 +156,7 @@ export function buildLaunch(
       type: "dopplerERC20V1",
       name: draft.name,
       symbol: draft.symbol,
-      tokenURI: `data:application/json,${encodeURIComponent(JSON.stringify(tokenMetadata(draft, openingValuation, chainId)))}`,
+      tokenURI: `data:application/json,${encodeURIComponent(JSON.stringify(tokenMetadata(draft, openingValuation, chainId, feeEngine)))}`,
     })
     .saleConfig({
       initialSupply: SUPPLY,
@@ -202,6 +210,24 @@ export function buildLaunch(
     dopplerERC20V1Factory: contracts.tokenFactory,
   };
   return params;
+}
+
+// Bind the engine field in a preview to both immutable beneficiary arrays in
+// the exact CreateParams that will be signed, including guarded first buys.
+export function assertEngineFeeCalldata(input: { feePolicy?: string; feeEngine?: Address; creator: Address; feeTreasury?: Address }, poolInitializerData: Hex) {
+  if (input.feePolicy !== ENGINE_FEE_POLICY) {
+    if (input.feeEngine) throw new Error("The fee engine does not match the launch fee policy");
+    return;
+  }
+  if (!input.feeEngine || !input.feeTreasury || [input.creator, input.feeTreasury, DEAD, "0x0000000000000000000000000000000000000000"].some((address) => sameAddress(address, input.feeEngine!)))
+    throw new Error("The fee engine is missing or overlaps another beneficiary");
+  const [pool] = decodeAbiParameters(parseAbiParameters("(uint24 fee, int24 tickSpacing, int24 farTick, (int24 tickLower, int24 tickUpper, uint16 numPositions, uint256 shares)[] curves, (address beneficiary, uint96 shares)[] beneficiaries, address dopplerHook, bytes onInitializationDopplerHookCalldata, bytes graduationDopplerHookCalldata)"), poolInitializerData);
+  const [hook] = decodeAbiParameters(parseAbiParameters("(address numeraire,address buybackDst,uint24 startFee,uint24 endFee,uint32 durationSeconds,uint32 startingTime,uint8 feeRoutingMode,(uint64 assetFeesToAssetBuybackWad,uint64 assetFeesToNumeraireBuybackWad,uint64 assetFeesToBeneficiaryWad,uint64 assetFeesToLpWad,uint64 numeraireFeesToAssetBuybackWad,uint64 numeraireFeesToNumeraireBuybackWad,uint64 numeraireFeesToBeneficiaryWad,uint64 numeraireFeesToLpWad) feeDistributionInfo,(address beneficiary,uint96 shares)[] feeBeneficiaries,(address integrator,uint24 feeShare,uint32 assetFeesToNumeraireRatio,uint32 numeraireFeesToAssetRatio,bool automaticPayout) integratorConfig)"), pool.onInitializationDopplerHookCalldata);
+  const lp = pool.beneficiaries.filter((entry) => sameAddress(entry.beneficiary, input.feeEngine!));
+  const trade = hook.feeBeneficiaries.filter((entry) => sameAddress(entry.beneficiary, input.feeEngine!));
+  if (lp.length !== 1 || trade.length !== 1 || lp[0].shares !== WAD * 2280n / 10_000n || trade[0].shares !== WAD * 2400n / 10_000n ||
+    !sameAddress(pool.dopplerHook, ROBINHOOD_CONTRACTS.rehype) || hook.feeRoutingMode !== 1)
+    throw new Error("The launch calldata does not contain the fixed fee engine shares");
 }
 export function swapTransaction(
   poolKey: V4PoolKey,

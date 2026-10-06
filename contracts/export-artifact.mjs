@@ -8,10 +8,14 @@ import { spawnSync } from "node:child_process";
 import { keccak256, stringToHex } from "viem";
 
 const root = dirname(fileURLToPath(import.meta.url));
-const built = JSON.parse(await readFile(join(root, "out/MusegodLaunchGuard.sol/MusegodLaunchGuard.json"), "utf8"));
+const contractName = process.argv[2] === "--contract" ? process.argv[3] : "MusegodLaunchGuard";
+assert(["MusegodLaunchGuard", "MusegodFeeEngine", "MusegodBuybackOracle", "MusegodBuybackExecutor", "MusegodWethForwarder"].includes(contractName), "Unknown production contract");
+assert(process.argv.length === 2 || (process.argv.length === 4 && process.argv[2] === "--contract"), "Use --contract NAME");
+const sourcePath = `src/${contractName}.sol`;
+const built = JSON.parse(await readFile(join(root, `out/${contractName}.sol/${contractName}.json`), "utf8"));
 const settings = { ...built.metadata.settings };
 delete settings.compilationTarget;
-settings.outputSelection = { "*": { "*": ["abi", "evm.bytecode", "evm.deployedBytecode", "metadata"] } };
+settings.outputSelection = { "*": { "*": ["abi", "evm.bytecode", "evm.deployedBytecode", "metadata"], "": ["ast"] } };
 const sources = {};
 for (const [path, entry] of Object.entries(built.metadata.sources)) {
   const content = await readFile(join(root, path), "utf8");
@@ -26,23 +30,34 @@ const result = spawnSync(solc, ["--standard-json"], { input: inputJson, encoding
 assert.equal(result.status, 0, result.stderr || "Solc compilation failed");
 const output = JSON.parse(result.stdout);
 assert(!output.errors?.some((error) => error.severity === "error"), JSON.stringify(output.errors));
-const contract = output.contracts["src/MusegodLaunchGuard.sol"].MusegodLaunchGuard;
+const contract = output.contracts[sourcePath][contractName];
 assert.equal("0x" + contract.evm.bytecode.object, built.bytecode.object, "Standard compiler input must reproduce Forge creation bytecode");
 assert.equal("0x" + contract.evm.deployedBytecode.object, built.deployedBytecode.object, "Standard compiler input must reproduce Forge runtime bytecode");
+const immutableASTbindings = {};
+function visit(node) {
+  if (!node || typeof node !== "object") return;
+  if (node.nodeType === "VariableDeclaration" && node.mutability === "immutable")
+    immutableASTbindings[node.id] = { name: node.name, type: node.typeDescriptions.typeString };
+  for (const child of Object.values(node)) if (typeof child === "object") {
+    if (Array.isArray(child)) child.forEach(visit); else visit(child);
+  }
+}
+for (const source of Object.values(output.sources)) visit(source.ast);
 const artifact = {
-  contractName: "MusegodLaunchGuard",
+  contractName,
   compiler: { version: built.metadata.compiler.version, evmVersion: settings.evmVersion, optimizer: settings.optimizer },
   abi: contract.abi,
   bytecode: "0x" + contract.evm.bytecode.object,
   deployedBytecode: "0x" + contract.evm.deployedBytecode.object,
   immutableReferences: contract.evm.deployedBytecode.immutableReferences,
+  immutableASTbindings,
   compilerInputSha256: createHash("sha256").update(inputJson).digest("hex"),
   creationBytecodeHash: keccak256("0x" + contract.evm.bytecode.object),
   runtimeTemplateHash: keccak256("0x" + contract.evm.deployedBytecode.object),
   dependency: JSON.parse(await readFile(join(root, "lib/openzeppelin-contracts/dependency-lock.json"), "utf8")),
 };
-await writeFile(join(root, "artifacts/MusegodLaunchGuard.compiler-input.json"), inputJson);
-await writeFile(join(root, "artifacts/MusegodLaunchGuard.json"), JSON.stringify(artifact, null, 2) + "\n");
-console.log(JSON.stringify({ artifact: resolve(root, "artifacts/MusegodLaunchGuard.json"), compilerInputSha256: artifact.compilerInputSha256,
+await writeFile(join(root, `artifacts/${contractName}.compiler-input.json`), inputJson);
+await writeFile(join(root, `artifacts/${contractName}.json`), JSON.stringify(artifact, null, 2) + "\n");
+console.log(JSON.stringify({ artifact: resolve(root, `artifacts/${contractName}.json`), compilerInputSha256: artifact.compilerInputSha256,
   bytecodeBytes: contract.evm.bytecode.object.length / 2, runtimeBytes: contract.evm.deployedBytecode.object.length / 2,
-  immutableReferences: artifact.immutableReferences }, null, 2));
+  immutableVariables: Object.keys(artifact.immutableReferences).length }, null, 2));

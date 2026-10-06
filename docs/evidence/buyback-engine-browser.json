@@ -1,0 +1,131 @@
+{
+  "status": "historical_unconfigured_branch_not_rechecked_for_automation",
+  "url": "http://127.0.0.1:5294/buyback",
+  "environment": "isolated_local_sqlite_mainnet_read_only_no_production_database",
+  "desktop": {
+    "viewportWidth": 1280,
+    "screenshot": "buyback-engine-desktop.png",
+    "visuallyInspected": true
+  },
+  "mobile": {
+    "requestedViewport": {
+      "width": 390,
+      "height": 844
+    },
+    "observedDocumentWidth": 375,
+    "observedDocumentScrollWidth": 375,
+    "engineBelowFoldVisuallyInspected": true,
+    "screenshotSavedToFile": false,
+    "viewportResetAfterCheck": true
+  },
+  "observations": [
+    "The engine explicitly reports unconfigured or unverifiable deployment.",
+    "No contract-action buttons are available in this state.",
+    "Refresh preserves the unavailable state.",
+    "Existing v2 treasury fee-policy copy remains while no verified v3 engine is configured.",
+    "No document-level horizontal overflow was observed on the mobile viewport."
+  ],
+  "limitations": [
+    "Configured engine UI has source and unit-test coverage but no mainnet browser execution evidence.",
+    "No wallet was connected and no wallet transaction was signed.",
+    "The website was not published."
+  ],
+  "currentAutomationSetup": {
+    "status": "setup_signatures_and_onchain_initialization_verified",
+    "browser": "Chrome",
+    "workspace": "musegodfun",
+    "page": "https://app.splits.org/accounts/0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a/",
+    "name": "MUSEGOD buyback",
+    "outputToken": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+    "outputNetwork": 4663,
+    "allocationBps": 10000,
+    "initialSweepTarget": "workspace Treasury; creation UI currently offers only existing workspace accounts",
+    "finalIntendedSweepTarget": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+    "screenshot": "buyback-automation-rules.png",
+    "accountCreated": true,
+    "ruleSignature": "Saved native policy observed in official authenticated UI; no separate cryptographic rule-signature proof claimed",
+    "fundsTransferred": false,
+    "nativeExecution": "not_run",
+    "userHandoffRequired": "none_for_existing_setup",
+    "account": "0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a",
+    "savedSweepTarget": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+    "currentEditorExternalSwapperSupport": "not_available_in_observed_UI",
+    "robinhoodEnabledInWorkspace": true,
+    "robinhoodContractCode": "0x363d3d373d3d363d7f360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc545af43d6000803e6038573d6000fd5b3d6000f3",
+    "bridgeForwarder": "0x3b6d01e627fe6e06c831e0f9f57ac976a88309ff",
+    "sourceTreasuryContractCode": "0x363d3d373d3d363d7f360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc545af43d6000803e6038573d6000fd5b3d6000f3",
+    "approval": "MAX_UINT256_verified",
+    "temporaryApiKey": "invalid-key HTTP 401 verified; local credential files and RAM bindings removed",
+    "apiKeyApprovalPage": "https://app.splits.org/settings/team/api-keys/",
+    "apiKeyApprovalScreenshot": "buyback-api-key-approval.jpg",
+    "proposalDrafts": "both proposals human signed and canonically confirmed",
+    "proposals": [
+      {
+        "kind": "automationInitialization",
+        "id": "46eb33a7-2f40-4ca3-a442-5b5564799d78",
+        "signUrl": "https://app.splits.org/accounts/0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a/transactions/46eb33a7-2f40-4ca3-a442-5b5564799d78/",
+        "status": "COMPLETED",
+        "signatureSubmitted": true,
+        "browserCallsVerified": true,
+        "signedCallsVerified": true,
+        "receipt": {
+          "transactionHash": "0x6ac0559a6b104d942b919edffa291517a04d3d1225951ac67ccc733a0179635c",
+          "userOpHash": "0xa64b20582cd9c69665924a9ade9896c70649ac778db8fccdfcdf381a82323189",
+          "status": "success",
+          "blockNumber": "81439616",
+          "blockHash": "0x50a404e1e89f755c7882847dda9cab81a63e6fb1f1dbaecb20f4b7e6efd25d36",
+          "confirmations": "6137",
+          "canonical": true,
+          "sender": "0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a",
+          "entryPoint": "0x0000000071727de22e5e9d8baf0edac6f37da032",
+          "callDataHash": "0xc3690ed62770036514d2866d3868a85806a2604904d9bc935a019bf9b77a6695",
+          "initializationDataHash": "0x449ef6f55ee8be3105af3c5a20f6b748462d5b3339cc1deaadd7eb65f04d7d5c",
+          "exactRequestedCallVerified": true,
+          "userOperationSuccess": true,
+          "accountRuntimeHash": "0xaaa52c8cc8a0e3fd27ce756cc6b4e70c51423e9b597b11f32d3e49f8b1fc890d"
+        },
+        "screenshot": "docs/evidence/buyback-init-completed.jpg"
+      },
+      {
+        "kind": "unlimitedWethAllowance",
+        "id": "308c2e86-1482-4075-8615-1c3241c474fc",
+        "signUrl": "https://app.splits.org/accounts/0xb3C11Aa2148521A3ef6d446672b720A63a2D8349/transactions/308c2e86-1482-4075-8615-1c3241c474fc/",
+        "status": "COMPLETED",
+        "signatureSubmitted": true,
+        "browserCallsVerified": true,
+        "signedCallsVerified": true,
+        "receipt": {
+          "transactionHash": "0x583c08587322eceec51bf2b16f17b0ad01d9fc68a1d8816df72095f424cdf456",
+          "userOpHash": "0x364998405fc0f9a9225ea0b1ddae0c9076f7d5d37e2c98ae0a65e60ea23029ce",
+          "status": "success",
+          "blockNumber": "81440133",
+          "blockHash": "0x9a2f6fa6790bbd860b4d85e5e52bd9f2cb91c84c26520bb632143978712fb322",
+          "confirmations": "5620",
+          "canonical": true,
+          "sender": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+          "entryPoint": "0x0000000071727de22e5e9d8baf0edac6f37da032",
+          "callDataHash": "0x18714f347c7aa6490c036b4fd09e3c75e78ff15ea3bd4f11ab61f68da2b62a15",
+          "initializationDataHash": "0x8b3e3f7c661af0dc456efa806c123bf36c673bcbf4b375bdcf994ab478acafc3",
+          "exactRequestedCallVerified": true,
+          "userOperationSuccess": true,
+          "accountRuntimeHash": "0xaaa52c8cc8a0e3fd27ce756cc6b4e70c51423e9b597b11f32d3e49f8b1fc890d"
+        },
+        "screenshot": "docs/evidence/buyback-weth-approval-completed.jpg"
+      }
+    ],
+    "humanHandoffRequired": "none_for_existing_setup",
+    "savedPolicyReadback": {
+      "status": "configured",
+      "account": "0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a",
+      "network": 4663,
+      "outputToken": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+      "allocationBps": 10000,
+      "recipient": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+      "automaticTriggerUsd": 5,
+      "automationThreshold": "1 of 2",
+      "robinhoodEnabled": true,
+      "layer": "official_authenticated_saved_policy_UI_readback",
+      "screenshot": "docs/evidence/buyback-policy-live.jpg"
+    }
+  }
+}

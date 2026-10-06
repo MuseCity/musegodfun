@@ -1,0 +1,289 @@
+{
+  "schemaVersion": 1,
+  "chainId": 4663,
+  "status": "deployed_verified",
+  "configHash": "dbc667ccfae630298336172414fd7ba1c17e47307b58bb229f730f327faa6621",
+  "contracts": {
+    "oracle": {
+      "address": "0x768c2a29a345ed37202902f8b556d326bab832fd",
+      "runtimeHash": "0xe0a8457bc4f9d8452ef6001e5f938c3cef3957e210eb8485b31480554ec66e38",
+      "compilerInputSha256": "02fb498c616c503c0649f9771a2a6820c2d9f391368b0273d752fa0c0f97c515",
+      "creationHash": "0x29ff8980758694adbb44a6f0dda656144744721bcd8738ce97b64aea044785f8",
+      "sourceVerification": {
+        "matchId": "54942838",
+        "creationMatch": "exact_match",
+        "runtimeMatch": "exact_match",
+        "verifiedAt": "2026-10-06T05:38:40Z",
+        "match": "exact_match",
+        "chainId": "4663",
+        "address": "0x768c2a29a345ED37202902f8B556D326BAB832Fd"
+      }
+    },
+    "swapper": {
+      "address": "0xE8834943A4eD3758f3b5930E3EEfb43568B222b3",
+      "runtimeHash": "0x1351b40a6311cef8fe6c92d6939441e8502f5bbc8bf35e39288049a30222f1e5",
+      "creationHash": "0xd9fd8863c67e5ad7cb04f8efaf8b269c7be0821a69cad80d9a8cadbf3daa3e76"
+    },
+    "engine": {
+      "address": "0x2f1fd06e3b6dd81123629d08a74a6279ea03797f",
+      "runtimeHash": "0xff5ceacfcf537ef7de39a6d946f5d1ead7875d27fc43d7aae95a3ad231e4b903",
+      "compilerInputSha256": "df0a561894afa7c5fb518a59e49977b7256b66d3a58cb3341524d02116450519",
+      "creationHash": "0x44ced087fdec7473f472a4b9c7f6b2f322aee3ab4c469607de500d98a9ba2a45",
+      "sourceVerification": {
+        "matchId": "54977177",
+        "creationMatch": "exact_match",
+        "runtimeMatch": "exact_match",
+        "verifiedAt": "2026-10-06T07:35:51Z",
+        "match": "exact_match",
+        "chainId": "4663",
+        "address": "0x2f1FD06e3b6Dd81123629d08a74A6279Ea03797f"
+      }
+    },
+    "executor": {
+      "address": "0x787b6a964c3e86a005b8fda87991e088178a8455",
+      "runtimeHash": "0x9e92469807c4246e0f2f8c6ab06d3290aefc3f07f29280ef1227a42b7644fb47",
+      "compilerInputSha256": "ba2660e0fd4130afe3537fd80efee15425af1ea36ad281ff996fd57d5a267b89",
+      "creationHash": "0x2da0fa17a50552a86adb09caec1ec26f834ff842b052a712b1579fae5b1db66d",
+      "sourceVerification": {
+        "matchId": "54942885",
+        "creationMatch": "exact_match",
+        "runtimeMatch": "exact_match",
+        "verifiedAt": "2026-10-06T05:38:47Z",
+        "match": "exact_match",
+        "chainId": "4663",
+        "address": "0x787b6a964C3e86A005B8Fda87991e088178A8455"
+      }
+    },
+    "forwarder": {
+      "address": "0x3b6d01e627fe6e06c831e0f9f57ac976a88309ff",
+      "runtimeHash": "0xb4b128362018d95493bb39bfd6c522dfb7783ac31a5ab14e10f518a7c90e499a",
+      "compilerInputSha256": "dec080af1c5e87eb28ee590ba2b1bc84b161e8aa19f5c9bb0e35bd62a5ffdae3",
+      "creationHash": "0xabcf1b6de90f038ba3a7b59e9e44a143f78d5eb478e6cf94d3db81959c7f67e4",
+      "sourceVerification": {
+        "matchId": "54942850",
+        "creationMatch": "exact_match",
+        "runtimeMatch": "exact_match",
+        "verifiedAt": "2026-10-06T05:38:43Z",
+        "match": "exact_match",
+        "chainId": "4663",
+        "address": "0x3B6d01e627Fe6e06C831E0f9f57aC976a88309Ff"
+      }
+    }
+  },
+  "constants": {
+    "treasury": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+    "weth": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+    "muse": "0x0379E228F6887c6F18bf394042ECAF81B308cb2e",
+    "museWethPool": "0x071eE139277688d64B139Af1e44f79a9acf12e53",
+    "ethUsdFeed": "0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9",
+    "initializer": "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544",
+    "rehype": "0x5F9eB5f6726Fe88D5e39867967F5b833d2fA3215",
+    "router": "0x6131B5fae19EA4f9D964eAc0408E4408b66337b5",
+    "swapRouter": "0xB2d8eD81e79eb64A0751352459eC215FbAFad669",
+    "swapperFactory": "0xa244bbe019cf1BA177EE5A532250be2663Fb55cA",
+    "beneficiary": "0x000000000000000000000000000000000000dEaD",
+    "routerExecutor": "0x8F10B468b06c6FD214B65F87778827F7D113f996",
+    "swapperImpl": "0x7fcdD45101E35fd626A539BA565d26A72d95fDa7",
+    "automation": "0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a",
+    "automationTreasury": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349"
+  },
+  "transactions": [
+    {
+      "stage": "oracle",
+      "status": "confirmed",
+      "hash": "0x29ff8980758694adbb44a6f0dda656144744721bcd8738ce97b64aea044785f8",
+      "deployer": "0xd5C256e6411a6835543F2bCd763341639e3Cf56f",
+      "nonce": 1,
+      "to": null,
+      "dataHash": "0x665556e20a6899e32b17c3f2f3a71e4d92d10ff12fa41f37031aa0d427c061fc",
+      "gasLimit": "4128296",
+      "gasPrice": "20216000",
+      "blockNumber": "81377822",
+      "gasUsed": "3110754",
+      "gasCost": "62221301508000"
+    },
+    {
+      "stage": "swapper",
+      "status": "confirmed",
+      "hash": "0xd9fd8863c67e5ad7cb04f8efaf8b269c7be0821a69cad80d9a8cadbf3daa3e76",
+      "deployer": "0xd5C256e6411a6835543F2bCd763341639e3Cf56f",
+      "nonce": 2,
+      "to": "0xa244bbe019cf1BA177EE5A532250be2663Fb55cA",
+      "dataHash": "0x63fb8c4688e0b5297b84545be23c5beb2db4674e7caf526dfe79e293619cb441",
+      "gasLimit": "253624",
+      "gasPrice": "20148000",
+      "blockNumber": "81377871",
+      "gasUsed": "155385",
+      "gasCost": "3107700000000"
+    },
+    {
+      "stage": "forwarder",
+      "status": "confirmed",
+      "hash": "0xabcf1b6de90f038ba3a7b59e9e44a143f78d5eb478e6cf94d3db81959c7f67e4",
+      "deployer": "0xd5C256e6411a6835543F2bCd763341639e3Cf56f",
+      "nonce": 3,
+      "to": null,
+      "dataHash": "0xa5045883a36e2d88745cdb7b426d04a24e20681e7948ea76038e6c86816d2c59",
+      "gasLimit": "1030023",
+      "gasPrice": "40100000",
+      "previousSubmissions": [
+        {
+          "hash": "0x3bd68615b5570b4330505e9807028f6cf4fb40c15151bf64bd7746f872fc4eab",
+          "gasPrice": "20038000",
+          "nonce": 3,
+          "dataHash": "0xa5045883a36e2d88745cdb7b426d04a24e20681e7948ea76038e6c86816d2c59",
+          "gasLimit": "1030023",
+          "rpcRejection": {
+            "code": -32000,
+            "details": "max fee per gas less than block base fee: maxFeePerGas 20038000 baseFee 20528000"
+          }
+        }
+      ],
+      "feeReplacement": true,
+      "blockNumber": "81390993",
+      "gasUsed": "739488",
+      "gasCost": "14797154880000",
+      "identicalRebroadcast": false
+    },
+    {
+      "stage": "executor",
+      "status": "confirmed",
+      "hash": "0x2da0fa17a50552a86adb09caec1ec26f834ff842b052a712b1579fae5b1db66d",
+      "deployer": "0xd5C256e6411a6835543F2bCd763341639e3Cf56f",
+      "nonce": 4,
+      "to": null,
+      "dataHash": "0xbe0542d04aa386264a628b99be255c1e42b33893ca9a108f8510fad3395ac91a",
+      "gasLimit": "1702561",
+      "gasPrice": "40000000",
+      "blockNumber": "81391267",
+      "gasUsed": "1259652",
+      "gasCost": "25215713736000"
+    },
+    {
+      "stage": "engine",
+      "status": "confirmed",
+      "hash": "0x44ced087fdec7473f472a4b9c7f6b2f322aee3ab4c469607de500d98a9ba2a45",
+      "deployer": "0xd5C256e6411a6835543F2bCd763341639e3Cf56f",
+      "nonce": 5,
+      "to": null,
+      "dataHash": "0xe93bcb159fbeb166fb8b0b396a8403e66bbf7b39536006856af5066c0f04dd67",
+      "gasLimit": "4316011",
+      "gasPrice": "40136000",
+      "blockNumber": "81459143",
+      "gasUsed": "3254032",
+      "gasCost": "65471123840000"
+    }
+  ],
+  "unpricedFeePolicy": "splits-automation",
+  "automation": {
+    "status": "configured",
+    "account": "0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a",
+    "network": 4663,
+    "outputToken": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+    "allocationBps": 10000,
+    "recipient": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+    "ruleSignature": "Saved native policy observed in official authenticated UI; no separate cryptographic rule-signature proof claimed",
+    "nativeExecution": "not_run",
+    "forwarder": "0x3b6d01e627fe6e06c831e0f9f57ac976a88309ff",
+    "wethAllowance": "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+    "automaticTriggerUsd": 5,
+    "automationThreshold": "1 of 2",
+    "robinhoodEnabled": true,
+    "layer": "official_authenticated_saved_policy_UI_readback",
+    "screenshot": "docs/evidence/buyback-policy-live.jpg",
+    "setupReceipts": [
+      {
+        "transactionHash": "0x6ac0559a6b104d942b919edffa291517a04d3d1225951ac67ccc733a0179635c",
+        "userOpHash": "0xa64b20582cd9c69665924a9ade9896c70649ac778db8fccdfcdf381a82323189",
+        "status": "success",
+        "blockNumber": "81439616",
+        "blockHash": "0x50a404e1e89f755c7882847dda9cab81a63e6fb1f1dbaecb20f4b7e6efd25d36",
+        "confirmations": "6137",
+        "canonical": true,
+        "sender": "0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a",
+        "entryPoint": "0x0000000071727de22e5e9d8baf0edac6f37da032",
+        "callDataHash": "0xc3690ed62770036514d2866d3868a85806a2604904d9bc935a019bf9b77a6695",
+        "initializationDataHash": "0x449ef6f55ee8be3105af3c5a20f6b748462d5b3339cc1deaadd7eb65f04d7d5c",
+        "exactRequestedCallVerified": true,
+        "userOperationSuccess": true,
+        "accountRuntimeHash": "0xaaa52c8cc8a0e3fd27ce756cc6b4e70c51423e9b597b11f32d3e49f8b1fc890d"
+      },
+      {
+        "transactionHash": "0x583c08587322eceec51bf2b16f17b0ad01d9fc68a1d8816df72095f424cdf456",
+        "userOpHash": "0x364998405fc0f9a9225ea0b1ddae0c9076f7d5d37e2c98ae0a65e60ea23029ce",
+        "status": "success",
+        "blockNumber": "81440133",
+        "blockHash": "0x9a2f6fa6790bbd860b4d85e5e52bd9f2cb91c84c26520bb632143978712fb322",
+        "confirmations": "5620",
+        "canonical": true,
+        "sender": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+        "entryPoint": "0x0000000071727de22e5e9d8baf0edac6f37da032",
+        "callDataHash": "0x18714f347c7aa6490c036b4fd09e3c75e78ff15ea3bd4f11ab61f68da2b62a15",
+        "initializationDataHash": "0x8b3e3f7c661af0dc456efa806c123bf36c673bcbf4b375bdcf994ab478acafc3",
+        "exactRequestedCallVerified": true,
+        "userOperationSuccess": true,
+        "accountRuntimeHash": "0xaaa52c8cc8a0e3fd27ce756cc6b4e70c51423e9b597b11f32d3e49f8b1fc890d"
+      }
+    ]
+  },
+  "preflight": {
+    "blockNumber": "81460186",
+    "blockHash": "0xf108a7c4af9e0baa71e638e97e626654f92d29f763585f4174463eb063de4293",
+    "dependencies": [
+      {
+        "name": "router",
+        "address": "0x6131B5fae19EA4f9D964eAc0408E4408b66337b5",
+        "runtimeHash": "0xdc6eb20a6d4701d8f0f04f9a3342d254eb2698bbad281d8578d6efba21865867"
+      },
+      {
+        "name": "routerExecutor",
+        "address": "0x8F10B468b06c6FD214B65F87778827F7D113f996",
+        "runtimeHash": "0xfc8bfd5c118d0c06e9ff71b223fc3ba9612ac167edbf7e7e6e22bec156a5e70d"
+      },
+      {
+        "name": "swapperFactory",
+        "address": "0xa244bbe019cf1BA177EE5A532250be2663Fb55cA",
+        "runtimeHash": "0x121d043c12b5fe2d383149359a48d7e231e414779dd65b101b7de0eda365ae48"
+      },
+      {
+        "name": "swapperImpl",
+        "address": "0x7fcdD45101E35fd626A539BA565d26A72d95fDa7",
+        "runtimeHash": "0x72eedc6b3f5b16277e779b6ec2dc033a6ede029e51539c4a95cb15dd325c26b3"
+      }
+    ],
+    "feedCount": 37,
+    "unsupportedAssets": 159,
+    "automationReceiver": "deployed_contract_observed",
+    "automationNativeExecution": "not_run",
+    "initialMainnetFeeExecution": "not_run"
+  },
+  "forwarderSetup": {
+    "source": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+    "spender": "0x3b6d01e627fe6e06c831e0f9f57ac976a88309ff",
+    "token": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+    "recipient": "0xE8834943A4eD3758f3b5930E3EEfb43568B222b3",
+    "approval": "MAX_UINT256_verified",
+    "nativeExecution": "not_run",
+    "allowance": "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+    "approvalReceipt": {
+      "transactionHash": "0x583c08587322eceec51bf2b16f17b0ad01d9fc68a1d8816df72095f424cdf456",
+      "userOpHash": "0x364998405fc0f9a9225ea0b1ddae0c9076f7d5d37e2c98ae0a65e60ea23029ce",
+      "status": "success",
+      "blockNumber": "81440133",
+      "blockHash": "0x9a2f6fa6790bbd860b4d85e5e52bd9f2cb91c84c26520bb632143978712fb322",
+      "confirmations": "5620",
+      "canonical": true,
+      "sender": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+      "entryPoint": "0x0000000071727de22e5e9d8baf0edac6f37da032",
+      "callDataHash": "0x18714f347c7aa6490c036b4fd09e3c75e78ff15ea3bd4f11ab61f68da2b62a15",
+      "initializationDataHash": "0x8b3e3f7c661af0dc456efa806c123bf36c673bcbf4b375bdcf994ab478acafc3",
+      "exactRequestedCallVerified": true,
+      "userOperationSuccess": true,
+      "accountRuntimeHash": "0xaaa52c8cc8a0e3fd27ce756cc6b4e70c51423e9b597b11f32d3e49f8b1fc890d"
+    },
+    "sourceCodeVerified": true
+  },
+  "verifiedAt": "2026-10-06T07:37:56.788Z",
+  "verificationBlock": "81460329",
+  "mainnetFeeExecution": "not_run"
+}

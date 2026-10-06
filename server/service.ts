@@ -22,6 +22,7 @@ import {
   networkName,
   listedTokens,
   quoteAsset,
+  poolCurrency,
   SUPPLY,
   sameAddress,
   stockByAddress,
@@ -31,7 +32,7 @@ import {
   type TokenRecord,
 } from "../src/lib/config";
 import { assertStock, buildLaunch } from "../src/lib/protocol";
-import { FEE_POLICY } from "../src/lib/fee-policy";
+import { ENGINE_FEE_POLICY, launchFeePolicy } from "../src/lib/fee-policy";
 import { assertOpeningValuation, openingCapInQuote } from "../src/lib/opening-valuation";
 import { readOpeningValuation } from "./opening-price";
 import {
@@ -51,6 +52,8 @@ import { launchGuardAbi } from "../src/lib/launch-guard";
 import { restorePrepared, serializePrepared } from "../src/lib/launch-plan";
 import { verifyLaunchGuard } from "./launch-guard";
 import { assertPlanIntegrity, verifyGuardedReceipt } from "./launch-verification";
+import { verifyFeeEngine } from "./buyback-engine";
+import type { EngineClaimPreview } from "../src/lib/buyback-engine";
 
 import { runtimeFromEnv, redact } from "./config";
 export { runtimeFromEnv } from "./config";
@@ -61,10 +64,12 @@ export class LaunchpadService {
   get assets() { return assetsFor(this.runtime.config); }
   readonly store: StoreBackend;
   private readonly guardCandidate: Address | null;
+  private readonly feeEngineCandidate: Address | null;
   private stocksCache?: { at: number; value: StockStatus[] };
   private stocksPromise?: Promise<StockStatus[]>;
   constructor(readonly runtime: ReturnType<typeof runtimeFromEnv>) {
     this.guardCandidate = validTreasury(process.env.LAUNCH_GUARD_ADDRESS) ?? runtimeGuardCandidate(runtime.config);
+    this.feeEngineCandidate = runtime.config.feeEngine ?? null;
     const chainId = deploymentChain(runtime.config);
     this.client = createPublicClient({
       chain: { ...base, id: runtime.config.chainId, name: networkName(runtime.config) },
@@ -172,6 +177,11 @@ export class LaunchpadService {
     // Fail closed for first buys, while ordinary issuance and receipt recovery
     // remain available when a guard is missing or temporarily unverifiable.
     let launchGuard: Address | null = null;
+    let feeEngine: Address | null = null;
+    let buybackExecutor: Address | null = null;
+    let automationReceiver: Address | null = null;
+    let automationTreasury: Address | null = null;
+    let wethForwarder: Address | null = null;
     if (this.guardCandidate && deploymentChain(this.runtime.config) === 4663) {
       try {
         await this.assertNetwork();
@@ -179,7 +189,22 @@ export class LaunchpadService {
         launchGuard = this.guardCandidate;
       } catch { /* The public configuration exposes only a verified address. */ }
     }
-    return { ...this.runtime.config, curvePolicy: CURVE_POLICY, launchGuard };
+    if (this.feeEngineCandidate && deploymentChain(this.runtime.config) === 4663) {
+      try {
+        await this.assertNetwork();
+        const verified = await verifyFeeEngine(this.client, this.feeEngineCandidate);
+        if (this.runtime.config.treasury && sameAddress(this.runtime.config.treasury, verified.operationsTreasury)) {
+          automationReceiver = verified.automationReceiver;
+          automationTreasury = verified.automationTreasury;
+          wethForwarder = verified.forwarder;
+          if (verified.sourceDeployed && BigInt(verified.sourceAllowance) > 0n) {
+            feeEngine = verified.engine;
+            buybackExecutor = verified.executor;
+          }
+        }
+      } catch { /* Candidate addresses are not exposed until the complete fixed graph is verified. */ }
+    }
+    return { ...this.runtime.config, curvePolicy: CURVE_POLICY, launchGuard, feeEngine, buybackExecutor, automationReceiver, automationTreasury, wethForwarder };
   }
   async prepare(raw: unknown, rawCreator: unknown, expectedCurvePolicy?: unknown, firstBuy?: unknown): Promise<LaunchPlan> {
     // This handshake must run before any RPC, including chain checks.
@@ -194,16 +219,20 @@ export class LaunchpadService {
     const buy = firstBuySchema.parse(firstBuy);
     const amountIn = buy && !/^0(?:\.0+)?$/.test(buy.amount) ? parseAmount(buy.amount, stock.decimals) : 0n;
     await this.assertNetwork();
+    const launchConfig = await this.config();
+    const feePolicy = launchFeePolicy(launchConfig);
+    if (feePolicy === ENGINE_FEE_POLICY && !launchConfig.feeEngine)
+      throw new Error("The configured fee engine could not be verified. Try again after deployment verification.");
     let guard: Address | null = null;
     if (amountIn > 0n) {
-      guard = (await this.config()).launchGuard ?? null;
+      guard = launchConfig.launchGuard ?? null;
       if (!guard) throw new Error("Atomic first buys are unavailable until the launch guard is configured and verified.");
     }
     await assertStock(this.client, draft.quoteAddress);
     const chainId = deploymentChain(this.runtime.config);
     const openingValuation = await readOpeningValuation(this.client, stock, chainId);
     const protocolOwner = await this.sdk.getAirlockOwner();
-    const params = buildLaunch(this.sdk, draft, creator, treasury, protocolOwner, openingValuation, undefined, chainId);
+    const params = buildLaunch(this.sdk, draft, creator, treasury, protocolOwner, openingValuation, undefined, chainId, launchConfig.feeEngine ?? undefined);
     if (amountIn > 0n) {
       params.modules = { ...params.modules, bundler: ROBINHOOD_BUNDLER };
       params.devBuy = { exactAmountIn: amountIn, recipient: creator,
@@ -240,7 +269,7 @@ export class LaunchpadService {
       id: keccak256(transaction.data), creator, data: transaction.data,
       tokenAddress: prediction.tokenAddress, poolId: prediction.poolId,
       draft: { ...draft, openingCap: openingCapInQuote(openingValuation) }, preparedAt: Date.now(), gas,
-      feePolicy: FEE_POLICY, feeTreasury: treasury, openingValuation, curvePolicy: CURVE_POLICY,
+      feePolicy, feeTreasury: treasury, feeEngine: launchConfig.feeEngine ?? undefined, openingValuation, curvePolicy: CURVE_POLICY,
       prepared: serializePrepared(prepared), transaction, firstBuy: firstBuyPlan, approval,
     };
     assertOpeningValuation(openingValuation, stock.address, chainId);
@@ -252,7 +281,7 @@ export class LaunchpadService {
     const plan = await this.store.findPlan(creator, data);
     if (!plan || plan.curvePolicy !== CURVE_POLICY)
       throw new Error("The issuance curve policy has changed. Run a new preview.");
-    if (plan.feePolicy !== FEE_POLICY)
+    if (plan.feePolicy !== launchFeePolicy(this.runtime.config))
       throw new Error("The issuance fee policy has changed. Run a new simulation.");
     if (!this.assets.some((asset) => sameAddress(asset.address, plan.draft.quoteAddress)))
       throw new Error("The paired asset is no longer supported on the active network. Run a new simulation.");
@@ -264,9 +293,11 @@ export class LaunchpadService {
       throw new Error("The issuance preview expired or the treasury changed. Simulate again.");
     assertOpeningValuation(plan.openingValuation, plan.draft.quoteAddress, deploymentChain(this.runtime.config));
     assertPlanIntegrity(plan, this.contracts);
-    if (plan.firstBuy) {
+    if (plan.firstBuy || plan.feePolicy === ENGINE_FEE_POLICY) {
       const config = await this.config();
-      if (!config.launchGuard || !sameAddress(config.launchGuard, plan.firstBuy.guard))
+      if (plan.feePolicy === ENGINE_FEE_POLICY && (!config.feeEngine || !plan.feeEngine || !sameAddress(config.feeEngine, plan.feeEngine)))
+        throw new Error("The fee engine configuration changed or could not be verified. Run a new preview.");
+      if (plan.firstBuy && (!config.launchGuard || !sameAddress(config.launchGuard, plan.firstBuy.guard)))
         throw new Error("The launch guard configuration changed or could not be verified. Run a new preview.");
     }
     return { valid: true, feePolicy: plan.feePolicy, curvePolicy: plan.curvePolicy };
@@ -386,6 +417,7 @@ export class LaunchpadService {
       deploymentChainId: deploymentChain(this.runtime.config),
       feePolicy: plan.feePolicy,
       feeTreasury: plan.feeTreasury,
+      feeEngine: plan.feeEngine,
       openingValuation: plan.openingValuation,
       curvePolicy: plan.curvePolicy,
     };
@@ -508,6 +540,19 @@ export class LaunchpadService {
       hook.getPendingFees(token.poolId, account),
     ]);
     return { lp, trade, poolKey: state.poolKey };
+  }
+  async engineClaimPreview(address: Address, engine: Address): Promise<EngineClaimPreview> {
+    const { token, state } = await this.state(address);
+    if (token.feePolicy !== ENGINE_FEE_POLICY || !token.feeEngine || !sameAddress(token.feeEngine, engine))
+      throw new Error("This pool does not use the selected fee engine");
+    const pool = await this.sdk.getMulticurvePool(address);
+    const hook = await this.sdk.getRehypeDopplerHookInitializer(this.contracts.rehype);
+    const [lp, trade] = await Promise.allSettled([pool.getPendingFees(engine), hook.getPendingFees(token.poolId, engine)]);
+    return [state.poolKey.currency0, state.poolKey.currency1].map((currency, index) => ({
+      ...poolCurrency(currency, token),
+      lp: lp.status === "fulfilled" ? String(index ? lp.value.fees1 : lp.value.fees0) : null,
+      hook: trade.status === "fulfilled" ? String(index ? trade.value.fees1 : trade.value.fees0) : null,
+    }));
   }
 }
 

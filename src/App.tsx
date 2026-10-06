@@ -37,11 +37,11 @@ import {
 import type { V4PoolKey } from "@whetstone-research/doppler-sdk/evm";
 import { claimFeesAbi } from "./lib/protocol";
 import {
-  FEE_POLICY,
   FEE_SHARES,
   MUSEGOD_BUYBACK,
   allocateFeeIncome,
   feePolicyFor,
+  launchFeePolicy,
 } from "./lib/fee-policy";
 import {
   assetsFor,
@@ -1076,7 +1076,8 @@ function CreatePage({
         firstBuy,
       });
       if (request !== generation.current) return;
-      if (next.feePolicy !== FEE_POLICY || !next.feeTreasury || !config?.treasury || !sameAddress(next.feeTreasury, config.treasury))
+      if (next.feePolicy !== launchFeePolicy(config) || !next.feeTreasury || !config?.treasury || !sameAddress(next.feeTreasury, config.treasury) ||
+        (config.feeEngine ? !next.feeEngine || !sameAddress(next.feeEngine, config.feeEngine) : !!next.feeEngine))
         throw new Error("The launch fee policy or treasury address does not match. Refresh and preview again.");
       assertOpeningValuation(next.openingValuation, stock.address, deploymentChain(config));
       if (next.curvePolicy !== CURVE_POLICY || !next.transaction)
@@ -1643,7 +1644,7 @@ function CreatePage({
               <Coins size={16} />
               <h3>Earn your share of every trade</h3>
             </div>
-            <FeeBreakdown policy={FEE_POLICY}>
+            <FeeBreakdown policy={launchFeePolicy(config)}>
               <Link href="/buyback" className="mechanism-link">View the buyback policy and status <ArrowUpRight size={14} /></Link>
             </FeeBreakdown>
           </section>
@@ -1779,7 +1780,7 @@ function CreatePage({
             </div>
             <div>
               <dt>Platform income allocation (platform income = 100%)</dt>
-              <dd>{feePercent(FEE_SHARES.platformBuyback)} to buybacks and {feePercent(FEE_SHARES.platformOperations)} to operations, allocated manually by the treasury wallet</dd>
+              <dd>{feePercent(FEE_SHARES.platformBuyback)} to buybacks and {feePercent(FEE_SHARES.platformOperations)} to operations{config.feeEngine ? ", split directly between the public engine and treasury" : ", allocated manually by the treasury wallet"}</dd>
             </div>
             <div>
               <dt>Launch cost</dt>
@@ -2344,6 +2345,7 @@ function FeeIncomeReference({ token, account, currency, amount }: {
     account,
     creator: token.creator,
     treasury: token.feeTreasury,
+    engine: token.feeEngine,
   });
   if (!allocation || BigInt(amount) === 0n) return null;
   const asset = poolCurrency(currency, token);
@@ -2556,7 +2558,7 @@ function Rewards({
       )}
       <div className="panel">
         <h2>How are fees distributed for new pools?</h2>
-        <FeeBreakdown policy={FEE_POLICY}>
+        <FeeBreakdown policy={launchFeePolicy(config)}>
           <Link href="/buyback" className="mechanism-link">View the buyback policy and status <ArrowUpRight size={14} /></Link>
         </FeeBreakdown>
       </div>

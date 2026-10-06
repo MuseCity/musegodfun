@@ -51,6 +51,7 @@ import { MUSEGOD_ROUTER_VERIFICATION, assertMusegodTradingEnabled, type MusegodQ
 import { executeMusegodTrade } from "./musegod-trade";
 import type { LaunchPlan, LaunchTransaction } from "./launch-plan";
 import { assertLaunchRequest, assertLaunchWalletPlan, bufferedLaunchGas, executeLaunchPlan, type LaunchSimulation } from "./launch-wallet";
+import { engineTransaction, type EngineAction } from "./buyback-engine";
 declare global {
   interface Window {
     ethereum?: Provider;
@@ -184,6 +185,7 @@ type WalletState = {
   ) => Promise<Hash>;
   buyback: (step: BuybackStep, config: RuntimeConfig, onHash?: (hash: Hash) => void) => Promise<Hash>;
   prepareBuyback: (input: BuybackPrepareInput, config: RuntimeConfig) => Promise<BuybackBatch>;
+  engineAction: (action: EngineAction, config: RuntimeConfig, onHash?: (hash: Hash) => void) => Promise<Hash>;
   balance: (token: Address) => Promise<bigint>;
   balanceNative: () => Promise<bigint>;
   tradeMusegod: (quote: MusegodQuote, config: RuntimeConfig, progress: (message: string) => void,
@@ -493,6 +495,28 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       expected,
       "claim",
     );
+    onHash?.(hash);
+    return confirmation;
+  }
+  async function engineAction(action: EngineAction, config: RuntimeConfig, onHash?: (hash: Hash) => void) {
+    if (!account) throw new Error("Connect your wallet first");
+    const expected = account;
+    const frozen = Object.freeze({ ...action }) as EngineAction;
+    const tx = engineTransaction(frozen, config);
+    const validate = async (current: RuntimeConfig) => {
+      const fresh = engineTransaction(frozen, current);
+      if (!sameAddress(fresh.to, tx.to) || fresh.data.toLowerCase() !== tx.data.toLowerCase() ||
+        current.feeEngine !== config.feeEngine || current.buybackExecutor !== config.buybackExecutor ||
+        current.treasury !== config.treasury || current.automationReceiver !== config.automationReceiver ||
+        current.automationTreasury !== config.automationTreasury || current.wethForwarder !== config.wethForwarder)
+        throw new Error("The buyback engine configuration or transaction changed. Refresh and preview again.");
+    };
+    await signer(config, expected, validate);
+    await publicClient.call({ account: expected, ...tx }).catch((error: unknown) => { throw simulationError(error); });
+    const wallet = await signer(config, expected, validate,
+      (request) => assertLaunchRequest(request, { to: tx.to, data: tx.data, value: "0", from: expected, chainId: config.chainId }));
+    const hash = await wallet.sendTransaction(tx);
+    const confirmation = confirmed(hash, config, expected, "engine");
     onHash?.(hash);
     return confirmation;
   }
@@ -807,6 +831,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         trade: (...args) => exclusive(() => trade(...args)),
         buyback: (...args) => exclusive(() => buyback(...args)),
         prepareBuyback: (...args) => exclusive(() => prepareBuyback(...args)),
+        engineAction: (...args) => exclusive(() => engineAction(...args)),
         balance,
         balanceNative,
         tradeMusegod: (...args) => exclusive(() => tradeMusegod(...args)),

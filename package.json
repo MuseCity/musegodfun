@@ -31,7 +31,11 @@
     "verify:launch-guard": "tsx scripts/deploy-launch-guard.ts",
     "test:launch-curve-fork": "tsx scripts/run.ts scripts/test-launch-curve-fork.ts",
     "test:launch-browser": "tsx scripts/test-launch-browser.mjs",
-    "test:launch-fork-browser": "tsx scripts/test-launch-fork-browser.mjs"
+    "test:launch-fork-browser": "tsx scripts/test-launch-fork-browser.mjs",
+    "test:buyback-engine-contracts": "forge test --root contracts --match-contract \"Musegod(Buyback|FeeEngine|WethForwarder).*\"",
+    "test:buyback-engine-fork": "tsx scripts/run.ts scripts/test-buyback-engine-fork.ts",
+    "verify:buyback-engine": "tsx scripts/deploy-buyback-engine.ts --verify-only",
+    "keeper:buyback": "tsx scripts/buyback-keeper.ts"
   },
   "dependencies": {
     "@vitejs/plugin-react": "6.1.1",

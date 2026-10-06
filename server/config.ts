@@ -1,6 +1,7 @@
 import { validTreasury } from "../src/lib/validation";
 import { networkName, type RuntimeConfig } from "../src/lib/config";
 import { CURVE_POLICY } from "../src/lib/launch-curve";
+import { ENGINE_FEE_POLICY, FEE_POLICY } from "../src/lib/fee-policy";
 export function loadEnvironment() {
   try { process.loadEnvFile(".env"); }
   catch (e) {
@@ -29,12 +30,16 @@ export function runtimeFromEnv(): { config: RuntimeConfig; rpcUrl: string; dataD
     throw new Error("Production requires server-side Supabase configuration");
   const treasury = validTreasury(process.env.PLATFORM_TREASURY);
   if (process.env.PLATFORM_TREASURY && !treasury) throw new Error("Invalid PLATFORM_TREASURY address");
+  const feeEngine = validTreasury(process.env.FEE_ENGINE_ADDRESS);
+  if (process.env.FEE_ENGINE_ADDRESS && !feeEngine) throw new Error("Invalid FEE_ENGINE_ADDRESS address");
+  if (feeEngine && deploymentChainId !== 4663) throw new Error("The fee engine is supported only on Robinhood Chain");
   const mainnetFlag = process.env.ENABLE_MAINNET_TRANSACTIONS;
   if (mainnetFlag && !["true", "false"].includes(mainnetFlag)) throw new Error("ENABLE_MAINNET_TRANSACTIONS must be true or false");
   if (mode !== "fork" && mainnetFlag === "true" && !treasury) throw new Error("Mainnet signing requires a valid PLATFORM_TREASURY");
   const writesEnabled = !!treasury && (mode === "fork" || mainnetFlag === "true");
   return {
     config: { mode, deploymentChainId, chainId: mode === "fork" ? 31337 : deploymentChainId, treasury, writesEnabled, curvePolicy: CURVE_POLICY, launchGuard: null,
+      feeEngine, feePolicy: feeEngine ? ENGINE_FEE_POLICY : FEE_POLICY, buybackExecutor: null,
       blockReason: !treasury ? "The platform treasury is not configured. Browsing and drafts are available."
         : !writesEnabled ? "Mainnet is read-only. Connect a wallet to query balances and simulate issuance." : null },
     rpcUrl, dataDir: process.env.DATA_DIR || `.data/${mode}${mode === "fork" ? `-${deploymentChainId}` : ""}`,
@@ -44,9 +49,9 @@ export function redact(value: unknown): string {
   let message = value instanceof Error ? value.message : String(value);
   if (/BASE_MAINNET is not enabled|ROBINHOOD_MAINNET is not enabled/.test(message))
     return `Enable ${networkName(runtimeFromEnv().config)} in the Alchemy application.`;
-  for (const name of ["ALCHEMY_API_KEY", "COINGECKO_API_KEY", "BASE_RPC_URL", "ROBINHOOD_RPC_URL", "FORK_RPC_URL", "SUPABASE_SECRET_KEY", "SUPABASE_DB_URL", "PINATA_API_KEY", "PINATA_API_SECRET", "PINATA_JWT"]) {
+  for (const name of ["ALCHEMY_API_KEY", "COINGECKO_API_KEY", "BASE_RPC_URL", "ROBINHOOD_RPC_URL", "FORK_RPC_URL", "SUPABASE_SECRET_KEY", "SUPABASE_DB_URL", "PINATA_API_KEY", "PINATA_API_SECRET", "PINATA_JWT", "MUSEGOD_DEPLOY_PRIVATE_KEY", "MUSEGOD_KEEPER_PRIVATE_KEY", "EVM_DY"]) {
     const secret = process.env[name];
-    if (secret) message = message.split(secret).join("[redacted]");
+    if (secret?.trim()) message = message.replace(new RegExp(secret.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), "[redacted]");
   }
   return message.replace(/https?:\/\/[^\s"'<>]+/gi, "[upstream]").slice(0, 500);
 }

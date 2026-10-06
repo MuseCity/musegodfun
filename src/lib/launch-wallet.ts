@@ -1,4 +1,5 @@
 import { decodeFunctionData, encodeFunctionData, erc20Abi, toHex, type Address, type Hash } from "viem";
+import { airlockAbi } from "@whetstone-research/doppler-sdk/evm";
 import { CURVE_POLICY } from "./launch-curve";
 import { contractsFor, deploymentChain, sameAddress, assetsFor, type RuntimeConfig } from "./config";
 import { assertOpeningValuation } from "./opening-valuation";
@@ -6,6 +7,8 @@ import { assertSigningEnabled } from "./validation";
 import type { LaunchPlan, LaunchTransaction } from "./launch-plan";
 import { launchGuardAbi } from "./launch-guard";
 import { transactionMatchesConfig, type Transaction } from "./transactions";
+import { ENGINE_FEE_POLICY, launchFeePolicy } from "./fee-policy";
+import { assertEngineFeeCalldata } from "./protocol";
 
 export type LaunchSimulation = { valid: true; gas: string; amountOut: string | null; simulatedAt: number };
 export type LaunchWalletStep = LaunchTransaction & { from: Address; chainId: number };
@@ -81,6 +84,19 @@ export function assertLaunchWalletPlan(plan: LaunchPlan, config: RuntimeConfig, 
   assertOpeningValuation(plan.openingValuation, plan.draft.quoteAddress, deploymentChain(config), now);
   if (!assetsFor(config).some((asset) => sameAddress(asset.address, plan.draft.quoteAddress)))
     throw new Error("The selected quote asset is not supported on this network");
+  if ((plan.feePolicy !== undefined || launchFeePolicy(config) === ENGINE_FEE_POLICY) && plan.feePolicy !== launchFeePolicy(config))
+    throw new Error("The launch fee policy has changed. Run a new preview.");
+  if (plan.feePolicy === ENGINE_FEE_POLICY && (!config.feeEngine || !plan.feeEngine || !sameAddress(plan.feeEngine, config.feeEngine) ||
+    [config.treasury, config.automationReceiver, config.automationTreasury, config.wethForwarder].some((address) => !address || sameAddress(address, "0x0000000000000000000000000000000000000000")) ||
+    new Set([config.treasury, config.automationReceiver, config.automationTreasury, config.wethForwarder].map((address) => address?.toLowerCase())).size !== 4))
+    throw new Error("The fee engine configuration changed or could not be verified. Run a new preview.");
+  if (plan.feePolicy === ENGINE_FEE_POLICY) {
+    const decodedLaunch = decodeFunctionData({ abi: plan.firstBuy ? launchGuardAbi : airlockAbi, data: plan.data });
+    const createParams = decodedLaunch.args[0];
+    if (!createParams || typeof createParams !== "object" || !("poolInitializerData" in createParams))
+      throw new Error("The launch calldata does not contain valid creation parameters");
+    assertEngineFeeCalldata(plan, createParams.poolInitializerData);
+  } else if (plan.feeEngine) throw new Error("The fee engine does not match the launch fee policy");
   if (!plan.firstBuy) {
     if (plan.approval || !sameAddress(plan.transaction.to, contractsFor(config).airlock))
       throw new Error("The launch transaction target is not allowed");
