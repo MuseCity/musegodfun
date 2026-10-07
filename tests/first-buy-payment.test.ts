@@ -147,6 +147,29 @@ function readerFixture(chainId: FirstBuyPaymentChain = 4663, native = true, rpcC
 test("router runtime fixtures equal fixed independently checked source hashes", () => {
   for (const chain of [8453, 4663] as const) assert.equal(keccak256(runtime(chain)), FIRST_BUY_PAYMENT_CONTRACTS[chain].runtimeHash);
 });
+test("default native fetch keeps the global receiver for token prices and executable quotes", async (context) => {
+  const f = readerFixture(), assets = firstBuyPaymentAssets(4663, f.q.toToken.address), paths: string[] = [];
+  context.mock.method(globalThis, "fetch", async function (this: typeof globalThis, input: string | URL | Request, init?: RequestInit) {
+    assert.equal(this, globalThis, "Workers native fetch rejects an unrelated receiver before sending HTTP");
+    const url = new URL(String(input)); assert.equal(url.origin, "https://li.quest"); paths.push(url.pathname);
+    assert.equal(init?.redirect, "manual");
+    assert.equal(new Headers(init?.headers).get("x-lifi-api-key"), "receiver-test-key");
+    if (url.pathname === "/v1/quote") return Response.json(f.raw);
+    assert.equal(url.pathname, "/v1/token");
+    const asset = assets.find((item) => item.address.toLowerCase() === url.searchParams.get("token")?.toLowerCase());
+    assert(asset); return Response.json({ ...asset, priceUSD: "1" });
+  });
+  const reader = new FirstBuyPaymentReader({ client: f.client, chainId: 4663, now: () => at, apiKey: "receiver-test-key" });
+  const token = await reader.pricingRequest("token", new URLSearchParams({ chain: "4663", token: assets[0].address }));
+  assert.equal((token as { priceUSD: string }).priceUSD, "1");
+  const prices = await reader.prices(f.q.toToken.address);
+  assert(prices.assets.every((asset) => asset.priceUsd === "1"));
+  const quote = await reader.quote(f.body);
+  assert.equal(quote.expectedOut, f.q.expectedOut);
+  assert.equal(paths.filter((path) => path === "/v1/token").length, assets.length + 1);
+  assert.equal(paths.filter((path) => path === "/v1/quote").length, 1);
+  assert(!JSON.stringify({ prices, quote }).includes("receiver-test-key"));
+});
 test("reader scopes both networks, requests fee=0, validates runtime and whitelist, keeps key in header only", async () => {
   for (const chain of [8453, 4663] as const) for (const native of [true, false]) {
     const f = readerFixture(chain, native), q = await f.reader.quote(f.body);

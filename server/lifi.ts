@@ -56,7 +56,7 @@ export class FirstBuyPaymentReader {
     this.rpcChainId = deps.rpcChainId ?? deps.chainId;
     this.integrator = deps.integrator ?? "musegodfun";
     this.apiKey = deps.apiKey;
-    this.fetcher = deps.fetch ?? fetch;
+    this.fetcher = deps.fetch ?? fetch.bind(globalThis);
     this.now = deps.now ?? Date.now;
     if (![8453, 4663].includes(deps.chainId) || (this.rpcChainId !== deps.chainId && this.rpcChainId !== 31337) ||
       !/^[a-zA-Z0-9_.-]{1,64}$/.test(this.integrator) ||

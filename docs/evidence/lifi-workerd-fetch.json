@@ -1,0 +1,144 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-10-07T02:32:38.489216+00:00",
+  "status": "runtime_fix_verified_before_republication",
+  "failedWebsiteCommit": "26a9f2cd0d961daee77e193ebd98d1be5907719a",
+  "failedRelease": "build-37561180175-1",
+  "failedWorkerVersion": "bdf56a25-96c6-4a48-855f-e72e97984712",
+  "failedDeploymentId": 6900022030,
+  "rollbackVersion": "a62ba10a-eefc-4221-806e-da9666d3c61f",
+  "failure": "Artifact/runtime-config checks passed, but all four production LI.FI opening previews were rejected by the HTTP boundary and display token prices were unavailable.",
+  "cause": "Native Workers fetch requires the global receiver; calling a bare function stored on the Reader used an unrelated receiver and raised Illegal invocation before HTTP. Node did not reject that receiver.",
+  "fix": "Bind only the default global fetch to globalThis; injected fetch, strict HTTP/quote checks, pricing inputs/policy and signing configuration unchanged.",
+  "workerdProbe": {
+    "runtime": "real local workerd; no production binding or chain write",
+    "direct": {
+      "status": 200
+    },
+    "classReceiver": {
+      "error": "Illegal invocation: function called with incorrect `this` reference. See [upstream] for details."
+    },
+    "oldReader": {
+      "error": "LI.FI pricing or routing is unavailable. Try again later."
+    },
+    "reader": {
+      "chainId": 8453,
+      "symbol": "USDC",
+      "priceUsd": "0.9976844859"
+    }
+  },
+  "failedProductionSmoke": {
+    "observedAt": "2026-10-07T02:20:27.954Z",
+    "origin": "https://musegod.fun",
+    "commit": "26a9f2cd0d961daee77e193ebd98d1be5907719a",
+    "buildId": "build-37561180175-1",
+    "scope": "Production HTTP readiness/config and real live LI.FI opening-price SDK previews; only unsigned plan preparation/validation, never a wallet/chain transaction",
+    "runtime": [
+      {
+        "chainId": 8453,
+        "config": {
+          "mode": "base",
+          "deploymentChainId": 8453,
+          "chainId": 8453,
+          "treasury": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+          "writesEnabled": false,
+          "curvePolicy": "multicurve-97-3-v1",
+          "launchGuard": null,
+          "launchLockAvailable": false,
+          "feeEngine": null,
+          "feePolicy": "creator-70-musegod-v2",
+          "buybackExecutor": null,
+          "blockReason": "Mainnet is read-only. Connect a wallet to query balances and simulate issuance.",
+          "automationReceiver": null,
+          "automationTreasury": null,
+          "wethForwarder": null
+        },
+        "ready": {
+          "status": "ready",
+          "chainId": 8453,
+          "writesEnabled": false
+        }
+      },
+      {
+        "chainId": 4663,
+        "config": {
+          "mode": "robinhood",
+          "deploymentChainId": 4663,
+          "chainId": 4663,
+          "treasury": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+          "writesEnabled": true,
+          "curvePolicy": "multicurve-97-3-v1",
+          "launchGuard": "0xfD919E60eB32AE9d02A89D6D9bAB94E2634cDE29",
+          "launchLockAvailable": false,
+          "feeEngine": null,
+          "feePolicy": "creator-70-musegod-v2",
+          "buybackExecutor": null,
+          "blockReason": null,
+          "automationReceiver": null,
+          "automationTreasury": null,
+          "wethForwarder": null
+        },
+        "ready": {
+          "status": "ready",
+          "chainId": 4663,
+          "writesEnabled": true
+        }
+      }
+    ],
+    "rows": [
+      {
+        "chainId": 8453,
+        "symbol": "NVDAc",
+        "status": "failed",
+        "httpStatus": 422,
+        "error": "LI.FI pricing or routing is unavailable. Try again later.",
+        "elapsedMs": 678
+      },
+      {
+        "chainId": 8453,
+        "symbol": "AMDc",
+        "status": "failed",
+        "httpStatus": 422,
+        "error": "LI.FI pricing or routing is unavailable. Try again later.",
+        "elapsedMs": 1289
+      },
+      {
+        "chainId": 4663,
+        "symbol": "USDG",
+        "status": "failed",
+        "httpStatus": 422,
+        "error": "LI.FI pricing or routing is unavailable. Try again later.",
+        "elapsedMs": 544
+      },
+      {
+        "chainId": 4663,
+        "symbol": "MUSEGOD",
+        "status": "failed",
+        "httpStatus": 422,
+        "error": "LI.FI pricing or routing is unavailable. Try again later.",
+        "elapsedMs": 545
+      }
+    ],
+    "mainnetTransactions": "not_run"
+  },
+  "tests": {
+    "nodePassed": 428,
+    "targetedPricingAndPaymentPassed": 21,
+    "nodeAndWorkerTypes": "passed",
+    "regression": "Non-arrow native-style global fetch mock rejected the prior receiver, then passed the fix for token prices and executable quotes"
+  },
+  "sourceSha256": {
+    "server/lifi.ts": "c1460dbc6981236798c655317995e1af7df472972d174e0752af34d4f736235b",
+    "tests/first-buy-payment.test.ts": "57cc35ba558d98ea80a54d7f05fb4f152529616f61c0b6cd74e97ad0b961f178"
+  },
+  "snapshotBoundary": "Earlier route and Node/fork price records retain their original transport revision and expired snapshots; this real workerd check supplies the missing native runtime layer.",
+  "knownUnrelatedPatterns": {
+    "files": [
+      "server/buyback.ts",
+      "server/buyback-batches.ts"
+    ],
+    "observation": "Similar existing default fetch method call patterns identified by code review; those paths were not invoked or changed in this release."
+  },
+  "mainnetTransactions": "not_run",
+  "privateCredentialsRecorded": false
+}
