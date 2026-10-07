@@ -1,17 +1,31 @@
 import { airlockAbi, bundlerAbi, computePoolId } from "@whetstone-research/doppler-sdk/evm";
-import { decodeEventLog, encodeFunctionData, erc20Abi, keccak256, type TransactionReceipt } from "viem";
+import { decodeEventLog, decodeFunctionData, encodeFunctionData, erc20Abi, keccak256, type Hex, type TransactionReceipt } from "viem";
 import { CONTRACTS, ROBINHOOD_BUNDLER, sameAddress, type ContractRegistry } from "../src/lib/config";
 import { CURVE_POLICY } from "../src/lib/launch-curve";
 import { launchGuardAbi } from "../src/lib/launch-guard";
 import { restorePrepared, type FirstBuyLockRecord, type LaunchPlan } from "../src/lib/launch-plan";
 import { minimumOutput, parseAmount } from "../src/lib/validation";
 import { stockByAddress } from "../src/lib/config";
-import { assertEngineFeeCalldata } from "../src/lib/protocol";
+import { assertEngineFeeCalldata, assertTradingFeeCalldata } from "../src/lib/protocol";
+
+// Recovery deliberately uses the stored preview and actual transaction, without
+// requiring current signing policy, price freshness or a historical SDK snapshot.
+export function assertLaunchTradingFee(plan: LaunchPlan, data: Hex, contracts: ContractRegistry) {
+  const decoded = decodeFunctionData({ abi: plan.firstBuy ? launchGuardAbi : airlockAbi, data });
+  if (plan.firstBuy ? decoded.functionName !== (plan.firstBuy.lockDays ? "createAndBuyLocked" : "createAndBuy")
+    : decoded.functionName !== "create")
+    throw new Error("The creation calldata does not match the issuance preview.");
+  const params = decoded.args[0];
+  if (!params || typeof params !== "object" || !("poolInitializerData" in params))
+    throw new Error("The creation calldata does not contain valid creation parameters.");
+  assertTradingFeeCalldata(plan.draft.tradingFeeBps, params.poolInitializerData, contracts.rehype);
+}
 
 export function assertPlanIntegrity(plan: LaunchPlan, contracts: ContractRegistry) {
   if (!plan.prepared || !plan.transaction || plan.curvePolicy !== CURVE_POLICY)
     throw new Error("The frozen issuance preview is missing. Run a new preview.");
   const p = restorePrepared(plan.prepared), buy = plan.firstBuy;
+  assertTradingFeeCalldata(plan.draft.tradingFeeBps, p.createParams.poolInitializerData, contracts.rehype);
   assertEngineFeeCalldata(plan, p.createParams.poolInitializerData);
   if (p.chainId !== (sameAddress(contracts.airlock, CONTRACTS.airlock) ? 8453 : 4663) ||
     !sameAddress(p.airlock, contracts.airlock) || !sameAddress(p.account, plan.creator) ||

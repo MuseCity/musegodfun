@@ -3,6 +3,7 @@ import {
   airlockAbi,
   bundlerAbi,
   computePoolId,
+  rehypeDopplerHookInitializerAbi,
   verifyPreparedCreateExecution,
 } from "@whetstone-research/doppler-sdk/evm";
 import {
@@ -31,9 +32,11 @@ import {
   type RuntimeConfig,
   type StockStatus,
   type TokenRecord,
+  type ContractRegistry,
 } from "../src/lib/config";
 import { assertStock, buildLaunch } from "../src/lib/protocol";
 import { ENGINE_FEE_POLICY, launchFeePolicy } from "../src/lib/fee-policy";
+import { tradingFeeBpsFor } from "../src/lib/trading-fee";
 import { assertOpeningValuation, assertHistoricalOpeningValuation, openingCapInQuote, LAUNCH_PRICE_TTL } from "../src/lib/opening-valuation";
 import { readOpeningValuation } from "./opening-price";
 import {
@@ -51,7 +54,7 @@ import { CURVE_POLICY } from "../src/lib/launch-curve";
 import { launchGuardAbi } from "../src/lib/launch-guard";
 import { restorePrepared, serializePrepared, type FirstBuyLockStatus } from "../src/lib/launch-plan";
 import { chainLaunchDependencies, verifyLaunchGuard } from "./launch-guard";
-import { assertPlanIntegrity, verifiedFirstBuyLock, verifyGuardedReceipt } from "./launch-verification";
+import { assertLaunchTradingFee, assertPlanIntegrity, verifiedFirstBuyLock, verifyGuardedReceipt } from "./launch-verification";
 import { verifyFeeEngine } from "./buyback-engine";
 import type { EngineClaimPreview } from "../src/lib/buyback-engine";
 
@@ -378,7 +381,7 @@ export class LaunchpadService {
       throw new Error("The transaction does not match the issuance preview and was not queued.");
     if (plan.openingValuation)
       assertHistoricalOpeningValuation(plan.openingValuation, plan.draft.quoteAddress, deploymentChain(this.runtime.config));
-    assertLaunchTransaction(plan, tx, this.contracts.airlock);
+    assertLaunchTransaction(plan, tx, this.contracts);
     await this.store.trackLaunch(hash, plan.id);
   }
   async register(hash: Hex): Promise<TokenRecord> {
@@ -397,7 +400,7 @@ export class LaunchpadService {
       throw new Error("No matching issuance preview was found. Preserve the database and original transaction hash.");
     if (plan.openingValuation)
       assertHistoricalOpeningValuation(plan.openingValuation, plan.draft.quoteAddress, deploymentChain(this.runtime.config));
-    assertLaunchTransaction(plan, tx, this.contracts.airlock);
+    assertLaunchTransaction(plan, tx, this.contracts);
     if (!receipt.to || !sameAddress(receipt.to, plan.transaction?.to ?? this.contracts.airlock) || !sameAddress(receipt.from, plan.creator))
       throw new Error("The creation receipt does not match the preview's outer transaction.");
     if (plan.prepared) {
@@ -434,17 +437,23 @@ export class LaunchpadService {
       !sameAddress(state.numeraire, plan.draft.quoteAddress)
     )
       throw new Error("The on-chain pool state does not match the preview.");
-    const [supply, block] = await Promise.all([
+    const tradingFeeBps = tradingFeeBpsFor(plan.draft.tradingFeeBps);
+    const [supply, block, feeSchedule] = await Promise.all([
       this.client.readContract({
         address: plan.tokenAddress,
         abi: erc20Abi,
         functionName: "totalSupply",
       }),
       this.client.getBlock({ blockNumber: receipt.blockNumber }),
+      this.client.readContract({ address: this.contracts.rehype, abi: rehypeDopplerHookInitializerAbi,
+        functionName: "getFeeSchedule", args: [plan.poolId], blockNumber: receipt.blockNumber }),
     ]);
     if (block.hash !== receipt.blockHash)
       throw new Error("The receipt block was reorganized. Wait for confirmation again.");
     if (supply !== SUPPLY) throw new Error("Supply verification failed.");
+    const feePpm = tradingFeeBps * 100;
+    if (feeSchedule[1] !== feePpm || feeSchedule[2] !== feePpm || feeSchedule[3] !== feePpm || feeSchedule[4] !== 0)
+      throw new Error("The on-chain trading fee schedule does not match the issuance preview.");
     const firstBuyLock = verifiedFirstBuyLock(plan, receipt, block.timestamp);
     if (firstBuyLock) {
       const position = await this.client.readContract({ address: firstBuyLock.bundler, abi: bundlerAbi,
@@ -456,6 +465,7 @@ export class LaunchpadService {
     }
     const token: TokenRecord = {
       ...plan.draft,
+      tradingFeeBps,
       openingCap: plan.draft.openingCap ?? (plan.openingValuation ? openingCapInQuote(plan.openingValuation) : ""),
       address: plan.tokenAddress,
       creator: plan.creator,
@@ -632,9 +642,10 @@ export class LaunchpadService {
 const firstBuySchema = z.object({ amount: z.string().regex(/^(?:0|[1-9]\d{0,20})(?:\.\d{1,18})?$/),
   slippageBps: z.union([z.literal(50), z.literal(100), z.literal(200), z.literal(500)]),
   lockDays: z.union([z.literal(0), z.literal(30), z.literal(90), z.literal(365)]).default(0) }).strict().optional();
-function assertLaunchTransaction(plan: LaunchPlan, tx: { from: Address; to: Address | null; input: Hex; value: bigint }, airlock: Address) {
-  const target = plan.transaction?.to ?? airlock;
+function assertLaunchTransaction(plan: LaunchPlan, tx: { from: Address; to: Address | null; input: Hex; value: bigint }, contracts: ContractRegistry) {
+  const target = plan.transaction?.to ?? contracts.airlock;
   if (!tx.to || !sameAddress(tx.to, target) || !sameAddress(tx.from, plan.creator) ||
       tx.input.toLowerCase() !== plan.data.toLowerCase() || tx.value !== BigInt(plan.transaction?.value ?? "0"))
     throw new Error("The outer transaction does not match the issuance preview.");
+  assertLaunchTradingFee(plan, tx.input, contracts);
 }

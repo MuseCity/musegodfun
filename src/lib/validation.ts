@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { getAddress, isAddress, parseUnits, zeroAddress } from "viem";
 import { DEAD, launchAssetsFor, stockByAddress, type RuntimeConfig } from "./config";
+import { DEFAULT_TRADING_FEE_BPS, TRADING_FEE_BPS, tradingFeeBpsFor } from "./trading-fee";
 
 export function assertSigningEnabled(config: RuntimeConfig) {
   if (!config.writesEnabled)
@@ -59,6 +60,10 @@ export const launchSchema = z
     website: publicLink(),
     twitter: publicLink("x"),
     telegram: publicLink("telegram"),
+    tradingFeeBps: z.number().int().refine(
+      (value) => TRADING_FEE_BPS.some((fee) => fee === value),
+      "Select a supported trading fee between 1% and 3%",
+    ).default(DEFAULT_TRADING_FEE_BPS),
     quoteAddress: addressSchema.refine((s) => {
       try {
         stockByAddress(s);
@@ -69,7 +74,9 @@ export const launchSchema = z
     }, "Select a supported pairing asset"),
   })
   .strict();
-export type LaunchInput = z.infer<typeof launchSchema>;
+// Persisted drafts and already broadcast plans may predate fee selection.
+// Full validation fills their original 1% rate before constructing calldata.
+export type LaunchInput = Omit<z.infer<typeof launchSchema>, "tradingFeeBps"> & { tradingFeeBps?: number };
 export function restoreDraft(raw: string | null, config?: Pick<RuntimeConfig, "mode" | "deploymentChainId">): LaunchInput {
   const assets = launchAssetsFor(config);
   const draft: LaunchInput = {
@@ -81,10 +88,16 @@ export function restoreDraft(raw: string | null, config?: Pick<RuntimeConfig, "m
     twitter: "",
     telegram: "",
     quoteAddress: assets[0].address,
+    tradingFeeBps: DEFAULT_TRADING_FEE_BPS,
   };
   try {
     const saved = JSON.parse(raw || "null");
     if (!saved || typeof saved !== "object") return draft;
+    try {
+      draft.tradingFeeBps = tradingFeeBpsFor(saved.tradingFeeBps);
+    } catch {
+      // An invalid optional fee cannot discard the rest of an incomplete draft.
+    }
     // A saved draft may be incomplete. Full launch validation belongs to preview.
     for (const [key, limit] of [
       ["name", 32],

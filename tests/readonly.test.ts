@@ -7,7 +7,7 @@ import { Store } from "../server/store";
 import { Snapshots, SNAPSHOT_TTL, MAX_STALE } from "../server/snapshots";
 import { MarketReader } from "../server/market";
 import { STOCKS } from "../src/lib/config";
-import { syntheticToken } from "./fixtures";
+import { syntheticOpeningValuation, syntheticToken } from "./fixtures";
 import {
   WalletConnection,
   walletAnnouncement,
@@ -18,7 +18,9 @@ import { mainnetRpcUrl, redact, runtimeFromEnv } from "../server/config";
 import { assertSigningEnabled } from "../src/lib/validation";
 import { CONTRACTS, type RuntimeConfig } from "../src/lib/config";
 import { LaunchpadService } from "../server/service";
-import type { Hex } from "viem";
+import { DopplerSDK, airlockAbi } from "@whetstone-research/doppler-sdk/evm";
+import { createPublicClient, encodeFunctionData, http, keccak256, type Hex } from "viem";
+import { buildLaunch } from "../src/lib/protocol";
 const account = STOCKS[0].address,
   other = STOCKS[1].address;
 
@@ -53,8 +55,13 @@ test("wallet signing allows configured Base or local fork only and rejects a dis
 
 test("Base launch tracking rejects mismatched calldata or targets; read-only rollback still reconciles submitted transactions", async () => {
   const hash = `0x${"a".repeat(64)}` as Hex;
-  const planId = `0x${"b".repeat(64)}` as Hex;
-  let target = CONTRACTS.airlock, input = "0x1234", networkChecks = 0;
+  const draft = { name: "Read Only", symbol: "READ", description: "", image: "", quoteAddress: STOCKS[0].address };
+  const sdk = new DopplerSDK<8453>({ publicClient: createPublicClient({ transport: http("http://127.0.0.1:1") }), chainId: 8453 });
+  const createParams = sdk.factory.encodeCreateMulticurveParams(buildLaunch(sdk, draft, account, other, other,
+    syntheticOpeningValuation(draft.quoteAddress)));
+  const data = encodeFunctionData({ abi: airlockAbi, functionName: "create", args: [createParams] });
+  const planId = keccak256(data);
+  let target = CONTRACTS.airlock, input = data, networkChecks = 0;
   const tracked: unknown[] = [];
   const service = Object.assign(Object.create(LaunchpadService.prototype), {
     runtime: { config: { mode: "base", chainId: 8453, writesEnabled: false } },
@@ -64,7 +71,7 @@ test("Base launch tracking rejects mismatched calldata or targets; read-only rol
       getTransactionReceipt: async () => { throw new Error("receipt pending"); },
     },
     store: {
-      findPlan: async (creator: string, data: string) => creator === account && data === "0x1234" ? { id: planId, creator: account, data: "0x1234" } : null,
+      findPlan: async (creator: string, input: string) => creator === account && input === data ? { id: planId, creator: account, data, draft } : null,
       trackLaunch: async (...args: unknown[]) => { tracked.push(args); },
       pendingLaunches: async () => [],
     },
@@ -73,7 +80,7 @@ test("Base launch tracking rejects mismatched calldata or targets; read-only rol
   assert.equal(tracked.length, 1);
   input = "0x5678";
   await assert.rejects(() => service.trackLaunch(hash, planId), /does not match the issuance preview/);
-  input = "0x1234";
+  input = data;
   target = CONTRACTS.router;
   await assert.rejects(() => service.trackLaunch(hash, planId), /outer transaction/);
   assert.equal(tracked.length, 1, "Invalid tracking must not occupy the persistent queue");

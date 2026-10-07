@@ -98,6 +98,7 @@ import MusegodPage from "./components/MusegodPage";
 import { MUSEGOD } from "./lib/musegod";
 import BuybackPage from "./components/BuybackPage";
 import FeeBreakdown from "./components/FeeBreakdown";
+import { LP_FEE_PPM, TRADING_FEE_BPS, tradingFeeBpsFor } from "./lib/trading-fee";
 import { ASSET_CATEGORIES, assetCategory, type AssetCategory } from "./lib/asset-categories";
 import assetLogos from "./lib/asset-logos.json";
 import { buildIdentity } from "./lib/build-info";
@@ -746,7 +747,7 @@ export function Explore({
             Verified paired assets
           </span>
           <span>
-            <b>1.05%</b>New launch fee
+            <b>1%–3%</b>Trading fee at launch
           </span>
         </div>
       </div>
@@ -887,6 +888,7 @@ function CreatePage({
     [paymentBalance, setPaymentBalance] = useState<bigint | null>(null),
     [priceRevision, setPriceRevision] = useState(0);
   const [paymentExpired, setPaymentExpired] = useState(false);
+  const tradingFeeBps = tradingFeeBpsFor(draft.tradingFeeBps);
   const assets = launchAssetsFor(config ?? undefined);
   const stock = assets.find((asset) => sameAddress(asset.address, draft.quoteAddress)) ?? assets[0],
     status = stocks?.find((s) => s.chainId === stock.chainId && sameAddress(s.address, stock.address)),
@@ -1184,6 +1186,8 @@ function CreatePage({
         firstBuy: { amount: requestedAmount, slippageBps: firstBuy.slippageBps, lockDays: firstBuy.lockDays },
       });
       if (request !== generation.current) return;
+      if (next.draft.tradingFeeBps !== tradingFeeBps)
+        throw new Error("The trading fee does not match your selection. Preview again.");
       if (next.feePolicy !== launchFeePolicy(config) || !next.feeTreasury || !config?.treasury || !sameAddress(next.feeTreasury, config.treasury) ||
         (config.feeEngine ? !next.feeEngine || !sameAddress(next.feeEngine, config.feeEngine) : !!next.feeEngine))
         throw new Error("The launch fee policy or treasury address does not match. Refresh and preview again.");
@@ -1306,6 +1310,8 @@ function CreatePage({
       if (paymentAttempt && !paymentAttempt.actualOutput) throw new Error("Check the submitted payment conversion before confirming another launch.");
       if (txHash && !confirmed) throw new Error("Recover the submitted launch before confirming another launch.");
       assertOpeningValuation(plan.openingValuation, stock.address, deploymentChain(config));
+      if (plan.draft.tradingFeeBps !== tradingFeeBps)
+        throw new Error("The trading fee changed. Preview again.");
       if (!wallet.account || !sameAddress(plan.creator, wallet.account))
         throw new Error("The wallet has changed. Preview again.");
       let consumed: PaymentAttempt | null = null;
@@ -1764,6 +1770,28 @@ function CreatePage({
           <FirstBuy value={firstBuy} asset={paymentAsset} assets={paymentAssets} balance={paymentBalance} price={paymentPrice}
             lockAvailable={!!config.launchLockAvailable} busy={busy || (!!paymentAttempt && !paymentAttempt.actualOutput)}
             error={invalidField === "firstBuy" ? error : ""} onChange={updateFirstBuy} />
+          <section className="panel trading-fee-panel" aria-labelledby="trading-fee-heading">
+            <h2 id="trading-fee-heading">Trading fee</h2>
+            <div className="trading-fee-options" role="radiogroup" aria-label="Trading fee" aria-describedby="trading-fee-help">
+              {TRADING_FEE_BPS.map((bps, index) => <button type="button" role="radio" key={bps}
+                name="tradingFeeBps" value={bps} aria-checked={tradingFeeBps === bps}
+                tabIndex={tradingFeeBps === bps ? 0 : -1}
+                disabled={busy || (!!paymentAttempt && !paymentAttempt.actualOutput)}
+                onClick={() => update("tradingFeeBps", bps)}
+                onKeyDown={(event) => {
+                  let next: number;
+                  if (event.key === "ArrowRight" || event.key === "ArrowDown") next = (index + 1) % TRADING_FEE_BPS.length;
+                  else if (event.key === "ArrowLeft" || event.key === "ArrowUp") next = (index + TRADING_FEE_BPS.length - 1) % TRADING_FEE_BPS.length;
+                  else if (event.key === "Home") next = 0;
+                  else if (event.key === "End") next = TRADING_FEE_BPS.length - 1;
+                  else return;
+                  event.preventDefault();
+                  update("tradingFeeBps", TRADING_FEE_BPS[next]);
+                  event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>("button")[next]?.focus();
+                }}>{feePercent(bps)}</button>)}
+            </div>
+            <p className="muted" id="trading-fee-help">Trades after launch pay {feePercent(tradingFeeBps)}, plus a 0.05% LP fee. The trading fee is fixed when the pool is created and cannot be changed afterwards. A higher fee increases earnings per trade and costs traders more.</p>
+          </section>
           {paymentAttempt && <section className="panel payment-recovery" aria-label="First buy payment status">
             <h3>{paymentAttempt.actualOutput ? "Payment received" : "Submitted payment conversion"}</h3>
             {paymentAttempt.actualOutput && <p>{formatUnits(BigInt(paymentAttempt.actualOutput), paymentAttempt.quote.toToken.decimals)} {paymentAttempt.quote.toToken.symbol} verified in your wallet. {paymentPairSupported ? "Preview the launch using this amount." : "This asset is unavailable for new launches. These tokens stay in your wallet."}</p>}
@@ -1859,7 +1887,7 @@ function CreatePage({
               <Coins size={16} />
               <h3>Earn your share of every trade</h3>
             </div>
-            <FeeBreakdown policy={launchFeePolicy(config)}>
+            <FeeBreakdown policy={launchFeePolicy(config)} tradingFeeBps={tradingFeeBps}>
               <Link href="/buyback" className="mechanism-link">View the buyback policy and status <ArrowUpRight size={14} /></Link>
             </FeeBreakdown>
           </section>
@@ -1954,7 +1982,7 @@ function CreatePage({
           </button>
           <span className="eyebrow">READY TO LAUNCH</span>
           <h2 id="launch-review-title">Review your launch</h2>
-          <p>The name, symbol, and fee distribution are fixed after launch.</p>
+          <p>The name, symbol, trading fee, and fee distribution are fixed after launch.</p>
           <div className="review-identity">
             <TokenIcon name={draft.name} image={draft.image} />
             <div>
@@ -1986,6 +2014,14 @@ function CreatePage({
             <div>
               <dt>Net fee distribution (after Doppler)</dt>
               <dd>Creator {feePercent(FEE_SHARES.creatorNet)} · Platform {feePercent(FEE_SHARES.platformNet)}</dd>
+            </div>
+            <div>
+              <dt>Trading fee</dt>
+              <dd>{feePercent(tradingFeeBps)} · Fixed after launch</dd>
+            </div>
+            <div>
+              <dt>Nominal total fee</dt>
+              <dd>{(tradingFeeBps + LP_FEE_PPM / 100) / 100}% including the 0.05% LP fee</dd>
             </div>
             <div>
               <dt>Total fee allocation equivalents</dt>
@@ -2334,7 +2370,7 @@ function TokenPage({
               </div>
             </dl>
             <h3>How fees are distributed</h3>
-            <FeeBreakdown policy={token.feePolicy}>
+            <FeeBreakdown policy={token.feePolicy} tradingFeeBps={token.tradingFeeBps}>
               <Link href="/buyback" className="mechanism-link">View the buyback policy and status <ArrowUpRight size={14} /></Link>
             </FeeBreakdown>
             <details className="launch-curve-details">

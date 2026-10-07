@@ -1,0 +1,91 @@
+{
+  "observedAt": "2026-10-07T05:34:23.568427+00:00",
+  "status": "passed",
+  "scope": "Local Chrome UI acceptance via CUA, actual SDK encoding with mocked HTTP API, synthetic reference prices and injected local wallet. No chain settlement or real wallet evidence.",
+  "sourceHashes": {
+    "src/App.tsx": "4f76f0232e93b7a7e38ffb670e0076bf51cf260307f7a30f4c3ceff7e90f0dd7",
+    "src/components/FeeBreakdown.tsx": "1334ff7c9c42b5f0a19bea14272a9f76aa897c09217f3ed0521eaf96e7632d3c",
+    "src/styles.css": "323532bb8940d818fdf6fd99b6b25480bdcacecf501f1c8afcc767b218181615",
+    "src/lib/trading-fee.ts": "cfb2e6ff31152ab3a3259cd982d1940a98ee634ccd4b5b05af8589e76591b8ce",
+    "src/lib/validation.ts": "3b7198eaf6c41f0dd8eee4ec93aff2b50ddb3a8be3a58a9c95aef85ecc4172bc"
+  },
+  "checks": [
+    {
+      "case": "Nine rate buttons select exactly one option and update nominal fee",
+      "chainId": 4663,
+      "status": "passed"
+    },
+    {
+      "case": "ArrowLeft, Home and End move selection and keyboard focus",
+      "chainId": 4663,
+      "status": "passed"
+    },
+    {
+      "case": "Refresh restores 3%; Clear draft restores 1%",
+      "chainId": 4663,
+      "status": "passed"
+    },
+    {
+      "case": "Changing 3% to 2% removes prior confirmation and requires simulation",
+      "chainId": 4663,
+      "confirmButtons": 0,
+      "simulationButtons": 1,
+      "status": "passed"
+    },
+    {
+      "case": "Create preview request and review carry 300 bps / 3.05% nominal total",
+      "chainId": 4663,
+      "status": "passed"
+    },
+    {
+      "case": "Base starts from its own 1% draft; 3% preview/review succeeds",
+      "chainId": 8453,
+      "status": "passed"
+    },
+    {
+      "case": "390x844 rate controls form three rows with no horizontal overflow",
+      "chainId": 4663,
+      "status": "passed"
+    },
+    {
+      "case": "390x844 Base review has no horizontal overflow",
+      "chainId": 8453,
+      "status": "passed"
+    },
+    {
+      "case": "Response 100 bps for requested 300 bps refuses preview",
+      "chainId": 8453,
+      "error": "The trading fee does not match your selection. Preview again.",
+      "confirmButtons": 0,
+      "status": "passed"
+    },
+    {
+      "case": "Token detail with rate 300 shows 3% trading / 3.05% nominal total",
+      "chainId": 8453,
+      "status": "passed"
+    },
+    {
+      "case": "Historical token detail with absent rate displays unverified, without 1.05% default",
+      "chainId": 8453,
+      "status": "passed"
+    }
+  ],
+  "screenshots": [
+    {
+      "path": "docs/evidence/trading-fee-browser-desktop.jpg",
+      "sha256": "ae6ffd541712ac45d45dc422bad85bf1a85e9dca30cda67d2aaf2373f2ff6f05"
+    },
+    {
+      "path": "docs/evidence/trading-fee-browser-mobile.jpg",
+      "sha256": "ed5ac61e3eb381577ab0f705c55360a30ea75bb2d3f31cf8e113c37196c5c82c"
+    },
+    {
+      "path": "docs/evidence/trading-fee-browser-mismatch.jpg",
+      "sha256": "7c3b6a42cda179820b73f144c9f1164a93f3012d1cb732c176a4e166488161e9"
+    }
+  ],
+  "applicationConsoleErrors": 0,
+  "consoleNotes": "Chrome wallet-extension listener warnings observed. Injected fixture wallet auto-restore remained connecting after re-navigation; mismatch flow used a fresh localhost origin and manual fixture-wallet selection. No real wallet was connected.",
+  "mainnetTransactions": "not_run",
+  "productionPublication": "not_run"
+}

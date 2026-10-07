@@ -1,0 +1,43 @@
+{
+  "scope": "Actual isolated Base and Robinhood mainnet-state forks; local candidate vesting guard; no mainnet signing, deployment, funds or writes",
+  "observedAt": "2026-10-07T05:23:35.128Z",
+  "status": "failed",
+  "sourceHash": "81fde2bd1ca81623c86d17b03c2eaf86928f6cdf6abba5fedf28dc70da6d21f8",
+  "guardArtifactHash": "c0c0faeffbefd973e717c3c93c0be15b0d0dbec58acf85d3792350946ef0ad8a",
+  "implementationHashes": {
+    "src/lib/protocol.ts": "d3ea56e72b22166f5ad95a9a335e8dd8e644bf3b5744fdbe4e0c3e013f5887b8",
+    "src/lib/trading-fee.ts": "cfb2e6ff31152ab3a3259cd982d1940a98ee634ccd4b5b05af8589e76591b8ce",
+    "server/service.ts": "e822d9fa0589bfe5cb1385bce5b2a2bda26c0051735ac92c56642713950bffbb",
+    "server/launch-verification.ts": "61f6851ec0c7cdf10ff53149c9b56e984f7a7b74cd0868c48f19e39f7599afd3"
+  },
+  "mainnetTransactions": "not_run",
+  "productionPublication": "not_run",
+  "upstreamWrites": 0,
+  "chains": [
+    {
+      "deploymentChainId": 8453,
+      "executionChainId": 31337,
+      "forkBlockNumber": "52280635",
+      "status": "failed",
+      "snapshotRestored": true,
+      "upstreamWrites": 0,
+      "launches": [],
+      "forkBlockHash": "0xaca56e181404231bac6bf6799e0915add3f73b9f196ab3afec711946960ad9aa",
+      "guard": "0x5a8d6042b0f36a5b4bf30894f16e558e46d5f922",
+      "guardRevision": "local_candidate_vesting",
+      "guardDeploymentHash": "0x41e2e0c743e20173462cb38bdc96ea6535d60849ad69482cccfa7191e0b148e1",
+      "asset": {
+        "address": "0xb20000000000000000000078ee7ce2fE4908108C",
+        "ticker": "NVDA",
+        "decimals": 8
+      },
+      "funding": {
+        "kind": "genuine_fork_inventory_transfer_by_local_impersonation",
+        "donor": "0x498581fF718922c3f8e6A244956aF099B2652b2b",
+        "amount": "400000",
+        "hash": "0xf7ce0a2cb9f357b5e2e125b3589119953462afdc7ef634db7b6f49a2883ef489"
+      },
+      "error": "The opening valuation price expired. Run a new simulation."
+    }
+  ]
+}

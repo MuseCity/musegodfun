@@ -166,7 +166,12 @@ test(`already broadcast ${legacyPolicy ?? "unmarked"}${usdSnapshot ? " fixed USD
       }),
       getBlockNumber: async () => 11n,
       getBlock: async () => ({ hash: blockHash, timestamp: 1_800_000_000n }),
-      readContract: async () => SUPPLY,
+      readContract: async (input: { functionName: string; blockNumber?: bigint; args?: readonly unknown[] }) => {
+        if (input.functionName !== "getFeeSchedule") return SUPPLY;
+        assert.equal(input.blockNumber, 10n, "Recovery verifies the schedule at the receipt block");
+        assert.deepEqual(input.args, [plan.poolId]);
+        return [1_800_000_000, 10_000, 10_000, 10_000, 0];
+      },
     },
     sdk: { getMulticurvePool: async () => ({ getState: async () => ({ status: 2, numeraire: plan.draft.quoteAddress, poolKey }) }) },
     store: {
@@ -184,6 +189,7 @@ test(`already broadcast ${legacyPolicy ?? "unmarked"}${usdSnapshot ? " fixed USD
   assert.equal(tracked.length, 2);
   assert.equal(saved.length, 1, "A canonical legacy receipt must still register during recovery");
   assert.equal(saved[0].address, asset);
+  assert.equal(saved[0].tradingFeeBps, 100, "Legacy recovery records the verified original 1% trading fee");
   assert.equal(saved[0].feePolicy, legacyPolicy, "Recovery must preserve the original immutable fee policy");
   assert.equal(saved[0].feeTreasury, legacyPolicy ? treasury : undefined);
   assert.equal(saved[0].openingCap, usdSnapshot ? "50" : "100", "Recovery preserves original paired-unit valuation");

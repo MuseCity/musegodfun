@@ -30,6 +30,7 @@
     "build:launch-guard": "forge build --root contracts",
     "verify:launch-guard": "tsx scripts/deploy-launch-guard.ts",
     "test:launch-curve-fork": "tsx scripts/run.ts scripts/test-launch-curve-fork.ts",
+    "test:trading-fee-fork": "tsx scripts/run.ts scripts/test-trading-fee-fork.ts",
     "test:launch-browser": "tsx scripts/test-launch-browser.mjs",
     "test:launch-fork-browser": "tsx scripts/test-launch-fork-browser.mjs",
     "test:first-buy-payment-fork": "tsx scripts/run.ts scripts/test-first-buy-payment-fork.ts",

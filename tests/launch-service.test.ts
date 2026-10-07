@@ -27,11 +27,11 @@ const guard = "0x3333333333333333333333333333333333333333" as Address;
 const token = "0x4444444444444444444444444444444444444444" as Address;
 const hash = `0x${"aa".repeat(32)}` as Hex, blockHash = `0x${"bb".repeat(32)}` as Hex;
 const quote = ROBINHOOD_STOCKS.find((asset) => asset.symbol === "WETH")!;
-function fixture(quoteAsset: Stock = quote) {
+function fixture(quoteAsset: Stock = quote, tradingFeeBps = 100) {
   const quote = quoteAsset;
   const sdk = new DopplerSDK<4663>({ publicClient: createPublicClient({ transport: http("http://127.0.0.1:1") }), chainId: 4663 });
   const openingValuation = syntheticOpeningValuation(quote.address, "3000", { chainId: 4663 });
-  const draft = { name: "Guard Test", symbol: "GUARD", description: "", image: "", quoteAddress: quote.address };
+  const draft = { name: "Guard Test", symbol: "GUARD", description: "", image: "", quoteAddress: quote.address, tradingFeeBps };
   const createParams = sdk.factory.encodeCreateMulticurveParams(buildLaunch(sdk, draft, creator, treasury, treasury, openingValuation, undefined, 4663));
   const poolKey = { currency0: token, currency1: quote.address, fee: 8388608, tickSpacing: 10, hooks: contracts.initializer };
   const amountIn = 100n, expected = 1000n, min = minimumOutput(expected, 100), deadline = Math.floor(openingValuation.expiresAt / 1000);
@@ -82,8 +82,8 @@ function historicalFixture(quotedAt = Date.now()) {
   return { ...f, tokenURI };
 }
 
-function lockedFixture(lockDays: 30 | 90 | 365 = 30, quoteAsset: Stock = quote) {
-  const f = fixture(quoteAsset), duration = BigInt(lockDays) * 86400n, start = BigInt(f.plan.firstBuy!.deadline - 1);
+function lockedFixture(lockDays: 30 | 90 | 365 = 30, quoteAsset: Stock = quote, tradingFeeBps = 100) {
+  const f = fixture(quoteAsset, tradingFeeBps), duration = BigInt(lockDays) * 86400n, start = BigInt(f.plan.firstBuy!.deadline - 1);
   f.plan.firstBuy!.lockDays = lockDays;
   f.prepared.devBuy.vesting = { permissionlessClaim: false, cliffDuration: duration, vestingDuration: duration };
   const data = encodeFunctionData({ abi: launchGuardAbi, functionName: "createAndBuyLocked",
@@ -97,6 +97,20 @@ function lockedFixture(lockDays: 30 | 90 | 365 = 30, quoteAsset: Stock = quote) 
       [false, 1000n, start, duration, duration]) };
   f.receipt.logs.push(vestingLog as unknown as TransactionReceipt["logs"][number]);
   return { ...f, start, duration, vestingLog };
+}
+
+function ordinaryFixture(tradingFeeBps = 100) {
+  const f = fixture(quote, tradingFeeBps), prepared = restorePrepared(f.plan.prepared!);
+  delete prepared.devBuy; delete prepared.approvalTransaction;
+  delete f.plan.firstBuy; delete f.plan.approval;
+  const data = encodeFunctionData({ abi: airlockAbi, functionName: "create", args: [prepared.createParams] });
+  prepared.transaction = { to: contracts.airlock, data, value: 0n };
+  f.plan.data = data; f.plan.id = keccak256(data);
+  f.plan.transaction = { ...prepared.transaction, value: "0" };
+  f.plan.prepared = serializePrepared(prepared);
+  f.tx.input = data; f.tx.to = contracts.airlock;
+  f.receipt.to = contracts.airlock; f.receipt.logs = f.receipt.logs.slice(0, 1);
+  return { ...f, prepared };
 }
 
 function registryOnlyAsset(chainId: 8453 | 4663) {
@@ -165,6 +179,7 @@ test("removed paired assets remain valid in frozen launch integrity, old-plan va
       client: { getTransaction: async () => f.tx, getTransactionReceipt: async () => f.receipt,
         getBlockNumber: async () => 11n, getBlock: async () => ({ hash: blockHash, timestamp: f.start }),
         readContract: async (input: { functionName: string }) => input.functionName === "totalSupply" ? SUPPLY
+          : input.functionName === "getFeeSchedule" ? [Number(f.start), 10_000, 10_000, 10_000, 0]
           : [creator, false, f.start, f.duration, f.duration, 1000n, 0n] },
       sdk: { getMulticurvePool: async () => ({ getState: async () => ({ status: 2, numeraire: excluded.asset.address, poolKey: f.poolKey }) }) },
     }) as LaunchpadService;
@@ -223,6 +238,115 @@ test("frozen SDK snapshots serialize losslessly and bind outer calldata and exac
   }
 });
 
+test("frozen issuance binds the selected trading fee on all creation paths", () => {
+  for (const make of [ordinaryFixture, (fee: number) => fixture(quote, fee), (fee: number) => lockedFixture(30, quote, fee)]) {
+    for (const fee of [100, 300]) {
+      const f = make(fee);
+      assert.doesNotThrow(() => assertPlanIntegrity(f.plan, contracts));
+      f.plan.draft.tradingFeeBps = fee === 300 ? 100 : 300;
+      assert.throws(() => assertPlanIntegrity(f.plan, contracts), /trading fee/);
+      delete f.plan.draft.tradingFeeBps;
+      if (fee === 100) assert.doesNotThrow(() => assertPlanIntegrity(f.plan, contracts));
+      else assert.throws(() => assertPlanIntegrity(f.plan, contracts), /trading fee/);
+    }
+  }
+});
+
+test("registration reads the receipt-block trading fee and rejects every non-fixed schedule field", async () => {
+  for (const make of [ordinaryFixture, (fee: number) => fixture(quote, fee), (fee: number) => lockedFixture(30, quote, fee)]) {
+    for (const fee of [100, 300]) {
+      const f = make(fee), directory = mkdtempSync(join(tmpdir(), "trading-fee-register-test-")), store = new Store(directory, 31337);
+      const start = BigInt(Math.floor(f.plan.openingValuation!.expiresAt / 1000) - 1);
+      let faultIndex = -1, scheduleReads = 0;
+      try {
+        store.savePlan(f.plan);
+        const service = Object.assign(Object.create(LaunchpadService.prototype), {
+          runtime: { config: { mode: "fork", chainId: 31337, deploymentChainId: 4663, writesEnabled: false } },
+          store, assertNetwork: async () => {},
+          client: { getTransaction: async () => f.tx, getTransactionReceipt: async () => f.receipt,
+            getBlockNumber: async () => 11n, getBlock: async () => ({ hash: blockHash, timestamp: start }),
+            readContract: async (input: { functionName: string; address: Address; blockNumber?: bigint; args?: readonly unknown[] }) => {
+              if (input.functionName === "totalSupply") return SUPPLY;
+              assert.equal(input.blockNumber, f.receipt.blockNumber);
+              if (input.functionName === "vestingOf") {
+                const duration = BigInt(f.plan.firstBuy!.lockDays!) * 86400n;
+                return [creator, false, start, duration, duration, 1000n, 0n];
+              }
+              assert.equal(input.functionName, "getFeeSchedule");
+              assert.equal(input.address, contracts.rehype); assert.deepEqual(input.args, [f.plan.poolId]);
+              scheduleReads++;
+              const schedule = [Number(start), fee * 100, fee * 100, fee * 100, 0];
+              if (faultIndex >= 0) schedule[faultIndex]++;
+              return schedule;
+            } },
+          sdk: { getMulticurvePool: async () => ({ getState: async () => ({ status: 2, numeraire: quote.address, poolKey: f.poolKey }) }) },
+        }) as LaunchpadService;
+        for (const index of [1, 2, 3, 4]) {
+          faultIndex = index;
+          await assert.rejects(() => service.register(hash), /trading fee schedule/);
+          assert.equal(store.token(token), null);
+        }
+        faultIndex = -1;
+        const saved = await service.register(hash);
+        assert.equal(saved.tradingFeeBps, fee); assert.equal(store.token(token)?.tradingFeeBps, fee);
+        assert.equal(scheduleReads, 5);
+      } finally { store.close(); rmSync(directory, { recursive: true }); }
+    }
+  }
+});
+
+test("actual creation calldata rejects a three percent declaration with one percent encoded", async () => {
+  for (const f of [ordinaryFixture(), fixture(), lockedFixture()]) {
+    const directory = mkdtempSync(join(tmpdir(), "trading-fee-mismatch-test-")), store = new Store(directory, 31337);
+    try {
+      f.plan.draft.tradingFeeBps = 300; store.savePlan(f.plan);
+      const untouched = async () => { throw new Error("Mismatched fee must stop before contract reads or pool lookup"); };
+      const service = Object.assign(Object.create(LaunchpadService.prototype), {
+        runtime: { config: { mode: "fork", chainId: 31337, deploymentChainId: 4663, writesEnabled: false } },
+        store, assertNetwork: async () => {},
+        client: { getTransaction: async () => f.tx, getTransactionReceipt: async () => f.receipt, getBlockNumber: async () => 11n, readContract: untouched },
+        sdk: { getMulticurvePool: untouched },
+      }) as LaunchpadService;
+      await assert.rejects(() => service.trackLaunch(hash, f.plan.id), /trading fee/);
+      await assert.rejects(() => service.register(hash), /trading fee/);
+      assert.equal(store.token(token), null);
+    } finally { store.close(); rmSync(directory, { recursive: true }); }
+  }
+});
+
+test("historical unprepared transactions recover only the original one percent fee", async () => {
+  for (const fee of [100, 300]) {
+    const f = ordinaryFixture(fee), directory = mkdtempSync(join(tmpdir(), "historical-trading-fee-test-")), store = new Store(directory, 31337);
+    delete f.plan.draft.tradingFeeBps; delete f.plan.prepared; delete f.plan.transaction; delete f.plan.curvePolicy;
+    delete f.plan.openingValuation;
+    f.plan.preparedAt = Date.now() - 86_400_000; f.plan.feePolicy = "musegod-80-v1";
+    let feeReads = 0;
+    try {
+      store.savePlan(f.plan);
+      const service = Object.assign(Object.create(LaunchpadService.prototype), {
+        runtime: { config: { mode: "fork", chainId: 31337, deploymentChainId: 4663, writesEnabled: false, curvePolicy: "future", treasury: null } },
+        store, assertNetwork: async () => {}, validateLaunch: async () => { throw new Error("Recovery must not use current signing gates"); },
+        client: { getTransaction: async () => f.tx, getTransactionReceipt: async () => f.receipt,
+          getBlockNumber: async () => 11n, getBlock: async () => ({ hash: blockHash, timestamp: 1n }),
+          readContract: async (input: { functionName: string; blockNumber?: bigint }) => {
+            if (input.functionName === "totalSupply") return SUPPLY;
+            assert.equal(input.functionName, "getFeeSchedule"); assert.equal(input.blockNumber, 10n); feeReads++;
+            return [1, fee * 100, fee * 100, fee * 100, 0];
+          } },
+        sdk: { getMulticurvePool: async () => ({ getState: async () => ({ status: 2, numeraire: quote.address, poolKey: f.poolKey }) }) },
+      }) as LaunchpadService;
+      if (fee === 100) {
+        await service.trackLaunch(hash, f.plan.id);
+        assert.equal((await service.register(hash)).tradingFeeBps, 100); assert.equal(feeReads, 1);
+      } else {
+        await assert.rejects(() => service.trackLaunch(hash, f.plan.id), /trading fee/);
+        await assert.rejects(() => service.register(hash), /trading fee/);
+        assert.equal(feeReads, 0); assert.equal(store.token(token), null);
+      }
+    } finally { store.close(); rmSync(directory, { recursive: true }); }
+  }
+});
+
 test("guarded execution requires matching SDK outer/Create/Bundled and one protected event", async () => {
   const { plan, prepared, receipt, tx, guardLog } = fixture();
   const verified = await verifyPreparedCreateExecution({ prepared, receipt, publicClient: { getTransaction: async () => tx } });
@@ -274,6 +398,7 @@ test("registration persists only verified locked custody and recovers without cu
     const client = { getTransaction: async () => f.tx, getTransactionReceipt: async () => f.receipt,
       getBlockNumber: async () => 11n, getBlock: async () => ({ hash: blockHash, timestamp: f.start }),
       readContract: async (args: { functionName: string }) => args.functionName === "totalSupply" ? SUPPLY
+        : args.functionName === "getFeeSchedule" ? [Number(f.start), 10_000, 10_000, 10_000, 0]
         : [creator, false, f.start, f.duration, f.duration, badPosition ? 999n : 1000n, 0n] };
     const service = Object.assign(Object.create(LaunchpadService.prototype), { runtime: { config: { mode: "fork", chainId: 31337,
       deploymentChainId: 4663, writesEnabled: false, launchGuard: null, launchLockAvailable: false } }, store, client,
@@ -296,7 +421,8 @@ test("guard receipt recovery survives restart, expiry and disabled signing; reor
     const runtime = { config: { mode: "fork", deploymentChainId: 4663, chainId: 31337, writesEnabled: false, launchGuard: null, curvePolicy: "future", treasury: null } };
     let canonicalHash: Hex = blockHash, unknown = false;
     const client = { getTransaction: async () => tx, getTransactionReceipt: async () => { if (unknown) throw new Error("timeout"); return receipt; }, getBlockNumber: async () => 11n,
-      getBlock: async () => ({ hash: canonicalHash, timestamp: BigInt(plan.firstBuy!.deadline - 1) }), readContract: async () => SUPPLY };
+      getBlock: async () => ({ hash: canonicalHash, timestamp: BigInt(plan.firstBuy!.deadline - 1) }),
+      readContract: async (input: { functionName: string }) => input.functionName === "getFeeSchedule" ? [plan.firstBuy!.deadline - 1, 10_000, 10_000, 10_000, 0] : SUPPLY };
     const service = Object.assign(Object.create(LaunchpadService.prototype), { runtime, store, client, assertNetwork: async () => {},
       sdk: { getMulticurvePool: async () => ({ getState: async () => ({ status: 2, numeraire: quote.address, poolKey }) }) } }) as LaunchpadService;
     const saved = await service.register(hash);
@@ -319,7 +445,7 @@ test("broadcast retired-price plans recover original metadata after expiry while
     config: async () => config, assertNetwork: async () => {},
     client: { getTransaction: async () => old.tx, getTransactionReceipt: async () => old.receipt,
       getBlockNumber: async () => 11n, getBlock: async () => ({ hash: blockHash, timestamp: BigInt(old.plan.firstBuy!.deadline - 1) }),
-      readContract: async () => SUPPLY },
+      readContract: async (input: { functionName: string }) => input.functionName === "getFeeSchedule" ? [old.plan.firstBuy!.deadline - 1, 10_000, 10_000, 10_000, 0] : SUPPLY },
     sdk: { getMulticurvePool: async () => ({ getState: async () => ({ status: 2, numeraire: quote.address, poolKey: old.poolKey }) }) },
   }) as LaunchpadService;
   try {

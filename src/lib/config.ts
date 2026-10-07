@@ -158,6 +158,8 @@ export type TokenRecord = {
   feePolicy?: FeePolicy;
   feeTreasury?: Address;
   feeEngine?: Address;
+  // Present only after calldata and the receipt-block schedule were verified.
+  tradingFeeBps?: number;
 };
 
 // Currency ordering changes with the deployed meme address; never assume the

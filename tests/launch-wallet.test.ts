@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { decodeFunctionData, encodeFunctionData, erc20Abi, parseUnits, toHex, type Address, type Hash } from "viem";
+import { DopplerSDK, airlockAbi } from "@whetstone-research/doppler-sdk/evm";
+import { createPublicClient, http, decodeFunctionData, encodeFunctionData, erc20Abi, parseUnits, toHex, type Address, type Hash } from "viem";
 import { assetsFor, contractsFor, type RuntimeConfig } from "../src/lib/config";
 import { CURVE_POLICY } from "../src/lib/launch-curve";
 import { launchGuardAbi } from "../src/lib/launch-guard";
@@ -9,6 +10,9 @@ import { LAUNCH_PRICE_TTL, type HistoricalOpeningValuation } from "../src/lib/op
 import { assertLaunchRequest, assertLaunchWalletPlan, bufferedLaunchGas, executeLaunchPlan, freezeLaunchPlan, pendingLaunchResolution, terminalLaunchIsCanonical, type LaunchSimulation } from "../src/lib/launch-wallet";
 import type { Transaction } from "../src/lib/transactions";
 import { syntheticOpeningValuation } from "./fixtures";
+import { buildLaunch } from "../src/lib/protocol";
+import { FEE_POLICY } from "../src/lib/fee-policy";
+import { TRADING_FEE_BPS } from "../src/lib/trading-fee";
 
 const account: Address = "0x1111111111111111111111111111111111111111";
 const other: Address = "0x2222222222222222222222222222222222222222";
@@ -19,25 +23,21 @@ const config: RuntimeConfig = { mode: "base", chainId: 8453, treasury: account, 
   blockReason: null, curvePolicy: CURVE_POLICY, launchGuard: guard };
 const quote = assetsFor(config)[0];
 
-function plan(firstBuy = true): LaunchPlan {
+function plan(firstBuy = true, tradingFeeBps = 100): LaunchPlan {
   const now = Date.now();
   const deadline = Math.floor((now + LAUNCH_PRICE_TTL) / 1000);
   const amountIn = parseUnits("0.01", quote.decimals);
   const expectedAmountOut = parseUnits("100", 18);
   const minAmountOut = expectedAmountOut * 9900n / 10000n;
   const openingValuation = syntheticOpeningValuation(quote.address, "1", { quotedAt: now, blockNumber: "10", blockHash: hash });
-  const createData = {
-    initialSupply: parseUnits("1000000000", 18), numTokensToSell: parseUnits("1000000000", 18),
-    numeraire: quote.address, tokenFactory: other, tokenFactoryData: "0x" as const,
-    governanceFactory: other, governanceFactoryData: "0x" as const,
-    poolInitializer: other, poolInitializerData: "0x" as const,
-    liquidityMigrator: other, liquidityMigratorData: "0x" as const, integrator: account, salt: hash,
-  };
+  const draft = { name: "Test", symbol: "TEST", image: "", description: "", quoteAddress: quote.address, tradingFeeBps };
+  const sdk = new DopplerSDK<8453>({ publicClient: createPublicClient({ transport: http("http://127.0.0.1:1") }), chainId: 8453 });
+  const createData = sdk.factory.encodeCreateMulticurveParams(buildLaunch(sdk, draft, account, account, other, openingValuation));
   const data = firstBuy ? encodeFunctionData({ abi: launchGuardAbi, functionName: "createAndBuy",
-    args: [createData, amountIn, minAmountOut, BigInt(deadline)] }) : "0x12345678" as const;
+    args: [createData, amountIn, minAmountOut, BigInt(deadline)] }) : encodeFunctionData({ abi: airlockAbi, functionName: "create", args: [createData] });
   return {
     id: hash, creator: account, data, tokenAddress: other, poolId: hash,
-    draft: { name: "Test", symbol: "TEST", image: "", description: "", quoteAddress: quote.address },
+    draft,
     preparedAt: now, gas: null, curvePolicy: CURVE_POLICY, openingValuation,
     transaction: { to: firstBuy ? guard : contractsFor(config).airlock, data, value: "0" },
     ...(firstBuy ? {
@@ -50,6 +50,37 @@ function plan(firstBuy = true): LaunchPlan {
     } : {}),
   };
 }
+
+test("wallet trading fee matches actual calldata for ordinary, first buy and locked creates", () => {
+  for (const firstBuy of [false, true]) for (const fee of TRADING_FEE_BPS) {
+    const value = plan(firstBuy, fee);
+    for (const feePolicy of [undefined, FEE_POLICY]) {
+      value.feePolicy = feePolicy;
+      assert.doesNotThrow(() => assertLaunchWalletPlan(value, config, account));
+      const changed = structuredClone(value); changed.draft.tradingFeeBps = fee === 300 ? 100 : 300;
+      assert.throws(() => assertLaunchWalletPlan(changed, config, account), /trading fee/);
+    }
+    if (firstBuy) {
+      const decoded = decodeFunctionData({ abi: launchGuardAbi, data: value.data });
+      if (decoded.functionName !== "createAndBuy") throw new Error("wrong fixture");
+      const data = encodeFunctionData({ abi: launchGuardAbi, functionName: "createAndBuyLocked", args: [...decoded.args, 30] });
+      value.firstBuy!.lockDays = 30; value.data = data; value.transaction!.data = data;
+      const lockConfig = { ...config, launchLockAvailable: true };
+      assert.doesNotThrow(() => assertLaunchWalletPlan(value, lockConfig, account));
+      value.draft.tradingFeeBps = fee === 300 ? 100 : 300;
+      assert.throws(() => assertLaunchWalletPlan(value, lockConfig, account), /trading fee/);
+    }
+  }
+});
+
+test("wallet defaults missing historical trading fees only to the original one percent", () => {
+  for (const firstBuy of [false, true]) {
+    const original = plan(firstBuy), higher = plan(firstBuy, 300);
+    delete original.draft.tradingFeeBps; delete higher.draft.tradingFeeBps;
+    assert.doesNotThrow(() => assertLaunchWalletPlan(original, config, account));
+    assert.throws(() => assertLaunchWalletPlan(higher, config, account), /trading fee/);
+  }
+});
 
 test("launch wallet binds current curve, network, account, quote and frozen transaction", () => {
   const value = plan();

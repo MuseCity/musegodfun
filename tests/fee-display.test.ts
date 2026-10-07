@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import FeeBreakdown from "../src/components/FeeBreakdown";
+import { TRADING_FEE_BPS } from "../src/lib/trading-fee";
 
 const render = (policy?: string) => renderToStaticMarkup(createElement(FeeBreakdown, { policy }));
 
@@ -38,5 +39,33 @@ test("unmarked and unknown pools do not display current fee percentages", () => 
     const html = render(policy);
     assert.match(html, /no identified fee policy/);
     assert.doesNotMatch(html, /\d+%/);
+  }
+});
+
+test("fee display uses the pool's verified trading fee for all nine rates", () => {
+  for (const tradingFeeBps of TRADING_FEE_BPS) {
+    const html = renderToStaticMarkup(createElement(FeeBreakdown, { policy: "creator-70-musegod-v2", tradingFeeBps }));
+    assert.match(html, new RegExp(`The nominal total fee is ${(tradingFeeBps + 5) / 100}%`.replaceAll(".", "\\.")));
+    assert.ok(html.includes(`${tradingFeeBps / 100}% trading fee + 0.05% LP fee`));
+    assert.match(html, /<dt>Creator<\/dt><dd>70%<\/dd>/);
+    if (tradingFeeBps !== 100) assert.doesNotMatch(html, /nominal total fee is 1\.05%/);
+  }
+});
+
+test("historical and generic fee explanations do not assume a default trading fee", () => {
+  for (const tradingFeeBps of [undefined, 99, 310, NaN]) {
+    const html = renderToStaticMarkup(createElement(FeeBreakdown, { policy: "creator-70-musegod-v2", tradingFeeBps }));
+    assert.match(html, /trading fee has not been verified here/);
+    assert.doesNotMatch(html, /nominal total fee|1\.05%/);
+  }
+});
+
+test("verified rates display independently of an unknown revenue policy", () => {
+  for (const policy of [undefined, "future-v3"]) {
+    const html = renderToStaticMarkup(createElement(FeeBreakdown, { policy, tradingFeeBps: 300 }));
+    assert.match(html, /nominal total fee is 3\.05%/);
+    assert.match(html, /no identified fee policy/);
+    assert.doesNotMatch(html, /Net fee distribution|70%|30%/);
+    assert.match(render(policy), /trading fee has not been verified here/);
   }
 });

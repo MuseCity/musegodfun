@@ -8,7 +8,7 @@ import type { LaunchPlan, LaunchTransaction } from "./launch-plan";
 import { launchGuardAbi } from "./launch-guard";
 import { transactionMatchesConfig, type Transaction } from "./transactions";
 import { ENGINE_FEE_POLICY, launchFeePolicy } from "./fee-policy";
-import { assertEngineFeeCalldata } from "./protocol";
+import { assertEngineFeeCalldata, assertTradingFeeCalldata } from "./protocol";
 
 export type LaunchSimulation = { valid: true; gas: string; amountOut: string | null; simulatedAt: number };
 export type LaunchWalletStep = LaunchTransaction & { from: Address; chainId: number };
@@ -90,13 +90,13 @@ export function assertLaunchWalletPlan(plan: LaunchPlan, config: RuntimeConfig, 
     [config.treasury, config.automationReceiver, config.automationTreasury, config.wethForwarder].some((address) => !address || sameAddress(address, "0x0000000000000000000000000000000000000000")) ||
     new Set([config.treasury, config.automationReceiver, config.automationTreasury, config.wethForwarder].map((address) => address?.toLowerCase())).size !== 4))
     throw new Error("The fee engine configuration changed or could not be verified. Run a new preview.");
-  if (plan.feePolicy === ENGINE_FEE_POLICY) {
-    const decodedLaunch = decodeFunctionData({ abi: plan.firstBuy ? launchGuardAbi : airlockAbi, data: plan.data });
-    const createParams = decodedLaunch.args[0];
-    if (!createParams || typeof createParams !== "object" || !("poolInitializerData" in createParams))
-      throw new Error("The launch calldata does not contain valid creation parameters");
-    assertEngineFeeCalldata(plan, createParams.poolInitializerData);
-  } else if (plan.feeEngine) throw new Error("The fee engine does not match the launch fee policy");
+  const decodedLaunch = decodeFunctionData({ abi: plan.firstBuy ? launchGuardAbi : airlockAbi, data: plan.data });
+  const createParams = decodedLaunch.args[0];
+  if ((!plan.firstBuy && decodedLaunch.functionName !== "create") || !createParams ||
+    typeof createParams !== "object" || !("poolInitializerData" in createParams))
+    throw new Error("The launch calldata does not contain valid creation parameters");
+  assertTradingFeeCalldata(plan.draft.tradingFeeBps, createParams.poolInitializerData, contractsFor(config).rehype);
+  assertEngineFeeCalldata(plan, createParams.poolInitializerData);
   if (!plan.firstBuy) {
     if (plan.approval || !sameAddress(plan.transaction.to, contractsFor(config).airlock))
       throw new Error("The launch transaction target is not allowed");

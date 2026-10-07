@@ -1,15 +1,21 @@
 import type { ReactNode } from "react";
 import { ENGINE_FEE_POLICY, feePolicyFor } from "../lib/fee-policy";
+import { LP_FEE_PPM, TRADING_FEE_BPS } from "../lib/trading-fee";
 
 const percent = (bps: number) => `${bps / 100}%`;
 
-export default function FeeBreakdown({ policy, children }: {
+export default function FeeBreakdown({ policy, tradingFeeBps, children }: {
   policy: string | undefined;
+  tradingFeeBps?: number;
   children?: ReactNode;
 }) {
   const shares = feePolicyFor(policy);
+  const feeRate = tradingFeeBps !== undefined && (TRADING_FEE_BPS as readonly number[]).includes(tradingFeeBps)
+    ? <p>The nominal total fee is {percent(tradingFeeBps + LP_FEE_PPM / 100)} ({percent(tradingFeeBps)} trading fee + 0.05% LP fee). The on-chain quote determines the actual amount. Each pool follows its policy at launch.</p>
+    : <p>The trading fee has not been verified here. The on-chain quote determines the actual amount. Each pool follows its policy at launch.</p>;
   if (!shares) return <div className="fee-breakdown">
-    <p>This pool has no identified fee policy. Only claimable on-chain amounts are shown; no revenue split or buyback budget is estimated.</p>
+    <p>This pool has no identified fee policy. Claimable on-chain amounts are shown without estimating a revenue split or buyback budget.</p>
+    {feeRate}
     {children}
   </div>;
   const gross = [
@@ -51,7 +57,7 @@ export default function FeeBreakdown({ policy, children }: {
       <p>The percentages below use total fees before Doppler as the 100% basis and express the same two-stage policy.</p>
       <dl>{gross.map((item) => <div key={item.label}><dt>{item.label}</dt><dd>{percent(item.share)}</dd></div>)}</dl>
     </details>
-    <p>The nominal total fee is 1.05% (1% trading fee + 0.05% LP fee). The on-chain quote determines the actual amount. Each pool follows its policy at launch.</p>
+    {feeRate}
     {children}
   </div>;
 }

@@ -36,6 +36,7 @@ import {
   openingCapInQuote,
   type OpeningValuation,
 } from "./opening-valuation";
+import { LP_FEE_PPM, tradingFeeBpsFor } from "./trading-fee";
 
 export const routerAbi = parseAbi([
   "function execute(bytes commands, bytes[] inputs, uint256 deadline) payable",
@@ -88,6 +89,7 @@ export function tokenMetadata(input: LaunchInput, openingValuation: OpeningValua
       openingCap: openingCapInQuote(openingValuation),
       openingValuation,
       curvePolicy: CURVE_POLICY,
+      tradingFeeBps: tradingFeeBpsFor(input.tradingFeeBps),
       feePolicy: feeEngine ? ENGINE_FEE_POLICY : FEE_POLICY,
       ...(feeEngine ? { feeEngine } : {}),
       feeDistribution: {
@@ -167,15 +169,15 @@ export function buildLaunch(
       numerairePrice: Number(openingValuation.quotePriceUsd),
       numeraireDecimals: stock.decimals,
       tokenDecimals: 18,
-      fee: 500,
+      fee: LP_FEE_PPM,
       tickSpacing: LAUNCH_CURVE_TICK_SPACING,
       beneficiaries: lpBeneficiaries,
       curves: buildLaunchCurves(),
     })
     .withRehypeDopplerHookInitializer({
       hookAddress: contracts.rehype,
-      startFee: 10_000,
-      endFee: 10_000,
+      startFee: draft.tradingFeeBps * 100,
+      endFee: draft.tradingFeeBps * 100,
       durationSeconds: 0,
       feeRoutingMode: "routeToBeneficiaryFees",
       feeBeneficiaries: hookBeneficiaries as [
@@ -212,6 +214,22 @@ export function buildLaunch(
   return params;
 }
 
+const launchPoolDataAbi = parseAbiParameters("(uint24 fee, int24 tickSpacing, int24 farTick, (int24 tickLower, int24 tickUpper, uint16 numPositions, uint256 shares)[] curves, (address beneficiary, uint96 shares)[] beneficiaries, address dopplerHook, bytes onInitializationDopplerHookCalldata, bytes graduationDopplerHookCalldata)");
+const rehypeInitializationDataAbi = parseAbiParameters("(address numeraire,address buybackDst,uint24 startFee,uint24 endFee,uint32 durationSeconds,uint32 startingTime,uint8 feeRoutingMode,(uint64 assetFeesToAssetBuybackWad,uint64 assetFeesToNumeraireBuybackWad,uint64 assetFeesToBeneficiaryWad,uint64 assetFeesToLpWad,uint64 numeraireFeesToAssetBuybackWad,uint64 numeraireFeesToNumeraireBuybackWad,uint64 numeraireFeesToBeneficiaryWad,uint64 numeraireFeesToLpWad) feeDistributionInfo,(address beneficiary,uint96 shares)[] feeBeneficiaries,(address integrator,uint24 feeShare,uint32 assetFeesToNumeraireRatio,uint32 numeraireFeesToAssetRatio,bool automaticPayout) integratorConfig)");
+function launchFeeData(poolInitializerData: Hex) {
+  const [pool] = decodeAbiParameters(launchPoolDataAbi, poolInitializerData);
+  const [hook] = decodeAbiParameters(rehypeInitializationDataAbi, pool.onInitializationDopplerHookCalldata);
+  return { pool, hook };
+}
+
+export function assertTradingFeeCalldata(tradingFeeBps: number | undefined, poolInitializerData: Hex, rehype: Address) {
+  const expected = tradingFeeBpsFor(tradingFeeBps) * 100;
+  const { pool, hook } = launchFeeData(poolInitializerData);
+  if (pool.fee !== LP_FEE_PPM || !sameAddress(pool.dopplerHook, rehype) ||
+    hook.startFee !== expected || hook.endFee !== expected || hook.durationSeconds !== 0)
+    throw new Error("The launch calldata does not match the selected fixed trading fee");
+}
+
 // Bind the engine field in a preview to both immutable beneficiary arrays in
 // the exact CreateParams that will be signed, including guarded first buys.
 export function assertEngineFeeCalldata(input: { feePolicy?: string; feeEngine?: Address; creator: Address; feeTreasury?: Address }, poolInitializerData: Hex) {
@@ -221,8 +239,7 @@ export function assertEngineFeeCalldata(input: { feePolicy?: string; feeEngine?:
   }
   if (!input.feeEngine || !input.feeTreasury || [input.creator, input.feeTreasury, DEAD, "0x0000000000000000000000000000000000000000"].some((address) => sameAddress(address, input.feeEngine!)))
     throw new Error("The fee engine is missing or overlaps another beneficiary");
-  const [pool] = decodeAbiParameters(parseAbiParameters("(uint24 fee, int24 tickSpacing, int24 farTick, (int24 tickLower, int24 tickUpper, uint16 numPositions, uint256 shares)[] curves, (address beneficiary, uint96 shares)[] beneficiaries, address dopplerHook, bytes onInitializationDopplerHookCalldata, bytes graduationDopplerHookCalldata)"), poolInitializerData);
-  const [hook] = decodeAbiParameters(parseAbiParameters("(address numeraire,address buybackDst,uint24 startFee,uint24 endFee,uint32 durationSeconds,uint32 startingTime,uint8 feeRoutingMode,(uint64 assetFeesToAssetBuybackWad,uint64 assetFeesToNumeraireBuybackWad,uint64 assetFeesToBeneficiaryWad,uint64 assetFeesToLpWad,uint64 numeraireFeesToAssetBuybackWad,uint64 numeraireFeesToNumeraireBuybackWad,uint64 numeraireFeesToBeneficiaryWad,uint64 numeraireFeesToLpWad) feeDistributionInfo,(address beneficiary,uint96 shares)[] feeBeneficiaries,(address integrator,uint24 feeShare,uint32 assetFeesToNumeraireRatio,uint32 numeraireFeesToAssetRatio,bool automaticPayout) integratorConfig)"), pool.onInitializationDopplerHookCalldata);
+  const { pool, hook } = launchFeeData(poolInitializerData);
   const lp = pool.beneficiaries.filter((entry) => sameAddress(entry.beneficiary, input.feeEngine!));
   const trade = hook.feeBeneficiaries.filter((entry) => sameAddress(entry.beneficiary, input.feeEngine!));
   if (lp.length !== 1 || trade.length !== 1 || lp[0].shares !== WAD * 2280n / 10_000n || trade[0].shares !== WAD * 2400n / 10_000n ||

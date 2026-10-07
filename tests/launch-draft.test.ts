@@ -5,6 +5,7 @@ import { STOCKS, ROBINHOOD_STOCKS, launchAssetsFor, stockByAddress, sameAddress,
 import { firstBuyDraft, launchDraftKey, savedLaunchDraft } from "../src/lib/launch-draft";
 import { firstBuyPaymentAssets } from "../src/lib/first-buy-payment";
 import { restoreDraft } from "../src/lib/validation";
+import { DEFAULT_TRADING_FEE_BPS, TRADING_FEE_BPS } from "../src/lib/trading-fee";
 const config = (chain: 8453 | 4663, fork = false): RuntimeConfig => ({ mode: fork ? "fork" : chain === 8453 ? "base" : "robinhood",
   chainId: fork ? 31337 : chain, deploymentChainId: chain, treasury: null, writesEnabled: false, blockReason: null });
 function storage(t: { after: (fn: () => void) => void }) {
@@ -87,7 +88,7 @@ test("changing a restored pair preserves metadata and resets even a still-valid 
   values.set(launchDraftKey(rh), JSON.stringify(saved));
   const draft = restoreDraft(savedLaunchDraft(rh), rh);
   assert.deepEqual(draft, { name: saved.name, symbol: saved.symbol, description: saved.description, image: saved.image,
-    website: saved.website, twitter: saved.twitter, telegram: saved.telegram, quoteAddress: launchAssetsFor(rh)[0].address });
+    website: saved.website, twitter: saved.twitter, telegram: saved.telegram, quoteAddress: launchAssetsFor(rh)[0].address, tradingFeeBps: DEFAULT_TRADING_FEE_BPS });
   assert.deepEqual(firstBuyDraft(rh), { amount: "0", slippageBps: 100, payAddress: draft.quoteAddress, lockDays: 0 });
   assert.equal(values.get(paymentKey), JSON.stringify({ hash: "original-payment-hash", quote: "frozen-original-asset" }),
     "draft migration cannot alter independently saved payment recovery");
@@ -115,10 +116,32 @@ test("excluded same-chain drafts reset first buys without deleting metadata or p
       values.set(launchDraftKey(network), JSON.stringify(saved));
       const draft = restoreDraft(savedLaunchDraft(network), network);
       assert.deepEqual(draft, { name: saved.name, symbol: saved.symbol, description: saved.description, image: saved.image,
-        website: saved.website, twitter: saved.twitter, telegram: saved.telegram, quoteAddress: fallback.address }, payment.symbol);
+        website: saved.website, twitter: saved.twitter, telegram: saved.telegram, quoteAddress: fallback.address, tradingFeeBps: DEFAULT_TRADING_FEE_BPS }, payment.symbol);
       assert.deepEqual(firstBuyDraft(network), { amount: "0", slippageBps: 100, payAddress: fallback.address, lockDays: 0 },
         `${payment.symbol} remains a valid currency but its old amount cannot fund the fallback pair`);
       assert.equal(values.get(paymentKey), pending, `${payment.symbol} pending payment stays bound to the original ${symbol} output`);
     }
+  }
+});
+
+test("trading fee drafts persist every rate per network, default old or invalid fees and reset when cleared", (t) => {
+  const values = storage(t);
+  for (const chain of [8453, 4663] as const) {
+    const network = config(chain), key = launchDraftKey(network);
+    for (const tradingFeeBps of TRADING_FEE_BPS) {
+      values.set(key, JSON.stringify({ name: "Saved fee", tradingFeeBps }));
+      const restored = restoreDraft(savedLaunchDraft(network), network);
+      assert.equal(restored.tradingFeeBps, tradingFeeBps);
+      assert.equal(restored.name, "Saved fee");
+    }
+    for (const invalid of [undefined, 0, 99, 101, 301, 100.5, null, "300", true]) {
+      values.set(key, JSON.stringify({ name: "Keep metadata", tradingFeeBps: invalid }));
+      const restored = restoreDraft(savedLaunchDraft(network), network);
+      assert.equal(restored.tradingFeeBps, DEFAULT_TRADING_FEE_BPS);
+      assert.equal(restored.name, "Keep metadata");
+    }
+    values.delete(key);
+    assert.equal(restoreDraft(savedLaunchDraft(network), network).tradingFeeBps, DEFAULT_TRADING_FEE_BPS);
+    assert.equal(restoreDraft("{invalid", network).tradingFeeBps, DEFAULT_TRADING_FEE_BPS);
   }
 });

@@ -17,6 +17,7 @@ import {
   decodeAbiParameters,
   decodeFunctionData,
   encodeFunctionData,
+  encodeAbiParameters,
   http,
   formatUnits,
   parseAbiParameters,
@@ -49,7 +50,9 @@ import {
   claimFeesAbi,
   assertStock,
   tokenMetadata,
+  assertTradingFeeCalldata,
 } from "../src/lib/protocol";
+import { DEFAULT_TRADING_FEE_BPS, LP_FEE_PPM, TRADING_FEE_BPS, tradingFeeBpsFor } from "../src/lib/trading-fee";
 import {
   launchSchema,
   minimumOutput,
@@ -77,6 +80,61 @@ const draft = {
 const sdk = new DopplerSDK<8453>({
   publicClient: createPublicClient({ chain: base, transport: http() }),
   chainId: 8453,
+});
+
+test("trading fee accepts only the nine integer basis-point rates and defaults old input to 1%", () => {
+  assert.deepEqual(TRADING_FEE_BPS, [100, 125, 150, 175, 200, 225, 250, 275, 300]);
+  assert.equal(tradingFeeBpsFor(), DEFAULT_TRADING_FEE_BPS);
+  assert.equal(launchSchema.parse(draft).tradingFeeBps, DEFAULT_TRADING_FEE_BPS);
+  for (const tradingFeeBps of TRADING_FEE_BPS) {
+    assert.equal(tradingFeeBpsFor(tradingFeeBps), tradingFeeBps);
+    assert.equal(launchSchema.parse({ ...draft, tradingFeeBps }).tradingFeeBps, tradingFeeBps);
+  }
+  for (const invalid of [0, 99, 101, 301, 100.5, NaN, Infinity, null, "100", true]) {
+    assert.throws(() => tradingFeeBpsFor(invalid as number));
+    assert.throws(() => launchSchema.parse({ ...draft, tradingFeeBps: invalid }));
+  }
+});
+
+test("both deployments encode every selected trading fee into the actual SDK calldata and metadata", () => {
+  for (const chainId of [8453, 4663] as const) {
+    const chainSdk = new DopplerSDK<8453 | 4663>({ publicClient: createPublicClient({ transport: http("http://127.0.0.1:1") }), chainId });
+    const contracts = chainId === 8453 ? CONTRACTS : ROBINHOOD_CONTRACTS;
+    const quoteAddress = (chainId === 8453 ? STOCKS : ROBINHOOD_STOCKS)[0].address;
+    for (const tradingFeeBps of TRADING_FEE_BPS) {
+      const input = { ...draft, quoteAddress, tradingFeeBps };
+      const valuation = syntheticOpeningValuation(quoteAddress, "100", { chainId });
+      const plan = buildLaunch(chainSdk, input, creator, treasury, owner, valuation, undefined, chainId);
+      assert.equal(plan.pool.fee, LP_FEE_PPM);
+      assert.equal(plan.dopplerHook!.startFee, tradingFeeBps * 100);
+      assert.equal(plan.dopplerHook!.endFee, tradingFeeBps * 100);
+      assert.equal(plan.dopplerHook!.durationSeconds, 0);
+      const encoded = chainSdk.factory.encodeCreateMulticurveParams(plan);
+      assert.doesNotThrow(() => assertTradingFeeCalldata(tradingFeeBps, encoded.poolInitializerData, contracts.rehype));
+      assert.equal(tokenMetadata(input, valuation, chainId).properties.tradingFeeBps, tradingFeeBps);
+      const factoryAbi = parseAbiParameters("string name,string symbol,uint256 yearlyMintRate,uint256 vestingDuration,address[] vestingRecipients,uint256[] vestingAmounts,string tokenURI");
+      const [, , , , , , uri] = decodeAbiParameters(factoryAbi, encoded.tokenFactoryData);
+      assert.equal(JSON.parse(decodeURIComponent(uri.slice("data:application/json,".length))).properties.tradingFeeBps, tradingFeeBps);
+    }
+  }
+});
+
+test("trading fee calldata checks reject a displayed 3% launch encoded at 1% and other mutable schedules", () => {
+  const plan = buildLaunch(sdk, draft, creator, treasury, owner, syntheticOpeningValuation());
+  const encoded = sdk.factory.encodeCreateMulticurveParams(plan);
+  assert.doesNotThrow(() => assertTradingFeeCalldata(undefined, encoded.poolInitializerData, CONTRACTS.rehype));
+  assert.throws(() => assertTradingFeeCalldata(300, encoded.poolInitializerData, CONTRACTS.rehype), /selected fixed trading fee/);
+  assert.throws(() => assertTradingFeeCalldata(100, encoded.poolInitializerData, owner), /selected fixed trading fee/);
+  const poolAbi = parseAbiParameters("(uint24 fee, int24 tickSpacing, int24 farTick, (int24 tickLower, int24 tickUpper, uint16 numPositions, uint256 shares)[] curves, (address beneficiary, uint96 shares)[] beneficiaries, address dopplerHook, bytes onInitializationDopplerHookCalldata, bytes graduationDopplerHookCalldata)");
+  const hookAbi = parseAbiParameters("(address numeraire,address buybackDst,uint24 startFee,uint24 endFee,uint32 durationSeconds,uint32 startingTime,uint8 feeRoutingMode,(uint64 assetFeesToAssetBuybackWad,uint64 assetFeesToNumeraireBuybackWad,uint64 assetFeesToBeneficiaryWad,uint64 assetFeesToLpWad,uint64 numeraireFeesToAssetBuybackWad,uint64 numeraireFeesToNumeraireBuybackWad,uint64 numeraireFeesToBeneficiaryWad,uint64 numeraireFeesToLpWad) feeDistributionInfo,(address beneficiary,uint96 shares)[] feeBeneficiaries,(address integrator,uint24 feeShare,uint32 assetFeesToNumeraireRatio,uint32 numeraireFeesToAssetRatio,bool automaticPayout) integratorConfig)");
+  const [pool] = decodeAbiParameters(poolAbi, encoded.poolInitializerData);
+  const [hook] = decodeAbiParameters(hookAbi, pool.onInitializationDopplerHookCalldata);
+  for (const patch of [{ startFee: 12500 }, { endFee: 12500 }, { durationSeconds: 60 }]) {
+    const badHook = encodeAbiParameters(hookAbi, [{ ...hook, ...patch }]);
+    const badPool = encodeAbiParameters(poolAbi, [{ ...pool, onInitializationDopplerHookCalldata: badHook }]);
+    assert.throws(() => assertTradingFeeCalldata(100, badPool, CONTRACTS.rehype), /selected fixed trading fee/);
+  }
+  assert.throws(() => assertTradingFeeCalldata(100, encodeAbiParameters(poolAbi, [{ ...pool, fee: 1000 }]), CONTRACTS.rehype), /selected fixed trading fee/);
 });
 
 test("LI.FI USD valuation validates exact identity, swap evidence and earliest one-minute expiry", () => {

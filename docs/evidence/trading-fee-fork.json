@@ -1,0 +1,490 @@
+{
+  "scope": "Actual isolated Base and Robinhood mainnet-state forks; local candidate vesting guard; no mainnet signing, deployment, funds or writes",
+  "observedAt": "2026-10-07T05:25:27.435Z",
+  "status": "passed",
+  "sourceHash": "d64594b6ed8ed130e94a8040134f5de7c76c675860157d791f35f9f3a840f6c6",
+  "guardArtifactHash": "c0c0faeffbefd973e717c3c93c0be15b0d0dbec58acf85d3792350946ef0ad8a",
+  "implementationHashes": {
+    "src/lib/protocol.ts": "d3ea56e72b22166f5ad95a9a335e8dd8e644bf3b5744fdbe4e0c3e013f5887b8",
+    "src/lib/trading-fee.ts": "cfb2e6ff31152ab3a3259cd982d1940a98ee634ccd4b5b05af8589e76591b8ce",
+    "server/service.ts": "e822d9fa0589bfe5cb1385bce5b2a2bda26c0051735ac92c56642713950bffbb",
+    "server/launch-verification.ts": "61f6851ec0c7cdf10ff53149c9b56e984f7a7b74cd0868c48f19e39f7599afd3"
+  },
+  "mainnetTransactions": "not_run",
+  "productionPublication": "not_run",
+  "upstreamWrites": 0,
+  "chains": [
+    {
+      "deploymentChainId": 8453,
+      "executionChainId": 31337,
+      "forkBlockNumber": "52280690",
+      "status": "passed",
+      "snapshotRestored": true,
+      "upstreamWrites": 0,
+      "launches": [
+        {
+          "flow": "plain",
+          "tradingFeeBps": 100,
+          "requestOmittedFeeField": true,
+          "transactionHash": "0x70243bc55ac0d40c2cfa2f6c3e50e6f9c93bac161ecc75d3ee99c773afbb19a4",
+          "tokenAddress": "0x64e0493c731E12040E9D80f87e507908e84CF5E6",
+          "poolId": "0xb26d9c9c57717c17528f09ea805e8612a8a6bfb12d1b5ef1bf35ff3fd193c30b",
+          "receiptBlockNumber": "52280695",
+          "receiptBlockHash": "0x61fbfac63ed8ce215dee930a134854771d77d621420af16acd242747d8578c9c",
+          "calldataAndSavedRecordVerified": true,
+          "schedule": {
+            "startingTime": 1791350922,
+            "startFee": 10000,
+            "endFee": 10000,
+            "lastFee": 10000,
+            "durationSeconds": 0
+          },
+          "dynamicPoolKeyFee": 8388608,
+          "actualLpFeePpm": 500,
+          "actualFirstBuyInput": "0",
+          "expectedFirstBuyOutput": null,
+          "previewAttempts": [
+            {
+              "attempt": 1,
+              "elapsedMs": 62887,
+              "status": "failed_before_submission",
+              "error": "The opening valuation price expired. Run a new simulation."
+            },
+            {
+              "attempt": 2,
+              "elapsedMs": 64612,
+              "status": "failed_before_submission",
+              "error": "The opening valuation price expired. Run a new simulation."
+            },
+            {
+              "attempt": 3,
+              "elapsedMs": 58758,
+              "status": "prepared"
+            }
+          ],
+          "firstBuyLock": null
+        },
+        {
+          "flow": "first_buy",
+          "tradingFeeBps": 100,
+          "requestOmittedFeeField": true,
+          "transactionHash": "0x3255bcf0a8890975712d8889bdab64296199d2e9ae6c5e4ae86a67d48658c4e1",
+          "tokenAddress": "0xAe56eA099fCb59Bd2a7840F6c2cAaceBAb35b4f8",
+          "poolId": "0xdb7dd0b5c4aab6a88c2d9f04e1ed7860d1f39583d45c90a782ee103a0119f85b",
+          "receiptBlockNumber": "52280699",
+          "receiptBlockHash": "0xb24738f6c79aa5c029cf88dd9c05925fc9f6711ff574be7e55cc24ecab3b22d8",
+          "calldataAndSavedRecordVerified": true,
+          "schedule": {
+            "startingTime": 1791350978,
+            "startFee": 10000,
+            "endFee": 10000,
+            "lastFee": 10000,
+            "durationSeconds": 0
+          },
+          "dynamicPoolKeyFee": 8388608,
+          "actualLpFeePpm": 500,
+          "actualFirstBuyInput": "100000",
+          "expectedFirstBuyOutput": "47872196719623006152634",
+          "previewAttempts": [
+            {
+              "attempt": 1,
+              "elapsedMs": 55615,
+              "status": "prepared"
+            }
+          ],
+          "firstBuyLock": null
+        },
+        {
+          "flow": "locked_first_buy",
+          "tradingFeeBps": 100,
+          "requestOmittedFeeField": true,
+          "transactionHash": "0x5a484b7257590f6fba72cd502086feaf8da1a5cd13e7c3de5eab390040078f89",
+          "tokenAddress": "0xe49dDD2009021CC9F845142C1bEAa1ff43C64C7d",
+          "poolId": "0x4c24846fbdafc2f620747c6fa212737a80877279d4e50f2775cfb4868a35631b",
+          "receiptBlockNumber": "52280703",
+          "receiptBlockHash": "0x0281df729949d52e7c7503b85d15e92d8551196b3c0c6aa9d6ba3ee3a7000b78",
+          "calldataAndSavedRecordVerified": true,
+          "schedule": {
+            "startingTime": 1791351104,
+            "startFee": 10000,
+            "endFee": 10000,
+            "lastFee": 10000,
+            "durationSeconds": 0
+          },
+          "dynamicPoolKeyFee": 8388608,
+          "actualLpFeePpm": 500,
+          "actualFirstBuyInput": "100000",
+          "expectedFirstBuyOutput": "47872196719623008402630",
+          "previewAttempts": [
+            {
+              "attempt": 1,
+              "elapsedMs": 68951,
+              "status": "failed_before_submission",
+              "error": "The opening valuation price expired. Run a new simulation."
+            },
+            {
+              "attempt": 2,
+              "elapsedMs": 55024,
+              "status": "prepared"
+            }
+          ],
+          "firstBuyLock": {
+            "bundler": "0xf45588E8e0B1df9dB9ae7E20eCE5726AE931357c",
+            "recipient": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+            "totalAmount": "47872196719623008402630",
+            "start": 1791351104,
+            "cliffDuration": 2592000,
+            "vestingDuration": 2592000,
+            "lockDays": 30
+          }
+        },
+        {
+          "flow": "plain",
+          "tradingFeeBps": 300,
+          "requestOmittedFeeField": false,
+          "transactionHash": "0x31af58b107d7dcdb3a66a0322bf213777c5e43401a42ee4515469484478627e3",
+          "tokenAddress": "0xc70d0704053A83aC88CAC940097d4FAb8b253d9D",
+          "poolId": "0xabc3f0bdf77d707cb5bf741842720c143bb5ef34cecc5198ca0ef497a099a584",
+          "receiptBlockNumber": "52280705",
+          "receiptBlockHash": "0x1f6526ffb5ee1cbb5107477fbca5f21e0717a4dd6e6f20fa9300b82913fc16f9",
+          "calldataAndSavedRecordVerified": true,
+          "schedule": {
+            "startingTime": 1791351159,
+            "startFee": 30000,
+            "endFee": 30000,
+            "lastFee": 30000,
+            "durationSeconds": 0
+          },
+          "dynamicPoolKeyFee": 8388608,
+          "actualLpFeePpm": 500,
+          "actualFirstBuyInput": "0",
+          "expectedFirstBuyOutput": null,
+          "previewAttempts": [
+            {
+              "attempt": 1,
+              "elapsedMs": 55335,
+              "status": "prepared"
+            }
+          ],
+          "firstBuyLock": null
+        },
+        {
+          "flow": "first_buy",
+          "tradingFeeBps": 300,
+          "requestOmittedFeeField": false,
+          "transactionHash": "0xeeed4ac939404935d7c1aafda9e92130edc4a375e19e9b483404cfcc2c74d8a7",
+          "tokenAddress": "0x0283c2311Ab02009D0fD535Bd5bF5d4Da9D1499d",
+          "poolId": "0xeb3e677bd76615b65fa55c526a6dad6d8d71302985bc4e747bab4248db446905",
+          "receiptBlockNumber": "52280709",
+          "receiptBlockHash": "0xa64251d007b355bf4b5a133077e817a64d05ad8cb551542dbe795813c50d603a",
+          "calldataAndSavedRecordVerified": true,
+          "schedule": {
+            "startingTime": 1791351213,
+            "startFee": 30000,
+            "endFee": 30000,
+            "lastFee": 30000,
+            "durationSeconds": 0
+          },
+          "dynamicPoolKeyFee": 8388608,
+          "actualLpFeePpm": 500,
+          "actualFirstBuyInput": "100000",
+          "expectedFirstBuyOutput": "47824300574830987136974",
+          "previewAttempts": [
+            {
+              "attempt": 1,
+              "elapsedMs": 53498,
+              "status": "prepared"
+            }
+          ],
+          "firstBuyLock": null
+        },
+        {
+          "flow": "locked_first_buy",
+          "tradingFeeBps": 300,
+          "requestOmittedFeeField": false,
+          "transactionHash": "0x7f8b77a2f264e1f4cc7884ede6a070b9b883b4b12b5a60ee2b6282416609ecf1",
+          "tokenAddress": "0x5ceCF796d5b6702B5E93461EDE5CfBEd91545AC3",
+          "poolId": "0x982dfd91bc78bd3df3b6e4e46cf4631b6554bf7530165e32ca4bac067a0d7e30",
+          "receiptBlockNumber": "52280713",
+          "receiptBlockHash": "0x863910a4f5a4fbb118fa0c581bbaf5fa56d5c59da99d919ce9380bafe1894e52",
+          "calldataAndSavedRecordVerified": true,
+          "schedule": {
+            "startingTime": 1791351391,
+            "startFee": 30000,
+            "endFee": 30000,
+            "lastFee": 30000,
+            "durationSeconds": 0
+          },
+          "dynamicPoolKeyFee": 8388608,
+          "actualLpFeePpm": 500,
+          "actualFirstBuyInput": "100000",
+          "expectedFirstBuyOutput": "47824300574830987136974",
+          "previewAttempts": [
+            {
+              "attempt": 1,
+              "elapsedMs": 61684,
+              "status": "failed_before_submission",
+              "error": "The opening valuation price expired. Run a new simulation."
+            },
+            {
+              "attempt": 2,
+              "elapsedMs": 63077,
+              "status": "failed_before_submission",
+              "error": "The opening valuation price expired. Run a new simulation."
+            },
+            {
+              "attempt": 3,
+              "elapsedMs": 52673,
+              "status": "prepared"
+            }
+          ],
+          "firstBuyLock": {
+            "bundler": "0xf45588E8e0B1df9dB9ae7E20eCE5726AE931357c",
+            "recipient": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+            "totalAmount": "47824300574830987136974",
+            "start": 1791351391,
+            "cliffDuration": 2592000,
+            "vestingDuration": 2592000,
+            "lockDays": 30
+          }
+        }
+      ],
+      "forkBlockHash": "0x3c7f85d6f1a765a159739057d6e27330bac7d88dc4ce6e2ec6a765a542455ddd",
+      "guard": "0x5a8d6042b0f36a5b4bf30894f16e558e46d5f922",
+      "guardRevision": "local_candidate_vesting",
+      "guardDeploymentHash": "0xe8f1022b73c48b174f668aad69d0a61532f5b35ca04fc9ca5bfff22be1260233",
+      "asset": {
+        "address": "0xb20000000000000000000078ee7ce2fE4908108C",
+        "ticker": "NVDA",
+        "decimals": 8
+      },
+      "funding": {
+        "kind": "genuine_fork_inventory_transfer_by_local_impersonation",
+        "donor": "0x498581fF718922c3f8e6A244956aF099B2652b2b",
+        "amount": "400000",
+        "hash": "0x2c6e5dc368153327b736817c8fd06645c6e4237d1370b89ebc1027f482431ce2"
+      }
+    },
+    {
+      "deploymentChainId": 4663,
+      "executionChainId": 31337,
+      "forkBlockNumber": "82232227",
+      "status": "passed",
+      "snapshotRestored": true,
+      "upstreamWrites": 0,
+      "launches": [
+        {
+          "flow": "plain",
+          "tradingFeeBps": 100,
+          "requestOmittedFeeField": true,
+          "transactionHash": "0x8a36eacd34960cd0d209af2cc42df04d8b328c46332e9168670f62a4f76b40b1",
+          "tokenAddress": "0x073eCA88DD1aC65Fc95278887A3d0C8CbdeD5307",
+          "poolId": "0x24deabec1c10e2daae0acbde43f5fe47cdd3fe9e9d9215c66067b1b9469e1453",
+          "receiptBlockNumber": "82232232",
+          "receiptBlockHash": "0xa2cb21dbdf0877b89a4079a7b2ae942c99512800646198ee08f9914fb07d7b8d",
+          "calldataAndSavedRecordVerified": true,
+          "schedule": {
+            "startingTime": 1791351462,
+            "startFee": 10000,
+            "endFee": 10000,
+            "lastFee": 10000,
+            "durationSeconds": 0
+          },
+          "dynamicPoolKeyFee": 8388608,
+          "actualLpFeePpm": 500,
+          "actualFirstBuyInput": "0",
+          "expectedFirstBuyOutput": null,
+          "previewAttempts": [
+            {
+              "attempt": 1,
+              "elapsedMs": 56213,
+              "status": "prepared"
+            }
+          ],
+          "firstBuyLock": null
+        },
+        {
+          "flow": "first_buy",
+          "tradingFeeBps": 100,
+          "requestOmittedFeeField": true,
+          "transactionHash": "0xa7cd34f944165c36bc37f0625a072f5431bb96ce968673e01cb734d6db316d5a",
+          "tokenAddress": "0x7b740E8DC0CB1EaeF4DF5a9723620477473Ea967",
+          "poolId": "0x4a33ec7cbf5aff8b8187de859faa49ec543de09d0b085b77802a5e5e2ac26ee2",
+          "receiptBlockNumber": "82232236",
+          "receiptBlockHash": "0x2d355583aa5cef655e31f7ed382dc58aebce108582ec975df3b15e1376081f15",
+          "calldataAndSavedRecordVerified": true,
+          "schedule": {
+            "startingTime": 1791351511,
+            "startFee": 10000,
+            "endFee": 10000,
+            "lastFee": 10000,
+            "durationSeconds": 0
+          },
+          "dynamicPoolKeyFee": 8388608,
+          "actualLpFeePpm": 500,
+          "actualFirstBuyInput": "1000000000000000",
+          "expectedFirstBuyOutput": "521519172121118904197784",
+          "previewAttempts": [
+            {
+              "attempt": 1,
+              "elapsedMs": 47716,
+              "status": "prepared"
+            }
+          ],
+          "firstBuyLock": null
+        },
+        {
+          "flow": "locked_first_buy",
+          "tradingFeeBps": 100,
+          "requestOmittedFeeField": true,
+          "transactionHash": "0x5b6c2bf600b2d4f8207b5834fadca0b557040d0db90adc74f420d69e962ff835",
+          "tokenAddress": "0x2f33c96FFEf101c197cCD8eD93ad9eA0b3FBF47F",
+          "poolId": "0x371978a39c505c5cac03d0e25e96ff0be90b0662333563bdee8b6b9b6e8e2f4d",
+          "receiptBlockNumber": "82232240",
+          "receiptBlockHash": "0xcdf33b3b06ef4e21b98f6db37ecf1937e8f667be348782a844e935c520b217b5",
+          "calldataAndSavedRecordVerified": true,
+          "schedule": {
+            "startingTime": 1791351563,
+            "startFee": 10000,
+            "endFee": 10000,
+            "lastFee": 10000,
+            "durationSeconds": 0
+          },
+          "dynamicPoolKeyFee": 8388608,
+          "actualLpFeePpm": 500,
+          "actualFirstBuyInput": "1000000000000000",
+          "expectedFirstBuyOutput": "522040073691875940419169",
+          "previewAttempts": [
+            {
+              "attempt": 1,
+              "elapsedMs": 51850,
+              "status": "prepared"
+            }
+          ],
+          "firstBuyLock": {
+            "bundler": "0xf45588E8e0B1df9dB9ae7E20eCE5726AE931357c",
+            "recipient": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+            "totalAmount": "522040073691875940419169",
+            "start": 1791351563,
+            "cliffDuration": 2592000,
+            "vestingDuration": 2592000,
+            "lockDays": 30
+          }
+        },
+        {
+          "flow": "plain",
+          "tradingFeeBps": 300,
+          "requestOmittedFeeField": false,
+          "transactionHash": "0xd04d9dd6c38540744115661ed3b3968f08ec910e3df73c5111f052e8860eda5d",
+          "tokenAddress": "0x03481ae5FfB8867a4e87E0A56B74da9Ab37A691b",
+          "poolId": "0x9eab2a7cf77b3bcafee9aa689007426b8ea7e75c035ea6f9532e04cb0a4992d3",
+          "receiptBlockNumber": "82232242",
+          "receiptBlockHash": "0x0aff2435d047147417ac5f570d8bee8bb6b02eedc1c31f55715e0ad8343e4c0f",
+          "calldataAndSavedRecordVerified": true,
+          "schedule": {
+            "startingTime": 1791351618,
+            "startFee": 30000,
+            "endFee": 30000,
+            "lastFee": 30000,
+            "durationSeconds": 0
+          },
+          "dynamicPoolKeyFee": 8388608,
+          "actualLpFeePpm": 500,
+          "actualFirstBuyInput": "0",
+          "expectedFirstBuyOutput": null,
+          "previewAttempts": [
+            {
+              "attempt": 1,
+              "elapsedMs": 54224,
+              "status": "prepared"
+            }
+          ],
+          "firstBuyLock": null
+        },
+        {
+          "flow": "first_buy",
+          "tradingFeeBps": 300,
+          "requestOmittedFeeField": false,
+          "transactionHash": "0x01d217826e0848c09ef9b13198dffb62f5c990d8fdac37d36acc8ae0d786fd75",
+          "tokenAddress": "0x41357fD548d481fC0c2ac1f39f5Cc205320485c0",
+          "poolId": "0x9e92b07abeabd4be9f7205973218fef9733eb592e1244219d9f8bcec60c272c1",
+          "receiptBlockNumber": "82232246",
+          "receiptBlockHash": "0x57e9e6e2f2d2ee878e7947e8c4ef4f4486a78a46ad8c2e92db4652bfc2929891",
+          "calldataAndSavedRecordVerified": true,
+          "schedule": {
+            "startingTime": 1791351677,
+            "startFee": 30000,
+            "endFee": 30000,
+            "lastFee": 30000,
+            "durationSeconds": 0
+          },
+          "dynamicPoolKeyFee": 8388608,
+          "actualLpFeePpm": 500,
+          "actualFirstBuyInput": "1000000000000000",
+          "expectedFirstBuyOutput": "521518238283442089395746",
+          "previewAttempts": [
+            {
+              "attempt": 1,
+              "elapsedMs": 58892,
+              "status": "prepared"
+            }
+          ],
+          "firstBuyLock": null
+        },
+        {
+          "flow": "locked_first_buy",
+          "tradingFeeBps": 300,
+          "requestOmittedFeeField": false,
+          "transactionHash": "0xe56e2eddcd84858f2812ef842f18a6dbf6b08bcd28788fb72ba0cb46fb419571",
+          "tokenAddress": "0x6c29F828Fbc94445a080aB8C3eA295F521696B8a",
+          "poolId": "0x013f4718a4061ba6165b9f134aa7a4b8fe0b75352df122de0f85ea5b26fcdd44",
+          "receiptBlockNumber": "82232250",
+          "receiptBlockHash": "0x17bfddfc1fc8d561ab9306da2b04965e34bead28fd261bb6ec6768b19c6ab5ef",
+          "calldataAndSavedRecordVerified": true,
+          "schedule": {
+            "startingTime": 1791351737,
+            "startFee": 30000,
+            "endFee": 30000,
+            "lastFee": 30000,
+            "durationSeconds": 0
+          },
+          "dynamicPoolKeyFee": 8388608,
+          "actualLpFeePpm": 500,
+          "actualFirstBuyInput": "1000000000000000",
+          "expectedFirstBuyOutput": "521518238283442089395746",
+          "previewAttempts": [
+            {
+              "attempt": 1,
+              "elapsedMs": 58202,
+              "status": "prepared"
+            }
+          ],
+          "firstBuyLock": {
+            "bundler": "0xf45588E8e0B1df9dB9ae7E20eCE5726AE931357c",
+            "recipient": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+            "totalAmount": "521518238283442089395746",
+            "start": 1791351737,
+            "cliffDuration": 2592000,
+            "vestingDuration": 2592000,
+            "lockDays": 30
+          }
+        }
+      ],
+      "forkBlockHash": "0xb683f74c056c2e854224ffe7a0b9597f3ed1145f2cc2a6a88cc612ba752f6f6b",
+      "guard": "0xf99add941432ec09b498ea1b680be13f2e717d88",
+      "guardRevision": "local_candidate_vesting",
+      "guardDeploymentHash": "0xf1a9369e4cb278c61bcd8f00fcbaad7355634f6a5e7440ff41e46e642ab0e9e7",
+      "asset": {
+        "address": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+        "ticker": "WETH",
+        "decimals": 18
+      },
+      "funding": {
+        "kind": "actual_WETH_deposit_using_local_Anvil_ETH",
+        "amount": "4000000000000000",
+        "hash": "0xce3fd0469dc192a069ce55e0fb28d81d5c9a7dd263c94221e00892e84fb09b5e"
+      }
+    }
+  ],
+  "completedAt": "2026-10-07T05:42:19.042Z"
+}

@@ -2912,13 +2912,13 @@ footer > a {
   outline: none;
 }
 .first-buy-amount > span { font-size: 14px; font-weight: 600; color: #637650; }
-.first-buy-shortcuts, .first-buy-lock-options {
+.first-buy-shortcuts, .first-buy-lock-options, .trading-fee-options {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
   margin: 12px 0 16px;
 }
-.first-buy-shortcuts button, .first-buy-lock-options button {
+.first-buy-shortcuts button, .first-buy-lock-options button, .trading-fee-options button {
   border: 1px solid var(--line);
   background: #fff;
   border-radius: 8px;
@@ -2927,7 +2927,11 @@ footer > a {
   font-weight: 600;
 }
 .first-buy-lock-options button[aria-pressed="true"] { background: #e7f2d5; border-color: #8ba762; color: #40552c; }
-.first-buy-shortcuts button:disabled, .first-buy-lock-options button:disabled { opacity: .5; cursor: default; }
+.trading-fee-options button[aria-checked="true"] { background: #e7f2d5; border-color: #8ba762; color: #40552c; }
+.trading-fee-options { grid-template-columns: repeat(9, minmax(0, 1fr)); }
+.first-buy-shortcuts button:disabled, .first-buy-lock-options button:disabled, .trading-fee-options button:disabled { opacity: .5; cursor: default; }
+.trading-fee-panel h2 { font-size: 18px; }
+.trading-fee-panel > .muted { font-size: 12px; line-height: 1.65; }
 .first-buy-pay { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .first-buy-pay label { display: flex; align-items: center; gap: 10px; font-size: 12px; margin: 0; }
 .first-buy-pay select { padding: 8px 10px; font-size: 12px; width: auto; border-radius: 8px; }
@@ -2939,6 +2943,7 @@ footer > a {
 .payment-recovery > .secondary { margin: 14px 10px 14px 0; }
 .first-buy-lock-details { margin-top: 20px; }
 @media (max-width: 480px) {
+  .trading-fee-options { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .topbar { height: auto; min-height: 92px; padding: 12px 18px; flex-wrap: wrap; gap: 10px; position: relative; }
   .breadcrumb { flex-basis: 100%; }
   .topbar-actions { width: 100%; justify-content: space-between; gap: 8px; }
