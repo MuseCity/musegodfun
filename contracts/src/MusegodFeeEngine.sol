@@ -135,6 +135,8 @@ contract MusegodFeeEngine is ReentrancyGuard {
     event UnpricedForwarded(address indexed token, uint256 amount, address indexed automation);
     event BalanceSynced(address indexed token, uint256 amount);
     event AssetShortfall(address indexed token, uint256 balance, uint256 pendingAmount);
+    /// @dev Accounting sync failures are distinct from forwarding failures for monitoring.
+    event SyncFailed(address indexed token, bytes reason);
 
     constructor(
         address initializer_,
@@ -233,9 +235,9 @@ contract MusegodFeeEngine is ReentrancyGuard {
         PoolKey memory key = _verifiedKey(manager, poolId);
         // A deficit or unreadable currency must not roll back its healthy pair.
         try this.syncToken(key.currency0) {}
-        catch (bytes memory reason) { emit ForwardFailed(key.currency0, reason); }
+        catch (bytes memory reason) { emit SyncFailed(key.currency0, reason); }
         try this.syncToken(key.currency1) {}
-        catch (bytes memory reason) { emit ForwardFailed(key.currency1, reason); }
+        catch (bytes memory reason) { emit SyncFailed(key.currency1, reason); }
     }
 
     function syncToken(address token) external onlySelf { _syncToken(token); }

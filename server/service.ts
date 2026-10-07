@@ -12,6 +12,7 @@ import {
   erc20Abi,
   http,
   keccak256,
+  stringToBytes,
   zeroAddress,
   type Address,
   type Hex,
@@ -38,7 +39,7 @@ import { firstBuyLockStatusFromPosition } from "./first-buy-lock-status";
 import { ENGINE_FEE_POLICY, launchFeePolicy } from "../src/lib/fee-policy";
 import { tradingFeeBpsFor } from "../src/lib/trading-fee";
 import { assertOpeningValuation, assertHistoricalOpeningValuation, openingCapInQuote, type LifiOpeningValuation } from "../src/lib/opening-valuation";
-import { readOpeningValuation } from "./opening-price";
+import { assertRecoveredOpeningValuation, readOpeningValuation } from "./opening-price";
 import {
   addressSchema,
   launchSchema,
@@ -57,6 +58,8 @@ import { assertLaunchPlanValidity, LAUNCH_SIGNING_TTL, restorePrepared, serializ
 import { chainLaunchDependencies, verifyLaunchGuard } from "./launch-guard";
 import { assertLaunchTradingFee, assertPlanIntegrity, assertRecoveryPlan, verifiedFirstBuyLock, verifyCreationAccounting, verifyGuardedReceipt } from "./launch-verification";
 import { verifyFeeEngine } from "./buyback-engine";
+import { assertTrustedLaunchPolicy } from "./launch-policy-registry";
+import { BudgetUnavailable } from "./runtime-policy";
 import type { EngineClaimPreview } from "../src/lib/buyback-engine";
 
 import { runtimeFromEnv, redact } from "./config";
@@ -79,6 +82,8 @@ export class LaunchpadService {
   private tokensRevision = 0;
   private openingCache?: Map<string, { at: number; value: LifiOpeningValuation }>;
   private openingRequests?: Map<string, Promise<LifiOpeningValuation>>;
+  private registerRequests?: Map<string, Promise<TokenRecord>>;
+  private recoveryLoad?: { active: number; started: number[] };
   constructor(readonly runtime: ReturnType<typeof runtimeFromEnv>) {
     this.guardCandidate = runtime.launchGuardCandidate;
     this.firstBuyGuardCandidate = runtime.firstBuyGuardCandidate;
@@ -481,6 +486,37 @@ export class LaunchpadService {
   }
   async register(hash: Hex, recoveryPlan?: LaunchPlan): Promise<TokenRecord> {
     hash = hash.toLowerCase() as Hex;
+    // Concurrent retries of one transaction share a verification. A different
+    // backup runs separately, so one caller's invalid JSON cannot fail another's.
+    const key = `${hash}:${recoveryPlan ? keccak256(stringToBytes(JSON.stringify(recoveryPlan))) : "saved"}`;
+    const requests = this.registerRequests ??= new Map();
+    const pending = requests.get(key);
+    if (pending) return pending;
+    const request = this.registerOnce(hash, recoveryPlan);
+    requests.set(key, request);
+    try { return await request; } finally { requests.delete(key); }
+  }
+  /** Bounds the RPC and SDK work an unauthenticated backup can trigger. A
+   * capacity refusal is a retryable 429, never a challenge to a real recovery. */
+  private async withRecoveryVerification<T>(work: () => Promise<T>): Promise<T> {
+    const load = this.recoveryLoad ??= { active: 0, started: [] }, now = Date.now();
+    load.started = load.started.filter((at) => at > now - 60_000);
+    if (load.active >= RECOVERY_VERIFICATION_CONCURRENCY) throw new BudgetUnavailable(2);
+    if (load.started.length >= RECOVERY_VERIFICATIONS_PER_MINUTE)
+      throw new BudgetUnavailable(Math.max(1, Math.ceil((load.started[0] + 60_000 - now) / 1000)));
+    load.active++; load.started.push(now);
+    try { return await work(); } finally { load.active--; }
+  }
+  private async airlockOwnerAt(blockNumber: bigint): Promise<Address> {
+    try {
+      return await this.client.readContract({ address: this.contracts.airlock, abi: airlockAbi, functionName: "owner", blockNumber });
+    } catch {
+      // Non-archive RPCs cannot serve historical state; the owner rarely changes,
+      // and on-chain creation already required the owner at that block.
+      return this.client.readContract({ address: this.contracts.airlock, abi: airlockAbi, functionName: "owner" });
+    }
+  }
+  private async registerOnce(hash: Hex, recoveryPlan?: LaunchPlan): Promise<TokenRecord> {
     // Receipt verification does not sign or broadcast. Keep it available when
     // signing is disabled so transactions already sent can finish registering.
     await this.assertNetwork();
@@ -495,9 +531,19 @@ export class LaunchpadService {
     if (!plan)
       throw new Error("No matching issuance preview was found. Supply the frozen local backup with the original transaction hash.");
     if (!savedPlan) {
-      assertRecoveryPlan(plan, this.contracts, this.sdk);
+      // Cheapest rejections first: the outer transaction must be exactly this
+      // backup's, and its fee routing must be platform-approved, before any
+      // RPC-backed or SDK re-encoding work runs.
       assertLaunchTransaction(plan, tx, this.contracts);
-      if (plan.firstBuy) await verifyLaunchGuard(this.client, plan.firstBuy.guard, deploymentChain(this.runtime.config), plan.firstBuy.lockDays ? "vesting" : undefined);
+      if (keccak256(plan.data) !== plan.id || !receipt.to || !sameAddress(receipt.to, plan.transaction?.to ?? this.contracts.airlock) ||
+        !sameAddress(receipt.from, plan.creator))
+        throw new Error("The creation receipt does not match the preview's outer transaction.");
+      assertTrustedLaunchPolicy(plan, this.runtime.config, receipt.blockNumber);
+      await this.withRecoveryVerification(async () => {
+        assertRecoveryPlan(plan, this.contracts, this.sdk, await this.airlockOwnerAt(receipt.blockNumber));
+        await assertRecoveredOpeningValuation(this.client, plan.openingValuation!, receipt.blockNumber, deploymentChain(this.runtime.config));
+        if (plan.firstBuy) await verifyLaunchGuard(this.client, plan.firstBuy.guard, deploymentChain(this.runtime.config), plan.firstBuy.lockDays ? "vesting" : undefined);
+      });
     }
     if (plan.openingValuation)
       assertHistoricalOpeningValuation(plan.openingValuation, plan.draft.quoteAddress, deploymentChain(this.runtime.config));
@@ -552,8 +598,12 @@ export class LaunchpadService {
       if (custody !== BigInt(firstBuyLock.totalAmount))
         throw new Error("The first buy lock custody does not match its creation receipt.");
     }
+    // prepare() saved a normalized draft. A recovered draft is caller JSON that
+    // only re-encoded through launchSchema, so persist that normalized form.
+    const { openingCap, ...fields } = plan.draft;
+    const draft = savedPlan ? plan.draft : { ...launchSchema.parse(fields), ...(openingCap !== undefined ? { openingCap } : {}) };
     const token: TokenRecord = {
-      ...plan.draft,
+      ...draft,
       tradingFeeBps,
       openingCap: plan.draft.openingCap ?? (plan.openingValuation ? openingCapInQuote(plan.openingValuation) : ""),
       address: plan.tokenAddress,
@@ -572,7 +622,9 @@ export class LaunchpadService {
       firstBuyLock,
     };
     if (!savedPlan) {
-      await this.store.savePlan(plan); await this.store.protectPlan(plan.id); await this.store.trackLaunch(hash, plan.id);
+      const stored = Object.fromEntries(LAUNCH_PLAN_FIELDS.filter((field) => plan[field] !== undefined)
+        .map((field) => [field, field === "draft" ? draft : plan[field]])) as LaunchPlan;
+      await this.store.savePlan(stored); await this.store.protectPlan(plan.id); await this.store.trackLaunch(hash, plan.id);
     }
     await this.store.saveToken(token);
     this.invalidateTokens();
@@ -654,6 +706,14 @@ export class LaunchpadService {
     )
       throw new Error("The pool identity or locked state is invalid");
     return { token, state };
+  }
+  /** Catalog metadata comes from storage; pool state needs the RPC. A failed
+   * state read leaves the record readable but reports no tradable state. */
+  async tokenDetail(address: Address): Promise<{ token: TokenRecord; state: Awaited<ReturnType<LaunchpadService["state"]>>["state"] | null; stateError?: string } | null> {
+    const token = await this.store.token(address);
+    if (!token || !listedTokens([token], this.runtime.config.mode, deploymentChain(this.runtime.config)).length) return null;
+    try { return await this.state(address); }
+    catch (error) { return { token, state: null, stateError: redact(error, this.runtime.environment) }; }
   }
   async tokens() {
     if (this.tokensCache && Date.now() - this.tokensCache.at < 10_000) return structuredClone(this.tokensCache.value);
@@ -773,6 +833,15 @@ const prepareOptionsSchema = z.object({ intentId: z.string().regex(/^[a-zA-Z0-9_
   reconfirmPrice: z.boolean().optional(),
   reconfirmedMinimumOut: z.string().regex(/^[1-9]\d{0,38}$/).refine((value) => BigInt(value) < 2n ** 128n).optional(),
 }).strict();
+// Recovery verification reads several historical blocks and re-encodes the
+// SDK parameters. Real recoveries are rare; this leaves ample headroom.
+const RECOVERY_VERIFICATION_CONCURRENCY = 4;
+const RECOVERY_VERIFICATIONS_PER_MINUTE = 60;
+// A stored recovered preview keeps only known LaunchPlan fields.
+const LAUNCH_PLAN_FIELDS = ["id", "creator", "data", "tokenAddress", "poolId", "draft", "preparedAt", "validityVersion", "finalizedAt",
+  "signingExpiresAt", "serverTime", "intentId", "previousPlanId", "requiresReconfirmation", "warnings", "gas", "feePolicy", "feeTreasury",
+  "feeEngine", "openingValuation", "curvePolicy", "prepared", "transaction", "firstBuy", "approval"] as const satisfies readonly (keyof LaunchPlan)[];
+
 function assertLaunchTransaction(plan: LaunchPlan, tx: { from: Address; to: Address | null; input: Hex; value: bigint }, contracts: ContractRegistry) {
   const target = plan.transaction?.to ?? contracts.airlock;
   if (!tx.to || !sameAddress(tx.to, target) || !sameAddress(tx.from, plan.creator) ||

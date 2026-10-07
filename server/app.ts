@@ -330,9 +330,11 @@ app.get(
 );
 app.get(
   "/api/tokens/:address",
-  route(async (req, res) =>
-    res.json(await service.state(addressSchema.parse(req.params.address))),
-  ),
+  route(async (req, res) => {
+    const detail = await service.tokenDetail(addressSchema.parse(req.params.address));
+    if (!detail) { res.status(404).json({ error: "Platform token not found", code: "TOKEN_NOT_REGISTERED" }); return; }
+    res.json(detail);
+  }),
 );
 
 app.post(

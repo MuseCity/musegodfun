@@ -636,7 +636,7 @@ test("payment preflight reads LI.FI swap evidence before conversion without old 
 
 test("local frozen backups are reconstructed before replacing missing server plans", () => {
   for (const f of [fixture(), historicalFixture(), ordinaryFixture(100), lockedFixture()]) {
-    assert.doesNotThrow(() => assertRecoveryPlan(f.plan, contracts, f.sdk), `${f.plan.openingValuation!.policy} ${f.plan.firstBuy?.lockDays}`);
+    assert.doesNotThrow(() => assertRecoveryPlan(f.plan, contracts, f.sdk, treasury), `${f.plan.openingValuation!.policy} ${f.plan.firstBuy?.lockDays}`);
     for (const mutation of [
       (p: LaunchPlan) => { p.draft.name = "unproven metadata"; },
       (p: LaunchPlan) => { p.feeTreasury = creator; },
@@ -644,8 +644,10 @@ test("local frozen backups are reconstructed before replacing missing server pla
       (p: LaunchPlan) => { p.prepared!.createParams.initialSupply = "1"; },
     ]) {
       const copy = structuredClone(f.plan); mutation(copy);
-      assert.throws(() => assertRecoveryPlan(copy, contracts, f.sdk));
+      assert.throws(() => assertRecoveryPlan(copy, contracts, f.sdk, treasury));
     }
+    // The protocol owner comes from chain state, never from the backup's own beneficiaries.
+    assert.throws(() => assertRecoveryPlan(f.plan, contracts, f.sdk, creator), /canonical creation parameters/);
   }
 });
 
@@ -697,7 +699,7 @@ test("refresh preserves intent, salt and accepted floor until explicit confirmat
   try {
     const input = { amount: f.plan.firstBuy!.amount, slippageBps: 100, lockDays: 0 };
     const first = await service.prepare(f.plan.draft, creator, CURVE_POLICY, input, { intentId: "same-user-intent" });
-    assertRecoveryPlan(first, contracts, f.sdk);
+    assertRecoveryPlan(first, contracts, f.sdk, treasury);
     assert.equal(first.firstBuy!.minAmountOut, "990"); assert.equal(first.signingExpiresAt, first.finalizedAt! + 300_000);
     time += 1000; expected = 1500n;
     const improved = await service.prepare(f.plan.draft, creator, CURVE_POLICY, input, { intentId: first.intentId, previousPlanId: first.id });
@@ -764,7 +766,7 @@ test("payment proceeds may increase the paired input without lowering or ratchet
       const calldata = decodeFunctionData({ abi: launchGuardAbi, data: funded.data });
       assert.equal(calldata.functionName, "createAndBuy");
       assert.equal(calldata.args[1], 110n); assert.equal(calldata.args[2], protectedMinimum);
-      assertRecoveryPlan(funded, contracts, f.sdk);
+      assertRecoveryPlan(funded, contracts, f.sdk, treasury);
       if (output < 990n) {
         assert.equal(funded.requiresReconfirmation, true);
         await assert.rejects(() => service.validateLaunch(creator, funded.data), /accepted minimum/);
@@ -776,15 +778,36 @@ test("payment proceeds may increase the paired input without lowering or ratchet
   } finally { store.close(); rmSync(directory, { recursive: true }); }
 });
 
+function recoveryService(f: ReturnType<typeof ordinaryFixture>, store: Store,
+  options: { treasury?: Address | null; owner?: Address; reads?: string[]; valuationHash?: Hex } = {}) {
+  const sdk = f.sdk, reads = options.reads ?? [];
+  (sdk as any).getMulticurvePool = async () => ({ getState: async () => ({ status: 2, numeraire: quote.address, poolKey: f.poolKey }) });
+  const valuation = f.plan.openingValuation!;
+  return Object.assign(Object.create(LaunchpadService.prototype), {
+    runtime: { config: { mode: "fork", chainId: 31337, deploymentChainId: 4663, writesEnabled: false,
+      treasury: options.treasury === undefined ? treasury : options.treasury } }, store, sdk,
+    assertNetwork: async () => {}, client: {
+      getTransaction: async () => { reads.push("transaction"); return f.tx; },
+      getTransactionReceipt: async () => { reads.push("receipt"); return f.receipt; },
+      getBlockNumber: async () => 11n,
+      getBlock: async ({ blockNumber }: { blockNumber: bigint }) => {
+        reads.push(`block:${blockNumber}`);
+        return { hash: blockNumber === BigInt(valuation.blockNumber) ? options.valuationHash ?? valuation.blockHash : blockHash,
+          timestamp: BigInt(Math.floor(Date.now() / 1000)) };
+      },
+      readContract: async ({ functionName, blockNumber }: { functionName: string; blockNumber?: bigint }) => {
+        reads.push(`${functionName}:${blockNumber ?? "latest"}`);
+        if (functionName === "owner") return options.owner ?? treasury;
+        throw new Error("No independent reference in this fixture");
+      },
+      getCode: async () => undefined,
+    },
+  }) as LaunchpadService;
+}
+
 test("a missing server preview recovers from a matching frozen local backup while signing is paused", async () => {
   const f = ordinaryFixture(100), directory = mkdtempSync(join(tmpdir(), "missing-plan-recovery-test-")), store = new Store(directory, 31337);
-  const sdk = f.sdk;
-  (sdk as any).getMulticurvePool = async () => ({ getState: async () => ({ status: 2, numeraire: quote.address, poolKey: f.poolKey }) });
-  const service = Object.assign(Object.create(LaunchpadService.prototype), {
-    runtime: { config: { mode: "fork", chainId: 31337, deploymentChainId: 4663, writesEnabled: false } }, store, sdk,
-    assertNetwork: async () => {}, client: { getTransaction: async () => f.tx, getTransactionReceipt: async () => f.receipt,
-      getBlockNumber: async () => 11n, getBlock: async () => ({ hash: blockHash, timestamp: BigInt(Math.floor(Date.now() / 1000)) }) },
-  }) as LaunchpadService;
+  const reads: string[] = [], service = recoveryService(f, store, { reads });
   try {
     await assert.rejects(() => service.register(hash), /frozen local backup/);
     const corrupt = structuredClone(f.plan); corrupt.draft.symbol = "FAKE";
@@ -792,8 +815,82 @@ test("a missing server preview recovers from a matching frozen local backup whil
     assert.equal(store.getPlan(f.plan.id), null);
     const record = await service.register(hash, f.plan);
     assert.equal(record.address, token); assert.equal(record.transactionHash, hash);
+    assert(reads.includes("owner:10"), "the protocol owner is read at the creation receipt block");
     assert.equal(store.getPlan(f.plan.id)?.id, f.plan.id);
     assert.equal((await service.register(hash)).transactionHash, hash);
+  } finally { store.close(); rmSync(directory, { recursive: true }); }
+});
+
+test("recovery lists only platform-approved fee routing, independent of the backup's self-consistency", async () => {
+  // The backup is a fully consistent re-encoding of the real transaction, but
+  // it pays treasury B while the platform's configured treasury is A.
+  const platform = "0x5555555555555555555555555555555555555555" as Address;
+  const f = ordinaryFixture(100), directory = mkdtempSync(join(tmpdir(), "untrusted-treasury-recovery-test-")), store = new Store(directory, 31337);
+  const reads: string[] = [];
+  let encodes = 0;
+  const encode = f.sdk.factory.encodeCreateMulticurveParams.bind(f.sdk.factory);
+  (f.sdk.factory as any).encodeCreateMulticurveParams = (params: any) => { encodes++; return encode(params); };
+  try {
+    assert.doesNotThrow(() => assertRecoveryPlan(f.plan, contracts, f.sdk, treasury), "the attacker's backup is self-consistent");
+    encodes = 0;
+    for (const configured of [platform, null]) {
+      const service = recoveryService(f, store, { treasury: configured, reads });
+      await assert.rejects(() => service.register(hash, f.plan), /platform-approved treasury/);
+    }
+    assert.equal(encodes, 0, "the trusted registry rejects before any SDK re-encoding");
+    assert(!reads.some((read) => read.startsWith("owner") || read.startsWith("block")), "and before historical reads");
+    assert.equal(store.getPlan(f.plan.id), null); assert.equal(store.tokenByTxHash(hash), null);
+  } finally { store.close(); rmSync(directory, { recursive: true }); }
+});
+
+test("recovery rejects a backup whose transaction or price snapshot does not match chain evidence", async () => {
+  const f = ordinaryFixture(100), directory = mkdtempSync(join(tmpdir(), "recovery-evidence-test-")), store = new Store(directory, 31337);
+  const reads: string[] = [];
+  try {
+    const other = structuredClone(f.plan);
+    other.data = `${other.data}00` as Hex; other.id = keccak256(other.data);
+    await assert.rejects(() => recoveryService(f, store, { reads }).register(hash, other), /outer transaction/);
+    assert.deepEqual(reads.filter((read) => !["receipt", "transaction"].includes(read)), [], "calldata mismatch costs no further reads");
+    await assert.rejects(() => recoveryService(f, store, { valuationHash: `0x${"cd".repeat(32)}` }).register(hash, f.plan),
+      /anchored to a canonical block/, "the price snapshot must name a canonical block");
+    const early = { ...f, receipt: { ...f.receipt, blockNumber: 0n } };
+    await assert.rejects(() => recoveryService(early, store).register(hash, early.plan), /newer than its creation receipt/);
+    await assert.rejects(() => recoveryService(f, store, { owner: creator }).register(hash, f.plan), /canonical creation parameters/,
+      "a backup encoded for a different protocol owner is rejected");
+    assert.equal(store.tokenByTxHash(hash), null);
+  } finally { store.close(); rmSync(directory, { recursive: true }); }
+});
+
+test("recovery stores the normalized draft and only known preview fields", async () => {
+  const f = ordinaryFixture(100), directory = mkdtempSync(join(tmpdir(), "recovery-normalized-test-")), store = new Store(directory, 31337);
+  try {
+    const backup = structuredClone(f.plan) as LaunchPlan & { junk?: string };
+    backup.draft.symbol = "guard"; backup.junk = "x".repeat(10_000);
+    const record = await recoveryService(f, store).register(hash, backup);
+    assert.equal(record.symbol, "GUARD", "the listed symbol matches the on-chain normalized symbol");
+    const saved = store.getPlan(f.plan.id) as LaunchPlan & { junk?: string };
+    assert.equal(saved.draft.symbol, "GUARD"); assert.equal(saved.junk, undefined);
+    assert.equal(store.tokenByTxHash(hash)?.symbol, "GUARD");
+  } finally { store.close(); rmSync(directory, { recursive: true }); }
+});
+
+test("concurrent recoveries of one transaction share verification and capacity refusals stay retryable", async () => {
+  const f = ordinaryFixture(100), directory = mkdtempSync(join(tmpdir(), "recovery-coalesce-test-")), store = new Store(directory, 31337);
+  const reads: string[] = [];
+  try {
+    const service = recoveryService(f, store, { reads });
+    const results = await Promise.all(Array.from({ length: 10 }, () => service.register(hash, f.plan)));
+    assert(results.every((result) => result.address === token));
+    assert.equal(reads.filter((read) => read === "receipt").length, 1, "identical concurrent requests verify once");
+    const busyDirectory = mkdtempSync(join(tmpdir(), "recovery-busy-test-")), busyStore = new Store(busyDirectory, 31337);
+    try {
+      const busy = recoveryService(f, busyStore);
+      (busy as any).recoveryLoad = { active: 4, started: [] };
+      await assert.rejects(() => busy.register(hash, f.plan), /capacity is temporarily limited/);
+      (busy as any).recoveryLoad = { active: 0, started: Array.from({ length: 60 }, () => Date.now()) };
+      await assert.rejects(() => busy.register(hash, f.plan), /capacity is temporarily limited/);
+      assert.equal(busyStore.tokenByTxHash(hash), null);
+    } finally { busyStore.close(); rmSync(busyDirectory, { recursive: true }); }
   } finally { store.close(); rmSync(directory, { recursive: true }); }
 });
 

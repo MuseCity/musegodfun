@@ -1,9 +1,9 @@
 import { erc20Abi, formatUnits, getAddress, isAddress, keccak256, parseAbi, parseUnits, zeroAddress, type Address, type PublicClient, type Transport } from "viem";
-import { ROBINHOOD_STOCKS, STOCKS, sameAddress, type Stock } from "../src/lib/config";
+import { ROBINHOOD_STOCKS, STOCKS, sameAddress, stockByAddress, type Stock } from "../src/lib/config";
 import { FirstBuyPaymentReader } from "./lifi";
 import { firstBuyPaymentAssets, type FirstBuyPaymentAsset } from "../src/lib/first-buy-payment";
 import { assertOpeningValuation, deriveLifiOpeningPrice, openingValuationWarnings, LAUNCH_PRICE_TTL, OPENING_CAP_USD, OPENING_POLICY,
-  type LaunchWarning, type LifiOpeningQuote, type LifiOpeningValuation } from "../src/lib/opening-valuation";
+  type LaunchWarning, type LifiOpeningQuote, type LifiOpeningValuation, type OpeningValuation } from "../src/lib/opening-valuation";
 import type { StoreBackend } from "./supabase-store";
 import deployedBuyback from "../contracts/artifacts/buyback-deployment.json";
 
@@ -98,6 +98,25 @@ async function independentReference(client: PublicClient<Transport, any>, stock:
     })(), new Promise<typeof unavailable>((resolve) => { timer = setTimeout(() => resolve(unavailable), 2_000); })]);
   } catch { return unavailable; }
   finally { clearTimeout(timer); }
+}
+
+// Far beyond the 5% review warning: a real preview this distant from the
+// immutable oracle's feed would already have been an extreme outlier.
+export const RECOVERY_REFERENCE_MAX_DIVERGENCE_BPS = 2_000;
+/** A recovered preview's price snapshot is unsigned caller JSON. Bind it to a
+ * canonical block no later than the creation receipt and, where the immutable
+ * oracle maps an independent feed, to that feed's price at the same block. */
+export async function assertRecoveredOpeningValuation(client: Pick<PublicClient<Transport, any>, "getBlock" | "getCode" | "readContract">,
+  valuation: OpeningValuation, receiptBlock: bigint, chainId: 8453 | 4663) {
+  const blockNumber = BigInt(valuation.blockNumber);
+  if (blockNumber > receiptBlock) throw new Error("The recovered opening valuation is newer than its creation receipt.");
+  const block = await client.getBlock({ blockNumber });
+  if (!block.hash || block.hash.toLowerCase() !== valuation.blockHash.toLowerCase())
+    throw new Error("The recovered opening valuation is not anchored to a canonical block.");
+  const checked = await independentReference(client as PublicClient<Transport, any>, stockByAddress(valuation.quoteAddress, chainId),
+    blockNumber, valuation.quotePriceUsd, Number(block.timestamp) * 1000);
+  if (checked.reference && checked.reference.divergenceBps > RECOVERY_REFERENCE_MAX_DIVERGENCE_BPS)
+    throw new Error("The recovered opening price differs from its independent on-chain reference.");
 }
 
 /** Two unsigned probes provide a LI.FI USD reference midpoint. The recorded

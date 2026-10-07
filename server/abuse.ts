@@ -10,19 +10,37 @@ export function clientBucket(raw: string): string {
   return words.slice(0, 4).map(word => parseInt(word, 16).toString(16)).join(":") + "::/64";
 }
 export const expensiveRoute = (path: string) => /\/(?:launch\/(?:prepare|simulate)|first-buy\/(?:prices|quote)|token-images)$/.test(path.split("?")[0].replace(/\/+$/, "").toLowerCase());
-export const SOURCE_CONCURRENCY = 16;
-export const INGRESS_CONCURRENCY = 64;
-type Row = { at: number; count: number; expensive: number; riskTimes: number[]; uploadTimes: number[] };
+export type IngressClass = "read" | "workflow" | "recovery" | "upload";
+/** Separate pools keep long-running or abusive work from starving short page
+ * reads or receipt recovery: every pool needs several sources to fill, and a
+ * full pool refuses only its own class. Reads keep enough per-source room for
+ * a few page loads behind one shared NAT. */
+export const INGRESS_CLASSES: Readonly<Record<IngressClass, { total: number; perSource: number }>> = {
+  read: { total: 44, perSource: 12 },
+  workflow: { total: 16, perSource: 4 },
+  recovery: { total: 8, perSource: 2 },
+  upload: { total: 4, perSource: 2 },
+};
+export const INGRESS_CONCURRENCY = Object.values(INGRESS_CLASSES).reduce((sum, entry) => sum + entry.total, 0);
+const RECOVERY_PER_MINUTE = 30;
+export function ingressClass(path: string): IngressClass {
+  const normalized = path.split("?")[0].replace(/\/+$/, "").toLowerCase().replace(/^\/api\/chains\/(?:8453|4663)(?=\/)/, "/api");
+  if (normalized.endsWith("/token-images")) return "upload";
+  if (/\/(?:launch\/(?:register|track)|first-buy\/verify|buyback\/batches\/[^/]+\/(?:track|reconcile))$/.test(normalized)) return "recovery";
+  if (/\/(?:launch\/(?:prepare|simulate|validate)|first-buy\/(?:prices|quote)|quote|buyback\/(?:engine\/)?quote|buyback\/batches)$/.test(normalized)) return "workflow";
+  return "read";
+}
+type Row = { at: number; count: number; expensive: number; recovery: number; riskTimes: number[]; uploadTimes: number[] };
 export class IngressLimiter {
   private readonly rows = new Map<string, Row>();
   // Request lifetime is independent of rate-window rotation or LRU eviction.
   // Only positive counts are stored, bounded by shared concurrency.
   private readonly activeSources = new Map<string, number>();
-  private active = 0;
+  private readonly activeClasses = new Map<IngressClass, number>();
   admit(ip: string, path: string, now = Date.now()): { status?: number; challenge: boolean; release(): void } {
     const key = clientBucket(ip);
     let row = this.rows.get(key);
-    if (!row || now-row.at >= 60_000) row = {at:now,count:0,expensive:0,
+    if (!row || now-row.at >= 60_000) row = {at:now,count:0,expensive:0,recovery:0,
       riskTimes: row?.riskTimes ?? [], uploadTimes: row?.uploadTimes ?? []};
     this.rows.delete(key); this.rows.set(key,row);
     while (this.rows.size > 10_000) {
@@ -30,8 +48,10 @@ export class IngressLimiter {
       if (oldest === key) break;
       this.rows.delete(oldest);
     }
+    const kind = ingressClass(path), limits = INGRESS_CLASSES[kind], sourceKey = `${kind}:${key}`;
     row.count++;
     if (expensiveRoute(path)) row.expensive++;
+    if (kind === "recovery") row.recovery++;
     const normalized = path.split("?")[0].replace(/\/+$/, "").toLowerCase();
     const workflow = /\/(?:launch\/(?:prepare|simulate)|first-buy\/quote)$/.test(normalized);
     const upload = normalized.endsWith("/token-images");
@@ -44,15 +64,19 @@ export class IngressLimiter {
     // Keep the risk history bounded independently of request admission.
     row.riskTimes = row.riskTimes.slice(-41); row.uploadTimes = row.uploadTimes.slice(-7);
     // Per-source limits precede the shared cap, including before body reads.
-    if (row.count > 180 || row.expensive > 20 || (this.activeSources.get(key) ?? 0) >= SOURCE_CONCURRENCY)
+    // Recovery is rate-limited on its own and never escalates to a challenge.
+    if (row.count > 180 || row.expensive > 20 || row.recovery > RECOVERY_PER_MINUTE ||
+      (this.activeSources.get(sourceKey) ?? 0) >= limits.perSource)
       return {status:429,challenge,release() {}};
-    if (this.active >= INGRESS_CONCURRENCY) return {status:503,challenge,release() {}};
-    this.activeSources.set(key, (this.activeSources.get(key) ?? 0) + 1); this.active++;
+    if ((this.activeClasses.get(kind) ?? 0) >= limits.total) return {status:503,challenge,release() {}};
+    this.activeSources.set(sourceKey, (this.activeSources.get(sourceKey) ?? 0) + 1);
+    this.activeClasses.set(kind, (this.activeClasses.get(kind) ?? 0) + 1);
     let done = false;
     return {challenge,release:()=>{if (!done) {
-      done=true; this.active--;
-      const remaining = (this.activeSources.get(key) ?? 1) - 1;
-      if (remaining) this.activeSources.set(key, remaining); else this.activeSources.delete(key);
+      done=true;
+      this.activeClasses.set(kind, (this.activeClasses.get(kind) ?? 1) - 1);
+      const remaining = (this.activeSources.get(sourceKey) ?? 1) - 1;
+      if (remaining) this.activeSources.set(sourceKey, remaining); else this.activeSources.delete(sourceKey);
     }}};
   }
 }

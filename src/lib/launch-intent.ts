@@ -44,6 +44,14 @@ export function saveFrozenLaunch(config: RuntimeConfig, account: Address, plan: 
   if (!plan.intentId) return;
   localStorage.setItem(launchIntentStorageKey(config, account, plan.intentId, "plan"), JSON.stringify(plan));
 }
+/** This browser sent a launch for a token the catalog does not list yet. A
+ * review-time plan backup alone is not evidence: it exists before any send. */
+export function sentLaunchAwaitingRegistration(config: Pick<RuntimeConfig, "chainId" | "mode" | "deploymentChainId">, tokenAddress: string): boolean {
+  try {
+    return transactions().some((tx) => tx.action === "launch" && !tx.registered && ["pending", "success"].includes(tx.status) &&
+      tx.tokenAddress?.toLowerCase() === tokenAddress.toLowerCase() && transactionMatchesConfig(tx, config));
+  } catch { return false; }
+}
 export function savedLaunchIntents(config: RuntimeConfig, account: Address | null) {
   const prefix = `musegod.launch.draft.${scope(config, account)}.`;
   const saved: { intentId: string; name: string; pending: boolean }[] = [];

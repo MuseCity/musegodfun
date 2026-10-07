@@ -3,7 +3,7 @@ import { PaymentPriceChanged } from "./lib/first-buy-wallet";
 import TurnstileGate from "./components/TurnstileGate";
 import LockRecovery from "./components/LockRecovery";
 import { quoteNow } from "./lib/quote-clock";
-import { activeLaunchIntent, newIntentId, selectLaunchIntent, savedLaunchIntents, launchIntentStorageKey, restoreLegacyPending, saveFrozenLaunch, withLaunchIntentLock } from "./lib/launch-intent";
+import { activeLaunchIntent, newIntentId, selectLaunchIntent, savedLaunchIntents, launchIntentStorageKey, restoreLegacyPending, saveFrozenLaunch, withLaunchIntentLock, sentLaunchAwaitingRegistration } from "./lib/launch-intent";
 import { LaunchPriceChanged, assertAcceptedLaunchRefresh, assertLaunchWalletPlan, launchDraftInput } from "./lib/launch-wallet";
 import { assertLaunchPlanValidity } from "./lib/launch-plan";
 import { dopplerUrl } from "./lib/doppler";
@@ -2578,10 +2578,12 @@ function TokenPage({
 }) {
   const api = scopedApi(config);
   const generation = useRef(0);
+  const [detailRevision, setDetailRevision] = useState(0);
   const resource = useResource<{
       token: TokenRecord;
-      state: { poolKey: V4PoolKey };
-    }>(`/tokens/${address}`),
+      state: { poolKey: V4PoolKey } | null;
+      stateError?: string;
+    }>(`/tokens/${address}`, detailRevision),
     stockResource = useResource<StockStatus[]>("/stocks"),
     wallet = useWallet();
   const [side, setSide] = useState<"buy" | "sell">("buy"),
@@ -2631,9 +2633,27 @@ function TokenPage({
       active = false;
     };
   }, [wallet.account, wallet.revision, resource.data, side, hash]);
+  // Metadata stays readable while the pool state is unavailable; retry the
+  // state quietly so trading resumes without a manual reload.
+  const stateUnavailable = !!resource.data && !resource.data.state;
+  useEffect(() => {
+    if (!stateUnavailable && !(resource.error && !resource.data)) return;
+    const timer = setTimeout(() => setDetailRevision((value) => value + 1), 15_000);
+    return () => clearTimeout(timer);
+  }, [stateUnavailable, resource.error, resource.data]);
   const token = resource.data?.token;
-  if (!token)
-    return resource.error ? <Notice kind="error">{resource.error}</Notice> : <Loading />;
+  if (!token) {
+    if (!resource.error) return <Loading />;
+    // A catalog miss is never proof a launch does not exist: a launch this
+    // browser sent may still be awaiting registration from Your transactions.
+    const pendingRegistration = !!config && sentLaunchAwaitingRegistration(config, address);
+    return pendingRegistration ? (
+      <Notice>
+        This launch is not registered yet. Finish registration from Your transactions.
+        {" "}({resource.error})
+      </Notice>
+    ) : <Notice kind="error">{resource.error}</Notice>;
+  }
   const stock = quoteAsset(token),
     explorer = explorerFor(token),
     stockStatus = stockResource.data?.find((s) =>
@@ -2818,8 +2838,11 @@ function TokenPage({
               </p>
             </div>
           )}
-          {resource.error && (
-            <Notice kind="error">On-chain reads are unavailable: {resource.error}</Notice>
+          {stateUnavailable && (
+            <Notice kind="error">
+              On-chain pool state is unavailable, so quotes and trades are paused. Retrying automatically.
+              {resource.data?.stateError ? ` ${resource.data.stateError}` : ""}
+            </Notice>
           )}
           <label className="trade-input">
             <span>
@@ -2947,7 +2970,7 @@ function TokenPage({
           )}
           <button
             className="secondary full"
-            disabled={busy || !amount}
+            disabled={busy || !amount || stateUnavailable}
             onClick={() => void getQuote()}
           >
             {busy ? (

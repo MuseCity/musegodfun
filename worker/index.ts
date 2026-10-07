@@ -69,7 +69,9 @@ export class LaunchpadRuntime extends DurableObject<Env> {
       const chunks: Uint8Array[] = [];
       const maximumBody = requestBodyLimitForPath(new URL(request.url).pathname);
       let size = 0, timedOut = false;
-      const timeout = setTimeout(() => { timedOut = true; void reader.cancel(); }, 30_000);
+      // A legitimate body arrives in well under these deadlines; a trickled
+      // one must not hold its ingress slot for long.
+      const timeout = setTimeout(() => { timedOut = true; void reader.cancel(); }, maximumBody > 65_536 ? 20_000 : 10_000);
       try {
       while (true) {
         const { value, done } = await reader.read();

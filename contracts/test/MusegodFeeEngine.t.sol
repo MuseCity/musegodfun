@@ -11,6 +11,14 @@ interface VmEngine {
     function expectRevert() external;
     function etch(address, bytes calldata) external;
     function getNonce(address) external view returns (uint64);
+    function recordLogs() external;
+    function getRecordedLogs() external returns (VmLog[] memory);
+}
+
+struct VmLog {
+    bytes32[] topics;
+    bytes data;
+    address emitter;
 }
 
 contract EngineToken {
@@ -350,6 +358,27 @@ contract MusegodFeeEngineTest {
         _convert(100, 198, 512);
         require(engine.pending(address(asset)) == 900 && asset.balanceOf(address(engine)) == 1400);
         require(weth.balanceOf(address(vault)) == 200 && engine.totalConvertedWeth() == 200);
+    }
+
+    function testUnreadableCurrencySyncEmitsSyncFailedNotForwardFailed() public {
+        weth.mint(address(engine), 1000);
+        vm.etch(address(asset), hex"60006000fd");
+        vm.recordLogs();
+        engine.syncUntracked(poolId);
+        VmLog[] memory logs = vm.getRecordedLogs();
+        bytes32 syncFailed = keccak256("SyncFailed(address,bytes)");
+        bytes32 forwardFailed = keccak256("ForwardFailed(address,bytes)");
+        uint256 failures;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter != address(engine)) continue;
+            require(logs[i].topics[0] != forwardFailed, "sync failure reported as forwarding failure");
+            if (logs[i].topics[0] == syncFailed) {
+                require(logs[i].topics[1] == bytes32(uint256(uint160(address(asset)))), "wrong failed token");
+                ++failures;
+            }
+        }
+        require(failures == 2, "each manager reports its unreadable currency");
+        require(engine.pending(address(weth)) == 1000 && engine.totalSynced(address(weth)) == 1000, "healthy pair still syncs");
     }
 
     function testOutOfBandPushAndDonationsSyncOnceAcrossManagers() public {

@@ -322,7 +322,17 @@ export async function readFeeAssetStatus(client: Pick<EngineClient, "readContrac
     catch { error = "A valid reference price is unavailable. Fees remain in the engine."; }
   }
   if (balance < pending) { error = "The token balance is below recorded pending funds; processing is paused for this asset."; referenceWeth = null; }
-  return { ...asset, pending: String(pending), claimed: String(claimed), synced: String(synced), untracked: balance > pending ? String(balance - pending) : "0", forwarded: String(forwarded), converted: String(converted), automationForwarded: String(automationForwarded), pricing, available: String(available > pending ? pending : available), referenceWeth, error };
+  return { ...asset, pending: String(pending), claimed: String(claimed), synced: String(synced), untracked: balance > pending ? String(balance - pending) : "0", shortfall: balance < pending ? String(pending - balance) : "0", forwarded: String(forwarded), converted: String(converted), automationForwarded: String(automationForwarded), pricing, available: String(available > pending ? pending : available), referenceWeth, error };
+}
+
+/** The page-level reason names what blocks the whole engine, activation first.
+ * An over-cap source allowance pauses only source forwarding, so it is shown
+ * once, in that section, through `sourceAuthorizationError`. */
+export function engineStatusReason(input: { sourceDeployed: boolean; sourceAllowance: string; activated: boolean }): string | null {
+  if (!input.sourceDeployed) return "The Splits source treasury is not deployed on this network. Processing is awaiting deployment and WETH authorization.";
+  if (!input.activated) return "The verified buyback deployment is awaiting activation. Refresh the platform configuration before processing.";
+  if (BigInt(input.sourceAllowance) === 0n) return "Waiting for the source treasury's WETH approval to the fixed forwarder. A human must sign this authorization in Splits.";
+  return null;
 }
 
 export class BuybackEngineReader {
@@ -400,10 +410,7 @@ export class BuybackEngineReader {
       !!config.automationReceiver && sameAddress(config.automationReceiver, graph.automationReceiver) &&
       !!config.automationTreasury && sameAddress(config.automationTreasury, graph.automationTreasury) &&
       !!config.wethForwarder && sameAddress(config.wethForwarder, graph.forwarder) && graph.sourceDeployed;
-    const reason = !graph.sourceDeployed ? "The Splits source treasury is not deployed on this network. Processing is awaiting deployment and WETH authorization." :
-      graph.sourceAuthorizationError ? graph.sourceAuthorizationError :
-      BigInt(graph.sourceAllowance) === 0n ? "Waiting for the source treasury's WETH approval to the fixed forwarder. A human must sign this authorization in Splits." :
-      !available ? "The verified buyback deployment is awaiting activation. Refresh the platform configuration before processing." : null;
+    const reason = engineStatusReason({ sourceDeployed: graph.sourceDeployed, sourceAllowance: graph.sourceAllowance, activated: available });
     const block = await this.client.getBlock({ blockNumber: graph.blockNumber });
     const pools = listedTokens(await this.tokens(), config.mode, config.deploymentChainId).filter((token) => token.feePolicy === ENGINE_FEE_POLICY && token.feeEngine && sameAddress(token.feeEngine, graph.engine));
     const tracked = new Map<string, { address: Address; symbol: string; decimals: number }>([

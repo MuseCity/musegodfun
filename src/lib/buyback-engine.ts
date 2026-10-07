@@ -120,6 +120,8 @@ export type EngineAssetStatus = {
   automationForwarded: string;
   available: string; referenceWeth: string | null; error: string | null;
   synced?: string; untracked?: string;
+  // Recorded pending minus actual balance; positive only during a deficit.
+  shortfall?: string;
 };
 export type EngineBurn = { hash: Hex; blockNumber: string; amount: string; source: "swapper" | "engine" };
 export type EngineClaimPreview = { address: Address; symbol: string; decimals: number; lp: string | null; hook: string | null }[];

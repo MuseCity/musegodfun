@@ -166,6 +166,10 @@ export const KEEPER_TASK_RETRY_POLICY = {
   initialBackoffMs: 120_000, maximumBackoffMs: 3_600_000,
   attemptWindowMs: 3_600_000, maximumRevertsPerWindow: 3,
   gasWindowMs: 86_400_000, maximumFailedGasWei: 10n ** 15n,
+  // Worst-case cost of one signed attempt (buffered gas limit × gas price).
+  // Separate from failure history, so a revert overshoots the failed-gas
+  // budget by at most this much and an unaffordable attempt says so itself.
+  maximumAttemptGasWei: 2n * 10n ** 15n, gasRetryMs: 60_000,
 } as const;
 type KeeperTaskFailure = { hash: Hash; at: number; gasWei: string };
 export type KeeperTaskRetryState = { consecutiveReverts: number; nextAttemptAt: number; lastOutcomeHash: Hash; lastOutcomeStatus: "confirmed" | "reverted"; lastOutcomeBlockHash?: Hash; lastOutcomeAt: number; failures: KeeperTaskFailure[] };
@@ -217,13 +221,15 @@ export function recordKeeperTaskOutcome(state: KeeperTaskStateFile, journal: Kee
   tasks[journal.taskId] = { consecutiveReverts, nextAttemptAt, lastOutcomeHash: journal.hash, lastOutcomeStatus: journal.status, ...(journal.blockHash ? { lastOutcomeBlockHash: journal.blockHash } : {}), lastOutcomeAt: at, failures };
   return { ...state, tasks };
 }
-export function keeperTaskWait(state: KeeperTaskStateFile, taskId: string, maximumGasWei = 0n, now = Date.now()): { reason: string; nextAttemptAt: number } | null {
+export function keeperTaskWait(state: KeeperTaskStateFile, taskId: string, attemptGasWei = 0n, now = Date.now()): { reason: string; nextAttemptAt: number } | null {
   const row = state.tasks[taskId];
   const failures = (row?.failures ?? []).filter((failure) => failure.at > now - KEEPER_TASK_RETRY_POLICY.gasWindowMs);
-  if (maximumGasWei < 0n) throw new Error("The keeper gas reserve cannot be negative");
+  if (attemptGasWei < 0n) throw new Error("The keeper attempt gas cost cannot be negative");
+  if (attemptGasWei > KEEPER_TASK_RETRY_POLICY.maximumAttemptGasWei)
+    return { reason: "This attempt's worst-case gas cost exceeds the single-attempt cap; waiting for a lower gas price", nextAttemptAt: now + KEEPER_TASK_RETRY_POLICY.gasRetryMs };
   const failedGas = failures.reduce((sum, failure) => sum + BigInt(failure.gasWei), 0n);
-  if (failedGas + maximumGasWei > KEEPER_TASK_RETRY_POLICY.maximumFailedGasWei || failedGas >= KEEPER_TASK_RETRY_POLICY.maximumFailedGasWei)
-    return { reason: "This task is waiting for its rolling 24-hour failed-gas budget", nextAttemptAt: failures.length ? Math.min(...failures.map((failure) => failure.at)) + KEEPER_TASK_RETRY_POLICY.gasWindowMs : now + KEEPER_TASK_RETRY_POLICY.gasWindowMs };
+  if (failedGas >= KEEPER_TASK_RETRY_POLICY.maximumFailedGasWei)
+    return { reason: "This task's rolling 24-hour failed-gas budget is used up", nextAttemptAt: Math.min(...failures.map((failure) => failure.at)) + KEEPER_TASK_RETRY_POLICY.gasWindowMs };
   const recent = failures.filter((failure) => failure.at > now - KEEPER_TASK_RETRY_POLICY.attemptWindowMs);
   if (recent.length >= KEEPER_TASK_RETRY_POLICY.maximumRevertsPerWindow)
     return { reason: "This task is waiting after repeated canonical reverts", nextAttemptAt: Math.min(...recent.map((failure) => failure.at)) + KEEPER_TASK_RETRY_POLICY.attemptWindowMs };
@@ -250,6 +256,7 @@ export function selectKeeperTasks(status: BuybackEngineStatus, now = Date.now())
   const tasks: KeeperTask[] = [];
   const seen = new Set<string>();
   const untracked = new Set(status.assets.filter((asset) => BigInt(asset.untracked ?? "0") > 0n).map((asset) => asset.address.toLowerCase()));
+  const shortfall = new Set(status.assets.filter((asset) => BigInt(asset.shortfall ?? "0") > 0n).map((asset) => asset.address.toLowerCase()));
   const syncCovered = new Set<string>();
   const add = (task: KeeperTask) => { if (!seen.has(task.id.toLowerCase())) { seen.add(task.id.toLowerCase()); tasks.push(task); } };
   for (const pool of status.pools) {
@@ -258,7 +265,11 @@ export function selectKeeperTasks(status: BuybackEngineStatus, now = Date.now())
       add({ id: `sync:${pool.poolId}`, action: { kind: "sync", poolId: pool.poolId }, label: "Account for externally pushed fees separately" });
       for (const token of currencies) syncCovered.add(token.toLowerCase());
     }
-    if (pool.claimable?.some((asset) => (asset.lp !== null && BigInt(asset.lp) > 0n) || (asset.hook !== null && BigInt(asset.hook) > 0n)))
+    // A claim collects both currencies at once. Income in a currency whose
+    // engine balance is short of its recorded liability stays unspendable, so
+    // only healthy income justifies an automatic claim; mixed income still does.
+    if (pool.claimable?.some((asset) => !shortfall.has(asset.address.toLowerCase()) &&
+      ((asset.lp !== null && BigInt(asset.lp) > 0n) || (asset.hook !== null && BigInt(asset.hook) > 0n))))
       add({ id: `claim:${pool.poolId}`, action: { kind: "claim", poolId: pool.poolId }, label: `Collect ${pool.symbol} pool fees` });
   }
   for (const asset of status.assets) {

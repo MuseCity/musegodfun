@@ -376,16 +376,24 @@ test("a canonical reorg outcome replaces the same hash failure rather than prese
   assert.equal(keeperTaskWait(state, failed.taskId, 0n, at + 1001), null);
 });
 
-test("the persistent failed-gas budget reserves the worst case before signing and expires without extending itself", () => {
-  const at = 1_800_000_000_000;
-  const journal: KeeperJournal = { ...journalInput, schemaVersion: 1, hash: keccak256(signedTransaction), signedAt: at, resolvedAt: at, gasSpent: String(KEEPER_TASK_RETRY_POLICY.maximumFailedGasWei - 1n), status: "reverted" };
-  const state = recordKeeperTaskOutcome({ schemaVersion: 1, chainId: 4663, caller: stock, tasks: {} }, journal);
-  assert.equal(keeperTaskWait(state, journal.taskId, 1n, at + 120_000), null);
-  const blocked = keeperTaskWait(state, journal.taskId, 2n, at + 120_000);
-  assert.match(blocked!.reason, /failed-gas budget/); assert.equal(blocked!.nextAttemptAt, at + 86_400_000);
-  assert.equal(keeperTaskWait(state, "forward:source", 2n, at + 120_000), null);
-  assert.equal(keeperTaskWait(state, journal.taskId, 2n, at + 86_400_000), null);
-  assert.equal(keeperTaskWait(state, journal.taskId, 2n, at + 120_000)!.nextAttemptAt, blocked!.nextAttemptAt, "Read retries must not renew the budget window");
+test("the failed-gas budget blocks only once spent, separately from the single-attempt gas cap", () => {
+  const at = 1_800_000_000_000, budget = KEEPER_TASK_RETRY_POLICY.maximumFailedGasWei;
+  const empty: KeeperTaskStateFile = { schemaVersion: 1, chainId: 4663, caller: stock, tasks: {} };
+  // 800k gas at 1-2 gwei with the 25% buffer: no failures means no failed-gas wait.
+  for (const gasPrice of [10n ** 9n, 2n * 10n ** 9n])
+    assert.equal(keeperTaskWait(empty, "execute:weth", keeperGasCost(1_000_000n, gasPrice), at), null);
+  const capped = keeperTaskWait(empty, "execute:weth", KEEPER_TASK_RETRY_POLICY.maximumAttemptGasWei + 1n, at);
+  assert.match(capped!.reason, /single-attempt cap/); assert.doesNotMatch(capped!.reason, /budget/);
+  assert.equal(capped!.nextAttemptAt, at + KEEPER_TASK_RETRY_POLICY.gasRetryMs);
+  const journal: KeeperJournal = { ...journalInput, schemaVersion: 1, hash: keccak256(signedTransaction), signedAt: at, resolvedAt: at, gasSpent: String(budget - 1n), status: "reverted" };
+  const state = recordKeeperTaskOutcome(empty, journal);
+  assert.equal(keeperTaskWait(state, journal.taskId, 2n * 10n ** 15n, at + 120_000), null, "an unspent budget does not reserve the next attempt");
+  const spent = recordKeeperTaskOutcome(state, { ...journal, hash: keccak256(`${signedTransaction}00`), signedAt: at + 130_000, resolvedAt: at + 130_000, gasSpent: "1" });
+  const blocked = keeperTaskWait(spent, journal.taskId, 1n, at + 3_700_000);
+  assert.match(blocked!.reason, /failed-gas budget is used up/); assert.equal(blocked!.nextAttemptAt, at + 86_400_000);
+  assert.equal(keeperTaskWait(spent, "forward:source", 1n, at + 3_700_000), null);
+  assert.equal(keeperTaskWait(spent, journal.taskId, 1n, at + 3_700_000)!.nextAttemptAt, blocked!.nextAttemptAt, "Read retries must not renew the budget window");
+  assert.equal(keeperTaskWait(spent, journal.taskId, 1n, at + 130_000 + 86_400_000 + 1), null);
 });
 
 test("damaged or private task-state fields fail-stop instead of silently resetting retry budgets", async () => {
@@ -424,4 +432,18 @@ test("journal writers reject any private or raw-signature field before writing a
     await assert.rejects(() => writeKeeperJournal(path, { ...journal, serializedTransaction: signedTransaction } as KeeperJournal), /forbidden fields/);
     assert.equal(await readKeeperJournal(path, 4663, stock), null);
   } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("keeper claims only when a pool has income in a currency without an engine shortfall", () => {
+  const healthy = "0x3333333333333333333333333333333333333333" as Address;
+  const claim = (claimable: { address: Address; lp: string | null; hook: string | null }[]) => selectKeeperTasks(status({
+    assets: [asset(stock, { shortfall: "5", available: "0", referenceWeth: null }), asset(healthy, { shortfall: "0", available: "0", referenceWeth: null })],
+    pools: [{ address: stock, poolId, symbol: "MEME", currencies: [stock, healthy], claimable: claimable.map((entry) => ({ ...entry, symbol: "T", decimals: 18 })) }],
+  })).filter((task) => task.id.startsWith("claim:"));
+  assert.deepEqual(claim([{ address: stock, lp: "7", hook: "9" }, { address: healthy, lp: "0", hook: "0" }]), [],
+    "income only in the short currency would be frozen in the engine");
+  assert.equal(claim([{ address: stock, lp: "7", hook: "9" }, { address: healthy, lp: "1", hook: null }]).length, 1, "mixed income is still collected");
+  assert.equal(claim([{ address: healthy, lp: null, hook: "3" }]).length, 1);
+  const unlisted = "0x4444444444444444444444444444444444444444" as Address;
+  assert.equal(claim([{ address: unlisted, lp: "1", hook: null }]).length, 1, "a currency without a recorded shortfall is healthy");
 });

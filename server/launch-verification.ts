@@ -8,7 +8,7 @@ import { launchGuardAbi } from "../src/lib/launch-guard";
 import { LAUNCH_SIGNING_TTL, restorePrepared, type FirstBuyLockRecord, type LaunchPlan } from "../src/lib/launch-plan";
 import { minimumOutput, parseAmount } from "../src/lib/validation";
 import { stockByAddress } from "../src/lib/config";
-import { assertEngineFeeCalldata, assertTradingFeeCalldata, buildLaunch, launchFeeData } from "../src/lib/protocol";
+import { assertEngineFeeCalldata, assertTradingFeeCalldata, buildLaunch } from "../src/lib/protocol";
 
 // Recovery deliberately uses the stored preview and actual transaction, without
 // requiring current signing policy, price freshness or a historical SDK snapshot.
@@ -144,8 +144,10 @@ export function verifiedFirstBuyLock(plan: LaunchPlan, receipt: TransactionRecei
 }
 
 /** A local recovery JSON is untrusted. Re-encode every creation parameter from
- * validated product inputs before it can replace a missing server preview. */
-export function assertRecoveryPlan(plan: LaunchPlan, contracts: ContractRegistry, sdk: DopplerSDK<8453 | 4663>) {
+ * validated product inputs before it can replace a missing server preview.
+ * This proves self-consistency only: the caller must separately bind the fee
+ * routing to the trusted registry and pass the Airlock owner read from chain. */
+export function assertRecoveryPlan(plan: LaunchPlan, contracts: ContractRegistry, sdk: DopplerSDK<8453 | 4663>, protocolOwner: Address) {
   assertPlanIntegrity(plan, contracts);
   if (!plan.openingValuation || !plan.feeTreasury || (plan.feePolicy !== FEE_POLICY && plan.feePolicy !== ENGINE_FEE_POLICY))
     throw new Error("The local recovery preview is incomplete.");
@@ -153,18 +155,12 @@ export function assertRecoveryPlan(plan: LaunchPlan, contracts: ContractRegistry
   const { openingCap, ...draft } = plan.draft;
   if (openingCap !== undefined && openingCap !== openingCapInQuote(plan.openingValuation))
     throw new Error("The local recovery opening valuation changed.");
-  const { pool } = launchFeeData(prepared.createParams.poolInitializerData);
-  // The protocol owner can legitimately equal another beneficiary. Recover its
-  // address from the immutable arrays; exact re-encoding proves merged shares.
-  const candidates = [...new Set([...pool.beneficiaries.map((entry) => entry.beneficiary), plan.creator, plan.feeTreasury])];
   const actual = encodeFunctionData({ abi: airlockAbi, functionName: "create", args: [prepared.createParams] });
-  const matches = candidates.some((owner) => {
-    try {
-      const params = buildLaunch(sdk, draft, plan.creator, plan.feeTreasury!, owner as Address,
-        plan.openingValuation!, prepared.createParams.salt, prepared.chainId, plan.feeEngine, true);
-      const canonical = sdk.factory.encodeCreateMulticurveParams(params);
-      return encodeFunctionData({ abi: airlockAbi, functionName: "create", args: [canonical] }) === actual;
-    } catch { return false; }
-  });
-  if (!matches) throw new Error("The local recovery preview does not match the full canonical creation parameters.");
+  let canonical: Hex | undefined;
+  try {
+    const params = buildLaunch(sdk, draft, plan.creator, plan.feeTreasury, protocolOwner,
+      plan.openingValuation, prepared.createParams.salt, prepared.chainId, plan.feeEngine, true);
+    canonical = encodeFunctionData({ abi: airlockAbi, functionName: "create", args: [sdk.factory.encodeCreateMulticurveParams(params)] });
+  } catch { /* Reported below as a mismatch. */ }
+  if (canonical !== actual) throw new Error("The local recovery preview does not match the full canonical creation parameters.");
 }

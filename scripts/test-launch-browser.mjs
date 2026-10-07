@@ -20,9 +20,9 @@ const contracts = ROBINHOOD_CONTRACTS;
 const blockHash = '0x' + 'bb'.repeat(32), out = 543327925691014316198420n;
 const wrapRuntime = '0x60006000'; // Local identity fixture, never a deployed-runtime claim.
 const delayedImage = 'https://example.com/delayed-config.png';
-const plainModes = new Set(['plain', 'idle_plain', 'unknown_send', 'unknown_fetch', 'launch_timeout', 'launch_marker_race', 'token_detail_pending', 'token_detail_error']);
+const plainModes = new Set(['plain', 'idle_plain', 'unknown_send', 'unknown_fetch', 'launch_timeout', 'launch_marker_race', 'token_detail_pending', 'token_detail_error', 'token_detail_state_unavailable', 'token_detail_unregistered_backup']);
 const quoteClockModes = new Set(['wrap_near_expiry', 'idle_review', 'hidden_review', 'idle_plain']);
-const tokenLookupModes = new Set(['token_detail_pending', 'token_detail_error']);
+const tokenLookupModes = new Set(['token_detail_pending', 'token_detail_error', 'token_detail_state_unavailable', 'token_detail_unregistered_backup']);
 const timeoutModes = new Set(['approval_timeout', 'payment_timeout', 'launch_timeout', 'approval_timeout_reject']);
 const recoveryRaceModes = new Set(['payment_marker_race', 'launch_marker_race', 'payment_status_race', 'payment_submit_race', 'payment_submit_record_race']);
 const sdk = new DopplerSDK({ chainId: 4663, publicClient: createPublicClient({ transport: http('http://127.0.0.1:1') }) });
@@ -216,6 +216,8 @@ async function casePage(mode, viewport = { width: 1440, height: 1000 }) {
       if (mode.startsWith('token_detail_') && path === `/api/tokens/${token}`) {
         state.detailRequested = true;
         if (mode === 'token_detail_error') return reply({error:'Token detail RPC temporarily unavailable'},400);
+        if (mode === 'token_detail_unregistered_backup') return reply({error:'Platform token not found',code:'TOKEN_NOT_REGISTERED'},404);
+        if (mode === 'token_detail_state_unavailable') return reply({ token:{ ...state.plan?.draft,address:token,creator,poolId:state.plan?.poolId,quoteAddress:quote.address,mode:'fork',deploymentChainId:4663,openingCap:'1.666666',openingValuation:state.plan?.openingValuation,curvePolicy:CURVE_POLICY,feePolicy:FEE_POLICY },state:null,stateError:'RPC request timed out' });
         await new Promise(resolve => {state.releaseDetail=resolve;});
       }
       return reply({ token:{ ...state.plan?.draft,address:token,creator,poolId:state.plan?.poolId,quoteAddress:quote.address,mode:'fork',deploymentChainId:4663,openingCap:'1.666666',openingValuation:state.plan?.openingValuation,curvePolicy:CURVE_POLICY,feePolicy:FEE_POLICY },state:{status:2,numeraire:quote.address,poolKey:{currency0:token,currency1:quote.address,fee:8388608,tickSpacing:10,hooks:contracts.initializer}} });
@@ -298,11 +300,22 @@ async function quietReview(page, state) {
   state.quietBackground = true;
 }
 async function tokenLookup(page, state) {
+  if (state.mode === 'token_detail_unregistered_backup')
+    await page.evaluate(({ token, creator }) => localStorage.setItem('musegod.transactions.v1', JSON.stringify([{ hash:'0x'+'ab'.repeat(32),
+      chainId:31337, deploymentChainId:4663, account:creator, action:'launch', status:'success', at:Date.now(), tokenAddress:token, intentId:'browser-sent-intent' }])), { token, creator });
   await page.goto(`${origin}/token/robinhood/${token}`);
   await waitForFixture(() => state.detailRequested, 'single token detail request');
   assert.equal(await page.getByText('Token not found',{exact:true}).count(),0,
     'A partial catalog is never proof that an older token does not exist');
-  if (state.mode === 'token_detail_error') {
+  if (state.mode === 'token_detail_unregistered_backup') {
+    await page.getByText(/This launch is not registered yet/).waitFor();
+  } else if (state.mode === 'token_detail_state_unavailable') {
+    await page.getByRole('heading',{name:state.plan.draft.name,exact:true}).waitFor();
+    await page.getByText(/On-chain pool state is unavailable/).waitFor();
+    await page.getByLabel('Trade input amount',{exact:true}).fill('1');
+    assert.equal(await page.getByRole('button',{name:'Get on-chain quote',exact:true}).isEnabled(),false,
+      'Quotes stay paused until live pool state is verified');
+  } else if (state.mode === 'token_detail_error') {
     await page.getByText('Token detail RPC temporarily unavailable',{exact:true}).waitFor();
   } else {
     assert.equal(await page.getByRole('heading',{name:state.plan.draft.name,exact:true}).count(),0);
@@ -490,7 +503,7 @@ async function timeoutCase(page, state) {
   state.lateHashIntentPreserved = true;
 }
 try {
-  for (const mode of (process.env.BROWSER_CASES?.split(',') || ['success','plain','duplicate','stale_page','reject_approval','expiry','account_change','network_change','simulation_failure','two_tabs','unknown_send','approval_unknown','approval_pending','wrap_flow','wrap_price_change','delayed_config','unknown_fetch','approval_timeout','payment_timeout','launch_timeout','approval_timeout_reject','payment_marker_race','launch_marker_race','payment_status_race','payment_submit_race','payment_submit_record_race','wrap_late_launch_recovery','wrap_near_expiry','idle_review','hidden_review','idle_plain','token_detail_pending','token_detail_error'])) {
+  for (const mode of (process.env.BROWSER_CASES?.split(',') || ['success','plain','duplicate','stale_page','reject_approval','expiry','account_change','network_change','simulation_failure','two_tabs','unknown_send','approval_unknown','approval_pending','wrap_flow','wrap_price_change','delayed_config','unknown_fetch','approval_timeout','payment_timeout','launch_timeout','approval_timeout_reject','payment_marker_race','launch_marker_race','payment_status_race','payment_submit_race','payment_submit_record_race','wrap_late_launch_recovery','wrap_near_expiry','idle_review','hidden_review','idle_plain','token_detail_pending','token_detail_error','token_detail_state_unavailable','token_detail_unregistered_backup'])) {
     const {context,page,state,pageErrors}=await casePage(mode);
     const plain = plainModes.has(mode);
     if (mode === 'success') {
