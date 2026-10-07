@@ -82,7 +82,7 @@ export class BuybackReader {
 
   constructor(treasury: string | null, options: Options = {}) {
     this.treasury = validTreasury(treasury ?? undefined);
-    this.fetcher = options.fetch ?? fetch;
+    this.fetcher = options.fetch ?? fetch.bind(globalThis);
     this.now = options.now ?? Date.now;
     this.timeoutMs = options.timeoutMs ?? 15_000;
   }

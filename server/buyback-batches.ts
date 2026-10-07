@@ -42,7 +42,7 @@ export class BuybackBatchService {
     private readonly base: ReadClient, private readonly config: RuntimeConfig, options: Options = {}) {
     this.rh = options.robinhoodClient ?? createPublicClient({ chain: robinhood,
       transport: http("https://rpc.mainnet.chain.robinhood.com", { retryCount: 0, timeout: 12_000 }) });
-    this.fetcher = options.fetch ?? fetch; this.now = options.now ?? Date.now;
+    this.fetcher = options.fetch ?? fetch.bind(globalThis); this.now = options.now ?? Date.now;
   }
   private locked<T>(work: () => Promise<T>): Promise<T> {
     const next = this.queue.then(work, work); this.queue = next.catch(() => {}); return next;

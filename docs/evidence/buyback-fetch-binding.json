@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-10-07T03:59:20.449Z",
+  "status": "verified_before_publication",
+  "parentCommit": "2dd4dd25a60a8e60f399cb208bc1d508e62806ac",
+  "resolvesDatedFinding": "docs/evidence/lifi-workerd-fetch.json#knownUnrelatedPatterns",
+  "change": "Bind only each default global fetch to globalThis. Explicitly injected fetch remains unchanged.",
+  "scope": [
+    "BuybackReader Relay quote and RPC statistics requests",
+    "BuybackBatchService Relay status polling"
+  ],
+  "unchanged": [
+    "request URLs, methods, bodies and timeouts",
+    "amounts, fee calculation, route and canonical receipt verification",
+    "CROSS_CHAIN_DEFERRED HTTP gate, signing flags and treasury",
+    "keeper and on-chain contracts"
+  ],
+  "tests": {
+    "nativeReceiverRegressions": {
+      "beforePassed": 0,
+      "beforeFailed": 2,
+      "afterPassed": 2
+    },
+    "buybackTestsPassed": 81,
+    "nodeTestsPassed": 431,
+    "nodeAndWorkerTypes": "passed"
+  },
+  "localWorkerd": {
+    "observedAt": "2026-10-07T03:56:22.557Z",
+    "evidenceSha256": "bf7c0a7a34df6748eac24640aee2a739eccd296cd0d09738c5190e6230d74064",
+    "harnessSha256": "f6cab0e4125b6662b2428245951faacdb1ae084d8e6abdc57419f5960f391809",
+    "evidenceKind": "Actual BuybackReader.quote and BuybackBatchService.reconcile executed in real Workerd, with mocked Relay responses and mocked read clients/receipts",
+    "before": {
+      "quoteCode": "UPSTREAM_UNAVAILABLE",
+      "relayQuoteDispatches": 0,
+      "batchStatus": "bridging",
+      "relayStatusDispatches": 0
+    },
+    "after": {
+      "quoteHttpStatus": 200,
+      "relayQuoteDispatches": 1,
+      "batchStatus": "received",
+      "receivedAmount": "1000000000000000000000",
+      "burnedAmount": "0",
+      "relayStatusDispatches": 1
+    },
+    "boundary": "Actual native Workerd fetch and actual two classes; provider, store, chain clients and receipts are deterministic fixtures. No real Relay request, trade or settlement.",
+    "realProviderRequests": 0
+  },
+  "productionBefore": {
+    "observedAt": "2026-10-07T03:55:59.333Z",
+    "origin": "https://musegod.fun",
+    "manifestCommit": "2dd4dd25a60a8e60f399cb208bc1d508e62806ac",
+    "buildId": "build-37567956383-1",
+    "scope": "Production read-only baseline before receiver fix; no quote, reconciliation POST, wallet, signing or funds",
+    "rows": [
+      {
+        "path": "/api/buyback/stats",
+        "httpStatus": 422,
+        "body": {
+          "error": "The buyback data provider is unavailable",
+          "code": "UPSTREAM_UNAVAILABLE"
+        },
+        "elapsedMs": 231
+      },
+      {
+        "path": "/api/buyback/batches",
+        "httpStatus": 422,
+        "body": {
+          "error": "Base fee bridging is deferred while Robinhood issuance is being validated.",
+          "code": "CROSS_CHAIN_DEFERRED"
+        },
+        "elapsedMs": 823
+      }
+    ]
+  },
+  "sourceSha256": {
+    "server/buyback.ts": "dc469765f2d51395422b63ed2db8be78c0d3595b6c14c2f2a81916895c3d9b7b",
+    "server/buyback-batches.ts": "86aa365e52c28e46478dda5fa9e5cd967ea519defb8f87737a680bc661d904cb",
+    "tests/buyback.test.ts": "9c854a71efe4143a5b5192c43dda0842db89023f508e9dce080a99d3697db0ba"
+  },
+  "mainnetTransactions": "not_run",
+  "keeper": "not_run",
+  "privateCredentialsRecorded": false
+}

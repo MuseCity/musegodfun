@@ -63,6 +63,26 @@ function hasCode(code: string) {
   return (error: unknown) => error instanceof BuybackError && error.code === code;
 }
 
+test("default native fetch keeps the global receiver for buyback quotes and RPC stats", async (context) => {
+  const paths: string[] = [], rpc = statsFetch();
+  context.mock.method(globalThis, "fetch", async function (this: typeof globalThis, url: string | URL | Request, options?: RequestInit) {
+    assert.equal(this, globalThis, "Workers native fetch rejects an unrelated receiver before HTTP");
+    assert.equal(options?.method, "POST");
+    paths.push(String(url));
+    if (String(url) === "https://api.relay.link/quote/v2") return Response.json(fixture());
+    assert.equal(String(url), "https://rpc.mainnet.chain.robinhood.com");
+    return rpc(url, options);
+  });
+  const service = new BuybackReader(treasury, { now: () => now });
+  const quote = await service.quote(input);
+  assert.equal(quote.expectedOut, "1000000000000000000000");
+  assert.equal(quote.minimumOut, "990000000000000000000");
+  assert.equal(quote.executionAvailable, false);
+  const stats = await service.readMUSEGODStats();
+  assert.equal(stats.deadBalance, "123000000000000000000");
+  assert.deepEqual(paths, ["https://api.relay.link/quote/v2", "https://rpc.mainnet.chain.robinhood.com", "https://rpc.mainnet.chain.robinhood.com"]);
+});
+
 test("buyback preview fixes treasury, assets, refund, precision and 60s expiry without exposing executable data", async () => {
   let request: any;
   const fetcher: typeof fetch = (async (url, options) => {
@@ -750,9 +770,32 @@ async function batchHarness() {
   const statsReader = { readMUSEGODStats: async () => ({}) } as unknown as BuybackReader;
   const fetcher = mock({ status: "success", originChainId: 8453, destinationChainId: 4663, inTxHashes: [sourceHash], txHashes: [destinationHash] });
   const makeService = (customReader = statsReader, customFetch = fetcher) => new BuybackBatchService(customReader, store, base, config, { robinhoodClient: rh, fetch: customFetch, now: () => now });
-  return { service: makeService(), makeService, rows, receipts, transactions, batch, amount, config, receipt, base, rh,
+  return { service: makeService(), makeService, store, rows, receipts, transactions, batch, amount, config, receipt, base, rh,
     setNonces: (bp: number, bl: number, rp: number, rl: number) => { basePendingNonce = bp; baseLatestNonce = bl; rhPendingNonce = rp; rhLatestNonce = rl; } };
 }
+
+test("default native fetch keeps the global receiver during read-only Relay batch reconciliation", async (context) => {
+  const h = await batchHarness();
+  h.config.writesEnabled = false;
+  let calls = 0;
+  context.mock.method(globalThis, "fetch", async function (this: typeof globalThis, url: string | URL | Request, options?: RequestInit) {
+    assert.equal(this, globalThis, "Workers native fetch rejects an unrelated receiver before HTTP");
+    assert.equal(String(url), `https://api.relay.link/intents/status/v3?requestId=${requestId}`);
+    assert.equal(options?.method ?? "GET", "GET");
+    calls++;
+    return Response.json({ status: "success", originChainId: 8453, destinationChainId: 4663,
+      inTxHashes: [sourceHash], txHashes: [destinationHash] });
+  });
+  const statsReader = { readMUSEGODStats: async () => ({}) } as unknown as BuybackReader;
+  const service = new BuybackBatchService(statsReader, h.store, h.base, h.config, { robinhoodClient: h.rh, now: () => now });
+  const received = await service.reconcile(requestId);
+  assert.equal(calls, 1);
+  assert.equal(received.status, "received");
+  assert.equal(received.receivedAmount, h.amount.toString());
+  assert.equal(received.burnedAmount, "0");
+  await assert.rejects(service.step(requestId, "burn"), hasCode("SIGNING_DISABLED"));
+  assert.equal(h.config.writesEnabled, false);
+});
 
 test("manual batch independently verifies destination, fixes received burn amount and survives service restart", async () => {
   const h = await batchHarness();
