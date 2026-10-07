@@ -5,7 +5,7 @@ import { firstBuyPaymentAssets, type FirstBuyPaymentAsset } from "../src/lib/fir
 import { assertOpeningValuation, deriveLifiOpeningPrice, openingValuationWarnings, LAUNCH_PRICE_TTL, OPENING_CAP_USD, OPENING_POLICY,
   type LaunchWarning, type LifiOpeningQuote, type LifiOpeningValuation, type OpeningValuation } from "../src/lib/opening-valuation";
 import type { StoreBackend } from "./supabase-store";
-import deployedBuyback from "../contracts/artifacts/buyback-deployment.json";
+import buybackDeployment from "../contracts/artifacts/buyback-v2-deployment.json";
 
 export type OpeningPriceDependencies = {
   integrator?: string; apiKey?: string; fetch?: typeof fetch; now?: () => number;
@@ -73,7 +73,7 @@ async function independentReference(client: PublicClient<Transport, any>, stock:
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([(async () => {
-      const oracle = deployedBuyback.contracts.oracle;
+      const oracle = buybackDeployment.contracts.oracle;
       const [code, config] = await Promise.all([
         client.getCode({ address: oracle.address as Address, blockNumber }),
         client.readContract({ address: oracle.address as Address, abi: referenceAbi, functionName: "assetFeeds", args: [stock.address], blockNumber }),

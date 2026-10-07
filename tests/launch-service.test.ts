@@ -782,7 +782,7 @@ test("payment proceeds may increase the paired input without lowering or ratchet
   } finally { store.close(); rmSync(directory, { recursive: true }); }
 });
 
-const oracleRuntime = readFileSync(new URL("./fixtures/buyback-oracle-v1.runtime.hex", import.meta.url), "utf8").trim() as Hex;
+const oracleRuntime = readFileSync(new URL("./fixtures/buyback-oracle.runtime.hex", import.meta.url), "utf8").trim() as Hex;
 function recoveryService(f: ReturnType<typeof ordinaryFixture>, store: Store,
   options: { treasury?: Address | null; owner?: Address; historicalOwner?: "unavailable"; reads?: string[]; valuationHash?: Hex; referencePrice?: bigint } = {}) {
   const nowSeconds = BigInt(Math.floor(Date.now() / 1000));

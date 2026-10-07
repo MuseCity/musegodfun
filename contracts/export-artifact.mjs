@@ -9,7 +9,7 @@ import { keccak256, stringToHex } from "viem";
 
 const root = dirname(fileURLToPath(import.meta.url));
 const contractName = process.argv[2] === "--contract" ? process.argv[3] : "MusegodLaunchGuard";
-assert(["MusegodLaunchGuard", "MusegodFeeEngine", "MusegodBuybackOracle", "MusegodBuybackExecutor", "MusegodWethForwarder"].includes(contractName), "Unknown production contract");
+assert(["MusegodLaunchGuard", "MusegodBuybackOracle", "MusegodBuybackExecutor"].includes(contractName), "Unknown production contract");
 assert(process.argv.length === 2 || (process.argv.length === 4 && process.argv[2] === "--contract"), "Use --contract NAME");
 const sourcePath = `src/${contractName}.sol`;
 const built = JSON.parse(await readFile(join(root, `out/${contractName}.sol/${contractName}.json`), "utf8"));
