@@ -22,6 +22,12 @@ export function loadEnvironment() {
       throw new Error("Unable to read server environment configuration");
   }
 }
+export function mainnetRpcUrl(chainId: DeploymentChainId): string {
+  const key = process.env.ALCHEMY_API_KEY?.trim();
+  return key ? `https://${chainId === 4663 ? "robinhood-mainnet" : "base-mainnet"}.g.alchemy.com/v2/${encodeURIComponent(key)}`
+    : chainId === 4663 ? process.env.ROBINHOOD_RPC_URL || "https://rpc.mainnet.chain.robinhood.com"
+    : process.env.BASE_RPC_URL || "https://mainnet.base.org";
+}
 export function runtimeFromEnv(requestedChainId?: DeploymentChainId): Runtime {
   if (requestedChainId !== undefined && ![8453, 4663].includes(requestedChainId))
     throw new Error("Unsupported deployment network");
@@ -36,11 +42,8 @@ export function runtimeFromEnv(requestedChainId?: DeploymentChainId): Runtime {
   const deploymentChainId = mode === "fork" ? Number(process.env.FORK_CHAIN_ID || "8453") as 8453 | 4663 : mode === "robinhood" ? 4663 : 8453;
   if (requestedChainId !== undefined && requestedChainId !== deploymentChainId)
     throw new Error("The requested network is unavailable in this local fork");
-  const key = process.env.ALCHEMY_API_KEY?.trim();
   const rpcUrl = mode === "fork" ? process.env.FORK_RPC_URL || "http://127.0.0.1:8547"
-    : key ? `https://${deploymentChainId === 4663 ? "robinhood-mainnet" : "base-mainnet"}.g.alchemy.com/v2/${encodeURIComponent(key)}`
-    : deploymentChainId === 4663 ? process.env.ROBINHOOD_RPC_URL || "https://rpc.mainnet.chain.robinhood.com"
-    : process.env.BASE_RPC_URL || "https://mainnet.base.org";
+    : mainnetRpcUrl(deploymentChainId);
   const url = new URL(rpcUrl);
   if (mode === "fork" && !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname))
     throw new Error("Fork RPC must be loopback");

@@ -4,7 +4,7 @@ import { TokenImages } from "./token-images";
 import { z } from "zod";
 import type { Hex } from "viem";
 import { LaunchpadService, runtimeFromEnv } from "./service";
-import { redact, type Runtime, type DeploymentChainId } from "./config";
+import { mainnetRpcUrl, redact, type Runtime, type DeploymentChainId } from "./config";
 import { deploymentChain } from "../src/lib/config";
 import { FirstBuyPaymentReader } from "./lifi";
 import { MarketUnavailable } from "./snapshots";
@@ -440,7 +440,7 @@ app.post(
         if (service.runtime.config.mode === "fork") throw new Error("A local fork cannot query mainnet through the secondary RPC.");
         if (service.runtime.config.chainId === 4663) result = await service.rpcRequest(body.method, body.params);
         else {
-        const response = await fetch("https://rpc.mainnet.chain.robinhood.com", {
+        const response = await fetch(mainnetRpcUrl(4663), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),

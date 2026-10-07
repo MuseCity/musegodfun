@@ -8,6 +8,7 @@ import { MUSEGOD_BUYBACK } from "../src/lib/fee-policy";
 import { RELAY_APPROVAL_PROXY, buybackAuthorizationTypedData, type BuybackAuthorization, type BuybackPrepareInput,
   type BuybackBatch, type BuybackStep, type BuybackStepKind } from "../src/lib/buyback";
 import { BuybackError, BuybackReader, BUYBACK_CODE_HASHES, RELAY_ROUTER, validateRelayExecution } from "./buyback";
+import { mainnetRpcUrl } from "./config";
 
 type ReceiptProof = { hash: Hex; blockHash: Hex; blockNumber: string };
 type StoredBatch = BuybackBatch & {
@@ -41,7 +42,7 @@ export class BuybackBatchService {
   constructor(private readonly reader: BuybackReader, private readonly store: BuybackBatchStore,
     private readonly base: ReadClient, private readonly config: RuntimeConfig, options: Options = {}) {
     this.rh = options.robinhoodClient ?? createPublicClient({ chain: robinhood,
-      transport: http("https://rpc.mainnet.chain.robinhood.com", { retryCount: 0, timeout: 12_000 }) });
+      transport: http(mainnetRpcUrl(4663), { retryCount: 0, timeout: 12_000 }) });
     this.fetcher = options.fetch ?? fetch.bind(globalThis); this.now = options.now ?? Date.now;
   }
   private locked<T>(work: () => Promise<T>): Promise<T> {

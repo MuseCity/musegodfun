@@ -14,7 +14,7 @@ import {
   type Provider,
   type WalletOption,
 } from "../src/lib/wallet-connection";
-import { redact, runtimeFromEnv } from "../server/config";
+import { mainnetRpcUrl, redact, runtimeFromEnv } from "../server/config";
 import { assertSigningEnabled } from "../src/lib/validation";
 import { CONTRACTS, type RuntimeConfig } from "../src/lib/config";
 import { LaunchpadService } from "../server/service";
@@ -323,6 +323,8 @@ test("errors redact both secret values and upstream URLs; Alchemy takes preceden
       ).includes("secret-for-test"),
     );
     assert.match(runtimeFromEnv().rpcUrl, /(?:base|robinhood)-mainnet.g.alchemy.com/);
+    assert.equal(mainnetRpcUrl(8453), "https://base-mainnet.g.alchemy.com/v2/secret-for-test");
+    assert.equal(mainnetRpcUrl(4663), "https://robinhood-mainnet.g.alchemy.com/v2/secret-for-test");
   } finally {
     if (old === undefined) delete process.env.ALCHEMY_API_KEY;
     else process.env.ALCHEMY_API_KEY = old;

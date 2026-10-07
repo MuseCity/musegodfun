@@ -17,6 +17,7 @@ import {
 import { sameAddress, stockByAddress } from "../src/lib/config";
 import { MUSEGOD_BUYBACK } from "../src/lib/fee-policy";
 import { validTreasury } from "../src/lib/validation";
+import { mainnetRpcUrl } from "./config";
 import type {
   BuybackQuote,
   BuybackQuoteInput,
@@ -25,7 +26,6 @@ import type {
 } from "../src/lib/buyback";
 
 const RELAY = "https://api.relay.link/quote/v2";
-const RPC = "https://rpc.mainnet.chain.robinhood.com";
 const DEPOSITORY = "0x4cd00e387622c35bddb9b4c962c136462338bc31";
 const APPROVAL_PROXY = "0xccc88a9d1b4ed6b0eaba998850414b24f1c315be";
 const UINT_MAX = (1n << 256n) - 1n;
@@ -245,7 +245,7 @@ export class BuybackReader {
   }
 
   private async rpcBatch(calls: { method: string; params: unknown[] }[]) {
-    const raw = await this.request(RPC, calls.map((call, id) => ({ jsonrpc: "2.0", id, ...call })));
+    const raw = await this.request(mainnetRpcUrl(4663), calls.map((call, id) => ({ jsonrpc: "2.0", id, ...call })));
     if (!Array.isArray(raw) || raw.length !== calls.length)
       throw new BuybackError("INVALID_RPC", "Robinhood onchain data verification failed");
     return calls.map((_, id) => {

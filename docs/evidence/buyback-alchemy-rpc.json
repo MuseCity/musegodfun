@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-10-07T05:13:06.986Z",
+  "status": "verified_before_publication",
+  "parentCommit": "1b5b557a662d6b58e76522ead17febc7540822e1",
+  "change": "Reuse the existing server-only mainnet RPC selection in global MUSEGOD statistics, the default batch destination client and the secondary Robinhood read-only proxy.",
+  "rpcSelection": "Trimmed Alchemy key first, encoded in the correct chain host; existing chain RPC URL and public defaults remain fallbacks only without a key.",
+  "globalStatsChainId": 4663,
+  "unchanged": [
+    "native fetch global binding",
+    "RPC payload, block/identity checks and integer results",
+    "fork restrictions and read-only RPC method allowlist",
+    "injected fetch/client priority",
+    "CROSS_CHAIN_DEFERRED, signing flags, keeper and contracts"
+  ],
+  "tests": {
+    "priorPublicRpcRegression": "failed before change; passes with configured Alchemy and encoded fixture key",
+    "targetedPassed": 105,
+    "nodePassed": 432,
+    "nodeAndWorkerTypes": "passed"
+  },
+  "localWorkerd": {
+    "observedAt": "2026-10-07T05:04:05.962Z",
+    "evidenceSha256": "b360f6d7141316883a0ef2b8f433ea444a0f079c6915897a2a2b93a9f7f8c007",
+    "harnessSha256": "0eb536018bc5582660fcdf6e16c9852340fad7f031b4a810f03181769efe0164",
+    "independentRuntimes": 4,
+    "httpChecksPassed": 48,
+    "checks": [
+      "Both mainnet clients retain their own chain Alchemy host",
+      "Global MUSEGOD stats always read Robinhood Alchemy, even in the Base app",
+      "Default batch destination client and legacy secondary proxy use Robinhood Alchemy",
+      "HTTP/RPC errors containing fake keys do not leak them",
+      "Wrong chain and signing RPC methods remain rejected",
+      "Deferred cross-chain gate remains closed",
+      "Fork handler rejects recently cached mainnet statistics and secondary proxy with zero added outbound calls"
+    ],
+    "boundary": "Real native Workerd fetch and actual dual createApp HTTP routes through cloudflare:node; all Alchemy/Supabase responses are fixtures; fork checks are handler-mode fixtures, not Anvil execution.",
+    "realProviderRequests": 0,
+    "environmentSecretsRead": false
+  },
+  "liveNode": {
+    "observedAt": "2026-10-07T05:04:14.246Z",
+    "scope": "Live read-only Alchemy RPC via the modified BuybackReader; server .env key never recorded",
+    "providerHost": "robinhood-mainnet.g.alchemy.com",
+    "stats": {
+      "source": "Robinhood Chain RPC",
+      "chainId": 4663,
+      "tokenAddress": "0x0379E228F6887c6F18bf394042ECAF81B308cb2e",
+      "burnAddress": "0x000000000000000000000000000000000000dEaD",
+      "symbol": "MUSEGOD",
+      "decimals": 18,
+      "totalSupply": "1000000000000000000000000000",
+      "deadBalance": "107401271822444373401467205",
+      "blockNumber": "82213294",
+      "checkedAt": 1791349454246,
+      "scope": "global"
+    },
+    "mainnetTransactions": "not_run"
+  },
+  "sourceSha256": {
+    "server/config.ts": "aa8bd9a329bd715b10f0141ad5eb25388b968fdac8d669a15ea94dca238a7907",
+    "server/app.ts": "9cab04786238c8e2083255d5f4586943e94bb960e6ddc49dd02abc243cc89c02",
+    "server/buyback.ts": "4fc5ab0d853351a2b4de405d478f36ef8ce238cd717f7e740e23b629a58bfa52",
+    "server/buyback-batches.ts": "dc8b75e08abef4211c08240e75eff89a9380e1b11f11c53e86d908d5f44c96f6",
+    "tests/buyback.test.ts": "75d4cdb6101c50dbfc0290eaa5b935ac496c2a0f7a51daa3ec822510733850c2",
+    "tests/readonly.test.ts": "bc710b23ed587f4af717982413079edafe6910f496b227f3e575e12a2286df50"
+  },
+  "mainnetTransactions": "not_run",
+  "keeper": "not_run",
+  "privateCredentialsRecorded": false
+}

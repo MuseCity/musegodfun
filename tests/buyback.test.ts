@@ -64,13 +64,18 @@ function hasCode(code: string) {
 }
 
 test("default native fetch keeps the global receiver for buyback quotes and RPC stats", async (context) => {
+  const oldKey = process.env.ALCHEMY_API_KEY;
+  const key = "buyback-native-rpc-fixture /?";
+  process.env.ALCHEMY_API_KEY = key;
+  context.after(() => { if (oldKey === undefined) delete process.env.ALCHEMY_API_KEY; else process.env.ALCHEMY_API_KEY = oldKey; });
+  const rpcUrl = `https://robinhood-mainnet.g.alchemy.com/v2/${encodeURIComponent(key)}`;
   const paths: string[] = [], rpc = statsFetch();
   context.mock.method(globalThis, "fetch", async function (this: typeof globalThis, url: string | URL | Request, options?: RequestInit) {
     assert.equal(this, globalThis, "Workers native fetch rejects an unrelated receiver before HTTP");
     assert.equal(options?.method, "POST");
     paths.push(String(url));
     if (String(url) === "https://api.relay.link/quote/v2") return Response.json(fixture());
-    assert.equal(String(url), "https://rpc.mainnet.chain.robinhood.com");
+    assert.equal(String(url), rpcUrl);
     return rpc(url, options);
   });
   const service = new BuybackReader(treasury, { now: () => now });
@@ -80,7 +85,9 @@ test("default native fetch keeps the global receiver for buyback quotes and RPC 
   assert.equal(quote.executionAvailable, false);
   const stats = await service.readMUSEGODStats();
   assert.equal(stats.deadBalance, "123000000000000000000");
-  assert.deepEqual(paths, ["https://api.relay.link/quote/v2", "https://rpc.mainnet.chain.robinhood.com", "https://rpc.mainnet.chain.robinhood.com"]);
+  assert.deepEqual(paths, ["https://api.relay.link/quote/v2", rpcUrl, rpcUrl]);
+  assert(!JSON.stringify({ quote, stats }).includes(key));
+  assert(!JSON.stringify({ quote, stats }).includes(encodeURIComponent(key)));
 });
 
 test("buyback preview fixes treasury, assets, refund, precision and 60s expiry without exposing executable data", async () => {
@@ -794,6 +801,33 @@ test("default native fetch keeps the global receiver during read-only Relay batc
   assert.equal(received.receivedAmount, h.amount.toString());
   assert.equal(received.burnedAmount, "0");
   await assert.rejects(service.step(requestId, "burn"), hasCode("SIGNING_DISABLED"));
+  assert.equal(h.config.writesEnabled, false);
+});
+
+test("the default destination client uses Robinhood Alchemy even when the batch is on Base", async (context) => {
+  const oldKey = process.env.ALCHEMY_API_KEY;
+  process.env.ALCHEMY_API_KEY = "batch-rpc-fixture-key";
+  context.after(() => { if (oldKey === undefined) delete process.env.ALCHEMY_API_KEY; else process.env.ALCHEMY_API_KEY = oldKey; });
+  const h = await batchHarness(), paths: string[] = [];
+  h.config.writesEnabled = false;
+  const rpcUrl = "https://robinhood-mainnet.g.alchemy.com/v2/batch-rpc-fixture-key";
+  context.mock.method(globalThis, "fetch", async function (url: string | URL | Request, options?: RequestInit) {
+    paths.push(String(url));
+    if (String(url) === rpcUrl) {
+      const body = JSON.parse(options!.body as string);
+      assert.equal(body.method, "eth_chainId");
+      return Response.json({ jsonrpc: "2.0", id: body.id, result: "0x1237" });
+    }
+    assert.equal(String(url), `https://api.relay.link/intents/status/v3?requestId=${requestId}`);
+    return Response.json({ status: "pending", originChainId: 8453, destinationChainId: 4663, inTxHashes: [sourceHash] });
+  });
+  const statsReader = { readMUSEGODStats: async () => ({}) } as unknown as BuybackReader;
+  const service = new BuybackBatchService(statsReader, h.store, h.base, h.config, { now: () => now });
+  const pending = await service.reconcile(requestId);
+  assert.deepEqual(paths, [rpcUrl, `https://api.relay.link/intents/status/v3?requestId=${requestId}`]);
+  assert.equal(pending.status, "bridging");
+  assert.equal(pending.receivedAmount, "0");
+  assert.equal(pending.burnedAmount, "0");
   assert.equal(h.config.writesEnabled, false);
 });
 
