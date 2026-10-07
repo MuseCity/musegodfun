@@ -1,18 +1,29 @@
 # Launch guard deployment
 
+V2 guards were deployed on Base (8453) and Robinhood Chain (4663) on 2026-10-07 after explicit user authorization. Both deployment inputs and complete runtimes match the reviewed compiler output, all official dependencies match, and Sourcify reports exact creation and runtime matches. `wrangler.jsonc` selects these vesting-capable guards; Robinhood signing stays enabled and Base signing stays off. Mainnet issuance, first buys and claims were not performed.
+
+| Chain | V2 guard | Deployment transaction | Block | Source |
+| --- | --- | --- | --- | --- |
+| Base 8453 | [`0x376DcBb32DF3B033547f3d9024b2e4E88b973BF7`](https://basescan.org/address/0x376DcBb32DF3B033547f3d9024b2e4E88b973BF7) | [`0xe22b9fe34d989d6be5bea67af18fc88dcba3c6310fa357adca00355bcad554fb`](https://basescan.org/tx/0xe22b9fe34d989d6be5bea67af18fc88dcba3c6310fa357adca00355bcad554fb) | `52283672` | [Sourcify exact match](https://sourcify.dev/server/v2/contract/8453/0x376DcBb32DF3B033547f3d9024b2e4E88b973BF7) |
+| Robinhood 4663 | [`0x531417dD153A72AA780DE27E502618a1F74AA409`](https://robinhoodchain.blockscout.com/address/0x531417dD153A72AA780DE27E502618a1F74AA409) | [`0xef47f4f6cf7fb041c21656e383222d1f41c7a9551b40354f19d1ed3b313fc843`](https://robinhoodchain.blockscout.com/tx/0xef47f4f6cf7fb041c21656e383222d1f41c7a9551b40354f19d1ed3b313fc843) | `82283004` | [Sourcify exact match](https://sourcify.dev/server/v2/contract/4663/0x531417dD153A72AA780DE27E502618a1F74AA409) |
+
+[Mainnet deployment, independent review and verification evidence](evidence/launch-guard-v2-mainnet.json) retains canonical receipts, constructor, full-runtime identity and dependency checks. Both runtimes are 4,271 bytes with hash `0x317ed7a40e947ce9412dcf9faf41b4d7afa581a4b7f77d793d3b3933bb1b799c`. The artifact SHA-256 is `c0c0faeffbefd973e717c3c93c0be15b0d0dbec58acf85d3792350946ef0ad8a`; standard JSON input SHA-256 is `c300fe6c43d43ac7bf98a8a8383972f93d3f9b5649a00175199b17df45631d3a`. Local signing used ordinary EIP-1559 CREATE transactions, zero value and existing deployment-account nonces. Base retained its existing EIP-7702 delegation. Signed payloads and keys are excluded from public evidence and Worker bindings.
+
+## Historical Robinhood legacy deployment
+
 The guard was deployed on Robinhood Chain mainnet (4663) on 2026-10-05 after user authorization. Its entire runtime and immutable dependencies match the reviewed artifact, and Sourcify verified both creation and runtime as `exact_match`. Mainnet token launches, first buys and trades were not performed as part of this deployment.
 
 - Guard: [`0xfD919E60eB32AE9d02A89D6D9bAB94E2634cDE29`](https://robinhoodchain.blockscout.com/address/0xfD919E60eB32AE9d02A89D6D9bAB94E2634cDE29).
 - Deployment: [`0xf0f4556f507bdf7d322267d2398a5661b804320f14ec09fff5d1d8697f09890f`](https://robinhoodchain.blockscout.com/tx/0xf0f4556f507bdf7d322267d2398a5661b804320f14ec09fff5d1d8697f09890f), block `80859015`.
 - Gas used: `888931`; actual gas cost: `0.000018139525986 ETH`.
 - [Deployment and source verification evidence](evidence/launch-guard-mainnet.json). [Sourcify verification](https://sourcify.dev/server/v2/contract/4663/0xfD919E60eB32AE9d02A89D6D9bAB94E2634cDE29). The Blockscout verification mirror was blocked by its Cloudflare challenge and is not confirmed.
-- `wrangler.jsonc` configures this verified address. The [production deployment record](https://github.com/MuseCity/musegodfun/deployments) identifies the active website release; CI requires both domains to expose the same verified guard before reporting success.
+- `wrangler.jsonc` retains this historical address as the Robinhood-only legacy fallback while explicitly selecting V2 above. The [production deployment record](https://github.com/MuseCity/musegodfun/deployments) identifies the active website release; CI requires both domains to expose the same verified guard before reporting success.
 
-## V2 source preparation — not deployed
+## V2 source and prior fork acceptance
 
-The current source adds optional 30/90/365-day first-buy locks and complete Base/Robinhood Create. The current `MusegodLaunchGuard.json` and compiler input describe the new vesting-capable candidate, not the historical address above. The previously deployed bytecode and verification closure are retained separately as `MusegodLaunchGuardLegacy.json` and `MusegodLaunchGuardLegacy.compiler-input.json`.
+The current source adds optional 30/90/365-day first-buy locks and complete Base/Robinhood Create. The current `MusegodLaunchGuard.json` and compiler input describe the deployed vesting-capable V2 revision, not the historical address above. The previously deployed bytecode and verification closure are retained separately as `MusegodLaunchGuardLegacy.json` and `MusegodLaunchGuardLegacy.compiler-input.json`.
 
-The candidate was deployed only on isolated local 31337 forks of both chains. Local issuance, lock-position/receipt checks, cliff expiry and recipient claims passed using synthetic local funding; the upstream proxies recorded zero writes. Ignored outputs are `.cache/first-buy-lock-fork-8453.json` and `.cache/first-buy-lock-fork-4663.json`. These are local acceptance files, not tracked audit or release records. V2 mainnet deployments and new guard activation remain `not_run`; code/Secret publication is separate and does not enable locked first buys. The latest [tracked LI.FI acceptance](evidence/lifi-opening-price/index.json) contains new-policy fork copies; these retain their local/synthetic-funding boundary. The old Robinhood address and its dated deployment evidence remain unchanged.
+Before mainnet deployment, the candidate was deployed on isolated local 31337 forks of both chains. Local issuance, lock-position/receipt checks, cliff expiry and recipient claims passed using synthetic local funding; the upstream proxies recorded zero writes. Ignored outputs are `.cache/first-buy-lock-fork-8453.json` and `.cache/first-buy-lock-fork-4663.json`. These are local acceptance files, not tracked audit or release records. Those fork records predate the mainnet deployments above; code/Secret publication remains separate from contract deployment and real-wallet execution. The latest [tracked LI.FI acceptance](evidence/lifi-opening-price/index.json) contains new-policy fork copies; these retain their local/synthetic-funding boundary. The old Robinhood address and its dated deployment evidence remain unchanged.
 
 ## Pinned historical deployment input
 
@@ -27,7 +38,7 @@ The candidate was deployed only on isolated local 31337 forks of both chains. Lo
 
 The ABI mirrors the official [Doppler Bundler source](https://github.com/whetstoneresearch/doppler/blob/main/src/Bundler.sol) and pinned Doppler SDK 1.0.43. The dependency is the official [OpenZeppelin 5.7.0 release](https://github.com/OpenZeppelin/openzeppelin-contracts/releases/tag/v5.7.0).
 
-## Candidate dependencies
+## V2 immutable dependencies
 
 The V2 artifact remains `contracts/artifacts/MusegodLaunchGuard.json`, with full standard JSON in `MusegodLaunchGuard.compiler-input.json`. Its constructor binds the official Bundler address `0xf45588E8e0B1df9dB9ae7E20eCE5726AE931357c`; the code and bindings must be verified separately on each deployment:
 
@@ -55,7 +66,15 @@ The historical deployed guard uses unlocked first buys only. V2 preserves that e
 
 ## Stop signing and rollback
 
-The verified pre-enablement rollback baseline is commit `9966794190bdef2947924ee99cedd3e6d0a8805f`, Worker `ec948bde-ca0d-418a-949e-1b78a6c32ce3`; it supports guarded receipt recovery while leaving new first buys disabled. For the current legacy Robinhood deployment, `ENABLE_MAINNET_TRANSACTIONS=false` disables new signing while preserving receipt recovery. In the dual-chain source, also clear any explicit Robinhood override and set `ENABLE_BASE_TRANSACTIONS=false`. Remove the corresponding new/legacy guard candidates to disable fresh first-buy previews; retain recovery for already broadcast calls. Stop signing if guard runtime or dependency identity differs, quotes expire, or receipt verification fails. Retain already-broadcast transaction hashes and frozen plans; do not generate a replacement salt while the outcome is unknown.
+The current V2-recovery-capable application rollback point is commit `1753a25e45c32bfb3d1cba62fce025d687806772`, immutable build `build-37579932341-1`, Worker `34d808a4-33bd-4b4b-a834-8ba3e1c2509c`. It retains frozen-plan V2/legacy receipt recovery and the existing database; it restores the old legacy Robinhood guard and Base read-only configuration. To activate it:
+
+```sh
+npx --no-install wrangler versions deploy 34d808a4-33bd-4b4b-a834-8ba3e1c2509c@100 --durable-objects-code-update-mode immediate --yes --message "Rollback to V2-recovery baseline 1753a25"
+```
+
+After rollback, verify both domains and `/api/chains/4663/config`, `/api/chains/8453/config` plus their scoped readiness endpoints. This rollback retains Robinhood ordinary signing; to stop all new signing, publish the same recovery-capable source with `ENABLE_MAINNET_TRANSACTIONS=false`, `ENABLE_BASE_TRANSACTIONS=false`, and no true Robinhood override. Preserve frozen plans, transaction hashes, database and locked receipts. Application rollback cannot undeploy either V2 guard.
+
+Remove the corresponding first-buy and legacy guard candidates if fresh first-buy previews must also be disabled; retain recovery for already broadcast calls. Stop signing if guard runtime or dependency identity differs, quotes expire, or receipt verification fails. Retain already-broadcast transaction hashes and frozen plans; do not generate a replacement salt while the outcome is unknown.
 
 Do not revert the backend to an Airlock-only release after any guarded transaction has been broadcast. A stopped-signing build must continue to understand the guard's outer transaction, official `Bundled` / `VestingCreated` events, `GuardedLaunch` event, stored lock positions and old direct-Airlock recovery. After a V2 transaction exists, a stopped-signing build must still understand its chain-scoped APIs and locked receipt; the historical pre-enablement version is not a recovery-capable rollback for that new format. Application rollback cannot change deployed pools, existing metadata or this guard's immutable dependency.
 
