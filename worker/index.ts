@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import { createApp, knownPage, chainApiRoute, legacyTokenPath } from "../server/app";
 import { redact, runtimeFromEnv } from "../server/config";
 import { securityHeaders } from "../server/http-security";
+import { validTreasury } from "../src/lib/validation";
 
 interface Env {
   ASSETS: Fetcher;
@@ -11,6 +12,9 @@ interface Env {
   CF_VERSION_METADATA: { id: string; tag?: string; timestamp: string };
   LIFI_INTEGRATOR?: string;
   LIFI_API_KEY?: string;
+  BASE_FIRST_BUY_GUARD_ADDRESS?: string;
+  ROBINHOOD_FIRST_BUY_GUARD_ADDRESS?: string;
+  FIRST_BUY_GUARD_ADDRESS?: string;
 }
 
 export class LaunchpadRuntime extends DurableObject<Env> {
@@ -23,7 +27,13 @@ export class LaunchpadRuntime extends DurableObject<Env> {
       : ctx.id.equals(env.LAUNCHPAD.idFromName("base-mainnet")) ? 8453 : null;
     if (!chainId) throw new Error("Unknown launchpad runtime identity");
     const configured = runtimeFromEnv(chainId);
-    const runtime = { ...configured, lifi: {
+    // Native bindings can advance while the isolate's process.env snapshot is
+    // retained. An absent binding must also clear any stale first-buy candidate.
+    const firstBuyGuardValue = chainId === 8453 ? env.BASE_FIRST_BUY_GUARD_ADDRESS
+      : env.ROBINHOOD_FIRST_BUY_GUARD_ADDRESS ?? env.FIRST_BUY_GUARD_ADDRESS;
+    const firstBuyGuardCandidate = validTreasury(firstBuyGuardValue);
+    if (firstBuyGuardValue && !firstBuyGuardCandidate) throw new Error("Invalid first buy guard");
+    const runtime = { ...configured, firstBuyGuardCandidate, lifi: {
       integrator: env.LIFI_INTEGRATOR ?? configured.lifi.integrator,
       ...(env.LIFI_API_KEY ?? configured.lifi.apiKey ? { apiKey: env.LIFI_API_KEY ?? configured.lifi.apiKey } : {}),
     } };

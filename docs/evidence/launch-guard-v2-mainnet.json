@@ -639,5 +639,315 @@
     "baseSigning": "disabled",
     "secretsAndSignedPayloads": "excluded",
     "runtimePermissionChanges": "none"
+  },
+  "applicationActivation": {
+    "initialAttempt": {
+      "commit": "436df996d3f959841d3cb66989c45641bfc811da",
+      "build": "build-37585851700-1",
+      "workerVersion": "d608ae90-b55a-4bf0-8481-931b666d2054",
+      "ciRun": 37585851700,
+      "deploymentId": 6903976234,
+      "result": "failed guard runtime config verification after 3 attempts; frontend 204-file verification passed",
+      "rollback": "Version34d808a4-33bd-4b4b-a834-8ba3e1c2509c actually activated; immediate www verification was still propagating, so CI marked rollback failed. Subsequent independent HTTP readback confirmed both domains restored1753a25 and original scoped guards/flags."
+    },
+    "diagnosis": {
+      "status": "leading explanation; production DO internals not instrumented",
+      "observed": "First activation changed only bindings/docs, not runnable Worker/server source",
+      "officialBindingReuseReference": "https://developers.cloudflare.com/workers/runtime-apis/bindings/#making-changes-to-bindings",
+      "localReproduction": "Real native Workerd stale process.env snapshot with new native guard bindings returns old RH legacy/Base null; explicit native binding selection fixes that case"
+    },
+    "fix": {
+      "workerSha256": "06a1cec2f4229d1a652a78374b97d2f2da45571db675fc34b744b6775f45aef9",
+      "scope": "Worker constructor reads native per-chain first-buy guard bindings, validates address and uses null for absent bindings instead of stale process.env. No signing flags, store, RPC, secrets or namespaces change. This publication changes runnable Worker code.",
+      "futurePureBindingsRetainedInstanceRefresh": "not_established_by_this_acceptance"
+    },
+    "workerdFixtureAcceptance": {
+      "observedAt": "2026-10-07T07:29:54.379Z",
+      "sourceSha256": {
+        "worker/index.ts": "06a1cec2f4229d1a652a78374b97d2f2da45571db675fc34b744b6775f45aef9",
+        "server/config.ts": "aa8bd9a329bd715b10f0141ad5eb25388b968fdac8d669a15ea94dca238a7907",
+        "server/service.ts": "e822d9fa0589bfe5cb1385bce5b2a2bda26c0051735ac92c56642713950bffbb",
+        "server/launch-guard.ts": "d380c23f2c49448dc5cd1299d6c64cfaea9295f5c4dc71df442ac38d61c7a42b"
+      },
+      "bundleSha256": "9062e1c989b7ee71f8424287515321e45861e749155961fb26a19ea5ee95a76b",
+      "sourceTransforms": false,
+      "totalHttpChecks": 24,
+      "checks": [
+        {
+          "mode": "fresh",
+          "checks": [
+            {
+              "path": "/_fixture/bindings",
+              "status": 200
+            },
+            {
+              "path": "/api/chains/4663/config",
+              "status": 200,
+              "launchGuard": "0x531417dD153A72AA780DE27E502618a1F74AA409",
+              "launchLockAvailable": true,
+              "writesEnabled": true
+            },
+            {
+              "path": "/api/chains/8453/config",
+              "status": 200,
+              "launchGuard": "0x376DcBb32DF3B033547f3d9024b2e4E88b973BF7",
+              "launchLockAvailable": true,
+              "writesEnabled": false
+            }
+          ]
+        },
+        {
+          "mode": "bindings-update",
+          "checks": [
+            {
+              "path": "/_fixture/bindings",
+              "status": 200
+            },
+            {
+              "path": "/api/chains/4663/config",
+              "status": 200,
+              "launchGuard": "0xfD919E60eB32AE9d02A89D6D9bAB94E2634cDE29",
+              "launchLockAvailable": false,
+              "writesEnabled": true
+            },
+            {
+              "path": "/api/chains/8453/config",
+              "status": 200,
+              "launchGuard": null,
+              "launchLockAvailable": false,
+              "writesEnabled": false
+            },
+            {
+              "path": "/_fixture/bindings",
+              "status": 200
+            },
+            {
+              "path": "/api/chains/4663/config",
+              "status": 200,
+              "launchGuard": "0x531417dD153A72AA780DE27E502618a1F74AA409",
+              "launchLockAvailable": true,
+              "writesEnabled": true
+            },
+            {
+              "path": "/api/chains/8453/config",
+              "status": 200,
+              "launchGuard": "0x376DcBb32DF3B033547f3d9024b2e4E88b973BF7",
+              "launchLockAvailable": true,
+              "writesEnabled": false
+            }
+          ]
+        },
+        {
+          "mode": "stale-process",
+          "checks": [
+            {
+              "path": "/_fixture/bindings",
+              "status": 200
+            },
+            {
+              "path": "/api/chains/4663/config",
+              "status": 200,
+              "launchGuard": "0x531417dD153A72AA780DE27E502618a1F74AA409",
+              "launchLockAvailable": true,
+              "writesEnabled": true
+            },
+            {
+              "path": "/api/chains/8453/config",
+              "status": 200,
+              "launchGuard": "0x376DcBb32DF3B033547f3d9024b2e4E88b973BF7",
+              "launchLockAvailable": true,
+              "writesEnabled": false
+            }
+          ]
+        },
+        {
+          "mode": "native-absent-process-new",
+          "checks": [
+            {
+              "path": "/_fixture/bindings",
+              "status": 200
+            },
+            {
+              "path": "/api/chains/4663/config",
+              "status": 200,
+              "launchGuard": "0xfD919E60eB32AE9d02A89D6D9bAB94E2634cDE29",
+              "launchLockAvailable": false,
+              "writesEnabled": true
+            },
+            {
+              "path": "/api/chains/8453/config",
+              "status": 200,
+              "launchGuard": null,
+              "launchLockAvailable": false,
+              "writesEnabled": false
+            }
+          ]
+        },
+        {
+          "mode": "invalid-native",
+          "checks": [
+            {
+              "path": "/_fixture/bindings",
+              "status": 200
+            },
+            {
+              "path": "/api/chains/4663/config",
+              "status": 500
+            },
+            {
+              "path": "/api/chains/8453/config",
+              "status": 500
+            }
+          ]
+        },
+        {
+          "mode": "alias-rh-only",
+          "checks": [
+            {
+              "path": "/_fixture/bindings",
+              "status": 200
+            },
+            {
+              "path": "/api/chains/4663/config",
+              "status": 200,
+              "launchGuard": "0x531417dD153A72AA780DE27E502618a1F74AA409",
+              "launchLockAvailable": true,
+              "writesEnabled": true
+            },
+            {
+              "path": "/api/chains/8453/config",
+              "status": 200,
+              "launchGuard": null,
+              "launchLockAvailable": false,
+              "writesEnabled": false
+            }
+          ]
+        },
+        {
+          "mode": "rpc-invalid-guard",
+          "checks": [
+            {
+              "path": "/_fixture/bindings",
+              "status": 200
+            },
+            {
+              "path": "/api/chains/4663/config",
+              "status": 200,
+              "launchGuard": "0xfD919E60eB32AE9d02A89D6D9bAB94E2634cDE29",
+              "launchLockAvailable": false,
+              "writesEnabled": true
+            },
+            {
+              "path": "/api/chains/8453/config",
+              "status": 200,
+              "launchGuard": null,
+              "launchLockAvailable": false,
+              "writesEnabled": false
+            }
+          ]
+        }
+      ],
+      "boundary": "Current tracked source compiled unmodified. Actual full Worker, native Workerd DO, Express HTTP adapter. All provider/Supabase calls are intercepted fixtures; stale process snapshot cases are explicit simulations. Miniflare binding reload recreates isolate, not proof of retained production DO refresh.",
+      "realUpstreamRequests": 0,
+      "mainnetWrites": 0
+    },
+    "workerdActualRpcAcceptance": {
+      "at": "2026-10-07T07:34:05.458Z",
+      "sourceSha256": "06a1cec2f4229d1a652a78374b97d2f2da45571db675fc34b744b6775f45aef9",
+      "scope": "Actual local native Workerd, full Worker/DO/Express, actual read-only Alchemy RPC for both deployed V2 guards. Supabase is dummy local fixture; no database or chain writes.",
+      "checks": [
+        {
+          "chainId": 4663,
+          "status": 200,
+          "config": {
+            "mode": "robinhood",
+            "deploymentChainId": 4663,
+            "chainId": 4663,
+            "treasury": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+            "writesEnabled": true,
+            "curvePolicy": "multicurve-97-3-v1",
+            "launchGuard": "0x531417dD153A72AA780DE27E502618a1F74AA409",
+            "launchLockAvailable": true,
+            "feeEngine": null,
+            "feePolicy": "creator-70-musegod-v2",
+            "buybackExecutor": null,
+            "blockReason": null,
+            "automationReceiver": null,
+            "automationTreasury": null,
+            "wethForwarder": null
+          }
+        },
+        {
+          "chainId": 8453,
+          "status": 200,
+          "config": {
+            "mode": "base",
+            "deploymentChainId": 8453,
+            "chainId": 8453,
+            "treasury": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+            "writesEnabled": false,
+            "curvePolicy": "multicurve-97-3-v1",
+            "launchGuard": "0x376DcBb32DF3B033547f3d9024b2e4E88b973BF7",
+            "launchLockAvailable": true,
+            "feeEngine": null,
+            "feePolicy": "creator-70-musegod-v2",
+            "buybackExecutor": null,
+            "blockReason": "Mainnet is read-only. Connect a wallet to query balances and simulate issuance.",
+            "automationReceiver": null,
+            "automationTreasury": null,
+            "wethForwarder": null
+          }
+        }
+      ],
+      "rpc": [
+        {
+          "chainId": 4663,
+          "method": "eth_chainId"
+        },
+        {
+          "chainId": 4663,
+          "method": "eth_blockNumber"
+        },
+        {
+          "chainId": 4663,
+          "method": "eth_getCode"
+        },
+        {
+          "chainId": 4663,
+          "method": "eth_getCode"
+        },
+        {
+          "chainId": 4663,
+          "method": "eth_call"
+        },
+        {
+          "chainId": 8453,
+          "method": "eth_chainId"
+        },
+        {
+          "chainId": 8453,
+          "method": "eth_blockNumber"
+        },
+        {
+          "chainId": 8453,
+          "method": "eth_getCode"
+        },
+        {
+          "chainId": 8453,
+          "method": "eth_getCode"
+        },
+        {
+          "chainId": 8453,
+          "method": "eth_call"
+        }
+      ],
+      "sourceTransforms": false,
+      "secretsInEvidence": false,
+      "mainnetWrites": 0
+    },
+    "applicationTestsPassed": 445,
+    "typecheck": "passed",
+    "build": "passed",
+    "republish": "Exact clean source through existing immutable master-push pipeline, retaining strict runtime verification; successful website release is recorded in GitHub Deployments"
   }
 }

@@ -33,7 +33,7 @@ export function assertLaunchRuntime(runtime: { curvePolicy?: string; launchGuard
   if (runtime.curvePolicy !== CURVE_POLICY || (expectedGuard
     ? runtime.launchGuard?.toLowerCase() !== expectedGuard.toLowerCase()
     : runtime.launchGuard !== null) || (firstBuyGuard && runtime.launchLockAvailable !== true))
-    throw new Error("Launch curve or verified guard runtime configuration does not match the release");
+    throw new Error(`Launch curve or verified guard runtime configuration does not match the release (${chainId}: expected guard ${expectedGuard ?? "none"}, received ${runtime.launchGuard ?? "none"}; lock ${runtime.launchLockAvailable ?? false})`);
 }
 
 export function snapshotBuild(directory: string): Record<string, string> {
