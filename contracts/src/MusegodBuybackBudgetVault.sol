@@ -38,6 +38,12 @@ contract MusegodBuybackBudgetVault is ReentrancyGuard {
     IBudgetPool public immutable pool;
     struct Bucket { uint64 timestamp; uint192 spent; }
     Bucket[300] private buckets;
+    // FIFO of occupied seconds. Normal execution touches only live/expired entries,
+    // rather than every unused second in a 300-slot timestamp ring.
+    uint16 private firstBucket;
+    uint16 private bucketCount;
+    uint64 private latestTimestamp;
+    uint256 private activeSpent;
     uint256 public totalSpent;
     uint256 public totalBurned;
     error InvalidConfiguration();
@@ -65,10 +71,50 @@ contract MusegodBuybackBudgetVault is ReentrancyGuard {
 
     /// @notice Sum in (now - 300 seconds, now], merging arbitrarily many calls in the same second.
     function rollingSpent() public view returns (uint256 used) {
-        for (uint256 i; i < WINDOW_SECONDS; ++i) {
-            Bucket memory b = buckets[i];
-            if (b.timestamp <= block.timestamp && block.timestamp - b.timestamp < WINDOW_SECONDS) used += b.spent;
+        if (bucketCount == 0 || block.timestamp - latestTimestamp >= WINDOW_SECONDS) return 0;
+        used = activeSpent;
+        for (uint256 i; i < bucketCount; ++i) {
+            Bucket memory b = buckets[(uint256(firstBucket) + i) % WINDOW_SECONDS];
+            if (block.timestamp - b.timestamp < WINDOW_SECONDS) break;
+            used -= b.spent;
         }
+    }
+
+    function _expireBudget() private {
+        if (bucketCount == 0) return;
+        if (block.timestamp - latestTimestamp >= WINDOW_SECONDS) {
+            firstBucket = 0; bucketCount = 0; activeSpent = 0;
+            return;
+        }
+        uint256 used = activeSpent;
+        uint16 first = firstBucket;
+        uint16 count = bucketCount;
+        while (count != 0) {
+            Bucket memory b = buckets[first];
+            if (block.timestamp - b.timestamp < WINDOW_SECONDS) break;
+            used -= b.spent;
+            first = uint16((uint256(first) + 1) % WINDOW_SECONDS);
+            --count;
+        }
+        if (first != firstBucket) { firstBucket = first; bucketCount = count; activeSpent = used; }
+    }
+
+    function _spendBudget(uint256 amount) private {
+        _expireBudget();
+        if (amount > WINDOW_CAP - activeSpent) revert BudgetExceeded();
+        uint256 index;
+        if (bucketCount != 0 && latestTimestamp == block.timestamp) {
+            index = (uint256(firstBucket) + bucketCount - 1) % WINDOW_SECONDS;
+            buckets[index].spent += uint192(amount);
+        } else {
+            // At most 300 distinct live seconds fit in (now - 300, now].
+            assert(bucketCount < WINDOW_SECONDS);
+            index = (uint256(firstBucket) + bucketCount) % WINDOW_SECONDS;
+            buckets[index] = Bucket(uint64(block.timestamp), uint192(amount));
+            ++bucketCount;
+            latestTimestamp = uint64(block.timestamp);
+        }
+        activeSpent += amount;
     }
 
     function available() external view returns (uint256) {
@@ -114,11 +160,8 @@ contract MusegodBuybackBudgetVault is ReentrancyGuard {
 
     function execute(uint256 amount, uint256 minProfit, uint256 deadline) external nonReentrant returns (uint256 burned, uint256 profit) {
         if (amount == 0 || amount > weth.balanceOf(address(this))) revert InvalidAmount();
-        if (amount > WINDOW_CAP - rollingSpent()) revert BudgetExceeded();
+        _spendBudget(amount);
         checkPrices();
-        Bucket storage b = buckets[block.timestamp % WINDOW_SECONDS];
-        if (b.timestamp != block.timestamp) { b.timestamp = uint64(block.timestamp); b.spent = 0; }
-        b.spent += uint192(amount);
         uint256 ownBefore = weth.balanceOf(address(this));
         uint256 swapperBefore = weth.balanceOf(swapper);
         uint256 museBefore = musegod.balanceOf(address(this));

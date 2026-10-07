@@ -1,0 +1,159 @@
+{
+  "scope": "Local accounting, exact rolling budget and bounded allowance regressions; no production actions",
+  "recordedAt": "2026-10-07T12:24:48.332539+00:00",
+  "sourceBaseCommit": "cc1d47a3befb20a95a616218d1db222bae3aeb8b",
+  "sourceState": "uncommitted remediation on codex/robinhood-go-live-ux",
+  "sourceHashes": {
+    "contracts/src/MusegodFeeEngine.sol": "25d7fce1008c6c57d3c25028083396188e140b97231bcce189163264608dd0a2",
+    "contracts/src/MusegodWethForwarder.sol": "d48851a873e5608791e9c6d2fb38f7b9dcce202a10c6a5ca96fd21f87c1abe69",
+    "contracts/src/MusegodBuybackBudgetVault.sol": "cf7a679770e25fbb797cea330eb393bd44d2a1dde4c88136bc7b62f9658ea98d",
+    "contracts/test/MusegodFeeEngine.t.sol": "377a11ca4657a83f17ac06b149dbc7619989a4cdf855943427dcf3a69f5bbc45",
+    "contracts/test/MusegodWethForwarder.t.sol": "89a78bab49a8ff321abafcd46a1b75f43177f54fe4cc5c16df26f92febba3b92",
+    "contracts/test/MusegodBuybackBudgetVault.t.sol": "55a680417538e7a582f693084c04fbbc41994c0a04f550e07b4fca8990ec3c40",
+    "server/buyback-activation.ts": "ce8d853ad86a457e17d5675b45f0f58d0780f6a69e70b7720188a11d24ccbaa3",
+    "scripts/deploy-buyback-engine.ts": "e8dc77f9d96046c104866fd7762928d91362b922d6efaaa46b742823b60f9c3f",
+    "scripts/build-buyback-artifacts.ts": "57ef7b3889f1e9a55b6cf9138d0a891b1e8e81e75dac82357c6cf02cbd60f397",
+    "tests/buyback-activation.test.ts": "618addc1e0ecb12e6595c73f1c221b2c133af8caf62ec3ec91259c5c22c507a2",
+    "tests/buyback-deployment.test.ts": "d6a17c0bd7fcb5baa4860f69a89104528f38738521026490f2bf84f8dd7334c0"
+  },
+  "artifactHashes": {
+    "contracts/artifacts/buyback-v2/MusegodAssetFeedOracle.compiler-input.json": "19511040cb3e0f882152c2ff2bb74115b69516b1339aea9cf88263c7c2c66c80",
+    "contracts/artifacts/buyback-v2/MusegodAssetFeedOracle.json": "677ac2d82a59de249d0d04c65253ebf8fd65792318ca0675bf1d55d39cd998a1",
+    "contracts/artifacts/buyback-v2/MusegodBuybackBudgetVault.compiler-input.json": "fc2782084b52a6315b765e5821482fd66dee3856ab05c49dadbb619447ef26e1",
+    "contracts/artifacts/buyback-v2/MusegodBuybackBudgetVault.json": "07a6e1c29b00a4fef346ba98519af167e24a6fc44345b634ae15c0ce55161ef8",
+    "contracts/artifacts/buyback-v2/MusegodFeeEngine.compiler-input.json": "ef928c1fce372535820073826ab5ab360b3cac81e4f395b614300e3d187f97bb",
+    "contracts/artifacts/buyback-v2/MusegodFeeEngine.json": "3b53abf1e7150c457cd57ef54e86d1569182001a4615b3419c4eebd6153c110e",
+    "contracts/artifacts/buyback-v2/MusegodWethForwarder.compiler-input.json": "21061ff16dd65816e58cea8a65f82c93b9298d39035cef360a87432eb1bebeea",
+    "contracts/artifacts/buyback-v2/MusegodWethForwarder.json": "f03d53095dcfc329527a86b08c5b3f8d095dccedc772fa41519f8db39535f4e4"
+  },
+  "policy": {
+    "rollingSeconds": 300,
+    "rollingWethCapWei": "10000000000000000",
+    "forwarderMaxAllowanceWei": "2880000000000000000",
+    "allowanceMeaning": "One day of maximum rolling throughput per approval; neither automatic replenishment nor a larger spend cap",
+    "initialMainnetCanaryAllowanceMaxWei": "10000000000000000",
+    "mainnetAllowanceChanged": false
+  },
+  "validation": {
+    "forgeAll": {
+      "passed": 142,
+      "failed": 0,
+      "skipped": 0
+    },
+    "activationAndDeployment": {
+      "passed": 28,
+      "failed": 0,
+      "skipped": 0
+    },
+    "typeScriptTargets": 2,
+    "compiler": "Solidity 0.8.24",
+    "exactForgeAndStandaloneBytecodeMatch": true,
+    "queueChecks": [
+      "610 dense consecutive seconds and circular queue reuse",
+      "same second aggregate across callers",
+      "299/300-second boundaries",
+      "full idle reset without storage sweep",
+      "32-step independent receipt model with 256 fuzz seeds",
+      "failed settlement atomically restores budget and transfers"
+    ],
+    "accountingChecks": [
+      "seized token retains its pending liability",
+      "actual new claim deltas remain fully credited",
+      "healthy paired WETH synchronization and forwarding continue",
+      "insolvent token cannot spend",
+      "no administrator writeoff or withdrawal"
+    ],
+    "allowanceChecks": [
+      "MAX rejects",
+      "MAX minus one rejects",
+      "2.88 WETH ceiling accepts",
+      "ceiling plus one rejects",
+      "activation proof binds fixed cap",
+      "deployment getter rejects a different cap"
+    ]
+  },
+  "gas": {
+    "environment": "Foundry local EVM, mocked pool/token/Executor dependencies; gas-report samples include revert paths and warmed storage",
+    "baselineSourceCommit": "cc1d47a3befb20a95a616218d1db222bae3aeb8b",
+    "observedBaselineRollingSpentColdMax": 730918,
+    "observedBaselineExecuteRange": [
+      763296,
+      961855
+    ],
+    "currentExecute": {
+      "min": 39776,
+      "mean": 127469,
+      "median": 148509,
+      "max": 278259,
+      "calls": 9644
+    },
+    "currentRollingSpent": {
+      "min": 640,
+      "mean": 1468,
+      "median": 1488,
+      "max": 262332,
+      "calls": 17261
+    },
+    "firstExecutionRegressionCeiling": 450000,
+    "denseLongIdleExecutionRegressionCeiling": 250000,
+    "limitations": [
+      "Different sample mix prevents treating ranges as a percentage benchmark",
+      "Partial expiry still costs work proportional to expired occupied seconds, bounded by 300",
+      "Real chain route gas and profitable execution require fresh fork/mainnet canary evidence"
+    ]
+  },
+  "logs": {
+    ".cache/claim-fixes-forge-all.log": "85243f8ad58d19b90959b0a8890884985dcdf6bda058a07c7a2509db03160ff8",
+    ".cache/claim-fixes-gas.log": "cf52125bd4b9394207c07ba2947d536e6b0fe7c1bba563313a8376bbee3e5ac4",
+    ".cache/claim-fixes-activation.log": "e0b7426f9fad675f9d66c556c8277ab0713763acb7f7db8ce49236e225da2d52",
+    ".cache/claim-fixes-artifacts.log": "0b55d84dc7dd1e5d0774726ca839dbd94ef8f5d8b30c42d51698f81f9403ebeb",
+    ".cache/claim-fixes-typecheck.log": "66c052bad352db513ca7b44fe8ba3ddb0b98a1ce2bff90c0f49e961385b6116a",
+    ".cache/claim-fixes-fork.log": "0050e5c2a449758cc39121334030680aaedafb65f1bbaf3783f91c5988454d9e",
+    ".cache/claim-fixes-stable-fixture.log": "0c539e9355f03d150006705432efd4349a66d47c3d60e7c7904cca1955238d78"
+  },
+  "protocolLimitations": [
+    "The official fee manager collects both currencies atomically; a token transfer reverting inside that manager can still prevent its whole collection",
+    "No seized balance or pending liability is written off",
+    "Local gas is not Nitro/mainnet gas profitability proof"
+  ],
+  "production": {
+    "deployment": "not_run",
+    "treasuryApproval": "not_run",
+    "realWallet": "not_run",
+    "nativeAutomation": "not_run",
+    "keeperStart": "not_run"
+  },
+  "freshForks": {
+    "actualHistory": {
+      "path": "docs/evidence/buyback-v2-fork.json",
+      "sha256": "476a0b179f86dd086719f5c02a6bd054d64cd82053b01250733cd059a3891ef4",
+      "forkBlock": "82468567",
+      "artifactAndProducerHashesMatch": true,
+      "actualFeeReceiptsCaptured": true,
+      "fullWethFeeBurnFlowPassed": false,
+      "settlementState": "waiting_at_unchanged_safety_guards",
+      "snapshotRestored": true,
+      "snapshotContractRemovalVerified": true,
+      "blockedUpstreamWrites": 0,
+      "nativeAutomation": "not_run"
+    },
+    "actualFeeCustody": {
+      "path": "docs/evidence/buyback-v2-fee-custody.json",
+      "sha256": "6b32b21c55894c656086e322968cfbaa81072c3dcf83d4d46b05bb2c7af4729a",
+      "producer": "scripts/test-buyback-engine-fork.ts"
+    },
+    "stableTimeFixture": {
+      "path": "docs/evidence/buyback-v2-vault-fixture.json",
+      "sha256": "12aa29afcca5cd7212001663ef2550714cd6e49724985ec6e0c15d9cda326068",
+      "forkBlock": "82473425",
+      "artifactAndProducerHashesMatch": true,
+      "passed": true,
+      "timeAdvanceSeconds": 1801,
+      "mainnetExecutableProof": false,
+      "actualExecutorSettlementGasUsed": "722632",
+      "gasProfitabilityProven": false,
+      "snapshotRestoredAndNewVaultRemovalAsserted": true,
+      "blockedUpstreamWrites": 0
+    }
+  }
+}

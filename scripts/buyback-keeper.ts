@@ -2,12 +2,12 @@ import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import { createPublicClient, createWalletClient, defineChain, http, keccak256, parseAbi, type Address, type Hash, type Hex } from "viem";
+import { createPublicClient, createWalletClient, defineChain, erc20Abi, http, keccak256, parseAbi, type Address, type Hash, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { robinhood } from "viem/chains";
 import deployment from "../contracts/artifacts/buyback-v2-deployment.json";
-import { verifyFeeEngine, type BuybackDeployment } from "../server/buyback-engine";
-import { BUYBACK_WETH, buybackAmountCandidates, buybackVaultAbi, engineTransaction, type BuybackEngineStatus, type EngineAction, type EngineConversionQuote } from "../src/lib/buyback-engine";
+import { readFeePoolCurrencies, verifyFeeEngine, type BuybackDeployment } from "../server/buyback-engine";
+import { BUYBACK_WETH, BUYBACK_FORWARDER_ALLOWANCE_CAP, buybackAmountCandidates, buybackVaultAbi, engineTransaction, feeEngineAbi, type BuybackEngineStatus, type EngineAction, type EngineConversionQuote } from "../src/lib/buyback-engine";
 import { sameAddress, type RuntimeConfig } from "../src/lib/config";
 import { ENGINE_FEE_POLICY, MUSEGOD_BUYBACK } from "../src/lib/fee-policy";
 
@@ -35,9 +35,9 @@ export type KeeperJournal = {
   schemaVersion: 1; chainId: number; caller: Address; nonce: number; taskId: string;
   hash: Hash; to: Address; dataHash: Hash; value: "0"; gasLimit: string; gasPrice: string;
   signedAt: number; status: "signed" | "broadcast" | "confirmed" | "reverted";
-  blockNumber?: string; blockHash?: Hash;
+  blockNumber?: string; blockHash?: Hash; gasSpent?: string; resolvedAt?: number;
 };
-const JOURNAL_FIELDS = ["schemaVersion", "chainId", "caller", "nonce", "taskId", "hash", "to", "dataHash", "value", "gasLimit", "gasPrice", "signedAt", "status", "blockNumber", "blockHash"];
+const JOURNAL_FIELDS = ["schemaVersion", "chainId", "caller", "nonce", "taskId", "hash", "to", "dataHash", "value", "gasLimit", "gasPrice", "signedAt", "status", "blockNumber", "blockHash", "gasSpent", "resolvedAt"];
 export class KeeperSigningStopped extends Error {
   constructor(message: string) { super(message); this.name = "KeeperSigningStopped"; }
 }
@@ -58,12 +58,15 @@ export async function acquireKeeperJournalLock(path: string): Promise<() => Prom
 export async function writeKeeperJournal(path: string, journal: KeeperJournal): Promise<void> {
   if (Object.keys(journal).some((key) => !JOURNAL_FIELDS.includes(key)))
     throw new KeeperSigningStopped("The keeper journal contains forbidden fields. Signing is stopped.");
+  await writePublicJsonAtomic(path, journal);
+}
+async function writePublicJsonAtomic(path: string, value: unknown): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const temporary = `${path}.${randomUUID()}.tmp`;
   let file;
   try {
     file = await open(temporary, "wx", 0o600);
-    await file.writeFile(JSON.stringify(journal, null, 2) + "\n");
+    await file.writeFile(JSON.stringify(value, null, 2) + "\n");
     await file.sync();
     await file.close(); file = undefined;
     await rename(temporary, path);
@@ -86,11 +89,13 @@ export async function readKeeperJournal(path: string, chainId: number, caller: A
     !/^0x[0-9a-fA-F]{64}$/.test(journal.hash) || !/^0x[0-9a-fA-F]{64}$/.test(journal.dataHash) || !/^0x[0-9a-fA-F]{40}$/.test(journal.to) ||
     journal.value !== "0" || !/^[1-9]\d{0,77}$/.test(journal.gasLimit) || !/^[1-9]\d{0,77}$/.test(journal.gasPrice) ||
     !Number.isSafeInteger(journal.signedAt) || journal.signedAt <= 0 || !["signed", "broadcast", "confirmed", "reverted"].includes(journal.status) ||
-    (journal.blockNumber !== undefined && !/^\d{1,20}$/.test(journal.blockNumber)) || (journal.blockHash !== undefined && !/^0x[0-9a-fA-F]{64}$/.test(journal.blockHash)))
+    (journal.blockNumber !== undefined && !/^\d{1,20}$/.test(journal.blockNumber)) || (journal.blockHash !== undefined && !/^0x[0-9a-fA-F]{64}$/.test(journal.blockHash)) ||
+    (journal.gasSpent !== undefined && !/^\d{1,78}$/.test(journal.gasSpent)) ||
+    (journal.resolvedAt !== undefined && (!Number.isSafeInteger(journal.resolvedAt) || journal.resolvedAt < journal.signedAt)))
     throw new KeeperSigningStopped("The keeper journal identity or fields are invalid. Signing is stopped.");
   return journal;
 }
-type JournalReceipt = { status: "success" | "reverted"; transactionHash: Hash; from: Address; to: Address | null; blockNumber: bigint; blockHash: Hash };
+type JournalReceipt = { status: "success" | "reverted"; transactionHash: Hash; from: Address; to: Address | null; blockNumber: bigint; blockHash: Hash; gasUsed?: bigint; effectiveGasPrice?: bigint };
 type JournalTransaction = { hash: Hash; from: Address; to: Address | null; nonce: number; input: Hex; value: bigint };
 export async function reconcileKeeperJournal(journal: KeeperJournal, deps: {
   receipt: (hash: Hash) => Promise<JournalReceipt>;
@@ -108,7 +113,10 @@ export async function reconcileKeeperJournal(journal: KeeperJournal, deps: {
       transaction.nonce !== journal.nonce || keccak256(transaction.input) !== journal.dataHash || transaction.value !== 0n ||
       head < receipt.blockNumber + 1n || canonical.hash !== receipt.blockHash)
       throw new Error("The prior transaction is not an exact canonical two-confirmation match");
-    const confirmed: KeeperJournal = { ...journal, status: receipt.status === "success" ? "confirmed" : "reverted", blockNumber: String(receipt.blockNumber), blockHash: receipt.blockHash };
+    const gasSpent = receipt.gasUsed !== undefined && receipt.effectiveGasPrice !== undefined ? receipt.gasUsed * receipt.effectiveGasPrice : BigInt(journal.gasLimit) * BigInt(journal.gasPrice);
+    if (gasSpent < 0n) throw new Error("The receipt gas cost is invalid");
+    const status = receipt.status === "success" ? "confirmed" : "reverted";
+    const confirmed: KeeperJournal = { ...journal, status, blockNumber: String(receipt.blockNumber), blockHash: receipt.blockHash, gasSpent: String(gasSpent), resolvedAt: journal.blockHash === receipt.blockHash && journal.status === status ? journal.resolvedAt ?? Date.now() : Date.now() };
     await deps.persist(confirmed);
     // A canonical reverted receipt consumed its nonce and resolved the outcome.
     // The next round must rebuild and simulate before signing a fresh attempt.
@@ -152,13 +160,104 @@ export class KeeperSubmissionBarrier {
     catch (error) { if (error instanceof KeeperSigningStopped) this.stopped = true; throw error; }
   }
 }
+// These are keeper gas protections, independent of user transaction limits and
+// the Vault's WETH budget. A resolved revert isolates only its own task.
+export const KEEPER_TASK_RETRY_POLICY = {
+  initialBackoffMs: 120_000, maximumBackoffMs: 3_600_000,
+  attemptWindowMs: 3_600_000, maximumRevertsPerWindow: 3,
+  gasWindowMs: 86_400_000, maximumFailedGasWei: 10n ** 15n,
+} as const;
+type KeeperTaskFailure = { hash: Hash; at: number; gasWei: string };
+export type KeeperTaskRetryState = { consecutiveReverts: number; nextAttemptAt: number; lastOutcomeHash: Hash; lastOutcomeStatus: "confirmed" | "reverted"; lastOutcomeBlockHash?: Hash; lastOutcomeAt: number; failures: KeeperTaskFailure[] };
+export type KeeperTaskStateFile = { schemaVersion: 1; chainId: number; caller: Address; tasks: Record<string, KeeperTaskRetryState> };
+const validTaskId = (id: string) => /^(?:(?:sync|claim):0x[0-9a-fA-F]{64}|(?:forward|convert|burn|release):0x[0-9a-fA-F]{40}|forward:source|execute:weth)$/.test(id);
+const onlyFields = (value: unknown, fields: string[]) => !!value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).every((key) => fields.includes(key));
+function validTaskState(state: KeeperTaskStateFile, chainId: number, caller: Address): boolean {
+  return onlyFields(state, ["schemaVersion", "chainId", "caller", "tasks"]) && state.schemaVersion === 1 && state.chainId === chainId &&
+    typeof state.caller === "string" && sameAddress(state.caller, caller) && !!state.tasks && typeof state.tasks === "object" && !Array.isArray(state.tasks) &&
+    Object.entries(state.tasks).length <= 4096 && Object.entries(state.tasks).every(([id, row]) => validTaskId(id) &&
+      onlyFields(row, ["consecutiveReverts", "nextAttemptAt", "lastOutcomeHash", "lastOutcomeStatus", "lastOutcomeBlockHash", "lastOutcomeAt", "failures"]) &&
+      Number.isSafeInteger(row.consecutiveReverts) && row.consecutiveReverts >= 0 && row.consecutiveReverts <= 96 &&
+      Number.isSafeInteger(row.nextAttemptAt) && row.nextAttemptAt >= 0 && Number.isSafeInteger(row.lastOutcomeAt) && row.lastOutcomeAt > 0 &&
+      /^0x[0-9a-fA-F]{64}$/.test(row.lastOutcomeHash) && ["confirmed", "reverted"].includes(row.lastOutcomeStatus) &&
+      (row.lastOutcomeBlockHash === undefined || /^0x[0-9a-fA-F]{64}$/.test(row.lastOutcomeBlockHash)) && Array.isArray(row.failures) && row.failures.length <= 96 &&
+      row.failures.every((failure) => onlyFields(failure, ["hash", "at", "gasWei"]) && /^0x[0-9a-fA-F]{64}$/.test(failure.hash) &&
+        Number.isSafeInteger(failure.at) && failure.at > 0 && /^\d{1,78}$/.test(failure.gasWei)));
+}
+export async function readKeeperTaskState(path: string, chainId: number, caller: Address): Promise<KeeperTaskStateFile> {
+  let content: string;
+  try { content = await readFile(path, "utf8"); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return { schemaVersion: 1, chainId, caller, tasks: {} }; throw new KeeperSigningStopped("The keeper task budgets could not be read. Signing is stopped."); }
+  let state: KeeperTaskStateFile;
+  try { state = JSON.parse(content); } catch { throw new KeeperSigningStopped("The keeper task budgets are malformed. Signing is stopped."); }
+  if (!validTaskState(state, chainId, caller)) throw new KeeperSigningStopped("The keeper task budget identity or fields are invalid. Signing is stopped.");
+  return state;
+}
+export async function writeKeeperTaskState(path: string, state: KeeperTaskStateFile): Promise<void> {
+  if (!validTaskState(state, state.chainId, state.caller)) throw new KeeperSigningStopped("The keeper task budgets contain invalid or forbidden fields. Signing is stopped.");
+  try { await writePublicJsonAtomic(path, state); }
+  catch { throw new KeeperSigningStopped("The keeper task budgets could not be persisted. Signing is stopped."); }
+}
+export function recordKeeperTaskOutcome(state: KeeperTaskStateFile, journal: KeeperJournal): KeeperTaskStateFile {
+  if (journal.status !== "confirmed" && journal.status !== "reverted") return state;
+  if (state.chainId !== journal.chainId || !sameAddress(state.caller, journal.caller) || !validTaskId(journal.taskId))
+    throw new KeeperSigningStopped("The resolved transaction differs from its keeper task budget identity.");
+  const previous = state.tasks[journal.taskId];
+  const sameHash = previous?.lastOutcomeHash.toLowerCase() === journal.hash.toLowerCase();
+  if (sameHash && previous.lastOutcomeStatus === journal.status && previous.lastOutcomeBlockHash === journal.blockHash) return state;
+  const at = journal.resolvedAt ?? journal.signedAt;
+  const failures = (previous?.failures ?? []).filter((failure) => failure.at > at - KEEPER_TASK_RETRY_POLICY.gasWindowMs && (!sameHash || failure.hash.toLowerCase() !== journal.hash.toLowerCase()));
+  const reverted = journal.status === "reverted";
+  if (reverted && !failures.some((failure) => failure.hash.toLowerCase() === journal.hash.toLowerCase()))
+    failures.push({ hash: journal.hash, at, gasWei: journal.gasSpent ?? String(BigInt(journal.gasLimit) * BigInt(journal.gasPrice)) });
+  const priorConsecutive = previous && previous.lastOutcomeAt > at - KEEPER_TASK_RETRY_POLICY.gasWindowMs ? previous.consecutiveReverts : 0;
+  const consecutiveReverts = reverted ? Math.min(96, priorConsecutive + (sameHash && previous.lastOutcomeStatus === "reverted" ? 0 : 1)) : 0;
+  const nextAttemptAt = reverted ? at + Math.min(KEEPER_TASK_RETRY_POLICY.maximumBackoffMs, KEEPER_TASK_RETRY_POLICY.initialBackoffMs * 2 ** Math.min(30, consecutiveReverts - 1)) : 0;
+  const tasks = Object.fromEntries(Object.entries(state.tasks).filter(([, row]) => row.lastOutcomeAt > at - KEEPER_TASK_RETRY_POLICY.gasWindowMs));
+  tasks[journal.taskId] = { consecutiveReverts, nextAttemptAt, lastOutcomeHash: journal.hash, lastOutcomeStatus: journal.status, ...(journal.blockHash ? { lastOutcomeBlockHash: journal.blockHash } : {}), lastOutcomeAt: at, failures };
+  return { ...state, tasks };
+}
+export function keeperTaskWait(state: KeeperTaskStateFile, taskId: string, maximumGasWei = 0n, now = Date.now()): { reason: string; nextAttemptAt: number } | null {
+  const row = state.tasks[taskId];
+  const failures = (row?.failures ?? []).filter((failure) => failure.at > now - KEEPER_TASK_RETRY_POLICY.gasWindowMs);
+  if (maximumGasWei < 0n) throw new Error("The keeper gas reserve cannot be negative");
+  const failedGas = failures.reduce((sum, failure) => sum + BigInt(failure.gasWei), 0n);
+  if (failedGas + maximumGasWei > KEEPER_TASK_RETRY_POLICY.maximumFailedGasWei || failedGas >= KEEPER_TASK_RETRY_POLICY.maximumFailedGasWei)
+    return { reason: "This task is waiting for its rolling 24-hour failed-gas budget", nextAttemptAt: failures.length ? Math.min(...failures.map((failure) => failure.at)) + KEEPER_TASK_RETRY_POLICY.gasWindowMs : now + KEEPER_TASK_RETRY_POLICY.gasWindowMs };
+  const recent = failures.filter((failure) => failure.at > now - KEEPER_TASK_RETRY_POLICY.attemptWindowMs);
+  if (recent.length >= KEEPER_TASK_RETRY_POLICY.maximumRevertsPerWindow)
+    return { reason: "This task is waiting after repeated canonical reverts", nextAttemptAt: Math.min(...recent.map((failure) => failure.at)) + KEEPER_TASK_RETRY_POLICY.attemptWindowMs };
+  if (row && row.nextAttemptAt > now) return { reason: "This task is backing off after a canonical revert", nextAttemptAt: row.nextAttemptAt };
+  return null;
+}
+
+/** A canonical same-block balance check avoids paying to sync an already-accounted or unrelated donation. */
+export async function keeperSyncHasNewCredit(client: Parameters<typeof readFeePoolCurrencies>[0] & { getBlockNumber: (input: { cacheTime: number }) => Promise<bigint> }, engine: Address, poolId: Hex): Promise<boolean> {
+  const blockNumber = await client.getBlockNumber({ cacheTime: 0 });
+  const currencies = await readFeePoolCurrencies(client, { engine, blockNumber }, poolId);
+  if (!currencies) return false;
+  const deltas = await Promise.all(currencies.map(async (token) => {
+    const [balance, pending] = await Promise.all([
+      client.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [engine], blockNumber }),
+      client.readContract({ address: engine, abi: feeEngineAbi, functionName: "pending", args: [token], blockNumber }),
+    ]);
+    return balance > pending;
+  }));
+  return deltas.some(Boolean);
+}
 export function selectKeeperTasks(status: BuybackEngineStatus, now = Date.now()): KeeperTask[] {
   if (!status.available) return [];
   const tasks: KeeperTask[] = [];
   const seen = new Set<string>();
+  const untracked = new Set(status.assets.filter((asset) => BigInt(asset.untracked ?? "0") > 0n).map((asset) => asset.address.toLowerCase()));
+  const syncCovered = new Set<string>();
   const add = (task: KeeperTask) => { if (!seen.has(task.id.toLowerCase())) { seen.add(task.id.toLowerCase()); tasks.push(task); } };
   for (const pool of status.pools) {
-    if (status.assets.some((asset) => BigInt(asset.untracked ?? "0") > 0n)) add({ id: `sync:${pool.poolId}`, action: { kind: "sync", poolId: pool.poolId }, label: "Account for externally pushed fees separately" });
+    const currencies = pool.currencies ?? [];
+    if (currencies.some((token) => untracked.has(token.toLowerCase()) && !syncCovered.has(token.toLowerCase()))) {
+      add({ id: `sync:${pool.poolId}`, action: { kind: "sync", poolId: pool.poolId }, label: "Account for externally pushed fees separately" });
+      for (const token of currencies) syncCovered.add(token.toLowerCase());
+    }
     if (pool.claimable?.some((asset) => (asset.lp !== null && BigInt(asset.lp) > 0n) || (asset.hook !== null && BigInt(asset.hook) > 0n)))
       add({ id: `claim:${pool.poolId}`, action: { kind: "claim", poolId: pool.poolId }, label: `Collect ${pool.symbol} pool fees` });
   }
@@ -176,7 +275,7 @@ export function selectKeeperTasks(status: BuybackEngineStatus, now = Date.now())
   if (status.sourceDeployed && status.sourceWeth !== null && status.sourceAllowance !== null) {
     const balance = BigInt(status.sourceWeth), allowance = BigInt(status.sourceAllowance);
     const amount = balance < allowance ? balance : allowance;
-    if (amount > 0n && allowance < 2n ** 256n - 1n) add({ id: "forward:source", action: { kind: "forward_source", amount: String(amount) }, label: "Forward authorized source treasury WETH to the fixed budget vault (no caller reward)" });
+    if (amount > 0n && allowance <= BUYBACK_FORWARDER_ALLOWANCE_CAP) add({ id: "forward:source", action: { kind: "forward_source", amount: String(amount) }, label: "Forward authorized source treasury WETH to the fixed budget vault (no caller reward)" });
   }
   if (status.vaultAvailable && BigInt(status.vaultAvailable) > 0n && !status.buybackWaitReason)
     add({ id: "execute:weth", action: { kind: "execute", amount: status.vaultAvailable, minProfit: "1", deadline: Math.floor(now / 1000) + 60 }, label: "Settle WETH/MUSEGOD Swapper offer" });
@@ -187,7 +286,7 @@ export function assertKeeperGraph(config: RuntimeConfig, status: BuybackEngineSt
   if (manifest.status !== "deployed_verified" || manifest.schemaVersion !== 2 || manifest.chainId !== 4663 || config.feePolicy !== ENGINE_FEE_POLICY ||
     !config.feeEngine || !config.buybackVault || !config.assetFeedOracle || !config.buybackExecutor || !config.treasury || !config.automationReceiver || !config.automationTreasury || !config.wethForwarder ||
     !status.available || !status.vault || !status.assetOracle || !status.engine || !status.swapper || !status.executor || !status.operationsTreasury || !status.automationReceiver || !status.automationTreasury || !status.wethForwarder ||
-    !status.sourceDeployed || status.sourceAllowance === null || BigInt(status.sourceAllowance) >= 2n ** 256n - 1n ||
+    !status.sourceDeployed || status.sourceAllowance === null ||
     !graph.vault?.address || !graph.assetOracle?.address || !graph.engine.address || !graph.swapper.address || !graph.executor.address || !graph.forwarder.address ||
     [constant.treasury, constant.automation, constant.automationTreasury, ...Object.values(graph).map((entry) => entry.address)].some((address) => !address || sameAddress(address, "0x0000000000000000000000000000000000000000")) ||
     new Set([constant.treasury, constant.automation, constant.automationTreasury, ...Object.values(graph).map((entry) => entry.address)].map((address) => address?.toLowerCase())).size !== 10 ||
@@ -247,6 +346,8 @@ export async function runKeeper(args = process.argv.slice(2)) {
   const safeError = (error: unknown) => redactKeeperError(error, [rawKey, process.env.MUSEGOD_DEPLOY_PRIVATE_KEY, process.env.EVM_DY, process.env.ALCHEMY_API_KEY, process.env.ROBINHOOD_RPC_URL, process.env.FORK_RPC_URL]);
   let stopping = false;
   let journalPath: string | null = null;
+  let taskStatePath: string | null = null;
+  let taskState: KeeperTaskStateFile | null = null;
   let releaseJournalLock: (() => Promise<void>) | null = null;
   const stopSigning = (error: unknown) => {
     stopping = true; process.exitCode = 1;
@@ -282,7 +383,14 @@ export async function runKeeper(args = process.argv.slice(2)) {
         const tasks = selectKeeperTasks(status);
         console.log(JSON.stringify({ mode: execute ? "execute" : "dry_run", chainId: config.chainId, tasks: tasks.length, blockNumber: String(graph.blockNumber) }));
         const wallet = execute && account ? createWalletClient({ account, chain, transport: http(rpcUrl, { timeout: 30_000, retryCount: 0 }) }) : null;
-        const persist = (journal: KeeperJournal) => writeKeeperJournal(journalPath!, journal);
+        const persist = async (journal: KeeperJournal) => {
+          if (!taskState || !taskStatePath) throw new KeeperSigningStopped("Keeper task budgets were not loaded before submission.");
+          const updated = recordKeeperTaskOutcome(taskState, journal);
+          // Persist a resolved task's gas/backoff before its journal may be
+          // replaced by another task. Restart reconciliation is idempotent.
+          if (updated !== taskState) { await writeKeeperTaskState(taskStatePath, updated); taskState = updated; }
+          await writeKeeperJournal(journalPath!, journal);
+        };
         const reconcile = (journal: KeeperJournal) => reconcileKeeperJournal(journal, {
           receipt: (hash) => client.getTransactionReceipt({ hash }), transaction: (hash) => client.getTransaction({ hash }),
           head: () => client.getBlockNumber({ cacheTime: 0 }), block: (blockNumber) => client.getBlock({ blockNumber }), persist,
@@ -292,11 +400,15 @@ export async function runKeeper(args = process.argv.slice(2)) {
           if (journalPath && journalPath !== selectedPath) throw new KeeperSigningStopped("The keeper network changed while running. Signing is stopped.");
           journalPath = selectedPath;
           if (!releaseJournalLock) releaseJournalLock = await acquireKeeperJournalLock(journalPath);
+          taskStatePath = `${selectedPath}.tasks.json`;
+          taskState = await readKeeperTaskState(taskStatePath, config.chainId, caller);
           const previous = await readKeeperJournal(journalPath, config.chainId, caller);
           if (previous) { await reconcile(previous); attempted.set(previous.taskId, Math.max(attempted.get(previous.taskId) ?? 0, previous.signedAt)); }
         }
         for (const task of tasks) {
           if (stopping) break;
+          const wait = taskState && keeperTaskWait(taskState, task.id);
+          if (wallet && wait) { console.log(JSON.stringify({ task: task.id, state: "waiting", ...wait })); continue; }
           if ((attempted.get(task.id) ?? 0) + 60_000 > Date.now()) continue;
           attempted.set(task.id, Date.now());
           try {
@@ -307,6 +419,9 @@ export async function runKeeper(args = process.argv.slice(2)) {
                 throw new Error("The conversion preview changed its input or expiry");
               action = quote.action;
             } else action = { ...task.action };
+            if (action.kind === "sync" && !await keeperSyncHasNewCredit(client, graph.engine, action.poolId)) {
+              console.log(JSON.stringify({ task: task.id, state: "skipped", reason: "No new credit remains in this verified pool's currencies" })); continue;
+            }
             if (action.kind === "execute") {
               let selected: Extract<EngineAction, { kind: "execute" }> | null = null;
               for (const amount of buybackAmountCandidates(BigInt(action.amount))) {
@@ -360,6 +475,11 @@ export async function runKeeper(args = process.argv.slice(2)) {
             if (stopping) throw new Error("The keeper stopped before signing");
             const previous = await readKeeperJournal(journalPath!, config.chainId, caller);
             if (previous) await reconcile(previous);
+            const budgetWait = keeperTaskWait(taskState!, task.id, keeperGasCost(gasLimit, gasPrice));
+            if (budgetWait) { console.log(JSON.stringify({ task: task.id, state: "waiting", ...budgetWait })); continue; }
+            if (action.kind === "sync" && !await keeperSyncHasNewCredit(client, graph.engine, action.poolId)) {
+              console.log(JSON.stringify({ task: task.id, state: "skipped", reason: "Another transaction already accounted for this pool's new credit" })); continue;
+            }
             const confirmed = await submission.submit({ chainId: config.chainId, caller, nonce: latestNonce, taskId: task.id, to: tx.to, dataHash: keccak256(tx.data), value: "0", gasLimit: String(gasLimit), gasPrice: String(gasPrice) }, {
               sign: () => {
                 if (stopping) throw new KeeperSigningStopped("The keeper stopped before signing.");
@@ -378,7 +498,8 @@ export async function runKeeper(args = process.argv.slice(2)) {
               },
             });
             console.log(JSON.stringify({ task: task.id, state: confirmed.status === "confirmed" ? "confirmed" : "reverted_waiting", hash: confirmed.hash, blockNumber: confirmed.blockNumber }));
-            if (confirmed.status === "reverted") break;
+            // A resolved revert is budgeted for this task only. Other verified
+            // tasks continue; unknown outcomes still fail-stop all signing.
           } catch (error) {
             if (error instanceof KeeperSigningStopped) { stopSigning(error); return; }
             console.log(JSON.stringify({ task: task.id, state: "skipped", reason: safeError(error) }));

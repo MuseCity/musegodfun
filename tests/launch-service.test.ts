@@ -810,6 +810,23 @@ test("final simulation accepts outputs within the signed minimum instead of exac
   output = 989n; await assert.rejects(() => service.simulateLaunch(creator, f.plan.data), /accepted minimum/);
 });
 
+test("validation and simulation previews do not permanently protect abandoned plans", async () => {
+  const f = fixture(), directory = mkdtempSync(join(tmpdir(), "unsigned-plan-lifetime-")), store = new Store(directory,31337);
+  const config: RuntimeConfig = {mode:"fork",deploymentChainId:4663,chainId:31337,writesEnabled:true,blockReason:null,
+    treasury,launchGuard:guard,curvePolicy:CURVE_POLICY,feePolicy:FEE_POLICY};
+  const service = Object.assign(Object.create(LaunchpadService.prototype), {runtime:{config},store,config:async()=>config}) as LaunchpadService;
+  try {
+    store.savePlan(f.plan);
+    await service.validateLaunch(creator,f.plan.data);
+    store.cleanup(Date.now()+31*86400000);
+    assert.equal(store.getPlan(f.plan.id),null,"read-only validation must not disable unsigned TTL cleanup");
+    store.savePlan(f.plan);
+    await service.validateLaunch(creator,f.plan.data,true);
+    store.cleanup(Date.now()+31*86400000);
+    assert(store.getPlan(f.plan.id),"wallet handoff can have an unknown outcome and must preserve its frozen plan");
+  } finally {store.close();rmSync(directory,{recursive:true,force:true});}
+});
+
 test("old confirmed receipts slow down when finality is unavailable without being marked finalized", async () => {
   let finalized = false, retryAt = 0;
   const service = Object.assign(Object.create(LaunchpadService.prototype), {

@@ -42,6 +42,11 @@ test("real Worker routes refresh native secrets and flags while persistent pause
     const controlled=await get("/api/config");assert.equal(controlled.writesEnabled,false);assert.equal(controlled.signingPaused,true);assert.equal(controlled.controlRevision,4);
     const tooLarge=await mf.dispatchFetch("https://musegod.fun/api/launch/prepare",{method:"POST",headers:{"cf-connecting-ip":"192.0.2.11","content-type":"application/json"},body:"x".repeat(65537)});
     assert.equal(tooLarge.status,413);
+    const recoveryBody = JSON.stringify({hash:`0x${"a".repeat(64)}`,recoveryPlan:{padding:"x".repeat(70_000)}});
+    const recovery = await mf.dispatchFetch("https://musegod.fun/api/launch/register",{method:"POST",headers:{"cf-connecting-ip":"192.0.2.12","content-type":"application/json"},body:recoveryBody});
+    assert.equal(recovery.status,400,"valid JSON over64KiB reaches recovery schema, which rejects malformed backup");
+    const recoveryTooLarge = await mf.dispatchFetch("https://musegod.fun/api/chains/4663/launch/register",{method:"POST",headers:{"cf-connecting-ip":"192.0.2.13","content-type":"application/json"},body:"x".repeat(262_145)});
+    assert.equal(recoveryTooLarge.status,413,"chain-specific recovery also enforces the256KiB stream bound");
     const withoutKey={...bindings};delete (withoutKey as Partial<typeof bindings>).LIFI_API_KEY;
     await mf.setOptions(options(withoutKey));
     keys.length=0;await get("/api/first-buy/prices");assert(keys.length>0 && keys.every(key=>String(key)===""),"removed native secret does not fall back to the previous process snapshot");

@@ -5,15 +5,16 @@ import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { keccak256, type Address, type Hex } from "viem";
-import { acquireKeeperJournalLock, assertKeeperAccount, assertKeeperDeploymentAccount, assertKeeperGraph, assertKeeperNonceReady, keeperApiOrigin, keeperGasCost, keeperProfitThreshold, KeeperSigningStopped, KeeperSubmissionBarrier, readKeeperJournal, reconcileKeeperJournal, redactKeeperError, selectKeeperTasks, writeKeeperJournal, type KeeperJournal } from "../scripts/buyback-keeper";
-import { BUYBACK_WETH, buybackAmountCandidates, type BuybackEngineStatus, type EngineAssetStatus } from "../src/lib/buyback-engine";
+import { encodeAbiParameters, getAddress, keccak256, parseAbiParameters, type Address, type Hex } from "viem";
+import { acquireKeeperJournalLock, assertKeeperAccount, assertKeeperDeploymentAccount, assertKeeperGraph, assertKeeperNonceReady, keeperApiOrigin, keeperGasCost, keeperProfitThreshold, keeperSyncHasNewCredit, keeperTaskWait, KEEPER_TASK_RETRY_POLICY, KeeperSigningStopped, KeeperSubmissionBarrier, readKeeperJournal, readKeeperTaskState, reconcileKeeperJournal, recordKeeperTaskOutcome, redactKeeperError, selectKeeperTasks, writeKeeperJournal, writeKeeperTaskState, type KeeperJournal, type KeeperTaskStateFile } from "../scripts/buyback-keeper";
+import { BUYBACK_WETH, BUYBACK_FORWARDER_ALLOWANCE_CAP, buybackAmountCandidates, type BuybackEngineStatus, type EngineAssetStatus } from "../src/lib/buyback-engine";
 import { MUSEGOD_BUYBACK } from "../src/lib/fee-policy";
 import { ENGINE_FEE_POLICY } from "../src/lib/fee-policy";
 import type { RuntimeConfig } from "../src/lib/config";
 import type { BuybackDeployment } from "../server/buyback-engine";
 import deployment from "../contracts/artifacts/buyback-v2-deployment.json";
 import { redact } from "../server/config";
+import buybackConfig from "../contracts/buyback.config.json";
 
 const stock = "0x1111111111111111111111111111111111111111" as Address;
 const unknown = "0x2222222222222222222222222222222222222222" as Address;
@@ -89,8 +90,9 @@ test("keeper binds the independent Automation receiver and operating treasury wi
     assert.throws(() => assertKeeperGraph({ ...config, ...changes }, current, manifest), /reviewed deployment/);
     assert.throws(() => assertKeeperGraph(config, { ...current, ...changes }, manifest), /reviewed deployment/);
   }
-  for (const changes of [{ sourceDeployed: false }, { sourceAllowance: String(2n ** 256n - 1n) }, { sourceAllowance: null }])
+  for (const changes of [{ sourceDeployed: false }, { sourceAllowance: null }])
     assert.throws(() => assertKeeperGraph(config, { ...current, ...changes }, manifest), /reviewed deployment/);
+  assert.doesNotThrow(() => assertKeeperGraph(config, { ...current, sourceAllowance: String(BUYBACK_FORWARDER_ALLOWANCE_CAP + 1n) }, manifest), "Excess source approval isolates forwarding without blocking Vault processing");
   for (const changes of [{ status: "not_configured" }, { account: null }, { account: ops }, { network: 31337 }, { outputToken: stock }, { allocationBps: 8000 }, { recipient: executor }])
     assert.throws(() => assertKeeperGraph(config, current, { ...manifest, automation: { ...manifest.automation!, ...changes } }), /reviewed deployment/);
   assert.throws(() => assertKeeperGraph(config, current, { ...manifest, automation: undefined }), /reviewed deployment/);
@@ -107,8 +109,9 @@ test("keeper forwards authorized source WETH before settlement without using Ora
     assert("action" in tasks[0]); assert.deepEqual(tasks[0].action, { kind: "forward_source", amount: String(amount) });
     assert.match(tasks[0].label, /no caller reward/);
   }
-  for (const changes of [{ sourceDeployed: false }, { sourceWeth: "0" }, { sourceAllowance: String(2n ** 256n - 1n) }, { sourceAllowance: null }])
+  for (const changes of [{ sourceDeployed: false }, { sourceWeth: "0" }, { sourceAllowance: String(2n ** 256n - 1n) }, { sourceAllowance: String(2n ** 256n - 2n) }, { sourceAllowance: String(BUYBACK_FORWARDER_ALLOWANCE_CAP + 1n) }, { sourceAllowance: null }])
     assert.equal(selectKeeperTasks(status({ sourceWeth: "100", sourceAllowance: "25", ...changes })).length, 0);
+  assert.deepEqual(selectKeeperTasks(status({ sourceWeth: "100", sourceAllowance: String(BUYBACK_FORWARDER_ALLOWANCE_CAP + 1n), vaultAvailable: "1" })).map((task) => task.id), ["execute:weth"], "An oversized source approval isolates forwarding and leaves existing Vault funds executable");
 });
 
 test("keeper collection uses only positive known LP or hook previews and deduplicates pools", () => {
@@ -117,6 +120,43 @@ test("keeper collection uses only positive known LP or hook previews and dedupli
   assert.equal(tasks.length, 1);
   assert("action" in tasks[0]);
   assert.deepEqual(tasks[0].action, { kind: "claim", poolId });
+});
+
+test("syncs associate positive untracked balances with verified pool currencies and deduplicate shared assets", () => {
+  const otherPool = `0x${"bb".repeat(32)}` as Hex, thirdPool = `0x${"cc".repeat(32)}` as Hex;
+  const pool = { address: stock, symbol: "TEST", poolId, claimable: null, currencies: [stock, BUYBACK_WETH] };
+  const pools = [pool, { ...pool, poolId: otherPool, currencies: [stock, unknown] }, { ...pool, poolId: thirdPool, currencies: [unknown, BUYBACK_WETH] }];
+  const untracked = (address: Address) => asset(address, { pending: "0", available: "0", untracked: "1" });
+  assert.deepEqual(selectKeeperTasks(status({ pools, assets: [untracked(MUSEGOD_BUYBACK.tokenAddress)] })), [], "An unrelated one-wei donation must not fan out to every pool");
+  assert.deepEqual(selectKeeperTasks(status({ pools, assets: [untracked(stock)] })).map((task) => task.id), [`sync:${poolId}`]);
+  assert.deepEqual(selectKeeperTasks(status({ pools, assets: [untracked(stock), untracked(unknown)] })).map((task) => task.id), [`sync:${poolId}`, `sync:${otherPool}`]);
+  assert.deepEqual(selectKeeperTasks(status({ pools: [{ ...pool, currencies: null }], assets: [untracked(stock)] })), [], "Unknown or legacy pool keys cannot authorize a guessed sync");
+});
+
+test("sync rechecks canonical keys, shares and actual same-block balance deltas before submission", async () => {
+  const initializer = getAddress(buybackConfig.constants.initializer), rehype = getAddress(buybackConfig.constants.rehype);
+  const currencies = [stock, BUYBACK_WETH].sort((a, b) => BigInt(a) < BigInt(b) ? -1 : 1) as [Address, Address];
+  const key = { currency0: currencies[0], currency1: currencies[1], fee: 0x800000, tickSpacing: 10, hooks: initializer };
+  const id = keccak256(encodeAbiParameters(parseAbiParameters("address,address,uint24,int24,address"), [key.currency0, key.currency1, key.fee, key.tickSpacing, key.hooks]));
+  let balance = 11n, assetReads = 0;
+  const client = { getBlockNumber: async () => 77n, readContract: async ({ address, functionName, args, blockNumber }: { address: Address; functionName: string; args: unknown[]; blockNumber: bigint }) => {
+    assert.equal(blockNumber, 77n);
+    if (functionName === "getPoolKey") { assert.equal(args[0], id); if (address === rehype) throw new Error("One manager is temporarily unavailable"); return key; }
+    if (functionName === "getShares") return 228n * 10n ** 15n;
+    assetReads++;
+    if (functionName === "balanceOf") return address === stock ? balance : 0n;
+    assert.equal(functionName, "pending"); return args[0] === stock ? 10n : 0n;
+  } } as unknown as Parameters<typeof keeperSyncHasNewCredit>[0];
+  assert.equal(await keeperSyncHasNewCredit(client, vault, id), true);
+  balance = 10n;
+  assert.equal(await keeperSyncHasNewCredit(client, vault, id), false, "An earlier successful sync makes the queued task a no-op");
+  assert.equal(assetReads, 8);
+  const invalid = { ...client, readContract: async (input: Parameters<typeof client.readContract>[0]) => {
+    if (input.functionName === "getPoolKey") return { ...key, tickSpacing: 1 };
+    return client.readContract(input);
+  } } as unknown as Parameters<typeof keeperSyncHasNewCredit>[0];
+  assert.equal(await keeperSyncHasNewCredit(invalid, vault, id), false);
+  assert.equal(assetReads, 8, "An invalid pool must never select arbitrary token balance reads");
 });
 
 test("keeper errors cannot expose dedicated signing keys or upstream URLs", () => {
@@ -275,6 +315,89 @@ test("journal recovery requires exact nonce, target, calldata and canonical two-
   }));
   assert.equal(reverted.status, "reverted", "A canonical failure is resolved; only a newly simulated attempt may retry later");
   assert.equal((terminal as KeeperJournal | null)?.status, "reverted");
+});
+
+test("canonical revert cost and resolution time are recorded from the receipt rather than the gas limit", async () => {
+  const journal: KeeperJournal = { ...journalInput, schemaVersion: 1, hash: keccak256(signedTransaction), signedAt: Date.now(), status: "broadcast" };
+  const result = await reconcileKeeperJournal(journal, recoveryDeps(journal, async () => {}, {
+    receipt: async (hash) => ({ status: "reverted", transactionHash: hash, from: stock, to: unknown, blockNumber: 10n, blockHash: canonicalHash, gasUsed: 50_000n, effectiveGasPrice: 7n }),
+  }));
+  assert.equal(result.gasSpent, "350000"); assert(result.resolvedAt! >= journal.signedAt);
+  const reread = await reconcileKeeperJournal(result, recoveryDeps(result, async () => {}, {
+    receipt: async (hash) => ({ status: "reverted", transactionHash: hash, from: stock, to: unknown, blockNumber: 10n, blockHash: canonicalHash, gasUsed: 50_000n, effectiveGasPrice: 7n }),
+  }));
+  assert.equal(reread.resolvedAt, result.resolvedAt, "Reading the same receipt cannot renew its backoff");
+});
+
+test("resolved reverts persist task-level backoff across restarts without delaying unrelated tasks", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "keeper-task-budget-")), path = join(directory, "tasks.json");
+  const at = 1_800_000_000_000;
+  const journal: KeeperJournal = { ...journalInput, schemaVersion: 1, hash: keccak256(signedTransaction), signedAt: at, resolvedAt: at + 10_000, gasSpent: "100", status: "reverted" };
+  try {
+    const empty = await readKeeperTaskState(path, 4663, stock);
+    const updated = recordKeeperTaskOutcome(empty, journal);
+    assert.equal(updated.tasks[journal.taskId].consecutiveReverts, 1);
+    assert.equal(updated.tasks[journal.taskId].nextAttemptAt, journal.resolvedAt! + KEEPER_TASK_RETRY_POLICY.initialBackoffMs);
+    assert.equal(recordKeeperTaskOutcome(updated, journal), updated, "Repeated canonical reconciliation must not charge gas twice");
+    await writeKeeperTaskState(path, updated);
+    const restarted = await readKeeperTaskState(path, 4663, stock);
+    assert(keeperTaskWait(restarted, journal.taskId, 0n, at + 20_000));
+    assert.equal(keeperTaskWait(restarted, "forward:source", 0n, at + 20_000), null, "A failed settlement must not starve collection or forwarding");
+    assert.equal(keeperTaskWait(restarted, journal.taskId, 0n, at + 130_000), null);
+    await assert.rejects(() => readKeeperTaskState(path, 8453, stock), KeeperSigningStopped);
+    await assert.rejects(() => readKeeperTaskState(path, 4663, unknown), KeeperSigningStopped);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("three canonical reverts impose a rolling hourly task limit even after a successful retry", () => {
+  const at = 1_800_000_000_000;
+  let state: KeeperTaskStateFile = { schemaVersion: 1, chainId: 4663, caller: stock, tasks: {} };
+  const outcome = (index: number, status: "confirmed" | "reverted") => ({ ...journalInput, schemaVersion: 1 as const, hash: `0x${String(index).padStart(64, "0")}` as Hex, signedAt: at + index * 1000, resolvedAt: at + index * 1000, gasSpent: "1", status });
+  for (let i = 1; i <= 3; i++) state = recordKeeperTaskOutcome(state, outcome(i, "reverted"));
+  const waiting = keeperTaskWait(state, journalInput.taskId, 0n, at + 500_000);
+  assert.match(waiting!.reason, /repeated canonical reverts/);
+  state = recordKeeperTaskOutcome(state, outcome(4, "confirmed"));
+  assert.equal(state.tasks[journalInput.taskId].consecutiveReverts, 0);
+  assert(keeperTaskWait(state, journalInput.taskId, 0n, at + 500_000), "Success clears exponential backoff but cannot erase spent failure attempts");
+  assert.equal(keeperTaskWait(state, journalInput.taskId, 0n, at + 3_604_000), null);
+});
+
+test("a canonical reorg outcome replaces the same hash failure rather than preserving or double-counting it", () => {
+  const at = 1_800_000_000_000;
+  const failed: KeeperJournal = { ...journalInput, schemaVersion: 1, hash: keccak256(signedTransaction), signedAt: at, resolvedAt: at, gasSpent: "100", blockHash: canonicalHash, status: "reverted" };
+  let state = recordKeeperTaskOutcome({ schemaVersion: 1, chainId: 4663, caller: stock, tasks: {} }, failed);
+  const reorg = { ...failed, resolvedAt: at + 1000, gasSpent: "90", blockHash: `0x${"ef".repeat(32)}` as Hex };
+  state = recordKeeperTaskOutcome(state, reorg);
+  assert.equal(state.tasks[failed.taskId].failures.length, 1);
+  assert.equal(state.tasks[failed.taskId].failures[0].gasWei, "90");
+  assert.equal(state.tasks[failed.taskId].consecutiveReverts, 1);
+  state = recordKeeperTaskOutcome(state, { ...reorg, status: "confirmed" });
+  assert.equal(state.tasks[failed.taskId].failures.length, 0);
+  assert.equal(keeperTaskWait(state, failed.taskId, 0n, at + 1001), null);
+});
+
+test("the persistent failed-gas budget reserves the worst case before signing and expires without extending itself", () => {
+  const at = 1_800_000_000_000;
+  const journal: KeeperJournal = { ...journalInput, schemaVersion: 1, hash: keccak256(signedTransaction), signedAt: at, resolvedAt: at, gasSpent: String(KEEPER_TASK_RETRY_POLICY.maximumFailedGasWei - 1n), status: "reverted" };
+  const state = recordKeeperTaskOutcome({ schemaVersion: 1, chainId: 4663, caller: stock, tasks: {} }, journal);
+  assert.equal(keeperTaskWait(state, journal.taskId, 1n, at + 120_000), null);
+  const blocked = keeperTaskWait(state, journal.taskId, 2n, at + 120_000);
+  assert.match(blocked!.reason, /failed-gas budget/); assert.equal(blocked!.nextAttemptAt, at + 86_400_000);
+  assert.equal(keeperTaskWait(state, "forward:source", 2n, at + 120_000), null);
+  assert.equal(keeperTaskWait(state, journal.taskId, 2n, at + 86_400_000), null);
+  assert.equal(keeperTaskWait(state, journal.taskId, 2n, at + 120_000)!.nextAttemptAt, blocked!.nextAttemptAt, "Read retries must not renew the budget window");
+});
+
+test("damaged or private task-state fields fail-stop instead of silently resetting retry budgets", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "keeper-task-damaged-")), path = join(directory, "tasks.json");
+  try {
+    const state: KeeperTaskStateFile = { schemaVersion: 1, chainId: 4663, caller: stock, tasks: {} };
+    await assert.rejects(() => writeKeeperTaskState(path, { ...state, privateKey: "forbidden" } as KeeperTaskStateFile), KeeperSigningStopped);
+    await writeFile(path, "damaged");
+    await assert.rejects(() => readKeeperTaskState(path, 4663, stock), KeeperSigningStopped);
+    await writeFile(path, JSON.stringify({ ...state, tasks: { [journalInput.taskId]: { consecutiveReverts: -1, failures: [] } } }));
+    await assert.rejects(() => readKeeperTaskState(path, 4663, stock), KeeperSigningStopped);
+  } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
 test("existing live, stale and damaged journal locks never get unlinked or stolen automatically", async () => {

@@ -11,3 +11,8 @@ export function securityHeaders(secure: boolean, production = true): Record<stri
     } : {}),
   };
 }
+/** Frozen creation backups repeat encoded metadata; other request bodies keep
+ * the smaller ingress bound. Both Node and Worker enforce this same limit. */
+export function requestBodyLimitForPath(path: string): number {
+  return /^\/api\/(?:chains\/(?:8453|4663)\/)?launch\/register\/?$/i.test(path.split("?")[0]) ? 262_144 : 65_536;
+}

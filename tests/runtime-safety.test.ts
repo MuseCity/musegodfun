@@ -4,7 +4,7 @@ import { mkdtempSync,rmSync,mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Store } from "../server/store";
-import { clientBucket,expensiveRoute,IngressLimiter,PreviewQueue,RiskChallenge } from "../server/abuse";
+import { clientBucket,expensiveRoute,IngressLimiter,PreviewQueue,RiskChallenge,SOURCE_CONCURRENCY } from "../server/abuse";
 import { runtimeFromEnv } from "../server/config";
 import { packPlan,unpackPlan } from "../server/plan-storage";
 import { assertSecurityTransition,rollbackPreservesSafety,publishCandidate,ReleaseFailure } from "../scripts/release-policy";
@@ -48,7 +48,7 @@ test("IPv6 /64 addresses share limits while other clients retain capacity",()=>{
   assert.equal(clientBucket("::ffff:192.0.2.1"),"192.0.2.1");
   for(const path of ["/api/first-buy/prices?pairedAsset=test","/api/LAUNCH/PREPARE/","/api/chains/4663/token-images"])assert.equal(expensiveRoute(path),true);
   const limiter=new IngressLimiter();
-  const active=Array.from({length:4},()=>limiter.admit("2001:db8:abcd:1::1","/api/rpc",1));
+  const active=Array.from({length:SOURCE_CONCURRENCY},()=>limiter.admit("2001:db8:abcd:1::1","/api/rpc",1));
   assert.equal(limiter.admit("2001:db8:abcd:1::2","/api/rpc",1).status,429);
   const other=limiter.admit("192.0.2.2","/api/rpc",1);assert.equal(other.status,undefined);other.release();active.forEach(x=>x.release());
   for(let i=0;i<17;i++){const result=limiter.admit("192.0.2.3","/api/launch/prepare",1);assert.equal(result.challenge,i>=16);result.release();}
@@ -92,10 +92,10 @@ test("release preserves live emergency overrides and permits intentional committ
   assert.doesNotThrow(()=>assertSecurityTransition({ENABLE_MAINNET_TRANSACTIONS:"false"},{ENABLE_MAINNET_TRANSACTIONS:"true"},{ENABLE_MAINNET_TRANSACTIONS:"false"}));
   assert.throws(()=>assertSecurityTransition({ENABLE_MAINNET_TRANSACTIONS:"TRUE"},{ENABLE_MAINNET_TRANSACTIONS:"true"},{ENABLE_MAINNET_TRANSACTIONS:"true"}),/drift/,"flags use the runtime's exact true semantics");
 });
-test("automatic rollback cannot select a version that lacks persistent safety controls",async()=>{
+test("an incompatible rollback baseline prevents upload and activation",async()=>{
   let active="previous";const activations:string[]=[];
   await assert.rejects(publishCandidate({commit:"source",previousVersion:"previous",currentMaster:async()=>"source",activeVersion:async()=>active,assertFrozen(){},upload:async()=>"candidate",publishRelease:async()=>{},createDeployment:async()=>{},status:async()=>{},activate:async version=>{active=version;activations.push(version);},verify:async()=>{throw new Error("smoke failed");},verifyRollback:async()=>{},rollbackAllowed:async()=>false}),error=>error instanceof ReleaseFailure && error.rollback==="blocked_by_safety");
-  assert.deepEqual(activations,["candidate"]);
+  assert.deepEqual(activations,[]);
 });
 
 test("prepare leases bound both chain runtimes and renew live work",()=>{

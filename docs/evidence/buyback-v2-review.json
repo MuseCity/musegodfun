@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "status": "passed",
   "scope": "Internal independent source review and isolated execution evidence only. This is a source-integrity gate for a subsequently explicitly authorized deployment; it grants no deployment, publication, signing, funding, treasury approval or production activation authority.",
-  "observedAt": "2026-10-07T11:26:23.210469+00:00",
-  "baseCommit": "36a792393197ce42393785f7c0752dcbc0a796bf",
+  "observedAt": "2026-10-07T12:52:26.742203+00:00",
+  "baseCommit": "cc1d47a3befb20a95a616218d1db222bae3aeb8b",
   "branch": "codex/robinhood-go-live-ux",
   "uncommittedSource": true,
   "reviewers": [
@@ -21,7 +21,7 @@
     {
       "area": "shared WETH budget",
       "result": "passed",
-      "detail": "300 second buckets enforce (now-300s, now], total <=10000000000000000 wei, regardless of caller, call count, epoch boundary or replenishment."
+      "detail": "Occupied-second FIFO and incremental spent enforce (now-300s, now], total <=10000000000000000 wei; expiration boundaries, same-second callers, wraparound, dense610s and independent receipt-model fuzz checked. Ordinary rolling reads avoid300 cold storage slots; partial expiration work is bounded."
     },
     {
       "area": "atomic fixed settlement",
@@ -36,12 +36,12 @@
     {
       "area": "fee accounting",
       "result": "passed",
-      "detail": "Claimed and observed untracked transfers remain separate; increased valid shares accepted. Actual deployed manager custody verified by saved fork raw receipts."
+      "detail": "Actual claimed and untracked transfers remain separate; new income never erases an existing deficit. Healthy-currency collection/sync/spend is isolated; insolvent currency never spends. No write-off/withdrawal authority. An upstream manager atomic collection revert remains a protocol limitation."
     },
     {
       "area": "activation proof",
       "result": "passed",
-      "detail": "Canonical >=64 confirmations, immutable graph bindings, current EIP191/EIP1271 treasury signatures, old approval0, new finite approval before forward, legacy zero checkpoint, genuine fee receipts plus historical counter interval, ordered release/conversion/sweep/forward/settlement and actual DEAD transfer. External scheduler evidence is explicitly governor attested, not independently established by onchain transfers."
+      "detail": "Canonical >=64 confirmations, immutable graph bindings, current EIP191/EIP1271 treasury signatures, old approval0, new finite approval before forward, legacy zero checkpoint, genuine fee receipts plus historical counter interval, ordered release/conversion/sweep/forward/settlement and actual DEAD transfer. External scheduler evidence is explicitly governor attested, not independently established by onchain transfers. Fixed source allowance cap2880000000000000000wei excludesMAX/MAX-minus1; historical signed canary proof must stay <=0.01WETH. Current oversized source grant pauses forwarding only, never existing Vault funds or healthy fee paths."
     },
     {
       "area": "compiler/provenance",
@@ -51,7 +51,7 @@
     {
       "area": "isolated validation",
       "result": "passed",
-      "detail": "135 Solidity tests; current retained-history fork safety and successful settlement plus separate actual fee-custody receipts. Upstream writes0 and snapshot cleanup. Native scheduler and real wallet control remain not_run."
+      "detail": "142 Solidity tests and28 activation/deployment tests pass. Fresh retained-history fork verifies real fees, unpriced/source forwarding and conversions, but final settlement safely waits at the unchanged price floor. Separate explicit1801s stable-time fixture executes newbytecode through realSplits/AMM at0.01WETH, gas722632. This is not current mainnet profitability or native scheduler proof. Snapshot restored/new contracts removed/upstream writes0."
     }
   ],
   "sourceHashes": {
@@ -61,12 +61,12 @@
     "contracts/artifacts/MusegodBuybackOracle.json": "aa755d7bd5bc35fcedfe043bc0ecd551b6791077e0f6ea7e8c0285e8db224bb5",
     "contracts/artifacts/buyback-v2/MusegodAssetFeedOracle.compiler-input.json": "19511040cb3e0f882152c2ff2bb74115b69516b1339aea9cf88263c7c2c66c80",
     "contracts/artifacts/buyback-v2/MusegodAssetFeedOracle.json": "677ac2d82a59de249d0d04c65253ebf8fd65792318ca0675bf1d55d39cd998a1",
-    "contracts/artifacts/buyback-v2/MusegodBuybackBudgetVault.compiler-input.json": "ef9b59cb9d71b48fb0752c67c14e268d0deea1272f4dc280d5fa7714fb9b8002",
-    "contracts/artifacts/buyback-v2/MusegodBuybackBudgetVault.json": "58b4ba8e8d3584ac43a1726a365bf3405c326bdd46e3b3a54fe6520db1bc9127",
-    "contracts/artifacts/buyback-v2/MusegodFeeEngine.compiler-input.json": "b772b944838a2b29f2fb0fbbac6d8ffff50f5dd4f3f59aa5912ca0023c74fc15",
-    "contracts/artifacts/buyback-v2/MusegodFeeEngine.json": "c7e844f1dce3f9a44e9ef764db9d468af6759bdf943df149d719a41fc9e53073",
-    "contracts/artifacts/buyback-v2/MusegodWethForwarder.compiler-input.json": "4b1997574a0f4386d3aca79ae212a52290b15068bcaf73d5016fb77b46945938",
-    "contracts/artifacts/buyback-v2/MusegodWethForwarder.json": "e169f56de8091ba7ef7351e880f0b4800382b89a901efa7276a11e95a9125f9e",
+    "contracts/artifacts/buyback-v2/MusegodBuybackBudgetVault.compiler-input.json": "fc2782084b52a6315b765e5821482fd66dee3856ab05c49dadbb619447ef26e1",
+    "contracts/artifacts/buyback-v2/MusegodBuybackBudgetVault.json": "07a6e1c29b00a4fef346ba98519af167e24a6fc44345b634ae15c0ce55161ef8",
+    "contracts/artifacts/buyback-v2/MusegodFeeEngine.compiler-input.json": "ef928c1fce372535820073826ab5ab360b3cac81e4f395b614300e3d187f97bb",
+    "contracts/artifacts/buyback-v2/MusegodFeeEngine.json": "3b53abf1e7150c457cd57ef54e86d1569182001a4615b3419c4eebd6153c110e",
+    "contracts/artifacts/buyback-v2/MusegodWethForwarder.compiler-input.json": "21061ff16dd65816e58cea8a65f82c93b9298d39035cef360a87432eb1bebeea",
+    "contracts/artifacts/buyback-v2/MusegodWethForwarder.json": "f03d53095dcfc329527a86b08c5b3f8d095dccedc772fa41519f8db39535f4e4",
     "contracts/buyback.config.json": "dbc667ccfae630298336172414fd7ba1c17e47307b58bb229f730f327faa6621",
     "contracts/lib/openzeppelin-contracts/interfaces/IERC1363.sol": "9c3a75a925a6dac9e88b03cddc58d42fe3131b0aaaad84408521f3f7af2f991b",
     "contracts/lib/openzeppelin-contracts/interfaces/IERC165.sol": "dfb3f56fa928a7c6cae41a7ce2c86b9210fa18d33fa26389099d66a0fa790368",
@@ -79,27 +79,28 @@
     "contracts/lib/openzeppelin-contracts/utils/StorageSlot.sol": "75704538dcb223239280c6726d9a31cf769a7816718517c997fc7d63bdb70778",
     "contracts/lib/openzeppelin-contracts/utils/introspection/IERC165.sol": "9055c2994b37dea1a41b7b7926dcb510f05dbe2540b0aafc5fbee9558fffd0ca",
     "contracts/src/MusegodAssetFeedOracle.sol": "d7839f50e57ced82e63300e69b4a46cff2941ea7e77c60b073afd82b6a6a0566",
-    "contracts/src/MusegodBuybackBudgetVault.sol": "c9be12e9b5545f7660a5a58f64d17aad3b62bd6ebc24b510eab51fc457383b43",
+    "contracts/src/MusegodBuybackBudgetVault.sol": "cf7a679770e25fbb797cea330eb393bd44d2a1dde4c88136bc7b62f9658ea98d",
     "contracts/src/MusegodBuybackExecutor.sol": "802a5235a8e9cf430a75da41bf2bf3a7dd334c000e3d6a15d09c0c61ed319f41",
     "contracts/src/MusegodBuybackOracle.sol": "736947a245ba53abeb51b2b21b10c83e80b736fe533afa6ef14fa91a8f77fb6b",
-    "contracts/src/MusegodFeeEngine.sol": "4c31b5d9e4bfa3a229c92cb175093434372cf421dfbe2460e8872f233676535b",
-    "contracts/src/MusegodWethForwarder.sol": "f1d127667c38173e6944573fd2769f671902fa2c512f87b6f101441487f77a0f",
+    "contracts/src/MusegodFeeEngine.sol": "25d7fce1008c6c57d3c25028083396188e140b97231bcce189163264608dd0a2",
+    "contracts/src/MusegodWethForwarder.sol": "d48851a873e5608791e9c6d2fb38f7b9dcce202a10c6a5ca96fd21f87c1abe69",
     "contracts/src/interfaces/IDopplerBundler.sol": "e9bf47f65286efe51ff8f2b2b56e2afaa738fbaccb2c2458570f40395b5f13e8",
     "scripts/build-buyback-artifacts.ts": "57ef7b3889f1e9a55b6cf9138d0a891b1e8e81e75dac82357c6cf02cbd60f397",
-    "scripts/buyback-keeper.ts": "990ca9ccdc7f823851418d24f7f350e6400b63e15b6756569ef9b9b1bdeb018a",
-    "scripts/deploy-buyback-engine.ts": "63c6440c35f6a82521dae0799e5b14b7990213be302fa5248546cc2b9d27897e",
-    "scripts/test-buyback-engine-fork.ts": "4ba15ebc1edd0fbb1dbf1420587c9d8d5a8f052ebe357f0724ca449c2f0974ff",
+    "scripts/buyback-keeper.ts": "eb6f52cd7efff4debb152299f07bb83edad6f804b46ace5e4cff47e12fadbdd0",
+    "scripts/deploy-buyback-engine.ts": "e8dc77f9d96046c104866fd7762928d91362b922d6efaaa46b742823b60f9c3f",
+    "scripts/test-buyback-engine-fork.ts": "8716049a1c82ed30b924831efa33129f54176c8a291634079b4474fe22047322",
     "scripts/test-buyback-vault-fork.ts": "854efc4775023b185c1d4043d0b24c0146e23bd1c0270a6638aa048bdebfd116",
-    "server/buyback-activation.ts": "81c3951733eb9674a0ec1714de1f9b98d5312cc8cb0bf1708a2e50ded36ae3ac",
-    "server/buyback-engine.ts": "340043ea1e8519d1e4ca9e1adc9917f3d0b88d54f163b631fd8fbf33dd3e65e0",
+    "server/buyback-activation.ts": "ce8d853ad86a457e17d5675b45f0f58d0780f6a69e70b7720188a11d24ccbaa3",
+    "server/buyback-engine.ts": "09c1aed1eda983c3ae8a1e1ce82bc750aedd07332bbf2401dfddd0dac04b7abc",
     "server/config.ts": "86929f737c939e7e868c1c8f0d698a260663f4816532ce742b6440037864b4bd",
-    "src/lib/buyback-engine.ts": "df4bf9a087618d8e686ba1c2e67bf1bbb5136c904c466aa7afb0767fee53b51a",
+    "src/lib/buyback-engine.ts": "171c73a250125516e81d0ee033c8e34bff48ee1aab1ef5eea8691574340050f3",
     "src/lib/musegod.ts": "bc58fba772097db078d050819ca0a49b5a12919e34468ab396189c57d8b33ab7"
   },
   "evidenceHashes": {
-    "docs/evidence/buyback-v2-fork.json": "0b541cd1e102826c5397edf71e0cd1c54cc39809c74a4704ed376e4b1240186f",
-    "docs/evidence/buyback-v2-fee-custody.json": "a00b5cacff20eb51bc9435eea209549f70d6e9b88635a12ebd8ddae632858ca3",
-    "docs/evidence/buyback-v2-vault-fixture.json": "2432679b3fbe3e2db801356e341e7fbf2028a5f0b81331448bf7d10175ff98f5"
+    "docs/evidence/buyback-v2-fork.json": "476a0b179f86dd086719f5c02a6bd054d64cd82053b01250733cd059a3891ef4",
+    "docs/evidence/buyback-v2-fee-custody.json": "6b32b21c55894c656086e322968cfbaa81072c3dcf83d4d46b05bb2c7af4729a",
+    "docs/evidence/buyback-v2-vault-fixture.json": "12aa29afcca5cd7212001663ef2550714cd6e49724985ec6e0c15d9cda326068",
+    "docs/evidence/buyback-v2-accounting-gas.json": "1b6af03fcff96545ac411060cb667eb603a630b540d962367cc3c0105f4a114b"
   },
   "mutableManifest": {
     "path": "contracts/artifacts/buyback-v2-deployment.json",
@@ -112,7 +113,10 @@
     "Fee-feed proxy governance and native Automation custody remain explicit trusted dependencies.",
     "Stable-time Vault fixture is hypothetical and never accepted as current market or mainnet readiness proof.",
     "Fee-custody sourceHash belongs to its isolated derivative probe; producer.baseSourceSha256 identifies the current retained script.",
-    "Historical pools and preexisting or third-party direct Swapper funds are outside the new Vault budget."
+    "Historical pools and preexisting or third-party direct Swapper funds are outside the new Vault budget.",
+    "Retained-history fork82468567 reports fullWethFeeBurnFlowPassed=false; successful old-source burn receipts are not reused for the remediation.",
+    "The actual fixed feed/offer guards remain unchanged; current mainnet profitability and native scheduler acceptance are still required.",
+    "Keeper resolved-revert tasks now have persistent backoff/attempt/gas budgets; unresolved outcomes remain global signing stops."
   ],
   "production": {
     "deploymentAuthority": "not_granted",

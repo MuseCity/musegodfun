@@ -12,6 +12,12 @@ test("deployment recovery rejects the same contract code bound to a different gr
   await assert.rejects(verifyModuleBindings(async (name) => name === "automation" ? expected.swapper : expected[name as keyof typeof expected], expected), /automation deployment binding differs/);
   await assert.rejects(verifyModuleBindings(async (name) => name === "ethMaxAge" ? 3600 : expected[name as keyof typeof expected], expected), /ethMaxAge deployment binding differs/);
 });
+test("Forwarder deployment recovery rejects a different allowance ceiling", async () => {
+  const expected = { MAX_ALLOWANCE: "2880000000000000000" };
+  await verifyModuleBindings(async () => 2880000000000000000n, expected);
+  for (const value of [10000000000000000n, 2880000000000000001n, 2n ** 256n - 2n])
+    await assert.rejects(verifyModuleBindings(async () => value, expected), /MAX_ALLOWANCE deployment binding differs/);
+});
 
 test("deployment journal replaces a complete durable file and cleans failed replacements", async () => {
   const directory = await mkdtemp(join(tmpdir(), "musegod-deployment-journal-"));

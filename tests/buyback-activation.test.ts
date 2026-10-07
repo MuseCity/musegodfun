@@ -99,6 +99,22 @@ test("an exact signed graph activates from canonical receipts without requiring 
   assert.match(result.nativeSchedulerEvidence, /external_attestation/);
   await assert.rejects(() => verifyBuybackActivation({ ...f.client, getChainId: async () => 31337 }, f.manifest, 200n), /chain 4663/);
 });
+test("activation rejects MAX, MAX minus one and approvals above the fixed daily ceiling", async () => {
+  for (const amount of [2n ** 256n - 1n, 2n ** 256n - 2n, 288n * 10n ** 16n + 1n]) {
+    const f = await fixture(); f.proof.newFiniteAllowance.amount = String(amount);
+    await assert.rejects(() => verifyBuybackActivation(f.client, f.manifest, 200n), /finite raw amount|2.88 WETH ceiling/);
+  }
+});
+test("activation accepts the exact 2.88 WETH approval ceiling with an unchanged small canary", async () => {
+  const f = await fixture(), cap = 288n * 10n ** 16n;
+  f.proof.newFiniteAllowance.amount = String(cap);
+  const receipt = f.receipts.get(hash("approve"))!;
+  receipt.logs = [event("event Approval(address indexed owner,address indexed spender,uint256 value)", getAddress(f.manifest.constants.weth), {
+    owner: getAddress(f.manifest.constants.automationTreasury!), spender: f.nodes.forwarder, value: cap,
+  })].map((log, logIndex) => ({ ...log, logIndex })) as typeof receipt.logs;
+  assert.equal((await verifyBuybackActivation(f.client, f.manifest, 200n)).activatedAtBlock, "27");
+  assert.equal(f.native.wethAmount, "100000000000000", "allowance is not a larger canary budget");
+});
 test("synced donations never replace actual fixed-manager fee collection", async () => {
   const f = await fixture(), asset = f.native.unpricedToken, collection = f.receipts.get(hash("collection"))!;
   collection.logs = [event("event Transfer(address indexed from,address indexed to,uint256 value)", asset, { from: stranger.address, to: f.nodes.engine, value: 100n }),

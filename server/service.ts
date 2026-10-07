@@ -70,8 +70,13 @@ export class LaunchpadService {
   private readonly guardCandidate: Address | null;
   private readonly firstBuyGuardCandidate: Address | null;
   private readonly feeEngineCandidate: Address | null;
-  private stocksCache?: { at: number; value: StockStatus[] };
+  private stocksCache?: { at: number; ttl?: number; value: StockStatus[] };
   private stocksPromise?: Promise<StockStatus[]>;
+  private guardCache?: Map<string, {at: number; value: Awaited<ReturnType<typeof verifyLaunchGuard>> | null}>;
+  private guardRequests?: Map<string, Promise<Awaited<ReturnType<typeof verifyLaunchGuard>> | null>>;
+  private tokensCache?: {at: number; value: TokenRecord[]};
+  private tokensPromise?: Promise<TokenRecord[]>;
+  private tokensRevision = 0;
   private openingCache?: Map<string, { at: number; value: LifiOpeningValuation }>;
   private openingRequests?: Map<string, Promise<LifiOpeningValuation>>;
   constructor(readonly runtime: ReturnType<typeof runtimeFromEnv>) {
@@ -135,7 +140,7 @@ export class LaunchpadService {
     return body.result;
   }
   async stocks(): Promise<StockStatus[]> {
-    if (this.stocksCache && Date.now() - this.stocksCache.at < 300_000)
+    if (this.stocksCache && Date.now() - this.stocksCache.at < (this.stocksCache.ttl ?? 300_000))
       return this.stocksCache.value;
     if (this.stocksPromise) return this.stocksPromise;
     this.stocksPromise = (async () => {
@@ -178,8 +183,11 @@ export class LaunchpadService {
             }),
           )),
         );
-      if (statuses.every((s) => s.verified && !s.availabilityWarning))
-        this.stocksCache = { at: Date.now(), value: statuses };
+      // Known warnings are useful results, not reasons to hammer every asset.
+      // Cache partial failures briefly without renewing the original block/time.
+      const ttl = statuses.every(s => s.verified && !s.availabilityWarning) ? 300_000
+        : statuses.every(s => s.verified) ? 30_000 : 5_000;
+      this.stocksCache = { at: Date.now(), ttl, value: statuses };
       return statuses;
     })();
     try {
@@ -187,6 +195,18 @@ export class LaunchpadService {
     } finally {
       this.stocksPromise = undefined;
     }
+  }
+  private async guardIdentity(address: Address, requiredVersion?: "vesting") {
+    const chainId = deploymentChain(this.runtime.config), key = `${chainId}:${address.toLowerCase()}:${requiredVersion ?? "any"}`;
+    const cache = this.guardCache ??= new Map(), requests = this.guardRequests ??= new Map();
+    const cached = cache.get(key);
+    if (cached && Date.now() - cached.at < (cached.value ? 300_000 : 3_000)) return cached.value;
+    if (requests.has(key)) return requests.get(key)!;
+    const request = verifyLaunchGuard(this.client, address, chainId, requiredVersion).then(value => {
+      cache.set(key, {at: Date.now(), value}); return value;
+    }, () => { cache.set(key, {at: Date.now(), value: null}); return null; });
+    requests.set(key, request);
+    try { return await request; } finally { requests.delete(key); }
   }
   async config(): Promise<RuntimeConfig> {
     // Fail closed for first buys, while ordinary issuance and receipt recovery
@@ -207,7 +227,8 @@ export class LaunchpadService {
       if (!candidate.address || launchGuard) continue;
       try {
         await this.assertNetwork();
-        const verified = await verifyLaunchGuard(this.client, candidate.address, deploymentChain(this.runtime.config), candidate.requiredVersion);
+        const verified = await this.guardIdentity(candidate.address, candidate.requiredVersion);
+        if (!verified) continue;
         launchGuard = candidate.address;
         launchLockAvailable = verified.supportsLock;
       } catch { /* The public configuration exposes only a verified address. */ }
@@ -385,7 +406,7 @@ export class LaunchpadService {
     await this.store.savePlan(plan);
     return plan;
   }
-  async validateLaunch(creator: Address, data: Hex) {
+  async validateLaunch(creator: Address, data: Hex, signing = false) {
     const plan = await this.store.findPlan(creator, data);
     if (!plan || plan.curvePolicy !== CURVE_POLICY)
       throw new Error("The issuance curve policy has changed. Run a new preview.");
@@ -408,7 +429,9 @@ export class LaunchpadService {
       if (plan.firstBuy?.lockDays && !config.launchLockAvailable)
         throw new Error("The first buy lock guard could not be verified. Run a new preview.");
     }
-    await this.store.protectPlan(plan.id);
+    // Simulation is still an unsigned preview. Protect only when the client is
+    // entering a real wallet signature; unknown submissions must not age out.
+    if (signing) await this.store.protectPlan(plan.id);
     return { valid: true, feePolicy: plan.feePolicy, curvePolicy: plan.curvePolicy, planId: plan.id,
       validityVersion: plan.validityVersion, signingExpiresAt: plan.signingExpiresAt, intentId: plan.intentId, serverTime: Date.now() };
   }
@@ -552,6 +575,7 @@ export class LaunchpadService {
       await this.store.savePlan(plan); await this.store.protectPlan(plan.id); await this.store.trackLaunch(hash, plan.id);
     }
     await this.store.saveToken(token);
+    this.invalidateTokens();
     await this.store.launchStatus(hash, "confirmed", receipt.blockHash);
     return token;
   }
@@ -583,6 +607,7 @@ export class LaunchpadService {
                 : null;
             if (!canonical || canonical.hash !== row.blockHash) {
               await this.store.removeToken(row.hash);
+              this.invalidateTokens();
               await this.store.launchStatus(row.hash, "pending");
             } else if (row.status === "confirmed") {
               // Only a node-reported finalized block leaves the hot queue.
@@ -604,6 +629,7 @@ export class LaunchpadService {
             const canonical = await this.client.getBlock({ blockNumber: receipt.blockNumber });
             if (canonical.hash !== receipt.blockHash) continue;
             await this.store.removeToken(row.hash);
+            this.invalidateTokens();
             await this.store.launchStatus(row.hash, "failed");
           } else await this.register(row.hash);
         } catch {
@@ -630,7 +656,19 @@ export class LaunchpadService {
     return { token, state };
   }
   async tokens() {
-    return listedTokens(await this.store.tokens(), this.runtime.config.mode, deploymentChain(this.runtime.config));
+    if (this.tokensCache && Date.now() - this.tokensCache.at < 10_000) return structuredClone(this.tokensCache.value);
+    if (this.tokensPromise) return structuredClone(await this.tokensPromise);
+    const revision = this.tokensRevision ?? 0;
+    const request = Promise.resolve(this.store.tokens()).then(rows => {
+      const value = listedTokens(rows, this.runtime.config.mode, deploymentChain(this.runtime.config));
+      if (revision === (this.tokensRevision ?? 0)) this.tokensCache = {at: Date.now(), value}; return value;
+    });
+    this.tokensPromise = request;
+    try { return structuredClone(await request); } finally { if (this.tokensPromise === request) this.tokensPromise = undefined; }
+  }
+  private invalidateTokens() {
+    this.tokensRevision = (this.tokensRevision ?? 0) + 1;
+    this.tokensCache = undefined; this.tokensPromise = undefined;
   }
   async token(address: Address) {
     const token = await this.store.token(address);

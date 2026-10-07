@@ -368,7 +368,7 @@ async function main(args=process.argv.slice(2)) {
     {weth:constants.weth,musegod:constants.muse,oracle,swapper,executor,pool:constants.museWethPool,WINDOW_SECONDS:300,WINDOW_CAP:"10000000000000000",MAX_DEVIATION_BPS:200});
   if (!vault) { console.log(JSON.stringify({status:manifest.status,deployment:"not_run",reason:"Budget vault deployment pending"})); return; }
   const forwarder = await ensureModule("forwarder",[constants.automationTreasury,constants.weth,swapper,vault],
-    {source:constants.automationTreasury,weth:constants.weth,swapper,vault});
+    {source:constants.automationTreasury,weth:constants.weth,swapper,vault,MAX_ALLOWANCE:"2880000000000000000"});
   if (!forwarder) { console.log(JSON.stringify({status:manifest.status,deployment:"not_run",reason:"Forwarder deployment pending"})); return; }
   const verificationBlock = await client.getBlockNumber({cacheTime:0});
   for (const f of buybackConfig.feeds) {

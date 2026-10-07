@@ -143,6 +143,7 @@ export default function BuybackEngine({ config }: { config: RuntimeConfig | null
       </dl>
       <p className="muted">Anyone can forward the smaller of this treasury's WETH balance and its approved allowance to the fixed budget vault. The authorization covers WETH held in this source treasury, including deposits whose origin is not proven to be platform fees. It grants no access to other tokens or the separate operations treasury. Forwarding is a WETH transfer, not a completed buyback or burn; the caller pays gas and receives no forwarding reward.</p>
       {!status.sourceDeployed || status.sourceAllowance === "0" ? <p className="muted">Waiting for source deployment and a human-approved WETH allowance in Splits. This page does not request or sign approvals.</p> : null}
+      {status.sourceAuthorizationError ? <p className="muted" role="status">{status.sourceAuthorizationError}</p> : null}
       <button className="secondary" disabled={!enabled || busy || !status.sourceAvailable || status.sourceAvailable === "0"} onClick={() => void run({ kind: "forward_source", amount: status.sourceAvailable! })}>Forward approved source WETH to vault</button>
       <h3>Fee collection</h3>
       {status.pools.length ? status.pools.map((pool) => <div className="fee-allocation" key={pool.poolId}>

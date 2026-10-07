@@ -368,8 +368,25 @@ contract MusegodFeeEngineTest {
     function testDeficitNeverBecomesNewCreditOrSubsidizesProcessing() public {
         asset.mint(address(engine), 1000); engine.syncUntracked(poolId);
         vm.prank(address(engine)); asset.transfer(STRANGER, 1);
-        vm.expectRevert(MusegodFeeEngine.NoValidClaim.selector); engine.syncUntracked(poolId);
+        engine.syncUntracked(poolId);
         require(engine.pending(address(asset)) == 1000 && engine.totalSynced(address(asset)) == 1000);
+        oracle.setFeed(address(asset), address(0));
+        vm.expectRevert(MusegodFeeEngine.InsolventBalance.selector);
+        engine.releaseUnpriced(address(asset), 1);
+    }
+
+    function testSeizedCurrencyDoesNotBlockHealthyFeeCollectionOrForwarding() public {
+        _claimAsset(1000);
+        vm.prank(address(engine)); asset.transfer(STRANGER, 200);
+        weth.mint(address(engine), 1000); engine.syncUntracked(poolId);
+        require(engine.pending(address(asset)) == 1000 && asset.balanceOf(address(engine)) == 800);
+        _accrue(lp, poolId, key, address(asset), 100);
+        _accrue(hook, poolId, key, address(weth), 200);
+        vm.warp(1300); engine.claimAndForward(poolId);
+        require(engine.totalClaimed(address(asset)) == 1100 && engine.pending(address(asset)) == 1100);
+        require(asset.balanceOf(address(engine)) == 900, "shortfall was not written off");
+        require(engine.totalClaimed(address(weth)) == 200 && weth.balanceOf(address(vault)) == 100);
+        require(engine.pending(address(weth)) == 1100, "healthy currency continues independently");
     }
 
     function testBeneficiaryShareIncreaseKeepsClaimsAndSyncAvailable() public {

@@ -93,4 +93,51 @@ contract MusegodBuybackBudgetVaultTest {
         if(first+next>1e16){vm.expectRevert(MusegodBuybackBudgetVault.BudgetExceeded.selector);_run(next);}else{_run(next);}
         require(vault.rollingSpent()<=1e16);
     }
+
+    function testDenseSecondsExpireExactlyAndQueueWraps() public {
+        for (uint256 i; i < 610; ++i) {
+            vm.warp(1000 + i); _run(1);
+            require(vault.rollingSpent() == (i < 300 ? i + 1 : 300));
+        }
+        vm.warp(1908); require(vault.rollingSpent() == 1);
+        vm.warp(1909); require(vault.rollingSpent() == 0);
+        _run(0.01 ether); require(vault.rollingSpent() == 0.01 ether);
+    }
+
+    function testLongIdleClearsDenseQueueWithoutScanningOldStorage() public {
+        for (uint256 i; i < 300; ++i) { vm.warp(1000 + i); _run(1); }
+        vm.warp(1600);
+        uint256 beforeGas = gasleft();
+        _run(1);
+        require(beforeGas - gasleft() < 250000, "idle reset rescanned expired slots");
+        require(vault.rollingSpent() == 1);
+    }
+
+    function testFirstExecutionHasNoCold300SlotScan() public {
+        uint256 beforeGas = gasleft();
+        _run(0.001 ether);
+        require(beforeGas - gasleft() < 450000, "first execution exceeds budget accounting gas ceiling");
+        beforeGas = gasleft();
+        require(vault.rollingSpent() == 0.001 ether);
+        require(beforeGas - gasleft() < 12000, "live budget view should not scan empty slots");
+    }
+
+    function testFuzzRollingQueueMatchesIndependentReceiptModel(uint256 seed) public {
+        uint256[32] memory times; uint256[32] memory amounts;
+        uint256 nowTime = 1000;
+        for (uint256 i; i < 32; ++i) {
+            seed = uint256(keccak256(abi.encode(seed, i)));
+            nowTime += seed % 401; vm.warp(nowTime);
+            uint256 expected;
+            for (uint256 j; j < i; ++j) if (nowTime - times[j] < 300) expected += amounts[j];
+            require(vault.rollingSpent() == expected, "independent rolling model before execution");
+            uint256 amount = (seed >> 32) % 1e16 + 1;
+            if (amount + expected > 1e16) {
+                vm.expectRevert(MusegodBuybackBudgetVault.BudgetExceeded.selector); _run(amount);
+            } else {
+                _run(amount); times[i] = nowTime; amounts[i] = amount; expected += amount;
+            }
+            require(vault.rollingSpent() == expected, "independent rolling model after execution");
+        }
+    }
 }

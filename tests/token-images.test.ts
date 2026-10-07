@@ -185,8 +185,8 @@ test("image HTTP flow uploads to Pinata, removes old reads and bounds same-origi
     assert.equal((await fetch(`${origin}/api/token-images/${"0".repeat(64)}.webp`)).status, 404);
     assert.equal((await upload({ image: "not an image" })).status, 400);
     assert.equal(pinataRequests, 1);
-    // The existing Node error handler maps parser errors to 422; workerd rejects ingress at 413.
-    assert.equal((await upload({ image: "x".repeat(65_536) })).status, 422);
+    // Node and Worker enforce the same ordinary-request body bound and status.
+    assert.equal((await upload({ image: "x".repeat(65_536) })).status, 413);
     assert.equal(pinataRequests, 1);
     await service.store.saveSnapshot(`pinata:${key}`, {}, Date.now());
     failUpload = true;

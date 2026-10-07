@@ -83,6 +83,7 @@ const result: Record<string, unknown> = {
 const deployments = result.deployments as Record<string, unknown>[];
 const assets = result.assets as Record<string, unknown>[];
 const conversions = result.conversions as Record<string, unknown>[];
+const feeCustody: { label: string; engine: Address; transactionHash: Hash; rawReceipt: unknown }[] = [];
 if (!c.automation) {
   Object.assign(result,{status:"not_run",reason:"Configure the real Robinhood Splits Automation address before current-route fork acceptance",nativeSplitsAutomationExecution:"not_run",blockedUpstreamWrites:0});
   await writeFile("docs/evidence/buyback-v2-fork.json",JSON.stringify(result,serialize,2)+"\n");
@@ -287,6 +288,8 @@ async function issue(ticker: string, buyAmount: string) {
   const sell = await trade(state.poolKey, address, (await balance(address, creator)) / 2n);
   const pendingBefore = await read(engine, "MusegodFeeEngine", "pending", [asset.address]) as bigint;
   const claim = await callEngine("claimFees", [poolId]);
+  if (ticker === "WETH") feeCustody.push({ label: "claimFees", engine, transactionHash: claim.hash,
+    rawReceipt: await client.getTransactionReceipt({ hash: claim.hash }) });
   const pending = await read(engine, "MusegodFeeEngine", "pending", [asset.address]) as bigint;
   assert(pending > pendingBefore, `${ticker} actual pool fees must credit the fixed engine beneficiary`);
   const row = { ticker, pairedAsset: asset.address, address, poolId, poolKey: state.poolKey, valuation, funding, launch, buy, sell,
@@ -322,6 +325,8 @@ async function releaseUnknownFees(row: Awaited<ReturnType<typeof issue>>) {
   const claimedBefore = await read(engine, "MusegodFeeEngine", "totalClaimed", [row.address]) as bigint;
   const nextForwardedBefore = await read(engine, "MusegodFeeEngine", "totalAutomationForwarded", [row.address]) as bigint;
   const combined = await callEngine("claimAndForward", [row.poolId]);
+  feeCustody.push({ label: "claimAndForward", engine, transactionHash: combined.hash,
+    rawReceipt: await client.getTransactionReceipt({ hash: combined.hash }) });
   const newlyClaimed = (await read(engine, "MusegodFeeEngine", "totalClaimed", [row.address]) as bigint) - claimedBefore;
   assert(newlyClaimed > 0n, "The additional real sale must generate new meme LP fees");
   assert.equal(await balance(row.address, automation) - nextAutomationBefore, newlyClaimed);
@@ -715,6 +720,14 @@ try {
   assert.equal(result.blockedUpstreamWrites, 0);
   await mkdir("docs/evidence", { recursive: true });
   await writeFile("docs/evidence/buyback-v2-fork.json", JSON.stringify(result, serialize, 2) + "\n");
+  if (feeCustody.length === 2) await writeFile("docs/evidence/buyback-v2-fee-custody.json", JSON.stringify({
+    scope: "Fresh isolated actual Doppler claim/release custody receipts from the reviewed V2 source",
+    producer: "scripts/test-buyback-engine-fork.ts", sourceHash, configHash: sha256(configRaw), artifactHashes,
+    upstreamChainId: 4663, executionChainId: 31337, forkBlock: result.forkBlock, mainnetTransactionSubmitted: false,
+    actualFeeCustodyCaptured: true, snapshotRestored: result.snapshotRestored,
+    snapshotContractRemovalVerified: result.snapshotContractRemovalVerified, blockedUpstreamWrites: result.blockedUpstreamWrites,
+    nativeSplitsAutomationExecution: "not_run", feeCustody,
+  }, serialize, 2) + "\n");
 }
 if (failure) throw new Error(failure);
 console.log(JSON.stringify({ fullWethFeeBurnFlowPassed: result.fullWethFeeBurnFlowPassed,

@@ -4,7 +4,7 @@ import { decodeFunctionData, encodeFunctionData, erc20Abi, toHex, zeroAddress, t
 import { assertFirstBuyLaunchConfig, executeFirstBuyPayment, PaymentPriceChanged } from "../src/lib/first-buy-wallet";
 import { resetQuoteClock } from "../src/lib/quote-clock";
 import { FIRST_BUY_PAYMENT_CONTRACTS, assertFirstBuyPaymentQuote, firstBuyPairedAsset, firstBuyPaymentAbi, firstBuyPaymentAssets,
-  type FirstBuyPaymentQuote } from "../src/lib/first-buy-payment";
+  createDirectWrapQuote, firstBuyPaymentRefreshInput, firstBuyPaymentInput, type FirstBuyPaymentQuote } from "../src/lib/first-buy-payment";
 import { launchAssetsFor, ROBINHOOD_STOCKS, type RuntimeConfig } from "../src/lib/config";
 import { assertLaunchRequest } from "../src/lib/launch-wallet";
 import { CURVE_POLICY } from "../src/lib/launch-curve";
@@ -74,6 +74,25 @@ function refreshedQuote(expectedOut: string): FirstBuyPaymentQuote {
   q.transaction.data = encodeFunctionData({ abi: firstBuyPaymentAbi, functionName: decoded.functionName, args: args as never });
   return q;
 }
+
+test("near-expiry historical wraps refresh with supported API input and exact 1:1 output", async (t) => {
+  let now = 1_800_000_000_000;
+  resetQuoteClock(); t.after(resetQuoteClock); t.mock.method(Date, "now", () => now);
+  const original = createDirectWrapQuote(4663, account, 1_000_000n, "0x6000", { number: 10n, hash }, now - 46_000);
+  original.slippageBps = 1; // Existing frozen backups must remain recoverable.
+  const f = dependencies(original); let refreshes = 0;
+  f.deps.refresh = async (previous) => {
+    refreshes++;
+    const request = firstBuyPaymentRefreshInput(previous), normalized = firstBuyPaymentInput(4663, request);
+    assert.equal(request.slippageBps, 100); assert.equal(normalized.amountIn, 1_000_000n);
+    return createDirectWrapQuote(4663, normalized.account, normalized.amountIn, "0x6000", { number: 11n, hash }, now);
+  };
+  await executeFirstBuyPayment(original, config, account, f.deps);
+  assert.equal(refreshes, 1); assert.equal(f.approvals.length, 0); assert.equal(f.sent.length, 1);
+  assert.equal(f.sent[0].minimumOut, original.amountIn); assert.equal(f.sent[0].expectedOut, original.amountIn);
+  assert.equal(f.sent[0].transaction.value, original.amountIn); assert.equal(original.slippageBps, 1);
+  now += 61_000; assertFirstBuyPaymentQuote(original, now, true);
+});
 
 test("payment approval can outlive sixty seconds and refresh in-range without another approval or lowering calldata protection", async (t) => {
   let now = 1_800_000_000_000;

@@ -205,6 +205,25 @@ contract MusegodWethForwarderTest {
         _unchanged(type(uint256).max, 0);
     }
 
+    function testNearInfiniteAndAboveCeilingApprovalsCannotForward() public {
+        uint256 cap = forwarder.MAX_ALLOWANCE();
+        for (uint256 i; i < 2; ++i) {
+            uint256 approved = i == 0 ? type(uint256).max - 1 : cap + 1;
+            _approve(approved);
+            vm.expectRevert(MusegodWethForwarder.AllowanceAboveCap.selector);
+            forwarder.forward(1);
+            _unchanged(approved, 0);
+        }
+    }
+
+    function testExactCeilingRemainsFiniteAndDoesNotChangeVaultDestination() public {
+        uint256 cap = forwarder.MAX_ALLOWANCE();
+        require(cap == 2.88 ether);
+        _approve(cap); forwarder.forward(1000);
+        require(weth.allowance(SOURCE, address(forwarder)) == cap - 1000);
+        require(weth.balanceOf(address(vault)) == 1000);
+    }
+
     function testZeroAmountAndInsufficientBalanceRevert() public {
         _approve(type(uint256).max);
         vm.expectRevert(MusegodWethForwarder.InvalidAmount.selector);
@@ -358,7 +377,7 @@ contract MusegodWethForwarderTest {
     }
 
     function testFuzzExactForwardingWithPreexistingBalances(uint96 rawAmount, uint96 rawDonation) public {
-        uint256 amount = uint256(rawAmount) + 1;
+        uint256 amount = uint256(rawAmount) % forwarder.MAX_ALLOWANCE() + 1;
         uint256 donation = uint256(rawDonation);
         weth.mint(SOURCE, amount);
         weth.mint(address(vault), donation);

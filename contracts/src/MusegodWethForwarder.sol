@@ -25,6 +25,9 @@ contract MusegodWethForwarder is ReentrancyGuard {
 
     address public constant DEAD = 0x000000000000000000000000000000000000dEaD;
     address public constant MUSEGOD = 0x0379E228F6887c6F18bf394042ECAF81B308cb2e;
+    // One day of maximum Vault throughput per treasury approval; spending still
+    // obeys the Vault's independent 0.01 WETH rolling 300-second cap.
+    uint256 public constant MAX_ALLOWANCE = 2.88 ether;
 
     address public immutable source;
     IERC20 public immutable weth;
@@ -35,6 +38,7 @@ contract MusegodWethForwarder is ReentrancyGuard {
     error InvalidConfiguration();
     error InvalidAmount();
     error InfiniteAllowance();
+    error AllowanceAboveCap();
     error BalanceMismatch();
 
     event Forwarded(address indexed caller, uint256 amount);
@@ -61,7 +65,9 @@ contract MusegodWethForwarder is ReentrancyGuard {
         _requireBurnSwapper(swapper);
         uint256 sourceBefore = weth.balanceOf(source);
         if (amount > sourceBefore) revert InvalidAmount();
-        if (weth.allowance(source, address(this)) == type(uint256).max) revert InfiniteAllowance();
+        uint256 approved = weth.allowance(source, address(this));
+        if (approved == type(uint256).max) revert InfiniteAllowance();
+        if (approved > MAX_ALLOWANCE) revert AllowanceAboveCap();
         uint256 vaultBefore = weth.balanceOf(vault);
         uint256 forwarderBefore = weth.balanceOf(address(this));
 

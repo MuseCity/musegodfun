@@ -538,7 +538,8 @@ test("share equivalents floor fractions without altering transaction units", () 
   assert.throws(() => shareEquivalent(raw, 0n));
 });
 
-test("B20 identity uses native calls, preserves unknown data and retries failures", async () => {
+test("B20 identity uses native calls, preserves unknown data and retries failures after bounded caching", async context => {
+  let now = Date.now(); context.mock.method(Date, "now", () => now);
   let fail = false;
   const client = {
     getChainId: async () => 8453,
@@ -602,6 +603,8 @@ test("B20 identity uses native calls, preserves unknown data and retries failure
       ),
     );
     fail = false;
+    assert((await service.stocks()).every(s => s.multiplierWad === null), "auxiliary failure is cached briefly without pretending recovery");
+    now += 30_001;
     const recovered = await service.stocks();
     assert(
       recovered.every(

@@ -125,6 +125,11 @@ export class ReleaseFailure extends Error {
 export async function publishCandidate(flow: ReleaseLifecycle): Promise<"success" | "skipped"> {
   flow.assertFrozen();
   if (await flow.currentMaster() !== flow.commit) return "skipped";
+  // A first protocol migration must establish a compatible paused baseline
+  // before this automatic pipeline can replace all public traffic. Discovering
+  // an unsafe rollback only after candidate activation leaves a broken site.
+  if (flow.rollbackAllowed && !await flow.rollbackAllowed(flow.previousVersion))
+    throw new ReleaseFailure("blocked_by_safety", new Error("Prepare and verify a protocol-compatible paused rollback baseline before uploading this release; production was not changed."));
   const candidate = await flow.upload();
   flow.assertFrozen();
   await flow.publishRelease(candidate);
@@ -143,6 +148,8 @@ export async function publishCandidate(flow: ReleaseLifecycle): Promise<"success
       await flow.status("inactive", "Skipped: master advanced before activation; production unchanged");
       return "skipped";
     }
+    if (flow.rollbackAllowed && !await flow.rollbackAllowed(flow.previousVersion))
+      throw new Error("The compatible rollback baseline is no longer safe; candidate activation was cancelled.");
     activationAttempted = true;
     await flow.activate(candidate);
     if (await flow.activeVersion() !== candidate) throw new Error("Candidate is not the single active Worker version");

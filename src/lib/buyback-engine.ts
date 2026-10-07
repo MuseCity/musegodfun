@@ -5,6 +5,7 @@ import { ENGINE_FEE_POLICY, MUSEGOD_BUYBACK } from "./fee-policy";
 export const BUYBACK_WETH = getAddress("0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73");
 export const LEGACY_FEE_ENGINE = getAddress("0x2f1FD06e3b6Dd81123629d08a74A6279Ea03797f");
 export const BUYBACK_WINDOW_CAP = 10n ** 16n;
+export const BUYBACK_FORWARDER_ALLOWANCE_CAP = 288n * BUYBACK_WINDOW_CAP;
 export function buybackAmountCandidates(balance: bigint): bigint[] {
   const result: bigint[] = [];
   for (let amount = balance > BUYBACK_WINDOW_CAP ? BUYBACK_WINDOW_CAP : balance; amount > 0n && result.length < 20; amount /= 2n) result.push(amount);
@@ -41,6 +42,7 @@ export const wethForwarderAbi = parseAbi([
   "function source() view returns(address)", "function weth() view returns(address)",
   "function swapper() view returns(address)", "function totalForwarded() view returns(uint256)",
   "function vault() view returns(address)",
+  "function MAX_ALLOWANCE() view returns(uint256)",
   "function forward(uint256 amount)",
 ]);
 export const buybackVaultAbi = parseAbi([
@@ -128,9 +130,9 @@ export type BuybackEngineStatus = {
   operationsTreasury: Address | null; automationReceiver: Address | null;
   automationTreasury: Address | null; wethForwarder: Address | null;
   sourceDeployed: boolean; sourceWeth: string | null; sourceAllowance: string | null;
-  sourceForwarded: string | null; sourceAvailable: string | null;
+  sourceForwarded: string | null; sourceAvailable: string | null; sourceAuthorizationError?: string | null;
   assets: EngineAssetStatus[];
-  pools: { address: Address; poolId: Hex; symbol: string; claimable: EngineClaimPreview | null }[];
+  pools: { address: Address; poolId: Hex; symbol: string; claimable: EngineClaimPreview | null; currencies?: Address[] | null }[];
   swapperWeth: string | null; directBurned: string | null; convertedWeth: string | null;
   burns: EngineBurn[]; burnScanFrom: string | null;
   vault?: string | null; assetOracle?: string | null; vaultWeth?: string | null; vaultAvailable?: string | null;

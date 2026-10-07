@@ -134,6 +134,7 @@ contract MusegodFeeEngine is ReentrancyGuard {
     event ForwardFailed(address indexed token, bytes reason);
     event UnpricedForwarded(address indexed token, uint256 amount, address indexed automation);
     event BalanceSynced(address indexed token, uint256 amount);
+    event AssetShortfall(address indexed token, uint256 balance, uint256 pendingAmount);
 
     constructor(
         address initializer_,
@@ -230,12 +231,18 @@ contract MusegodFeeEngine is ReentrancyGuard {
 
     function syncFrom(address manager, bytes32 poolId) external onlySelf {
         PoolKey memory key = _verifiedKey(manager, poolId);
-        _syncToken(key.currency0); _syncToken(key.currency1);
+        // A deficit or unreadable currency must not roll back its healthy pair.
+        try this.syncToken(key.currency0) {}
+        catch (bytes memory reason) { emit ForwardFailed(key.currency0, reason); }
+        try this.syncToken(key.currency1) {}
+        catch (bytes memory reason) { emit ForwardFailed(key.currency1, reason); }
     }
+
+    function syncToken(address token) external onlySelf { _syncToken(token); }
 
     function _syncToken(address token) private {
         uint256 balance = IERC20(token).balanceOf(address(this));
-        if (balance < pending[token]) revert InsolventBalance();
+        if (balance < pending[token]) { emit AssetShortfall(token, balance, pending[token]); return; }
         uint256 amount = balance - pending[token];
         if (amount == 0) return;
         _syncWindow(token);
@@ -295,7 +302,10 @@ contract MusegodFeeEngine is ReentrancyGuard {
         _syncWindow(token); // New receipts never increase the current window's quota.
         pending[token] += amount;
         totalClaimed[token] += amount;
-        _requireSolvent(token);
+        // Keep the exact claimed amount and prior liability, including any issuer
+        // seizure. Spending remains blocked by _requireSolvent for this token only.
+        uint256 balance = IERC20(token).balanceOf(address(this));
+        if (balance < pending[token]) emit AssetShortfall(token, balance, pending[token]);
     }
 
     function _requireSolvent(address token) private view {

@@ -9,7 +9,7 @@ import { FEE_POLICY } from '../src/lib/fee-policy.ts';
 import { launchGuardAbi } from '../src/lib/launch-guard.ts';
 import { buildLaunch } from '../src/lib/protocol.ts';
 import { serializePrepared } from '../src/lib/launch-plan.ts';
-import { createDirectWrapQuote, firstBuyPaymentAssets, firstBuyReceiptOutput, wrapAbi } from '../src/lib/first-buy-payment.ts';
+import { createDirectWrapQuote, firstBuyPaymentAssets, firstBuyPaymentInput, firstBuyReceiptOutput, wrapAbi } from '../src/lib/first-buy-payment.ts';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const origin = process.env.BROWSER_ORIGIN || 'http://127.0.0.1:5191';
 assert(['127.0.0.1', 'localhost'].includes(new URL(origin).hostname), 'Browser acceptance must target a local server');
@@ -20,7 +20,9 @@ const contracts = ROBINHOOD_CONTRACTS;
 const blockHash = '0x' + 'bb'.repeat(32), out = 543327925691014316198420n;
 const wrapRuntime = '0x60006000'; // Local identity fixture, never a deployed-runtime claim.
 const delayedImage = 'https://example.com/delayed-config.png';
-const plainModes = new Set(['plain', 'unknown_send', 'unknown_fetch', 'launch_timeout', 'launch_marker_race']);
+const plainModes = new Set(['plain', 'idle_plain', 'unknown_send', 'unknown_fetch', 'launch_timeout', 'launch_marker_race', 'token_detail_pending', 'token_detail_error']);
+const quoteClockModes = new Set(['wrap_near_expiry', 'idle_review', 'hidden_review', 'idle_plain']);
+const tokenLookupModes = new Set(['token_detail_pending', 'token_detail_error']);
 const timeoutModes = new Set(['approval_timeout', 'payment_timeout', 'launch_timeout', 'approval_timeout_reject']);
 const recoveryRaceModes = new Set(['payment_marker_race', 'launch_marker_race', 'payment_status_race', 'payment_submit_race', 'payment_submit_record_race']);
 const sdk = new DopplerSDK({ chainId: 4663, publicClient: createPublicClient({ transport: http('http://127.0.0.1:1') }) });
@@ -64,14 +66,14 @@ function depositLogs(sent) {
     transactionHash: sent.hash, blockNumber: '0x10', blockHash, removed: false }];
 }
 async function casePage(mode, viewport = { width: 1440, height: 1000 }) {
-  const wrapping = ['wrap_flow', 'wrap_price_change', 'payment_timeout', 'payment_marker_race', 'payment_status_race', 'payment_submit_race', 'payment_submit_record_race', 'wrap_late_launch_recovery'].includes(mode);
+  const wrapping = ['wrap_flow', 'wrap_near_expiry', 'idle_review', 'hidden_review', 'wrap_price_change', 'payment_timeout', 'payment_marker_race', 'payment_status_race', 'payment_submit_race', 'payment_submit_record_race', 'wrap_late_launch_recovery'].includes(mode);
   const context = await browser.newContext({ viewport });
   const state = { mode, allowance: 0n, sends: [], plans: 0, expired: false, receipts: mode !== 'pending', plan: null, successful: false,
     changed: false, refreshes: 0, byData: new Map(), releaseApproval: null, wrapping, paymentQuote: null,
-    prepareRequests: [], paymentVerifications: 0, businessConfirmations: 0, wrapped: false, head: 32n,
+    prepareRequests: [], validationRequests: [], paymentVerifications: 0, businessConfirmations: 0, wrapped: false, head: 32n,
     approvalCanonical: mode !== 'approval_pending', configurationReleased: mode !== 'delayed_config', releaseConfiguration: [],
     unresolvedRequests: new Map(), holdVerification: ['payment_submit_race', 'payment_submit_record_race'].includes(mode), releaseVerification: null,
-    holdRegistration: false, releaseRegistration: null };
+    holdRegistration: false, releaseRegistration: null, priceRequests: 0, paymentQuoteRequests: [], releaseDetail: null, detailRequested: false };
   if (mode === 'delayed_config') await context.route(delayedImage, route => route.fulfill({ contentType: 'image/png',
     body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jS1sAAAAASUVORK5CYII=', 'base64') }));
   await context.addInitScript(({ creator, treasury, mode }) => {
@@ -133,8 +135,11 @@ async function casePage(mode, viewport = { width: 1440, height: 1000 }) {
       return reply(mode === 'stale_page' ? { ...config, curvePolicy: 'old-curve-v1' } : config);
     }
     if (path === '/api/stocks') return reply(ROBINHOOD_STOCKS.map(x=>({ ...x, verified: true, blockNumber: '16', totalSupply: '1000000000000000000000000', multiplierWad: null })));
-    if (path === '/api/tokens') return reply([]);
+    if (path === '/api/tokens') return reply(mode.startsWith('token_detail_') ? Array.from({length:50},(_,index)=>({
+      ...state.plan?.draft, address:'0x'+(index+1000).toString(16).padStart(40,'0'), creator, mode:'fork', deploymentChainId:4663, createdAt:index,
+      quoteAddress:quote.address })) : []);
     if (path === '/api/first-buy/prices') {
+      state.priceRequests++;
       const pairedAsset = url.searchParams.get('pairedAsset');
       if (!pairedAsset || pairedAsset.toLowerCase() !== quote.address.toLowerCase())
         return reply({ error: 'This reference-price fixture only covers paired WETH' }, 400);
@@ -145,7 +150,10 @@ async function casePage(mode, viewport = { width: 1440, height: 1000 }) {
     }
     if (path === '/api/first-buy/quote' && wrapping) {
       assert.equal(payload.fromToken.toLowerCase(), zeroAddress); assert.equal(payload.toToken.toLowerCase(), quote.address.toLowerCase());
-      state.paymentQuote = createDirectWrapQuote(4663, payload.account, parseUnits(payload.amount, 18), wrapRuntime, { number: 16n, hash: blockHash });
+      const normalized = firstBuyPaymentInput(4663,payload); // Same schema semantics as the real HTTP endpoint.
+      state.paymentQuoteRequests.push(structuredClone(payload));
+      state.paymentQuote = createDirectWrapQuote(4663, normalized.account, normalized.amountIn, wrapRuntime, { number: 16n, hash: blockHash });
+      if (mode === 'wrap_near_expiry' && state.paymentQuoteRequests.length === 1) state.paymentQuote.slippageBps = 1;
       return reply(state.paymentQuote);
     }
     if (path === '/api/first-buy/verify' && wrapping) {
@@ -166,7 +174,7 @@ async function casePage(mode, viewport = { width: 1440, height: 1000 }) {
       try { state.plan=preparedPlan(payload.draft,payload.firstBuy,state.plans,payload.options,payload.creator,expected); }
       catch (error) { if (error?.name === 'ZodError') return reply({ error: error.message },400); throw error; }
       state.byData.set(state.plan.data,state.plan); return reply(state.plan); }
-    if (path === '/api/launch/validate') { const plan = state.byData.get(payload.data); assert(plan, 'Validation must reference a prepared fixture plan');
+    if (path === '/api/launch/validate') { state.validationRequests.push(structuredClone(payload)); const plan = state.byData.get(payload.data); assert(plan, 'Validation must reference a prepared fixture plan');
       return state.expired || plan.requiresReconfirmation ? reply({ error: 'The opening valuation expired or price is below the accepted minimum.' },400) : reply({ valid: true, feePolicy: FEE_POLICY, curvePolicy: CURVE_POLICY, planId:plan.id, intentId:plan.intentId, validityVersion:2, signingExpiresAt:plan.signingExpiresAt }); }
     if (path === '/api/launch/simulate') { const plan = state.byData.get(payload.data); assert(plan, 'Simulation must reference a prepared fixture plan');
       return mode === 'simulation_failure' ? reply({ error: 'Transaction simulation failed. The transaction was not submitted.' },400) : reply({ valid: true, gas: '5000000', amountOut: plan.firstBuy?.expectedAmountOut || null, simulatedAt: Date.now() }); }
@@ -204,11 +212,19 @@ async function casePage(mode, viewport = { width: 1440, height: 1000 }) {
         return { jsonrpc:'2.0',id:item.id,result };
       }; return reply(Array.isArray(payload)?payload.map(one):one(payload));
     }
-    if (path.startsWith('/api/tokens/')) return reply({ token:{ ...state.plan?.draft,address:token,creator,poolId:state.plan?.poolId,quoteAddress:quote.address,mode:'fork',deploymentChainId:4663,openingCap:'1.666666',openingValuation:state.plan?.openingValuation,curvePolicy:CURVE_POLICY,feePolicy:FEE_POLICY },state:{status:2,numeraire:quote.address,poolKey:{currency0:token,currency1:quote.address,fee:8388608,tickSpacing:10,hooks:contracts.initializer}} });
+    if (path.startsWith('/api/tokens/')) {
+      if (mode.startsWith('token_detail_') && path === `/api/tokens/${token}`) {
+        state.detailRequested = true;
+        if (mode === 'token_detail_error') return reply({error:'Token detail RPC temporarily unavailable'},400);
+        await new Promise(resolve => {state.releaseDetail=resolve;});
+      }
+      return reply({ token:{ ...state.plan?.draft,address:token,creator,poolId:state.plan?.poolId,quoteAddress:quote.address,mode:'fork',deploymentChainId:4663,openingCap:'1.666666',openingValuation:state.plan?.openingValuation,curvePolicy:CURVE_POLICY,feePolicy:FEE_POLICY },state:{status:2,numeraire:quote.address,poolKey:{currency0:token,currency1:quote.address,fee:8388608,tickSpacing:10,hooks:contracts.initializer}} });
+    }
     if (path.includes('/fees')) return reply({ lp:{amount0:'0',amount1:'0'},trade:{amount0:'0',amount1:'0'} });
     return reply({ error:'Unavailable fixture route' },404);
   });
   const page = await context.newPage(); activePage = page; const pageErrors=[]; page.on('pageerror',e=>pageErrors.push(e.message));
+  if (quoteClockModes.has(mode)) await page.clock.install({time:new Date()});
   await page.goto(origin+'/create?chainId=4663'); await page.getByLabel('Token name',{exact:true}).fill(('Browser '+mode).slice(0, 32));
   await page.getByLabel('Token symbol',{exact:true}).fill('BROWSE');
   await page.getByLabel('Pay with',{exact:true}).selectOption(wrapping ? zeroAddress : quote.address);
@@ -252,6 +268,58 @@ async function submissionFor(page, intentId) {
     const key = keys[0];
     return { key, intentId: key.split('.').at(-1), value: JSON.parse(localStorage.getItem(key)) };
   }, intentId);
+}
+async function quietReview(page, state) {
+  const originalMinimum = state.plan.firstBuy.minAmountOut;
+  if (state.mode === 'hidden_review') await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable:true, value:'hidden' });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  if (state.mode === 'idle_review') {
+    await page.clock.runFor(61_000);
+    await waitForFixture(() => state.plans === 2, 'one recent-activity quote refresh');
+    await page.clock.runFor(62_000);
+  } else await page.clock.runFor(123_000);
+  // Allow the render caused by the idle timer to finish, then count real API
+  // calls for another three minutes. No prepare, payment or reference poll.
+  await page.clock.runFor(500);
+  const before = { plans:state.plans, quotes:state.paymentQuoteRequests.length, prices:state.priceRequests };
+  await page.clock.runFor(180_000);
+  assert.deepEqual({plans:state.plans,quotes:state.paymentQuoteRequests.length,prices:state.priceRequests},before);
+  assert.equal(state.sends.length,0); assert.equal(state.plan.firstBuy.minAmountOut,originalMinimum);
+  assert.equal(await page.getByRole('button',{name:'Wrap ETH and launch',exact:true}).isEnabled(),true);
+  if (state.mode === 'hidden_review') {
+    assert.equal(state.plans,1); assert.equal(state.paymentQuoteRequests.length,1);
+    await page.evaluate(() => {
+      Object.defineProperty(document,'visibilityState',{configurable:true,value:'visible'});
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+  }
+  state.quietBackground = true;
+}
+async function tokenLookup(page, state) {
+  await page.goto(`${origin}/token/robinhood/${token}`);
+  await waitForFixture(() => state.detailRequested, 'single token detail request');
+  assert.equal(await page.getByText('Token not found',{exact:true}).count(),0,
+    'A partial catalog is never proof that an older token does not exist');
+  if (state.mode === 'token_detail_error') {
+    await page.getByText('Token detail RPC temporarily unavailable',{exact:true}).waitFor();
+  } else {
+    assert.equal(await page.getByRole('heading',{name:state.plan.draft.name,exact:true}).count(),0);
+    await waitForFixture(() => !!state.releaseDetail,'held token detail response');
+    state.releaseDetail();
+    await page.getByRole('heading',{name:state.plan.draft.name,exact:true}).waitFor();
+  }
+  assert.equal(state.sends.length,0); state.singleTokenLookup = true;
+}
+async function quietPlainReview(page, state) {
+  await page.clock.runFor(301_000);
+  assert.equal(state.plans,1); assert.equal(state.sends.length,0);
+  const prices=state.priceRequests;
+  await page.clock.runFor(180_000);
+  assert.equal(state.plans,1); assert.equal(state.priceRequests,prices);
+  assert.equal(await page.getByRole('button',{name:'Confirm launch · Sign in wallet',exact:true}).isEnabled(),true);
+  state.quietBackground=true;
 }
 async function assertLateHashSaved(page, marker, sent, action) {
   await page.waitForFunction(({ key, intentId, hash, action }) => {
@@ -422,14 +490,15 @@ async function timeoutCase(page, state) {
   state.lateHashIntentPreserved = true;
 }
 try {
-  for (const mode of (process.env.BROWSER_CASES?.split(',') || ['success','plain','duplicate','stale_page','reject_approval','expiry','account_change','network_change','simulation_failure','two_tabs','unknown_send','approval_unknown','approval_pending','wrap_flow','wrap_price_change','delayed_config','unknown_fetch','approval_timeout','payment_timeout','launch_timeout','approval_timeout_reject','payment_marker_race','launch_marker_race','payment_status_race','payment_submit_race','payment_submit_record_race','wrap_late_launch_recovery'])) {
+  for (const mode of (process.env.BROWSER_CASES?.split(',') || ['success','plain','duplicate','stale_page','reject_approval','expiry','account_change','network_change','simulation_failure','two_tabs','unknown_send','approval_unknown','approval_pending','wrap_flow','wrap_price_change','delayed_config','unknown_fetch','approval_timeout','payment_timeout','launch_timeout','approval_timeout_reject','payment_marker_race','launch_marker_race','payment_status_race','payment_submit_race','payment_submit_record_race','wrap_late_launch_recovery','wrap_near_expiry','idle_review','hidden_review','idle_plain','token_detail_pending','token_detail_error'])) {
     const {context,page,state,pageErrors}=await casePage(mode);
     const plain = plainModes.has(mode);
     if (mode === 'success') {
       await page.screenshot({path:'.cache/launch-scoped-browser-desktop-review.png',fullPage:true});
       report.screenshots.push('.cache/launch-scoped-browser-desktop-review.png');
     }
-    if (mode === 'stale_page') {
+    if (tokenLookupModes.has(mode)) await tokenLookup(page,state);
+    else if (mode === 'stale_page') {
       await page.getByText(/curve policy has changed/).waitFor(); assert.equal(state.plans,0); assert.equal(state.sends.length,0);
     }
     else if (state.wrapping) {
@@ -439,15 +508,22 @@ try {
       assert.equal(parseUnits(state.prepareRequests[0].firstBuy.amount, 18).toString(), state.paymentQuote.minimumOut,
         'The reviewed token floor must be prepared from the guaranteed paired-asset output before any payment');
       state.reviewedMinimum = state.plan.firstBuy.minAmountOut;
+      if (mode === 'wrap_near_expiry') {
+        assert.equal(state.paymentQuote.slippageBps,1);
+        await page.clock.runFor(46_000);
+      }
+      if (mode === 'idle_review' || mode === 'hidden_review') await quietReview(page,state);
       state.businessConfirmations++;
       await page.getByRole('button', { name: 'Wrap ETH and launch', exact: true }).click();
     }
     else if (mode === 'duplicate') await page.getByRole('button',{name:'Confirm launch and first buy',exact:true}).evaluate(button => { button.click(); button.click(); });
     else {
+      if (mode === 'idle_plain') await quietPlainReview(page,state);
       state.businessConfirmations++;
       await page.getByRole('button',{name:plain?/Confirm launch · Sign in wallet/:/Confirm launch and first buy/,exact:true}).click();
     }
-    if (mode === 'wrap_late_launch_recovery') await lateFundedLaunchRecovery(page, state);
+    if (tokenLookupModes.has(mode)) { /* Read-only detail lookup, no signing. */ }
+    else if (mode === 'wrap_late_launch_recovery') await lateFundedLaunchRecovery(page, state);
     else if (recoveryRaceModes.has(mode)) await recoveryRaceCase(context, page, state);
     else if (timeoutModes.has(mode)) await timeoutCase(page, state);
     else if (state.wrapping) {
@@ -466,21 +542,28 @@ try {
       await page.waitForURL('**/token/**');
       assert.equal(state.sends.length, 3); assert.deepEqual(state.sends.map(tx => tx.wrap ? 'wrap' : tx.approval ? 'approval' : 'launch'), ['wrap','approval','launch']);
       assert.equal(state.successful, true); assert(state.paymentVerifications >= 2);
-      assert.equal(state.prepareRequests[1].options.acceptedMinAmountOut, state.reviewedMinimum);
+      assert.equal(state.prepareRequests.find(request=>request.paymentRecovery)?.options.acceptedMinAmountOut,state.reviewedMinimum,
+        'The first funded plan must preserve the original business confirmation, before any explicit price reconfirmation');
       const approval = decodeFunctionData({ abi: erc20Abi, data: state.sends[1].data });
       const launch = decodeFunctionData({ abi: launchGuardAbi, data: state.sends[2].data });
       assert.deepEqual(approval.args, [guard, BigInt(state.paymentQuote.amountIn)]);
       assert.equal(launch.args[1], BigInt(state.paymentQuote.amountIn));
-      if (mode === 'wrap_flow') assert.equal(launch.args[2], BigInt(state.reviewedMinimum));
+      if (mode !== 'wrap_price_change') assert.equal(launch.args[2], BigInt(state.reviewedMinimum));
       else {
         const reconfirmed = state.prepareRequests.find(request => request.options?.reconfirmPrice);
         assert(reconfirmed); assert.equal(launch.args[2], BigInt(reconfirmed.options.reconfirmedMinimumOut));
         assert(launch.args[2] < BigInt(state.reviewedMinimum));
       }
-      assert.equal(state.businessConfirmations, mode === 'wrap_flow' ? 1 : 2);
+      assert.equal(state.businessConfirmations, mode === 'wrap_price_change' ? 2 : 1);
+      if (mode === 'wrap_near_expiry') {
+        assert.equal(state.paymentQuoteRequests.length,2);
+        assert.equal(state.paymentQuoteRequests[1].slippageBps,100);
+        assert.equal(state.paymentQuote.minimumOut,state.paymentQuote.amountIn);
+      }
     }
-    else if (mode==='success'||mode==='plain'||mode==='duplicate'||mode==='expiry'||mode==='delayed_config') {
-      await page.waitForURL('**/token/**'); assert.equal(state.sends.length,mode==='plain'?1:2); assert.equal(state.successful,true);
+    else if (mode==='success'||mode==='plain'||mode==='idle_plain'||mode==='duplicate'||mode==='expiry'||mode==='delayed_config') {
+      await page.waitForURL('**/token/**'); assert.equal(state.sends.length,plain?1:2); assert.equal(state.successful,true);
+      if (mode === 'idle_plain') {assert.equal(state.plans,2);assert.equal(state.businessConfirmations,1);}
       if (mode === 'delayed_config') {
         assert.equal(state.businessConfirmations, 1);
         assert(state.prepareRequests.every(request => request.draft.name === 'Browser delayed_config' &&
@@ -604,6 +687,11 @@ try {
       await page.getByText(/already submitted/).waitFor(); assert.equal(state.plans,plans);
       state.receipts=true; await page.getByRole('button',{name:'Recover pending launch'}).click(); await page.waitForURL('**/token/**'); assert.equal(state.plans,plans); }
     assert.equal(await page.getByRole('heading', {name:'Quick verification'}).isVisible(),false);
+    if (state.successful && ['success','plain','wrap_flow','wrap_near_expiry','idle_review','hidden_review'].includes(mode)) {
+      assert.equal(state.validationRequests.filter(request=>request.signing===true).length,state.sends.filter(sent=>!sent.wrap).length,
+        'Only actual launch/approval wallet handoffs protect the frozen launch plan');
+      assert(state.validationRequests.some(request=>request.signing!==true),'Unsigned simulation/preflight checks do not permanently protect previews');
+    }
     assert.deepEqual(pageErrors,[]); report.checks.push({mode,viewport:'desktop',walletCalls:state.sends.length,plans:state.plans,
       ...(state.wrapping ? { businessConfirmations: state.businessConfirmations, paymentVerifications: state.paymentVerifications, reviewedMinimum: state.reviewedMinimum } : {}),
       ...(mode === 'delayed_config' ? { delayedConfigDraftPreserved: state.delayedConfigDraftPreserved, businessConfirmations: state.businessConfirmations } : {}),
@@ -611,6 +699,8 @@ try {
         ...(state.lateRejectionIsolated ? { lateRejectionIsolated: true } : {}) } : {}),
       ...(recoveryRaceModes.has(mode) ? { concurrentRecordsPreserved: state.concurrentRecordsPreserved } : {}),
       ...(mode === 'wrap_late_launch_recovery' ? { lateFundedPaymentConsumed: state.lateFundedPaymentConsumed } : {}),
+      ...(state.quietBackground ? { idleOrHiddenPollingStopped:true, continuedWithOneConfirmation:true } : {}),
+      ...(state.singleTokenLookup ? { partialCatalogDidNotHideToken:true } : {}),
       status:'passed'}); console.log('PASS browser: '+mode); await context.close();
   }
   const { context,page,state,pageErrors }=await casePage('success',{width:390,height:844});

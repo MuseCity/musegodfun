@@ -53,7 +53,7 @@ import {
 } from "./transactions";
 import { api, chainApi } from "./api";
 import { useNetwork } from "./network";
-import { assertFirstBuyPaymentQuote, firstBuyDiamondAbi, type FirstBuyPaymentQuote, type FirstBuyPaymentVerification } from "./first-buy-payment";
+import { assertFirstBuyPaymentQuote, firstBuyDiamondAbi, firstBuyPaymentRefreshInput, type FirstBuyPaymentQuote, type FirstBuyPaymentVerification } from "./first-buy-payment";
 import { assertFirstBuyLaunchConfig, executeFirstBuyPayment } from "./first-buy-wallet";
 import { bundlerAbi } from "./first-buy-lock";
 import type { FirstBuyLockStatus } from "./launch-plan";
@@ -648,12 +648,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     const api = <T,>(path: string, body?: unknown) => chainApi<T>(deploymentChain(config), path, body);
     if (!account) throw new Error("Connect your wallet first");
     const expected = account;
-    const validate = async (frozen: LaunchPlan, current: RuntimeConfig) => {
+    const validate = async (frozen: LaunchPlan, current: RuntimeConfig, signing = false) => {
       assertCurrent?.();
       if (frozen.intentId) await assertLaunchIntentLock(config, expected, frozen.intentId);
       assertLaunchWalletPlan(frozen, current, expected);
       const result = await api<{ valid: true; curvePolicy: string; planId?: Hex; intentId?: string; validityVersion?: number; signingExpiresAt?: number }>("/launch/validate", {
-        creator: expected, data: frozen.data,
+        creator: expected, data: frozen.data, ...(signing ? { signing: true } : {}),
       });
       if (result.valid !== true || result.curvePolicy !== frozen.curvePolicy || frozen.validityVersion === 2 &&
         (result.planId !== frozen.id || result.intentId !== frozen.intentId || result.validityVersion !== 2 || result.signingExpiresAt !== frozen.signingExpiresAt))
@@ -661,7 +661,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       assertCurrent?.();
     };
     const signingWallet = (transaction: LaunchTransaction, frozen: LaunchPlan, beforeSend?: () => void) => signer(config, expected,
-      (current) => validate(frozen, current),
+      (current) => validate(frozen, current, true),
       (request) => assertLaunchRequest(request, { ...transaction, from: expected, chainId: config.chainId }), beforeSend);
     return executeLaunchPlan(plan, config, expected, {
       validate: (frozen) => validate(frozen, config),
@@ -699,7 +699,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         saveFrozenLaunch(config, expected, frozen);
         const { hash } = await submitTrackedLaunch(transaction, config, expected, bufferedGas,
           { kind: "launch", intentId: frozen.intentId, planId: frozen.id, tokenAddress: frozen.tokenAddress },
-          (beforeSend) => signer(config, expected, (current) => validate(frozen, current),
+          (beforeSend) => signer(config, expected, (current) => validate(frozen, current, true),
           (request) => assertLaunchRequest(request, { ...transaction, from: expected, chainId: config.chainId }),
           beforeSend));
         const confirmation = confirmed(hash, config, expected, "launch", { intentId: frozen.intentId, tokenAddress: frozen.tokenAddress, planId: frozen.id });
@@ -904,10 +904,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       (current) => validate(frozen, current), (request) => assertLaunchRequest(request, { ...transaction, from: expected, chainId: config.chainId }), beforeSend);
     const hash = await executeFirstBuyPayment(quote, config, expected, {
       validate: (frozen) => validate(frozen, config),
-      refresh: async (previous) => ({ ...(await chainApi<FirstBuyPaymentQuote>(deploymentChain(config), "/first-buy/quote", {
-        account: expected, fromToken: previous.fromToken.address, toToken: previous.toToken.address,
-        amount: formatUnits(BigInt(previous.amountIn), previous.fromToken.decimals), slippageBps: previous.slippageBps,
-      })), intentId: previous.intentId }),
+      refresh: async (previous) => ({ ...(await chainApi<FirstBuyPaymentQuote>(deploymentChain(config), "/first-buy/quote",
+        { ...firstBuyPaymentRefreshInput(previous), account: expected })), intentId: previous.intentId }),
       onQuote: (fresh) => { submittedQuote = fresh; onQuote?.(fresh); },
       balance: (token) => sameAddress(token, "0x0000000000000000000000000000000000000000")
         ? client.getBalance({ address: expected }) : client.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [expected] }),

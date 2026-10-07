@@ -10,14 +10,19 @@ export function clientBucket(raw: string): string {
   return words.slice(0, 4).map(word => parseInt(word, 16).toString(16)).join(":") + "::/64";
 }
 export const expensiveRoute = (path: string) => /\/(?:launch\/(?:prepare|simulate)|first-buy\/(?:prices|quote)|token-images)$/.test(path.split("?")[0].replace(/\/+$/, "").toLowerCase());
-type Row = { at: number; count: number; expensive: number; active: number; riskTimes: number[]; uploadTimes: number[] };
+export const SOURCE_CONCURRENCY = 16;
+export const INGRESS_CONCURRENCY = 64;
+type Row = { at: number; count: number; expensive: number; riskTimes: number[]; uploadTimes: number[] };
 export class IngressLimiter {
   private readonly rows = new Map<string, Row>();
+  // Request lifetime is independent of rate-window rotation or LRU eviction.
+  // Only positive counts are stored, bounded by shared concurrency.
+  private readonly activeSources = new Map<string, number>();
   private active = 0;
   admit(ip: string, path: string, now = Date.now()): { status?: number; challenge: boolean; release(): void } {
     const key = clientBucket(ip);
     let row = this.rows.get(key);
-    if (!row || now-row.at >= 60_000) row = {at:now,count:0,expensive:0,active:row?.active ?? 0,
+    if (!row || now-row.at >= 60_000) row = {at:now,count:0,expensive:0,
       riskTimes: row?.riskTimes ?? [], uploadTimes: row?.uploadTimes ?? []};
     this.rows.delete(key); this.rows.set(key,row);
     while (this.rows.size > 10_000) {
@@ -39,12 +44,16 @@ export class IngressLimiter {
     // Keep the risk history bounded independently of request admission.
     row.riskTimes = row.riskTimes.slice(-41); row.uploadTimes = row.uploadTimes.slice(-7);
     // Per-source limits precede the shared cap, including before body reads.
-    if (row.count > 180 || row.expensive > 20 || row.active >= 4)
+    if (row.count > 180 || row.expensive > 20 || (this.activeSources.get(key) ?? 0) >= SOURCE_CONCURRENCY)
       return {status:429,challenge,release() {}};
-    if (this.active >= 32) return {status:503,challenge,release() {}};
-    row.active++; this.active++;
+    if (this.active >= INGRESS_CONCURRENCY) return {status:503,challenge,release() {}};
+    this.activeSources.set(key, (this.activeSources.get(key) ?? 0) + 1); this.active++;
     let done = false;
-    return {challenge,release:()=>{if (!done) {done=true;row!.active--;this.active--;}}};
+    return {challenge,release:()=>{if (!done) {
+      done=true; this.active--;
+      const remaining = (this.activeSources.get(key) ?? 1) - 1;
+      if (remaining) this.activeSources.set(key, remaining); else this.activeSources.delete(key);
+    }}};
   }
 }
 export class PreviewQueue {

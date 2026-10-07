@@ -5,13 +5,14 @@ import { createPublicClient, decodeAbiParameters, decodeFunctionData, encodeAbiP
 import { allocateFeeIncome, ENGINE_FEE_POLICY, FEE_POLICY, launchFeePolicy, MUSEGOD_BUYBACK } from "../src/lib/fee-policy";
 import { ROBINHOOD_CONTRACTS, ROBINHOOD_STOCKS, sameAddress, WAD, type RuntimeConfig } from "../src/lib/config";
 import { assertEngineFeeCalldata, buildLaunch } from "../src/lib/protocol";
-import { BUYBACK_WETH, buybackExecutorAbi, engineTransaction, feeEngineAbi, wethForwarderAbi } from "../src/lib/buyback-engine";
-import { assertConversionRoute, conversionSlippageBps, readFeeAssetStatus, readSourceWethStatus, verifiedFlashBurn, verifyFeeEngine, type BuybackDeployment } from "../server/buyback-engine";
+import { BUYBACK_WETH, BUYBACK_FORWARDER_ALLOWANCE_CAP, buybackExecutorAbi, engineTransaction, feeEngineAbi, wethForwarderAbi } from "../src/lib/buyback-engine";
+import { assertConversionRoute, conversionSlippageBps, readFeeAssetStatus, readFeeFeedProposals, readSourceWethStatus, verifiedFlashBurn, verifyFeeEngine, verifyFeeEngineRuntime, type BuybackDeployment } from "../server/buyback-engine";
 import deployment from "../contracts/artifacts/buyback-v2-deployment.json";
 import { assertLaunchWalletPlan } from "../src/lib/launch-wallet";
 import { CURVE_POLICY } from "../src/lib/launch-curve";
 import { syntheticOpeningValuation } from "./fixtures";
 import type { LaunchPlan } from "../src/lib/launch-plan";
+import buybackConfig from "../contracts/buyback.config.json";
 
 const creator = getAddress("0x1111111111111111111111111111111111111111");
 const treasury = getAddress("0x2222222222222222222222222222222222222222");
@@ -143,7 +144,7 @@ test("source WETH forwarding encodes only a positive amount to the fixed forward
 });
 
 test("source WETH reads remain visible before deployment or approval and use the smaller whole balance or allowance", async () => {
-  for (const [code, balance, allowance, available] of [["0x6000", 100n, 25n, 25n], ["0x6000", 10n, 25n, 10n], ["0x6000", 100n, 0n, 0n], ["0x", 100n, 25n, 0n]] as const) {
+  for (const [code, balance, allowance, available] of [["0x6000", 100n, 25n, 25n], ["0x6000", 10n, 25n, 10n], ["0x6000", 100n, 0n, 0n], ["0x", 100n, 25n, 0n], ["0x6000", 100n, BUYBACK_FORWARDER_ALLOWANCE_CAP + 1n, 0n], ["0x6000", 100n, 2n ** 256n - 2n, 0n]] as const) {
     const client = { getCode: async ({ address, blockNumber }: { address: Address; blockNumber: bigint }) => { assert.equal(address, automationTreasury); assert.equal(blockNumber, 7n); return code; },
       readContract: async ({ address, functionName, args, blockNumber }: { address: Address; functionName: string; args?: Address[]; blockNumber: bigint }) => {
         assert.equal(blockNumber, 7n);
@@ -154,6 +155,7 @@ test("source WETH reads remain visible before deployment or approval and use the
     const result = await readSourceWethStatus(client, { forwarder: wethForwarder, automationTreasury, blockNumber: 7n });
     assert.equal(result.sourceDeployed, code !== "0x"); assert.equal(result.sourceWeth, String(balance)); assert.equal(result.sourceAllowance, String(allowance));
     assert.equal(result.sourceForwarded, "123"); assert.equal(result.sourceAvailable, String(available));
+    assert.equal(!!result.sourceAuthorizationError, allowance > BUYBACK_FORWARDER_ALLOWANCE_CAP);
   }
 });
 
@@ -226,7 +228,7 @@ test("the fifth module requires its reviewed runtime and exact source, WETH and 
     [wethForwarder.toLowerCase()]: { source: constants.automationTreasury, weth: constants.weth, swapper: creator, vault },
   };
   for (const fault of ["runtime", "source", "weth", "swapper"] as const) {
-    const client = { getBlockNumber: async () => 7n,
+    const client = { getChainId: async () => 4663, getBlockNumber: async () => 7n,
       getCode: async ({ address }: { address: Address }) => fault === "runtime" && sameAddress(address, wethForwarder) ? "0x6001" : runtime,
       readContract: async ({ address, functionName }: { address: Address; functionName: string }) => {
         if (sameAddress(address, wethForwarder) && functionName === fault) return treasury;
@@ -234,6 +236,78 @@ test("the fifth module requires its reviewed runtime and exact source, WETH and 
       } } as unknown as Parameters<typeof verifyFeeEngine>[0];
     await assert.rejects(() => verifyFeeEngine(client, engine, manifest), fault === "runtime" ? /runtime does not match/ : /WETH forwarder dependencies/);
   }
+});
+
+test("immutable graph verification merges concurrent reads while every cache hit rechecks network, mutable Swapper and authorization", async () => {
+  // Synthetic runtime bytes and matching hashes exercise cache mechanics only;
+  // this fixture does not claim actual contract or mainnet verification.
+  const runtime = "0x6000" as Hex, runtimeHash = keccak256(runtime);
+  const oldHashes = { ...buybackConfig.expectedRuntimeHashes };
+  buybackConfig.expectedRuntimeHashes.router = runtimeHash;
+  buybackConfig.expectedRuntimeHashes.routerExecutor = runtimeHash;
+  const feeds = [{ token: BUYBACK_WETH, feed: buybackConfig.constants.ethUsdFeed, maxAge: buybackConfig.ethMaxAge, checkOraclePaused: false, description: "ETH / USD" }, ...buybackConfig.feeds];
+  const descriptions = Object.fromEntries(feeds.map((feed) => [feed.token.toLowerCase(), { description: feed.description, descriptionHash: keccak256(new TextEncoder().encode(feed.description)) }]));
+  const manifest: BuybackDeployment = { ...deployment, status: "deployed_runtime_verified", assetFeedDescriptions: descriptions,
+    contracts: Object.fromEntries((["oracle", "swapper", "engine", "executor", "forwarder", "vault", "assetOracle"] as const).map((name, index) => [name, { address: [owner, creator, engine, executor, wethForwarder, vault, assetOracle][index], runtimeHash }])) as BuybackDeployment["contracts"],
+    automation: { status: "configured", account: deployment.constants.automation, network: 4663, outputToken: BUYBACK_WETH, allocationBps: 10_000, recipient: deployment.constants.automationTreasury },
+  };
+  const c = manifest.constants;
+  const getters: Record<string, Record<string, unknown>> = {
+    [engine.toLowerCase()]: { initializer: c.initializer, rehype: c.rehype, oracle: owner, assetOracle, settlementVault: vault, swapper: creator, weth: c.weth, muse: c.muse, router: c.router, automation: c.automation, routerCodeHash: runtimeHash, routerExecutor: buybackConfig.constants.routerExecutor, routerExecutorCodeHash: runtimeHash },
+    [executor.toLowerCase()]: { swapper: creator, weth: c.weth, musegod: c.muse, router: c.swapRouter },
+    [wethForwarder.toLowerCase()]: { source: c.automationTreasury, weth: c.weth, swapper: creator, vault, MAX_ALLOWANCE: BUYBACK_FORWARDER_ALLOWANCE_CAP, totalForwarded: 0n },
+    [vault.toLowerCase()]: { weth: c.weth, musegod: c.muse, oracle: owner, swapper: creator, executor, pool: c.museWethPool, WINDOW_CAP: 10n ** 16n, WINDOW_SECONDS: 300n, MAX_DEVIATION_BPS: 200n },
+    [assetOracle.toLowerCase()]: { governor: c.treasury, weth: c.weth, FEED_CHANGE_DELAY: 604800n },
+    [owner.toLowerCase()]: { weth: c.weth, musegod: c.muse, museWethPool: c.museWethPool, ethUsdFeed: c.ethUsdFeed, TWAP_SECONDS: buybackConfig.twapSeconds, ethMaxAge: buybackConfig.ethMaxAge },
+    [creator.toLowerCase()]: { owner: zero, beneficiary: c.beneficiary, tokenToBeneficiary: c.muse, oracle: owner, defaultScaledOfferFactor: 985000, getPairScaledOfferFactors: [0] },
+  };
+  let rpcCount = 0, engineCodeReads = 0, chainId = 4663, paused = false, newAllowance = 100n, oldAllowance = 0n, proposalReads = 0;
+  const client = {
+    getChainId: async () => { rpcCount++; return chainId; },
+    getBlockNumber: async () => { rpcCount++; return 77n; },
+    getCode: async ({ address }: { address: Address }) => { rpcCount++; if (sameAddress(address, engine)) engineCodeReads++; return runtime; },
+    readContract: async ({ address, functionName, args = [], blockNumber }: { address: Address; functionName: string; args?: Address[]; blockNumber: bigint }) => {
+      rpcCount++; assert.equal(blockNumber, 77n);
+      if (functionName === "paused") return paused;
+      if (functionName === "balanceOf") return 0n;
+      if (functionName === "allowance") return sameAddress(args[1], wethForwarder) ? newAllowance : oldAllowance;
+      if (functionName === "descriptionHash") return descriptions[args[0].toLowerCase()].descriptionHash;
+      if (functionName === "assetFeeds") {
+        const feed = feeds.find((entry) => sameAddress(entry.token, args[0]))!;
+        const precision = sameAddress(feed.token, BUYBACK_WETH) ? 18 : ROBINHOOD_STOCKS.find((asset) => sameAddress(asset.address, feed.token))!.decimals;
+        return [feed.feed, feed.maxAge, precision, 8, feed.checkOraclePaused];
+      }
+      if (functionName === "proposals") { proposalReads++; return [zero, 0n, `0x${"00".repeat(32)}`]; }
+      const value = getters[address.toLowerCase()]?.[functionName];
+      assert.notEqual(value, undefined, `Unexpected ${address}.${functionName}`); return value;
+    },
+  } as unknown as Parameters<typeof verifyFeeEngineRuntime>[0];
+  try {
+    await Promise.all([verifyFeeEngineRuntime(client, engine, manifest), verifyFeeEngineRuntime(client, engine, manifest)]);
+    assert.equal(engineCodeReads, 1, "Concurrent config calls share a complete immutable verification");
+    assert(rpcCount > 100);
+    const initialRpcCount = rpcCount;
+    await verifyFeeEngineRuntime(client, engine, manifest);
+    assert.equal(rpcCount - initialRpcCount, 14, "A hit needs only chain/head, live Swapper settings, allowances and source custody reads");
+    assert.equal(proposalReads, 0, "User config/prepare/signing must not scan display-only feed proposals");
+    paused = true;
+    await assert.rejects(() => verifyFeeEngineRuntime(client, engine, manifest), /Swapper state/);
+    paused = false; newAllowance = BUYBACK_FORWARDER_ALLOWANCE_CAP + 1n;
+    const blockedSource = await verifyFeeEngineRuntime(client, engine, manifest);
+    assert.equal(blockedSource.sourceAvailable, "0"); assert.match(blockedSource.sourceAuthorizationError!, /authorization cap/);
+    newAllowance = 0n; oldAllowance = 1n;
+    await assert.rejects(() => verifyFeeEngineRuntime(client, engine, manifest), /legacy WETH Forwarder allowance/);
+    oldAllowance = 0n;
+    await assert.doesNotReject(() => verifyFeeEngineRuntime(client, engine, manifest), "Exhausted finite approval does not block already funded Vault processing");
+    chainId = 8453;
+    await assert.rejects(() => verifyFeeEngineRuntime(client, engine, manifest), /unsupported network/);
+    chainId = 4663;
+    assert.equal(engineCodeReads, 1, "Dynamic safety failures do not unnecessarily reload a verified immutable identity");
+    const proposals = await readFeeFeedProposals(client, { assetOracle, blockNumber: 77n }, manifest);
+    assert.deepEqual(proposals, []); assert.equal(proposalReads, feeds.length);
+    await assert.rejects(() => verifyFeeEngineRuntime(client, engine, { ...manifest, contracts: { ...manifest.contracts, engine: { address: engine, runtimeHash: `0x${"ff".repeat(32)}` } } }), /runtime does not match/);
+    assert.equal(engineCodeReads, 2, "A new manifest fingerprint cannot reuse a prior graph verification");
+  } finally { Object.assign(buybackConfig.expectedRuntimeHashes, oldHashes); }
 });
 
 const kyberAbi = parseAbi(["function swap((address callTarget,address approveTarget,bytes targetData,(address srcToken,address dstToken,address[] srcReceivers,uint256[] srcAmounts,address[] feeReceivers,uint256[] feeAmounts,address dstReceiver,uint256 amount,uint256 minReturnAmount,uint256 flags,bytes permit) desc,bytes clientData) execution) payable returns(uint256 returnAmount,uint256 gasUsed)"]);

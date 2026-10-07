@@ -86,7 +86,7 @@ import { useNetwork, tokenPath } from "./lib/network";
 import { firstBuyDraft, launchDraftKey, savedLaunchDraft, type FirstBuyDraft } from "./lib/launch-draft";
 import FirstBuy from "./components/FirstBuy";
 import FirstBuyLock from "./components/FirstBuyLock";
-import { firstBuyPaymentAssets, assertFirstBuyPaymentQuote, type FirstBuyPrices, type FirstBuyPaymentQuote, type FirstBuyPaymentVerification } from "./lib/first-buy-payment";
+import { FIRST_BUY_SLIPPAGE_BPS, firstBuyPaymentAssets, assertFirstBuyPaymentQuote, type FirstBuyPrices, type FirstBuyPaymentQuote, type FirstBuyPaymentVerification } from "./lib/first-buy-payment";
 import { resolveFirstBuyPayment, sameFirstBuyPayment, paymentMatchesLaunch, registeredLaunchConsumesPayment,
   type FirstBuyPaymentAttempt } from "./lib/first-buy-recovery";
 import {
@@ -140,6 +140,41 @@ function useResource<T>(path: string, version = 0) {
     };
   }, [path, version, chainId]);
   return { data, error, loading };
+}
+// Keep a user reading or editing supplied with fresh previews, without letting
+// an abandoned or hidden tab consume the shared execution-quote budget.
+function useQuoteActivity() {
+  const lastInteraction = useRef(performance.now());
+  const [active, setActive] = useState(document.visibilityState === "visible");
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const update = () => {
+      clearTimeout(timer);
+      const remaining = 120_000 - (performance.now() - lastInteraction.current);
+      const allowed = document.visibilityState === "visible" && remaining > 0;
+      setActive(allowed);
+      if (allowed) timer = setTimeout(update, remaining);
+    };
+    const interact = () => {
+      lastInteraction.current = performance.now(); clearTimeout(timer);
+      // Let an explicit Continue click enter its signing flow before reviving
+      // background refresh; it already refreshes within the accepted bounds.
+      timer = setTimeout(update, 250);
+    };
+    window.addEventListener("pointerdown", interact, { passive: true });
+    window.addEventListener("keydown", interact);
+    window.addEventListener("wheel", interact, { passive: true });
+    document.addEventListener("visibilitychange", update);
+    update();
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("pointerdown", interact);
+      window.removeEventListener("keydown", interact);
+      window.removeEventListener("wheel", interact);
+      document.removeEventListener("visibilitychange", update);
+    };
+  }, []);
+  return active;
 }
 function navigate(path: string) {
   history.pushState({}, "", path);
@@ -974,6 +1009,9 @@ function CreatePage({
   const visibleAssets = matching.slice(0, showAllAssets || query.trim() ? matching.length : 12);
   const paymentAssets = firstBuyPaymentAssets(stock.chainId, stock.address);
   const paymentAsset = paymentAssets.find((a) => sameAddress(a.address, firstBuy.payAddress)) ?? paymentAssets[0];
+  const backgroundRefreshAllowed = useQuoteActivity();
+  const refreshedPrice = useRef("");
+  const refreshedPreview = useRef("");
   const paymentPrices = useResource<FirstBuyPrices>(`/first-buy/prices?pairedAsset=${stock.address}`, priceRevision);
   const paymentPrice = paymentPrices.data && paymentPrices.data.expiresAt > quoteNow(paymentPrices.data)
     ? paymentPrices.data.assets.find((a) => sameAddress(a.address, paymentAsset.address))?.priceUsd ?? null : null;
@@ -983,10 +1021,15 @@ function CreatePage({
     paymentAttempt.quote.amountIn === (() => { try { return parseAmount(firstBuy.amount, paymentAsset.decimals).toString(); } catch { return ""; } })();
   const paymentPairSupported = !paymentAttempt || assets.some((asset) => sameAddress(asset.address, paymentAttempt.quote.toToken.address));
   useEffect(() => {
-    if (!paymentPrices.data) return;
-    const timer = setTimeout(() => setPriceRevision((v) => v + 1), Math.max(1000, paymentPrices.data.expiresAt - quoteNow(paymentPrices.data!)));
+    if (!backgroundRefreshAllowed || !paymentPrices.data) return;
+    const snapshot = paymentPrices.data;
+    const key = `${stock.address}:${snapshot.quotedAt}:${snapshot.expiresAt}`;
+    const timer = setTimeout(() => {
+      if (refreshedPrice.current === key) return;
+      refreshedPrice.current = key; setPriceRevision((v) => v + 1);
+    }, Math.max(0, snapshot.expiresAt - quoteNow(snapshot)));
     return () => clearTimeout(timer);
-  }, [paymentPrices.data]);
+  }, [paymentPrices.data, backgroundRefreshAllowed, stock.address]);
   useEffect(() => {
     setPaymentExpired(!!paymentQuote && paymentQuote.expiresAt <= quoteNow(paymentQuote));
     if (!paymentQuote) return;
@@ -1230,7 +1273,7 @@ function CreatePage({
         if (!config.launchGuard) throw new Error("First buys are unavailable on this network. Set the amount to 0 to launch without a buy.");
         if (firstBuy.lockDays > 0 && !config.launchLockAvailable) throw new Error("Locked first buys are not yet enabled on this network. Choose No lock.");
       }
-      if (![50, 100, 200, 500].includes(firstBuy.slippageBps)) throw new Error("Choose a supported first buy slippage");
+      if (!FIRST_BUY_SLIPPAGE_BPS.some((bps) => bps === firstBuy.slippageBps)) throw new Error("Choose a supported first buy slippage");
       setFirstBuy({ ...firstBuy, amount });
     } catch (e) {
       setInvalidField("firstBuy");
@@ -1694,9 +1737,13 @@ function CreatePage({
       void simulate();
   }, [review, wallet.account, intentId]);
   useEffect(() => {
-    if (review && !busy && !txHash && !submissionUnknown && (planExpired || paymentExpired) && !paymentAttempt)
-      void simulate();
-  }, [planExpired, paymentExpired]);
+    if (!backgroundRefreshAllowed || !review || busy || txHash || submissionUnknown || paymentAttempt) return;
+    const expired = plan && (plan.signingExpiresAt ?? plan.openingValuation?.expiresAt ?? 0) <= quoteNow(plan) ||
+      paymentQuote && paymentQuote.expiresAt <= quoteNow(paymentQuote);
+    const key = `${plan?.id}:${plan?.signingExpiresAt ?? plan?.openingValuation?.expiresAt}:${paymentQuote?.id}:${paymentQuote?.expiresAt}`;
+    if (!expired || refreshedPreview.current === key) return;
+    refreshedPreview.current = key; void simulate();
+  }, [review, busy, txHash, submissionUnknown, paymentAttempt, planExpired, paymentExpired, plan, paymentQuote, backgroundRefreshAllowed]);
   function resumeIntent(next: string) {
     if (!config || busy) return;
     localStorage.setItem(launchIntentStorageKey(config, wallet.account, intentId, "draft"), JSON.stringify({ ...draft, firstBuy, intentId }));
@@ -2387,7 +2434,7 @@ function CreatePage({
           </dl>
           {Number(firstBuy.amount || "0") > 0 && <div className="first-buy-slippage">
             <span>Slippage per conversion / first buy</span><div role="group" aria-label="First buy slippage tolerance">
-              {[50, 100, 200, 500].map((bps) => <button type="button" key={bps} aria-pressed={firstBuy.slippageBps === bps}
+              {FIRST_BUY_SLIPPAGE_BPS.map((bps) => <button type="button" key={bps} aria-pressed={firstBuy.slippageBps === bps}
                 disabled={busy || !!paymentAttempt} onClick={() => updateFirstBuy({ ...firstBuy, slippageBps: bps }, true)}>{bps / 100}%</button>)}
             </div>
           </div>}
@@ -2445,7 +2492,7 @@ function CreatePage({
             </p>
           )}
           {planExpired && !busy && (
-            <Notice kind="error">Refreshing your launch preview. Your inputs, payment and approvals are saved.</Notice>
+            <Notice>This preview has expired. Continuing refreshes it automatically; your inputs, payment and approvals are saved.</Notice>
           )}
           {wallet.error && <Notice kind="error">{wallet.error}</Notice>}
           {wallet.account && wallet.chainId !== config.chainId && <button className="secondary full" disabled={busy}
@@ -2463,12 +2510,12 @@ function CreatePage({
             <button className="primary full" disabled={busy} onClick={() => void recoverPayment()}>Check submitted payment</button>
           ) : plan?.requiresReconfirmation ? (
             <button className="primary full" disabled={busy} onClick={() => void acceptPriceChange()}>{converting && !converted ? "Accept updated minimum and convert" : "Accept updated minimum"}</button>
-          ) : paymentQuote && !paymentExpired && plan ? (
+          ) : paymentQuote && plan ? (
             <button className="primary full" disabled={busy || !config.writesEnabled || wallet.chainId !== config.chainId}
               onClick={() => void convertPayment()}>{busy ? "Confirming payment…" : paymentQuote.protocol === "wrap" ? "Wrap ETH and launch" : "Convert payment and launch"}<ArrowRight size={17} /></button>
           ) : converting && !converted ? (
             <button className="primary full" disabled={busy} onClick={() => void simulate()}>Refresh payment and launch preview<RefreshCw size={17} /></button>
-          ) : !plan || (planExpired && !busy) ? (
+          ) : !plan ? (
             <button
               className="primary full"
               disabled={busy || !!txHash || !config?.treasury}
@@ -2531,7 +2578,6 @@ function TokenPage({
 }) {
   const api = scopedApi(config);
   const generation = useRef(0);
-  const directory = useResource<TokenRecord[]>("/tokens");
   const resource = useResource<{
       token: TokenRecord;
       state: { poolKey: V4PoolKey };
@@ -2585,17 +2631,9 @@ function TokenPage({
       active = false;
     };
   }, [wallet.account, wallet.revision, resource.data, side, hash]);
-  const token =
-    resource.data?.token ??
-    directory.data?.find((t) => sameAddress(t.address, address));
+  const token = resource.data?.token;
   if (!token)
-    return directory.error ? (
-      <Notice kind="error">{directory.error}</Notice>
-    ) : directory.data ? (
-      <Notice kind="error">Token not found</Notice>
-    ) : (
-      <Loading />
-    );
+    return resource.error ? <Notice kind="error">{resource.error}</Notice> : <Loading />;
   const stock = quoteAsset(token),
     explorer = explorerFor(token),
     stockStatus = stockResource.data?.find((s) =>

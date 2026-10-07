@@ -3,7 +3,7 @@ import { httpServerHandler } from "cloudflare:node";
 import { createServer } from "node:http";
 import { createApp, knownPage, chainApiRoute, legacyTokenPath } from "../server/app";
 import { redact, runtimeFromEnv } from "../server/config";
-import { securityHeaders } from "../server/http-security";
+import { securityHeaders, requestBodyLimitForPath } from "../server/http-security";
 import { IngressLimiter, PreviewQueue, RiskChallenge } from "../server/abuse";
 import type { RuntimeEnvironment } from "../server/config";
 
@@ -67,6 +67,7 @@ export class LaunchpadRuntime extends DurableObject<Env> {
     if (request.body) {
       const reader = request.body.getReader();
       const chunks: Uint8Array[] = [];
+      const maximumBody = requestBodyLimitForPath(new URL(request.url).pathname);
       let size = 0, timedOut = false;
       const timeout = setTimeout(() => { timedOut = true; void reader.cancel(); }, 30_000);
       try {
@@ -74,7 +75,7 @@ export class LaunchpadRuntime extends DurableObject<Env> {
         const { value, done } = await reader.read();
         if (done) break;
         size += value.byteLength;
-        if (size > 65_536) {
+        if (size > maximumBody) {
           await reader.cancel();
           return Response.json({ error: "Request body is too large" }, { status: 413 });
         }

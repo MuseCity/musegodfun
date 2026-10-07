@@ -3,6 +3,7 @@ import type { BuybackDeployment } from "./buyback-engine";
 
 const OLD_FORWARDER = getAddress("0x3B6d01e627Fe6e06C831E0f9f57aC976a88309Ff");
 const MAX = 2n ** 256n - 1n;
+const FORWARDER_ALLOWANCE_CAP = 288n * 10n ** 16n;
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 const hash = (value: unknown): value is Hex => typeof value === "string" && /^0x[0-9a-fA-F]{64}$/.test(value);
 const rawAmount = (value: unknown, allowZero = false) => {
@@ -51,7 +52,7 @@ export function buybackGraphFingerprint(manifest: BuybackDeployment): Hex {
   const descriptions = Object.entries(manifest.assetFeedDescriptions ?? {}).sort(([a], [b]) => a.localeCompare(b)).map(([token, value]) => [token.toLowerCase(), value.descriptionHash.toLowerCase()]);
   if (descriptions.length !== 38) throw new Error("Activation initial feed metadata is incomplete");
   return keccak256(toBytes(JSON.stringify(["musegod-buyback-v2", 4663, contracts, constants, descriptions,
-    { windowSeconds: 300, wethCap: "10000000000000000", deviationBps: 200, governanceDelay: 604800, conversionFloorBps: 9900, offerFactor: 985000 }])));
+    { windowSeconds: 300, wethCap: "10000000000000000", forwarderAllowanceCap: String(FORWARDER_ALLOWANCE_CAP), deviationBps: 200, governanceDelay: 604800, conversionFloorBps: 9900, offerFactor: 985000 }])));
 }
 export function governorControlMessage(proof: Omit<GovernorControlProof, "signer" | "signature">): string {
   return `MUSEGOD BUYBACK V2 GOVERNOR CONTROL\nchainId=4663\ngraph=${proof.graphFingerprint.toLowerCase()}\ncontrolBlock=${proof.blockNumber}\ncontrolBlockHash=${proof.blockHash.toLowerCase()}`;
@@ -117,7 +118,9 @@ export async function verifyBuybackActivation(client: ActivationClient, manifest
     if (!events<{ eventName: string; args: { owner: Address; spender: Address; value: bigint } }>(r, weth, erc20Abi).some((e) => e.eventName === "Approval" && same(e.args.owner, source) && same(e.args.spender, spender) && e.args.value === amount)) throw new Error("Activation has no exact WETH Approval receipt");
     return r;
   };
-  const [revocation, approved] = await Promise.all([approval(proof.oldForwarderRevocation, OLD_FORWARDER, 0n), approval(proof.newFiniteAllowance, node("forwarder"), rawAmount(proof.newFiniteAllowance.amount))]);
+  const approvedAmount = rawAmount(proof.newFiniteAllowance.amount);
+  if (approvedAmount > FORWARDER_ALLOWANCE_CAP) throw new Error("The Forwarder approval exceeds the fixed 2.88 WETH ceiling");
+  const [revocation, approved] = await Promise.all([approval(proof.oldForwarderRevocation, OLD_FORWARDER, 0n), approval(proof.newFiniteAllowance, node("forwarder"), approvedAmount)]);
   const cutover = proof.legacySwapperCutover;
   if (!cutover || !/^\d+$/.test(cutover.blockNumber) || !hash(cutover.blockHash) || cutover.wethBalance !== "0") throw new Error("Activation needs a zero-reserve legacy Swapper checkpoint");
   const cutoverBlock = BigInt(cutover.blockNumber);

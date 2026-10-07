@@ -1,9 +1,10 @@
 import { quoteNow } from "./quote-clock";
 import { decodeEventLog, decodeFunctionData, encodeFunctionData, getAddress, isAddress, parseAbi,
-  parseUnits, zeroAddress, toEventSelector, keccak256, type Address, type Hex } from "viem";
+  parseUnits, formatUnits, zeroAddress, toEventSelector, keccak256, type Address, type Hex } from "viem";
 import { ROBINHOOD_STOCKS, STOCKS, sameAddress } from "./config";
 
 export const FIRST_BUY_PAYMENT_TTL = 60_000;
+export const FIRST_BUY_SLIPPAGE_BPS = [50, 100, 200, 500] as const;
 export type FirstBuyPaymentChain = 8453 | 4663;
 export type FirstBuyPaymentAsset = { chainId: FirstBuyPaymentChain; address: Address; symbol: string; decimals: number };
 export const FIRST_BUY_PAYMENT_CONTRACTS = Object.freeze({
@@ -85,7 +86,7 @@ export function firstBuyInteger(value: unknown, positive = true): bigint {
 export function firstBuyPaymentInput(chainId: FirstBuyPaymentChain, input: FirstBuyPaymentQuoteInput) {
   if (!input || typeof input.fromToken !== "string" || typeof input.toToken !== "string" ||
     !isAddress(input.account, { strict: false }) || sameAddress(input.account, zeroAddress) ||
-    !Number.isInteger(input.slippageBps) || input.slippageBps < 1 || input.slippageBps > 500) return invalid();
+    !FIRST_BUY_SLIPPAGE_BPS.some((bps) => bps === input.slippageBps)) return invalid();
   const toToken = firstBuyPairedAsset(chainId, input.toToken);
   const fromToken = firstBuyPaymentAssets(chainId, input.toToken).find((a) => sameAddress(a.address, input.fromToken));
   if (!fromToken || sameAddress(fromToken.address, toToken.address) || typeof input.amount !== "string" ||
@@ -228,12 +229,19 @@ export const wrapAbi = parseAbi(["function deposit() payable", "event Deposit(ad
 export function wrappedEther(chainId: FirstBuyPaymentChain) {
   return getAddress(chainId === 4663 ? "0x0bd7d308f8e1639fab988df18a8011f41eacad73" : "0x4200000000000000000000000000000000000006");
 }
+/** Historical wrap quotes used 1 bps as metadata. A wrap still receives exactly
+ * the input amount; refresh requests use the same supported API choices as UI. */
+export function firstBuyPaymentRefreshInput(previous: FirstBuyPaymentQuote): FirstBuyPaymentQuoteInput {
+  return { account: previous.account, fromToken: previous.fromToken.address, toToken: previous.toToken.address,
+    amount: formatUnits(BigInt(previous.amountIn), previous.fromToken.decimals),
+    slippageBps: previous.protocol === "wrap" ? 100 : previous.slippageBps };
+}
 export function createDirectWrapQuote(chainId: FirstBuyPaymentChain, account: Address, amountIn: bigint, code: Hex,
   block: { number: bigint; hash: Hex }, now = Date.now()): FirstBuyPaymentQuote {
   const address = wrappedEther(chainId), data = encodeFunctionData({ abi: wrapAbi, functionName: "deposit" });
   const q: FirstBuyPaymentQuote = { protocol: "wrap", id: `wrap-${now}`, transactionId: keccak256(data), integrator: "musegodfun", tool: "WETH",
     chainId, account, fromToken: { chainId, address: zeroAddress, symbol: "ETH", decimals: 18 }, toToken: firstBuyPairedAsset(chainId, address),
-    amountIn: amountIn.toString(), expectedOut: amountIn.toString(), minimumOut: amountIn.toString(), slippageBps: 1,
+    amountIn: amountIn.toString(), expectedOut: amountIn.toString(), minimumOut: amountIn.toString(), slippageBps: 100,
     quotedAt: now, expiresAt: now + FIRST_BUY_PAYMENT_TTL, serverTime: now, router: address, facet: address, facetRuntimeHash: keccak256(code),
     blockNumber: block.number.toString(), blockHash: block.hash, transaction: { to: address, data, value: amountIn.toString() }, approval: null,
     feeAmount: "0", feeUsd: "0", gasFeeUsd: null, amountInUsd: null };

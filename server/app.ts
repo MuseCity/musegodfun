@@ -3,8 +3,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { clientBucket, IngressLimiter, PreviewQueue, RiskChallenge } from "./abuse";
 import { BudgetUnavailable, recoveryBudget, withRecoveryBudget } from "./runtime-policy";
 import { sameAddress, listedTokens } from "../src/lib/config";
-import { firstBuyPaymentInput } from "../src/lib/first-buy-payment";
-import { securityHeaders } from "./http-security";
+import { firstBuyPaymentInput, FIRST_BUY_SLIPPAGE_BPS } from "../src/lib/first-buy-payment";
+import { securityHeaders, requestBodyLimitForPath } from "./http-security";
 import { TokenImages } from "./token-images";
 import { z } from "zod";
 import { parseUnits, type Hex } from "viem";
@@ -21,6 +21,7 @@ import { BuybackReader, BuybackError } from "./buyback";
 import { BuybackBatchService } from "./buyback-batches";
 import { BuybackEngineReader } from "./buyback-engine";
 import type { MUSEGODStats } from "../src/lib/buyback";
+import type { LaunchPlan } from "../src/lib/launch-plan";
 import {
   addressSchema,
   errorMessage,
@@ -37,6 +38,13 @@ export function legacyTokenPath(path: string): string | null {
   return /^\/token\/0x[0-9a-fA-F]{40}$/.test(path)
     ? path.replace("/token/", "/token/robinhood/") : null;
 }
+
+const recoveryPlanSchema = z.object({
+  id: hashSchema, creator: addressSchema, tokenAddress: addressSchema, poolId: hashSchema,
+  data: z.string().regex(/^0x(?:[0-9a-fA-F]{2})+$/).max(60_000),
+  transaction: z.object({to: addressSchema, data: z.string().regex(/^0x(?:[0-9a-fA-F]{2})+$/).max(60_000), value: z.literal("0")}).passthrough(),
+  draft: z.object({quoteAddress: addressSchema}).passthrough(),
+}).passthrough();
 
 export function chainApiRoute(path: string): { chainId: DeploymentChainId; path: string } | null {
   if (!path.startsWith("/api/chains")) return null;
@@ -103,7 +111,8 @@ app.use("/api", (req,res,next)=>{
     else {res.setHeader("Retry-After","60");res.status(429).json({error:"Too many expensive requests. Try again shortly."});}
   }).catch(next);
 });
-app.use(express.json({ limit: "64kb" }));
+const standardJson = express.json({limit:65_536}), recoveryJson = express.json({limit:262_144});
+app.use((req,res,next) => (requestBodyLimitForPath(req.originalUrl) > 65_536 ? recoveryJson : standardJson)(req,res,next));
 const route =
   (fn: (req: express.Request, res: express.Response) => Promise<unknown>) =>
   (req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -190,7 +199,7 @@ app.get("/api/first-buy/prices", route(async (req, res) => {
 }));
 app.post("/api/first-buy/quote", route(async (req, res) => {
   const input = z.object({ account: addressSchema, fromToken: addressSchema, toToken: addressSchema,
-    amount: z.string().max(40), slippageBps: z.union([z.literal(50), z.literal(100), z.literal(200), z.literal(500)]) }).strict().parse(req.body);
+    amount: z.string().max(40), slippageBps: z.number().int().refine(value => FIRST_BUY_SLIPPAGE_BPS.some(preset => preset === value)) }).strict().parse(req.body);
   firstBuyPaymentInput(deploymentChain(runtime.config),input);
   await service.preflightFirstBuyPayment(input.toToken, {fromToken:input.fromToken,account:input.account});
   res.json(await payments.quote(input));
@@ -277,7 +286,9 @@ app.get(
 app.get(
   "/api/tokens",
   route(async (req, res) => {
-    if(req.query.limit===undefined && req.query.before===undefined){res.json(listedTokens(await service.store.tokenPage(50),runtime.config.mode,deploymentChain(runtime.config)));return;}
+    // Preserve the complete-array contract. New catalog clients opt in to
+    // pagination; a truncated legacy array cannot signal its remaining rows.
+    if(req.query.limit===undefined && req.query.before===undefined){res.json(await service.tokens());return;}
     const limit=z.coerce.number().int().min(1).max(100).parse(req.query.limit ?? 50);
     const cursor=z.string().max(300).optional().parse(req.query.before);
     const before=cursor ? z.object({createdAt:z.number().int().nonnegative(),address:addressSchema}).strict().parse(JSON.parse(Buffer.from(cursor,"base64url").toString("utf8"))) : undefined;
@@ -327,11 +338,12 @@ app.get(
 app.post(
   "/api/launch/validate",
   route(async (req, res) => {
-    const { creator, data } = z.object({
+    const { creator, data, signing } = z.object({
       creator: addressSchema,
       data: z.string().regex(/^0x(?:[0-9a-fA-F]{2})+$/).max(60_000),
-    }).parse(req.body);
-    res.json(await service.validateLaunch(creator, data as Hex));
+      signing: z.boolean().optional(),
+    }).strict().parse(req.body);
+    res.json(await service.validateLaunch(creator, data as Hex, signing === true));
   }),
 );
 app.post(
@@ -384,9 +396,12 @@ app.post("/api/launch/simulate", route(async (req, res) => {
 }));
 app.post(
   "/api/launch/register",
-  route(async (req, res) =>
-    res.json(await service.register(hashSchema.parse(req.body.hash) as Hex, req.body.plan)),
-  ),
+  route(async (req, res) => {
+    const input = z.object({ hash: hashSchema, recoveryPlan: recoveryPlanSchema.optional() }).strict().parse(req.body);
+    // The service re-encodes the frozen CreateParams and verifies exact
+    // canonical transaction, receipt, fees and lock custody independently.
+    res.json(await service.register(input.hash as Hex, input.recoveryPlan as LaunchPlan | undefined));
+  }),
 );
 app.post(
   "/api/quote",
@@ -501,6 +516,12 @@ app.use(
     res: express.Response,
     _next: express.NextFunction,
   ) => {
+    if (error && typeof error === "object" && "type" in error && error.type === "entity.too.large") {
+      res.status(413).json({error:"Request body is too large"}); return;
+    }
+    if (error && typeof error === "object" && "type" in error && error.type === "entity.parse.failed") {
+      res.status(400).json({error:"Invalid JSON request body"}); return;
+    }
     if(error instanceof BudgetUnavailable){res.setHeader("Retry-After",String(error.retryAfter));res.status(429).json({error:error.message,code:"CAPACITY_LIMITED"});return;}
     const status =
       error instanceof MarketUnavailable
