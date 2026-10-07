@@ -111,7 +111,8 @@ export default {
       headers.set("x-forwarded-host", url.host);
       const chainId = selected?.chainId ?? 4663;
       const forwardedUrl = new URL(request.url);
-      if (selected) forwardedUrl.pathname = selected.path;
+      // Older DO versions recognize /readyz while code updates propagate.
+      if (selected) forwardedUrl.pathname = selected.path === "/api/readyz" ? "/readyz" : selected.path;
       response = await env.LAUNCHPAD.get(env.LAUNCHPAD.idFromName(chainId === 8453 ? "base-mainnet" : "robinhood-mainnet"))
         .fetch(new Request(forwardedUrl, new Request(request, { headers })));
     } else {

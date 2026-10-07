@@ -1,0 +1,573 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-10-07T02:58:34.901733+00:00",
+  "status": "compatibility_fix_verified_before_republication",
+  "precedingFailedCommit": "dec03fd11da85c5354ba8a13b8a583a5774d97c7",
+  "precedingFailedRelease": "build-37562576432-1",
+  "failureObserved": "All three production verifier attempts observed scoped RH readiness 404 over the first 40 seconds; later both domains confirmed the old rollback code.",
+  "mechanism": "Real local Workerd reproduced new outer Worker calling the exact preceding Git 1ca7c75 DO code: legacy readiness 200, new scoped ready alias 404. Cloudflare documents eventually consistent code updates; this is a reproduced explanation, not a direct reading of the production DO version.",
+  "fix": "Scoped readiness forwards to the established /readyz DO ingress. Strict deployment identity, mode, treasury, signing and guard checks remain unchanged. Three complete verifier attempts remain bounded; each retry waits 60 seconds for edge/DO code propagation.",
+  "officialReference": "https://developers.cloudflare.com/durable-objects/platform/known-issues/#code-updates",
+  "fixtures": [
+    {
+      "observedAt": "2026-10-07T02:55:04.814Z",
+      "evidenceKind": "Mock upstream full Worker + real Workerd Durable Object + real Node HTTP adapter",
+      "sourceSha256": {
+        "worker/index.ts": "2bcfbcf8c09433af1b94d9b91d60218ccb2daa32a7a9656a146a13a50b686583",
+        "server/app.ts": "b9b5fc9a0449b398b88782734d383e376d6dff3b1d15ea35fa3627abe27631a6",
+        "server/config.ts": "c59e9fc78f5852f194b09ae92fb55f168585a5dc4c72dc5de32f84823bac81bc",
+        "server/service.ts": "5537518b38a385b09c1e56c6f53c4141df07eddd06708ce34ca5611b461a087d"
+      },
+      "results": [
+        {
+          "round": 0,
+          "path": "/readyz",
+          "status": 200,
+          "body": {
+            "status": "ready",
+            "chainId": 4663,
+            "writesEnabled": true
+          }
+        },
+        {
+          "round": 0,
+          "path": "/api/readyz",
+          "status": 200,
+          "body": {
+            "status": "ready",
+            "chainId": 4663,
+            "writesEnabled": true
+          }
+        },
+        {
+          "round": 0,
+          "path": "/api/chains/4663/readyz",
+          "status": 200,
+          "body": {
+            "status": "ready",
+            "chainId": 4663,
+            "writesEnabled": true
+          }
+        },
+        {
+          "round": 0,
+          "path": "/api/chains/8453/readyz",
+          "status": 200,
+          "body": {
+            "status": "ready",
+            "chainId": 8453,
+            "writesEnabled": false
+          }
+        },
+        {
+          "round": 0,
+          "path": "/api/chains/4663/config",
+          "status": 200,
+          "body": {
+            "mode": "robinhood",
+            "deploymentChainId": 4663,
+            "chainId": 4663,
+            "treasury": "0x1111111111111111111111111111111111111111",
+            "writesEnabled": true,
+            "curvePolicy": "multicurve-97-3-v1",
+            "launchGuard": null,
+            "launchLockAvailable": false,
+            "feeEngine": null,
+            "feePolicy": "creator-70-musegod-v2",
+            "buybackExecutor": null,
+            "blockReason": null,
+            "automationReceiver": null,
+            "automationTreasury": null,
+            "wethForwarder": null
+          }
+        },
+        {
+          "round": 0,
+          "path": "/api/chains/8453/config",
+          "status": 200,
+          "body": {
+            "mode": "base",
+            "deploymentChainId": 8453,
+            "chainId": 8453,
+            "treasury": "0x1111111111111111111111111111111111111111",
+            "writesEnabled": false,
+            "curvePolicy": "multicurve-97-3-v1",
+            "launchGuard": null,
+            "launchLockAvailable": false,
+            "feeEngine": null,
+            "feePolicy": "creator-70-musegod-v2",
+            "buybackExecutor": null,
+            "blockReason": "Mainnet is read-only. Connect a wallet to query balances and simulate issuance.",
+            "automationReceiver": null,
+            "automationTreasury": null,
+            "wethForwarder": null
+          }
+        },
+        {
+          "round": 1,
+          "path": "/readyz",
+          "status": 200,
+          "body": {
+            "status": "ready",
+            "chainId": 4663,
+            "writesEnabled": true
+          }
+        },
+        {
+          "round": 1,
+          "path": "/api/readyz",
+          "status": 200,
+          "body": {
+            "status": "ready",
+            "chainId": 4663,
+            "writesEnabled": true
+          }
+        },
+        {
+          "round": 1,
+          "path": "/api/chains/4663/readyz",
+          "status": 200,
+          "body": {
+            "status": "ready",
+            "chainId": 4663,
+            "writesEnabled": true
+          }
+        },
+        {
+          "round": 1,
+          "path": "/api/chains/8453/readyz",
+          "status": 200,
+          "body": {
+            "status": "ready",
+            "chainId": 8453,
+            "writesEnabled": false
+          }
+        },
+        {
+          "round": 1,
+          "path": "/api/chains/4663/config",
+          "status": 200,
+          "body": {
+            "mode": "robinhood",
+            "deploymentChainId": 4663,
+            "chainId": 4663,
+            "treasury": "0x1111111111111111111111111111111111111111",
+            "writesEnabled": true,
+            "curvePolicy": "multicurve-97-3-v1",
+            "launchGuard": null,
+            "launchLockAvailable": false,
+            "feeEngine": null,
+            "feePolicy": "creator-70-musegod-v2",
+            "buybackExecutor": null,
+            "blockReason": null,
+            "automationReceiver": null,
+            "automationTreasury": null,
+            "wethForwarder": null
+          }
+        },
+        {
+          "round": 1,
+          "path": "/api/chains/8453/config",
+          "status": 200,
+          "body": {
+            "mode": "base",
+            "deploymentChainId": 8453,
+            "chainId": 8453,
+            "treasury": "0x1111111111111111111111111111111111111111",
+            "writesEnabled": false,
+            "curvePolicy": "multicurve-97-3-v1",
+            "launchGuard": null,
+            "launchLockAvailable": false,
+            "feeEngine": null,
+            "feePolicy": "creator-70-musegod-v2",
+            "buybackExecutor": null,
+            "blockReason": "Mainnet is read-only. Connect a wallet to query balances and simulate issuance.",
+            "automationReceiver": null,
+            "automationTreasury": null,
+            "wethForwarder": null
+          }
+        },
+        {
+          "round": 2,
+          "path": "/readyz",
+          "status": 200,
+          "body": {
+            "status": "ready",
+            "chainId": 4663,
+            "writesEnabled": true
+          }
+        },
+        {
+          "round": 2,
+          "path": "/api/readyz",
+          "status": 200,
+          "body": {
+            "status": "ready",
+            "chainId": 4663,
+            "writesEnabled": true
+          }
+        },
+        {
+          "round": 2,
+          "path": "/api/chains/4663/readyz",
+          "status": 200,
+          "body": {
+            "status": "ready",
+            "chainId": 4663,
+            "writesEnabled": true
+          }
+        },
+        {
+          "round": 2,
+          "path": "/api/chains/8453/readyz",
+          "status": 200,
+          "body": {
+            "status": "ready",
+            "chainId": 8453,
+            "writesEnabled": false
+          }
+        },
+        {
+          "round": 2,
+          "path": "/api/chains/4663/config",
+          "status": 200,
+          "body": {
+            "mode": "robinhood",
+            "deploymentChainId": 4663,
+            "chainId": 4663,
+            "treasury": "0x1111111111111111111111111111111111111111",
+            "writesEnabled": true,
+            "curvePolicy": "multicurve-97-3-v1",
+            "launchGuard": null,
+            "launchLockAvailable": false,
+            "feeEngine": null,
+            "feePolicy": "creator-70-musegod-v2",
+            "buybackExecutor": null,
+            "blockReason": null,
+            "automationReceiver": null,
+            "automationTreasury": null,
+            "wethForwarder": null
+          }
+        },
+        {
+          "round": 2,
+          "path": "/api/chains/8453/config",
+          "status": 200,
+          "body": {
+            "mode": "base",
+            "deploymentChainId": 8453,
+            "chainId": 8453,
+            "treasury": "0x1111111111111111111111111111111111111111",
+            "writesEnabled": false,
+            "curvePolicy": "multicurve-97-3-v1",
+            "launchGuard": null,
+            "launchLockAvailable": false,
+            "feeEngine": null,
+            "feePolicy": "creator-70-musegod-v2",
+            "buybackExecutor": null,
+            "blockReason": "Mainnet is read-only. Connect a wallet to query balances and simulate issuance.",
+            "automationReceiver": null,
+            "automationTreasury": null,
+            "wethForwarder": null
+          }
+        }
+      ],
+      "requestSemantics": {
+        "url": "https://ingress.fake.test/api/readyz?q=1",
+        "method": "POST",
+        "forwarded": "yes",
+        "body": "dummy body"
+      },
+      "outbound": [
+        {
+          "host": "supabase.fake.test",
+          "path": "/rest/v1/musegod_quota",
+          "method": "GET"
+        },
+        {
+          "host": "supabase.fake.test",
+          "path": "/rest/v1/musegod_buyback_batches",
+          "method": "GET"
+        },
+        {
+          "host": "rh-rpc.fake.test",
+          "path": "/",
+          "method": "POST"
+        },
+        {
+          "host": "supabase.fake.test",
+          "path": "/rest/v1/musegod_quota",
+          "method": "GET"
+        },
+        {
+          "host": "supabase.fake.test",
+          "path": "/rest/v1/musegod_buyback_batches",
+          "method": "GET"
+        },
+        {
+          "host": "base-rpc.fake.test",
+          "path": "/",
+          "method": "POST"
+        }
+      ],
+      "realUpstreamRequests": 0,
+      "productionDeployment": "not_run"
+    },
+    {
+      "observedAt": "2026-10-07T02:55:05.545Z",
+      "currentWorkerSha256": "2bcfbcf8c09433af1b94d9b91d60218ccb2daa32a7a9656a146a13a50b686583",
+      "actualReleaseGateSourceSha256": "d076484a3463cb4bdfade7f9b4467854fa27f2782d6a59401524c1669f46dc8c",
+      "legacyCommit": "1ca7c75",
+      "evidenceKind": "Real Workerd cross-worker Durable Object bindings with current outer Worker and actual legacy Git source",
+      "cases": [
+        {
+          "name": "current-disk-worker-old-do",
+          "rows": [
+            {
+              "path": "/readyz",
+              "status": 200,
+              "body": {
+                "status": "ready",
+                "chainId": 4663,
+                "writesEnabled": true
+              }
+            },
+            {
+              "path": "/api/readyz",
+              "status": 404,
+              "body": {
+                "error": "API endpoint not found"
+              }
+            },
+            {
+              "path": "/api/chains/4663/readyz",
+              "status": 200,
+              "body": {
+                "status": "ready",
+                "chainId": 4663,
+                "writesEnabled": true
+              }
+            },
+            {
+              "path": "/api/chains/8453/readyz",
+              "status": 200,
+              "body": {
+                "status": "ready",
+                "chainId": 4663,
+                "writesEnabled": true
+              }
+            },
+            {
+              "path": "/api/chains/4663/config",
+              "status": 200,
+              "body": {
+                "mode": "robinhood",
+                "deploymentChainId": 4663,
+                "chainId": 4663,
+                "treasury": "0x1111111111111111111111111111111111111111",
+                "writesEnabled": true,
+                "curvePolicy": "multicurve-97-3-v1",
+                "launchGuard": null,
+                "blockReason": null
+              }
+            },
+            {
+              "path": "/api/chains/8453/config",
+              "status": 200,
+              "body": {
+                "mode": "robinhood",
+                "deploymentChainId": 4663,
+                "chainId": 4663,
+                "treasury": "0x1111111111111111111111111111111111111111",
+                "writesEnabled": true,
+                "curvePolicy": "multicurve-97-3-v1",
+                "launchGuard": null,
+                "blockReason": null
+              }
+            }
+          ],
+          "gateRequests": [
+            "/readyz",
+            "/api/config",
+            "/api/chains/4663/readyz",
+            "/api/chains/4663/config",
+            "/api/chains/8453/readyz",
+            "/api/chains/8453/config"
+          ],
+          "actualReleaseGate": {
+            "result": "rejected",
+            "error": "Readiness/runtime configuration check failed for https://ingress.fake.test (8453)"
+          },
+          "passesStrictBaseChainGate": false
+        },
+        {
+          "name": "current-disk-worker-current-do",
+          "rows": [
+            {
+              "path": "/readyz",
+              "status": 200,
+              "body": {
+                "status": "ready",
+                "chainId": 4663,
+                "writesEnabled": true
+              }
+            },
+            {
+              "path": "/api/readyz",
+              "status": 200,
+              "body": {
+                "status": "ready",
+                "chainId": 4663,
+                "writesEnabled": true
+              }
+            },
+            {
+              "path": "/api/chains/4663/readyz",
+              "status": 200,
+              "body": {
+                "status": "ready",
+                "chainId": 4663,
+                "writesEnabled": true
+              }
+            },
+            {
+              "path": "/api/chains/8453/readyz",
+              "status": 200,
+              "body": {
+                "status": "ready",
+                "chainId": 8453,
+                "writesEnabled": false
+              }
+            },
+            {
+              "path": "/api/chains/4663/config",
+              "status": 200,
+              "body": {
+                "mode": "robinhood",
+                "deploymentChainId": 4663,
+                "chainId": 4663,
+                "treasury": "0x1111111111111111111111111111111111111111",
+                "writesEnabled": true,
+                "curvePolicy": "multicurve-97-3-v1",
+                "launchGuard": null,
+                "launchLockAvailable": false,
+                "feeEngine": null,
+                "feePolicy": "creator-70-musegod-v2",
+                "buybackExecutor": null,
+                "blockReason": null,
+                "automationReceiver": null,
+                "automationTreasury": null,
+                "wethForwarder": null
+              }
+            },
+            {
+              "path": "/api/chains/8453/config",
+              "status": 200,
+              "body": {
+                "mode": "base",
+                "deploymentChainId": 8453,
+                "chainId": 8453,
+                "treasury": "0x1111111111111111111111111111111111111111",
+                "writesEnabled": false,
+                "curvePolicy": "multicurve-97-3-v1",
+                "launchGuard": null,
+                "launchLockAvailable": false,
+                "feeEngine": null,
+                "feePolicy": "creator-70-musegod-v2",
+                "buybackExecutor": null,
+                "blockReason": "Mainnet is read-only. Connect a wallet to query balances and simulate issuance.",
+                "automationReceiver": null,
+                "automationTreasury": null,
+                "wethForwarder": null
+              }
+            }
+          ],
+          "gateRequests": [
+            "/readyz",
+            "/api/config",
+            "/api/chains/4663/readyz",
+            "/api/chains/4663/config",
+            "/api/chains/8453/readyz",
+            "/api/chains/8453/config"
+          ],
+          "actualReleaseGate": {
+            "result": "passed"
+          },
+          "passesStrictBaseChainGate": true
+        }
+      ],
+      "outbound": [
+        {
+          "host": "supabase.fake.test",
+          "path": "/rest/v1/musegod_quota",
+          "method": "GET"
+        },
+        {
+          "host": "supabase.fake.test",
+          "path": "/rest/v1/musegod_buyback_batches",
+          "method": "GET"
+        },
+        {
+          "host": "rh-rpc.fake.test",
+          "path": "/",
+          "method": "POST"
+        },
+        {
+          "host": "supabase.fake.test",
+          "path": "/rest/v1/musegod_quota",
+          "method": "GET"
+        },
+        {
+          "host": "supabase.fake.test",
+          "path": "/rest/v1/musegod_buyback_batches",
+          "method": "GET"
+        },
+        {
+          "host": "rh-rpc.fake.test",
+          "path": "/",
+          "method": "POST"
+        },
+        {
+          "host": "supabase.fake.test",
+          "path": "/rest/v1/musegod_quota",
+          "method": "GET"
+        },
+        {
+          "host": "supabase.fake.test",
+          "path": "/rest/v1/musegod_buyback_batches",
+          "method": "GET"
+        },
+        {
+          "host": "rh-rpc.fake.test",
+          "path": "/",
+          "method": "POST"
+        },
+        {
+          "host": "supabase.fake.test",
+          "path": "/rest/v1/musegod_quota",
+          "method": "GET"
+        },
+        {
+          "host": "supabase.fake.test",
+          "path": "/rest/v1/musegod_buyback_batches",
+          "method": "GET"
+        },
+        {
+          "host": "base-rpc.fake.test",
+          "path": "/",
+          "method": "POST"
+        }
+      ],
+      "realUpstreamRequests": 0,
+      "productionDeployment": "not_run"
+    }
+  ],
+  "sourceSha256": {
+    "worker/index.ts": "2bcfbcf8c09433af1b94d9b91d60218ccb2daa32a7a9656a146a13a50b686583",
+    "scripts/release.ts": "d076484a3463cb4bdfade7f9b4467854fa27f2782d6a59401524c1669f46dc8c",
+    "tests/release-retry.test.ts": "996b6eaae6172001bd5b417b1957fb40ca6bce30f778c584a927c1b8947700a2"
+  },
+  "upstreamBoundary": "Fake RPC/Supabase hosts and dummy keys only in the full-runtime routing experiment; real Workerd, Durable Objects and Node HTTP adapter. No production DB/LI.FI calls.",
+  "permissionsChanged": false,
+  "mainnetTransactions": "not_run"
+}

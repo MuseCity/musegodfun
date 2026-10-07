@@ -12,7 +12,7 @@ const repositorySlug = "MuseCity/musegodfun", workerName = "musegod-fun";
 const origins = ["https://musegod.fun", "https://www.musegod.fun"];
 const apiVersion = "2026-03-10";
 
-// CI alone tolerates a bounded edge propagation window. The standalone verifier stays strict.
+// CI tolerates bounded edge and DO code propagation. The standalone verifier stays strict.
 export async function verifyProductionCandidate(candidate: string, checks: {
   activeVersion(): Promise<string>;
   assertFrozen(): void;
@@ -34,9 +34,9 @@ export async function verifyProductionCandidate(candidate: string, checks: {
     if (await checks.activeVersion() !== candidate) throw new Error("Candidate changed during production verification");
     if (passed) return;
     const reason = failure instanceof Error ? failure.message : String(failure);
-    checks.describe(`Production verification attempt ${attempt}/3 failed: ${reason}${attempt < 3 ? "; retrying both origins in 10 seconds" : "; retry budget exhausted"}`);
+    checks.describe(`Production verification attempt ${attempt}/3 failed: ${reason}${attempt < 3 ? "; retrying both origins in 60 seconds" : "; retry budget exhausted"}`);
     if (attempt === 3) throw new Error("Production verification failed after 3 complete attempts", { cause: failure });
-    await checks.wait(10_000);
+    await checks.wait(60_000);
   }
 }
 

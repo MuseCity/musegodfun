@@ -26,16 +26,16 @@ test("a transient second-origin failure restarts both domains and only succeeds 
   };
   await verifyProductionCandidate(candidate, c);
   assert.deepEqual(c.visited, [...origins, ...origins]);
-  assert.deepEqual(c.waits, [10_000]);
+  assert.deepEqual(c.waits, [60_000]);
   assert.match(c.messages[0], /attempt 1\/3 failed.*HTTP 404/);
 });
 
-test("CI retry budget permits exactly three failed attempts and two ten-second waits", async () => {
+test("CI retry budget permits exactly three failed attempts and two sixty-second waits", async () => {
   const c = checks();
   c.verifyOrigin = async origin => { c.visited.push(origin); throw new Error("persistent file hash mismatch"); };
   await assert.rejects(() => verifyProductionCandidate(candidate, c), /failed after 3 complete attempts/);
   assert.deepEqual(c.visited, [origins[0], origins[0], origins[0]]);
-  assert.deepEqual(c.waits, [10_000, 10_000]);
+  assert.deepEqual(c.waits, [60_000, 60_000]);
   assert.match(c.messages.at(-1)!, /retry budget exhausted/);
 });
 
@@ -75,5 +75,5 @@ test("a persistent failure after the bounded CI retries still uses the existing 
   assert.equal(rollbackChecked, true);
   assert.deepEqual(activations, [candidate, previous]);
   assert.deepEqual(states, ["in_progress", "failure"]);
-  assert.deepEqual(c.waits, [10_000, 10_000]);
+  assert.deepEqual(c.waits, [60_000, 60_000]);
 });
