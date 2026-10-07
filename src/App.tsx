@@ -1,6 +1,14 @@
+import { useTokenCatalog } from "./lib/token-catalog";
+import { PaymentPriceChanged } from "./lib/first-buy-wallet";
+import TurnstileGate from "./components/TurnstileGate";
+import LockRecovery from "./components/LockRecovery";
+import { quoteNow } from "./lib/quote-clock";
+import { activeLaunchIntent, newIntentId, selectLaunchIntent, savedLaunchIntents, launchIntentStorageKey, restoreLegacyPending, saveFrozenLaunch, withLaunchIntentLock } from "./lib/launch-intent";
+import { LaunchPriceChanged, assertAcceptedLaunchRefresh, assertLaunchWalletPlan, launchDraftInput } from "./lib/launch-wallet";
+import { assertLaunchPlanValidity } from "./lib/launch-plan";
 import { dopplerUrl } from "./lib/doppler";
 import TransactionHistory from "./components/TransactionHistory";
-import { transactions, updateTransaction } from "./lib/transactions";
+import { transactions, updateTransaction, saveTransaction } from "./lib/transactions";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ArrowDown,
@@ -107,13 +115,15 @@ import { useTokenCardMarkets } from "./lib/token-card-market";
 
 function useResource<T>(path: string, version = 0) {
   const { chainId } = useNetwork();
+  const scope = useRef(`${chainId}:${path}`);
   const [data, setData] = useState<T | null>(null),
     [error, setError] = useState(""),
     [loading, setLoading] = useState(true);
   useEffect(() => {
     let active = true;
     setLoading(true);
-    setData(null);
+    const nextScope = `${chainId}:${path}`;
+    if (scope.current !== nextScope) { scope.current = nextScope; setData(null); }
     setError("");
     chainApi<T>(chainId, path)
       .then((x) => {
@@ -279,7 +289,7 @@ function StockShares({
   stock: Pick<Stock, "ticker" | "decimals" | "standard">;
   status: StockStatus | undefined;
 }) {
-  if (stock.standard !== "B20") return null;
+  if (stock.standard !== "B20" && !status?.multiplierWad) return null;
   if (!status?.verified || !status.multiplierWad)
     return <span className="share-equivalent">Share equivalent unavailable</span>;
   return (
@@ -325,7 +335,8 @@ function SocialLinks({
     </div>
   );
 }
-function pendingLaunchKey(config: RuntimeConfig) {
+function pendingLaunchKey(config: RuntimeConfig, account?: Address | null, intent?: string) {
+  if (intent) return launchIntentStorageKey(config, account ?? null, intent, "pending");
   return `musegod.pending.launch.${config.chainId}${config.mode === "fork" ? `.${deploymentChain(config)}` : ""}`;
 }
 function TxLink({ hash, config }: { hash: string; config: RuntimeConfig }) {
@@ -339,7 +350,8 @@ function TxLink({ hash, config }: { hash: string; config: RuntimeConfig }) {
 const feePercent = (basisPoints: number) => `${basisPoints / 100}%`;
 const openingCapUsdLabel = `$${OPENING_CAP_USD.toLocaleString("en-US")}`;
 type PaymentAttempt = FirstBuyPaymentAttempt;
-function paymentKey(config: RuntimeConfig, account: Address) {
+function paymentKey(config: RuntimeConfig, account: Address, intent?: string) {
+  if (intent) return launchIntentStorageKey(config, account, intent, "payment");
   return `musegod.first-buy.payment.${config.chainId}.${deploymentChain(config)}.${account.toLowerCase()}`;
 }
 function scopedApi(config: RuntimeConfig | null) {
@@ -364,7 +376,7 @@ export function App() {
   }, [showHelp]);
   const config = useResource<RuntimeConfig>("/config", version),
     stocks = useResource<StockStatus[]>("/stocks", version),
-    tokens = useResource<TokenRecord[]>("/tokens", version),
+    tokens = useTokenCatalog(version),
     wallet = useWallet();
   const current =
     path === "/create"
@@ -511,7 +523,9 @@ export function App() {
                 </button>
               </Notice>
             )}
+          <TurnstileGate />
           <TransactionHistory config={config.data} />
+          <LockRecovery config={config.data} />
           {!/^\/(?:create|rewards|buyback)?$/.test(path) &&
           !/^\/token\/(?:(?:base|robinhood)\/)?0x[0-9a-fA-F]{40}$/.test(path) ? (
             <section className="panel">
@@ -520,14 +534,16 @@ export function App() {
             </section>
           ) : current === "create" ? (
             <CreatePage
-              key={`${network.chainId}:${config.data?.chainId ?? "loading"}`}
+              key={network.chainId}
               stocks={stocks.data}
               stockError={stocks.error}
-              config={config.data}
+              config={config.data ?? { chainId: network.chainId, mode: network.chainId === 4663 ? "robinhood" : "base",
+                treasury: null, writesEnabled: false, blockReason: "Preparing this network. Your draft is available while the launch checks load." }}
+              configurationPending={!config.data}
               refresh={() => setVersion((v) => v + 1)}
             />
           ) : current === "rewards" ? (
-            <Rewards tokens={tokens.data ?? []} config={config.data} />
+            <Rewards tokens={tokens.data ?? []} config={config.data} hasMore={!!tokens.nextCursor} loading={tokens.loading} loadMore={tokens.loadMore} />
           ) : current === "buyback" ? (
             <BuybackPage config={config.data} />
           ) : network.chainId === 4663 && tokenAddress && sameAddress(tokenAddress, MUSEGOD.token) ? (
@@ -548,6 +564,8 @@ export function App() {
               loading={tokens.loading}
               config={config.data}
               refreshVersion={version}
+              hasMore={!!tokens.nextCursor}
+              loadMore={tokens.loadMore}
               refresh={() => setVersion((v) => v + 1)}
             />
           )}
@@ -659,6 +677,8 @@ export function Explore({
   loading,
   config,
   refreshVersion = 0,
+  hasMore = false,
+  loadMore,
   refresh,
 }: {
   tokens: TokenRecord[] | null;
@@ -668,6 +688,8 @@ export function Explore({
   loading: boolean;
   config: RuntimeConfig | null;
   refreshVersion?: number;
+  hasMore?: boolean;
+  loadMore?: () => void;
   refresh: () => void;
 }) {
   // Resource refreshes temporarily clear their data. Keep the confirmed
@@ -799,7 +821,7 @@ export function Explore({
         </select>
       </div>
       {tokenError && <Notice kind="error">Platform launches could not be loaded: {tokenError}</Notice>}
-      {loading && <Loading />}
+      {loading && !tokens?.length && <Loading />}
       {filtered.length ? (
         <div className="token-grid">
           {filtered.map((t) => <TokenCard key={t.address} token={t} onNavigate={navigate}
@@ -829,6 +851,7 @@ export function Explore({
           </Link>
         </div>
       ) : null}
+      {hasMore && <button type="button" className="secondary full" disabled={loading} onClick={loadMore}>{loading ? "Loading more tokens…" : "Load more tokens"}</button>}
       {stockError && (
         <Notice kind="error">Asset contract verification is unavailable: {stockError}</Notice>
       )}
@@ -846,11 +869,13 @@ function CreatePage({
   stockError,
   config,
   refresh,
+  configurationPending = false,
 }: {
   stocks: StockStatus[] | null;
   stockError: string;
   config: RuntimeConfig | null;
   refresh: () => void;
+  configurationPending?: boolean;
 }) {
   const api = scopedApi(config);
   const generation = useRef(0);
@@ -859,15 +884,30 @@ function CreatePage({
     imageInput = useRef<HTMLInputElement>(null),
     imageUpload = useRef(0),
     reviewDialog = useRef<HTMLDialogElement>(null);
-  const wallet = useWallet(),
+  const wallet = useWallet();
+  const initialSavedDraft = () => {
+    if (!config) return savedLaunchDraft(config);
+    const initialIntent = activeLaunchIntent(config, wallet.account);
+    const scoped = localStorage.getItem(launchIntentStorageKey(config, wallet.account, initialIntent, "draft"));
+    if (scoped) return scoped;
+    const legacy = savedLaunchDraft(config);
+    try {
+      const prior = JSON.parse(legacy || "null");
+      // A shared chain draft can migrate once, but must not overwrite another
+      // wallet's existing independent intent.
+      if (prior?.intentId && prior.intentId !== initialIntent && prior.intentId !== activeLaunchIntent(config, null)) return null;
+    } catch { return null; }
+    return legacy;
+  };
+  const
     [draft, setDraft] = useState<LaunchInput>(() => {
       try {
-        return restoreDraft(savedLaunchDraft(config), config ?? undefined);
+        return restoreDraft(initialSavedDraft(), config ?? undefined);
       } catch {
         return restoreDraft(null, config ?? undefined);
       }
     }),
-    [firstBuy, setFirstBuy] = useState<FirstBuyDraft>(() => firstBuyDraft(config));
+    [firstBuy, setFirstBuy] = useState<FirstBuyDraft>(() => firstBuyDraft(config, initialSavedDraft()));
   const [query, setQuery] = useState(""),
     [category, setCategory] = useState<AssetCategory>("all"),
     [showAllAssets, setShowAllAssets] = useState(false),
@@ -888,6 +928,29 @@ function CreatePage({
     [paymentBalance, setPaymentBalance] = useState<bigint | null>(null),
     [priceRevision, setPriceRevision] = useState(0);
   const [paymentExpired, setPaymentExpired] = useState(false);
+  const [intentId, setIntentId] = useState(() => config ? activeLaunchIntent(config, wallet.account) : newIntentId());
+  const [submissionUnknown, setSubmissionUnknown] = useState(false);
+  const [recoveryHash, setRecoveryHash] = useState("");
+  const currentPlan = useRef<LaunchPlan | null>(null);
+  const inFlightIntents = useRef(new Set<string>());
+  const draftScope = useRef(wallet.account?.toLowerCase() ?? "draft");
+  const resolvedConfiguration = useRef(!configurationPending);
+  useEffect(() => {
+    if (!config) return;
+    const next = activeLaunchIntent(config, wallet.account);
+    const firstResolution = !configurationPending && !resolvedConfiguration.current;
+    if (!configurationPending) resolvedConfiguration.current = true;
+    const scope = wallet.account?.toLowerCase() ?? "draft";
+    if (next !== intentId || draftScope.current !== scope) {
+      const anonymous = draftScope.current === "draft";
+      draftScope.current = scope; imageUpload.current++;
+      generation.current++; setIntentId(next); currentPlan.current = null;
+      setPlan(null); setPaymentQuote(null); setTxHash(null); setConfirmed(false); setBusy(false); setUploadingImage(false); setReview(false);
+      const saved = localStorage.getItem(launchIntentStorageKey(config, wallet.account, next, "draft"));
+      if (saved) { setDraft(restoreDraft(saved, config)); setFirstBuy(firstBuyDraft(config, saved)); }
+      else if (!anonymous && !firstResolution) { setDraft(restoreDraft(null, config)); setFirstBuy(firstBuyDraft(config, null)); }
+    }
+  }, [config?.chainId, config?.deploymentChainId, wallet.account, configurationPending]);
   const tradingFeeBps = tradingFeeBpsFor(draft.tradingFeeBps);
   const assets = launchAssetsFor(config ?? undefined);
   const stock = assets.find((asset) => sameAddress(asset.address, draft.quoteAddress)) ?? assets[0],
@@ -912,7 +975,7 @@ function CreatePage({
   const paymentAssets = firstBuyPaymentAssets(stock.chainId, stock.address);
   const paymentAsset = paymentAssets.find((a) => sameAddress(a.address, firstBuy.payAddress)) ?? paymentAssets[0];
   const paymentPrices = useResource<FirstBuyPrices>(`/first-buy/prices?pairedAsset=${stock.address}`, priceRevision);
-  const paymentPrice = paymentPrices.data && paymentPrices.data.expiresAt > Date.now()
+  const paymentPrice = paymentPrices.data && paymentPrices.data.expiresAt > quoteNow(paymentPrices.data)
     ? paymentPrices.data.assets.find((a) => sameAddress(a.address, paymentAsset.address))?.priceUsd ?? null : null;
   const converting = !sameAddress(paymentAsset.address, stock.address) && /[1-9]/.test(firstBuy.amount);
   const converted = !!paymentAttempt?.actualOutput && sameAddress(paymentAttempt.quote.toToken.address, stock.address) &&
@@ -921,13 +984,13 @@ function CreatePage({
   const paymentPairSupported = !paymentAttempt || assets.some((asset) => sameAddress(asset.address, paymentAttempt.quote.toToken.address));
   useEffect(() => {
     if (!paymentPrices.data) return;
-    const timer = setTimeout(() => setPriceRevision((v) => v + 1), Math.max(1000, paymentPrices.data.expiresAt - Date.now()));
+    const timer = setTimeout(() => setPriceRevision((v) => v + 1), Math.max(1000, paymentPrices.data.expiresAt - quoteNow(paymentPrices.data!)));
     return () => clearTimeout(timer);
   }, [paymentPrices.data]);
   useEffect(() => {
-    setPaymentExpired(!!paymentQuote && paymentQuote.expiresAt <= Date.now());
+    setPaymentExpired(!!paymentQuote && paymentQuote.expiresAt <= quoteNow(paymentQuote));
     if (!paymentQuote) return;
-    const timer = setTimeout(() => setPaymentExpired(true), Math.max(0, paymentQuote.expiresAt - Date.now()));
+    const timer = setTimeout(() => setPaymentExpired(true), Math.max(0, paymentQuote.expiresAt - quoteNow(paymentQuote)));
     return () => clearTimeout(timer);
   }, [paymentQuote]);
   useEffect(() => {
@@ -943,14 +1006,19 @@ function CreatePage({
     setPaymentAttempt(null);
     if (!wallet.account || !config) return;
     try {
-      const saved = JSON.parse(localStorage.getItem(paymentKey(config, wallet.account)) || "null") as PaymentAttempt | null;
+      const key = paymentKey(config, wallet.account, intentId);
+      const legacyKey = paymentKey(config, wallet.account);
+      if (!localStorage.getItem(key) && localStorage.getItem(legacyKey)) {
+        localStorage.setItem(key, localStorage.getItem(legacyKey)!); localStorage.removeItem(legacyKey);
+      }
+      const saved = JSON.parse(localStorage.getItem(key) || "null") as PaymentAttempt | null;
       if (saved) {
-        assertFirstBuyPaymentQuote(saved.quote, Date.now(), true);
+        assertFirstBuyPaymentQuote(saved.quote, quoteNow(saved.quote), true);
         if (saved.quote.chainId === deploymentChain(config) && sameAddress(saved.quote.account, wallet.account) && /^0x[\da-f]{64}$/i.test(saved.hash))
           setPaymentAttempt({ ...saved, actualOutput: null }); // Always reverify receipt after a reload.
       }
     } catch { /* Untrusted storage never establishes a successful conversion. */ }
-  }, [wallet.account, wallet.revision, config?.chainId, config?.deploymentChainId]);
+  }, [wallet.account, wallet.revision, config?.chainId, config?.deploymentChainId, intentId]);
   useEffect(() => {
     generation.current++;
     setPlan(null);
@@ -984,7 +1052,7 @@ function CreatePage({
       setPlanExpired(false);
       return;
     }
-    const remaining = plan.openingValuation.expiresAt - Date.now();
+    const remaining = (plan.signingExpiresAt ?? plan.openingValuation.expiresAt) - quoteNow(plan);
     setPlanExpired(remaining <= 0);
     if (remaining <= 0) return;
     const timer = setTimeout(() => setPlanExpired(true), remaining);
@@ -995,49 +1063,74 @@ function CreatePage({
     setDraftSaved(false);
     const timer = setTimeout(() => {
       try {
-        localStorage.setItem(launchDraftKey(config), JSON.stringify({ ...draft, firstBuy }));
+        const payload = JSON.stringify({ ...draft, firstBuy, intentId });
+        localStorage.setItem(launchDraftKey(config), payload);
+        localStorage.setItem(launchIntentStorageKey(config, wallet.account, intentId, "draft"), payload);
         setDraftSaved(true);
       } catch {
         setDraftSaved(false);
       }
     }, 250);
     return () => clearTimeout(timer);
-  }, [draft, firstBuy, config?.chainId, config?.deploymentChainId]);
+  }, [draft, firstBuy, config?.chainId, config?.deploymentChainId, intentId, wallet.account]);
   useEffect(() => {
     if (!config) return;
+    const syncSubmission = () => {
+      try { setSubmissionUnknown(!!localStorage.getItem(launchIntentStorageKey(config, wallet.account, intentId, "submission"))); }
+      catch { /* Keep unresolved recovery visible if storage becomes unavailable. */ }
+    };
     try {
-      setTxHash(
-        localStorage.getItem(
-          pendingLaunchKey(config),
-        ) as Hex | null,
-      );
+      setTxHash(restoreLegacyPending(config, wallet.account, intentId));
+      syncSubmission();
+      const backup = localStorage.getItem(launchIntentStorageKey(config, wallet.account, intentId, "plan"));
+      currentPlan.current = backup ? JSON.parse(backup) : null;
     } catch {
       /* Storage may be unavailable. */
     }
-  }, [config?.chainId, config?.deploymentChainId]);
+    window.addEventListener("musegod:launch-submission", syncSubmission);
+    window.addEventListener("storage", syncSubmission);
+    return () => {
+      window.removeEventListener("musegod:launch-submission", syncSubmission);
+      window.removeEventListener("storage", syncSubmission);
+    };
+  }, [config?.chainId, config?.deploymentChainId, wallet.account, intentId]);
   useEffect(() => {
     if (!config || !txHash) return;
     let active = true;
     const check = async () => {
+      const pendingKey = pendingLaunchKey(config, wallet.account, intentId);
+      const markerKey = launchIntentStorageKey(config, wallet.account, intentId, "submission");
+      let pendingValue: string | null, markerValue: string | null;
+      try {
+        pendingValue = localStorage.getItem(pendingKey); markerValue = localStorage.getItem(markerKey);
+        const marker = JSON.parse(markerValue || "null") as { hash?: Hex } | null;
+        if ((pendingValue && !sameAddress(pendingValue, txHash)) || (marker && (!marker.hash ||
+          !sameAddress(marker.hash, txHash) && !sameAddress(pendingLaunchResolution(marker.hash, transactions(), config).hash, txHash)))) return;
+      } catch { return; }
+      const unchanged = () => active && localStorage.getItem(pendingKey) === pendingValue && localStorage.getItem(markerKey) === markerValue;
       const result = pendingLaunchResolution(txHash, transactions(), config);
       if (result.hash.toLowerCase() !== txHash.toLowerCase()) {
-        try { localStorage.setItem(pendingLaunchKey(config), result.hash); } catch { /* Transaction history still retains the replacement chain. */ }
+        if (!unchanged()) return;
+        try { localStorage.setItem(pendingKey, result.hash); } catch { /* Transaction history still retains the replacement chain. */ }
         if (active) setTxHash(result.hash);
         return;
       }
       if (!result.terminal) return;
       const canonical = await terminalLaunchProof(result);
-      if (!active || !canonical) return;
-      try { localStorage.removeItem(pendingLaunchKey(config)); } catch { /* The failed hash remains visible in transaction history. */ }
-      setTxHash(null); setPlan(null);
+      if (!canonical || !unchanged()) return;
+      try { localStorage.removeItem(pendingKey); } catch { /* The failed hash remains visible in transaction history. */ }
+      localStorage.removeItem(markerKey);
+      setSubmissionUnknown(false); setTxHash(null); setPlan(null);
     };
     const onChange = () => { void check(); };
     onChange();
     window.addEventListener("musegod:transactions", onChange);
     return () => { active = false; window.removeEventListener("musegod:transactions", onChange); };
-  }, [txHash, config?.chainId, config?.deploymentChainId]);
+  }, [txHash, config?.chainId, config?.deploymentChainId, intentId, wallet.account]);
   async function terminalLaunchProof(result: PendingLaunchResolution) {
-    if (!config || !result.terminal) return false;
+    if (!config || !result.terminal || !wallet.account || !result.account || !sameAddress(result.account, wallet.account)) return false;
+    const current = transactions().find((row) => sameAddress(row.hash, result.hash));
+    if (current?.intentId && current.intentId !== intentId) return false;
     const client = transactionClient(config.chainId, config);
     if (await client.getChainId().catch(() => null) !== config.chainId) return false;
     return terminalLaunchIsCanonical(result, {
@@ -1047,6 +1140,7 @@ function CreatePage({
     });
   }
   function update<K extends keyof LaunchInput>(key: K, value: LaunchInput[K]) {
+    if (draft[key] !== value) currentPlan.current = null;
     if (key === "image") {
       imageUpload.current++;
       setUploadingImage(false);
@@ -1056,6 +1150,7 @@ function CreatePage({
     setDraft((d) => ({ ...d, [key]: value }));
     if (key === "quoteAddress" && !sameAddress(String(value), draft.quoteAddress))
       setFirstBuy((previous) => ({ ...previous, amount: "0", payAddress: String(value), lockDays: 0 }));
+    if (key === "quoteAddress") setPaymentQuote(null);
     setInvalidField("");
     setReview(false);
     setPlan(null);
@@ -1067,6 +1162,8 @@ function CreatePage({
       setError("Check the submitted payment conversion before changing the first buy."); return;
     }
     generation.current++;
+    if (next.amount !== firstBuy.amount || next.payAddress !== firstBuy.payAddress || next.slippageBps !== firstBuy.slippageBps || next.lockDays !== firstBuy.lockDays)
+      currentPlan.current = null;
     setFirstBuy(next);
     setInvalidField("");
     if (!keepReview) setReview(false);
@@ -1097,7 +1194,7 @@ function CreatePage({
     }
   }
   function preflight() {
-    if (uploadingImage) return;
+    if (uploadingImage || configurationPending) return;
     setError("");
     setMessage("");
     if (paymentAttempt && !paymentAttempt.actualOutput) {
@@ -1119,7 +1216,7 @@ function CreatePage({
       });
       return;
     }
-    if (!config || !assets.some((asset) => sameAddress(asset.address, draft.quoteAddress)) || !status?.verified) {
+    if (!config || !assets.some((asset) => sameAddress(asset.address, draft.quoteAddress))) {
       setError("Wait for the selected asset contract’s identity to be verified before continuing.");
       return;
     }
@@ -1158,17 +1255,17 @@ function CreatePage({
       if (txHash && !confirmed) throw new Error("Recover the submitted launch before preparing another launch.");
       if (config?.curvePolicy !== CURVE_POLICY)
         throw new Error("The launch curve policy has changed. Refresh this page before previewing.");
+      let requestedAmount = firstBuy.amount;
+      let conversionPreview: FirstBuyPaymentQuote | null = null;
       if (converting && !converted) {
         if (paymentAttempt) throw new Error("Check the submitted payment conversion before requesting another quote.");
-        const quote = await api<FirstBuyPaymentQuote>("/first-buy/quote", { account: wallet.account, fromToken: paymentAsset.address,
+        const quote = paymentQuote && paymentQuote.expiresAt - quoteNow(paymentQuote) >= 15_000 ? paymentQuote : await api<FirstBuyPaymentQuote>("/first-buy/quote", { account: wallet.account, fromToken: paymentAsset.address,
           toToken: stock.address, amount: firstBuy.amount, slippageBps: firstBuy.slippageBps });
         if (request !== generation.current) return;
         assertFirstBuyPaymentQuote(quote);
-        setPaymentQuote(quote);
-        setMessage("Payment conversion quoted. Review its minimum received and fees before confirming the conversion.");
-        return;
+        conversionPreview = quote;
+        requestedAmount = formatUnits(BigInt(quote.minimumOut), stock.decimals);
       }
-      let requestedAmount = firstBuy.amount;
       if (converted) {
         const payment = await api<FirstBuyPaymentVerification>("/first-buy/verify", { quote: paymentAttempt!.quote, hash: paymentAttempt!.hash });
         if (request !== generation.current) return;
@@ -1183,6 +1280,15 @@ function CreatePage({
         draft,
         creator: wallet.account,
         expectedCurvePolicy: CURVE_POLICY,
+        options: { intentId, ...(currentPlan.current && currentPlan.current.draft.name === draft.name && currentPlan.current.draft.symbol === draft.symbol &&
+          currentPlan.current.draft.quoteAddress === draft.quoteAddress && currentPlan.current.draft.tradingFeeBps === draft.tradingFeeBps &&
+          currentPlan.current.draft.description === draft.description && currentPlan.current.draft.image === draft.image &&
+          currentPlan.current.draft.website === draft.website && currentPlan.current.draft.twitter === draft.twitter && currentPlan.current.draft.telegram === draft.telegram &&
+          (currentPlan.current.firstBuy?.lockDays ?? 0) === firstBuy.lockDays &&
+          (currentPlan.current.firstBuy?.slippageBps ?? firstBuy.slippageBps) === firstBuy.slippageBps
+          ? { ...((currentPlan.current.firstBuy?.amount ?? "0") === requestedAmount ? { previousPlanId: currentPlan.current.id } : {}),
+            ...(currentPlan.current.firstBuy ? { acceptedMinAmountOut: currentPlan.current.firstBuy.acceptedMinAmountOut ?? currentPlan.current.firstBuy.minAmountOut } : {}) } : {}) },
+        ...(paymentAttempt?.actualOutput ? { paymentRecovery: { quote: paymentAttempt.quote, hash: paymentAttempt.hash } } : {}),
         firstBuy: { amount: requestedAmount, slippageBps: firstBuy.slippageBps, lockDays: firstBuy.lockDays },
       });
       if (request !== generation.current) return;
@@ -1191,7 +1297,7 @@ function CreatePage({
       if (next.feePolicy !== launchFeePolicy(config) || !next.feeTreasury || !config?.treasury || !sameAddress(next.feeTreasury, config.treasury) ||
         (config.feeEngine ? !next.feeEngine || !sameAddress(next.feeEngine, config.feeEngine) : !!next.feeEngine))
         throw new Error("The launch fee policy or treasury address does not match. Refresh and preview again.");
-      assertOpeningValuation(next.openingValuation, stock.address, deploymentChain(config));
+      assertOpeningValuation(next.openingValuation, stock.address, deploymentChain(config), next.finalizedAt ?? quoteNow());
       if (next.curvePolicy !== CURVE_POLICY || !next.transaction)
         throw new Error("The launch curve policy does not match. Refresh and preview again.");
       const requestedBuy = Number(firstBuy.amount || "0") > 0;
@@ -1201,47 +1307,55 @@ function CreatePage({
         (next.firstBuy.lockDays ?? 0) !== firstBuy.lockDays ||
         !sameAddress(next.firstBuy.quoteAddress, stock.address) || !sameAddress(next.firstBuy.recipient, wallet.account))))
         throw new Error("The first buy preview does not match your requested amount or wallet. Preview again.");
-      setPlan(next);
-      setMessage(next.firstBuy ? "First buy quoted. The complete transaction will be simulated after any required approval." : "On-chain simulation succeeded. No transaction has been sent.");
+      currentPlan.current = next; saveFrozenLaunch(config!, wallet.account!, next); setPlan(next);
+      setPaymentQuote(conversionPreview);
+      setMessage(conversionPreview ? "Payment and first buy quoted together. Your token minimum stays fixed after confirmation." : next.firstBuy ? "First buy quoted. The complete transaction will be simulated after any required approval." : "On-chain simulation succeeded. No transaction has been sent.");
     } catch (e) {
       if (request === generation.current) setError(errorMessage(e));
     } finally {
       if (request === activeSimulation.current) {
         activeSimulation.current = null;
-        setBusy(false);
+        if (request === generation.current) setBusy(false);
       }
     }
   }
   async function recoverPayment() {
     if (!config || !wallet.account || !paymentAttempt) return;
     const request = ++generation.current;
+    const key = paymentKey(config, wallet.account, intentId);
     setBusy(true); setError("");
     try {
+      const savedValue = localStorage.getItem(key);
+      const unchanged = () => {
+        if (localStorage.getItem(key) !== savedValue) throw new Error("The saved payment changed. Check its current status before continuing.");
+      };
+      const saved = JSON.parse(savedValue || "null") as PaymentAttempt | null;
+      if (!saved || !sameFirstBuyPayment({ ...paymentAttempt, actualOutput: saved.actualOutput }, saved))
+        throw new Error("The saved payment changed. Check its current status before continuing.");
       const client = transactionClient(config.chainId, config);
       const resolution = await resolveFirstBuyPayment(paymentAttempt.hash, paymentAttempt.quote, transactions(), config, {
         receipt: (hash) => client.getTransactionReceipt({ hash }), transaction: (hash) => client.getTransaction({ hash }),
         head: () => client.getBlockNumber(), block: (blockNumber) => client.getBlock({ blockNumber }),
       });
       if (request !== generation.current) return;
+      unchanged();
       if (resolution.cancelled) {
-        localStorage.removeItem(paymentKey(config, wallet.account)); setPaymentAttempt(null); setPaymentQuote(null);
+        localStorage.removeItem(key); setPaymentAttempt(null); setPaymentQuote(null);
         setMessage("The payment was cancelled or replaced on-chain. You can request a new quote."); return;
       }
       const hash = resolution.hash;
       const result = await api<FirstBuyPaymentVerification>("/first-buy/verify", { quote: paymentAttempt.quote, hash });
       if (request !== generation.current) return;
+      unchanged();
       if (result.status === "pending") throw new Error("The payment conversion is still pending. Check it again before continuing.");
       if (result.status === "reverted") {
-        localStorage.removeItem(paymentKey(config, wallet.account)); setPaymentAttempt(null); setPaymentQuote(null);
+        localStorage.removeItem(key); setPaymentAttempt(null); setPaymentQuote(null);
         setMessage("The payment conversion reverted. You can request a new quote."); return;
       }
       if (!result.actualOutput) throw new Error("The payment output could not be verified.");
-      const next = { ...paymentAttempt, hash: result.hash, actualOutput: result.actualOutput };
-      if (next.launchHash) {
-        const saved = JSON.parse(localStorage.getItem(paymentKey(config, wallet.account)) || "null") as PaymentAttempt | null;
-        if (!saved || !sameFirstBuyPayment(saved, next)) delete next.launchHash;
-      }
-      localStorage.setItem(paymentKey(config, wallet.account), JSON.stringify(next)); setPaymentAttempt(next); setPaymentQuote(null); setPlan(null);
+      const next = { ...saved, hash: result.hash, actualOutput: result.actualOutput };
+      if (next.launchHash && !sameFirstBuyPayment(saved, next)) delete next.launchHash;
+      localStorage.setItem(key, JSON.stringify(next)); setPaymentAttempt(next); setPaymentQuote(null); setPlan(null);
       if (assets.some((asset) => sameAddress(asset.address, next.quote.toToken.address))) {
         setDraft((draft) => ({ ...draft, quoteAddress: next.quote.toToken.address }));
         setFirstBuy((old) => ({ ...old, payAddress: next.quote.fromToken.address, amount: formatUnits(BigInt(next.quote.amountIn), next.quote.fromToken.decimals) }));
@@ -1252,54 +1366,127 @@ function CreatePage({
     } catch (error) { if (request === generation.current) setError(errorMessage(error)); }
     finally { if (request === generation.current) setBusy(false); }
   }
-  async function convertPayment() {
-    if (!config || !wallet.account || !paymentQuote || paymentAttempt) return;
+  async function convertPayment(acceptedPlan = plan) {
+    if (!config || !wallet.account || !paymentQuote || !acceptedPlan?.firstBuy || acceptedPlan.requiresReconfirmation || paymentAttempt) return;
     const request = generation.current, account = wallet.account;
+    if (inFlightIntents.current.has(intentId)) return;
+    inFlightIntents.current.add(intentId);
+    let frozenPayment = { ...paymentQuote, intentId };
     setBusy(true); setError("");
     try {
-      const current = () => { if (request !== generation.current) throw new Error("The draft or wallet changed. Preview again."); };
-      const result = await wallet.payFirstBuy(paymentQuote, config, setMessage, (hash) => {
-        const attempt = { quote: paymentQuote, hash, actualOutput: null };
-        localStorage.setItem(paymentKey(config, account), JSON.stringify(attempt));
-        if (request === generation.current) setPaymentAttempt(attempt);
-      }, current);
+      const paymentStorageKey = paymentKey(config, account, intentId);
+      let paymentValue = localStorage.getItem(paymentStorageKey), paymentSaved = false;
+      const current = () => {
+        if (request !== generation.current) throw new Error("The draft or wallet changed. Preview again.");
+        if (localStorage.getItem(paymentStorageKey) !== paymentValue)
+          throw new Error("The saved payment changed. Check its current status before continuing.");
+      };
+      const result = await withLaunchIntentLock(config, account, intentId, () => wallet.payFirstBuy(frozenPayment, config,
+        (message) => { if (request === generation.current) setMessage(message); }, (hash) => {
+        if (localStorage.getItem(paymentStorageKey) !== paymentValue) return;
+        const attempt = { quote: frozenPayment, hash, actualOutput: null, intentId };
+        paymentValue = JSON.stringify(attempt); localStorage.setItem(paymentStorageKey, paymentValue); paymentSaved = true;
+        if (request === generation.current) { setPaymentAttempt(attempt); setBusy(false); }
+      }, current, (fresh) => { frozenPayment = { ...fresh, intentId }; if (request === generation.current) setPaymentQuote(frozenPayment); }));
+      current();
+      if (!paymentSaved) throw new Error("The saved payment changed. Check its current status before continuing.");
       if (result.status !== "success" || !result.actualOutput) throw new Error("Check the submitted payment status before continuing.");
-      const attempt = { quote: paymentQuote, hash: result.hash, actualOutput: result.actualOutput };
-      localStorage.setItem(paymentKey(config, account), JSON.stringify(attempt));
-      if (request !== generation.current) return;
+      const attempt = { quote: frozenPayment, hash: result.hash, actualOutput: result.actualOutput, intentId };
+      paymentValue = JSON.stringify(attempt); localStorage.setItem(paymentStorageKey, paymentValue);
       setPaymentAttempt(attempt); setPaymentQuote(null); setPlan(null);
-      setMessage("Payment received and verified. Preview the launch using the actual paired-asset amount.");
-    } catch (error) { if (request === generation.current) setError(errorMessage(error)); }
-    finally { setBusy(false); }
+      setMessage("Payment received. Preparing the launch with your selected limits…");
+      const fundedPlan = await api<LaunchPlan>("/launch/prepare", { draft, creator: account, expectedCurvePolicy: CURVE_POLICY,
+        firstBuy: { amount: formatUnits(BigInt(result.actualOutput), stock.decimals), slippageBps: firstBuy.slippageBps, lockDays: firstBuy.lockDays },
+        paymentRecovery: { quote: frozenPayment, hash: result.hash },
+        options: { intentId, acceptedMinAmountOut: acceptedPlan.firstBuy.acceptedMinAmountOut ?? acceptedPlan.firstBuy.minAmountOut } });
+      current();
+      if (!fundedPlan.firstBuy || fundedPlan.firstBuy.amountIn !== result.actualOutput)
+        throw new Error("The final first buy does not match the verified payment output. Your payment is saved.");
+      try {
+        // Receipt output is the one field resolved after payment. Preserve every
+        // other accepted condition, including the original meme-token floor.
+        assertAcceptedLaunchRefresh({ ...acceptedPlan, firstBuy: { ...acceptedPlan.firstBuy,
+          amount: fundedPlan.firstBuy.amount, amountIn: result.actualOutput } }, fundedPlan);
+      } catch (cause) {
+        if (!(cause instanceof LaunchPriceChanged)) throw cause;
+        currentPlan.current = fundedPlan; saveFrozenLaunch(config, account, fundedPlan); setPlan(fundedPlan);
+        setMessage("Payment received. Review the changed token minimum before launching."); return;
+      }
+      assertLaunchWalletPlan(fundedPlan, config, account);
+      currentPlan.current = fundedPlan; saveFrozenLaunch(config, account, fundedPlan); setPlan(fundedPlan);
+      inFlightIntents.current.delete(intentId);
+      await launch(fundedPlan, attempt);
+    } catch (error) {
+      if (request === generation.current) {
+        if (error instanceof PaymentPriceChanged) { setPaymentQuote(error.quote); setPlan(null); }
+        setError(errorMessage(error));
+      }
+    }
+    finally {
+      inFlightIntents.current.delete(intentId);
+      if (request === generation.current) {
+        setSubmissionUnknown(!!localStorage.getItem(launchIntentStorageKey(config, account, intentId, "submission")));
+        setBusy(false);
+      }
+    }
   }
-  async function register(hash: Hex, request = generation.current) {
-    const token = await api<TokenRecord>("/launch/register", { hash });
+  async function register(hash: Hex, request = generation.current, backup: LaunchPlan | null = currentPlan.current, stillCurrent = () => true) {
+    const token = await api<TokenRecord>("/launch/register", { hash, ...(backup ? { recoveryPlan: backup } : {}) });
     if (config) updateTransaction(hash, config.chainId, { registered: true }, config.deploymentChainId);
     let consumedPayment = false;
     if (config && token.creator) {
-      const key = paymentKey(config, token.creator);
+      const key = paymentKey(config, token.creator, intentId);
       try {
-        const saved = JSON.parse(localStorage.getItem(key) || "null") as PaymentAttempt | null;
-        if (saved?.launchHash && sameAddress(saved.launchHash, hash)) {
+        const savedValue = localStorage.getItem(key);
+        const saved = JSON.parse(savedValue || "null") as PaymentAttempt | null;
+        const launchTransaction = backup?.transaction;
+        const recoverBinding = !!saved && !saved.launchHash && saved.intentId === intentId && saved.quote.intentId === intentId &&
+          backup?.intentId === intentId && !!launchTransaction && sameAddress(token.address, backup.tokenAddress) &&
+          paymentMatchesLaunch(saved, backup);
+        if (saved && ((saved.launchHash && sameAddress(saved.launchHash, hash)) || recoverBinding)) {
           const verification = await api<FirstBuyPaymentVerification>("/first-buy/verify", { quote: saved.quote, hash: saved.hash });
-          const current = JSON.parse(localStorage.getItem(key) || "null") as PaymentAttempt | null;
-          if (current && sameFirstBuyPayment(saved, current) && current.launchHash && sameAddress(current.launchHash, hash) &&
-            registeredLaunchConsumesPayment(saved, token, hash, verification)) {
+          let bound = saved;
+          if (recoverBinding && launchTransaction) {
+            // A hash returned after a wallet timeout never ran onHash. Recover
+            // that association only from the exact frozen calls and their order.
+            const client = transactionClient(config.chainId, config);
+            const [chainId, paymentTx, launchTx] = await Promise.all([
+              client.getChainId(), client.getTransaction({ hash: saved.hash }), client.getTransaction({ hash }),
+            ]);
+            if (chainId !== config.chainId || !sameAddress(paymentTx.hash, saved.hash) || !sameAddress(launchTx.hash, hash) ||
+              !sameAddress(paymentTx.from, saved.quote.account) || !sameAddress(launchTx.from, saved.quote.account) ||
+              !paymentTx.to || !sameAddress(paymentTx.to, saved.quote.transaction.to) ||
+              paymentTx.input.toLowerCase() !== saved.quote.transaction.data.toLowerCase() || paymentTx.value.toString() !== saved.quote.transaction.value ||
+              !launchTx.to || !sameAddress(launchTx.to, launchTransaction.to) || launchTx.input.toLowerCase() !== launchTransaction.data.toLowerCase() ||
+              launchTx.value.toString() !== launchTransaction.value || paymentTx.nonce >= launchTx.nonce ||
+              !token.blockNumber || !/^\d+$/.test(token.blockNumber) || !verification.blockNumber || !/^\d+$/.test(verification.blockNumber) ||
+              BigInt(verification.blockNumber) > BigInt(token.blockNumber))
+              throw new Error("The saved payment could not be associated with this launch.");
+            bound = { ...saved, launchHash: hash };
+          }
+          if (stillCurrent() && localStorage.getItem(key) === savedValue &&
+            registeredLaunchConsumesPayment(bound, token, hash, verification)) {
             localStorage.removeItem(key);
             consumedPayment = true;
           }
         }
       } catch { /* Unknown payment evidence never blocks recovery of an already registered launch. */ }
     }
-    if (request === generation.current) {
+    if (request === generation.current && stillCurrent()) {
       if (consumedPayment) { setPaymentAttempt(null); setPaymentQuote(null); }
       setConfirmed(true);
       refresh(); setMessage("The launch is confirmed on-chain and registered on the platform.");
     }
     return token;
   }
-  async function launch() {
-    if (!plan || !config) return;
+  async function launch(selectedPlan?: LaunchPlan, fundedPayment?: PaymentAttempt) {
+    const launchPlan = selectedPlan ?? plan;
+    if (!launchPlan || !config) return;
+    const activePlan = launchPlan;
+    const flowPayment = fundedPayment ?? paymentAttempt;
+    if (inFlightIntents.current.has(intentId)) return;
+    inFlightIntents.current.add(intentId);
+    let submittingPlan = activePlan;
     setBusy(true);
     setError("");
     const request = generation.current;
@@ -1307,98 +1494,240 @@ function CreatePage({
       if (request !== generation.current) throw new Error("The draft or wallet has changed. Run a new preview.");
     };
     try {
-      if (paymentAttempt && !paymentAttempt.actualOutput) throw new Error("Check the submitted payment conversion before confirming another launch.");
+      if (converting && (!flowPayment?.actualOutput || !paymentMatchesLaunch(flowPayment, activePlan)))
+        throw new Error("Complete and verify your selected payment conversion before launching. Your preview is saved.");
+      if (flowPayment && !flowPayment.actualOutput) throw new Error("Check the submitted payment conversion before confirming another launch.");
       if (txHash && !confirmed) throw new Error("Recover the submitted launch before confirming another launch.");
-      assertOpeningValuation(plan.openingValuation, stock.address, deploymentChain(config));
-      if (plan.draft.tradingFeeBps !== tradingFeeBps)
+      if ((activePlan.signingExpiresAt ?? activePlan.openingValuation?.expiresAt ?? 0) - quoteNow(activePlan) >= 60_000)
+        assertLaunchPlanValidity(activePlan, deploymentChain(config), quoteNow(activePlan));
+      if (activePlan.draft.tradingFeeBps !== tradingFeeBps)
         throw new Error("The trading fee changed. Preview again.");
-      if (!wallet.account || !sameAddress(plan.creator, wallet.account))
+      if (!wallet.account || !sameAddress(activePlan.creator, wallet.account))
         throw new Error("The wallet has changed. Preview again.");
       let consumed: PaymentAttempt | null = null;
-      if (paymentAttempt && paymentMatchesLaunch(paymentAttempt, plan)) {
-        const verified = await api<FirstBuyPaymentVerification>("/first-buy/verify", { quote: paymentAttempt.quote, hash: paymentAttempt.hash });
+      if (flowPayment && paymentMatchesLaunch(flowPayment, activePlan)) {
+        const verified = await api<FirstBuyPaymentVerification>("/first-buy/verify", { quote: flowPayment.quote, hash: flowPayment.hash });
         current();
-        if (verified.status !== "success" || !sameAddress(verified.hash, paymentAttempt.hash) ||
-          verified.actualOutput !== paymentAttempt.actualOutput || !verified.blockNumber || !verified.blockHash) {
-          setPaymentAttempt({ ...paymentAttempt, actualOutput: null });
+        if (verified.status !== "success" || !sameAddress(verified.hash, flowPayment.hash) ||
+          verified.actualOutput !== flowPayment.actualOutput || !verified.blockNumber || !verified.blockHash) {
+          setPaymentAttempt({ ...flowPayment, actualOutput: null });
           throw new Error("The payment confirmation changed. Check the submitted payment before continuing.");
         }
-        consumed = structuredClone(paymentAttempt);
+        consumed = structuredClone(flowPayment);
       }
       let submittedHash: Hex | undefined;
       const bindPayment = (hash: Hex, previous?: Hex) => {
         if (!consumed) return;
         try {
-          const key = paymentKey(config, plan.creator);
+          const key = paymentKey(config, activePlan.creator, intentId);
           const saved = JSON.parse(localStorage.getItem(key) || "null") as PaymentAttempt | null;
-          if (!saved || !sameFirstBuyPayment(saved, consumed) || !paymentMatchesLaunch(saved, plan) ||
+          if (!saved || !sameFirstBuyPayment(saved, consumed) || !paymentMatchesLaunch(saved, activePlan) ||
             (previous ? !saved.launchHash || !sameAddress(saved.launchHash, previous) : !!saved.launchHash && !sameAddress(saved.launchHash, hash))) return;
           const bound = { ...saved, launchHash: hash };
           localStorage.setItem(key, JSON.stringify(bound));
           if (request === generation.current) setPaymentAttempt(bound);
         } catch { /* Keep the original payment record if association cannot be saved. */ }
       };
-      const hash = await wallet.launch(
-        plan,
+      currentPlan.current = activePlan;
+      const hash = await withLaunchIntentLock(config, wallet.account, intentId, () => wallet.launch(
+        activePlan,
         config,
-        setMessage,
+        (message) => { if (request === generation.current) setMessage(message); },
         (h) => {
           submittedHash = h;
           bindPayment(h);
-          setTxHash(h);
-          localStorage.setItem(pendingLaunchKey(config!), h);
-          updateTransaction(h, config.chainId, { planId: plan.id }, config.deploymentChainId);
-          void api("/launch/track", { hash: h, planId: plan.id }).catch(() =>
-            setMessage("The transaction hash is saved. Registration will be retried when you resume checking."),
-          );
+          if (request === generation.current) { setTxHash(h); setBusy(false); }
+          localStorage.setItem(pendingLaunchKey(config!, wallet.account, intentId), h);
+          updateTransaction(h, config.chainId, { planId: submittingPlan.id, intentId, tokenAddress: submittingPlan.tokenAddress }, config.deploymentChainId);
+          void api("/launch/track", { hash: h, planId: submittingPlan.id }).catch(() => {
+            if (request === generation.current) setMessage("The transaction hash is saved. Registration will be retried when you resume checking.");
+          });
         },
         current,
-      );
+        (next) => { submittingPlan = next; saveFrozenLaunch(config, wallet.account!, next);
+          if (request === generation.current) { currentPlan.current = next; setPlan(next); } },
+      ));
       if (submittedHash && !sameAddress(submittedHash, hash)) bindPayment(hash, submittedHash);
-      const token = await register(hash, request);
-      localStorage.removeItem(pendingLaunchKey(config!));
+      const markerKey = launchIntentStorageKey(config, wallet.account, intentId, "submission");
+      const pendingKey = pendingLaunchKey(config, wallet.account, intentId);
+      const markerValue = localStorage.getItem(markerKey), pendingValue = localStorage.getItem(pendingKey);
+      const marker = JSON.parse(markerValue || "null") as { hash?: Hex; planId?: Hex } | null;
+      const ownsHash = (value?: string | null) => !value || sameAddress(value, hash) || !!submittedHash && sameAddress(value, submittedHash);
+      if ((marker && (marker.planId !== submittingPlan.id || !marker.hash || !ownsHash(marker.hash))) || !ownsHash(pendingValue))
+        throw new Error("The saved request changed. Check the current transaction before continuing.");
+      const stillCurrent = () => request === generation.current && localStorage.getItem(markerKey) === markerValue &&
+        localStorage.getItem(pendingKey) === pendingValue;
+      const token = await register(hash, request, submittingPlan, stillCurrent);
+      if (!stillCurrent()) throw new Error("The saved request changed. Check the current transaction before continuing.");
+      localStorage.removeItem(pendingKey);
+      localStorage.removeItem(markerKey);
       if (request !== generation.current) return;
+      setSubmissionUnknown(false);
       navigate(tokenPath(token));
     } catch (e) {
-      setError(errorMessage(e));
-    } finally {
-      setBusy(false);
-    }
+      if (request !== generation.current) return;
+      if (e instanceof LaunchPriceChanged) { currentPlan.current = e.plan; setPlan(e.plan); }
+      if (currentPlan.current?.intentId) setSubmissionUnknown(!!localStorage.getItem(launchIntentStorageKey(config, wallet.account, intentId, "submission")));
+      const mined = submittedLaunchInHistory();
+      setError(mined ? "Your launch succeeded on-chain and is syncing to the catalog. Check its saved transaction; no new launch is needed." : errorMessage(e));
+    } finally { inFlightIntents.current.delete(intentId); if (request === generation.current) setBusy(false); }
+  }
+  function submittedLaunchInHistory() {
+    return transactions().some((row) => row.intentId === intentId && row.action === "launch" && row.status === "success");
   }
   async function recover() {
+    if (!config || !wallet.account) return;
+    const request = generation.current, backup = currentPlan.current;
+    const markerKey = launchIntentStorageKey(config, wallet.account, intentId, "submission");
+    const pendingKey = pendingLaunchKey(config, wallet.account, intentId);
+    const paymentStorageKey = paymentKey(config, wallet.account, intentId);
+    let markerValue: string | null, pendingValue: string | null, paymentValue: string | null;
+    const stillCurrent = () => request === generation.current && localStorage.getItem(markerKey) === markerValue &&
+      localStorage.getItem(pendingKey) === pendingValue;
+    const unchanged = () => {
+      if (!stillCurrent()) throw new Error("The saved request changed. Check the current transaction before continuing.");
+    };
+    let marker: { kind?: string; hash?: Hex; account?: Address; chainId?: number; deploymentChainId?: number;
+      intentId?: string; planId?: Hex; transaction?: { to: Address; data: Hex; value: string }; quote?: FirstBuyPaymentQuote } | null;
+    try {
+      markerValue = localStorage.getItem(markerKey); pendingValue = localStorage.getItem(pendingKey);
+      paymentValue = localStorage.getItem(paymentStorageKey); marker = JSON.parse(markerValue || "null");
+    }
+    catch { setError("The saved transaction could not be read. Keep this draft and its wallet transaction hash."); return; }
     const savedHash =
-      txHash ??
+      (marker?.hash && /^0x[\da-f]{64}$/i.test(marker.hash) ? marker.hash : null) ?? txHash ??
       (localStorage.getItem(
-        pendingLaunchKey(config!),
-      ) as Hex | null);
+        pendingLaunchKey(config!, wallet.account, intentId),
+      ) as Hex | null) ?? (/^0x[\da-f]{64}$/i.test(recoveryHash) ? recoveryHash as Hex : null);
     if (!savedHash) {
-      setError("There is no launch transaction to recover.");
+      setError("Enter the transaction hash from your wallet to check the saved request.");
       return;
     }
     setBusy(true);
     setError("");
     setMessage("");
     try {
+      const client = transactionClient(config!.chainId, config!);
+      if (await client.getChainId() !== config.chainId) throw new Error("The transaction lookup RPC is on the wrong network.");
+      const transaction = await client.getTransaction({ hash: savedHash });
+      if (!wallet.account || !sameAddress(transaction.from, wallet.account)) throw new Error("This transaction belongs to another wallet. Your current launch is still saved.");
+      if (marker?.kind === "approval") {
+        const expected = marker.transaction;
+        if (marker.intentId !== intentId || marker.chainId !== config.chainId || marker.deploymentChainId !== deploymentChain(config) ||
+          !marker.account || !sameAddress(marker.account, wallet.account) || !expected || !transaction.to ||
+          !sameAddress(transaction.to, expected.to) || transaction.input.toLowerCase() !== expected.data.toLowerCase() ||
+          transaction.value.toString() !== expected.value)
+          throw new Error("This hash does not match your saved approval. Its recovery is still protected.");
+        const receipt = await client.getTransactionReceipt({ hash: savedHash });
+        const [head, canonical] = await Promise.all([client.getBlockNumber({ cacheTime: 0 }), client.getBlock({ blockNumber: receipt.blockNumber })]);
+        if (!sameAddress(receipt.from, wallet.account) || !receipt.to || !sameAddress(receipt.to, expected.to) ||
+          canonical.hash !== receipt.blockHash || head < receipt.blockNumber + 1n)
+          throw new Error("The approval is still confirming. Your draft stays saved and this approval will not be resent.");
+        if (request !== generation.current) return;
+        unchanged();
+        saveTransaction({ hash: savedHash, chainId: config.chainId, deploymentChainId: deploymentChain(config), account: wallet.account,
+          action: "approval", status: receipt.status === "success" ? "success" : "failed", intentId, planId: marker.planId,
+          nonce: transaction.nonce, at: Date.now() });
+        localStorage.removeItem(markerKey); setSubmissionUnknown(false); setRecoveryHash("");
+        setMessage(receipt.status === "success" ? "Approval confirmed. Your draft is saved; continue when you are ready."
+          : "The approval reverted. Your draft is saved; review it before trying again.");
+        return;
+      }
+      if (marker?.kind === "payment" && marker.quote) {
+        const original = marker.quote as FirstBuyPaymentQuote;
+        if (!transaction.to || !sameAddress(transaction.to, original.transaction.to) || transaction.input.toLowerCase() !== original.transaction.data.toLowerCase() || transaction.value.toString() !== original.transaction.value)
+          throw new Error("This hash does not match your saved payment. Your payment recovery is still protected.");
+        const result = await api<FirstBuyPaymentVerification>("/first-buy/verify", { quote: original, hash: savedHash });
+        unchanged();
+        if (localStorage.getItem(paymentStorageKey) !== paymentValue)
+          throw new Error("The saved payment changed. Check its current status before continuing.");
+        if (result.status === "pending") throw new Error("Your payment is still confirming. You can create another token while it is checked.");
+        if (result.status === "success") {
+          const previous = JSON.parse(paymentValue || "null") as PaymentAttempt | null;
+          const recovered = { ...previous, quote: original, hash: result.hash, actualOutput: result.actualOutput, intentId };
+          if (previous && !sameFirstBuyPayment({ ...recovered, actualOutput: previous.actualOutput }, previous))
+            throw new Error("The saved payment changed. Check its current status before continuing.");
+          if (recovered.launchHash && previous && !sameFirstBuyPayment(previous, recovered)) delete recovered.launchHash;
+          localStorage.setItem(paymentStorageKey, JSON.stringify(recovered));
+          if (request === generation.current) { setPaymentAttempt(recovered); setPaymentQuote(null); }
+        }
+        localStorage.removeItem(markerKey);
+        if (request === generation.current) { setSubmissionUnknown(false); setMessage("Payment checked. Your draft and tokens are saved."); } return;
+      }
+      const row = transactions().find((entry) => sameAddress(entry.hash, savedHash));
+      if (backup ? !transaction.to || !backup.transaction || !sameAddress(transaction.to, backup.transaction.to) ||
+        transaction.input.toLowerCase() !== backup.data.toLowerCase() || transaction.value.toString() !== backup.transaction.value
+        : !row || row.intentId !== intentId || !sameAddress(row.account, wallet.account))
+        throw new Error("This hash does not match this saved launch. Your original launch remains protected.");
       const result = pendingLaunchResolution(savedHash, transactions(), config!);
       if (await terminalLaunchProof(result)) {
-        localStorage.removeItem(pendingLaunchKey(config!));
+        unchanged();
+        localStorage.removeItem(pendingKey);
+        localStorage.removeItem(markerKey);
+        if (request !== generation.current) return;
+        setSubmissionUnknown(false);
         setTxHash(null); setPlan(null);
         setMessage("The launch did not complete on-chain. You can prepare a new preview.");
         return;
       }
+      unchanged();
       const hash = result.hash;
       if (hash.toLowerCase() !== savedHash.toLowerCase()) {
-        setTxHash(hash);
-        localStorage.setItem(pendingLaunchKey(config!), hash);
+        if (request === generation.current) setTxHash(hash);
+        localStorage.setItem(pendingKey, hash); pendingValue = hash;
       }
-      const token = await register(hash);
-      localStorage.removeItem(pendingLaunchKey(config!));
+      const token = await register(hash, request, backup, stillCurrent);
+      unchanged();
+      localStorage.removeItem(pendingKey);
+      localStorage.removeItem(markerKey);
+      if (request !== generation.current) return;
+      setSubmissionUnknown(false);
       navigate(tokenPath(token));
     } catch (e) {
-      setError(errorMessage(e));
+      if (request === generation.current) setError(errorMessage(e));
     } finally {
-      setBusy(false);
+      if (request === generation.current) setBusy(false);
     }
+  }
+  useEffect(() => {
+    if (review && wallet.account && config && activeLaunchIntent(config, wallet.account) === intentId && !busy && !txHash && !submissionUnknown && !plan && !paymentQuote && !paymentAttempt)
+      void simulate();
+  }, [review, wallet.account, intentId]);
+  useEffect(() => {
+    if (review && !busy && !txHash && !submissionUnknown && (planExpired || paymentExpired) && !paymentAttempt)
+      void simulate();
+  }, [planExpired, paymentExpired]);
+  function resumeIntent(next: string) {
+    if (!config || busy) return;
+    localStorage.setItem(launchIntentStorageKey(config, wallet.account, intentId, "draft"), JSON.stringify({ ...draft, firstBuy, intentId }));
+    selectLaunchIntent(config, wallet.account, next); generation.current++; imageUpload.current++; currentPlan.current = null;
+    const saved = localStorage.getItem(launchIntentStorageKey(config, wallet.account, next, "draft"));
+    setUploadingImage(false);
+    setIntentId(next); setDraft(restoreDraft(saved, config)); setFirstBuy(firstBuyDraft(config, saved));
+    setPaymentAttempt(null); setPaymentQuote(null); setPlan(null); setTxHash(null); setConfirmed(false); setSubmissionUnknown(false);
+    setError(""); setMessage(saved ? "Your saved launch is restored. Check its submitted transaction before continuing." : "Your previous launch is saved. Start your next token here."); setReview(false);
+  }
+  function startAnotherLaunch() {
+    resumeIntent(newIntentId());
+  }
+  async function acceptPriceChange() {
+    if (!config || !wallet.account || !plan?.firstBuy || busy) return;
+    const request = generation.current;
+    const floor = (BigInt(plan.firstBuy.expectedAmountOut) * BigInt(10_000 - plan.firstBuy.slippageBps) / 10_000n).toString();
+    setBusy(true); setError("");
+    try {
+      const next = await api<LaunchPlan>("/launch/prepare", { draft: launchDraftInput(plan), creator: wallet.account,
+        expectedCurvePolicy: CURVE_POLICY, options: { intentId, previousPlanId: plan.id, reconfirmPrice: true, reconfirmedMinimumOut: floor },
+        firstBuy: { amount: plan.firstBuy.amount, slippageBps: plan.firstBuy.slippageBps, lockDays: plan.firstBuy.lockDays ?? 0 },
+        ...(paymentAttempt?.actualOutput ? { paymentRecovery: { quote: paymentAttempt.quote, hash: paymentAttempt.hash } } : {}) });
+      saveFrozenLaunch(config, wallet.account, next);
+      if (request !== generation.current) return;
+      currentPlan.current = next; setPlan(next);
+      if (next.requiresReconfirmation) setError("The price moved again. Review the updated minimum before continuing.");
+      else if (converting && !converted) await convertPayment(next);
+      else await launch(next);
+    } catch (cause) { if (request === generation.current) setError(errorMessage(cause)); }
+    finally { if (request === generation.current) setBusy(false); }
   }
   if (!config) return <Loading />;
   const chainName = networkName(config);
@@ -1418,6 +1747,13 @@ function CreatePage({
           {chainName} · Tokenized asset pairs
         </span>
       </div>
+      {savedLaunchIntents(config, wallet.account).some((saved) => saved.intentId !== intentId) && <details className="panel">
+        <summary>Saved launches</summary>
+        <ul>{savedLaunchIntents(config, wallet.account).filter((saved) => saved.intentId !== intentId).map((saved) => <li key={saved.intentId}>
+          {saved.name} · {saved.pending ? "Awaiting transaction recovery" : "Saved draft"}{" "}
+          <button type="button" className="secondary" disabled={busy} onClick={() => resumeIntent(saved.intentId)}>Resume {saved.name}</button>
+        </li>)}</ul>
+      </details>}
       <div className="create-layout launch-flow">
         <form
           id="launch-form"
@@ -1805,7 +2141,7 @@ function CreatePage({
                 amount: formatUnits(BigInt(paymentAttempt.actualOutput!), paymentAttempt.quote.toToken.decimals) }
                 : { ...firstBuy, payAddress: stock.address, amount: "0", lockDays: 0 });
               setPlan(null); setPaymentQuote(null); setPaymentAttempt(null);
-              localStorage.removeItem(paymentKey(config, wallet.account));
+              localStorage.removeItem(paymentKey(config, wallet.account, intentId));
               setMessage(paymentPairSupported ? "Use the paired asset in your wallet directly. You can adjust the first buy amount."
                 : `${paymentAttempt.quote.toToken.symbol} stays in your wallet. Choose a new first buy for the current paired asset.`);
             }}>{paymentPairSupported ? "Use paired asset directly" : "Keep tokens and start a new first buy"}</button>}
@@ -1898,7 +2234,7 @@ function CreatePage({
             </p>
           </div>
           <p className="asset-note">
-            Transfers and redemptions of the quote asset follow the issuer’s rules. Your meme does not represent company equity.
+            Stock Tokens carry issuer, liquidity and jurisdiction risks; <a href="https://docs.robinhood.com/rhj/" target="_blank" rel="noreferrer">review the issuer’s terms</a>. Your meme does not represent company equity.
           </p>
         </aside>
         <div className="launch-footer">
@@ -1915,7 +2251,7 @@ function CreatePage({
                 imageUpload.current++;
                 setUploadingImage(false);
                 setImageError("");
-                setDraft(restoreDraft(null, config ?? undefined));
+                currentPlan.current = null; setDraft(restoreDraft(null, config ?? undefined));
                 setFirstBuy({ amount: "0", slippageBps: 100, payAddress: launchAssetsFor(config)[0].address, lockDays: 0 });
                 setPaymentQuote(null);
                 setQuery("");
@@ -1933,12 +2269,14 @@ function CreatePage({
             <Notice kind="error">{error}</Notice>
           )}
           {message && !review && <Notice kind="success">{message}</Notice>}
-          {txHash && !confirmed && <Notice>A launch transaction is already submitted. Recover its status before preparing another launch.</Notice>}
+          {(txHash || submissionUnknown) && !confirmed && <Notice>Your previous launch is being checked. Its payment and transaction are saved.</Notice>}
+          {(txHash || submissionUnknown || paymentAttempt && !paymentAttempt.actualOutput) && <button type="button" className="secondary full" disabled={busy} onClick={startAnotherLaunch}>Create another token</button>}
+          {submissionUnknown && !txHash && <label>Transaction hash from your wallet<input value={recoveryHash} onChange={(event) => setRecoveryHash(event.target.value)} placeholder="0x…" /></label>}
           <button
             type="submit"
             form="launch-form"
             className="primary full"
-            disabled={busy || !!txHash || uploadingImage || !status?.verified}
+            disabled={busy || !!txHash || submissionUnknown || uploadingImage || configurationPending}
           >
             Review and continue
             <ArrowRight size={17} />
@@ -1949,7 +2287,7 @@ function CreatePage({
           {config?.blockReason && (
             <p className="launch-blocked">{config.blockReason}</p>
           )}
-          {txHash && (
+          {(txHash || submissionUnknown) && (
             <button
               className="text-button recovery"
               disabled={busy || confirmed}
@@ -2009,7 +2347,7 @@ function CreatePage({
             </div>
             <div>
               <dt>Opening price reference</dt>
-              <dd>LI.FI buy/sell quotes · 60-second validity</dd>
+              <dd>Fresh LI.FI reference · 5-minute wallet window</dd>
             </div>
             <div>
               <dt>Net fee distribution (after Doppler)</dt>
@@ -2054,7 +2392,7 @@ function CreatePage({
             </div>
           </div>}
           {paymentQuote && <section className="first-buy-preview" aria-label="Payment conversion review">
-            <h3>Convert payment with LI.FI</h3><dl className="review-facts">
+            <h3>{paymentQuote.protocol === "wrap" ? "Wrap ETH into WETH" : "Convert payment with LI.FI"}</h3><dl className="review-facts">
               <div><dt>You pay</dt><dd>{formatUnits(BigInt(paymentQuote.amountIn), paymentQuote.fromToken.decimals)} {paymentQuote.fromToken.symbol}</dd></div>
               <div><dt>Estimated paired asset</dt><dd>{formatUnits(BigInt(paymentQuote.expectedOut), paymentQuote.toToken.decimals)} {paymentQuote.toToken.symbol}</dd></div>
               <div><dt>Minimum paired asset</dt><dd>{formatUnits(BigInt(paymentQuote.minimumOut), paymentQuote.toToken.decimals)} {paymentQuote.toToken.symbol}</dd></div>
@@ -2063,7 +2401,7 @@ function CreatePage({
               <div><dt>Recipient</dt><dd><code>{paymentQuote.account}</code></dd></div>
               <div><dt>Quote expires</dt><dd>{new Date(paymentQuote.expiresAt).toLocaleString("en-US")}</dd></div>
               <div><dt>First buy lock</dt><dd>{firstBuy.lockDays === 0 ? "No lock" : firstBuy.lockDays === 365 ? "1 year" : `${firstBuy.lockDays} days`}</dd></div>
-            </dl><p>This transaction converts your payment into the paired asset. After confirmation, review the actual first buy before launching. LI.FI and network fees are separate from the first buy's protocol and liquidity fees.</p>
+            </dl><p>This payment supplies the first buy shown below, using the conversion's guaranteed output for its preview. Your token minimum stays fixed; after any necessary approvals and conversion, the final wallet transaction is prepared automatically. Network and route fees are included above.</p>
           </section>}
           {plan?.firstBuy && <section className="first-buy-preview" aria-label="First buy preview">
             <h3>Your first buy</h3>
@@ -2090,15 +2428,24 @@ function CreatePage({
             <ChevronRight size={14} />
             <span>Wallet confirmation</span>
           </div>
+          {(plan?.openingValuation && "warnings" in plan.openingValuation ? plan.openingValuation.warnings : undefined)?.map((warning) => <Notice key={warning.code}>{warning.message}</Notice>)}
+          {paymentQuote?.warnings?.map((warning) => <Notice key={warning}>{warning}</Notice>)}
+          {plan?.requiresReconfirmation && plan.firstBuy && <Notice>The updated minimum is {formatUnits(BigInt(plan.firstBuy.expectedAmountOut) * BigInt(10_000 - plan.firstBuy.slippageBps) / 10_000n, 18)} {draft.symbol || "tokens"}. Your previous payment and approval are saved.</Notice>}
           {error && <Notice kind="error">{error}</Notice>}
+          {error && !busy && !paymentAttempt && !txHash && !submissionUnknown && /LI\.FI pricing or routing is unavailable|no.*route|liquidity|capacity is temporarily/i.test(error) && <div className="review-actions">
+            <button type="button" className="secondary" onClick={() => void simulate()}>Retry preview</button>
+            <button type="button" className="secondary" onClick={() => { setReview(false); requestAnimationFrame(() => document.querySelector<HTMLSelectElement>('select[aria-label="Pay with"]')?.focus()); }}>Choose another payment asset</button>
+            <button type="button" className="secondary" onClick={() => updateFirstBuy({ ...firstBuy, payAddress: stock.address, amount: "0", lockDays: 0 })}>Use existing {stock.symbol}</button>
+            <button type="button" className="secondary" onClick={() => updateFirstBuy({ ...firstBuy, amount: "0", lockDays: 0 })}>Launch without a first buy</button>
+          </div>}
           {message && !planExpired && <Notice kind="success">{message}</Notice>}
           {plan && !planExpired && (
             <p className="launch-caption">
-              Set using LI.FI buy/sell quotes at preview time. This reference expires after 60 seconds, including simulation time. The optional first buy moves the pool price above its initial target.
+              Set using LI.FI buy/sell quotes at preview time. A fresh reference is used when this plan is prepared. You have five minutes to confirm in your wallet. The optional first buy moves the pool price above its initial target.
             </p>
           )}
           {planExpired && !busy && (
-            <Notice kind="error">The launch preview has expired. Simulate again to refresh the quote asset’s USD reference price.</Notice>
+            <Notice kind="error">Refreshing your launch preview. Your inputs, payment and approvals are saved.</Notice>
           )}
           {wallet.error && <Notice kind="error">{wallet.error}</Notice>}
           {wallet.account && wallet.chainId !== config.chainId && <button className="secondary full" disabled={busy}
@@ -2114,9 +2461,13 @@ function CreatePage({
             </button>
           ) : paymentAttempt && !paymentAttempt.actualOutput ? (
             <button className="primary full" disabled={busy} onClick={() => void recoverPayment()}>Check submitted payment</button>
-          ) : paymentQuote && !paymentExpired ? (
+          ) : plan?.requiresReconfirmation ? (
+            <button className="primary full" disabled={busy} onClick={() => void acceptPriceChange()}>{converting && !converted ? "Accept updated minimum and convert" : "Accept updated minimum"}</button>
+          ) : paymentQuote && !paymentExpired && plan ? (
             <button className="primary full" disabled={busy || !config.writesEnabled || wallet.chainId !== config.chainId}
-              onClick={() => void convertPayment()}>{busy ? "Confirming payment…" : "Confirm payment conversion"}<ArrowRight size={17} /></button>
+              onClick={() => void convertPayment()}>{busy ? "Confirming payment…" : paymentQuote.protocol === "wrap" ? "Wrap ETH and launch" : "Convert payment and launch"}<ArrowRight size={17} /></button>
+          ) : converting && !converted ? (
+            <button className="primary full" disabled={busy} onClick={() => void simulate()}>Refresh payment and launch preview<RefreshCw size={17} /></button>
           ) : !plan || (planExpired && !busy) ? (
             <button
               className="primary full"
@@ -2197,7 +2548,7 @@ function TokenPage({
     [hash, setHash] = useState<Hex | null>(null),
     [balance, setBalance] = useState<bigint | null>(null),
     [copied, setCopied] = useState(false),
-    [clock, setClock] = useState(Date.now());
+    [clock, setClock] = useState(quoteNow());
   useEffect(() => {
     generation.current++;
     setQuote(null);
@@ -2210,9 +2561,10 @@ function TokenPage({
     };
   }, [amount, side, slippage, wallet.revision, address]);
   useEffect(() => {
-    const timer = setInterval(() => setClock(Date.now()), 1000);
+    setClock(quoteNow(quote ?? undefined));
+    const timer = setInterval(() => setClock(quoteNow(quote ?? undefined)), 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [quote]);
   useEffect(() => {
     let active = true;
     setBalance(null);
@@ -2790,9 +3142,15 @@ function FeeCard({
 function Rewards({
   tokens,
   config,
+  hasMore,
+  loading,
+  loadMore,
 }: {
   tokens: TokenRecord[];
   config: RuntimeConfig | null;
+  hasMore: boolean;
+  loading: boolean;
+  loadMore: () => void;
 }) {
   const wallet = useWallet(),
     mine = tokens.filter(
@@ -2832,14 +3190,15 @@ function Rewards({
           <div className="empty-symbol">
             <Coins size={28} />
           </div>
-          <h3>No launches for this wallet yet</h3>
-          <p>Launch a token with this wallet to manage its fees here.</p>
+          <h3>{hasMore ? "No matching launches in the loaded page" : "No launches for this wallet yet"}</h3>
+          <p>{hasMore ? "Load older launches to find this wallet's fees." : "Launch a token with this wallet to manage its fees here."}</p>
           <Link href="/create" className="primary">
             Launch your first token
             <Plus size={16} />
           </Link>
         </div>
       )}
+      {wallet.account && hasMore && <button type="button" className="secondary full" disabled={loading} onClick={loadMore}>{loading ? "Loading older launches…" : "Load older launches"}</button>}
       <div className="panel">
         <h2>How are fees distributed for new pools?</h2>
         <FeeBreakdown policy={launchFeePolicy(config)}>

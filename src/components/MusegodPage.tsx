@@ -1,3 +1,4 @@
+import { quoteNow } from "../lib/quote-clock";
 import { useEffect, useRef, useState } from "react";
 import { ArrowDown, ArrowUpRight, Copy, LoaderCircle, RefreshCw, Wallet } from "lucide-react";
 import { formatUnits, type Hash } from "viem";
@@ -28,7 +29,7 @@ export default function MusegodPage({ config, navigate }: {
   const [error, setError] = useState(""), [progress, setProgress] = useState("");
   const [hash, setHash] = useState<Hash | null>(null), [confirmed, setConfirmed] = useState(false);
   const [balance, setBalance] = useState<bigint | null>(null), [balanceError, setBalanceError] = useState("");
-  const [clock, setClock] = useState(Date.now), [copied, setCopied] = useState(false), [imageFailed, setImageFailed] = useState(false);
+  const [clock, setClock] = useState(quoteNow), [copied, setCopied] = useState(false), [imageFailed, setImageFailed] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -41,14 +42,15 @@ export default function MusegodPage({ config, navigate }: {
     return () => { active = false; };
   }, [config?.chainId, config?.mode, config?.deploymentChainId, revision]);
   useEffect(() => {
-    const timer = setInterval(() => setClock(Date.now()), 1000);
+    setClock(quoteNow(quote ?? undefined));
+    const timer = setInterval(() => setClock(quoteNow(quote ?? undefined)), 1000);
     const update = () => setRevision((n) => n + 1);
     window.addEventListener("musegod:transactions", update);
     return () => {
       clearInterval(timer);
       window.removeEventListener("musegod:transactions", update);
     };
-  }, []);
+  }, [quote]);
   useEffect(() => {
     generation.current++;
     setQuote(null);

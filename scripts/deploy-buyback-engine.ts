@@ -1,3 +1,5 @@
+import { buybackGraphFingerprint, verifyBuybackActivation } from "../server/buyback-activation";
+import type { BuybackDeployment } from "../server/buyback-engine";
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
 import { open, readFile, rename, unlink } from "node:fs/promises";
@@ -15,7 +17,7 @@ import buybackConfig from "../contracts/buyback.config.json";
 import { MUSEGOD, MUSEGOD_ROUTER_VERIFICATION } from "../src/lib/musegod";
 
 loadEnvironment();
-const path = "contracts/artifacts/buyback-deployment.json";
+const path = "contracts/artifacts/buyback-v2-deployment.json";
 const serialize = (_key: string, value: unknown) => typeof value === "bigint" ? value.toString() : value;
 const sha256 = (input: string) => createHash("sha256").update(input).digest("hex");
 type Constants = Record<Exclude<keyof typeof buybackConfig.constants, "automation">, Address> & { automation: Address | null };
@@ -26,13 +28,15 @@ type Artifact = {
   immutableReferences: Record<string, { start: number; length: number }[]>;
   immutableASTbindings: Record<string,{ name: string; type: string }>;
 };
-type Entry = { address: Address | null; runtimeHash: Hex | null; creationHash?: Hex; compilerInputSha256?: string; sourceVerification?: unknown };
+type Entry = { address: Address | null; runtimeHash: Hex | null; creationHash?: Hex; compilerInputSha256?: string; sourceVerification?: unknown; blockNumber?: string };
 type Deployment = {
   schemaVersion: number; chainId: number; status: string; configHash: string;
-  constants: typeof constants; contracts: Record<"oracle"|"swapper"|"engine"|"executor"|"forwarder",Entry>;
+  constants: typeof constants; contracts: Record<"oracle"|"swapper"|"engine"|"executor"|"forwarder"|"assetOracle"|"vault",Entry>;
+  assetFeedDescriptions: Record<string, { description: string; descriptionHash: string }>;
   transactions: Record<string,unknown>[]; [name:string]: unknown;
 };
-const modules = { oracle:"MusegodBuybackOracle", engine:"MusegodFeeEngine", executor:"MusegodBuybackExecutor", forwarder:"MusegodWethForwarder" } as const;
+const modules = { oracle:"MusegodBuybackOracle", engine:"MusegodFeeEngine", executor:"MusegodBuybackExecutor", forwarder:"MusegodWethForwarder", assetOracle:"MusegodAssetFeedOracle", vault:"MusegodBuybackBudgetVault" } as const;
+const artifactDirectory = (name:string) => ["MusegodFeeEngine","MusegodWethForwarder","MusegodAssetFeedOracle","MusegodBuybackBudgetVault"].includes(name) ? "contracts/artifacts/buyback-v2" : "contracts/artifacts";
 const factoryAbi = parseAbi([
   "function swapperImpl() view returns(address)",
   "function createSwapper((address owner,bool paused,address beneficiary,address tokenToBeneficiary,(address oracle,(address factory,bytes data) createOracleParams) oracleParams,uint32 defaultScaledOfferFactor,((address base,address quote) quotePair,uint32 scaledOfferFactor)[] pairScaledOfferFactors) params) returns(address)",
@@ -55,8 +59,8 @@ try { manifest = JSON.parse(await readFile(path,"utf8")); }
 catch { throw new Error("Prepare the reviewed buyback deployment manifest first"); }
 const artifacts = {} as Record<keyof typeof modules,Artifact>;
 for (const [name,contractName] of Object.entries(modules)) {
-  const artifact = JSON.parse(await readFile(`contracts/artifacts/${contractName}.json`,"utf8")) as Artifact;
-  const input = await readFile(`contracts/artifacts/${contractName}.compiler-input.json`,"utf8");
+  const artifact = JSON.parse(await readFile(`${artifactDirectory(contractName)}/${contractName}.json`,"utf8")) as Artifact;
+  const input = await readFile(`${artifactDirectory(contractName)}/${contractName}.compiler-input.json`,"utf8");
   assert.equal(sha256(input),artifact.compilerInputSha256,"Compiler input changed after review");
   assert.equal(keccak256(artifact.bytecode),artifact.creationBytecodeHash,"Creation artifact changed");
   const sources = (JSON.parse(input) as { sources: Record<string,{content:string}> }).sources;
@@ -132,7 +136,7 @@ export async function verifyModuleBindings(read:(name:string)=>Promise<unknown>,
     const actual = await read(name);
     if (typeof value === "string") {
       assert.equal(String(actual).toLowerCase(),value.toLowerCase(),`The ${name} deployment binding differs from the reviewed configuration`);
-    } else assert.equal(actual,value,`The ${name} deployment binding differs from the reviewed configuration`);
+    } else assert.equal(Number(actual),value,`The ${name} deployment binding differs from the reviewed configuration`);
   }
 }
 
@@ -172,7 +176,7 @@ async function sourceVerify(name:keyof typeof modules,address:Address,creationHa
   if (!submit) return {status:"not_submitted",url};
   const response = await fetch(`https://sourcify.dev/server/v2/verify/4663/${address}`,{
     method:"POST",headers:{"content-type":"application/json"},signal:AbortSignal.timeout(30_000),
-    body:JSON.stringify({stdJsonInput:JSON.parse(await readFile(`contracts/artifacts/${artifact.contractName}.compiler-input.json`,"utf8")),
+    body:JSON.stringify({stdJsonInput:JSON.parse(await readFile(`${artifactDirectory(artifact.contractName)}/${artifact.contractName}.compiler-input.json`,"utf8")),
       compilerVersion:artifact.compiler.version,contractIdentifier:`src/${artifact.contractName}.sol:${artifact.contractName}`,creationTransactionHash:creationHash}),
   });
   assert(response.ok,`Source verification submission failed for ${name}`);
@@ -191,6 +195,7 @@ async function main(args=process.argv.slice(2)) {
   assert(!(deploy && args.includes("--verify-only")), "Choose one deployment mode");
   assert.equal(await client.getChainId(),4663,"Deployment requires Robinhood mainnet 4663");
   assert.equal(manifest.chainId,4663);
+  assert.equal(manifest.schemaVersion,2,"Legacy deployment records must never be overwritten");
   assert.equal(buybackConfig.unpricedFeePolicy,"splits-automation","Unsupported fees require the reviewed Splits Automation route");
   const automation = constants.automation;
   const receiverCode = automation ? await client.getCode({address:automation}) : null;
@@ -199,14 +204,14 @@ async function main(args=process.argv.slice(2)) {
   let acceptedFork: {accountCodeFixtures?:unknown;policyMetadataFixtureOnly?:unknown} = {};
   let fullDeploymentApproved = false;
   if (deploy) {
-    const review = JSON.parse(await readFile("docs/evidence/buyback-engine-review.json","utf8")) as {
+    const review = JSON.parse(await readFile("docs/evidence/buyback-v2-review.json","utf8")) as {
       status: string; sourceHashes: Record<string,string>;
     };
     assert(["passed","passed_for_bootstrap"].includes(review.status),"The fixed WETH bridge must pass independent review before any deployment");
     reviewedStatus = review.status;
     for (const [source,expected] of Object.entries(review.sourceHashes))
       assert.equal(sha256(await readFile(source,"utf8")),expected,"Production source changed after review");
-    const acceptance = JSON.parse(await readFile("docs/evidence/buyback-engine-fork.json","utf8"));
+    const acceptance = JSON.parse(await readFile("docs/evidence/buyback-v2-fork.json","utf8"));
     acceptedFork = acceptance;
     fullDeploymentApproved = review.status === "passed";
     assert(acceptance.snapshotRestored === true && acceptance.snapshotContractRemovalVerified === true
@@ -221,7 +226,7 @@ async function main(args=process.argv.slice(2)) {
     assert.equal(acceptance.configHash,sha256(await readFile("contracts/buyback.config.json","utf8")),"Fork evidence belongs to another fixed deployment configuration");
     assert.equal(acceptance.sourceHash,sha256(await readFile("scripts/test-buyback-engine-fork.ts","utf8")),"Fork evidence belongs to another acceptance script");
     for (const contractName of Object.values(modules))
-      assert.equal(acceptance.artifactHashes[contractName],sha256(await readFile(`contracts/artifacts/${contractName}.json`,"utf8")),"Fork evidence belongs to another compiler artifact");
+      assert.equal(acceptance.artifactHashes[contractName],sha256(await readFile(`${artifactDirectory(contractName)}/${contractName}.json`,"utf8")),"Fork evidence belongs to another compiler artifact");
   }
   const configText = await readFile("contracts/buyback.config.json","utf8");
   assert.notEqual(constants.treasury,zeroAddress,"The operations treasury must be configured");
@@ -306,7 +311,7 @@ async function main(args=process.argv.slice(2)) {
     if (!entry.address) {
       if (!deploy) return null;
       const r = await broadcast(name,undefined,encodeDeployData({abi:artifacts[name].abi,bytecode:artifacts[name].bytecode,args}));
-      assert(r.contractAddress); entry = {...await ownRuntime(name,r.contractAddress,bindings),creationHash:r.transactionHash};
+      assert(r.contractAddress); entry = {...await ownRuntime(name,r.contractAddress,bindings),creationHash:r.transactionHash,blockNumber:String(r.blockNumber)};
       manifest.contracts[name] = entry; manifest.status = "partially_deployed"; await save();
     } else Object.assign(entry,await ownRuntime(name,entry.address,bindings));
     return entry.address;
@@ -341,11 +346,30 @@ async function main(args=process.argv.slice(2)) {
   assert.equal(String(await read("oracle")).toLowerCase(),oracle.toLowerCase()); assert.equal(await read("defaultScaledOfferFactor"),985000);
   assert.deepEqual(await client.readContract({address:swapper,abi:swapperAbi,functionName:"getPairScaledOfferFactors",args:[[{base:constants.weth,quote:constants.muse}]]}),[0]);
   assert(automation,"Configure the dedicated Splits Automation account before deployment");
-  const forwarder = await ensureModule("forwarder",[constants.automationTreasury,constants.weth,swapper],
-    {source:constants.automationTreasury,weth:constants.weth,swapper});
   const executor = await ensureModule("executor",[swapper,constants.swapRouter,constants.weth,constants.muse],
     {swapper,router:constants.swapRouter,weth:constants.weth,musegod:constants.muse});
-  if (!forwarder || !executor) { await save(); console.log(JSON.stringify({status:manifest.status,deployment:"not_run",reason:"Bootstrap deployment has not completed"})); return; }
+  const assetOracle = await ensureModule("assetOracle",[constants.treasury,constants.weth,constants.ethUsdFeed,buybackConfig.ethMaxAge,
+    buybackConfig.feeds.map((f) => ({token:getAddress(f.token),feed:getAddress(f.feed),maxAge:f.maxAge,checkOraclePaused:f.checkOraclePaused}))],
+    {governor:constants.treasury,weth:constants.weth,FEED_CHANGE_DELAY:604800});
+  if (!executor || !assetOracle) { console.log(JSON.stringify({status:manifest.status,deployment:"not_run",reason:"Asset oracle deployment pending"})); return; }
+  for (const f of [{token:constants.weth,feed:constants.ethUsdFeed,maxAge:buybackConfig.ethMaxAge,checkOraclePaused:false,symbol:"WETH"}, ...buybackConfig.feeds]) {
+    const token = getAddress(f.token), pinned = manifest.assetFeedDescriptions[token.toLowerCase()];
+    assert(pinned && pinned.descriptionHash === keccak256(new TextEncoder().encode(pinned.description)), "Missing reviewed initial feed metadata");
+    const [mapping, label] = await Promise.all([
+      client.readContract({address:assetOracle,abi:artifacts.assetOracle.abi,functionName:"assetFeeds",args:[token]}),
+      client.readContract({address:assetOracle,abi:artifacts.assetOracle.abi,functionName:"descriptionHash",args:[token]}),
+    ]) as [readonly unknown[], unknown];
+    assert.equal(label,pinned.descriptionHash,`The immutable ${f.symbol} feed label changed`);
+    assert.equal(mapping[1],f.maxAge); assert.equal(mapping[2],f.symbol === "USDG" ? 6 : f.symbol === "cbBTC" ? 8 : 18);
+    assert.equal(mapping[3],8); assert.equal(mapping[4],f.checkOraclePaused);
+    if (deploy && !manifest.contracts.engine.address) assert.equal(String(mapping[0]).toLowerCase(),f.feed.toLowerCase(),"Initial feeds must match reviewed deployment arguments");
+  }
+  const vault = await ensureModule("vault",[constants.weth,constants.muse,oracle,swapper,executor],
+    {weth:constants.weth,musegod:constants.muse,oracle,swapper,executor,pool:constants.museWethPool,WINDOW_SECONDS:300,WINDOW_CAP:"10000000000000000",MAX_DEVIATION_BPS:200});
+  if (!vault) { console.log(JSON.stringify({status:manifest.status,deployment:"not_run",reason:"Budget vault deployment pending"})); return; }
+  const forwarder = await ensureModule("forwarder",[constants.automationTreasury,constants.weth,swapper,vault],
+    {source:constants.automationTreasury,weth:constants.weth,swapper,vault});
+  if (!forwarder) { console.log(JSON.stringify({status:manifest.status,deployment:"not_run",reason:"Forwarder deployment pending"})); return; }
   const verificationBlock = await client.getBlockNumber({cacheTime:0});
   for (const f of buybackConfig.feeds) {
     const values = await client.readContract({address:oracle,abi:artifacts.oracle.abi,functionName:"assetFeeds",args:[getAddress(f.token)],blockNumber:verificationBlock}) as readonly unknown[];
@@ -354,20 +378,20 @@ async function main(args=process.argv.slice(2)) {
   const currentReceiverCode = await client.getCode({address:automation});
   if (!currentReceiverCode || currentReceiverCode === "0x" || (deploy && !engineDeploymentAllowed(reviewedStatus,currentReceiverCode,acceptedFork)) || (!deploy && !manifest.contracts.engine.address)) {
     // These stages grant no allowance and cannot enable pools without the Engine.
-    for (const name of ["oracle","forwarder","executor"] as const) {
+    for (const name of ["oracle","forwarder","executor","assetOracle","vault"] as const) {
       const entry = manifest.contracts[name]; assert(entry.address && entry.creationHash);
       entry.sourceVerification = await sourceVerify(name,entry.address,entry.creationHash,deploy); await save();
     }
     manifest.status = !currentReceiverCode || currentReceiverCode === "0x" ? "bootstrap_deployed_pending_automation_initialization" : "bootstrap_deployed_pending_final_review";
     manifest.automation = automationConfiguration(manifest.automation,{account:automation,network:4663,outputToken:constants.weth,allocationBps:10000,recipient:constants.automationTreasury});
-    manifest.forwarderSetup = forwarderConfiguration(manifest.forwarderSetup,{source:constants.automationTreasury,spender:forwarder,token:constants.weth,recipient:swapper});
+    manifest.forwarderSetup = forwarderConfiguration(manifest.forwarderSetup,{source:constants.automationTreasury,spender:forwarder,token:constants.weth,recipient:vault});
     await save();
     console.log(JSON.stringify({status:manifest.status,contracts:manifest.contracts,forwarderSetup:manifest.forwarderSetup},serialize,2));
     return;
   }
   verifyAutomationReceiver(automation,constants.treasury,currentReceiverCode,constants,Object.values(manifest.contracts).map((entry) => entry.address));
-  const engine = await ensureModule("engine",[constants.initializer,constants.rehype,oracle,swapper,constants.weth,constants.muse,constants.router,constants.routerExecutor,automation],
-    {initializer:constants.initializer,rehype:constants.rehype,oracle,swapper,weth:constants.weth,muse:constants.muse,
+  const engine = await ensureModule("engine",[constants.initializer,constants.rehype,oracle,swapper,constants.weth,constants.muse,constants.router,constants.routerExecutor,automation,assetOracle,vault],
+    {initializer:constants.initializer,rehype:constants.rehype,oracle,assetOracle,settlementVault:vault,swapper,weth:constants.weth,muse:constants.muse,
       router:constants.router,routerExecutor:constants.routerExecutor,automation,routerCodeHash:buybackConfig.expectedRuntimeHashes.router,
       routerExecutorCodeHash:buybackConfig.expectedRuntimeHashes.routerExecutor});
   assert(engine);
@@ -379,11 +403,17 @@ async function main(args=process.argv.slice(2)) {
   const complete = Object.keys(modules).every((key) => (manifest.contracts[key as keyof typeof modules].sourceVerification as {runtimeMatch?:string})?.runtimeMatch === "exact_match");
   manifest.status = complete ? "deployed_verified" : "deployed_runtime_verified";
   manifest.verifiedAt = new Date().toISOString(); manifest.verificationBlock = String(verificationBlock);
+  manifest.graphFingerprint = buybackGraphFingerprint(manifest as unknown as BuybackDeployment);
+  try {
+    manifest.activationVerification = { status: "verified", ...await verifyBuybackActivation(client, manifest as unknown as BuybackDeployment, verificationBlock) };
+  } catch {
+    manifest.activationVerification = { status: "pending", reason: "Runtime/source verification does not activate the graph. Supply canonical funding/settlement receipts and governor-signed control and native scheduler attestations." };
+  }
   manifest.mainnetFeeExecution ??= "not_run";
   manifest.automation = automationConfiguration(manifest.automation,{account:automation,network:4663,outputToken:constants.weth,allocationBps:10000,recipient:constants.automationTreasury});
-  manifest.forwarderSetup = forwarderConfiguration(manifest.forwarderSetup,{source:constants.automationTreasury,spender:forwarder,token:constants.weth,recipient:swapper});
+  manifest.forwarderSetup = forwarderConfiguration(manifest.forwarderSetup,{source:constants.automationTreasury,spender:forwarder,token:constants.weth,recipient:vault});
   await save();
-  console.log(JSON.stringify({status:manifest.status,contracts:manifest.contracts,verificationBlock:String(verificationBlock)},serialize,2));
+  console.log(JSON.stringify({status:manifest.status,contracts:manifest.contracts,activation:manifest.activationVerification,graphFingerprint:manifest.graphFingerprint,verificationBlock:String(verificationBlock)},serialize,2));
   assert(complete,"Deployment is recorded; finish pending source verification before enabling new pools");
 }
 

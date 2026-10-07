@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { decodeFunctionData, encodeFunctionData, erc20Abi, toHex, zeroAddress, type Address, type Hash } from "viem";
-import { assertFirstBuyLaunchConfig, executeFirstBuyPayment } from "../src/lib/first-buy-wallet";
+import { assertFirstBuyLaunchConfig, executeFirstBuyPayment, PaymentPriceChanged } from "../src/lib/first-buy-wallet";
+import { resetQuoteClock } from "../src/lib/quote-clock";
 import { FIRST_BUY_PAYMENT_CONTRACTS, assertFirstBuyPaymentQuote, firstBuyPairedAsset, firstBuyPaymentAbi, firstBuyPaymentAssets,
   type FirstBuyPaymentQuote } from "../src/lib/first-buy-payment";
 import { launchAssetsFor, ROBINHOOD_STOCKS, type RuntimeConfig } from "../src/lib/config";
@@ -64,6 +65,52 @@ function dependencies(q: FirstBuyPaymentQuote, allowance = 0n) {
   };
   return { deps, calls, approvals, sent };
 }
+
+function refreshedQuote(expectedOut: string): FirstBuyPaymentQuote {
+  const q = quote(), minimum = BigInt(expectedOut) * 9900n / 10_000n;
+  const decoded = decodeFunctionData({ abi: firstBuyPaymentAbi, data: q.transaction.data });
+  const args = [...decoded.args]; args[4] = minimum;
+  q.expectedOut = expectedOut; q.minimumOut = String(minimum);
+  q.transaction.data = encodeFunctionData({ abi: firstBuyPaymentAbi, functionName: decoded.functionName, args: args as never });
+  return q;
+}
+
+test("payment approval can outlive sixty seconds and refresh in-range without another approval or lowering calldata protection", async (t) => {
+  let now = 1_800_000_000_000;
+  resetQuoteClock(); t.after(resetQuoteClock); t.mock.method(Date, "now", () => now);
+  const q = quote(), f = dependencies(q), approve = f.deps.approve;
+  const displayed: FirstBuyPaymentQuote[] = [];
+  f.deps.approve = async (transaction, frozen) => { await approve(transaction, frozen); now += 61_000; };
+  f.deps.refresh = async (previous) => {
+    f.calls.push("refresh"); assert.equal(previous.minimumOut, q.minimumOut); assert(now >= previous.expiresAt);
+    return refreshedQuote("9950000");
+  };
+  f.deps.onQuote = (fresh) => displayed.push(fresh);
+  assert.equal(await executeFirstBuyPayment(q, config, account, f.deps), hash);
+  assert.equal(f.approvals.length, 1); assert.equal(f.sent.length, 1); assert.equal(displayed.length, 1);
+  assert.equal(f.calls.filter((call) => call === "refresh").length, 1);
+  assert.equal(f.sent[0].expectedOut, "9950000"); assert.equal(f.sent[0].minimumOut, q.minimumOut);
+  assert.equal(f.sent[0].expiresAt, now + 60_000);
+  const decoded = decodeFunctionData({ abi: firstBuyPaymentAbi, data: f.sent[0].transaction.data });
+  assert.equal(decoded.args[4], BigInt(q.minimumOut), "the submitted LI.FI calldata must preserve the original accepted minimum");
+  assert(f.calls.indexOf("refresh") > f.calls.indexOf("approve"));
+  assert(f.calls.indexOf("simulate") > f.calls.indexOf("refresh"));
+});
+
+test("payment refresh below the original floor requests one price review and sends no conversion", async (t) => {
+  let now = 1_800_000_000_000;
+  resetQuoteClock(); t.after(resetQuoteClock); t.mock.method(Date, "now", () => now);
+  const q = quote(), f = dependencies(q), approve = f.deps.approve;
+  f.deps.approve = async (transaction, frozen) => { await approve(transaction, frozen); now += 61_000; };
+  let fresh: FirstBuyPaymentQuote | undefined;
+  f.deps.refresh = async () => { f.calls.push("refresh"); fresh = refreshedQuote("9899999"); return fresh; };
+  await assert.rejects(executeFirstBuyPayment(q, config, account, f.deps), (error: unknown) => {
+    assert(error instanceof PaymentPriceChanged); assert.deepEqual(error.quote, fresh); return true;
+  });
+  assert.equal(f.approvals.length, 1, "the confirmed approval is retained");
+  assert.equal(f.calls.filter((call) => call === "refresh").length, 1, "a failed floor check must not loop into fresh lower quotes");
+  assert(!f.calls.includes("simulate")); assert.equal(f.sent.length, 0);
+});
 test("removed paired assets retain full historical quote decoding but cannot start a new payment", async () => {
   for (const symbol of ["BND", "SATS", "AAOI"]) {
     const asset = ROBINHOOD_STOCKS.find((item) => item.symbol === symbol)!;

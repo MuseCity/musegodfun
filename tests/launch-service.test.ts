@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DopplerSDK, airlockAbi, bundlerAbi, computePoolId, verifyPreparedCreateExecution } from "@whetstone-research/doppler-sdk/evm";
-import { createPublicClient, http, encodeFunctionData, encodeEventTopics, encodeAbiParameters, decodeAbiParameters, parseAbiParameters, erc20Abi, formatUnits, keccak256, zeroAddress, type Hex, type Address, type TransactionReceipt } from "viem";
+import { DopplerSDK, airlockAbi, bundlerAbi, computePoolId, rehypeDopplerHookInitializerAbi, verifyPreparedCreateExecution } from "@whetstone-research/doppler-sdk/evm";
+import { createPublicClient, http, encodeFunctionData, encodeEventTopics, encodeAbiParameters, decodeAbiParameters, decodeFunctionData, parseAbiParameters, erc20Abi, formatUnits, keccak256, zeroAddress, type Hex, type Address, type TransactionReceipt } from "viem";
 import { ROBINHOOD_BUNDLER, ROBINHOOD_CONTRACTS as contracts, ROBINHOOD_STOCKS, STOCKS, SUPPLY, assetsFor, launchAssetsFor, listedTokens, stockByAddress, type RuntimeConfig, type Stock, type TokenRecord } from "../src/lib/config";
 import { CURVE_POLICY } from "../src/lib/launch-curve";
 import { launchGuardAbi } from "../src/lib/launch-guard";
@@ -14,10 +14,11 @@ import { ENGINE_FEE_POLICY, FEE_POLICY } from "../src/lib/fee-policy";
 import { minimumOutput } from "../src/lib/validation";
 import { syntheticOpeningValuation } from "./fixtures";
 import { OPENING_CAP_USD, openingCapInQuote, type HistoricalOpeningValuation } from "../src/lib/opening-valuation";
-import { assertPlanIntegrity, verifiedFirstBuyLock, verifyGuardedReceipt } from "../server/launch-verification";
+import { assertPlanIntegrity, assertRecoveryPlan, verifiedFirstBuyLock, verifyGuardedReceipt } from "../server/launch-verification";
 import { chainLaunchDependencies, expectedGuardRuntime, identifyGuardVersion, verifyLaunchGuard } from "../server/launch-guard";
 import { LaunchpadService } from "../server/service";
 import { Store } from "../server/store";
+import { unpackPlan } from "../server/plan-storage";
 import { SupabaseStore } from "../server/supabase-store";
 import { FIRST_BUY_PAYMENT_CONTRACTS, assertFirstBuyPaymentQuote, firstBuyPairedAsset, firstBuyPaymentAbi, firstBuyPaymentAssets, type FirstBuyPaymentQuote } from "../src/lib/first-buy-payment";
 
@@ -51,9 +52,13 @@ function fixture(quoteAsset: Stock = quote, tradingFeeBps = 100) {
   const receipt = { status: "success", from: creator, to: guard, transactionHash: hash, blockHash, blockNumber: 10n, logs: [
     { address: contracts.airlock, topics: encodeEventTopics({ abi: airlockAbi, eventName: "Create", args: { numeraire: quote.address } }), data: encodeAbiParameters([{ type: "address" }, { type: "address" }, { type: "address" }], [token, contracts.initializer, token]) },
     { address: ROBINHOOD_BUNDLER, topics: encodeEventTopics({ abi: bundlerAbi, eventName: "Bundled", args: { recipient: creator } }), data: encodeAbiParameters([{ type: "uint128" }, { type: "uint128" }, poolTuple], [amountIn, expected, poolKey]) }, guardLog,
+    { address: token, topics: encodeEventTopics({ abi: erc20Abi, eventName: "Transfer", args: { from: zeroAddress, to: contracts.airlock } }),
+      data: encodeAbiParameters([{ type: "uint256" }], [SUPPLY]) },
+    { address: contracts.rehype, topics: encodeEventTopics({ abi: rehypeDopplerHookInitializerAbi, eventName: "FeeScheduleSet", args: { poolId: plan.poolId } }),
+      data: encodeAbiParameters([{ type: "uint32" }, { type: "uint24" }, { type: "uint24" }, { type: "uint32" }], [1, tradingFeeBps * 100, tradingFeeBps * 100, 0]) },
   ] } as unknown as TransactionReceipt;
   const tx = { hash, from: creator, to: guard, input: plan.data, value: 0n };
-  return { plan, prepared, receipt, tx, guardLog, poolKey };
+  return { sdk, plan, prepared, receipt, tx, guardLog, poolKey };
 }
 
 function historicalFixture(quotedAt = Date.now()) {
@@ -61,14 +66,14 @@ function historicalFixture(quotedAt = Date.now()) {
   const legacy: HistoricalOpeningValuation = { policy: "fixed-usd-5000-v1", marketCapUsd: OPENING_CAP_USD,
     chainId: 4663, quoteAddress: quote.address, quotePriceUsd: "3000", quotedAt, expiresAt: quotedAt + 300_000,
     source: "Chainlink", sourceUpdatedAt: quotedAt, blockNumber: "10", blockHash, feed: treasury };
-  const factoryDataAbi = parseAbiParameters("string name,string symbol,uint256 yearlyMintRate,uint256 vestingDuration,address[] vestingRecipients,uint256[] vestingAmounts,string tokenURI");
+  const factoryDataAbi = parseAbiParameters("string name,string symbol,(uint64 cliff,uint64 duration)[] schedules,address[] beneficiaries,uint256[] scheduleIds,uint256[] amounts,string tokenURI,uint256 maxBalanceLimit,uint48 balanceLimitEnd,address controller,address[] excluded");
   const decoded = decodeAbiParameters(factoryDataAbi, f.prepared.createParams.tokenFactoryData);
   const metadata = JSON.parse(decodeURIComponent(decoded[6].slice("data:application/json,".length)));
   metadata.properties.openingValuation = legacy;
   metadata.properties.openingCap = openingCapInQuote(legacy);
   const tokenURI = `data:application/json,${encodeURIComponent(JSON.stringify(metadata))}`;
   f.prepared.createParams.tokenFactoryData = encodeAbiParameters(factoryDataAbi,
-    [decoded[0], decoded[1], decoded[2], decoded[3], decoded[4], decoded[5], tokenURI]);
+    [decoded[0], decoded[1], decoded[2], decoded[3], decoded[4], decoded[5], tokenURI, decoded[7], decoded[8], decoded[9], decoded[10]]);
   const deadline = Math.floor(legacy.expiresAt / 1000);
   f.plan.openingValuation = legacy; f.plan.draft.openingCap = openingCapInQuote(legacy); f.plan.preparedAt = quotedAt;
   f.plan.firstBuy!.deadline = deadline;
@@ -96,7 +101,10 @@ function lockedFixture(lockDays: 30 | 90 | 365 = 30, quoteAsset: Stock = quote, 
     data: encodeAbiParameters([{ type: "bool" }, { type: "uint128" }, { type: "uint64" }, { type: "uint64" }, { type: "uint64" }],
       [false, 1000n, start, duration, duration]) };
   f.receipt.logs.push(vestingLog as unknown as TransactionReceipt["logs"][number]);
-  return { ...f, start, duration, vestingLog };
+  const custodyLog = { address: token, topics: encodeEventTopics({ abi: erc20Abi, eventName: "Transfer", args: { from: contracts.poolManager, to: ROBINHOOD_BUNDLER } }),
+    data: encodeAbiParameters([{ type: "uint256" }], [1000n]) };
+  f.receipt.logs.push(custodyLog as unknown as TransactionReceipt["logs"][number]);
+  return { ...f, start, duration, vestingLog, custodyLog };
 }
 
 function ordinaryFixture(tradingFeeBps = 100) {
@@ -109,7 +117,7 @@ function ordinaryFixture(tradingFeeBps = 100) {
   f.plan.transaction = { ...prepared.transaction, value: "0" };
   f.plan.prepared = serializePrepared(prepared);
   f.tx.input = data; f.tx.to = contracts.airlock;
-  f.receipt.to = contracts.airlock; f.receipt.logs = f.receipt.logs.slice(0, 1);
+  f.receipt.to = contracts.airlock; f.receipt.logs = f.receipt.logs.filter((log) => ![guard, ROBINHOOD_BUNDLER].some((address) => address.toLowerCase() === log.address.toLowerCase()));
   return { ...f, prepared };
 }
 
@@ -172,7 +180,7 @@ test("removed paired assets remain valid in frozen launch integrity, old-plan va
     verifyGuardedReceipt(f.plan, f.receipt, 1000n);
     store.savePlan(f.plan);
     const config: RuntimeConfig = { mode: "fork", chainId: 31337, deploymentChainId: 4663,
-      treasury, writesEnabled: false, blockReason: "Read-only", curvePolicy: CURVE_POLICY, feePolicy: FEE_POLICY,
+      treasury, writesEnabled: true, blockReason: null, curvePolicy: CURVE_POLICY, feePolicy: FEE_POLICY,
       launchGuard: guard, launchLockAvailable: true };
     const service = Object.assign(Object.create(LaunchpadService.prototype), { runtime: { config }, store,
       config: async () => config, assertNetwork: async () => {},
@@ -252,12 +260,13 @@ test("frozen issuance binds the selected trading fee on all creation paths", () 
   }
 });
 
-test("registration reads the receipt-block trading fee and rejects every non-fixed schedule field", async () => {
+test("registration verifies creation mint and fee events without mutable or historical contract reads", async () => {
   for (const make of [ordinaryFixture, (fee: number) => fixture(quote, fee), (fee: number) => lockedFixture(30, quote, fee)]) {
     for (const fee of [100, 300]) {
       const f = make(fee), directory = mkdtempSync(join(tmpdir(), "trading-fee-register-test-")), store = new Store(directory, 31337);
       const start = BigInt(Math.floor(f.plan.openingValuation!.expiresAt / 1000) - 1);
-      let faultIndex = -1, scheduleReads = 0;
+      const schedule = f.receipt.logs.find((log) => log.address === contracts.rehype)!;
+      const validData = schedule.data;
       try {
         store.savePlan(f.plan);
         const service = Object.assign(Object.create(LaunchpadService.prototype), {
@@ -265,31 +274,19 @@ test("registration reads the receipt-block trading fee and rejects every non-fix
           store, assertNetwork: async () => {},
           client: { getTransaction: async () => f.tx, getTransactionReceipt: async () => f.receipt,
             getBlockNumber: async () => 11n, getBlock: async () => ({ hash: blockHash, timestamp: start }),
-            readContract: async (input: { functionName: string; address: Address; blockNumber?: bigint; args?: readonly unknown[] }) => {
-              if (input.functionName === "totalSupply") return SUPPLY;
-              assert.equal(input.blockNumber, f.receipt.blockNumber);
-              if (input.functionName === "vestingOf") {
-                const duration = BigInt(f.plan.firstBuy!.lockDays!) * 86400n;
-                return [creator, false, start, duration, duration, 1000n, 0n];
-              }
-              assert.equal(input.functionName, "getFeeSchedule");
-              assert.equal(input.address, contracts.rehype); assert.deepEqual(input.args, [f.plan.poolId]);
-              scheduleReads++;
-              const schedule = [Number(start), fee * 100, fee * 100, fee * 100, 0];
-              if (faultIndex >= 0) schedule[faultIndex]++;
-              return schedule;
-            } },
+            readContract: async () => { throw new Error("Archive unavailable; live supply already burned"); } },
           sdk: { getMulticurvePool: async () => ({ getState: async () => ({ status: 2, numeraire: quote.address, poolKey: f.poolKey }) }) },
         }) as LaunchpadService;
-        for (const index of [1, 2, 3, 4]) {
-          faultIndex = index;
+        for (const index of [1, 2, 3]) {
+          const values = [1, fee * 100, fee * 100, 0]; values[index]++;
+          schedule.data = encodeAbiParameters([{ type: "uint32" }, { type: "uint24" }, { type: "uint24" }, { type: "uint32" }], values as [number, number, number, number]);
           await assert.rejects(() => service.register(hash), /trading fee schedule/);
           assert.equal(store.token(token), null);
         }
-        faultIndex = -1;
+        schedule.data = validData;
         const saved = await service.register(hash);
         assert.equal(saved.tradingFeeBps, fee); assert.equal(store.token(token)?.tradingFeeBps, fee);
-        assert.equal(scheduleReads, 5);
+        assert.equal((await service.register(hash)).address, saved.address, "burns and claims after creation cannot break idempotent recovery");
       } finally { store.close(); rmSync(directory, { recursive: true }); }
     }
   }
@@ -337,7 +334,7 @@ test("historical unprepared transactions recover only the original one percent f
       }) as LaunchpadService;
       if (fee === 100) {
         await service.trackLaunch(hash, f.plan.id);
-        assert.equal((await service.register(hash)).tradingFeeBps, 100); assert.equal(feeReads, 1);
+        assert.equal((await service.register(hash)).tradingFeeBps, 100); assert.equal(feeReads, 0);
       } else {
         await assert.rejects(() => service.trackLaunch(hash, f.plan.id), /trading fee/);
         await assert.rejects(() => service.register(hash), /trading fee/);
@@ -403,9 +400,9 @@ test("registration persists only verified locked custody and recovers without cu
     const service = Object.assign(Object.create(LaunchpadService.prototype), { runtime: { config: { mode: "fork", chainId: 31337,
       deploymentChainId: 4663, writesEnabled: false, launchGuard: null, launchLockAvailable: false } }, store, client,
       assertNetwork: async () => {}, sdk: { getMulticurvePool: async () => ({ getState: async () => ({ status: 2, numeraire: quote.address, poolKey: f.poolKey }) }) } }) as LaunchpadService;
-    badPosition = true; await assert.rejects(() => service.register(hash), /custody/);
+    badPosition = true; f.custodyLog.data = encodeAbiParameters([{ type: "uint256" }], [999n]); await assert.rejects(() => service.register(hash), /custody/);
     assert.equal(store.token(token), null);
-    badPosition = false; const saved = await service.register(hash);
+    badPosition = false; f.custodyLog.data = encodeAbiParameters([{ type: "uint256" }], [1000n]); const saved = await service.register(hash);
     assert.equal(saved.firstBuyLock?.totalAmount, "1000"); assert.equal(saved.firstBuyLock?.start, Number(f.start));
     assert.deepEqual((await service.register(hash)).firstBuyLock, saved.firstBuyLock);
   } finally { store.close(); rmSync(directory, { recursive: true }); }
@@ -429,8 +426,8 @@ test("guard receipt recovery survives restart, expiry and disabled signing; reor
     assert.equal(saved.curvePolicy, CURVE_POLICY); assert.equal(saved.creator, creator);
     assert.equal((await service.register(hash)).address, token);
     canonicalHash = `0x${"cc".repeat(32)}`; unknown = true;
-    await service.reconcile(); assert.equal(store.token(token), null); assert.equal(store.pendingLaunches()[0].status, "pending");
-    canonicalHash = blockHash; unknown = false; await service.reconcile(); assert.equal(store.token(token)?.address, token);
+    await service.reconcile(); assert.equal(store.token(token), null); assert.equal(store.pendingLaunches(Date.now() + 500_000)[0].status, "pending");
+    canonicalHash = blockHash; unknown = false; store.db.prepare("UPDATE pending_launches SET retry_at=0").run(); await service.reconcile(); assert.equal(store.token(token)?.address, token);
   } finally { store.close(); rmSync(directory, { recursive: true }); }
 });
 
@@ -440,7 +437,7 @@ test("broadcast retired-price plans recover original metadata after expiry while
   let pricingRequests = 0;
   context.mock.method(globalThis, "fetch", async () => { pricingRequests++; throw new Error("Recovery must not reprice an already broadcast launch"); });
   const config: RuntimeConfig = { mode: "fork", chainId: 31337, deploymentChainId: 4663, treasury,
-    writesEnabled: false, blockReason: "Read-only", curvePolicy: CURVE_POLICY, feePolicy: FEE_POLICY, launchGuard: guard };
+    writesEnabled: true, blockReason: null, curvePolicy: CURVE_POLICY, feePolicy: FEE_POLICY, launchGuard: guard };
   const service = Object.assign(Object.create(LaunchpadService.prototype), { runtime: { config }, store,
     config: async () => config, assertNetwork: async () => {},
     client: { getTransaction: async () => old.tx, getTransactionReceipt: async () => old.receipt,
@@ -475,7 +472,7 @@ test("JSON plan persistence preserves uint128 amounts and targets through the ex
   let body: unknown;
   store.request = async <T>(_path: string, _method?: string, payload?: unknown) => { body = JSON.parse(JSON.stringify(payload)); return undefined as T; };
   await store.savePlan(plan);
-  const stored = (body as { payload: LaunchPlan }).payload;
+  const stored = unpackPlan((body as { payload: unknown }).payload);
   assert.deepEqual(stored, JSON.parse(JSON.stringify(plan)));
   assert.equal(stored.prepared!.createParams.initialSupply, SUPPLY.toString());
 });
@@ -492,9 +489,9 @@ test("unconfirmed or orphaned reverted receipts remain pending and can recover a
       client: { getTransactionReceipt: async () => ({ ...receipt, status }), getBlockNumber: async () => head,
         getBlock: async () => ({ hash: canonical }) },
       register: async () => { recovered = true; store.launchStatus(hash, "confirmed", blockHash); } }) as LaunchpadService;
-    await service.reconcile(); assert.equal(store.pendingLaunches()[0].status, "pending");
+    await service.reconcile(); assert.equal(store.pendingLaunches(Date.now() + 500_000)[0].status, "pending");
     head = 11n; canonical = `0x${"cc".repeat(32)}`;
-    await service.reconcile(); assert.equal(store.pendingLaunches()[0].status, "pending");
+    await service.reconcile(); assert.equal(store.pendingLaunches(Date.now() + 500_000)[0].status, "pending");
     canonical = blockHash; status = "success";
     await service.reconcile(); assert.equal(recovered, true);
     assert.equal(store.pendingLaunches()[0].status, "confirmed");
@@ -626,10 +623,205 @@ test("payment preflight reads LI.FI swap evidence before conversion without old 
     assert.equal(f.calls.some((call) => ["latestRoundData", "getOracleParams", "observe"].includes(call)), false);
     assert.deepEqual(f.config, before, "read-only preview leaves runtime permissions unchanged");
     f.state.fault = "missing";
-    await assert.rejects(f.run, /LI\.FI pricing or routing is unavailable/, "each request fetches a new swap probe");
+    await f.run(); assert.equal(f.requests.length, 2, "fresh opening probes are shared for ten seconds");
+    (f.service as any).openingCache.clear();
+    await assert.rejects(f.run, /LI\.FI pricing or routing is unavailable/, "expired cache must not hide a fresh provider failure");
     const fork = paymentPreflightFixture(chainId);
     fork.config.mode = "fork"; fork.config.chainId = 31337; fork.state.rpcChainId = 31337;
     await fork.run(); assert.equal(fork.requests.length, 2);
     assert(fork.requests.every((request) => request.get("fromChain") === String(chainId)), "fork RPC identity does not rewrite deployment-chain quotes");
   }
+});
+
+
+test("local frozen backups are reconstructed before replacing missing server plans", () => {
+  for (const f of [fixture(), historicalFixture(), ordinaryFixture(100), lockedFixture()]) {
+    assert.doesNotThrow(() => assertRecoveryPlan(f.plan, contracts, f.sdk), `${f.plan.openingValuation!.policy} ${f.plan.firstBuy?.lockDays}`);
+    for (const mutation of [
+      (p: LaunchPlan) => { p.draft.name = "unproven metadata"; },
+      (p: LaunchPlan) => { p.feeTreasury = creator; },
+      (p: LaunchPlan) => { p.draft.description = "unproven description"; },
+      (p: LaunchPlan) => { p.prepared!.createParams.initialSupply = "1"; },
+    ]) {
+      const copy = structuredClone(f.plan); mutation(copy);
+      assert.throws(() => assertRecoveryPlan(copy, contracts, f.sdk));
+    }
+  }
+});
+
+test("native WETH wrap preflight skips price probes only for the exact native pair", async () => {
+  const f = paymentPreflightFixture(4663);
+  let probes = 0;
+  f.service.openingValuation = async () => { probes++; throw new Error("LI.FI unavailable"); };
+  await f.service.preflightFirstBuyPayment(f.asset.address, { fromToken: zeroAddress });
+  assert.equal(probes, 0); assert(f.calls.includes("symbol"));
+  await assert.rejects(() => f.service.preflightFirstBuyPayment(f.asset.address, { fromToken: creator }), /LI.FI unavailable/);
+  assert.equal(probes, 1);
+});
+test("unsupported smart accounts stop before payment while direct and delegated EOAs retain the flow", async () => {
+  const f = paymentPreflightFixture(4663);
+  let code = "0x6000", reads = 0;
+  f.service.assertNetwork = async () => {};
+  const original = f.service.client.getCode.bind(f.service.client);
+  f.service.client.getCode = (async (args: {address:Address}) => {
+    if (args.address.toLowerCase() === creator.toLowerCase()) { reads++; return code; }
+    return original(args);
+  }) as typeof f.service.client.getCode;
+  await assert.rejects(() => f.service.preflightFirstBuyPayment(f.asset.address, {fromToken:zeroAddress,account:creator}), /smart-account launch.*before converting payment/);
+  assert.equal(f.requests.length, 0); assert.equal(f.calls.length, 0, "reject before route/asset work or payment");
+  for (const allowed of ["0x", "0xef0100" + treasury.slice(2)]) {
+    code = allowed;
+    await f.service.preflightFirstBuyPayment(f.asset.address, {fromToken:zeroAddress,account:creator});
+  }
+  assert.equal(reads, 3);
+});
+
+test("refresh preserves intent, salt and accepted floor until explicit confirmation of the displayed minimum", async (context) => {
+  const f = fixture(), directory = mkdtempSync(join(tmpdir(), "launch-floor-test-")), store = new Store(directory, 31337);
+  let expected = 1000n, time = Date.now();
+  context.mock.method(Date, "now", () => time);
+  context.mock.method(f.sdk, "getAirlockOwner", async () => treasury);
+  context.mock.method(f.sdk.factory, "prepareCreateMulticurve", async (params: Parameters<typeof f.sdk.factory.prepareCreateMulticurve>[0]) => {
+    const prepared = structuredClone(f.prepared);
+    prepared.createParams = f.sdk.factory.encodeCreateMulticurveParams(params);
+    prepared.devBuy.simulatedAmountOut = expected;
+    return prepared;
+  });
+  const config: RuntimeConfig = { mode: "fork", deploymentChainId: 4663, chainId: 31337, treasury, writesEnabled: true,
+    blockReason: null, feePolicy: FEE_POLICY, launchGuard: guard, launchLockAvailable: true };
+  const service = Object.assign(Object.create(LaunchpadService.prototype), { runtime: { config }, store, sdk: f.sdk,
+    config: async () => config, assertNetwork: async () => {},
+    openingValuation: async () => syntheticOpeningValuation(quote.address, "3000", { chainId: 4663, quotedAt: time }),
+    client: { getCode: async () => "0x", readContract: async ({ functionName }: { functionName: string }) => ({ symbol: quote.symbol, decimals: quote.decimals,
+      name: quote.name, totalSupply: 1n, paused: false, allowance: 100n }[functionName]) } }) as LaunchpadService;
+  try {
+    const input = { amount: f.plan.firstBuy!.amount, slippageBps: 100, lockDays: 0 };
+    const first = await service.prepare(f.plan.draft, creator, CURVE_POLICY, input, { intentId: "same-user-intent" });
+    assertRecoveryPlan(first, contracts, f.sdk);
+    assert.equal(first.firstBuy!.minAmountOut, "990"); assert.equal(first.signingExpiresAt, first.finalizedAt! + 300_000);
+    time += 1000; expected = 1500n;
+    const improved = await service.prepare(f.plan.draft, creator, CURVE_POLICY, input, { intentId: first.intentId, previousPlanId: first.id });
+    assert.equal(improved.firstBuy!.minAmountOut, "1485"); assert.equal(improved.firstBuy!.acceptedMinAmountOut, "990");
+    time += 61_000; expected = 995n;
+    const second = await service.prepare(f.plan.draft, creator, CURVE_POLICY, input,
+      { intentId: first.intentId, previousPlanId: improved.id, acceptedMinAmountOut: "1" });
+    assert.equal(second.firstBuy!.minAmountOut, "990"); assert.equal(second.requiresReconfirmation, false);
+    assert.equal(second.prepared!.createParams.salt, first.prepared!.createParams.salt);
+    time += 1000; expected = 980n;
+    const adverse = await service.prepare(f.plan.draft, creator, CURVE_POLICY, input, { intentId: first.intentId, previousPlanId: second.id });
+    assert.equal(adverse.requiresReconfirmation, true); assert.equal(adverse.firstBuy!.minAmountOut, "990");
+    await assert.rejects(() => service.validateLaunch(creator, adverse.data), /accepted minimum/);
+    const displayed = minimumOutput(980n, 100).toString();
+    expected = 979n; time += 1000;
+    const accepted = await service.prepare(f.plan.draft, creator, CURVE_POLICY, input,
+      { intentId: first.intentId, previousPlanId: adverse.id, reconfirmPrice: true, reconfirmedMinimumOut: displayed });
+    assert.equal(accepted.firstBuy!.minAmountOut, displayed); assert.equal(accepted.requiresReconfirmation, false);
+    assert.equal(accepted.intentId, first.intentId); assert.equal(accepted.prepared!.createParams.salt, first.prepared!.createParams.salt);
+    assert.equal((await service.validateLaunch(creator, accepted.data)).planId, accepted.id);
+    await assert.rejects(() => service.prepare(f.plan.draft, creator, CURVE_POLICY, input,
+      { intentId: "unrelated-intent", previousPlanId: accepted.id }), /same creator, intent/);
+    await assert.rejects(() => service.prepare(f.plan.draft, token, CURVE_POLICY, input,
+      { intentId: first.intentId, previousPlanId: accepted.id }), /same creator, intent/);
+  } finally { store.close(); rmSync(directory, { recursive: true }); }
+});
+
+test("payment proceeds may increase the paired input without lowering or ratcheting the accepted token minimum", async (context) => {
+  const f = fixture(), directory = mkdtempSync(join(tmpdir(), "launch-payment-floor-test-")), store = new Store(directory, 31337);
+  let expected = 1000n, time = Date.now();
+  context.mock.method(Date, "now", () => time);
+  context.mock.method(f.sdk, "getAirlockOwner", async () => treasury);
+  context.mock.method(f.sdk.factory, "prepareCreateMulticurve", async (params: Parameters<typeof f.sdk.factory.prepareCreateMulticurve>[0]) => {
+    const prepared = structuredClone(f.prepared);
+    prepared.createParams = f.sdk.factory.encodeCreateMulticurveParams(params);
+    prepared.devBuy.exactAmountIn = params.devBuy!.exactAmountIn;
+    prepared.devBuy.simulatedAmountOut = expected;
+    return prepared;
+  });
+  const config: RuntimeConfig = { mode: "fork", deploymentChainId: 4663, chainId: 31337, treasury, writesEnabled: true,
+    blockReason: null, feePolicy: FEE_POLICY, launchGuard: guard, launchLockAvailable: true };
+  const service = Object.assign(Object.create(LaunchpadService.prototype), { runtime: { config }, store, sdk: f.sdk,
+    config: async () => config, assertNetwork: async () => {},
+    openingValuation: async () => syntheticOpeningValuation(quote.address, "3000", { chainId: 4663, quotedAt: time }),
+    client: { getCode: async () => "0x", readContract: async ({ functionName }: { functionName: string }) => ({ symbol: quote.symbol, decimals: quote.decimals,
+      name: quote.name, totalSupply: 1n, paused: false, allowance: 0n }[functionName]) } }) as LaunchpadService;
+  try {
+    const reviewedInput = { amount: formatUnits(100n, quote.decimals), slippageBps: 100, lockDays: 0 };
+    const beforePayment = await service.prepare(f.plan.draft, creator, CURVE_POLICY, reviewedInput, { intentId: "payment-launch-intent" });
+    const accepted = beforePayment.firstBuy!.acceptedMinAmountOut!;
+    assert.equal(accepted, "990");
+    const actualInput = { ...reviewedInput, amount: formatUnits(110n, quote.decimals) };
+    // The actual conversion output differs from the reviewed minimum, so this
+    // request deliberately has no previousPlanId (whose input must be exact).
+    for (const output of [995n, 980n, 1500n]) {
+      time += 61_000; expected = output;
+      const funded = await service.prepare(f.plan.draft, creator, CURVE_POLICY, actualInput,
+        { intentId: beforePayment.intentId, acceptedMinAmountOut: accepted });
+      assert.equal(funded.intentId, beforePayment.intentId); assert.equal(funded.previousPlanId, undefined);
+      assert.equal(funded.firstBuy!.amountIn, "110"); assert.equal(funded.approval!.amount, "110");
+      assert.equal(funded.firstBuy!.acceptedMinAmountOut, accepted, "the reviewed token floor remains the same even if actual payment proceeds are better");
+      const freshMinimum = minimumOutput(output, 100), protectedMinimum = freshMinimum > 990n ? freshMinimum : 990n;
+      assert.equal(funded.firstBuy!.minAmountOut, String(protectedMinimum));
+      const calldata = decodeFunctionData({ abi: launchGuardAbi, data: funded.data });
+      assert.equal(calldata.functionName, "createAndBuy");
+      assert.equal(calldata.args[1], 110n); assert.equal(calldata.args[2], protectedMinimum);
+      assertRecoveryPlan(funded, contracts, f.sdk);
+      if (output < 990n) {
+        assert.equal(funded.requiresReconfirmation, true);
+        await assert.rejects(() => service.validateLaunch(creator, funded.data), /accepted minimum/);
+      } else {
+        assert.equal(funded.requiresReconfirmation, false);
+        assert.equal((await service.validateLaunch(creator, funded.data)).planId, funded.id);
+      }
+    }
+  } finally { store.close(); rmSync(directory, { recursive: true }); }
+});
+
+test("a missing server preview recovers from a matching frozen local backup while signing is paused", async () => {
+  const f = ordinaryFixture(100), directory = mkdtempSync(join(tmpdir(), "missing-plan-recovery-test-")), store = new Store(directory, 31337);
+  const sdk = f.sdk;
+  (sdk as any).getMulticurvePool = async () => ({ getState: async () => ({ status: 2, numeraire: quote.address, poolKey: f.poolKey }) });
+  const service = Object.assign(Object.create(LaunchpadService.prototype), {
+    runtime: { config: { mode: "fork", chainId: 31337, deploymentChainId: 4663, writesEnabled: false } }, store, sdk,
+    assertNetwork: async () => {}, client: { getTransaction: async () => f.tx, getTransactionReceipt: async () => f.receipt,
+      getBlockNumber: async () => 11n, getBlock: async () => ({ hash: blockHash, timestamp: BigInt(Math.floor(Date.now() / 1000)) }) },
+  }) as LaunchpadService;
+  try {
+    await assert.rejects(() => service.register(hash), /frozen local backup/);
+    const corrupt = structuredClone(f.plan); corrupt.draft.symbol = "FAKE";
+    await assert.rejects(() => service.register(hash, corrupt), /canonical creation parameters/);
+    assert.equal(store.getPlan(f.plan.id), null);
+    const record = await service.register(hash, f.plan);
+    assert.equal(record.address, token); assert.equal(record.transactionHash, hash);
+    assert.equal(store.getPlan(f.plan.id)?.id, f.plan.id);
+    assert.equal((await service.register(hash)).transactionHash, hash);
+  } finally { store.close(); rmSync(directory, { recursive: true }); }
+});
+
+test("final simulation accepts outputs within the signed minimum instead of exact preview equality", async () => {
+  const f = fixture(); let output = 995n;
+  const service = Object.assign(Object.create(LaunchpadService.prototype), {
+    validateLaunch: async () => ({ valid: true }), assertNetwork: async () => {},
+    store: { findPlan: async () => f.plan },
+    client: { readContract: async () => 100n, estimateGas: async () => 200_000n,
+      simulateContract: async () => ({ result: [token, f.poolKey, treasury, treasury, output] }) },
+  }) as LaunchpadService;
+  assert.equal((await service.simulateLaunch(creator, f.plan.data)).amountOut, "995");
+  output = 1001n; assert.equal((await service.simulateLaunch(creator, f.plan.data)).amountOut, "1001");
+  output = 989n; await assert.rejects(() => service.simulateLaunch(creator, f.plan.data), /accepted minimum/);
+});
+
+test("old confirmed receipts slow down when finality is unavailable without being marked finalized", async () => {
+  let finalized = false, retryAt = 0;
+  const service = Object.assign(Object.create(LaunchpadService.prototype), {
+    assertNetwork: async () => {},
+    store: { pendingLaunches: async () => [{ hash, status: "confirmed", blockHash }],
+      tokenByTxHash: async () => ({ blockNumber: "10", createdAt: Date.now() - 2 * 86_400_000 }),
+      deferLaunch: async (_hash: string, at: number) => { retryAt = at; },
+      finalizeLaunch: async () => { finalized = true; } },
+    client: { getBlockNumber: async () => 100n, getBlock: async (input: { blockTag?: string }) => {
+      if (input.blockTag === "finalized") throw new Error("unsupported block tag"); return { hash: blockHash };
+    } },
+  }) as LaunchpadService;
+  await service.reconcile(); assert.equal(finalized, false);
+  assert(retryAt >= Date.now() + 3_599_000);
 });

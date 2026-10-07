@@ -3578,3 +3578,5 @@ summary:focus-visible {
   outline: 3px solid #8b71f6;
   outline-offset: 3px;
 }
+
+.token-card-address { display: block; font-size: .72rem; color: var(--muted); overflow-wrap: anywhere; }

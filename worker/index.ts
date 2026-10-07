@@ -4,9 +4,11 @@ import { createServer } from "node:http";
 import { createApp, knownPage, chainApiRoute, legacyTokenPath } from "../server/app";
 import { redact, runtimeFromEnv } from "../server/config";
 import { securityHeaders } from "../server/http-security";
-import { validTreasury } from "../src/lib/validation";
+import { IngressLimiter, PreviewQueue, RiskChallenge } from "../server/abuse";
+import type { RuntimeEnvironment } from "../server/config";
 
 interface Env {
+  [name: string]: unknown;
   ASSETS: Fetcher;
   LAUNCHPAD: DurableObjectNamespace<LaunchpadRuntime>;
   CF_VERSION_METADATA: { id: string; tag?: string; timestamp: string };
@@ -18,37 +20,44 @@ interface Env {
 }
 
 export class LaunchpadRuntime extends DurableObject<Env> {
-  private readonly app;
-  private readonly service;
-  private activeRequests = 0;
+  private app!: ReturnType<typeof createApp>["app"];
+  private service!: ReturnType<typeof createApp>["service"];
+  private fingerprint = "";
+  private readonly chainId: 4663 | 8453;
+  private readonly ingress = new IngressLimiter();
+  private readonly previews = new PreviewQueue();
+  private readonly challenge = new RiskChallenge();
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     const chainId = ctx.id.equals(env.LAUNCHPAD.idFromName("robinhood-mainnet")) ? 4663
       : ctx.id.equals(env.LAUNCHPAD.idFromName("base-mainnet")) ? 8453 : null;
     if (!chainId) throw new Error("Unknown launchpad runtime identity");
-    const configured = runtimeFromEnv(chainId);
-    // Native bindings can advance while the isolate's process.env snapshot is
-    // retained. An absent binding must also clear any stale first-buy candidate.
-    const firstBuyGuardValue = chainId === 8453 ? env.BASE_FIRST_BUY_GUARD_ADDRESS
-      : env.ROBINHOOD_FIRST_BUY_GUARD_ADDRESS ?? env.FIRST_BUY_GUARD_ADDRESS;
-    const firstBuyGuardCandidate = validTreasury(firstBuyGuardValue);
-    if (firstBuyGuardValue && !firstBuyGuardCandidate) throw new Error("Invalid first buy guard");
-    const runtime = { ...configured, firstBuyGuardCandidate, lifi: {
-      integrator: env.LIFI_INTEGRATOR ?? configured.lifi.integrator,
-      ...(env.LIFI_API_KEY ?? configured.lifi.apiKey ? { apiKey: env.LIFI_API_KEY ?? configured.lifi.apiKey } : {}),
-    } };
+    this.chainId = chainId;
+    this.refreshRuntime();
+  }
+  private refreshRuntime() {
+    // Read native bindings on every request. Removed bindings never fall back to process.env.
+    const environment: Record<string,string|undefined> = {};
+    for (const [key,value] of Object.entries(this.env)) if(typeof value === "string") environment[key]=value;
+    const fingerprint = JSON.stringify(Object.entries(environment).sort(([a],[b])=>a.localeCompare(b)));
+    if (fingerprint === this.fingerprint) return;
+    const runtime = runtimeFromEnv(this.chainId, environment as RuntimeEnvironment);
     if (runtime.config.mode === "fork" || !runtime.supabase?.url || !runtime.supabase.secretKey)
       throw new Error("Cloudflare requires a mainnet runtime and server-side Supabase storage");
-    const { app, service } = createApp(undefined, true, runtime);
+    const { app, service } = createApp(undefined, true, runtime, { ingressManaged:true, previews:this.previews, challenge:this.challenge });
     this.service = service;
     this.app = app;
+    this.fingerprint = fingerprint;
   }
   async fetch(request: Request): Promise<Response> {
-    if (this.activeRequests >= 32)
-      return Response.json({ error: "Service is busy. Try again later." }, { status: 503 });
-    this.activeRequests++;
-    try { return await this.handleRequest(request); }
-    finally { this.activeRequests--; }
+    const admission = this.ingress.admit(request.headers.get("x-forwarded-for") || "unknown", new URL(request.url).pathname);
+    if (admission.status) return Response.json({error:"Service capacity is temporarily limited. Try again shortly."},{status:admission.status,headers:{"Retry-After":"60"}});
+    try {
+      this.refreshRuntime();
+      const headers=new Headers(request.headers);
+      headers.set("x-runtime-risk",admission.challenge ? "challenge" : "normal");
+      return await this.handleRequest(new Request(request,{headers}));
+    } finally {admission.release();}
   }
   private async handleRequest(request: Request): Promise<Response> {
     if (await this.ctx.storage.getAlarm() === null)
@@ -95,10 +104,11 @@ export class LaunchpadRuntime extends DurableObject<Env> {
   }
   async alarm() {
     try {
+      this.refreshRuntime();
       await this.service.store.cleanup();
       await this.service.reconcile(60_000);
     } catch (error) {
-      console.error(`Launchpad maintenance failed: ${redact(error)}`);
+      console.error(`Launchpad maintenance failed: ${redact(error, this.service.runtime.environment)}`);
     } finally {
       await this.ctx.storage.setAlarm(Date.now() + 30_000);
     }
@@ -116,6 +126,7 @@ export default {
       const headers = new Headers(request.headers);
       // Replace caller-supplied proxy headers before Express trusts them.
       headers.delete("forwarded");
+      headers.delete("x-runtime-risk");
       headers.set("x-forwarded-for", request.headers.get("cf-connecting-ip") || "127.0.0.1");
       headers.set("x-forwarded-proto", url.protocol.slice(0, -1));
       headers.set("x-forwarded-host", url.host);

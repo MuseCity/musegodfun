@@ -16,8 +16,11 @@ function fixture(t: TestContext) {
     store: {
       pendingLaunches: async () => [...rows],
       tokens: async () => [],
+      tokenByTxHash: async () => null,
+      deferLaunch: async () => {},
     },
     client: {
+      getBlock: async () => { throw new Error("Finalized block tag is unavailable"); },
       getTransactionReceipt: async ({ hash }: { hash: Hex }) => {
         attempted.push(hash);
         now += 40;

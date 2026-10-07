@@ -2,7 +2,11 @@ import type { PreparedMulticurveCreate } from "@whetstone-research/doppler-sdk/e
 import type { Address, Hex } from "viem";
 import type { LaunchInput } from "./validation";
 import type { FeePolicy } from "./fee-policy";
-import type { OpeningValuation } from "./opening-valuation";
+import { assertOpeningValuation, LAUNCH_PRICE_TTL, type OpeningValuation, type LaunchWarning } from "./opening-valuation";
+
+export const LAUNCH_SIGNING_TTL = 300_000;
+export type LaunchPrepareOptions = { intentId?: string; previousPlanId?: Hex; acceptedMinAmountOut?: string;
+  reconfirmPrice?: boolean; reconfirmedMinimumOut?: string };
 
 export type Serialized<T> = T extends bigint ? string : T extends readonly unknown[]
   ? { [K in keyof T]: Serialized<T[K]> } : T extends object
@@ -19,6 +23,11 @@ export type FirstBuyLockRecord = {
   lockDays: Exclude<FirstBuyLockDays, 0>;
 };
 export type FirstBuyLockStatus = FirstBuyLockRecord & {
+  tokenAddress?: Address;
+  deploymentChainId?: 8453 | 4663;
+  recordVerified?: boolean;
+  decimals?: number;
+  symbol?: string;
   claimedAmount: string;
   claimableAmount: string;
   unlockAt: number;
@@ -29,6 +38,8 @@ export type FirstBuyPlan = {
   amountIn: string;
   expectedAmountOut: string;
   minAmountOut: string;
+  // A refresh never lowers the minimum already accepted by the creator.
+  acceptedMinAmountOut?: string;
   slippageBps: number;
   deadline: number;
   recipient: Address;
@@ -47,6 +58,14 @@ export type LaunchPlan = {
   poolId: Hex;
   draft: LaunchInput & { openingCap?: string };
   preparedAt: number;
+  validityVersion?: 2;
+  finalizedAt?: number;
+  signingExpiresAt?: number;
+  serverTime?: number;
+  intentId?: string;
+  previousPlanId?: Hex;
+  requiresReconfirmation?: boolean;
+  warnings?: LaunchWarning[];
   gas: string | null;
   feePolicy?: FeePolicy;
   feeTreasury?: Address;
@@ -65,6 +84,24 @@ export type LaunchPlan = {
     transaction: LaunchTransaction;
   };
 };
+
+/** Fresh at creation, then a fixed signing window. Historical plans retain
+ * their original pricing expiry; validation never renews either deadline. */
+export function assertLaunchPlanValidity(plan: LaunchPlan, chainId: 8453 | 4663, now = Date.now()) {
+  if (plan.validityVersion === 2) {
+    if (!Number.isSafeInteger(plan.finalizedAt) || plan.finalizedAt! <= 0 || plan.finalizedAt !== plan.preparedAt ||
+      plan.signingExpiresAt !== plan.finalizedAt! + LAUNCH_SIGNING_TTL ||
+      !Number.isSafeInteger(plan.serverTime) || plan.serverTime! < plan.finalizedAt! ||
+      !plan.intentId || !/^[a-zA-Z0-9_-]{8,100}$/.test(plan.intentId) ||
+      now >= plan.signingExpiresAt! || now < plan.finalizedAt!)
+      throw new Error("The launch signing window expired or changed. Refresh the preview.");
+    assertOpeningValuation(plan.openingValuation, plan.draft.quoteAddress, chainId, plan.finalizedAt);
+  } else {
+    if (now - plan.preparedAt > LAUNCH_PRICE_TTL)
+      throw new Error("The issuance preview expired. Refresh the preview.");
+    assertOpeningValuation(plan.openingValuation, plan.draft.quoteAddress, chainId, now);
+  }
+}
 
 export function serializePrepared(prepared: PreparedMulticurveCreate<8453 | 4663>): NonNullable<LaunchPlan["prepared"]> {
   return JSON.parse(JSON.stringify(prepared, (_key, value) => typeof value === "bigint" ? value.toString() : value));

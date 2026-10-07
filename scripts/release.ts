@@ -4,9 +4,10 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { setTimeout as waitForPropagation } from "node:timers/promises";
+import { ENGINE_FEE_POLICY, FEE_POLICY } from "../src/lib/fee-policy";
 import type { BuildInfo } from "../src/lib/build-info";
 import { readBuildIdentity, REPOSITORY } from "./build-info";
-import { assertBuildManifest, assertFrozenBuild, assertLaunchRuntime, assertReleaseCheckout, publishCandidate, ReleaseFailure, requireSingleActiveVersion, runtimeVarsFromBindings, sha256, snapshotBuild } from "./release-policy";
+import { assertBuildManifest, assertFrozenBuild, assertLaunchRuntime, assertReleaseCheckout, assertSecurityTransition, rollbackPreservesSafety, publishCandidate, ReleaseFailure, requireSingleActiveVersion, runtimeVarsFromBindings, sha256, snapshotBuild } from "./release-policy";
 
 const repositorySlug = "MuseCity/musegodfun", workerName = "musegod-fun";
 const origins = ["https://musegod.fun", "https://www.musegod.fun"];
@@ -126,19 +127,46 @@ export async function checkRuntime(origin: string, config: Pick<WranglerConfig, 
     const chainId = target ?? 4663, prefix = target ? `/api/chains/${target}` : "/api";
     const readyPath = target ? `${prefix}/readyz` : "/readyz";
     const ready = await (await request(`${origin}${readyPath}`, { headers })).json() as { status: string; chainId: number; writesEnabled: boolean };
-    const runtime = await (await request(`${origin}${prefix}/config`, { headers })).json() as { mode: string; chainId: number; deploymentChainId: number; treasury: string | null; writesEnabled: boolean; curvePolicy?: string; launchGuard?: string | null; launchLockAvailable?: boolean };
+    const runtime = await (await request(`${origin}${prefix}/config`, { headers })).json() as { mode: string; chainId: number; deploymentChainId: number; treasury: string | null; writesEnabled: boolean; curvePolicy?: string; launchGuard?: string | null; launchLockAvailable?: boolean; signingPaused?: boolean; controlRevision?: number; securityProtocol?: number; feeEngine?:string|null;feePolicy?:string };
     const treasury = (config.vars[chainId === 8453 ? "BASE_PLATFORM_TREASURY" : "ROBINHOOD_PLATFORM_TREASURY"]
       ?? config.vars.PLATFORM_TREASURY) || null;
     const signingFlag = chainId === 8453 ? config.vars.ENABLE_BASE_TRANSACTIONS
       : config.vars.ENABLE_ROBINHOOD_TRANSACTIONS ?? config.vars.ENABLE_MAINNET_TRANSACTIONS;
-    const writesEnabled = !!treasury && signingFlag === "true";
+    const controlled = config.vars.RUNTIME_SECURITY_PROTOCOL === "1";
+    if(controlled && (runtime.securityProtocol!==1 || typeof runtime.signingPaused!=="boolean" || !Number.isSafeInteger(runtime.controlRevision)))
+      throw new Error("Runtime safety controls are unavailable or incompatible");
+    const writesEnabled = !!treasury && signingFlag === "true" && (!controlled || runtime.signingPaused === false);
     if (ready.status !== "ready" || ready.chainId !== chainId || ready.writesEnabled !== writesEnabled ||
       runtime.mode !== (chainId === 8453 ? "base" : "robinhood") || runtime.chainId !== chainId ||
       runtime.deploymentChainId !== chainId || runtime.writesEnabled !== writesEnabled ||
       runtime.treasury?.toLowerCase() !== treasury?.toLowerCase())
       throw new Error(`Readiness/runtime configuration check failed for ${origin} (${chainId})`);
     assertLaunchRuntime(runtime, config.vars, requireLaunchPolicy, chainId);
+    if(controlled) {
+      const engine=chainId===4663 ? config.vars.FEE_ENGINE_ADDRESS || null : null;
+      if(runtime.feePolicy!==(engine?ENGINE_FEE_POLICY:FEE_POLICY) || (runtime.feeEngine?.toLowerCase() ?? null)!==(engine?.toLowerCase() ?? null))throw new Error("Fee engine runtime differs from the committed release");
+    }
   }
+}
+
+export async function checkFunctionalSmoke(origin: string) {
+  const prefix="/api/chains/4663", headers={"Cache-Control":"no-cache"};
+  const prices=await (await request(`${origin}${prefix}/first-buy/prices`,{headers})).json() as {assets?:{priceUsd:string|null}[]};
+  if(!Array.isArray(prices.assets) || prices.assets.length<2 || prices.assets.some(asset=>asset.priceUsd!==null &&
+    (typeof asset.priceUsd!=="string" || !asset.priceUsd || !Number.isFinite(Number(asset.priceUsd)) || Number(asset.priceUsd)<=0)))
+    throw new Error("Functional smoke: malformed payment price response");
+  const unknownReferences=prices.assets.filter(asset=>asset.priceUsd===null).length;
+  if(unknownReferences)console.log(`Functional smoke: auxiliary price references degraded (${unknownReferences}/${prices.assets.length})`);
+  const stocks=await (await request(`${origin}${prefix}/stocks`,{headers})).json() as {verified?:boolean}[];
+  if(!Array.isArray(stocks) || !stocks.length || !stocks.some(stock=>stock.verified===true))throw new Error("Functional smoke: no verified paired assets");
+  const tokens=await (await request(`${origin}${prefix}/tokens?limit=1`,{headers})).json() as any;
+  const first=(Array.isArray(tokens)?tokens:tokens.items)?.[0];
+  if(first?.address) {
+    const quote=await(await request(`${origin}${prefix}/quote`,{method:"POST",headers:{...headers,"content-type":"application/json"},body:JSON.stringify({address:first.address,side:"buy",amount:"1",slippageBps:100})})).json() as {amountOut?:string};
+    if(!quote.amountOut || !/^\d+$/.test(quote.amountOut) || BigInt(quote.amountOut)<=0n)throw new Error("Functional smoke: on-chain quote unavailable");
+  } else console.log("Functional smoke: launch trade quote not_run (catalog empty); reference response and asset identity passed");
+  return { auxiliaryPrices: unknownReferences ? "degraded" as const : "available" as const, unknownReferences,
+    tradeQuote: first?.address ? "passed" as const : "not_run" as const };
 }
 
 async function main() {
@@ -167,6 +195,12 @@ async function main() {
   const previous = await cloudflare<WorkerVersion>(account, `scripts/${workerName}/versions/${previousVersion}`);
   // Rollback is checked against the previous version's config, not this candidate's vars.
   const previousConfig: WranglerConfig = { ...config, vars: runtimeVarsFromBindings(previous.resources.bindings) };
+  const previousCommit=previous.annotations?.["workers/tag"];
+  if(!previousCommit || !/^[a-f0-9]{40}$/.test(previousCommit))throw new Error("Previous source commit is required for security configuration comparison");
+  const sourceFile=await github<{encoding:string;content:string}>(`contents/wrangler.jsonc?ref=${previousCommit}`);
+  if(sourceFile.encoding!=="base64")throw new Error("Cannot inspect previous security configuration");
+  const previousSource=JSON.parse(Buffer.from(sourceFile.content,"base64").toString("utf8")) as WranglerConfig;
+  assertSecurityTransition(previousConfig.vars,config.vars,previousSource.vars);
   const service = await cloudflare<{ default_environment: { script: { migration_tag?: string } } }>(account, `services/${workerName}`);
   const migrationTag = service.default_environment.script.migration_tag;
   if ((config.migrations?.at(-1)?.tag ?? undefined) !== migrationTag)
@@ -212,7 +246,7 @@ async function main() {
       publishRelease: async (candidate) => {
         const record = {
           schemaVersion: 1, commit: build.identity.commit, buildId, worker: workerName,
-          workerVersionId: candidate, previousWorkerVersionId: previousVersion,
+          workerVersionId: candidate, previousWorkerVersionId: previousVersion, minimumSecurityProtocol: 1,
           files: { "build-info.json": manifestHash, "frontend.tar.gz": archiveHash },
         };
         writeFileSync(recordPath, `${JSON.stringify(record, null, 2)}\n`);
@@ -268,17 +302,20 @@ async function main() {
         verifyOrigin: async (origin) => {
           execFileSync("npm", ["run", "verify:deployment", "--", "--release", buildId, "--origin", origin], { stdio: "inherit", timeout: 240_000 });
           await checkRuntime(origin, config);
+          await checkFunctionalSmoke(origin);
         },
       }),
-      verifyRollback: async (previous) => {
-        for (const origin of origins) {
-          const response = await request(`${origin}/`, { headers: { "Cache-Control": "no-cache" } });
-          const version = response.headers.get("X-Worker-Version");
-          if (version && version !== previous) throw new Error(`Rollback origin still serves a different Worker: ${origin}`);
-          await checkRuntime(origin, previousConfig, false);
-          describe(`Rollback origin checked: ${origin}; ${version ? `Worker ${version}` : "HTTP 200 (legacy version has no metadata header)"}`);
-        }
-      },
+      rollbackAllowed: async () => rollbackPreservesSafety(previousConfig.vars,config.vars),
+      verifyRollback: async (previous) => verifyProductionCandidate(previous, {
+        activeVersion,assertFrozen,describe,wait:waitForPropagation,
+        verifyOrigin: async(origin)=>{
+          const response=await request(`${origin}/`,{headers:{"Cache-Control":"no-cache"}});
+          if(response.headers.get("X-Worker-Version")!==previous)throw new Error(`Rollback activated; edge propagation pending: ${origin}`);
+          await checkRuntime(origin,previousConfig);
+          await checkFunctionalSmoke(origin);
+          describe(`Rollback origin checked: ${origin}; Worker ${previous}`);
+        },
+      }),
     });
     describe(outcome === "success" ? `Verified production deployment: ${buildId}` : `Skipped ${buildId}: master advanced; candidate was not activated`);
   } catch (error) {

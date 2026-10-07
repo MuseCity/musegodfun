@@ -4,7 +4,7 @@ import { DEAD, launchAssetsFor, stockByAddress, type RuntimeConfig } from "./con
 import { DEFAULT_TRADING_FEE_BPS, TRADING_FEE_BPS, tradingFeeBpsFor } from "./trading-fee";
 
 export function assertSigningEnabled(config: RuntimeConfig) {
-  if (!config.writesEnabled)
+  if (!config.writesEnabled || config.signingPaused === true)
     throw new Error(config.blockReason || "Transactions are not enabled");
   if (!validTreasury(config.treasury || undefined))
     throw new Error("The platform treasury address is invalid. Signing is blocked.");

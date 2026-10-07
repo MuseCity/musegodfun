@@ -25,8 +25,8 @@ export function savedLaunchDraft(config: RuntimeConfig | null) {
     return localStorage.getItem(key);
   } catch { return null; }
 }
-export function firstBuyDraft(config: RuntimeConfig | null): FirstBuyDraft {
-  const raw = savedLaunchDraft(config);
+export function firstBuyDraft(config: RuntimeConfig | null, rawOverride?: string | null): FirstBuyDraft {
+  const raw = rawOverride === undefined ? savedLaunchDraft(config) : rawOverride;
   const draft = restoreDraft(raw, config ?? undefined);
   let saved: Partial<FirstBuyDraft> | null = null;
   let savedPair: unknown;

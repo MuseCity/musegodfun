@@ -6,6 +6,7 @@ export const OPENING_CAP_USD = 5_000;
 export const OPENING_POLICY = "fixed-usd-5000-lifi-v1";
 export const LAUNCH_PRICE_TTL = 60_000;
 export const LIFI_OPENING_MAX_DIVERGENCE_BPS = 500;
+export type LaunchWarning = { code: "opening_spread" | "asset_status_unavailable" | "asset_oracle_paused" | "reference_price_divergence" | "reference_price_unavailable"; message: string; divergenceBps?: number };
 
 type OpeningSnapshot = {
   marketCapUsd: typeof OPENING_CAP_USD;
@@ -48,6 +49,8 @@ export type LifiOpeningValuation = OpeningSnapshot & {
   policy: typeof OPENING_POLICY;
   source: "LI.FI";
   lifi: LifiOpeningEvidence;
+  warnings?: LaunchWarning[];
+  reference?: { source: "Chainlink"; feed: Address; priceUsd: string; updatedAt: number; divergenceBps: number };
 };
 export type HistoricalOpeningValuation = OpeningSnapshot & {
   policy: "fixed-usd-5000-v1";
@@ -102,10 +105,14 @@ export function deriveLifiOpeningPrice(input: {
   if (ask <= 0n || bid <= 0n || mid <= 0n) return invalidEvidence();
   const spread = askUsd >= bidUsd ? askUsd - bidUsd : bidUsd - askUsd;
   const divergence = (spread * 10_000n + mid - 1n) / mid;
-  if (divergence > BigInt(LIFI_OPENING_MAX_DIVERGENCE_BPS))
-    throw new Error("The opening price buy and sell quotes diverge too far. Run a new simulation.");
   return { askNumerairePerQuoteToken: formatUnits(ask, 18), bidNumerairePerQuoteToken: formatUnits(bid, 18),
     aggregateMid: formatUnits(mid, 18), divergenceBps: Number(divergence) };
+}
+
+export function openingValuationWarnings(snapshot: LifiOpeningValuation): LaunchWarning[] {
+  return snapshot.lifi.divergenceBps > LIFI_OPENING_MAX_DIVERGENCE_BPS ? [{ code: "opening_spread",
+    divergenceBps: snapshot.lifi.divergenceBps,
+    message: `The opening-price buy and sell references differ by ${(snapshot.lifi.divergenceBps / 100).toFixed(2)}%. Review the price and minimum received before continuing.` }] : [];
 }
 
 function assertIdentity(value: OpeningValuation, quoteAddress: Address, chainId: 8453 | 4663) {

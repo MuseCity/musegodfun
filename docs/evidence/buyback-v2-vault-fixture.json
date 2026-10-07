@@ -1,0 +1,81 @@
+{
+  "scope": "Isolated real-contract settlement with explicit stable-spot time fixture",
+  "chainId": 31337,
+  "upstreamChainId": 4663,
+  "forkBlock": "82391790",
+  "mainnetWrites": false,
+  "mainnetExecutableProof": false,
+  "priceOrBalanceStorageOverrides": false,
+  "historicalPoolStateRetained": true,
+  "artifactSha256": "58b4ba8e8d3584ac43a1726a365bf3405c326bdd46e3b3a54fe6520db1bc9127",
+  "sourceSha256": "854efc4775023b185c1d4043d0b24c0146e23bd1c0270a6638aa048bdebfd116",
+  "passed": true,
+  "deployment": {
+    "address": "0xf99add941432ec09b498ea1b680be13f2e717d88",
+    "hash": "0xa70ac647c963c7223697d68c6d625d7c159c5f22efe5fa9dd07a8299c1ce35b0",
+    "block": "82391791",
+    "runtimeHash": "0x9b9ddd9942151f58d435f0b49cff3b42cb9e4ca6f1b453e2f1b932d70a1d62e4"
+  },
+  "originalPriceCheck": {
+    "status": "waiting",
+    "reason": "The contract function \"checkPrices\" reverted with the following signature:\n0x94e8dec3\n\nUnable to decode signature \"0x94e8dec3\" as it was not found on the provided ABI.\nMake sure you are using the correct ABI and that the error exists on it.\nYou can look up the decoded signature here: [upstream]\n \nContract Call:\n  address:   0xf99add941432ec09b498ea1b680be13f2e717d88\n  function:  checkPrices()\n\nDocs: [upstream]\nDetails: execution reverted: custom error 0x94e8dec3\nVersion: viem@2.56.8"
+  },
+  "funding": {
+    "deposit": "0xe48866251d3b18578844bd86094ec3576409bbcad6cd288c848bd7367a8c0d42",
+    "transfer": "0x4ddbfde3f9da1cfd78e8b54d627ed976c9b2542285abee9151a991805804895f",
+    "amount": "10000000000000000",
+    "source": "real WETH deposit from local unlocked fixture account"
+  },
+  "timeFixture": {
+    "before": "1791367858",
+    "after": "1791369659",
+    "seconds": 1801,
+    "interpretation": "hypothetical unchanged spot for 30 minutes; not observed market history or live activation evidence"
+  },
+  "fixturePrices": [
+    "11515141542367225638322494",
+    "11515298967354053043450418",
+    "11515298967354053043450418"
+  ],
+  "settlement": {
+    "hash": "0x61fa1cef16a52d1ef4b59815656969ef1e92f483a94682ef68793c2e5bcbc9d3",
+    "block": "82391795",
+    "amount": "10000000000000000",
+    "burned": "113425694828437422477986",
+    "profit": "527617020705003664994",
+    "gasUsed": "1405928",
+    "gasCostWei": "1420472853788928",
+    "gasProfitabilityProven": false,
+    "exactVaultDebit": true,
+    "originalSwapperBalancePreserved": true,
+    "actualDeadTransferVerified": true,
+    "rollingCounterExact": true,
+    "erc20TotalSupplyUnchanged": true,
+    "executions": [
+      {
+        "eventName": "Executed",
+        "args": {
+          "caller": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+          "wethAmount": "10000000000000000",
+          "museToDead": "113425694828437422477986",
+          "profit": "527617020705003664994"
+        },
+        "address": "0xf99add941432ec09b498ea1b680be13f2e717d88",
+        "topics": [
+          "0x9d3143df72a22f3dea2e5172436c8d5eed763f17bef7a640c55666bdf8a8ad92",
+          "0x00000000000000000000000070997970c51812dc3a010c7d01b50e0d17dc79c8"
+        ],
+        "data": "0x000000000000000000000000000000000000000000000000002386f26fc10000000000000000000000000000000000000000000000001804d1b98b607a0c12a200000000000000000000000000000000000000000000001c9a2834e57ba9f662",
+        "blockHash": "0x770967b022f76d93ef799c8b74aaf671a4abf902236ca0bccc6913dac69f0735",
+        "blockNumber": "82391795",
+        "blockTimestamp": "1791369671",
+        "transactionHash": "0x61fa1cef16a52d1ef4b59815656969ef1e92f483a94682ef68793c2e5bcbc9d3",
+        "transactionIndex": 0,
+        "logIndex": 15,
+        "removed": false
+      }
+    ]
+  },
+  "snapshotRestored": true,
+  "blockedUpstreamWrites": 0
+}

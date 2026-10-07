@@ -40,8 +40,22 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
+      - name: Prepare isolated database tests
+        run: docker pull postgres@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
+
       - name: Test
         run: npm test
+
+      - name: Set up reviewed Foundry
+        uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
+        with:
+          version: v1.0.0
+
+      - name: Verify contracts and reproducible V2 artifacts
+        run: |
+          forge test --root contracts
+          npm run build:buyback-engine
+          git diff --exit-code -- contracts/artifacts/buyback-v2
 
       - name: Build frontend once
         run: npm run build

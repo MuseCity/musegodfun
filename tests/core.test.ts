@@ -193,7 +193,7 @@ test("LI.FI midpoint removes only known input fees and preserves each leg's USD 
   assert.equal(deriveLifiOpeningPrice({ ...input, sellNumerairePriceUsd: "1.001" }).aggregateMid, "199.09925");
   assert.throws(() => deriveLifiOpeningPrice({ ...input, sellAmountIn: "50000001" }), /evidence/);
   assert.throws(() => deriveLifiOpeningPrice({ ...input, buyLifiFee: input.buyAmountIn }), /evidence/);
-  assert.throws(() => deriveLifiOpeningPrice({ ...input, sellAmountOut: "50000000" }), /diverge/);
+  assert(deriveLifiOpeningPrice({ ...input, sellAmountOut: "50000000" }).divergenceBps > 500);
 });
 
 test("USDG uses a fixed-dollar native ETH probe without treating ETH's reference as a stable price", () => {
@@ -336,7 +336,7 @@ test("service preparation derives the cap and consumes price validity during sim
     sdk: robinhoodSdk,
     client: {
       getChainId: async () => 4663,
-      getCode: async () => "0x1234",
+      getCode: async ({ address }: { address: string }) => address.toLowerCase() === creator.toLowerCase() ? "0x" : "0x1234",
       getBlock: async () => ({ number: 10n, hash: `0x${"a".repeat(64)}`, timestamp: BigInt(now / 1000) }),
       readContract: async ({ address, functionName }: { address: string; functionName: string }) => {
         if (address.toLowerCase() === stock.address.toLowerCase())
@@ -595,10 +595,10 @@ test("B20 identity uses native calls, preserves unknown data and retries failure
     assert(
       failed.every(
         (s) =>
-          !s.verified &&
-          s.totalSupply === null &&
+          s.verified &&
+          s.totalSupply === "0" &&
           s.multiplierWad === null &&
-          /RPC unavailable/.test(s.error!),
+          /incomplete live metadata/.test(s.availabilityWarning!),
       ),
     );
     fail = false;

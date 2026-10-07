@@ -188,6 +188,7 @@ test("image HTTP flow uploads to Pinata, removes old reads and bounds same-origi
     // The existing Node error handler maps parser errors to 422; workerd rejects ingress at 413.
     assert.equal((await upload({ image: "x".repeat(65_536) })).status, 422);
     assert.equal(pinataRequests, 1);
+    await service.store.saveSnapshot(`pinata:${key}`, {}, Date.now());
     failUpload = true;
     const failed = await upload({ image: data });
     assert.equal(failed.status, 422);
@@ -197,7 +198,7 @@ test("image HTTP flow uploads to Pinata, removes old reads and bounds same-origi
     const limited = await upload({ image: data });
     assert.equal(limited.status, 429);
     assert.equal(limited.headers.get("retry-after"), "60");
-    assert.equal(pinataRequests, 9);
+    assert.equal(pinataRequests, 3, "duplicate content is served from the persistent pin record");
   } finally {
     globalThis.fetch = originalFetch;
     await new Promise<void>(resolve => server.close(() => resolve()));

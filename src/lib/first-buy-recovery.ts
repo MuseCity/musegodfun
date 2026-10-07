@@ -1,15 +1,16 @@
+import { quoteNow } from "./quote-clock";
 import type { Address, Hex } from "viem";
 import { deploymentChain, sameAddress, type RuntimeConfig, type TokenRecord } from "./config";
 import { assertFirstBuyPaymentQuote, firstBuyInteger, type FirstBuyPaymentQuote, type FirstBuyPaymentVerification } from "./first-buy-payment";
 import type { LaunchPlan } from "./launch-plan";
 import { transactionMatchesConfig, type Transaction } from "./transactions";
 
-export type FirstBuyPaymentAttempt = { quote: FirstBuyPaymentQuote; hash: Hex; actualOutput: string | null; launchHash?: Hex };
+export type FirstBuyPaymentAttempt = { quote: FirstBuyPaymentQuote; hash: Hex; actualOutput: string | null; launchHash?: Hex; intentId?: string };
 const hashPattern = /^0x[\da-f]{64}$/i;
 export function sameFirstBuyPayment(left: FirstBuyPaymentAttempt, right: FirstBuyPaymentAttempt): boolean {
   try {
-    assertFirstBuyPaymentQuote(left.quote, Date.now(), true);
-    assertFirstBuyPaymentQuote(right.quote, Date.now(), true);
+    assertFirstBuyPaymentQuote(left.quote, quoteNow(left.quote), true);
+    assertFirstBuyPaymentQuote(right.quote, quoteNow(right.quote), true);
     return hashPattern.test(left.hash) && sameAddress(left.hash, right.hash) && left.actualOutput === right.actualOutput &&
       left.quote.chainId === right.quote.chainId && sameAddress(left.quote.account, right.quote.account) &&
       sameAddress(left.quote.transactionId, right.quote.transactionId) && sameAddress(left.quote.transaction.to, right.quote.transaction.to) &&
@@ -22,9 +23,9 @@ export function sameFirstBuyPayment(left: FirstBuyPaymentAttempt, right: FirstBu
  * exactly. A separately funded launch must leave the recovery record alone. */
 export function paymentMatchesLaunch(payment: FirstBuyPaymentAttempt, plan: LaunchPlan): boolean {
   try {
-    assertFirstBuyPaymentQuote(payment.quote, Date.now(), true);
+    assertFirstBuyPaymentQuote(payment.quote, quoteNow(payment.quote), true);
     firstBuyInteger(payment.actualOutput);
-    return hashPattern.test(payment.hash) && !!plan.firstBuy &&
+    return hashPattern.test(payment.hash) && (!payment.intentId || !plan.intentId || payment.intentId === plan.intentId) && !!plan.firstBuy &&
       plan.openingValuation?.chainId === payment.quote.chainId && sameAddress(plan.creator, payment.quote.account) &&
       sameAddress(plan.firstBuy.recipient, payment.quote.account) &&
       sameAddress(plan.draft.quoteAddress, payment.quote.toToken.address) &&
@@ -36,7 +37,7 @@ export function paymentMatchesLaunch(payment: FirstBuyPaymentAttempt, plan: Laun
 export function registeredLaunchConsumesPayment(payment: FirstBuyPaymentAttempt, token: TokenRecord, hash: Hex,
   verification: FirstBuyPaymentVerification): boolean {
   try {
-    assertFirstBuyPaymentQuote(payment.quote, Date.now(), true);
+    assertFirstBuyPaymentQuote(payment.quote, quoteNow(payment.quote), true);
     firstBuyInteger(payment.actualOutput);
     return hashPattern.test(payment.hash) && hashPattern.test(hash) && typeof payment.launchHash === "string" && hashPattern.test(payment.launchHash) &&
       sameAddress(payment.launchHash, hash) && !!token.transactionHash && sameAddress(token.transactionHash, hash) &&
@@ -62,7 +63,7 @@ function matchesQuote(tx: { from: Address; to: Address | null; input: Hex; value
  * reader never broadcasts, retries a conversion, or accepts changed-tx output. */
 export async function resolveFirstBuyPayment(hash: Hex, quote: FirstBuyPaymentQuote, rows: Transaction[],
   config: RuntimeConfig, deps: FirstBuyRecoveryDependencies): Promise<{ hash: Hex; cancelled: boolean }> {
-  assertFirstBuyPaymentQuote(quote, Date.now(), true);
+  assertFirstBuyPaymentQuote(quote, quoteNow(quote), true);
   if (!/^0x[\da-f]{64}$/i.test(hash) || quote.chainId !== deploymentChain(config))
     throw new Error("The payment recovery belongs to another network.");
   const rowFor = (candidate: Hex) => rows.find((row) => row.hash.toLowerCase() === candidate.toLowerCase() &&

@@ -7,7 +7,7 @@ import { ROBINHOOD_CONTRACTS, ROBINHOOD_STOCKS, sameAddress, WAD, type RuntimeCo
 import { assertEngineFeeCalldata, buildLaunch } from "../src/lib/protocol";
 import { BUYBACK_WETH, buybackExecutorAbi, engineTransaction, feeEngineAbi, wethForwarderAbi } from "../src/lib/buyback-engine";
 import { assertConversionRoute, conversionSlippageBps, readFeeAssetStatus, readSourceWethStatus, verifiedFlashBurn, verifyFeeEngine, type BuybackDeployment } from "../server/buyback-engine";
-import deployment from "../contracts/artifacts/buyback-deployment.json";
+import deployment from "../contracts/artifacts/buyback-v2-deployment.json";
 import { assertLaunchWalletPlan } from "../src/lib/launch-wallet";
 import { CURVE_POLICY } from "../src/lib/launch-curve";
 import { syntheticOpeningValuation } from "./fixtures";
@@ -21,10 +21,12 @@ const owner = getAddress("0x5555555555555555555555555555555555555555");
 const automationReceiver = getAddress("0x6666666666666666666666666666666666666666");
 const wethForwarder = getAddress("0x7777777777777777777777777777777777777777");
 const automationTreasury = getAddress("0x8888888888888888888888888888888888888888");
+const vault = getAddress("0x9999999999999999999999999999999999999999");
+const assetOracle = getAddress("0xaAaAaAaaAaAaAaaAaAAAAAAAAaaaAaAaAaaAaaAa");
 const zero = getAddress("0x0000000000000000000000000000000000000000");
 const token = ROBINHOOD_STOCKS.find((asset) => asset.ticker === "USDG")!;
 const poolId = `0x${"aa".repeat(32)}` as Hex;
-const config: RuntimeConfig = { mode: "fork", deploymentChainId: 4663, chainId: 31337, treasury, writesEnabled: true, blockReason: null, curvePolicy: CURVE_POLICY, feePolicy: ENGINE_FEE_POLICY, feeEngine: engine, buybackExecutor: executor, automationReceiver, automationTreasury, wethForwarder };
+const config: RuntimeConfig = { mode: "fork", deploymentChainId: 4663, chainId: 31337, treasury, writesEnabled: true, blockReason: null, curvePolicy: CURVE_POLICY, feePolicy: ENGINE_FEE_POLICY, feeEngine: engine, buybackExecutor: executor, automationReceiver, automationTreasury, wethForwarder, buybackVault: vault, assetFeedOracle: assetOracle };
 const sdk = new DopplerSDK<8453 | 4663>({ publicClient: createPublicClient({ transport: http("http://127.0.0.1:1") }), chainId: 4663 });
 const draft = { name: "Engine Test", symbol: "ENGINE", description: "", image: "", quoteAddress: token.address };
 
@@ -108,7 +110,7 @@ test("public engine transactions target only fixed contracts with bounded amount
   assert.equal(engineTransaction({ kind: "forward", amount: "100" }, config).to, engine);
   const deadline = Math.floor(Date.now() / 1000) + 59;
   const tx = engineTransaction({ kind: "execute", amount: "100", minProfit: "0", deadline }, config);
-  assert.equal(tx.to, executor);
+  assert.equal(tx.to, vault);
   const decoded = decodeFunctionData({ abi: buybackExecutorAbi, data: tx.data });
   assert.deepEqual(decoded.args, [100n, 0n, BigInt(deadline)]);
   assert.throws(() => engineTransaction({ kind: "forward", amount: "0" }, config), /amount/);
@@ -163,7 +165,7 @@ test("asset classification distinguishes static absence from stale prices and ke
     const client = { readContract: async ({ functionName, blockNumber }: { functionName: string; blockNumber: bigint }) => {
       assert.equal(blockNumber, 7n);
       if (functionName === "isUnpriced") { if (mode === "unknown") throw new Error("RPC unavailable"); return mode === "unpriced"; }
-      if (functionName === "pending") return 100n;
+      if (functionName === "pending" || functionName === "balanceOf") return 100n;
       if (functionName === "totalClaimed") return 120n;
       if (functionName === "totalAutomationForwarded") return 20n;
       if (functionName === "window") return [300n, 10n, 10n];
@@ -195,7 +197,7 @@ test("Automation routing stays closed until an independent receiver and matching
   const client = { getBlockNumber: async () => { queried = true; throw new Error("Unexpected RPC"); } } as unknown as Parameters<typeof verifyFeeEngine>[0];
   // Configured metadata here is only a fixture, not evidence of a saved or executed native rule.
   const manifest: BuybackDeployment = { ...deployment, status: "deployed_verified",
-    contracts: Object.fromEntries((["oracle", "swapper", "engine", "executor", "forwarder"] as const).map((name, index) => [name, { address: [owner, creator, engine, executor, wethForwarder][index], runtimeHash: `0x${"aa".repeat(32)}` }])) as BuybackDeployment["contracts"],
+    contracts: Object.fromEntries((["oracle", "swapper", "engine", "executor", "forwarder", "vault", "assetOracle"] as const).map((name, index) => [name, { address: [owner, creator, engine, executor, wethForwarder, vault, assetOracle][index], runtimeHash: `0x${"aa".repeat(32)}` }])) as BuybackDeployment["contracts"],
     constants: { ...deployment.constants, automation: automationReceiver },
     automation: { status: "configured", account: automationReceiver, network: 4663, outputToken: BUYBACK_WETH, allocationBps: 10_000, recipient: deployment.constants.automationTreasury },
   };
@@ -214,14 +216,14 @@ test("Automation routing stays closed until an independent receiver and matching
 test("the fifth module requires its reviewed runtime and exact source, WETH and Swapper getters", async () => {
   const runtime = "0x6000" as Hex;
   const manifest: BuybackDeployment = { ...deployment, status: "deployed_verified",
-    contracts: Object.fromEntries((["oracle", "swapper", "engine", "executor", "forwarder"] as const).map((name, index) => [name, { address: [owner, creator, engine, executor, wethForwarder][index], runtimeHash: keccak256(runtime) }])) as BuybackDeployment["contracts"],
+    contracts: Object.fromEntries((["oracle", "swapper", "engine", "executor", "forwarder", "vault", "assetOracle"] as const).map((name, index) => [name, { address: [owner, creator, engine, executor, wethForwarder, vault, assetOracle][index], runtimeHash: keccak256(runtime) }])) as BuybackDeployment["contracts"],
     automation: { status: "configured", account: deployment.constants.automation, network: 4663, outputToken: BUYBACK_WETH, allocationBps: 10_000, recipient: deployment.constants.automationTreasury },
   };
   const constants = manifest.constants;
   const getters = {
-    [engine.toLowerCase()]: { initializer: constants.initializer, rehype: constants.rehype, oracle: owner, swapper: creator, weth: constants.weth, muse: constants.muse, router: constants.router, automation: constants.automation },
+    [engine.toLowerCase()]: { initializer: constants.initializer, rehype: constants.rehype, oracle: owner, assetOracle, settlementVault: vault, swapper: creator, weth: constants.weth, muse: constants.muse, router: constants.router, automation: constants.automation },
     [executor.toLowerCase()]: { swapper: creator, weth: constants.weth, musegod: constants.muse, router: constants.swapRouter },
-    [wethForwarder.toLowerCase()]: { source: constants.automationTreasury, weth: constants.weth, swapper: creator },
+    [wethForwarder.toLowerCase()]: { source: constants.automationTreasury, weth: constants.weth, swapper: creator, vault },
   };
   for (const fault of ["runtime", "source", "weth", "swapper"] as const) {
     const client = { getBlockNumber: async () => 7n,

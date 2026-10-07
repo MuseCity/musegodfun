@@ -5,8 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BuildInfo } from "../src/lib/build-info";
 import { assertBuildManifest, assertFrozenBuild, assertLaunchRuntime, assertReleaseCheckout, publishCandidate, ReleaseFailure, requireSingleActiveVersion, runtimeVarsFromBindings, snapshotBuild, type ReleaseLifecycle } from "../scripts/release-policy";
+import { FEE_POLICY, ENGINE_FEE_POLICY } from "../src/lib/fee-policy";
 import { CURVE_POLICY } from "../src/lib/launch-curve";
-import { checkRuntime } from "../scripts/release";
+import { checkRuntime, checkFunctionalSmoke } from "../scripts/release";
 
 const commit = "a".repeat(40), newerCommit = "b".repeat(40);
 const previousVersion = "11111111-1111-4111-8111-111111111111", candidateVersion = "22222222-2222-4222-8222-222222222222";
@@ -259,4 +260,39 @@ test("a frozen build mismatch after upload stops before public release or activa
   await assert.rejects(() => publishCandidate(f.flow), /artifact changed/);
   assert.equal(f.events.includes("publish"), false);
   assert.equal(f.events.some(event => event.startsWith("activate:")), false);
+});
+
+test("release verifies persisted signing controls and the committed fee engine policy",async context=>{
+  const responses=runtimeResponses();
+  for(const [path,response] of Object.entries(responses)) {
+    response.writesEnabled=false;
+    if(path.endsWith("/config"))Object.assign(response,{securityProtocol:1,signingPaused:true,controlRevision:2,feeEngine:null,feePolicy:FEE_POLICY});
+  }
+  context.mock.method(globalThis,"fetch",async(url:string)=>Response.json(responses[new URL(url).pathname as keyof typeof responses]));
+  const vars={...runtimeVars,RUNTIME_SECURITY_PROTOCOL:"1"};
+  await checkRuntime(releaseOrigin,{vars});
+  Object.assign(responses["/api/chains/8453/config"],{controlRevision:undefined});
+  await assert.rejects(checkRuntime(releaseOrigin,{vars}),/safety controls/);
+  Object.assign(responses["/api/chains/8453/config"],{controlRevision:2});
+  Object.assign(responses["/api/config"],{feePolicy:ENGINE_FEE_POLICY});
+  await assert.rejects(checkRuntime(releaseOrigin,{vars}),/Fee engine runtime/);
+});
+test("functional release smoke covers prices, verified assets and a read-only catalog trade quote",async context=>{
+  let quoteSeen=false,prices:(string|null)[]=["1","2500"];
+  context.mock.method(globalThis,"fetch",async(url:string,init?:RequestInit)=>{
+    const path=new URL(url).pathname;
+    if(path.endsWith("/first-buy/prices"))return Response.json({assets:prices.map(priceUsd=>({priceUsd}))});
+    if(path.endsWith("/stocks"))return Response.json([{verified:true}]);
+    if(path.endsWith("/tokens"))return Response.json({items:[{address:runtimeVars.PLATFORM_TREASURY}],nextCursor:null});
+    assert(path.endsWith("/quote"));assert.equal(init?.method,"POST");
+    const body=JSON.parse(String(init?.body));assert.equal(body.amount,"1");assert.equal(body.side,"buy");
+    quoteSeen=true;return Response.json({amountOut:"100"});
+  });
+  await checkFunctionalSmoke(releaseOrigin);assert.equal(quoteSeen,true);
+  for(const references of [["1",null],[null,null]]) {
+    prices=references;
+    assert.equal((await checkFunctionalSmoke(releaseOrigin)).auxiliaryPrices,"degraded",
+      "auxiliary references do not disable valid transaction/identity checks");
+  }
+  prices=["1","NaN"];await assert.rejects(checkFunctionalSmoke(releaseOrigin),/malformed payment price/);
 });

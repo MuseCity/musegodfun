@@ -1,13 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { DopplerSDK, airlockAbi } from "@whetstone-research/doppler-sdk/evm";
-import { createPublicClient, http, decodeFunctionData, encodeFunctionData, erc20Abi, parseUnits, toHex, type Address, type Hash } from "viem";
+import { createPublicClient, http, decodeFunctionData, encodeFunctionData, erc20Abi, keccak256, parseUnits, toHex, type Address, type Hash } from "viem";
 import { assetsFor, contractsFor, type RuntimeConfig } from "../src/lib/config";
 import { CURVE_POLICY } from "../src/lib/launch-curve";
 import { launchGuardAbi } from "../src/lib/launch-guard";
-import type { LaunchPlan } from "../src/lib/launch-plan";
+import { LAUNCH_SIGNING_TTL, type LaunchPlan } from "../src/lib/launch-plan";
 import { LAUNCH_PRICE_TTL, type HistoricalOpeningValuation } from "../src/lib/opening-valuation";
-import { assertLaunchRequest, assertLaunchWalletPlan, bufferedLaunchGas, executeLaunchPlan, freezeLaunchPlan, pendingLaunchResolution, terminalLaunchIsCanonical, type LaunchSimulation } from "../src/lib/launch-wallet";
+import { assertAcceptedLaunchRefresh, assertLaunchRequest, assertLaunchWalletPlan, bufferedLaunchGas, executeLaunchPlan, freezeLaunchPlan, LaunchPriceChanged, pendingLaunchResolution, terminalLaunchIsCanonical, type LaunchSimulation } from "../src/lib/launch-wallet";
+import { resetQuoteClock } from "../src/lib/quote-clock";
 import type { Transaction } from "../src/lib/transactions";
 import { syntheticOpeningValuation } from "./fixtures";
 import { buildLaunch } from "../src/lib/protocol";
@@ -50,6 +51,125 @@ function plan(firstBuy = true, tradingFeeBps = 100): LaunchPlan {
     } : {}),
   };
 }
+
+function v2Plan(firstBuy = true, expected = "100", acceptedFloor?: string): LaunchPlan {
+  const value = plan(firstBuy);
+  value.validityVersion = 2; value.finalizedAt = value.preparedAt; value.serverTime = value.preparedAt;
+  value.signingExpiresAt = value.finalizedAt + LAUNCH_SIGNING_TTL; value.intentId = "wallet-regression-intent";
+  if (value.firstBuy) {
+    const buy = value.firstBuy, decoded = decodeFunctionData({ abi: launchGuardAbi, data: value.data });
+    if (decoded.functionName !== "createAndBuy") throw new Error("wrong fixture");
+    const expectedOut = parseUnits(expected, 18), slippageFloor = expectedOut * 9900n / 10_000n;
+    const accepted = acceptedFloor === undefined ? slippageFloor : parseUnits(acceptedFloor, 18);
+    const minimum = slippageFloor > accepted ? slippageFloor : accepted;
+    buy.expectedAmountOut = String(expectedOut); buy.acceptedMinAmountOut = String(accepted);
+    buy.minAmountOut = String(minimum); buy.deadline = Math.floor(value.signingExpiresAt / 1000);
+    value.data = encodeFunctionData({ abi: launchGuardAbi, functionName: "createAndBuy",
+      args: [decoded.args[0], decoded.args[1], minimum, BigInt(buy.deadline)] });
+    value.transaction!.data = value.data;
+  }
+  value.id = keccak256(value.data);
+  return value;
+}
+
+test("v2 wallet execution keeps the finalized five-minute window after opening-price freshness expires", async (t) => {
+  const initial = 1_800_000_000_000; let now = initial;
+  resetQuoteClock(); t.after(resetQuoteClock); t.mock.method(Date, "now", () => now);
+  for (const firstBuy of [false, true]) {
+    now = initial; const value = v2Plan(firstBuy); let submitted = 0;
+    const deps: Parameters<typeof executeLaunchPlan>[3] = {
+      validate: async () => {}, balance: async () => BigInt(value.firstBuy?.amountIn ?? "0"),
+      allowance: async () => BigInt(value.firstBuy?.amountIn ?? "0"),
+      approve: async () => { throw new Error("No new approval should be needed"); },
+      simulate: async () => ({ valid: true, gas: "1000000", amountOut: value.firstBuy?.expectedAmountOut ?? null, simulatedAt: now }),
+      submit: async () => { submitted++; return hash; }, progress: () => {},
+    };
+    for (const elapsed of [61_000, 299_000]) {
+      now = initial + elapsed;
+      assert(now >= value.openingValuation!.expiresAt);
+      assert.equal(await executeLaunchPlan(value, config, account, deps), hash);
+    }
+    for (const elapsed of [300_000, 300_001]) {
+      now = initial + elapsed;
+      await assert.rejects(executeLaunchPlan(value, config, account, deps), /signing window expired/);
+    }
+    assert.equal(submitted, 2);
+  }
+});
+
+test("approval taking over sixty seconds refreshes within the accepted floor and proceeds to one launch", async (t) => {
+  let now = 1_800_000_000_000;
+  resetQuoteClock(); t.after(resetQuoteClock); t.mock.method(Date, "now", () => now);
+  const value = v2Plan(), originalFloor = value.firstBuy!.acceptedMinAmountOut!;
+  const calls: string[] = []; let approved = false, current: LaunchPlan | undefined;
+  const result = await executeLaunchPlan(value, config, account, {
+    validate: async (frozen) => { assertLaunchWalletPlan(frozen, config, account, now); },
+    balance: async () => BigInt(value.firstBuy!.amountIn),
+    allowance: async () => approved ? BigInt(value.firstBuy!.amountIn) : 0n,
+    approve: async () => { calls.push("approve"); approved = true; now += 61_000; },
+    refresh: async (previous) => {
+      calls.push("refresh"); assert.equal(previous.firstBuy!.acceptedMinAmountOut, originalFloor);
+      return v2Plan(true, "99.5", "99");
+    },
+    onPlan: (fresh) => { calls.push("replace-preview"); current = fresh; },
+    simulate: async (fresh) => {
+      calls.push("simulate"); assert.equal(fresh.firstBuy!.minAmountOut, originalFloor);
+      return { valid: true, gas: "1000000", amountOut: parseUnits("99.25", 18).toString(), simulatedAt: now };
+    },
+    submit: async (transaction, _gas, fresh) => {
+      calls.push("launch"); assert.equal(fresh, current); assert.deepEqual(transaction, current!.transaction);
+      assert.equal(fresh.firstBuy!.acceptedMinAmountOut, originalFloor);
+      assert.equal(fresh.signingExpiresAt, now + LAUNCH_SIGNING_TTL); return hash;
+    }, progress: () => {},
+  });
+  assert.equal(result, hash);
+  assert.deepEqual(calls, ["approve", "refresh", "replace-preview", "simulate", "launch"], "refresh adds no second approval or business-confirmation stage");
+});
+
+test("first-buy execution accepts simulated output from the frozen minimum through the expected amount", async () => {
+  const value = v2Plan(), minimum = BigInt(value.firstBuy!.minAmountOut), expected = BigInt(value.firstBuy!.expectedAmountOut);
+  for (const amountOut of [minimum, (minimum + expected) / 2n, expected, expected + 1n]) {
+    let submitted = 0;
+    assert.equal(await executeLaunchPlan(value, config, account, {
+      validate: async () => {}, balance: async () => BigInt(value.firstBuy!.amountIn),
+      allowance: async () => BigInt(value.firstBuy!.amountIn), approve: async () => { throw new Error("Already approved"); },
+      simulate: async () => ({ valid: true, gas: "1000000", amountOut: String(amountOut), simulatedAt: Date.now() }),
+      submit: async () => { submitted++; return hash; }, progress: () => {},
+    }), hash);
+    assert.equal(submitted, 1);
+  }
+});
+
+test("a refreshed signing window cannot silently lower the accepted launch floor", async (t) => {
+  let now = 1_800_000_000_000;
+  resetQuoteClock(); t.after(resetQuoteClock); t.mock.method(Date, "now", () => now);
+  for (const expected of ["99.5", "98"]) {
+    const value = v2Plan(); let approved = false, simulated = false, submitted = false;
+    let updated: LaunchPlan | undefined;
+    await assert.rejects(executeLaunchPlan(value, config, account, {
+      validate: async () => {}, balance: async () => BigInt(value.firstBuy!.amountIn),
+      allowance: async () => approved ? BigInt(value.firstBuy!.amountIn) : 0n,
+      approve: async () => { approved = true; now += 61_000; },
+      refresh: async () => { updated = v2Plan(true, expected); return updated; },
+      simulate: async () => { simulated = true; throw new Error("No simulation after the floor changes"); },
+      submit: async () => { submitted = true; return hash; }, progress: () => {},
+    }), (error: unknown) => {
+      if (expected === "98") { assert(error instanceof LaunchPriceChanged); assert.equal(error.plan.id, updated!.id); }
+      else assert.match(String(error), /cannot lower your accepted minimum/);
+      return true;
+    });
+    assert.equal(approved, true); assert.equal(simulated, false); assert.equal(submitted, false);
+    assert(updated!.signingExpiresAt! > value.signingExpiresAt!);
+  }
+});
+
+test("a better launch refresh does not ratchet the user's accepted floor upward", () => {
+  const initial = v2Plan(), improved = v2Plan(true, "150", "99"), returned = v2Plan(true, "99.5", "99");
+  assertAcceptedLaunchRefresh(initial, improved);
+  assert(BigInt(improved.firstBuy!.minAmountOut) > BigInt(initial.firstBuy!.minAmountOut));
+  assertAcceptedLaunchRefresh(improved, returned);
+  assert.equal(returned.firstBuy!.acceptedMinAmountOut, initial.firstBuy!.acceptedMinAmountOut);
+});
 
 test("wallet trading fee matches actual calldata for ordinary, first buy and locked creates", () => {
   for (const firstBuy of [false, true]) for (const fee of TRADING_FEE_BPS) {

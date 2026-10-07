@@ -1,14 +1,18 @@
+import { verifyBuybackActivation, type BuybackActivation, type GovernorControlProof } from "./buyback-activation";
 import { decodeEventLog, decodeFunctionData, encodeFunctionData, erc20Abi, getAddress, keccak256, parseAbi, type Address, type Hex, type PublicClient, type TransactionReceipt } from "viem";
-import deployment from "../contracts/artifacts/buyback-deployment.json";
+import deployment from "../contracts/artifacts/buyback-v2-deployment.json";
 import buybackConfig from "../contracts/buyback.config.json";
-import { BUYBACK_WETH, buybackExecutorAbi, engineTransaction, feeEngineAbi, wethForwarderAbi, type BuybackEngineStatus, type EngineAssetStatus, type EngineConversionQuote, type EngineClaimPreview } from "../src/lib/buyback-engine";
+import { BUYBACK_WETH, LEGACY_FEE_ENGINE, buybackVaultAbi, assetFeedOracleAbi, buybackExecutorAbi, engineTransaction, feeEngineAbi, wethForwarderAbi, type BuybackEngineStatus, type FeedProposalStatus, type EngineAssetStatus, type EngineConversionQuote, type EngineClaimPreview } from "../src/lib/buyback-engine";
 import { assetsFor, deploymentChain, listedTokens, sameAddress, type RuntimeConfig, type TokenRecord } from "../src/lib/config";
 import { ENGINE_FEE_POLICY, MUSEGOD_BUYBACK } from "../src/lib/fee-policy";
 
 export type BuybackDeployment = {
   schemaVersion: number; chainId: number; status: string;
-  contracts: Record<"oracle" | "swapper" | "engine" | "executor" | "forwarder", { address: string | null; runtimeHash: string | null }>;
+  contracts: Record<"oracle" | "swapper" | "engine" | "executor" | "forwarder", { address: string | null; runtimeHash: string | null; blockNumber?: string }> & Partial<Record<"assetOracle" | "vault", { address: string | null; runtimeHash: string | null }>>;
   constants: { weth: string; muse: string; initializer: string; rehype: string; router: string; swapRouter: string; swapperFactory: string; beneficiary: string; museWethPool: string; ethUsdFeed: string; treasury: string; automation: string | null; automationTreasury: string | null };
+  activation?: BuybackActivation | Record<string, unknown>;
+  governance?: { controlProof: GovernorControlProof | string; [key: string]: unknown };
+  assetFeedDescriptions?: Record<string, { description: string; descriptionHash: string }>;
   automation?: { status: string; account: string | null; network: number; outputToken: string; allocationBps: number; recipient: string };
 };
 const swapperAbi = parseAbi([
@@ -24,7 +28,7 @@ const oracleAbi = parseAbi([
   "function TWAP_SECONDS() view returns(uint32)", "function ethMaxAge() view returns(uint32)",
   "function assetFeeds(address) view returns(address feed,uint32 maxAge,uint8 tokenDecimals,uint8 feedDecimals,bool checkOraclePaused)",
 ]);
-type EngineClient = Pick<PublicClient, "getBlockNumber" | "getCode" | "readContract" | "getLogs" | "getTransactionReceipt"> & {
+type EngineClient = Pick<PublicClient, "getChainId" | "getBlockNumber" | "getCode" | "readContract" | "getLogs" | "getTransactionReceipt"> & {
   getBlock: (parameters: { blockNumber: bigint }) => Promise<{ timestamp: bigint; hash?: Hex | null }>;
   call: (parameters: { account: Address; to: Address; data: Hex; value: bigint }) => Promise<unknown>;
 };
@@ -88,14 +92,14 @@ async function kyberResponse(response: Response): Promise<Record<string, unknown
   if (body.code !== 0 || !body.data || typeof body.data !== "object") throw new Error("No usable conversion route is available. Fees remain in the engine.");
   return body.data;
 }
-export async function verifyFeeEngine(client: EngineClient, candidate: Address, manifest: BuybackDeployment = deployment) {
-  if (manifest.status !== "deployed_verified" || manifest.schemaVersion !== 1 || manifest.chainId !== 4663 ||
+export async function verifyFeeEngineRuntime(client: EngineClient, candidate: Address, manifest: BuybackDeployment = deployment) {
+  if (!["deployed_verified", "deployed_runtime_verified"].includes(manifest.status) || manifest.schemaVersion !== 2 || sameAddress(candidate, LEGACY_FEE_ENGINE) || !manifest.contracts.assetOracle?.address || !manifest.contracts.vault?.address || manifest.chainId !== 4663 ||
     !manifest.contracts.engine.address || !sameAddress(candidate, manifest.contracts.engine.address))
     throw new Error("The fee engine deployment has not been verified");
   const addresses = Object.fromEntries(Object.entries(manifest.contracts).map(([name, value]) => {
     if (!value.address || !value.runtimeHash || !/^0x[0-9a-fA-F]{64}$/.test(value.runtimeHash)) throw new Error("The fee engine deployment manifest is incomplete");
     return [name, getAddress(value.address)];
-  })) as Record<"oracle" | "swapper" | "engine" | "executor" | "forwarder", Address>;
+  })) as Record<"oracle" | "swapper" | "engine" | "executor" | "forwarder" | "assetOracle" | "vault", Address>;
   const constant = manifest.constants;
   const identities = [constant.treasury, constant.automation, constant.automationTreasury, ...Object.values(addresses)];
   if (identities.some((address) => !address || sameAddress(address, "0x0000000000000000000000000000000000000000")) ||
@@ -111,14 +115,14 @@ export async function verifyFeeEngine(client: EngineClient, candidate: Address, 
   const blockNumber = await client.getBlockNumber({ cacheTime: 0 });
   const code = await Promise.all(Object.entries(addresses).map(async ([name, address]) => {
     const runtime = await client.getCode({ address, blockNumber });
-    if (!runtime || runtime === "0x" || keccak256(runtime).toLowerCase() !== manifest.contracts[name as keyof typeof addresses].runtimeHash!.toLowerCase())
+    if (!runtime || runtime === "0x" || keccak256(runtime).toLowerCase() !== manifest.contracts[name as keyof typeof addresses]!.runtimeHash!.toLowerCase())
       throw new Error("The fee engine runtime does not match the verified deployment");
     return runtime;
   }));
-  if (code.length !== 5) throw new Error("The fee engine contract graph is incomplete");
+  if (code.length !== 7) throw new Error("The fee engine contract graph is incomplete");
   const automationCode = await client.getCode({ address: getAddress(constant.automation!), blockNumber });
   if (!automationCode || automationCode === "0x") throw new Error("The Splits Automation receiver is not a contract account");
-  const expectedEngine = { initializer: constant.initializer, rehype: constant.rehype, oracle: addresses.oracle, swapper: addresses.swapper, weth: constant.weth, muse: constant.muse, router: constant.router, automation: constant.automation! } as const;
+  const expectedEngine = { initializer: constant.initializer, rehype: constant.rehype, oracle: addresses.oracle, assetOracle: addresses.assetOracle, settlementVault: addresses.vault, swapper: addresses.swapper, weth: constant.weth, muse: constant.muse, router: constant.router, automation: constant.automation! } as const;
   await Promise.all(Object.entries(expectedEngine).map(async ([functionName, expected]) => {
     const actual = await client.readContract({ address: addresses.engine, abi: feeEngineAbi, functionName: functionName as keyof typeof expectedEngine, blockNumber });
     if (!sameAddress(String(actual), expected)) throw new Error("The fee engine immutable dependencies do not match");
@@ -128,11 +132,28 @@ export async function verifyFeeEngine(client: EngineClient, candidate: Address, 
     const actual = await client.readContract({ address: addresses.executor, abi: buybackExecutorAbi, functionName: functionName as keyof typeof expectedExecutor, blockNumber });
     if (!sameAddress(String(actual), expected)) throw new Error("The buyback executor immutable dependencies do not match");
   }));
-  const expectedForwarder = { source: constant.automationTreasury!, weth: constant.weth, swapper: addresses.swapper } as const;
+  const expectedForwarder = { source: constant.automationTreasury!, weth: constant.weth, swapper: addresses.swapper, vault: addresses.vault } as const;
   await Promise.all(Object.entries(expectedForwarder).map(async ([functionName, expected]) => {
     const actual = await client.readContract({ address: addresses.forwarder, abi: wethForwarderAbi, functionName: functionName as keyof typeof expectedForwarder, blockNumber });
     if (!sameAddress(String(actual), expected)) throw new Error("The fixed WETH forwarder dependencies do not match");
   }));
+  const expectedVault = { weth: constant.weth, musegod: constant.muse, oracle: addresses.oracle, swapper: addresses.swapper, executor: addresses.executor, pool: constant.museWethPool } as const;
+  await Promise.all(Object.entries(expectedVault).map(async ([name, expected]) => {
+    const value = await client.readContract({ address: addresses.vault, abi: buybackVaultAbi, functionName: name as keyof typeof expectedVault, blockNumber });
+    if (!sameAddress(value, expected)) throw new Error("The budget vault immutable graph changed");
+  }));
+  const [cap, seconds, deviation, governor, delay, assetWeth, oldAllowance] = await Promise.all([
+    client.readContract({ address: addresses.vault, abi: buybackVaultAbi, functionName: "WINDOW_CAP", blockNumber }),
+    client.readContract({ address: addresses.vault, abi: buybackVaultAbi, functionName: "WINDOW_SECONDS", blockNumber }),
+    client.readContract({ address: addresses.vault, abi: buybackVaultAbi, functionName: "MAX_DEVIATION_BPS", blockNumber }),
+    client.readContract({ address: addresses.assetOracle, abi: assetFeedOracleAbi, functionName: "governor", blockNumber }),
+    client.readContract({ address: addresses.assetOracle, abi: assetFeedOracleAbi, functionName: "FEED_CHANGE_DELAY", blockNumber }),
+    client.readContract({ address: addresses.assetOracle, abi: assetFeedOracleAbi, functionName: "weth", blockNumber }),
+    client.readContract({ address: getAddress(constant.weth), abi: erc20Abi, functionName: "allowance", args: [getAddress(constant.automationTreasury!), getAddress("0x3B6d01e627Fe6e06C831E0f9f57aC976a88309Ff")], blockNumber }),
+  ]);
+  if (cap !== 10n ** 16n || seconds !== 300n || deviation !== 200n || delay !== 604800n || !sameAddress(governor, constant.treasury) || !sameAddress(assetWeth, constant.weth))
+    throw new Error("The rolling buyback budget or feed governance does not match the approved policy");
+  if (oldAllowance !== 0n) throw new Error("The legacy WETH Forwarder allowance must be revoked before activating the budget vault");
   const expectedOracle = { weth: constant.weth, musegod: constant.muse, museWethPool: constant.museWethPool, ethUsdFeed: constant.ethUsdFeed } as const;
   await Promise.all(Object.entries(expectedOracle).map(async ([functionName, expected]) => {
     const actual = await client.readContract({ address: addresses.oracle, abi: oracleAbi, functionName: functionName as keyof typeof expectedOracle, blockNumber });
@@ -170,8 +191,33 @@ export async function verifyFeeEngine(client: EngineClient, candidate: Address, 
     if (!asset || !sameAddress(actual[0], expected.feed) || actual[1] !== expected.maxAge || actual[2] !== asset.decimals || actual[4] !== expected.checkOraclePaused)
       throw new Error("The fixed asset-feed mapping does not match the reviewed buyback configuration");
   }));
-  const graph = { ...addresses, operationsTreasury: getAddress(constant.treasury), automationReceiver: getAddress(constant.automation!), automationTreasury: getAddress(constant.automationTreasury!), blockNumber };
-  return { ...graph, ...await readSourceWethStatus(client, graph) };
+  const feedProposals: FeedProposalStatus[] = [];
+  const fixedAssets = [{ token: constant.weth, maxAge: buybackConfig.ethMaxAge, checkOraclePaused: false }, ...buybackConfig.feeds];
+  for (let i = 0; i < fixedAssets.length; i += 8) await Promise.all(fixedAssets.slice(i, i + 8).map(async (expected) => {
+    const token = getAddress(expected.token);
+    const [[feed, age, decimals, feedDecimals, checkPause], label, proposal] = await Promise.all([
+      client.readContract({ address: addresses.assetOracle, abi: assetFeedOracleAbi, functionName: "assetFeeds", args: [token], blockNumber }),
+      client.readContract({ address: addresses.assetOracle, abi: assetFeedOracleAbi, functionName: "descriptionHash", args: [token], blockNumber }),
+      client.readContract({ address: addresses.assetOracle, abi: assetFeedOracleAbi, functionName: "proposals", args: [token], blockNumber }),
+    ]);
+    const expectedDecimals = sameAddress(token, constant.weth) ? 18 : allAssets.find((a) => sameAddress(a.address, token))?.decimals;
+    const pinnedLabel = manifest.assetFeedDescriptions?.[token.toLowerCase()];
+    if (feed === "0x0000000000000000000000000000000000000000" || age !== expected.maxAge || decimals !== expectedDecimals || feedDecimals !== 8 || checkPause !== expected.checkOraclePaused || !pinnedLabel || pinnedLabel.descriptionHash !== keccak256(new TextEncoder().encode(pinnedLabel.description)) || label !== pinnedLabel.descriptionHash)
+      throw new Error(`The fixed fee-asset classification or feed safety settings changed for ${token}`);
+    if (proposal[0] !== "0x0000000000000000000000000000000000000000") feedProposals.push({ token, symbol: sameAddress(token, constant.weth) ? "ETH/USD" : allAssets.find((a) => sameAddress(a.address, token))?.symbol ?? token, currentFeed: feed, proposedFeed: proposal[0], executableAt: String(proposal[1]) });
+  }));
+  feedProposals.sort((a, b) => a.symbol.localeCompare(b.symbol));
+  const graph = { ...addresses, feedProposals, operationsTreasury: getAddress(constant.treasury), automationReceiver: getAddress(constant.automation!), automationTreasury: getAddress(constant.automationTreasury!), blockNumber };
+  const source = await readSourceWethStatus(client, graph);
+  if (BigInt(source.sourceAllowance) === 2n ** 256n - 1n) throw new Error("The new WETH Forwarder requires a finite allowance");
+  return { ...graph, ...source };
+}
+
+export async function verifyFeeEngine(client: EngineClient, candidate: Address, manifest: BuybackDeployment = deployment) {
+  if (manifest.status !== "deployed_verified") throw new Error("The fee engine deployment has not been verified");
+  const graph = await verifyFeeEngineRuntime(client, candidate, manifest);
+  const activation = await verifyBuybackActivation(client, manifest, graph.blockNumber);
+  return { ...graph, activation };
 }
 
 export async function readSourceWethStatus(client: Pick<EngineClient, "getCode" | "readContract">, graph: { forwarder: Address; automationTreasury: Address; blockNumber: bigint }) {
@@ -183,11 +229,11 @@ export async function readSourceWethStatus(client: Pick<EngineClient, "getCode" 
   ]);
   const sourceDeployed = !!code && code !== "0x";
   return { sourceDeployed, sourceWeth: String(balance), sourceAllowance: String(allowance), sourceForwarded: String(forwarded),
-    sourceAvailable: String(sourceDeployed ? balance < allowance ? balance : allowance : 0n) };
+    sourceAvailable: String(sourceDeployed && allowance < 2n ** 256n - 1n ? balance < allowance ? balance : allowance : 0n) };
 }
 
-export async function readFeeAssetStatus(client: Pick<EngineClient, "readContract">, graph: { engine: Address; oracle: Address; blockNumber: bigint }, asset: { address: Address; symbol: string; decimals: number }, timestamp: bigint): Promise<EngineAssetStatus> {
-  const [pending, claimed, forwarded, converted, automationForwarded, window, isUnpriced] = await Promise.all([
+export async function readFeeAssetStatus(client: Pick<EngineClient, "readContract">, graph: { engine: Address; oracle: Address; assetOracle?: Address; blockNumber: bigint }, asset: { address: Address; symbol: string; decimals: number }, timestamp: bigint): Promise<EngineAssetStatus> {
+  const [pending, claimed, forwarded, converted, automationForwarded, window, isUnpriced, synced, balance] = await Promise.all([
     client.readContract({ address: graph.engine, abi: feeEngineAbi, functionName: "pending", args: [asset.address], blockNumber: graph.blockNumber }),
     client.readContract({ address: graph.engine, abi: feeEngineAbi, functionName: "totalClaimed", args: [asset.address], blockNumber: graph.blockNumber }),
     client.readContract({ address: graph.engine, abi: feeEngineAbi, functionName: "totalForwarded", args: [asset.address], blockNumber: graph.blockNumber }),
@@ -195,21 +241,24 @@ export async function readFeeAssetStatus(client: Pick<EngineClient, "readContrac
     client.readContract({ address: graph.engine, abi: feeEngineAbi, functionName: "totalAutomationForwarded", args: [asset.address], blockNumber: graph.blockNumber }),
     client.readContract({ address: graph.engine, abi: feeEngineAbi, functionName: "window", args: [asset.address], blockNumber: graph.blockNumber }),
     client.readContract({ address: graph.engine, abi: feeEngineAbi, functionName: "isUnpriced", args: [asset.address], blockNumber: graph.blockNumber }).catch(() => null),
+    client.readContract({ address: graph.engine, abi: feeEngineAbi, functionName: "totalSynced", args: [asset.address], blockNumber: graph.blockNumber }),
+    client.readContract({ address: asset.address, abi: erc20Abi, functionName: "balanceOf", args: [graph.engine], blockNumber: graph.blockNumber }),
   ]);
   const pricing = isUnpriced === true ? "unsupported_static" : isUnpriced === false ? "supported" : "unknown";
-  const available = pricing === "unknown" ? 0n : isUnpriced ? pending : timestamp >= window[0] + 300n ? pending / 10n : window[1] > window[2] ? window[1] - window[2] : 0n;
+  const available = balance < pending || pricing === "unknown" ? 0n : isUnpriced ? pending : timestamp >= window[0] + 300n ? pending / 10n : window[1] > window[2] ? window[1] - window[2] : 0n;
   let referenceWeth: string | null = null, error: string | null = pricing === "unknown" ? "Fee-asset classification could not be verified. Funds remain pending; refresh before processing." : null;
   if (pricing === "supported" && available > 0n && !sameAddress(asset.address, MUSEGOD_BUYBACK.tokenAddress)) {
-    try { referenceWeth = String(await client.readContract({ address: graph.oracle, abi: oracleAbi, functionName: "quoteToWeth", args: [asset.address, available], blockNumber: graph.blockNumber })); }
+    try { referenceWeth = String(await client.readContract({ address: graph.assetOracle ?? graph.oracle, abi: oracleAbi, functionName: "quoteToWeth", args: [asset.address, available], blockNumber: graph.blockNumber })); }
     catch { error = "A valid reference price is unavailable. Fees remain in the engine."; }
   }
-  return { ...asset, pending: String(pending), claimed: String(claimed), forwarded: String(forwarded), converted: String(converted), automationForwarded: String(automationForwarded), pricing, available: String(available > pending ? pending : available), referenceWeth, error };
+  if (balance < pending) { error = "The token balance is below recorded pending funds; processing is paused for this asset."; referenceWeth = null; }
+  return { ...asset, pending: String(pending), claimed: String(claimed), synced: String(synced), untracked: balance > pending ? String(balance - pending) : "0", forwarded: String(forwarded), converted: String(converted), automationForwarded: String(automationForwarded), pricing, available: String(available > pending ? pending : available), referenceWeth, error };
 }
 
 export class BuybackEngineReader {
   private cached?: { at: number; status: BuybackEngineStatus };
   private inFlight?: Promise<BuybackEngineStatus>;
-  constructor(private readonly client: EngineClient, private readonly config: () => Promise<RuntimeConfig>, private readonly tokens: () => Promise<TokenRecord[]>, private readonly claimPreview: (address: Address, engine: Address) => Promise<EngineClaimPreview>) {}
+  constructor(private readonly client: EngineClient, private readonly config: () => Promise<RuntimeConfig>, private readonly tokens: () => Promise<TokenRecord[]>, private readonly claimPreview: (address: Address, engine: Address) => Promise<EngineClaimPreview>, private readonly indexStore?: BuybackBurnIndexStore) {}
   async conversionQuote(token: Address, rawAmount: string, caller: Address): Promise<EngineConversionQuote> {
     const config = await this.config();
     if (!config.feeEngine || config.feePolicy !== ENGINE_FEE_POLICY || !assetsFor(config).some((asset) => sameAddress(asset.address, token)) || sameAddress(token, BUYBACK_WETH))
@@ -219,13 +268,14 @@ export class BuybackEngineReader {
     if (!config.treasury || !sameAddress(config.treasury, graph.operationsTreasury) ||
       !config.automationReceiver || !sameAddress(config.automationReceiver, graph.automationReceiver) ||
       !config.automationTreasury || !sameAddress(config.automationTreasury, graph.automationTreasury) ||
-      !config.wethForwarder || !sameAddress(config.wethForwarder, graph.forwarder) || !graph.sourceDeployed || BigInt(graph.sourceAllowance) === 0n)
+      !config.wethForwarder || !sameAddress(config.wethForwarder, graph.forwarder) ||
+      !config.buybackVault || !sameAddress(config.buybackVault, graph.vault) || !config.assetFeedOracle || !sameAddress(config.assetFeedOracle, graph.assetOracle) || !graph.sourceDeployed)
       throw new Error("The buyback graph or source WETH forwarding authorization could not be activated");
     const [pending, window, block, reference, executor] = await Promise.all([
       this.client.readContract({ address: graph.engine, abi: feeEngineAbi, functionName: "pending", args: [token], blockNumber: graph.blockNumber }),
       this.client.readContract({ address: graph.engine, abi: feeEngineAbi, functionName: "window", args: [token], blockNumber: graph.blockNumber }),
       this.client.getBlock({ blockNumber: graph.blockNumber }),
-      this.client.readContract({ address: graph.oracle, abi: oracleAbi, functionName: "quoteToWeth", args: [token, amount], blockNumber: graph.blockNumber }),
+      this.client.readContract({ address: graph.assetOracle ?? graph.oracle, abi: oracleAbi, functionName: "quoteToWeth", args: [token, amount], blockNumber: graph.blockNumber }),
       this.client.readContract({ address: graph.engine, abi: feeEngineAbi, functionName: "routerExecutor", blockNumber: graph.blockNumber }),
     ]);
     const allowance = block.timestamp >= window[0] + 300n ? pending / 10n : window[1] > window[2] ? window[1] - window[2] : 0n;
@@ -233,7 +283,7 @@ export class BuybackEngineReader {
     const minimum = (reference * 9900n + 9999n) / 10_000n;
     const query = new URLSearchParams({ tokenIn: token, tokenOut: BUYBACK_WETH, amountIn: rawAmount, excludeRFQSources: "true" });
     const headers = { "x-client-id": "musegodfun", "content-type": "application/json" };
-    const routeResponse = await kyberResponse(await fetch(`https://aggregator-api.kyberswap.com/robinhood/api/v1/routes?${query}`, { headers, redirect: "error", signal: AbortSignal.timeout(15_000) }));
+    const routeResponse = await kyberResponse(await fetch(`https://aggregator-api.kyberswap.com/robinhood/api/v1/routes?${query}`, { headers, redirect: "manual", signal: AbortSignal.timeout(15_000) }));
     const summary = routeResponse.routeSummary as Record<string, unknown> | undefined;
     if (typeof routeResponse.routerAddress !== "string" || !sameAddress(routeResponse.routerAddress, buybackConfig.constants.router) || !summary ||
       summary.amountIn !== rawAmount || typeof summary.tokenIn !== "string" || !sameAddress(summary.tokenIn, token) ||
@@ -244,7 +294,7 @@ export class BuybackEngineReader {
     const slippageTolerance = conversionSlippageBps(quoted, minimum);
     const deadline = Math.floor(Date.now() / 1000) + 120;
     const encoded = await kyberResponse(await fetch("https://aggregator-api.kyberswap.com/robinhood/api/v1/route/build", {
-      method: "POST", headers, redirect: "error", signal: AbortSignal.timeout(15_000),
+      method: "POST", headers, redirect: "manual", signal: AbortSignal.timeout(15_000),
       body: JSON.stringify({ routeSummary: summary, sender: graph.engine, recipient: graph.engine, origin: caller, deadline, slippageTolerance, ignoreCappedSlippage: slippageTolerance > 2000, source: "musegodfun", enableGasEstimation: false }),
     }));
     if (encoded.amountIn !== rawAmount || encoded.transactionValue !== "0" || typeof encoded.routerAddress !== "string" ||
@@ -273,13 +323,13 @@ export class BuybackEngineReader {
     if (!candidate) return unavailable;
     // The reviewed manifest fixes this read-only candidate even while signing
     // is withheld. Revoking allowance must not hide balances or burn history.
-    const graph = await verifyFeeEngine(this.client, getAddress(candidate));
+    const graph = await verifyFeeEngineRuntime(this.client, getAddress(candidate));
     if (!config.treasury || !sameAddress(config.treasury, graph.operationsTreasury))
       return { ...unavailable, reason: "The operations treasury does not match the verified deployment." };
-    const available = !!config.feeEngine && !!config.buybackExecutor && sameAddress(config.buybackExecutor, graph.executor) &&
+    const available = !!config.buybackVault && sameAddress(config.buybackVault, graph.vault) && !!config.assetFeedOracle && sameAddress(config.assetFeedOracle, graph.assetOracle) && !!config.feeEngine && !!config.buybackExecutor && sameAddress(config.buybackExecutor, graph.executor) &&
       !!config.automationReceiver && sameAddress(config.automationReceiver, graph.automationReceiver) &&
       !!config.automationTreasury && sameAddress(config.automationTreasury, graph.automationTreasury) &&
-      !!config.wethForwarder && sameAddress(config.wethForwarder, graph.forwarder) && graph.sourceDeployed && BigInt(graph.sourceAllowance) > 0n;
+      !!config.wethForwarder && sameAddress(config.wethForwarder, graph.forwarder) && graph.sourceDeployed;
     const reason = !graph.sourceDeployed ? "The Splits source treasury is not deployed on this network. Processing is awaiting deployment and WETH authorization." :
       BigInt(graph.sourceAllowance) === 0n ? "Waiting for the source treasury's WETH approval to the fixed forwarder. A human must sign this authorization in Splits." :
       !available ? "The verified buyback deployment is awaiting activation. Refresh the platform configuration before processing." : null;
@@ -300,53 +350,87 @@ export class BuybackEngineReader {
       const rows = await Promise.all(assetList.slice(i, i + 6).map((asset) => readFeeAssetStatus(this.client, graph, asset, block.timestamp)));
       assets.push(...rows);
     }
-    const [swapperWeth, directBurned, convertedWeth] = await Promise.all([
+    const [swapperWeth, directBurned, convertedWeth, vaultWeth, vaultAvailable, vaultSpent, vaultBurned, priceReady] = await Promise.all([
       this.client.readContract({ address: BUYBACK_WETH, abi: erc20Abi, functionName: "balanceOf", args: [graph.swapper], blockNumber: graph.blockNumber }),
       this.client.readContract({ address: graph.engine, abi: feeEngineAbi, functionName: "totalDirectBurned", blockNumber: graph.blockNumber }),
       this.client.readContract({ address: graph.engine, abi: feeEngineAbi, functionName: "totalConvertedWeth", blockNumber: graph.blockNumber }),
+      this.client.readContract({ address: BUYBACK_WETH, abi: erc20Abi, functionName: "balanceOf", args: [graph.vault], blockNumber: graph.blockNumber }),
+      this.client.readContract({ address: graph.vault, abi: buybackVaultAbi, functionName: "available", blockNumber: graph.blockNumber }),
+      this.client.readContract({ address: graph.vault, abi: buybackVaultAbi, functionName: "rollingSpent", blockNumber: graph.blockNumber }),
+      this.client.readContract({ address: graph.vault, abi: buybackVaultAbi, functionName: "totalBurned", blockNumber: graph.blockNumber }),
+      this.client.readContract({ address: graph.vault, abi: buybackVaultAbi, functionName: "checkPrices", blockNumber: graph.blockNumber }).then(() => true, () => false),
     ]);
-    // Alchemy Free accepts at most ten blocks per eth_getLogs request. Keep
-    // this public read bounded; the page reports this exact recent scan range.
-    const burnScanFrom = graph.blockNumber > 500n ? graph.blockNumber - 500n : 0n;
-    const confirmedHead = graph.blockNumber > 0n ? graph.blockNumber - 1n : 0n;
-    const directLogs: Awaited<ReturnType<EngineClient["getLogs"]>> = [];
-    const flashLogs: Awaited<ReturnType<EngineClient["getLogs"]>> = [];
-    for (let fromBlock = burnScanFrom; fromBlock <= confirmedHead; fromBlock += 10n) {
-      const toBlock = fromBlock + 9n > confirmedHead ? confirmedHead : fromBlock + 9n;
-      const [direct, flash] = await Promise.all([
-        this.client.getLogs({ address: MUSEGOD_BUYBACK.tokenAddress, event: erc20Abi.find((event) => event.type === "event" && event.name === "Transfer")!, args: { from: graph.engine, to: MUSEGOD_BUYBACK.burnAddress }, fromBlock, toBlock, strict: true }),
-        this.client.getLogs({ address: graph.swapper, event: flashAbi[0], args: { beneficiary: MUSEGOD_BUYBACK.burnAddress }, fromBlock, toBlock, strict: true }),
-      ]);
-      directLogs.push(...direct); flashLogs.push(...flash);
-    }
-    const burns: BuybackEngineStatus["burns"] = [];
-    const hashes = [...new Set([...flashLogs, ...directLogs].sort((a, b) => Number(b.blockNumber! - a.blockNumber!)).map((log) => log.transactionHash!))].slice(0, 50);
-    for (let i = 0; i < hashes.length; i += 4) {
-      const receipts = await Promise.all(hashes.slice(i, i + 4).map((hash) => this.client.getTransactionReceipt({ hash })));
-      for (const receipt of receipts) {
-        const canonical = await this.client.getBlock({ blockNumber: receipt.blockNumber });
-        if (receipt.status !== "success" || receipt.blockNumber > confirmedHead || canonical.hash !== receipt.blockHash) continue;
-        const amount = verifiedFlashBurn(receipt, graph.swapper);
-        if (amount > 0n) burns.push({ hash: receipt.transactionHash, blockNumber: String(receipt.blockNumber), amount: String(amount), source: "swapper" });
-        let direct = 0n;
-        for (const log of receipt.logs) {
-          if (!sameAddress(log.address, MUSEGOD_BUYBACK.tokenAddress)) continue;
-          try {
-            const event = decodeEventLog({ abi: erc20Abi, data: log.data, topics: log.topics, strict: true });
-            if (event.eventName === "Transfer" && sameAddress(event.args.from, graph.engine) && sameAddress(event.args.to, MUSEGOD_BUYBACK.burnAddress)) direct += event.args.value;
-          } catch { /* The burn entry requires a real token transfer receipt. */ }
-        }
-        if (direct > 0n) burns.push({ hash: receipt.transactionHash, blockNumber: String(receipt.blockNumber), amount: String(direct), source: "engine" });
-      }
-    }
-    burns.sort((a, b) => Number(BigInt(b.blockNumber) - BigInt(a.blockNumber)));
-    burns.splice(50);
+    const indexed = await scanBuybackBurnIndex(this.client, this.indexStore, {
+      engine: graph.engine, swapper: graph.swapper, head: graph.blockNumber,
+      deploymentBlock: manifestDeploymentBlock(deployment),
+    }).catch(() => ({ burns: [] as BuybackEngineStatus["burns"], from: null, to: null, caughtUp: false }));
+    const burns = indexed.burns, burnScanFrom = indexed.from;
     const poolStatus: BuybackEngineStatus["pools"] = [];
     for (let i = 0; i < pools.length; i += 4) poolStatus.push(...await Promise.all(pools.slice(i, i + 4).map(async ({ address, poolId, symbol }) => {
       let claimable: EngineClaimPreview | null = null;
       try { claimable = await this.claimPreview(address, graph.engine); } catch { /* Unknown preview amounts are not reported as zero. */ }
       return { address, poolId, symbol, claimable };
     })));
-    return { available, reason, blockNumber: String(graph.blockNumber), engine: graph.engine, swapper: graph.swapper, executor: graph.executor, operationsTreasury: graph.operationsTreasury, automationReceiver: graph.automationReceiver, automationTreasury: graph.automationTreasury, wethForwarder: graph.forwarder, sourceDeployed: graph.sourceDeployed, sourceWeth: graph.sourceWeth, sourceAllowance: graph.sourceAllowance, sourceForwarded: graph.sourceForwarded, sourceAvailable: graph.sourceAvailable, assets, pools: poolStatus, swapperWeth: String(swapperWeth), directBurned: String(directBurned), convertedWeth: String(convertedWeth), burns, burnScanFrom: String(burnScanFrom) };
+    return { available, reason, feedProposals: graph.feedProposals, vault: graph.vault, assetOracle: graph.assetOracle, vaultWeth: String(vaultWeth), vaultAvailable: String(priceReady ? vaultAvailable : 0n), vaultSpent: String(vaultSpent), vaultBurned: String(vaultBurned), buybackWaitReason: !priceReady ? "Buybacks are waiting for available history and spot/5-minute/30-minute prices within 2%. Fees remain held; token trading is unaffected." : vaultAvailable === 0n && vaultWeth > 0n ? "Buybacks are waiting for the shared 0.01 WETH rolling five-minute budget." : null, blockNumber: String(graph.blockNumber), engine: graph.engine, swapper: graph.swapper, executor: graph.executor, operationsTreasury: graph.operationsTreasury, automationReceiver: graph.automationReceiver, automationTreasury: graph.automationTreasury, wethForwarder: graph.forwarder, sourceDeployed: graph.sourceDeployed, sourceWeth: graph.sourceWeth, sourceAllowance: graph.sourceAllowance, sourceForwarded: graph.sourceForwarded, sourceAvailable: graph.sourceAvailable, assets, pools: poolStatus, swapperWeth: String(swapperWeth), directBurned: String(directBurned), convertedWeth: String(convertedWeth), burns, burnScanFrom: burnScanFrom, burnScanTo: indexed.to, burnIndexCaughtUp: indexed.caughtUp };
   }
+}
+
+export type BuybackBurnIndexStore = {
+  snapshot(key: string): { at: number; data: unknown } | null | Promise<{ at: number; data: unknown } | null>;
+  saveSnapshot(key: string, data: unknown, at: number): void | Promise<void>;
+};
+type BurnIndex = { version: 1; from: string; to: string; hash: Hex | null; burns: BuybackEngineStatus["burns"] };
+function manifestDeploymentBlock(manifest: BuybackDeployment): bigint | null {
+  const raw = manifest.contracts.engine.blockNumber;
+  return typeof raw === "string" && /^[0-9]+$/.test(raw) ? BigInt(raw) : null;
+}
+export async function scanBuybackBurnIndex(client: EngineClient, store: BuybackBurnIndexStore | undefined,
+  input: { engine: Address; swapper: Address; head: bigint; deploymentBlock: bigint | null }) {
+  const empty = { burns: [] as BuybackEngineStatus["burns"], from: null as string | null, to: null as string | null, caughtUp: false };
+  if (!store || input.deploymentBlock === null) return empty;
+  const start = input.deploymentBlock;
+  // Only committed checkpoints are exposed. A reorg resets the cursor and rebuilds receipts.
+  const key = `buyback:index:4663:${input.engine.toLowerCase()}:${input.swapper.toLowerCase()}`;
+  const saved = (await store.snapshot(key))?.data as BurnIndex | undefined;
+  let state: BurnIndex = saved?.version === 1 && saved.from === String(start) && /^-?[0-9]+$/.test(saved.to) && Array.isArray(saved.burns)
+    ? saved : { version: 1, from: String(start), to: String(start - 1n), hash: null, burns: [] };
+  if (state.hash && (await client.getBlock({ blockNumber: BigInt(state.to) })).hash !== state.hash)
+    state = { version: 1, from: String(start), to: String(start - 1n), hash: null, burns: [] };
+  const confirmed = input.head > 64n ? input.head - 64n : 0n;
+  let cursor = BigInt(state.to) + 1n;
+  // Ten blocks works with the documented Alchemy free-tier restriction. A bounded
+  // round advances persistently instead of rescanning the same range per request.
+  for (let page = 0; page < 50 && cursor <= confirmed; page++) {
+    const end = cursor + 9n < confirmed ? cursor + 9n : confirmed;
+    const before = await client.getBlock({ blockNumber: end });
+    const [direct, flash] = await Promise.all([
+      client.getLogs({ address: MUSEGOD_BUYBACK.tokenAddress, event: erc20Abi.find((e) => e.type === "event" && e.name === "Transfer")!, args: { from: input.engine, to: MUSEGOD_BUYBACK.burnAddress }, fromBlock: cursor, toBlock: end, strict: true }),
+      client.getLogs({ address: input.swapper, event: flashAbi[0], args: { beneficiary: MUSEGOD_BUYBACK.burnAddress }, fromBlock: cursor, toBlock: end, strict: true }),
+    ]);
+    const rows: BuybackEngineStatus["burns"] = [];
+    const hashes = [...new Set([...direct, ...flash].map((log) => log.transactionHash).filter((hash): hash is Hex => !!hash))];
+    for (const hash of hashes) {
+      const receipt = await client.getTransactionReceipt({ hash });
+      if (receipt.status !== "success" || receipt.blockNumber < cursor || receipt.blockNumber > end ||
+        (await client.getBlock({ blockNumber: receipt.blockNumber })).hash !== receipt.blockHash) throw new Error("Buyback index encountered a noncanonical receipt; retrying later");
+      const amount = verifiedFlashBurn(receipt, input.swapper);
+      if (amount > 0n) rows.push({ hash, blockNumber: String(receipt.blockNumber), amount: String(amount), source: "swapper" });
+      let feeBurn = 0n;
+      for (const log of receipt.logs) {
+        if (!sameAddress(log.address, MUSEGOD_BUYBACK.tokenAddress)) continue;
+        try { const event = decodeEventLog({ abi: erc20Abi, data: log.data, topics: log.topics, strict: true });
+          if (event.eventName === "Transfer" && sameAddress(event.args.from, input.engine) && sameAddress(event.args.to, MUSEGOD_BUYBACK.burnAddress)) feeBurn += event.args.value;
+        } catch { /* Only exact token transfers count. */ }
+      }
+      if (feeBurn > 0n) rows.push({ hash, blockNumber: String(receipt.blockNumber), amount: String(feeBurn), source: "engine" });
+    }
+    const after = await client.getBlock({ blockNumber: end });
+    if (!before.hash || after.hash !== before.hash) throw new Error("Buyback index block changed during collection; retrying later");
+    const unique = new Map([...state.burns, ...rows].map((row) => [`${row.hash}:${row.source}`, row]));
+    state = { version: 1, from: String(start), to: String(end), hash: before.hash,
+      burns: [...unique.values()].sort((a, b) => BigInt(a.blockNumber) > BigInt(b.blockNumber) ? -1 : 1).slice(0, 1000) };
+    await store.saveSnapshot(key, state, Date.now());
+    cursor = end + 1n;
+  }
+  return { burns: state.burns.slice(0, 50), from: state.from, to: BigInt(state.to) >= start ? state.to : null, caughtUp: cursor > confirmed };
 }

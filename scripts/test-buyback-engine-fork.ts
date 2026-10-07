@@ -12,7 +12,7 @@ import { contractsFor, ROBINHOOD_STOCKS, sameAddress, SUPPLY, WAD } from "../src
 import { ENGINE_FEE_POLICY } from "../src/lib/fee-policy";
 import { buildLaunch, permit2Abi, swapTransaction, assertEngineFeeCalldata } from "../src/lib/protocol";
 import { readOpeningValuation } from "../server/opening-price";
-import { verifyFeeEngine } from "../server/buyback-engine";
+import { verifyFeeEngineRuntime } from "../server/buyback-engine";
 import { loadEnvironment, redact, runtimeFromEnv } from "../server/config";
 import { startRobinhoodFork } from "./robinhood-fork";
 
@@ -35,6 +35,7 @@ assert.equal(config.feePolicy, ENGINE_FEE_POLICY);
 assert.equal(config.feeds.length, 37);
 const c = config.constants;
 const recordedDeployment = JSON.parse(await readFile("contracts/artifacts/buyback-deployment.json","utf8"));
+const reviewedV2 = JSON.parse(await readFile("contracts/artifacts/buyback-v2-deployment.json", "utf8"));
 const deployedBridge = {
   forwarder: getAddress("0x3B6d01e627Fe6e06C831E0f9f57aC976a88309Ff"),
   swapper: getAddress("0xE8834943A4eD3758f3b5930E3EEfb43568B222b3"),
@@ -45,8 +46,8 @@ type Artifact = { abi: Abi; bytecode: Hex; deployedBytecode: Hex; compilerInputS
   immutableASTbindings: Record<string, { name: string; type: string }> };
 const artifacts: Record<string, Artifact> = {};
 const artifactHashes: Record<string, string> = {};
-for (const name of ["MusegodBuybackOracle", "MusegodFeeEngine", "MusegodBuybackExecutor", "MusegodWethForwarder"]) {
-  const raw = await readFile(new URL(`../contracts/artifacts/${name}.json`, import.meta.url), "utf8");
+for (const name of ["MusegodBuybackOracle", "MusegodFeeEngine", "MusegodBuybackExecutor", "MusegodWethForwarder", "MusegodAssetFeedOracle", "MusegodBuybackBudgetVault"]) {
+  const raw = await readFile(new URL(`../contracts/artifacts/${["MusegodBuybackOracle","MusegodBuybackExecutor"].includes(name) ? "" : "buyback-v2/"}${name}.json`, import.meta.url), "utf8");
   artifacts[name] = JSON.parse(raw);
   artifactHashes[name] = sha256(raw);
 }
@@ -84,7 +85,7 @@ const assets = result.assets as Record<string, unknown>[];
 const conversions = result.conversions as Record<string, unknown>[];
 if (!c.automation) {
   Object.assign(result,{status:"not_run",reason:"Configure the real Robinhood Splits Automation address before current-route fork acceptance",nativeSplitsAutomationExecution:"not_run",blockedUpstreamWrites:0});
-  await writeFile("docs/evidence/buyback-engine-fork.json",JSON.stringify(result,serialize,2)+"\n");
+  await writeFile("docs/evidence/buyback-v2-fork.json",JSON.stringify(result,serialize,2)+"\n");
   console.log(JSON.stringify({status:"not_run",reason:result.reason}));
   process.exit(0);
 }
@@ -119,6 +120,8 @@ let engine: Address;
 let swapper: Address;
 let executor: Address;
 let forwarder: Address;
+let assetOracle: Address;
+let vault: Address;
 let realSourceBaseline: {
   sourceWeth: bigint; swapperWeth: bigint; sourceAllowance: bigint; totalForwarded: bigint;
   helperCodes: { address: Address; code: Hex }[];
@@ -333,89 +336,28 @@ async function releaseUnknownFees(row: Awaited<ReturnType<typeof issue>>) {
     layer: "actual_new_pool_unpriced_LP_fee_receipts_to_fixed_automation_on_local_fork" };
 }
 async function sourceWethBridge() {
-  const source = c.automationTreasury;
-  const amount = parseEther("0.0001");
-  const evidence:Record<string,unknown>={source,...deployedBridge,caller:stranger,amount,status:"started",
-    approvalFixture:false,approvalTransactionSubmitted:false,nativeAutomationSwapSweep:"not_run",
-    layer:"preexisting upstream allowance -> deployed Forwarder -> deployed Swapper/Executor on isolated fork"};
-  result.sourceWethFlow=evidence;
-  for (const [name,address] of Object.entries(deployedBridge))
-    assert.equal(getAddress(recordedDeployment.contracts[name]?.address),address,"The source bridge must use the recorded deployed helpers");
-  const deployedOracle=getAddress(await client.readContract({address:deployedBridge.swapper,
-    abi:swapperReadAbi,functionName:"oracle",blockNumber:fork.blockNumber}));
-  assert.equal(deployedOracle,getAddress(recordedDeployment.contracts.oracle.address));
-  const existing:Record<string,unknown>={};
-  const helperCodes:{address:Address;code:Hex}[]=[];
-  for (const [name,artifactName,address] of [
-    ["oracle","MusegodBuybackOracle",deployedOracle],
-    ["forwarder","MusegodWethForwarder",deployedBridge.forwarder],
-    ["executor","MusegodBuybackExecutor",deployedBridge.executor],
-  ] as const) {
-    const verified=await verifyCompiledRuntime(artifactName,address,fork.blockNumber);
-    assert.equal(verified.runtimeHash.toLowerCase(),recordedDeployment.contracts[name].runtimeHash.toLowerCase());
-    existing[name]={address,...verified};
-    helperCodes.push({address,code:(await client.getCode({address,blockNumber:fork.blockNumber}))!});
-  }
-  const realSwapperCode=await client.getCode({address:deployedBridge.swapper,blockNumber:fork.blockNumber});
-  assert(realSwapperCode && realSwapperCode!=="0x");
-  assert.equal(keccak256(realSwapperCode),recordedDeployment.contracts.swapper.runtimeHash);
-  helperCodes.push({address:deployedBridge.swapper,code:realSwapperCode});
-  const realRead=(name:string,functionName:string)=>client.readContract({address:deployedBridge[name as keyof typeof deployedBridge],
-    abi:artifacts[name==="forwarder"?"MusegodWethForwarder":"MusegodBuybackExecutor"].abi,functionName,blockNumber:fork.blockNumber});
-  for(const [name,functionName,expected] of [
-    ["forwarder","source",source],["forwarder","weth",c.weth],["forwarder","swapper",deployedBridge.swapper],
-    ["executor","swapper",deployedBridge.swapper],["executor","weth",c.weth],
-    ["executor","musegod",c.muse],["executor","router",c.swapRouter],
-  ] as const) assert(sameAddress(String(await realRead(name,functionName)),expected));
-  const [owner,paused,beneficiary,output,factor,overrides]=await Promise.all([
-    client.readContract({address:deployedBridge.swapper,abi:swapperReadAbi,functionName:"owner",blockNumber:fork.blockNumber}),
-    client.readContract({address:deployedBridge.swapper,abi:swapperReadAbi,functionName:"paused",blockNumber:fork.blockNumber}),
-    client.readContract({address:deployedBridge.swapper,abi:swapperReadAbi,functionName:"beneficiary",blockNumber:fork.blockNumber}),
-    client.readContract({address:deployedBridge.swapper,abi:swapperReadAbi,functionName:"tokenToBeneficiary",blockNumber:fork.blockNumber}),
-    client.readContract({address:deployedBridge.swapper,abi:swapperReadAbi,functionName:"defaultScaledOfferFactor",blockNumber:fork.blockNumber}),
-    client.readContract({address:deployedBridge.swapper,abi:swapperReadAbi,functionName:"getPairScaledOfferFactors",args:[[{base:c.weth,quote:c.muse}]],blockNumber:fork.blockNumber}),
-  ]);
-  assert.equal(owner,zeroAddress);assert.equal(paused,false);assert(sameAddress(beneficiary,c.beneficiary));
-  assert(sameAddress(output,c.muse));assert.equal(factor,985000);assert.deepEqual(overrides,[0]);
-  const upstreamAllowance=await fork.upstream.readContract({address:c.weth,abi:erc20Abi,
-    functionName:"allowance",args:[source,deployedBridge.forwarder],blockNumber:fork.blockNumber});
-  assert.equal(upstreamAllowance,2n**256n-1n,"The existing upstream MAX approval must be present; this script never grants it");
-  realSourceBaseline={sourceWeth:await balance(c.weth,source),swapperWeth:await balance(c.weth,deployedBridge.swapper),
-    sourceAllowance:await allowance(c.weth,source,deployedBridge.forwarder),
-    totalForwarded:await read(deployedBridge.forwarder,"MusegodWethForwarder","totalForwarded") as bigint,helperCodes};
-  assert.equal(realSourceBaseline.sourceAllowance,upstreamAllowance);
-  Object.assign(evidence,{oracle:deployedOracle,existingRuntimeVerification:existing,
-    allowanceAtForkBlock:upstreamAllowance,allowanceReadBlock:fork.blockNumber,
-    allowanceReadLayer:"block_pinned_mainnet_read_only",preexistingSourceWeth:realSourceBaseline.sourceWeth,
-    preexistingSwapperWeth:realSourceBaseline.swapperWeth,preexistingForwarded:realSourceBaseline.totalForwarded});
-
-  const saved={oracle,swapper,executor,forwarder};
+  const source = c.automationTreasury, amount = parseEther("0.0001");
+  const evidence: Record<string, unknown> = { source, forwarder, vault, swapper, executor, caller: stranger,
+    amount, approvalFixture: true, approvalTransactionSubmitted: false, nativeAutomationSwapSweep: "not_run",
+    layer: "fork-only impersonated finite approval -> new Forwarder -> new Vault -> reused Swapper/Executor" };
+  result.sourceWethFlow = evidence;
+  await fork.rpcCall("anvil_impersonateAccount", [source]);
   try {
-    oracle=deployedOracle;swapper=deployedBridge.swapper;executor=deployedBridge.executor;forwarder=deployedBridge.forwarder;
-    // Local funding is a real WETH deposit and transfer. No account impersonation,
-    // approval, native Automation conversion or sweep is performed here.
-    const fundingAmount=amount*2n;
-    const wrapped=await send(c.weth,"0xd0e30db0",wallet,fundingAmount);
-    Object.assign(evidence,{fundingAmount,wrapped});
-    const funded=await send(c.weth,encodeFunctionData({abi:erc20Abi,functionName:"transfer",args:[source,fundingAmount]}));
-    evidence.funded=funded;
-    const sourceBefore=await balance(c.weth,source),swapperBefore=await balance(c.weth,swapper);
-    const callerBefore=await balance(c.weth,stranger),forwarderBefore=await balance(c.weth,forwarder);
-    const sent=await send(forwarder,encodeFunctionData({abi:artifacts.MusegodWethForwarder.abi,functionName:"forward",args:[amount]}),publicWallet);
-    evidence.forwarded=sent;
-    assert.equal(sourceBefore-await balance(c.weth,source),amount);
-    assert.equal(await balance(c.weth,swapper)-swapperBefore,amount);
-    assert.equal(await balance(c.weth,stranger),callerBefore);
-    assert.equal(await balance(c.weth,forwarder),forwarderBefore);
-    assert.equal(await allowance(c.weth,source,forwarder),upstreamAllowance);
-    assert.equal(await read(forwarder,"MusegodWethForwarder","totalForwarded"),realSourceBaseline.totalForwarded+amount);
-    Object.assign(evidence,{remainingSourceWeth:await balance(c.weth,source),sourceExactDebit:true,swapperExactCredit:true,
-      callerWethReceived:"0",forwarderExistingBalancePreserved:true,allowanceAfter:upstreamAllowance,
-      allowanceUnchanged:true,finiteAllowanceAndRevocationCoverage:"Foundry unit tests only; no grant/revocation performed in this real bridge",status:"forwarding_verified"});
-    evidence.settlement=await settle("TREASURY_WETH_UPSTREAM_APPROVAL",amount);
-    evidence.status="passed";
+    const sourceWallet = createWalletClient({ chain, account: source, transport: http(fork.rpc) });
+    await wallet.sendTransaction({ to: source, value: parseEther("0.01") }).then(receipt);
+    evidence.finiteApproval = await send(c.weth, encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [forwarder, amount] }), sourceWallet);
+    evidence.wrapped = await send(c.weth, "0xd0e30db0", wallet, amount);
+    evidence.funded = await send(c.weth, encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [source, amount] }));
+    const sourceBefore = await balance(c.weth, source), vaultBefore = await balance(c.weth, vault);
+    evidence.forward = await send(forwarder, encodeFunctionData({ abi: artifacts.MusegodWethForwarder.abi, functionName: "forward", args: [amount] }), publicWallet);
+    assert.equal(await balance(c.weth, source), sourceBefore - amount);
+    assert.equal(await balance(c.weth, vault), vaultBefore + amount);
+    assert.equal(await allowance(c.weth, source, forwarder), 0n);
+    evidence.sourceExactDebit = true; evidence.vaultExactCredit = true; evidence.finiteAllowanceConsumed = true;
+    evidence.settlement = await settle("SOURCE_WETH_FINITE_FORK_APPROVAL", amount);
+    evidence.status = "passed";
     return evidence;
-  } finally { ({oracle,swapper,executor,forwarder}=saved); }
+  } finally { await fork.rpcCall("anvil_stopImpersonatingAccount", [source]); }
 }
 function containsRouterFloorRejection(trace:unknown,amount:bigint,minimum:bigint):boolean {
   if (!trace || typeof trace !== "object") return false;
@@ -431,15 +373,17 @@ function containsRouterFloorRejection(trace:unknown,amount:bigint,minimum:bigint
   return Array.isArray(node.calls) && node.calls.some((call)=>containsRouterFloorRejection(call,amount,minimum));
 }
 async function settle(label: string, maximumAmount?:bigint) {
-  const startingWeth = await balance(c.weth,swapper);
-  const total = maximumAmount===undefined || startingWeth<maximumAmount ? startingWeth : maximumAmount;
+  const startingWeth = await balance(c.weth,vault);
+  const originalSwapperWeth = await balance(c.weth,swapper);
+  const available = await read(vault, "MusegodBuybackBudgetVault", "available") as bigint;
+  const total = maximumAmount === undefined || available < maximumAmount ? available : maximumAmount;
   assert(total > 0n);
   const guardedBalances={dead:await balance(c.muse,c.beneficiary),callerMuse:await balance(c.muse,stranger),callerWeth:await balance(c.weth,stranger)};
   const attempts:Record<string,unknown>[]=[];
   result.settlementAttempts ??= [];
   (result.settlementAttempts as unknown[]).push({label,startingWeth,maximumAttemptedWeth:total,attempts});
   let selected:{amount:bigint;fairQuote:bigint;minimumMuse:bigint;ammQuote:bigint;data:Hex}|null=null;
-  for(let step=0,amount=total;step<6 && amount>0n;step++,amount/=2n) {
+  for(let step=0,amount=total;step<20 && amount>0n;step++,amount/=2n) {
     const attempt:Record<string,unknown>={amountWeth:amount}; attempts.push(attempt);
     let data:Hex|undefined;
     try {
@@ -449,21 +393,37 @@ async function settle(label: string, maximumAmount?:bigint) {
       const ammQuote=quoted.result[0];
       Object.assign(attempt,{fairQuote,minimumMuse,ammQuote,offerFactor:985000});
       const deadline=(await client.getBlock()).timestamp+300n;
-      data=encodeFunctionData({abi:artifacts.MusegodBuybackExecutor.abi,functionName:"execute",args:[amount,1n,deadline]});
+      data=encodeFunctionData({abi:artifacts.MusegodBuybackBudgetVault.abi,functionName:"execute",args:[amount,1n,deadline]});
       // Simulating the actual executor includes callback settlement and preserves
       // the fixed floor; a quote alone is not an execution guarantee.
-      await client.call({account:stranger,to:executor,data});
+      await client.call({account:stranger,to:vault,data});
       attempt.status="simulated_executable";
       selected={amount,fairQuote,minimumMuse,ammQuote,data}; break;
     } catch(error) {
-      attempt.status="rejected_at_fixed_floor";attempt.reason=redact(error);
-      if(data) try {attempt.trace=await fork.rpcCall("debug_traceCall",[{from:stranger,to:executor,data},"latest",{tracer:"callTracer"}]);}catch{attempt.trace="unavailable";}
+      attempt.status="rejected_by_settlement_guards";attempt.reason=redact(error);
+      if(data) try {attempt.trace=await fork.rpcCall("debug_traceCall",[{from:stranger,to:vault,data},"latest",{tracer:"callTracer"}]);}catch{attempt.trace="unavailable";}
     }
   }
   if (!selected) {
-    assert(attempts.length === 6);
-    assert(attempts.every((row) => typeof row.amountWeth === "bigint" && typeof row.ammQuote === "bigint" && typeof row.minimumMuse === "bigint" && containsRouterFloorRejection(row.trace,row.amountWeth,row.minimumMuse+1n) && row.ammQuote < row.minimumMuse),"An unexplained settlement failure must not pass safety acceptance");
-    assert.equal(await balance(c.weth,swapper),startingWeth);
+    assert(attempts.length > 0);
+    // An explicit Vault circuit breaker, unavailable history or canonical router floor
+    // is safe waiting. Unknown errors fail the acceptance rather than being called safe.
+    function guardRejected(trace: unknown): boolean {
+      if (!trace || typeof trace !== "object") return false;
+      const node = trace as { to?: string; output?: Hex; error?: string; calls?: unknown[] };
+      if (node.error && node.output && node.to && sameAddress(node.to, vault)) {
+        try { const decoded = decodeErrorResult({ abi: artifacts.MusegodBuybackBudgetVault.abi, data: node.output });
+          if (["PriceDeviation", "PriceUnavailable", "BudgetExceeded"].includes(decoded.errorName)) return true;
+        } catch { /* canonical pool OLD means insufficient observation history */ }
+        try { const decoded = decodeErrorResult({ abi: parseAbi(["error Error(string)"]), data: node.output });
+          if (decoded.args?.[0] === "OLD") return true;
+        } catch { /* A different failure is checked below. */ }
+      }
+      return (node.calls ?? []).some(guardRejected);
+    }
+    assert(attempts.every((row) => guardRejected(row.trace) || typeof row.amountWeth === "bigint" && typeof row.minimumMuse === "bigint" && containsRouterFloorRejection(row.trace, row.amountWeth, row.minimumMuse + 1n)), "An unexplained settlement failure must not pass safety acceptance");
+    assert.equal(await balance(c.weth,vault),startingWeth);
+    assert.equal(await balance(c.weth,swapper),originalSwapperWeth);
     assert.equal(await balance(c.muse,c.beneficiary),guardedBalances.dead);
     assert.equal(await balance(c.muse,stranger),guardedBalances.callerMuse);
     assert.equal(await balance(c.weth,stranger),guardedBalances.callerWeth);
@@ -471,11 +431,11 @@ async function settle(label: string, maximumAmount?:bigint) {
     assert.equal(await balance(c.muse,executor),0n);
     assert.equal(await allowance(c.muse,executor,swapper),0n);
     assert.equal(await allowance(c.weth,executor,c.swapRouter),0n);
-    return {label,status:"safely_rejected_at_fixed_floor",startingWeth,maximumAttemptedWeth:total,remainingWeth:startingWeth,burned:0n,profit:0n,offerFactor:985000,attempts,layer:"actual_executor_eth_call_and_trace_revert_only; no receipt or burn"};
+    return {label,status:"waiting_at_unchanged_safety_guards",startingWeth,maximumAttemptedWeth:total,remainingWeth:startingWeth,burned:0n,profit:0n,offerFactor:985000,attempts,layer:"actual_vault_eth_call_and_trace_revert_only; no receipt or burn"};
   }
   const {amount,fairQuote,minimumMuse,ammQuote,data}=selected;
   const before={dead:await balance(c.muse,c.beneficiary),caller:await balance(c.muse,stranger),totalSupply:await client.readContract({address:c.muse,abi:erc20Abi,functionName:"totalSupply"})};
-  const tx=await send(executor,data,publicWallet);
+  const tx=await send(vault,data,publicWallet);
   // Preserve a real receipt before later verification can fail. Pre-send quotes
   // are estimates: a newly mined block can change the thirty-minute mean tick.
   const evidence:Record<string,unknown>={label,status:"receipt_pending_verification",caller:stranger,amountWeth:amount,
@@ -506,10 +466,11 @@ async function settle(label: string, maximumAmount?:bigint) {
   assert.equal(params.baseAmount,amount);assert.equal(params.data,"0x");assert.equal(flash.excessToBeneficiary,0n);
   assert.equal(flash.amountsToBeneficiary[0],receiptMinimumMuse);
   assert.equal(burned,receiptMinimumMuse);assert.equal(transferred(executor,c.beneficiary),burned);
-  assert(sameAddress(executed.caller,stranger));assert.equal(executed.wethAmount,amount);
+  assert(sameAddress(executed.caller,vault));assert.equal(executed.wethAmount,amount);
   assert.equal(executed.museToDead,burned);assert.equal(executed.profit,profit);
-  assert.equal(transferred(executor,stranger),profit);assert.equal(actualAmmOutput,burned+profit);assert(profit>=1n);
-  assert.equal(await balance(c.weth,swapper),startingWeth-amount);
+  assert.equal(transferred(executor,vault),profit);assert.equal(transferred(vault,stranger),profit);assert.equal(actualAmmOutput,burned+profit);assert(profit>=1n);
+  assert.equal(await balance(c.weth,vault),startingWeth-amount);
+  assert.equal(await balance(c.weth,swapper),originalSwapperWeth);
   assert.equal(await balance(c.muse,executor),0n);assert.equal(await allowance(c.muse,executor,swapper),0n);assert.equal(await allowance(c.weth,executor,c.swapRouter),0n);
   assert.equal(await client.readContract({address:c.muse,abi:erc20Abi,functionName:"totalSupply"}),before.totalSupply);
   Object.assign(evidence,{status:"settled",remainingWeth:startingWeth-amount,callerGasCostWei:tx.gasUsed*tx.effectiveGasPrice,
@@ -530,13 +491,13 @@ async function convert(row: Awaited<ReturnType<typeof issue>>) {
     const amount = pending / 10n;
     assert(amount > 0n);
     attempted.amountIn = amount;
-    const reference = await read(oracle, "MusegodBuybackOracle", "quoteToWeth", [row.pairedAsset, amount]) as bigint;
+    const reference = await read(assetOracle, "MusegodAssetFeedOracle", "quoteToWeth", [row.pairedAsset, amount]) as bigint;
     const minimum = reference - reference / 100n;
     attempted.referenceWeth = reference;
     attempted.minimumWeth = minimum;
     const query = new URLSearchParams({ tokenIn: row.pairedAsset, tokenOut: c.weth, amountIn: String(amount), gasInclude: "false" });
     const routeResponse = await fetch(`https://aggregator-api.kyberswap.com/robinhood/api/v1/routes?${query}`,
-      { signal: AbortSignal.timeout(30_000), headers: { "x-client-id": "musegodfun-fork-acceptance" } });
+      { redirect: "manual", signal: AbortSignal.timeout(30_000), headers: { "x-client-id": "musegodfun-fork-acceptance" } });
     const rawRoute = await routeResponse.text();
     attempted.routeResponseHash = sha256(rawRoute);
     assert(routeResponse.ok, `Kyber route API HTTP ${routeResponse.status}`);
@@ -552,7 +513,7 @@ async function convert(row: Awaited<ReturnType<typeof issue>>) {
     attempted.slippageToleranceBps = slippageTolerance;
     const deadline = (await client.getBlock()).timestamp + 600n;
     const buildResponse = await fetch("https://aggregator-api.kyberswap.com/robinhood/api/v1/route/build", {
-      method: "POST", headers: { "Content-Type": "application/json", "x-client-id": "musegodfun-fork-acceptance" },
+      method: "POST", redirect: "manual", headers: { "Content-Type": "application/json", "x-client-id": "musegodfun-fork-acceptance" },
       body: JSON.stringify({ routeSummary: routes.data.routeSummary, sender: engine, recipient: engine,
         slippageTolerance, deadline: Number(deadline), source: "musegodfun-fork-acceptance" }),
       signal: AbortSignal.timeout(30_000),
@@ -579,9 +540,9 @@ async function convert(row: Awaited<ReturnType<typeof issue>>) {
     conversionCall = encodeFunctionData({ abi: artifacts.MusegodFeeEngine.abi, functionName: "convertToWeth",
       args: [row.pairedAsset, amount, data, minimum, deadline] });
     const pendingBefore = await read(engine, "MusegodFeeEngine", "pending", [row.pairedAsset]) as bigint;
-    const swapperBefore = await balance(c.weth, swapper);
+    const vaultBefore = await balance(c.weth, vault);
     const tx = await callEngine("convertToWeth", [row.pairedAsset, amount, data, minimum, deadline]);
-    const wethReceived = await balance(c.weth, swapper) - swapperBefore;
+    const wethReceived = await balance(c.weth, vault) - vaultBefore;
     assert(wethReceived >= minimum);
     assert.equal(pendingBefore - (await read(engine, "MusegodFeeEngine", "pending", [row.pairedAsset]) as bigint), amount);
     assert.equal(await allowance(row.pairedAsset, engine, c.router), 0n);
@@ -646,29 +607,34 @@ try {
     const code = await client.getCode({ address: c[key] });
     assert(code && keccak256(code) === config.expectedRuntimeHashes[key], `${key} code differs from reviewed source`);
   }
-  oracle = await deploy("MusegodBuybackOracle", [c.weth, c.muse, c.museWethPool, c.ethUsdFeed, config.ethMaxAge,
+  oracle = getAddress(recordedDeployment.contracts.oracle.address);
+  swapper = getAddress(recordedDeployment.contracts.swapper.address);
+  executor = getAddress(recordedDeployment.contracts.executor.address);
+  for (const [key, name, address] of [["oracle", "MusegodBuybackOracle", oracle], ["executor", "MusegodBuybackExecutor", executor]] as const) {
+    const verified = await verifyCompiledRuntime(name, address);
+    assert.equal(verified.runtimeHash, recordedDeployment.contracts[key].runtimeHash);
+  }
+  assert.equal(keccak256((await client.getCode({ address: swapper }))!), recordedDeployment.contracts.swapper.runtimeHash);
+  realSourceBaseline = { sourceWeth: await balance(c.weth, c.automationTreasury), swapperWeth: await balance(c.weth, swapper),
+    sourceAllowance: await allowance(c.weth, c.automationTreasury, deployedBridge.forwarder),
+    totalForwarded: await read(deployedBridge.forwarder, "MusegodWethForwarder", "totalForwarded") as bigint, helperCodes: [] };
+  // Explicit fork-only approval fixture. Production revocation and governor control
+  // remain separate signed acceptance requirements; impersonation proves neither.
+  await fork.rpcCall("anvil_impersonateAccount", [c.automationTreasury]);
+  try {
+    const sourceWallet = createWalletClient({ chain, account: c.automationTreasury, transport: http(fork.rpc) });
+    await wallet.sendTransaction({ to: c.automationTreasury, value: parseEther("0.01") }).then(receipt);
+    result.legacyRevocationFixture = await send(c.weth, encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [deployedBridge.forwarder, 0n] }), sourceWallet);
+  } finally { await fork.rpcCall("anvil_stopImpersonatingAccount", [c.automationTreasury]); }
+  assetOracle = await deploy("MusegodAssetFeedOracle", [c.treasury, c.weth, c.ethUsdFeed, config.ethMaxAge,
     config.feeds.map(({ token, feed, maxAge, checkOraclePaused }) => ({ token, feed, maxAge, checkOraclePaused }))]);
-  const createParams = { owner: zeroAddress, paused: false, beneficiary: c.beneficiary, tokenToBeneficiary: c.muse,
-    oracleParams: { oracle, createOracleParams: { factory: zeroAddress, data: "0x" as Hex } },
-    defaultScaledOfferFactor: 985000, pairScaledOfferFactors: [] };
-  const predicted = await client.simulateContract({ address: c.swapperFactory, abi: factoryAbi,
-    functionName: "createSwapper", args: [createParams], account: creator });
-  const swapperTx = await send(c.swapperFactory, encodeFunctionData({ abi: factoryAbi,
-    functionName: "createSwapper", args: [createParams] }));
-  swapper = getAddress(predicted.result);
-  const swapperCode = await client.getCode({ address: swapper });
-  assert(swapperCode && swapperCode !== "0x");
-  deployments.push({ name: "SplitsSwapper", address: swapper, ...swapperTx, runtimeHash: keccak256(swapperCode),
-    factory: c.swapperFactory, officialImpl: await client.readContract({ address: c.swapperFactory, abi: factoryAbi,
-      functionName: "swapperImpl" }), officialFactoryUsed: true, initializer: createParams });
-  engine = await deploy("MusegodFeeEngine", [c.initializer, c.rehype, oracle, swapper, c.weth, c.muse, c.router, c.routerExecutor, automation]);
-  forwarder = await deploy("MusegodWethForwarder",[c.automationTreasury,c.weth,swapper]);
-  executor = await deploy("MusegodBuybackExecutor", [swapper, c.swapRouter, c.weth, c.muse]);
-  assert(sameAddress(String(await read(engine, "MusegodFeeEngine", "automation")), automation));
-  result.graph = { oracle, swapper, engine, executor, forwarder };
+  vault = await deploy("MusegodBuybackBudgetVault", [c.weth, c.muse, oracle, swapper, executor]);
+  forwarder = await deploy("MusegodWethForwarder", [c.automationTreasury, c.weth, swapper, vault]);
+  engine = await deploy("MusegodFeeEngine", [c.initializer, c.rehype, oracle, swapper, c.weth, c.muse, c.router, c.routerExecutor, automation, assetOracle, vault]);
+  result.graph = { oracle, swapper, executor, assetOracle, vault, forwarder, engine };
   const deployedContract = (name: string) => {
     const entry = deployments.find((row) => row.name === name)!;
-    return { address: entry.address as Address, runtimeHash: entry.runtimeHash as Hex };
+    return { address: entry.address as Address, runtimeHash: entry.runtimeHash as Hex, blockNumber: String(entry.blockNumber) };
   };
   const savedPolicy = recordedDeployment.automation;
   assert(savedPolicy?.status === "configured" && sameAddress(savedPolicy.account ?? "",automation) &&
@@ -677,12 +643,13 @@ try {
     "The saved, independently observed native policy must match the actual accounts; no synthetic policy fallback is permitted");
   result.policyMetadataFixtureOnly=false;
   result.policyMetadataSource="recorded independently observed native policy; this fork does not execute the Splits scheduler";
-  const forkManifest = { schemaVersion: 1, chainId: 4663, status: "deployed_verified", constants: c,
-    automation:savedPolicy,
-    contracts: { oracle: deployedContract("MusegodBuybackOracle"), swapper: deployedContract("SplitsSwapper"),
-      engine: deployedContract("MusegodFeeEngine"), executor: deployedContract("MusegodBuybackExecutor"),forwarder:deployedContract("MusegodWethForwarder") } };
+  const forkManifest = { schemaVersion: 2, chainId: 4663, status: "deployed_verified", constants: c,
+    automation:savedPolicy, assetFeedDescriptions: reviewedV2.assetFeedDescriptions,
+    contracts: { oracle: recordedDeployment.contracts.oracle, swapper: recordedDeployment.contracts.swapper,
+      assetOracle: deployedContract("MusegodAssetFeedOracle"), vault: deployedContract("MusegodBuybackBudgetVault"),
+      engine: deployedContract("MusegodFeeEngine"), executor: recordedDeployment.contracts.executor,forwarder:deployedContract("MusegodWethForwarder") } };
 
-  result.serverGraphVerification = { ...await verifyFeeEngine(client, engine, forkManifest),
+  result.serverGraphVerification = { ...await verifyFeeEngineRuntime(client, engine, forkManifest),
     fixedAutomation: automation, layer: "real_fork_contract_getters_and_compiled_runtime_manifest_validation" };
   let scenarioSnapshot = await fork.rpcCall("evm_snapshot");
   console.log("Buyback fork: real new WETH pool and fee claim");
@@ -693,10 +660,12 @@ try {
   const donation = 12345n;
   const donated = await send(c.weth, encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [engine, donation] }));
   assert.equal(await read(engine, "MusegodFeeEngine", "pending", [c.weth]), pendingBeforeDonation);
+  const synced = await callEngine("syncUntracked", [weth.poolId]);
+  assert.equal(await read(engine, "MusegodFeeEngine", "totalSynced", [c.weth]), donation);
   const advance = await nextWindow();
   const amount = (await read(engine, "MusegodFeeEngine", "pending", [c.weth]) as bigint) / 10n;
   const forward = await callEngine("forwardWeth", [amount]);
-  const wethFlow:Record<string,unknown>={pool:weth,donation:{amount:donation,...donated,credited:false},windowAdvance:advance,forward};
+  const wethFlow:Record<string,unknown>={pool:weth,donation:{amount:donation,...donated,synced,creditedAsFees:false},windowAdvance:advance,forward};
   result.wethFlow=wethFlow;
   wethFlow.settlement=await settle("WETH");
   result.fullWethFeeBurnFlowPassed = (result.wethFlow as {settlement:{status:string}}).settlement.status === "settled";
@@ -745,7 +714,7 @@ try {
   await fork.stop();
   assert.equal(result.blockedUpstreamWrites, 0);
   await mkdir("docs/evidence", { recursive: true });
-  await writeFile("docs/evidence/buyback-engine-fork.json", JSON.stringify(result, serialize, 2) + "\n");
+  await writeFile("docs/evidence/buyback-v2-fork.json", JSON.stringify(result, serialize, 2) + "\n");
 }
 if (failure) throw new Error(failure);
 console.log(JSON.stringify({ fullWethFeeBurnFlowPassed: result.fullWethFeeBurnFlowPassed,

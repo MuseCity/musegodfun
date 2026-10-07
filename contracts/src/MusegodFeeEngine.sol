@@ -13,6 +13,7 @@ interface IMusegodFeesManager {
 }
 
 interface IFeeEngineOracle {
+    function weth() external view returns (address);
     function quoteToWeth(address token, uint256 amount) external view returns (uint256);
     function quoteWethToMuse(uint256 amount) external view returns (uint256);
     function assetFeeds(address token) external view returns (address, uint32, uint8, uint8, bool);
@@ -27,9 +28,16 @@ interface IFeeEngineSwapper {
     function defaultScaledOfferFactor() external view returns (uint32);
 }
 
+interface IFeeEngineVault {
+    function weth() external view returns (address);
+    function musegod() external view returns (address);
+    function oracle() external view returns (address);
+    function swapper() external view returns (address);
+}
+
 /// @notice Public fee collection, constrained WETH conversion and forwarding.
 /// @dev No owner, beneficiary migration, arbitrary withdrawal, upgrade or target.
-/// Only balance increments received from the two fixed fee managers are credited.
+/// Manager claim deltas and separately recorded public balance synchronization are credited.
 /// Unpriced credited currencies are forwarded only to the immutable Automation account.
 contract MusegodFeeEngine is ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -43,6 +51,8 @@ contract MusegodFeeEngine is ReentrancyGuard {
     address public immutable initializer;
     address public immutable rehype;
     IFeeEngineOracle public immutable oracle;
+    IFeeEngineOracle public immutable assetOracle;
+    address public immutable settlementVault;
     address public immutable swapper;
     IERC20 public immutable weth;
     IERC20 public immutable muse;
@@ -61,6 +71,7 @@ contract MusegodFeeEngine is ReentrancyGuard {
     mapping(address token => uint256 amount) public pending;
     mapping(address token => Window) public window;
     mapping(address token => uint256 amount) public totalClaimed;
+    mapping(address token => uint256 amount) public totalSynced;
     mapping(address token => uint256 amount) public totalForwarded;
     mapping(address token => uint256 amount) public totalConverted;
     mapping(address token => uint256 amount) public totalAutomationForwarded;
@@ -113,6 +124,7 @@ contract MusegodFeeEngine is ReentrancyGuard {
     error ResidualAllowance();
     error TransferMismatch();
     error PricedAsset();
+    error InsolventBalance();
 
     event FeesClaimed(bytes32 indexed poolId, address indexed manager, address indexed token, uint256 amount);
     event ClaimFailed(bytes32 indexed poolId, address indexed manager, bytes reason);
@@ -121,6 +133,7 @@ contract MusegodFeeEngine is ReentrancyGuard {
     event DirectBurn(uint256 amount);
     event ForwardFailed(address indexed token, bytes reason);
     event UnpricedForwarded(address indexed token, uint256 amount, address indexed automation);
+    event BalanceSynced(address indexed token, uint256 amount);
 
     constructor(
         address initializer_,
@@ -131,7 +144,9 @@ contract MusegodFeeEngine is ReentrancyGuard {
         address muse_,
         address router_,
         address routerExecutor_,
-        address automation_
+        address automation_,
+        address assetOracle_,
+        address settlementVault_
     ) {
         if (
             initializer_ == rehype_ || weth_ == muse_ || initializer_.code.length == 0 || rehype_.code.length == 0
@@ -142,6 +157,10 @@ contract MusegodFeeEngine is ReentrancyGuard {
                 || automation_ == swapper_ || automation_ == weth_ || automation_ == muse_ || automation_ == router_
                 || automation_ == routerExecutor_
         ) revert InvalidConfiguration();
+        if (assetOracle_.code.length == 0 || settlementVault_.code.length == 0 || IFeeEngineOracle(assetOracle_).weth() != weth_) revert InvalidConfiguration();
+        IFeeEngineVault v = IFeeEngineVault(settlementVault_);
+        if (v.weth() != weth_ || v.musegod() != muse_ || v.oracle() != oracle_ || v.swapper() != swapper_)
+            revert InvalidConfiguration();
         IFeeEngineSwapper s = IFeeEngineSwapper(swapper_);
         if (
             s.owner() != address(0) || s.paused() || s.beneficiary() != DEAD || s.tokenToBeneficiary() != muse_
@@ -150,6 +169,8 @@ contract MusegodFeeEngine is ReentrancyGuard {
         initializer = initializer_;
         rehype = rehype_;
         oracle = IFeeEngineOracle(oracle_);
+        assetOracle = IFeeEngineOracle(assetOracle_);
+        settlementVault = settlementVault_;
         swapper = swapper_;
         weth = IERC20(weth_);
         muse = IERC20(muse_);
@@ -171,6 +192,7 @@ contract MusegodFeeEngine is ReentrancyGuard {
 
     function claimAndForward(bytes32 poolId) external nonReentrant {
         address[4] memory currencies = _claimFees(poolId);
+        _syncPool(poolId);
         // External self calls give each forwarding action its own revert boundary.
         if (pending[address(muse)] != 0) {
             try this.burnClaimedMuse() {}
@@ -191,6 +213,45 @@ contract MusegodFeeEngine is ReentrancyGuard {
                 emit ForwardFailed(currencies[i], reason);
             }
         }
+    }
+
+    /// @notice Accepts externally pushed fees and donations for currencies of verified pools.
+    /// @dev These amounts are not falsely reported as manager-claimed platform revenue.
+    function syncUntracked(bytes32 poolId) external nonReentrant { _syncPool(poolId); }
+
+    function _syncPool(bytes32 poolId) private {
+        bool succeeded;
+        try this.syncFrom(initializer, poolId) { succeeded = true; }
+        catch (bytes memory reason) { emit ClaimFailed(poolId, initializer, reason); }
+        try this.syncFrom(rehype, poolId) { succeeded = true; }
+        catch (bytes memory reason) { emit ClaimFailed(poolId, rehype, reason); }
+        if (!succeeded) revert NoValidClaim();
+    }
+
+    function syncFrom(address manager, bytes32 poolId) external onlySelf {
+        PoolKey memory key = _verifiedKey(manager, poolId);
+        _syncToken(key.currency0); _syncToken(key.currency1);
+    }
+
+    function _syncToken(address token) private {
+        uint256 balance = IERC20(token).balanceOf(address(this));
+        if (balance < pending[token]) revert InsolventBalance();
+        uint256 amount = balance - pending[token];
+        if (amount == 0) return;
+        _syncWindow(token);
+        pending[token] += amount;
+        totalSynced[token] += amount;
+        emit BalanceSynced(token, amount);
+    }
+
+    function _verifiedKey(address manager, bytes32 poolId) private view returns (PoolKey memory key) {
+        if (manager != initializer && manager != rehype) revert InvalidPool();
+        IMusegodFeesManager fm = IMusegodFeesManager(manager);
+        key = fm.getPoolKey(poolId);
+        uint256 share = fm.getShares(poolId, address(this));
+        if (key.currency0 == address(0) || key.currency0 >= key.currency1 || key.hooks != initializer ||
+            key.tickSpacing != 10 || key.fee != 0x800000 || keccak256(abi.encode(key)) != poolId ||
+            share < (manager == initializer ? LP_SHARE : HOOK_SHARE)) revert InvalidPool();
     }
 
     function _claimFees(bytes32 poolId) private returns (address[4] memory currencies) {
@@ -214,15 +275,8 @@ contract MusegodFeeEngine is ReentrancyGuard {
 
     /// @dev Restricted subtransaction; callers cannot inject another fee source.
     function claimFrom(address manager, bytes32 poolId) external onlySelf returns (address, address) {
-        if (manager != initializer && manager != rehype) revert InvalidPool();
         IMusegodFeesManager fm = IMusegodFeesManager(manager);
-        PoolKey memory key = fm.getPoolKey(poolId);
-        uint256 share = fm.getShares(poolId, address(this));
-        if (
-            key.currency0 == address(0) || key.currency0 >= key.currency1 || key.hooks != initializer
-                || key.tickSpacing != 10 || key.fee != 0x800000 || keccak256(abi.encode(key)) != poolId
-                || share != (manager == initializer ? LP_SHARE : HOOK_SHARE)
-        ) revert InvalidPool();
+        PoolKey memory key = _verifiedKey(manager, poolId);
         uint256 before0 = IERC20(key.currency0).balanceOf(address(this));
         uint256 before1 = IERC20(key.currency1).balanceOf(address(this));
         fm.collectFees(poolId);
@@ -241,6 +295,11 @@ contract MusegodFeeEngine is ReentrancyGuard {
         _syncWindow(token); // New receipts never increase the current window's quota.
         pending[token] += amount;
         totalClaimed[token] += amount;
+        _requireSolvent(token);
+    }
+
+    function _requireSolvent(address token) private view {
+        if (IERC20(token).balanceOf(address(this)) < pending[token]) revert InsolventBalance();
     }
 
     function _syncWindow(address token) private {
@@ -254,6 +313,7 @@ contract MusegodFeeEngine is ReentrancyGuard {
     }
 
     function _consume(address token, uint256 amount) private {
+        _requireSolvent(token);
         if (amount == 0 || amount > pending[token]) revert InvalidAmount();
         _syncWindow(token);
         Window storage w = window[token];
@@ -277,9 +337,9 @@ contract MusegodFeeEngine is ReentrancyGuard {
     function _forwardWeth(uint256 amount) private {
         _requireBurnQuote(amount);
         _consume(address(weth), amount);
-        _transferExact(weth, swapper, amount);
+        _transferExact(weth, settlementVault, amount);
         totalForwarded[address(weth)] += amount;
-        emit Forwarded(address(weth), amount, swapper);
+        emit Forwarded(address(weth), amount, settlementVault);
     }
 
     function burnMuse(uint256 amount) external nonReentrant {
@@ -291,6 +351,7 @@ contract MusegodFeeEngine is ReentrancyGuard {
     }
 
     function _burnMuse(uint256 amount) private {
+        _requireSolvent(address(muse));
         if (amount == 0 || amount > pending[address(muse)]) revert InvalidAmount();
         pending[address(muse)] -= amount;
         _transferExact(muse, DEAD, amount);
@@ -302,7 +363,7 @@ contract MusegodFeeEngine is ReentrancyGuard {
     /// @dev Stale or paused configured feeds remain eligible only for guarded conversion.
     function isUnpriced(address token) public view returns (bool) {
         if (token == address(weth) || token == address(muse)) return false;
-        (address feed,,,,) = oracle.assetFeeds(token);
+        (address feed,,,,) = assetOracle.assetFeeds(token);
         return feed == address(0);
     }
 
@@ -317,6 +378,7 @@ contract MusegodFeeEngine is ReentrancyGuard {
     }
 
     function _releaseUnpriced(address token, uint256 amount) private {
+        _requireSolvent(token);
         if (amount == 0 || amount > pending[token]) revert InvalidAmount();
         pending[token] -= amount;
         _transferExact(IERC20(token), automation, amount);
@@ -336,7 +398,7 @@ contract MusegodFeeEngine is ReentrancyGuard {
         if (router.codehash != routerCodeHash || routerExecutor.codehash != routerExecutorCodeHash) {
             revert DependencyChanged();
         }
-        uint256 quote = oracle.quoteToWeth(token, amount);
+        uint256 quote = assetOracle.quoteToWeth(token, amount);
         if (quote == 0) revert ZeroQuote();
         uint256 minimum = quote - quote / 100; // ceil(99%): a tiny quote cannot become zero.
         if (minWethOut > minimum) minimum = minWethOut;
@@ -344,12 +406,12 @@ contract MusegodFeeEngine is ReentrancyGuard {
         _consume(token, amount);
         wethOut = _executeRoute(token, amount, routeData, minimum);
         _requireBurnQuote(wethOut);
-        _transferExact(weth, swapper, wethOut);
+        _transferExact(weth, settlementVault, wethOut);
         totalConverted[token] += amount;
         totalConvertedWeth += wethOut;
         totalForwarded[address(weth)] += wethOut;
         emit Converted(token, amount, wethOut, minimum);
-        emit Forwarded(address(weth), wethOut, swapper);
+        emit Forwarded(address(weth), wethOut, settlementVault);
     }
 
     function _executeRoute(address token, uint256 amount, bytes calldata routeData, uint256 minimum)

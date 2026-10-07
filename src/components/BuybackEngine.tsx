@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowUpRight, RefreshCw } from "lucide-react";
 import { formatUnits, type Hex } from "viem";
 import { api } from "../lib/api";
-import { BUYBACK_WETH, buybackAmountCandidates, buybackExecutorAbi, type BuybackEngineStatus, type EngineAction, type EngineConversionQuote } from "../lib/buyback-engine";
+import { BUYBACK_WETH, buybackAmountCandidates, buybackVaultAbi, type BuybackEngineStatus, type EngineAction, type EngineConversionQuote } from "../lib/buyback-engine";
 import { explorerFor, sameAddress, shortAddress, type RuntimeConfig } from "../lib/config";
 import { MUSEGOD_BUYBACK } from "../lib/fee-policy";
 import { errorMessage } from "../lib/validation";
@@ -23,16 +23,16 @@ export default function BuybackEngine({ config }: { config: RuntimeConfig | null
   const [clock, setClock] = useState(Date.now());
   const generation = useRef(0);
   useEffect(() => {
-    if (!preview) return;
+    if (!preview && !status?.feedProposals?.length) return;
     setClock(Date.now());
     const timer = window.setInterval(() => setClock(Date.now()), 1000);
     return () => window.clearInterval(timer);
-  }, [preview?.expiresAt]);
+  }, [preview?.expiresAt, status?.feedProposals]);
   useEffect(() => {
     generation.current++;
     setPreview(null); setError(""); setMessage(""); setHash(null); setBusy(false);
     return () => { generation.current++; };
-  }, [wallet.revision, config?.chainId, config?.feeEngine, config?.buybackExecutor, config?.treasury, config?.automationReceiver, config?.automationTreasury, config?.wethForwarder]);
+  }, [wallet.revision, config?.chainId, config?.feeEngine, config?.buybackExecutor, config?.buybackVault, config?.assetFeedOracle, config?.treasury, config?.automationReceiver, config?.automationTreasury, config?.wethForwarder]);
   useEffect(() => {
     let cancelled = false;
     setStatus(null);
@@ -43,14 +43,14 @@ export default function BuybackEngine({ config }: { config: RuntimeConfig | null
     void load();
     const timer = window.setInterval(() => void load(), 30_000);
     return () => { cancelled = true; window.clearInterval(timer); };
-  }, [config?.chainId, config?.feeEngine, config?.treasury, config?.automationReceiver, config?.automationTreasury, config?.wethForwarder, refresh]);
+  }, [config?.chainId, config?.feeEngine, config?.buybackVault, config?.assetFeedOracle, config?.treasury, config?.automationReceiver, config?.automationTreasury, config?.wethForwarder, refresh]);
   const enabled = !!config?.writesEnabled && !!config.feeEngine && !!status?.available &&
-    !!status.engine && sameAddress(status.engine, config.feeEngine) && status.executor === config.buybackExecutor &&
+    !!status.vault && !!config.buybackVault && sameAddress(status.vault, config.buybackVault) && !!status.engine && sameAddress(status.engine, config.feeEngine) && status.executor === config.buybackExecutor &&
     !!status.operationsTreasury && !!config.treasury && sameAddress(status.operationsTreasury, config.treasury) &&
     !!status.automationReceiver && !!config.automationReceiver && sameAddress(status.automationReceiver, config.automationReceiver) &&
     !!status.automationTreasury && !!config.automationTreasury && sameAddress(status.automationTreasury, config.automationTreasury) &&
     !!status.wethForwarder && !!config.wethForwarder && sameAddress(status.wethForwarder, config.wethForwarder) &&
-    status.sourceDeployed && status.sourceAllowance !== null && BigInt(status.sourceAllowance) > 0n &&
+    status.sourceDeployed && !!status.assetOracle && !!config.assetFeedOracle && sameAddress(status.assetOracle, config.assetFeedOracle) &&
     !!wallet.account && wallet.chainId === config.chainId;
   async function run(action: EngineAction) {
     if (!config || !enabled || busy) return;
@@ -78,16 +78,16 @@ export default function BuybackEngine({ config }: { config: RuntimeConfig | null
     finally { if (current === generation.current) setBusy(false); }
   }
   async function previewBuyback() {
-    if (!enabled || !wallet.account || !config?.buybackExecutor || !status?.swapperWeth || status.swapperWeth === "0" || busy) return;
+    if (!enabled || !wallet.account || !config?.buybackVault || !status?.vaultAvailable || status.vaultAvailable === "0" || busy) return;
     const current = generation.current;
     setBusy(true); setError(""); setPreview(null);
     try {
       let selected: Preview | null = null;
-      for (const amount of buybackAmountCandidates(BigInt(status.swapperWeth))) {
+      for (const amount of buybackAmountCandidates(BigInt(status.vaultAvailable))) {
         if (current !== generation.current) return;
         const deadline = Math.floor(Date.now() / 1000) + 59;
         try {
-          const simulated = await publicClient.simulateContract({ address: config.buybackExecutor, abi: buybackExecutorAbi, functionName: "execute", args: [amount, 1n, BigInt(deadline)], account: wallet.account });
+          const simulated = await publicClient.simulateContract({ address: config.buybackVault, abi: buybackVaultAbi, functionName: "execute", args: [amount, 1n, BigInt(deadline)], account: wallet.account });
           if (current !== generation.current) return;
           const result = simulated.result as readonly [bigint, bigint];
           if (result[1] <= 0n) continue;
@@ -99,7 +99,7 @@ export default function BuybackEngine({ config }: { config: RuntimeConfig | null
       }
       if (!selected) throw new Error("None of the tested trade sizes can settle with a positive caller surplus.");
       setPreview(selected);
-    } catch (failure) { if (current === generation.current) setError(`A profitable buyback could not be simulated. WETH remains in the Swapper. ${errorMessage(failure)}`); }
+    } catch (failure) { if (current === generation.current) setError(`A profitable buyback could not be simulated. WETH remains in the budget vault; processing will retry when prices and the budget allow. ${errorMessage(failure)}`); }
     finally { if (current === generation.current) setBusy(false); }
   }
   const explorer = config ? explorerFor(config) : undefined;
@@ -116,13 +116,23 @@ export default function BuybackEngine({ config }: { config: RuntimeConfig | null
         <div><dt>Splits Treasury receiving Automation WETH</dt><dd>{explorer ? <a href={`${explorer}/address/${status.automationTreasury}`} target="_blank" rel="noreferrer">{status.automationTreasury}<ArrowUpRight size={14} /></a> : status.automationTreasury}</dd></div>
         <div><dt>Fixed WETH forwarder</dt><dd>{explorer ? <a href={`${explorer}/address/${status.wethForwarder}`} target="_blank" rel="noreferrer">{status.wethForwarder}<ArrowUpRight size={14} /></a> : status.wethForwarder}</dd></div>
         <div><dt>WETH produced by fee conversions</dt><dd>{quantity(status.convertedWeth)} WETH</dd></div>
-        <div><dt>WETH waiting for a buyback in the Swapper</dt><dd>{quantity(status.swapperWeth)} WETH</dd></div>
-        <div><dt>MUSEGOD fees transferred directly to the dead address</dt><dd>{quantity(status.directBurned)} MUSEGOD</dd></div>
+        <div><dt>WETH waiting for a buyback in the budget vault</dt><dd>{quantity(status.vaultWeth ?? null)} WETH</dd></div>
+        <div><dt>MUSEGOD transferred directly by the engine to the dead address</dt><dd>{quantity(status.directBurned)} MUSEGOD</dd></div>
         <div><dt>Holdings read at block</dt><dd>{status.blockNumber}</dd></div>
       </dl>
-      <p className="muted">Collected, converted and forwarded fees are separate from completed burns. Engine conversions require at least 99% of the on-chain reference value and use a five-minute processing window capped at 10% of its starting balance. Buyback fees with no configured price source go to the independent Splits Automation account. Assets with a stale or paused price source remain pending.</p>
-      <p className="muted">Fees sent to Automation await external conversion to WETH and delivery to the Splits Treasury shown above, then public forwarding to the Swapper. This page does not verify native rule execution, and external conversions do not inherit the engine's 99% reference-price floor. The operating allocation stays in the separate operations treasury; forwarded buyback fees do not receive another 80/20 split.</p>
-      {!wallet.account ? <button className="primary" onClick={() => void wallet.connect()}>Connect wallet to process fees</button> : <button className="primary" disabled={!enabled || busy || !status.swapperWeth || status.swapperWeth === "0"} onClick={() => void previewBuyback()}>Preview MUSEGOD buyback</button>}
+      <p className="muted">Collected, converted and forwarded fees are separate from completed burns. Engine conversions require at least 99% of the on-chain reference value and use a five-minute processing window capped at 10% of its starting balance. Buyback fees with no configured price source go to the operator-controlled Splits Automation account. Assets with a stale or paused price source remain pending.</p>
+      <p className="muted">Fees sent to Automation await external conversion to WETH and delivery to the Splits Treasury shown above, then public forwarding to the budget vault. This page does not verify native rule execution, and external conversions do not inherit the engine's 99% reference-price floor. The operating allocation stays in the separate operations treasury; forwarded buyback fees do not receive another 80/20 split.</p>
+      <p className="muted">All buybacks share a strict rolling limit of 0.01 WETH per five minutes. Prices differing by more than 2% across spot, five-minute and thirty-minute readings pause only buybacks. Fees remain held. These same-pool checks are not an independent market price.</p>
+      {status.buybackWaitReason && <p role="status">{status.buybackWaitReason}</p>}
+      <p className="muted">The platform treasury can replace an existing asset price feed after seven days. It cannot withdraw funds or change the buyback destination through this oracle. This pricing authority can affect conversion value.</p>
+      <h3>Pending feed replacements</h3>
+      <p className="muted">The current feed stays active until the seven-day proposal is activated. Activation still requires valid feed metadata and a fresh price; issuer pauses remain enforced.</p>
+      {!status.feedProposals?.length ? <p className="muted">No pending feed proposals at the displayed block.</p> : <div className="table-wrap"><table><thead><tr><th>Asset</th><th>Current feed</th><th>Proposed feed</th><th>Earliest activation (UTC)</th><th>Time remaining</th></tr></thead><tbody>{status.feedProposals.map((proposal) => {
+        const remaining = Math.max(0, Number(proposal.executableAt) - Math.floor(clock / 1000));
+        const address = (value: string) => explorer ? <a href={`${explorer}/address/${value}`} target="_blank" rel="noreferrer">{value}</a> : value;
+        return <tr key={proposal.token}><td>{proposal.symbol}</td><td>{address(proposal.currentFeed)}</td><td>{address(proposal.proposedFeed)}</td><td>{new Date(Number(proposal.executableAt) * 1000).toISOString()}</td><td>{remaining ? `${Math.floor(remaining / 86400)}d ${Math.floor(remaining % 86400 / 3600)}h ${Math.floor(remaining % 3600 / 60)}m ${remaining % 60}s` : "Timelock elapsed; awaiting activation"}</td></tr>;
+      })}</tbody></table></div>}
+      {!wallet.account ? <button className="primary" onClick={() => void wallet.connect()}>Connect wallet to process fees</button> : <button className="primary" disabled={!enabled || busy || !status.vaultAvailable || status.vaultAvailable === "0"} onClick={() => void previewBuyback()}>Preview MUSEGOD buyback</button>}
       {config?.blockReason && <p className="muted">{config.blockReason}</p>}
       <h3>Splits Treasury WETH forwarding</h3>
       <dl className="buyback-facts">
@@ -131,31 +141,32 @@ export default function BuybackEngine({ config }: { config: RuntimeConfig | null
         <div><dt>Available to forward</dt><dd>{quantity(status.sourceAvailable)} WETH</dd></div>
         <div><dt>Total WETH forwarded from this treasury</dt><dd>{quantity(status.sourceForwarded)} WETH</dd></div>
       </dl>
-      <p className="muted">Anyone can forward the smaller of this treasury's WETH balance and its approved allowance to the fixed Swapper. The authorization covers WETH held in this source treasury, including deposits whose origin is not proven to be platform fees. It grants no access to other tokens or the separate operations treasury. Forwarding is a WETH transfer, not a completed buyback or burn; the caller pays gas and receives no forwarding reward.</p>
+      <p className="muted">Anyone can forward the smaller of this treasury's WETH balance and its approved allowance to the fixed budget vault. The authorization covers WETH held in this source treasury, including deposits whose origin is not proven to be platform fees. It grants no access to other tokens or the separate operations treasury. Forwarding is a WETH transfer, not a completed buyback or burn; the caller pays gas and receives no forwarding reward.</p>
       {!status.sourceDeployed || status.sourceAllowance === "0" ? <p className="muted">Waiting for source deployment and a human-approved WETH allowance in Splits. This page does not request or sign approvals.</p> : null}
-      <button className="secondary" disabled={!enabled || busy || !status.sourceAvailable || status.sourceAvailable === "0"} onClick={() => void run({ kind: "forward_source", amount: status.sourceAvailable! })}>Forward approved source WETH to Swapper</button>
+      <button className="secondary" disabled={!enabled || busy || !status.sourceAvailable || status.sourceAvailable === "0"} onClick={() => void run({ kind: "forward_source", amount: status.sourceAvailable! })}>Forward approved source WETH to vault</button>
       <h3>Fee collection</h3>
       {status.pools.length ? status.pools.map((pool) => <div className="fee-allocation" key={pool.poolId}>
         <p>{pool.symbol} · {shortAddress(pool.address)}</p>
         {pool.claimable ? <dl>{pool.claimable.map((asset) => <div key={asset.address}><dt>{asset.symbol} pending collection</dt><dd>LP {quantity(asset.lp, asset.decimals)} · Hook {quantity(asset.hook, asset.decimals)}</dd></div>)}</dl> : <p className="muted">Pending collection amounts are unavailable. No zero balance is assumed.</p>}
         <button className="secondary" disabled={!enabled || busy} onClick={() => void run({ kind: "claim", poolId: pool.poolId })}>Collect pool fees</button>
+        <button className="secondary" disabled={!enabled || busy} onClick={() => void run({ kind: "sync", poolId: pool.poolId })}>Account for externally received fees</button>
       </div>) : <p className="muted">No confirmed pools use this engine yet. Historical pools keep their original fee recipients.</p>}
       <h3>Collected fees</h3>
-      {status.assets.filter((asset) => asset.pending !== "0" || asset.claimed !== "0").length === 0 ? <p className="muted">No fee receipts have been recorded yet.</p> : status.assets.filter((asset) => asset.pending !== "0" || asset.claimed !== "0").map((asset) => {
+      {status.assets.filter((asset) => asset.pending !== "0" || asset.claimed !== "0" || (asset.synced ?? "0") !== "0" || (asset.untracked ?? "0") !== "0").length === 0 ? <p className="muted">No fee receipts have been recorded yet.</p> : status.assets.filter((asset) => asset.pending !== "0" || asset.claimed !== "0" || (asset.synced ?? "0") !== "0" || (asset.untracked ?? "0") !== "0").map((asset) => {
         const weth = sameAddress(asset.address, BUYBACK_WETH), muse = sameAddress(asset.address, MUSEGOD_BUYBACK.tokenAddress);
         const unpriced = asset.pricing === "unsupported_static" && !weth && !muse;
         return <div className="fee-allocation" key={asset.address}>
           <h4>{asset.symbol}</h4>
-          <dl><div><dt>Collected</dt><dd>{quantity(asset.claimed, asset.decimals)}</dd></div><div><dt>Pending processing</dt><dd>{quantity(asset.pending, asset.decimals)}</dd></div><div><dt>{muse ? "Transferred directly to dead address" : weth ? "Forwarded to Swapper" : "Converted to WETH"}</dt><dd>{quantity(muse ? status.directBurned : weth ? asset.forwarded : asset.converted, asset.decimals)}</dd></div><div><dt>Unpriced buyback fees forwarded to Automation</dt><dd>{quantity(asset.automationForwarded, asset.decimals)}</dd></div></dl>
-          {unpriced && <p className="muted">This asset has no configured price source. Its collected buyback allocation can be forwarded to the independent Splits Automation account. Forwarding is not a completed buyback or burn.</p>}
+          <dl><div><dt>Claimed from pools</dt><dd>{quantity(asset.claimed, asset.decimals)}</dd></div><div><dt>Externally received, separately accounted</dt><dd>{quantity(asset.synced ?? null, asset.decimals)}</dd></div><div><dt>Received, awaiting accounting</dt><dd>{quantity(asset.untracked ?? null, asset.decimals)}</dd></div><div><dt>Pending processing</dt><dd>{quantity(asset.pending, asset.decimals)}</dd></div><div><dt>{muse ? "Transferred directly to dead address" : weth ? "Forwarded to budget vault" : "Converted to WETH"}</dt><dd>{quantity(muse ? status.directBurned : weth ? asset.forwarded : asset.converted, asset.decimals)}</dd></div><div><dt>Unpriced buyback fees forwarded to Automation</dt><dd>{quantity(asset.automationForwarded, asset.decimals)}</dd></div></dl>
+          {unpriced && <p className="muted">This asset has no configured price source. Its collected buyback allocation can be forwarded to the operator-controlled Splits Automation account. Forwarding is not a completed buyback or burn.</p>}
           {asset.error && <p className="muted">{asset.error}</p>}
-          {asset.pending !== "0" && <button className="secondary" disabled={!enabled || busy || asset.pricing === "unknown" || (!muse && !unpriced && (asset.available === "0" || !asset.referenceWeth))} onClick={() => muse ? void run({ kind: "burn", amount: asset.pending }) : unpriced ? void run({ kind: "release_unpriced", token: asset.address, amount: asset.pending }) : weth ? void run({ kind: "forward", amount: asset.available }) : void previewConversion(asset.address, asset.available, asset.symbol)}>{muse ? "Transfer fees to dead address" : unpriced ? "Forward unpriced buyback fees to Automation" : weth ? "Forward available WETH" : "Preview WETH conversion"}</button>}
+          {asset.pending !== "0" && <button className="secondary" disabled={!enabled || busy || asset.pricing === "unknown" || !!asset.error || (!muse && !unpriced && (asset.available === "0" || !asset.referenceWeth))} onClick={() => muse ? void run({ kind: "burn", amount: asset.pending }) : unpriced ? void run({ kind: "release_unpriced", token: asset.address, amount: asset.pending }) : weth ? void run({ kind: "forward", amount: asset.available }) : void previewConversion(asset.address, asset.available, asset.symbol)}>{muse ? "Transfer fees to dead address" : unpriced ? "Forward unpriced buyback fees to Automation" : weth ? "Forward available WETH" : "Preview WETH conversion"}</button>}
         </div>;
       })}
       <h3>Confirmed dead-address transfers</h3>
-      <p className="muted">Recent engine transfers and Swapper settlements verified against actual MUSEGOD receipts, scanned from block {status.burnScanFrom}. ERC-20 totalSupply is unchanged.</p>
+      <p className="muted">Recent engine transfers and Swapper settlements verified against actual MUSEGOD receipts, indexed from block {status.burnScanFrom ?? "unavailable"} through {status.burnScanTo ?? "unavailable"}. {status.burnIndexCaughtUp ? "Index caught up to the confirmation boundary." : "History is catching up or temporarily unavailable."} ERC-20 totalSupply is unchanged.</p>
       {status.burns.length ? status.burns.map((burn, index) => <div className="fee-allocation" key={`${burn.hash}-${index}`}>
-        <span>{quantity(burn.amount)} MUSEGOD · {burn.source === "swapper" ? "Buyback" : "Fee burn"}</span>{explorer ? <a href={`${explorer}/tx/${burn.hash}`} target="_blank" rel="noreferrer">{shortAddress(burn.hash)}<ArrowUpRight size={14} /></a> : <code className="wrap">{burn.hash}</code>}
+        <span>{quantity(burn.amount)} MUSEGOD · {burn.source === "swapper" ? "Buyback" : "Engine transfer"}</span>{explorer ? <a href={`${explorer}/tx/${burn.hash}`} target="_blank" rel="noreferrer">{shortAddress(burn.hash)}<ArrowUpRight size={14} /></a> : <code className="wrap">{burn.hash}</code>}
       </div>) : <p className="muted">No dead-address transfer was found in this scan range.</p>}
     </>}
     {preview && <div className="fee-allocation" aria-live="polite"><h3>{preview.label}</h3><p>{preview.minimum}</p>{preview.profit && <p>{preview.profit}</p>}<p className="muted">{clock < preview.expiresAt ? `Preview expires in ${Math.ceil((preview.expiresAt - clock) / 1000)} seconds. Your wallet will confirm the transaction.` : "Preview expired. Request a new preview."}</p><button className="primary" disabled={!enabled || busy || clock >= preview.expiresAt} onClick={() => void run(preview.action)}>Confirm transaction</button><button className="secondary" disabled={busy} onClick={() => setPreview(null)}>Dismiss</button></div>}

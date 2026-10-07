@@ -107,8 +107,9 @@ function fixtureRuntime(chainId: 8453 | 4663, directory: string, fork = false): 
 test("HTTP requests with identical token addresses stay in their selected chain and legacy remains Robinhood", async () => {
   const directory = mkdtempSync(join(tmpdir(), "musegod-dualchain-"));
   const { app, services } = createDualChainApp(undefined, "loopback", [fixtureRuntime(8453, directory), fixtureRuntime(4663, directory)]);
-  for (const [chainId, service] of services) service.tokens = async () => [syntheticToken({ name: String(chainId),
-    mode: chainId === 8453 ? "base" : "robinhood", deploymentChainId: chainId })];
+  for (const [chainId, service] of services) await service.store.saveToken(syntheticToken({ name: String(chainId),
+    mode: chainId === 8453 ? "base" : "robinhood", deploymentChainId: chainId,
+    quoteAddress:(chainId === 8453 ? STOCKS : ROBINHOOD_STOCKS)[0].address }));
   services.get(4663)!.assertNetwork = async () => {};
   services.get(8453)!.assertNetwork = async () => { throw new Error("Base fixture RPC unavailable"); };
   const server = app.listen(0, "127.0.0.1");
@@ -126,11 +127,13 @@ test("HTTP requests with identical token addresses stay in their selected chain 
     for (const path of ["/readyz", "/api/readyz", "/api/chains/4663/readyz"]) {
       const response = await fetch(origin + path);
       assert.equal(response.status, 200);
-      assert.deepEqual(await response.json(), { status: "ready", chainId: 4663, writesEnabled: false });
+      assert.deepEqual(await response.json(), { status: "ready", chainId: 4663, writesEnabled: false,
+        signingPaused: true, controlRevision: 0, blockReason: "Awaiting runtime activation", healthClass: "expected_pause" });
     }
     const baseReady = await fetch(`${origin}/api/chains/8453/readyz`);
     assert.equal(baseReady.status, 503);
-    assert.deepEqual(await baseReady.json(), { status: "unavailable", chainId: 8453, writesEnabled: false });
+    assert.deepEqual(await baseReady.json(), { status: "unavailable", chainId: 8453, writesEnabled: false,
+      signingPaused: true, controlRevision: 0, blockReason: "Awaiting runtime activation", healthClass: "site_unavailable" });
     assert.equal((await fetch(`${origin}/api/chains/1/config`)).status, 400);
     assert.equal((await fetch(`${origin}/api/chains/8453/first-buy/quote`, {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chainId: 4663 }),
@@ -176,7 +179,10 @@ test("payment quote preflight blocks identity and LI.FI pricing failures before 
   Object.assign(service, { client: {
     getChainId: async () => 8453,
     getBlock: async () => ({ number: 1n, hash: `0x${"ab".repeat(32)}`, timestamp: BigInt(Math.floor(Date.now() / 1000)) - 5n }),
-    getCode: async ({ blockNumber }: { blockNumber: bigint }) => { assert.equal(blockNumber, 1n); return "0xef"; },
+    getCode: async ({ address, blockNumber }: { address: string; blockNumber?: bigint }) => {
+      if (address.toLowerCase() === treasury.toLowerCase()) return "0x";
+      assert.equal(blockNumber, 1n); return "0xef";
+    },
     readContract: async ({ address, functionName, blockNumber }: { address: string; functionName: string; blockNumber?: bigint }) => {
       reads.push(functionName);
       if (blockNumber !== undefined) assert.equal(blockNumber, 1n);

@@ -112,6 +112,9 @@ export type RuntimeConfig = {
   deploymentChainId?: 8453 | 4663;
   treasury: Address | null;
   writesEnabled: boolean;
+  controlRevision?: number;
+  signingPaused?: boolean;
+  securityProtocol?: 1;
   blockReason: string | null;
   curvePolicy?: string;
   launchGuard?: Address | null;
@@ -122,6 +125,8 @@ export type RuntimeConfig = {
   automationReceiver?: Address | null;
   automationTreasury?: Address | null;
   wethForwarder?: Address | null;
+  assetFeedOracle?: Address | null;
+  buybackVault?: Address | null;
 };
 export type StockStatus = Stock & {
   verified: boolean;
@@ -130,6 +135,11 @@ export type StockStatus = Stock & {
   onchainName?: string;
   totalSupply: string | null;
   multiplierWad: string | null;
+  newMultiplierWad?: string | null;
+  multiplierEffectiveAt?: number | null;
+  paused?: boolean;
+  oraclePaused?: boolean;
+  availabilityWarning?: string;
 };
 export type TokenRecord = {
   address: Address;

@@ -69,6 +69,7 @@ test("Base launch tracking rejects mismatched calldata or targets; read-only rol
     client: {
       getTransaction: async () => ({ to: target, from: account, input, value: 0n }),
       getTransactionReceipt: async () => { throw new Error("receipt pending"); },
+      getBlock: async () => { throw new Error("Finalized block tag is unavailable"); },
     },
     store: {
       findPlan: async (creator: string, input: string) => creator === account && input === data ? { id: planId, creator: account, data, draft } : null,
@@ -402,7 +403,7 @@ test("transaction records preserve pending entries, chain separation and replace
         status: "success",
         at: i + 2,
       });
-    assert.equal(transactions().length, 200);
+    assert.equal(transactions().length, 201, "200 settled rows cannot evict an unresolved launch");
     assert.equal(
       transactions().find((t) => t.hash === hash)?.status,
       "pending",
@@ -415,6 +416,13 @@ test("transaction records preserve pending entries, chain separation and replace
       transactions().find((t) => t.hash === hash)?.status,
       "replaced",
     );
+    assert.equal(transactions().filter((t) => t.chainId === 31337).length, 1);
+    updateTransaction(hash, 31337, { status: "success", intentId: "unregistered-intent" });
+    for (let i = 220; i < 440; i++) saveTransaction({
+      hash: `0x${i.toString(16).padStart(64, "0")}`, chainId: 8453, account, action: "swap", status: "success", at: i + 2,
+    });
+    assert.equal(transactions().find((t) => t.hash === hash)?.registered, undefined,
+      "an on-chain success awaiting registration survives unrelated completed transactions");
     assert.equal(transactions().filter((t) => t.chainId === 31337).length, 1);
   } finally {
     if (savedStorage)

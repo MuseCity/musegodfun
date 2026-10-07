@@ -1,8 +1,13 @@
 import express from "express";
+import { createHash, randomUUID } from "node:crypto";
+import { clientBucket, IngressLimiter, PreviewQueue, RiskChallenge } from "./abuse";
+import { BudgetUnavailable, recoveryBudget, withRecoveryBudget } from "./runtime-policy";
+import { sameAddress, listedTokens } from "../src/lib/config";
+import { firstBuyPaymentInput } from "../src/lib/first-buy-payment";
 import { securityHeaders } from "./http-security";
 import { TokenImages } from "./token-images";
 import { z } from "zod";
-import type { Hex } from "viem";
+import { parseUnits, type Hex } from "viem";
 import { LaunchpadService, runtimeFromEnv } from "./service";
 import { mainnetRpcUrl, redact, type Runtime, type DeploymentChainId } from "./config";
 import { deploymentChain } from "../src/lib/config";
@@ -21,6 +26,7 @@ import {
   errorMessage,
   hashSchema,
   minimumOutput,
+  assertSigningEnabled,
 } from "../src/lib/validation";
 
 export const knownPage = (path: string) =>
@@ -45,21 +51,22 @@ export function createApp(
   configurePages?: (app: express.Express) => void,
   trustProxy: "loopback" | true = "loopback",
   runtime: Runtime = runtimeFromEnv(),
+  shared: { ingressManaged?: boolean; previews?: PreviewQueue; challenge?: RiskChallenge } = {},
 ) {
 const app = express(),
   service = new LaunchpadService(runtime);
-const images = new TokenImages(process.env.PINATA_JWT);
+const images = new TokenImages(runtime.secrets?.pinataJwt, service.store);
 const market = new MarketReader({
   store: service.store,
-  apiKey: process.env.COINGECKO_API_KEY,
+  apiKey: runtime.secrets?.coingeckoApiKey,
 });
 const musegod = new MusegodReader(service.client, service.runtime.config, () => service.assertNetwork());
 const musegodMarket = new MusegodMarketReader(service.runtime.config, service.store);
 const buyback = new BuybackReader(service.runtime.config.treasury);
 const buybackBatches = new BuybackBatchService(buyback, service.store, service.client, service.runtime.config);
-const buybackEngine = new BuybackEngineReader(service.client, () => service.config(), () => service.tokens(), (address, engine) => service.engineClaimPreview(address, engine));
+const buybackEngine = new BuybackEngineReader(service.client, () => service.config(), () => service.tokens(), (address, engine) => service.engineClaimPreview(address, engine), service.store);
 const payments = new FirstBuyPaymentReader({ client: service.client, chainId: deploymentChain(runtime.config),
-  rpcChainId: runtime.config.mode === "fork" && runtime.config.chainId === 31337 ? 31337 : deploymentChain(runtime.config), ...runtime.lifi });
+  rpcChainId: runtime.config.mode === "fork" && runtime.config.chainId === 31337 ? 31337 : deploymentChain(runtime.config), ...runtime.lifi, budget: service.store });
 app.set("trust proxy", trustProxy);
 app.disable("x-powered-by");
 app.set("json replacer", (_key: string, value: unknown) =>
@@ -67,7 +74,7 @@ app.set("json replacer", (_key: string, value: unknown) =>
 );
 
 app.use((req, res, next) => {
-  for (const [key, value] of Object.entries(securityHeaders(req.secure, process.env.NODE_ENV === "production")))
+  for (const [key, value] of Object.entries(securityHeaders(req.secure, runtime.environment?.NODE_ENV === "production")))
     res.setHeader(key, value);
   if (
     req.method === "POST" &&
@@ -79,48 +86,22 @@ app.use((req, res, next) => {
   }
   next();
 });
-// Bound expensive public RPC/simulation work. No caller-controlled upstream URLs.
-const rate = new Map<string, { at: number; count: number; uploads: number }>();
-app.use("/api", (req, res, next) => {
-  for (const [ip, row] of rate)
-    if (Date.now() - row.at > 60_000) rate.delete(ip);
-  if (rate.size > 10000) {
-    res.status(503).json({ error: "Service is busy" });
-    return;
-  }
-  const key = req.ip || "local",
-    now = Date.now(),
-    row = rate.get(key);
-  if (!row || now - row.at > 60_000) {
-    rate.set(key, { at: now, count: 1, uploads: 0 });
-    next();
-    return;
-  }
-  if (++row.count > 180) {
-    res.setHeader("Retry-After", "60");
-    res.status(429).json({ error: "Too many requests. Try again later." });
-    return;
-  }
-  next();
-});
-let activeRequests = 0;
-app.use("/api", (_req, res, next) => {
-  res.setHeader("Cache-Control", "no-store");
-  if (activeRequests >= 32) {
-    res.status(503).json({ error: "Service is busy. Try again later." });
-    return;
-  }
-  activeRequests++;
-  let released = false;
-  const release = () => {
-    if (!released) {
-      released = true;
-      activeRequests--;
-    }
-  };
-  res.once("finish", release);
-  res.once("close", release);
-  next();
+const ingress = new IngressLimiter(), challenges = shared.challenge ?? new RiskChallenge();
+const previews = shared.previews ?? new PreviewQueue();
+const uploadRate = new Map<string,{at:number;count:number}>();
+app.use("/api", (req,res,next)=>{
+  res.setHeader("Cache-Control","no-store");
+  const admission=shared.ingressManaged ? null : ingress.admit(req.ip || "unknown",req.originalUrl);
+  if(admission?.status) {res.setHeader("Retry-After","60");res.status(admission.status).json({error:"Service capacity is temporarily limited. Try again shortly."});return;}
+  if(admission) {res.once("finish",admission.release);res.once("close",admission.release);}
+  const risky=shared.ingressManaged ? req.headers["x-runtime-risk"] === "challenge" : admission?.challenge;
+  if(!risky || runtime.config.mode === "fork") {next();return;}
+  void challenges.verify(req.ip || "unknown",typeof req.headers["x-turnstile-token"] === "string" ? req.headers["x-turnstile-token"] : undefined,
+    runtime.secrets?.turnstileSecret,req.hostname).then(valid=>{
+    if(valid)next();
+    else if(runtime.turnstileSiteKey && runtime.secrets?.turnstileSecret)res.status(403).json({error:"Please complete the security check to continue.",code:"CHALLENGE_REQUIRED",siteKey:runtime.turnstileSiteKey,action:"expensive_request"});
+    else {res.setHeader("Retry-After","60");res.status(429).json({error:"Too many expensive requests. Try again shortly."});}
+  }).catch(next);
 });
 app.use(express.json({ limit: "64kb" }));
 const route =
@@ -130,13 +111,11 @@ const route =
   };
 app.get("/healthz", (_req, res) => res.json({ status: "ok" }));
 app.post("/api/token-images", route(async (req, res) => {
-  const key = req.ip || "local", row = rate.get(key) || { at: Date.now(), count: 1, uploads: 0 };
-  rate.set(key, row);
-  if (++row.uploads > 10) {
-    res.setHeader("Retry-After", "60");
-    res.status(429).json({ error: "Too many image uploads. Try again in a minute." });
-    return;
-  }
+  const key = clientBucket(req.ip || "unknown"), now=Date.now();
+  for(const [ip,row] of uploadRate)if(now-row.at>=60_000)uploadRate.delete(ip);
+  if(uploadRate.size>=10_000)uploadRate.delete(uploadRate.keys().next().value!);
+  const row=uploadRate.get(key)??{at:now,count:0};uploadRate.set(key,row);
+  if(++row.count>10) {res.setHeader("Retry-After","60");res.status(429).json({error:"Too many image uploads. Try again in a minute."});return;}
   res.json(await images.upload(req.body));
 }));
 let readyCheck: Promise<boolean> | undefined,
@@ -154,10 +133,16 @@ app.get(
         .catch(() => false);
     }
     const ready = await readyCheck;
+    const current = await service.config();
     res.status(ready ? 200 : 503).json({
       status: ready ? "ready" : "unavailable",
       chainId: service.runtime.config.chainId,
-      writesEnabled: service.runtime.config.writesEnabled,
+      writesEnabled: current.writesEnabled,
+      signingPaused: current.signingPaused,
+      controlRevision: current.controlRevision,
+      blockReason: current.blockReason,
+      healthClass: !ready ? "site_unavailable" : current.signingPaused || !service.runtime.config.writesEnabled ? "expected_pause"
+        : current.blockReason || service.runtime.config.feeEngine && !current.feeEngine ? "signing_dependency_unavailable" : "operational",
     });
   }),
 );
@@ -190,11 +175,7 @@ app.post(
     const { hash, planId } = z
       .object({ hash: hashSchema, planId: hashSchema })
       .parse(req.body);
-    if (
-      (await service.store.pendingLaunches()).filter(
-        (p) => p.status === "pending",
-      ).length >= 100
-    ) {
+    if (await service.store.pendingLaunchCount() >= 100) {
       res.status(429).json({ error: "The pending registration queue is full" });
       return;
     }
@@ -210,7 +191,8 @@ app.get("/api/first-buy/prices", route(async (req, res) => {
 app.post("/api/first-buy/quote", route(async (req, res) => {
   const input = z.object({ account: addressSchema, fromToken: addressSchema, toToken: addressSchema,
     amount: z.string().max(40), slippageBps: z.union([z.literal(50), z.literal(100), z.literal(200), z.literal(500)]) }).strict().parse(req.body);
-  await service.preflightFirstBuyPayment(input.toToken);
+  firstBuyPaymentInput(deploymentChain(runtime.config),input);
+  await service.preflightFirstBuyPayment(input.toToken, {fromToken:input.fromToken,account:input.account});
   res.json(await payments.quote(input));
 }));
 app.post("/api/first-buy/verify", route(async (req, res) => {
@@ -294,7 +276,17 @@ app.get(
 );
 app.get(
   "/api/tokens",
-  route(async (_req, res) => res.json(await service.tokens())),
+  route(async (req, res) => {
+    if(req.query.limit===undefined && req.query.before===undefined){res.json(listedTokens(await service.store.tokenPage(50),runtime.config.mode,deploymentChain(runtime.config)));return;}
+    const limit=z.coerce.number().int().min(1).max(100).parse(req.query.limit ?? 50);
+    const cursor=z.string().max(300).optional().parse(req.query.before);
+    const before=cursor ? z.object({createdAt:z.number().int().nonnegative(),address:addressSchema}).strict().parse(JSON.parse(Buffer.from(cursor,"base64url").toString("utf8"))) : undefined;
+    const rows=await service.store.tokenPage(limit,before);
+    const items=listedTokens(rows,runtime.config.mode,deploymentChain(runtime.config));
+    const last=rows.at(-1);
+    const nextCursor=rows.length===limit && last ? Buffer.from(JSON.stringify({createdAt:last.createdAt,address:last.address})).toString("base64url") : null;
+    res.json({items,nextCursor});
+  }),
 );
 app.get("/api/musegod", route(async (_req, res) => res.json(await musegod.info())));
 app.get("/api/musegod/market/:section", route(async (req, res) => {
@@ -331,7 +323,7 @@ app.get(
     res.json(await service.state(addressSchema.parse(req.params.address))),
   ),
 );
-let preparing = false;
+
 app.post(
   "/api/launch/validate",
   route(async (req, res) => {
@@ -345,16 +337,44 @@ app.post(
 app.post(
   "/api/launch/prepare",
   route(async (req, res) => {
-    if (preparing) {
-      res.status(429).json({ error: "Another preview is being calculated. Try again later." });
-      return;
-    }
-    preparing = true;
-    try {
-      res.json(await service.prepare(req.body.draft, req.body.creator, req.body.expectedCurvePolicy, req.body.firstBuy));
-    } finally {
-      preparing = false;
-    }
+    assertSigningEnabled(await service.config());
+    const canonical=(value:unknown,depth=0):unknown=>{
+      if(depth>30)throw new Error("Request nesting is too deep.");
+      if(Array.isArray(value))return value.map(item=>canonical(item,depth+1));
+      return value && typeof value==="object" ? Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)).map(([key,item])=>[key,canonical(item,depth+1)])) : value;
+    };
+    const key=createHash("sha256").update(JSON.stringify(canonical(req.body))).digest("hex");
+    const requestId=typeof req.headers["x-request-id"]==="string" && /^[a-f0-9-]{36}$/i.test(req.headers["x-request-id"]) ? req.headers["x-request-id"] : undefined;
+    const plan=await previews.run(key,async()=>{
+      let recovered=false;
+      if(req.body.paymentRecovery) {
+        const proof=z.object({quote:z.unknown(),hash:hashSchema}).strict().parse(req.body.paymentRecovery);
+        const quote=proof.quote as Parameters<FirstBuyPaymentReader["verify"]>[0]["quote"];
+        const checked=await payments.verify({quote,hash:proof.hash as Hex});
+        if(checked.status!=="success" || typeof req.body.firstBuy?.amount!=="string" || !/^\d+(?:\.\d+)?$/.test(req.body.firstBuy.amount) || parseUnits(req.body.firstBuy.amount,quote.toToken.decimals).toString()!==checked.actualOutput || !sameAddress(quote.account,req.body.creator) || !sameAddress(quote.toToken.address,req.body.draft?.quoteAddress ?? ""))
+          throw new Error("The recovery receipt does not match this creator and paired asset.");
+        recovered=true;
+      }
+      return withRecoveryBudget(recovered,async()=>{
+        const budget=await service.store.reserveBudget("prepare",Date.now(),recoveryBudget());
+        if(!budget.allowed)throw new BudgetUnavailable(budget.retryAfter);
+        const owner=randomUUID();
+        if(!await service.store.reservePrepareSlot(owner))throw new BudgetUnavailable(2);
+        let renewalWork:Promise<void>|undefined, leaseLost=false;
+        // Keep the cross-chain slot while the SDK runs, including after a client disconnect.
+        // A crashed runtime's lease expires after four minutes; a live long preview renews it.
+        const renewal=setInterval(()=>{
+          if(renewalWork)return;
+          renewalWork=Promise.resolve().then(()=>service.store.reservePrepareSlot(owner)).then(held=>{if(!held)leaseLost=true;}).catch(()=>{leaseLost=true;}).finally(()=>{renewalWork=undefined;});
+        },60_000);
+        try {
+          const plan=await service.prepare(req.body.draft,req.body.creator,req.body.expectedCurvePolicy,req.body.firstBuy,req.body.options);
+          if(leaseLost)throw new BudgetUnavailable(2);
+          return plan;
+        } finally {clearInterval(renewal);await renewalWork;await service.store.releasePrepareSlot(owner);}
+      });
+    },requestId ? `${requestId}:${key}` : undefined);
+    res.json({...plan,serverTime:Date.now()});
   }),
 );
 app.post("/api/launch/simulate", route(async (req, res) => {
@@ -365,7 +385,7 @@ app.post("/api/launch/simulate", route(async (req, res) => {
 app.post(
   "/api/launch/register",
   route(async (req, res) =>
-    res.json(await service.register(hashSchema.parse(req.body.hash) as Hex)),
+    res.json(await service.register(hashSchema.parse(req.body.hash) as Hex, req.body.plan)),
   ),
 );
 app.post(
@@ -440,7 +460,7 @@ app.post(
         if (service.runtime.config.mode === "fork") throw new Error("A local fork cannot query mainnet through the secondary RPC.");
         if (service.runtime.config.chainId === 4663) result = await service.rpcRequest(body.method, body.params);
         else {
-        const response = await fetch(mainnetRpcUrl(4663), {
+        const response = await fetch(mainnetRpcUrl(4663, runtime.environment), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
@@ -481,6 +501,7 @@ app.use(
     res: express.Response,
     _next: express.NextFunction,
   ) => {
+    if(error instanceof BudgetUnavailable){res.setHeader("Retry-After",String(error.retryAfter));res.status(429).json({error:error.message,code:"CAPACITY_LIMITED"});return;}
     const status =
       error instanceof MarketUnavailable
         ? 503
@@ -488,7 +509,7 @@ app.use(
           ? 400
           : 422;
     res.status(status).json({
-      error: redact(error instanceof z.ZodError ? errorMessage(error) : error),
+      error: redact(error instanceof z.ZodError ? errorMessage(error) : error, runtime.environment),
       ...(error instanceof BuybackError ? { code: error.code } : {}),
       ...(error instanceof MarketUnavailable
         ? {

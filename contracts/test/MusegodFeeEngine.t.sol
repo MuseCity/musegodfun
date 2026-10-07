@@ -96,6 +96,8 @@ contract EngineManager {
 }
 
 contract EngineOracle {
+    address public weth;
+    constructor(address weth_) { weth = weth_; }
     struct AssetFeed {
         address feed;
         uint32 maxAge;
@@ -155,6 +157,10 @@ contract EngineSwapper {
 contract EngineExecutor {}
 
 contract EngineAutomation {}
+contract EngineVault {
+    address public weth; address public musegod; address public oracle; address public swapper;
+    constructor(address w,address m,address o,address s) { weth=w; musegod=m; oracle=o; swapper=s; }
+}
 
 contract EngineRouter {
     uint256 public output = 200;
@@ -194,6 +200,7 @@ contract MusegodFeeEngineTest {
     EngineExecutor private executor;
     EngineAutomation private automation;
     MusegodFeeEngine private engine;
+    EngineVault private vault;
     bytes32 private poolId;
     PoolKey private key;
     address private constant STRANGER = address(0xAA);
@@ -206,12 +213,13 @@ contract MusegodFeeEngineTest {
         asset = new EngineToken();
         lp = new EngineManager();
         hook = new EngineManager();
-        oracle = new EngineOracle();
+        oracle = new EngineOracle(address(weth));
         oracle.setFeed(address(asset), address(oracle));
         swapper = new EngineSwapper(address(muse), address(oracle));
         router = new EngineRouter();
         executor = new EngineExecutor();
         automation = new EngineAutomation();
+        vault = new EngineVault(address(weth), address(muse), address(oracle), address(swapper));
         engine = new MusegodFeeEngine(
             address(lp),
             address(hook),
@@ -221,7 +229,7 @@ contract MusegodFeeEngineTest {
             address(muse),
             address(router),
             address(executor),
-            address(automation)
+            address(automation), address(oracle), address(vault)
         );
         key = _key(address(asset), address(weth));
         poolId = _configure(key);
@@ -341,7 +349,50 @@ contract MusegodFeeEngineTest {
         _nextWindow();
         _convert(100, 198, 512);
         require(engine.pending(address(asset)) == 900 && asset.balanceOf(address(engine)) == 1400);
-        require(weth.balanceOf(address(swapper)) == 200 && engine.totalConvertedWeth() == 200);
+        require(weth.balanceOf(address(vault)) == 200 && engine.totalConvertedWeth() == 200);
+    }
+
+    function testOutOfBandPushAndDonationsSyncOnceAcrossManagers() public {
+        _claimAsset(1000);
+        asset.mint(address(engine), 700);
+        engine.syncUntracked(poolId);
+        require(engine.pending(address(asset)) == 1700 && engine.totalClaimed(address(asset)) == 1000);
+        require(engine.totalSynced(address(asset)) == 700);
+        engine.syncUntracked(poolId);
+        require(engine.pending(address(asset)) == 1700 && engine.totalSynced(address(asset)) == 700);
+        _claimAsset(300);
+        engine.syncUntracked(poolId);
+        require(engine.pending(address(asset)) == 2000 && engine.totalSynced(address(asset)) == 700);
+    }
+
+    function testDeficitNeverBecomesNewCreditOrSubsidizesProcessing() public {
+        asset.mint(address(engine), 1000); engine.syncUntracked(poolId);
+        vm.prank(address(engine)); asset.transfer(STRANGER, 1);
+        vm.expectRevert(MusegodFeeEngine.NoValidClaim.selector); engine.syncUntracked(poolId);
+        require(engine.pending(address(asset)) == 1000 && engine.totalSynced(address(asset)) == 1000);
+    }
+
+    function testBeneficiaryShareIncreaseKeepsClaimsAndSyncAvailable() public {
+        lp.configure(key, address(engine), 0.285e18);
+        hook.configure(key, address(engine), 0.30e18);
+        _claimAsset(1000);
+        asset.mint(address(engine), 50);
+        engine.syncUntracked(poolId);
+        require(engine.pending(address(asset)) == 1050 && engine.totalSynced(address(asset)) == 50);
+    }
+
+    function testSyncedReceiptsDoNotIncreaseTheCurrentQuota() public {
+        _claimAsset(1000); _nextWindow();
+        asset.mint(address(engine), 9000); engine.syncUntracked(poolId);
+        _convert(100, 198, 512);
+        vm.expectRevert(MusegodFeeEngine.WindowExceeded.selector); _convert(1, 2, 512);
+    }
+
+    function testSharedCurrencyAcrossPoolsCannotDoubleSync() public {
+        _claimAsset(1000); asset.mint(address(engine), 100);
+        PoolKey memory k = _key(address(asset), address(muse)); bytes32 second = _configure(k);
+        engine.syncUntracked(second); engine.syncUntracked(poolId);
+        require(engine.pending(address(asset)) == 1100 && engine.totalSynced(address(asset)) == 100);
     }
 
     function testNewWindowWaitAndCumulativeQuota() public {
@@ -419,7 +470,7 @@ contract MusegodFeeEngineTest {
         vm.expectRevert(MusegodFeeEngine.OutputBelowMinimum.selector);
         _convert(100, 198, 512);
         require(engine.pending(address(asset)) == 1000 && asset.allowance(address(engine), address(router)) == 0);
-        require(weth.balanceOf(address(swapper)) == 0 && asset.balanceOf(address(executor)) == 0);
+        require(weth.balanceOf(address(vault)) == 0 && asset.balanceOf(address(executor)) == 0);
     }
 
     function testPartialSpendIsRejectedAndDoesNotTouchDonation() public {
@@ -449,7 +500,7 @@ contract MusegodFeeEngineTest {
         _accrue(lp, poolId, key, address(weth), 100);
         oracle.setFail(true);
         engine.claimAndForward(poolId);
-        require(engine.pending(address(weth)) == 1100 && weth.balanceOf(address(swapper)) == 0);
+        require(engine.pending(address(weth)) == 1100 && weth.balanceOf(address(vault)) == 0);
     }
 
     function testPublicWethForwardUsesQuotaAndKeepsDonations() public {
@@ -459,7 +510,7 @@ contract MusegodFeeEngineTest {
         _nextWindow();
         vm.prank(STRANGER);
         engine.forwardWeth(100);
-        require(weth.balanceOf(address(swapper)) == 100 && weth.balanceOf(address(engine)) == 1000);
+        require(weth.balanceOf(address(vault)) == 100 && weth.balanceOf(address(engine)) == 1000);
         require(engine.pending(address(weth)) == 900);
     }
 
@@ -471,8 +522,8 @@ contract MusegodFeeEngineTest {
         oracle.setFail(true);
         vm.prank(STRANGER);
         engine.claimAndForward(id);
-        require(muse.balanceOf(DEAD) == 1000 && engine.totalDirectBurned() == 1000);
-        require(muse.balanceOf(address(engine)) == 100 && engine.pending(address(muse)) == 0);
+        require(muse.balanceOf(DEAD) == 1100 && engine.totalDirectBurned() == 1100);
+        require(muse.balanceOf(address(engine)) == 0 && engine.pending(address(muse)) == 0 && engine.totalSynced(address(muse)) == 100);
     }
 
     function testExpiryAndDependencyCodeChange() public {
@@ -504,7 +555,7 @@ contract MusegodFeeEngineTest {
         weth.setTax(true);
         vm.expectRevert(MusegodFeeEngine.TransferMismatch.selector);
         engine.forwardWeth(100);
-        require(engine.pending(address(weth)) == 1000 && weth.balanceOf(address(swapper)) == 0);
+        require(engine.pending(address(weth)) == 1000 && weth.balanceOf(address(vault)) == 0);
     }
 
     function _deployWithAutomation(address receiver) private returns (MusegodFeeEngine) {
@@ -517,7 +568,7 @@ contract MusegodFeeEngineTest {
             address(muse),
             address(router),
             address(executor),
-            receiver
+            receiver, address(oracle), address(vault)
         );
     }
 

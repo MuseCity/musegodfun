@@ -1,3 +1,5 @@
+import { quoteNow } from "./quote-clock";
+import { assertLaunchIntentLock, launchIntentStorageKey, saveFrozenLaunch } from "./launch-intent";
 import {
   createContext,
   useContext,
@@ -18,6 +20,7 @@ import {
   getAddress,
   serializeTypedData,
   formatEther,
+  formatUnits,
   keccak256,
   http,
   toHex,
@@ -57,7 +60,7 @@ import type { FirstBuyLockStatus } from "./launch-plan";
 import { MUSEGOD_ROUTER_VERIFICATION, assertMusegodTradingEnabled, type MusegodQuote } from "./musegod";
 import { executeMusegodTrade } from "./musegod-trade";
 import type { LaunchPlan, LaunchTransaction } from "./launch-plan";
-import { assertLaunchRequest, assertLaunchWalletPlan, bufferedLaunchGas, executeLaunchPlan, type LaunchSimulation } from "./launch-wallet";
+import { assertLaunchRequest, assertLaunchWalletPlan, bufferedLaunchGas, executeLaunchPlan, launchDraftInput, type LaunchSimulation } from "./launch-wallet";
 import { engineTransaction, type EngineAction } from "./buyback-engine";
 declare global {
   interface Window {
@@ -76,11 +79,11 @@ export type Quote = {
   expiresAt: number;
 };
 export const publicClient = createPublicClient({
-  transport: http("/api/chains/4663/rpc", { retryCount: 0, timeout: 30_000 }),
+  transport: http("/api/chains/4663/rpc", { retryCount: 2, retryDelay: 500, timeout: 30_000 }),
 });
 export const robinhoodClient = createPublicClient({
   chain: robinhood,
-  transport: http("/api/chains/4663/rpc", { retryCount: 0, timeout: 30_000 }),
+  transport: http("/api/chains/4663/rpc", { retryCount: 2, retryDelay: 500, timeout: 30_000 }),
 });
 const scopedClients = new Map<string, typeof publicClient>();
 export function transactionClient(chainId: number, config?: Pick<RuntimeConfig, "chainId" | "deploymentChainId">) {
@@ -90,7 +93,7 @@ export function transactionClient(chainId: number, config?: Pick<RuntimeConfig, 
   const key = `${chainId}:${target}`;
   let client = scopedClients.get(key);
   if (!client) {
-    client = createPublicClient({ transport: http(`/api/chains/${target}/rpc`, { retryCount: 0, timeout: 30_000 }) });
+    client = createPublicClient({ transport: http(`/api/chains/${target}/rpc`, { retryCount: 2, retryDelay: 500, timeout: 30_000 }) });
     scopedClients.set(key, client);
   }
   return client;
@@ -190,7 +193,7 @@ type WalletState = {
     onHash?: (hash: Hash) => void,
   ) => Promise<Hash>;
   launch: (plan: LaunchPlan, config: RuntimeConfig, progress: (message: string) => void,
-    onHash?: (hash: Hash) => void, assertCurrent?: () => void) => Promise<Hash>;
+    onHash?: (hash: Hash) => void, assertCurrent?: () => void, onPlan?: (plan: LaunchPlan) => void) => Promise<Hash>;
   trade: (
     quote: Quote,
     config: RuntimeConfig,
@@ -202,7 +205,7 @@ type WalletState = {
   balance: (token: Address, config?: RuntimeConfig) => Promise<bigint>;
   balanceNative: (config?: RuntimeConfig) => Promise<bigint>;
   payFirstBuy: (quote: FirstBuyPaymentQuote, config: RuntimeConfig, progress: (message: string) => void,
-    onHash: (hash: Hash) => void, assertCurrent?: () => void) => Promise<FirstBuyPaymentVerification>;
+    onHash: (hash: Hash) => void, assertCurrent?: () => void, onQuote?: (quote: FirstBuyPaymentQuote) => void) => Promise<FirstBuyPaymentVerification>;
   claimFirstBuy: (token: Address, config: RuntimeConfig, onHash?: (hash: Hash) => void) => Promise<Hash>;
   tradeMusegod: (quote: MusegodQuote, config: RuntimeConfig, progress: (message: string) => void,
     onHash?: (hash: Hash) => void) => Promise<Hash>;
@@ -227,15 +230,15 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [ethBalance, setEthBalance] = useState<string | null>(null);
   const [balanceNetwork, setBalanceNetwork] = useState<string | null>(null);
   const dialog = useRef<HTMLDialogElement>(null);
-  const operation = useRef(false);
+  const operation = useRef<symbol | null>(null);
   async function exclusive<T>(action: () => Promise<T>): Promise<T> {
     if (operation.current)
       throw new Error("A transaction is already being processed. Check your wallet transaction history first.");
-    operation.current = true;
+    const owner = Symbol("wallet-request"); operation.current = owner;
     try {
       return await action();
     } finally {
-      operation.current = false;
+      if (operation.current === owner) operation.current = null;
     }
   }
   const controller = useRef<WalletConnection | null>(null);
@@ -350,11 +353,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
   }
   async function signer(config: RuntimeConfig, expected: Address, validateAction?: (current: RuntimeConfig) => Promise<unknown>,
-    guardRequest?: (request: Parameters<Provider["request"]>[0]) => void) {
+    guardRequest?: (request: Parameters<Provider["request"]>[0]) => void, beforeSend?: () => void) {
     assertSigningEnabled(config);
     assertTransactionStorage();
-    if (transactions().filter((t) => t.status === "pending").length >= 100)
-      throw new Error("Check the pending transaction first");
     const p = controller.current?.selected?.provider;
     if (!p) throw new Error("The wallet is unavailable");
     const validate = async () => {
@@ -365,6 +366,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         transactionClient(config.chainId, config).getChainId(),
       ]);
       assertSigningEnabled(current);
+      if (config.mode !== "fork" && (current.securityProtocol !== 1 || current.signingPaused !== false ||
+        !Number.isSafeInteger(current.controlRevision) || current.controlRevision! < 0))
+        throw new Error("The current signing controls could not be verified. Your draft and payment are saved.");
       if (
         current.chainId !== config.chainId ||
         current.mode !== config.mode ||
@@ -376,17 +380,21 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       await validateAction?.(current);
       await controller.current!.validate(expected, config.chainId, p);
     };
-    await validate();
+    await controller.current!.validate(expected, config.chainId, p);
     return createWalletClient({
       account: expected,
       chain: walletChain(config),
       transport: custom({
         request: async (request: Parameters<Provider["request"]>[0]) => {
           guardRequest?.(request);
-          await validate();
+          const method = (request as unknown as { method: string }).method;
+          if (/^(?:eth_sendTransaction|eth_sign|personal_sign|eth_signTypedData)/.test(method) || method === "wallet_sendCalls") {
+            await validate();
+            if (method === "eth_sendTransaction") beforeSend?.();
+          }
           return p.request(request);
         },
-      } as Provider),
+      } as Provider, { retryCount: 0 }),
     });
   }
   async function confirmed(
@@ -394,7 +402,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     config: Pick<RuntimeConfig, "chainId" | "deploymentChainId">,
     expected: Address,
     action: Transaction["action"],
-    extra: Pick<Transaction, "batchId" | "buybackKind" | "nonce" | "musegodRecovery" | "firstBuyPayment" | "firstBuyClaim"> = {},
+    extra: Pick<Transaction, "batchId" | "buybackKind" | "nonce" | "musegodRecovery" | "firstBuyPayment" | "firstBuyClaim" | "intentId" | "tokenAddress" | "planId"> = {},
+    background = false,
   ) {
     saveTransaction({
       hash,
@@ -406,6 +415,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       at: Date.now(),
       ...extra,
     });
+    if (!background && action !== "approval") operation.current = null;
     let replaced = false;
     try {
       const client = transactionClient(config.chainId, config);
@@ -425,11 +435,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           }
         } catch { /* Recovery retries nonce discovery from the actual transaction. */ }
       }
-      const receipt = await client.waitForTransactionReceipt({
+      const waitOptions = {
         hash,
         confirmations: 2,
         timeout: 120000,
-        onReplaced: (r) => {
+        onReplaced: (r: { reason: string; transaction: { hash: Hash }; replacedTransaction: { nonce: number } }) => {
           updateTransaction(hash, config.chainId, {
             status: r.reason === "cancelled" ? "cancelled" : "replaced",
             replacement: r.transaction.hash,
@@ -459,7 +469,16 @@ export function WalletProvider({ children }: { children: ReactNode }) {
               if (!replaced) updateTransaction(r.transaction.hash, config.chainId, { registered: true }, config.deploymentChainId);
             }).catch(() => {});
         },
-      });
+      };
+      let receipt;
+      const waitUntil = Date.now() + 120_000;
+      while (true) {
+        try { receipt = await client.waitForTransactionReceipt({ ...waitOptions, timeout: Math.max(1, waitUntil - Date.now()) }); break; }
+        catch (cause) {
+          if (Date.now() >= waitUntil || !/429|503|timeout|timed out|too many|busy|HTTP request failed|fetch failed/i.test(String(cause))) throw cause;
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+        }
+      }
       if (replaced) throw new Error("The transaction was cancelled or replaced. Check your transaction history.");
       const [head, canonicalBlock] = await Promise.all([
         client.getBlockNumber(), client.getBlock({ blockNumber: receipt.blockNumber }),
@@ -507,8 +526,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       .catch((error: unknown) => {
         throw simulationError(error);
       });
-    await signer(config, expected);
-    const hash = await wallet.sendTransaction({ to, data, value: 0n });
+    const gas = await fundedGas(publicClient, to, data, 0n, config, expected);
+    const hash = await wallet.sendTransaction({ to, data, value: 0n, gas });
     const confirmation = confirmed(
       hash,
       config,
@@ -517,6 +536,86 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     );
     onHash?.(hash);
     return confirmation;
+  }
+  async function submitTrackedLaunch(transaction: LaunchTransaction, config: RuntimeConfig, expected: Address, gas: bigint,
+    context: { kind: "approval" | "launch" | "payment"; intentId?: string; planId?: Hex; tokenAddress?: Address; quote?: FirstBuyPaymentQuote },
+    signingWallet: (beforeSend: () => void) => ReturnType<typeof signer>) {
+    const marker = context.intentId ? launchIntentStorageKey(config, expected, context.intentId, "submission") : null;
+    const saved = { transaction, account: expected, chainId: config.chainId,
+      deploymentChainId: deploymentChain(config), ...context, at: Date.now() };
+    let requested = false, timedOut = false, timeoutAt = 0, savedMarker: string | undefined;
+    const changed = () => window.dispatchEvent(new Event("musegod:launch-submission"));
+    const clearMarker = () => {
+      if (!marker) return true;
+      if (savedMarker && localStorage.getItem(marker) === savedMarker) { localStorage.removeItem(marker); changed(); return true; }
+      return false;
+    };
+    let timer: ReturnType<typeof setTimeout>;
+    let restartTimeout: () => void, expire: () => void;
+    const timeout = new Promise<never>((_, reject) => {
+      expire = () => {
+        timedOut = true;
+        reject(new Error(requested
+          ? "The wallet request is still unresolved. Your saved request will not be resent. Check your wallet or create another token."
+          : "The wallet request took too long before submission. Your draft is saved; reconnect your wallet and review again."));
+      };
+      restartTimeout = () => {
+        clearTimeout(timer);
+        timeoutAt = performance.now() + 300_000;
+        timer = setTimeout(expire, 300_000);
+      };
+      restartTimeout();
+    });
+    const submission = (async () => {
+      const wallet = await signingWallet(() => {
+        // A timed-out preflight must never reach the provider later. A request
+        // already handed to the wallet remains owned by this frozen intent.
+        if (timedOut || performance.now() >= timeoutAt) {
+          expire(); throw new Error("The wallet request expired before submission. Review again.");
+        }
+        if (requested) throw new Error("This wallet request was already sent. Check its saved status.");
+        if (marker) { savedMarker = JSON.stringify(saved); localStorage.setItem(marker, savedMarker); changed(); }
+        requested = true;
+        // Give the wallet its complete five-minute response window even when
+        // the preceding configuration and transaction checks were slow.
+        restartTimeout();
+      });
+      if (timedOut) throw new Error("The wallet request expired before submission. Review again.");
+      return wallet.sendTransaction({ to: transaction.to, data: transaction.data, value: BigInt(transaction.value), gas });
+    })().then((hash) => {
+      // Background tabs can delay timer callbacks. An overdue response must
+      // still take the recovery path, even if its promise runs before the timer.
+      if (!timedOut && performance.now() >= timeoutAt) expire();
+      if (marker && savedMarker && localStorage.getItem(marker) === savedMarker) {
+        savedMarker = JSON.stringify({ ...saved, hash }); localStorage.setItem(marker, savedMarker); changed();
+      }
+      if (timedOut && !transactions().some((row) => row.hash === hash && row.chainId === config.chainId &&
+        (config.chainId !== 31337 || row.deploymentChainId === config.deploymentChainId))) {
+        // Never resume the old UI callbacks or a subsequent approval/payment.
+        // Receipt observation only updates the original intent's history.
+        void confirmed(hash, config, expected, context.kind === "payment" ? "swap" : context.kind, {
+          intentId: context.intentId, planId: context.planId, tokenAddress: context.tokenAddress,
+          ...(context.kind === "payment" ? { firstBuyPayment: context.quote } : {}),
+        }, true).catch(() => {});
+      }
+      return { hash, clearMarker };
+    }, (cause: unknown) => {
+      if (!requested || /4001|user rejected|user denied/i.test(String(cause))) clearMarker();
+      throw cause;
+    });
+    try { return await Promise.race([submission, timeout]); }
+    finally { clearTimeout(timer!); }
+  }
+  async function confirmLaunchApproval(transaction: LaunchTransaction, config: RuntimeConfig, expected: Address, gas: bigint,
+    context: { intentId?: string; planId?: Hex; quote?: FirstBuyPaymentQuote },
+    signingWallet: (beforeSend: () => void) => ReturnType<typeof signer>, onHash?: (hash: Hash) => void) {
+    const { hash, clearMarker } = await submitTrackedLaunch(transaction, config, expected, gas,
+      { ...context, kind: "approval" }, signingWallet);
+    onHash?.(hash);
+    await confirmed(hash, config, expected, "approval", { intentId: context.intentId, planId: context.planId });
+    // Only a canonical successful receipt releases this intent. Unknown wallet
+    // results and pending confirmations retain the exact approval for recovery.
+    if (!clearMarker()) throw new Error("The saved approval request changed. Check the current transaction before continuing.");
   }
   async function engineAction(action: EngineAction, config: RuntimeConfig, onHash?: (hash: Hash) => void) {
     const publicClient = transactionClient(config.chainId, config);
@@ -529,39 +628,53 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       if (!sameAddress(fresh.to, tx.to) || fresh.data.toLowerCase() !== tx.data.toLowerCase() ||
         current.feeEngine !== config.feeEngine || current.buybackExecutor !== config.buybackExecutor ||
         current.treasury !== config.treasury || current.automationReceiver !== config.automationReceiver ||
-        current.automationTreasury !== config.automationTreasury || current.wethForwarder !== config.wethForwarder)
+        current.automationTreasury !== config.automationTreasury || current.wethForwarder !== config.wethForwarder ||
+        current.buybackVault !== config.buybackVault || current.assetFeedOracle !== config.assetFeedOracle)
         throw new Error("The buyback engine configuration or transaction changed. Refresh and preview again.");
     };
     await signer(config, expected, validate);
     await publicClient.call({ account: expected, ...tx }).catch((error: unknown) => { throw simulationError(error); });
     const wallet = await signer(config, expected, validate,
       (request) => assertLaunchRequest(request, { to: tx.to, data: tx.data, value: "0", from: expected, chainId: config.chainId }));
-    const hash = await wallet.sendTransaction(tx);
+    const gas = await fundedGas(publicClient, tx.to, tx.data, 0n, config, expected);
+    const hash = await wallet.sendTransaction({ ...tx, gas });
     const confirmation = confirmed(hash, config, expected, "engine");
     onHash?.(hash);
     return confirmation;
   }
   async function launch(plan: LaunchPlan, config: RuntimeConfig, progress: (message: string) => void,
-    onHash?: (hash: Hash) => void, assertCurrent?: () => void) {
+    onHash?: (hash: Hash) => void, assertCurrent?: () => void, onPlan?: (plan: LaunchPlan) => void) {
     const publicClient = transactionClient(config.chainId, config);
     const api = <T,>(path: string, body?: unknown) => chainApi<T>(deploymentChain(config), path, body);
     if (!account) throw new Error("Connect your wallet first");
     const expected = account;
     const validate = async (frozen: LaunchPlan, current: RuntimeConfig) => {
       assertCurrent?.();
+      if (frozen.intentId) await assertLaunchIntentLock(config, expected, frozen.intentId);
       assertLaunchWalletPlan(frozen, current, expected);
-      const result = await api<{ valid: true; curvePolicy: string }>("/launch/validate", {
+      const result = await api<{ valid: true; curvePolicy: string; planId?: Hex; intentId?: string; validityVersion?: number; signingExpiresAt?: number }>("/launch/validate", {
         creator: expected, data: frozen.data,
       });
-      if (result.valid !== true || result.curvePolicy !== frozen.curvePolicy)
+      if (result.valid !== true || result.curvePolicy !== frozen.curvePolicy || frozen.validityVersion === 2 &&
+        (result.planId !== frozen.id || result.intentId !== frozen.intentId || result.validityVersion !== 2 || result.signingExpiresAt !== frozen.signingExpiresAt))
         throw new Error("The launch preview has changed. Run a new preview.");
       assertCurrent?.();
     };
-    const signingWallet = (transaction: LaunchTransaction, frozen: LaunchPlan) => signer(config, expected,
+    const signingWallet = (transaction: LaunchTransaction, frozen: LaunchPlan, beforeSend?: () => void) => signer(config, expected,
       (current) => validate(frozen, current),
-      (request) => assertLaunchRequest(request, { ...transaction, from: expected, chainId: config.chainId }));
+      (request) => assertLaunchRequest(request, { ...transaction, from: expected, chainId: config.chainId }), beforeSend);
     return executeLaunchPlan(plan, config, expected, {
-      validate: async (frozen) => { await signer(config, expected, (current) => validate(frozen, current)); },
+      validate: (frozen) => validate(frozen, config),
+      refresh: async (previous) => {
+        const refreshed = await api<LaunchPlan>("/launch/prepare", {
+          draft: launchDraftInput(previous), creator: expected, expectedCurvePolicy: previous.curvePolicy,
+          options: { intentId: previous.intentId, previousPlanId: previous.id,
+            acceptedMinAmountOut: previous.firstBuy?.acceptedMinAmountOut ?? previous.firstBuy?.minAmountOut },
+          firstBuy: { amount: previous.firstBuy?.amount ?? "0", slippageBps: previous.firstBuy?.slippageBps ?? 100, lockDays: previous.firstBuy?.lockDays ?? 0 },
+        });
+        saveFrozenLaunch(config, expected, refreshed); onPlan?.(refreshed); return refreshed;
+      },
+      onPlan,
       balance: (token) => publicClient.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [expected] }),
       allowance: (token, spender) => publicClient.readContract({ address: token, abi: erc20Abi, functionName: "allowance", args: [expected, spender] }),
       approve: async (transaction, frozen) => {
@@ -573,19 +686,23 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         ]);
         const gas = bufferedLaunchGas(estimate, block.gasLimit);
         await ensureGas(config, expected, 0n, gas);
-        const wallet = await signingWallet(transaction, frozen);
-        const hash = await wallet.sendTransaction({ to: transaction.to, data: transaction.data, value: 0n, gas });
-        progress(`Waiting for first buy approval · ${hash}`);
-        await confirmed(hash, config, expected, "approval");
+        saveFrozenLaunch(config, expected, frozen);
+        await confirmLaunchApproval(transaction, config, expected, gas, { intentId: frozen.intentId, planId: frozen.id },
+          (beforeSend) => signingWallet(transaction, frozen, beforeSend),
+          (hash) => progress(`Waiting for first buy approval · ${hash}`));
       },
       simulate: (frozen) => api<LaunchSimulation>("/launch/simulate", { creator: expected, data: frozen.data }),
       submit: async (transaction, gas, frozen) => {
         const block = await publicClient.getBlock();
         const bufferedGas = bufferedLaunchGas(gas, block.gasLimit);
         await ensureGas(config, expected, 0n, bufferedGas);
-        const wallet = await signingWallet(transaction, frozen);
-        const hash = await wallet.sendTransaction({ to: transaction.to, data: transaction.data, value: 0n, gas: bufferedGas });
-        const confirmation = confirmed(hash, config, expected, "launch");
+        saveFrozenLaunch(config, expected, frozen);
+        const { hash } = await submitTrackedLaunch(transaction, config, expected, bufferedGas,
+          { kind: "launch", intentId: frozen.intentId, planId: frozen.id, tokenAddress: frozen.tokenAddress },
+          (beforeSend) => signer(config, expected, (current) => validate(frozen, current),
+          (request) => assertLaunchRequest(request, { ...transaction, from: expected, chainId: config.chainId }),
+          beforeSend));
+        const confirmation = confirmed(hash, config, expected, "launch", { intentId: frozen.intentId, tokenAddress: frozen.tokenAddress, planId: frozen.id });
         onHash?.(hash);
         progress(`Waiting for on-chain launch confirmation · ${hash}`);
         return confirmation;
@@ -603,7 +720,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     const expected = account;
     const contracts = contractsFor(config);
     const fresh = () => {
-      if (Date.now() >= quote.expiresAt)
+      if (quoteNow(quote) >= quote.expiresAt)
         throw new Error("The quote has expired. Request a new quote. Existing approvals can still be reused.");
     };
     fresh();
@@ -636,7 +753,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       await publicClient.simulateContract(request);
       await signer(config, expected);
       await confirmed(
-        await wallet.writeContract(request),
+        await wallet.writeContract({ ...request, gas: await fundedContractGas(publicClient, request, config, expected) }),
         config,
         expected,
         "approval",
@@ -676,7 +793,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       fresh();
       await signer(config, expected);
       await confirmed(
-        await wallet.writeContract(request),
+        await wallet.writeContract({ ...request, gas: await fundedContractGas(publicClient, request, config, expected) }),
         config,
         expected,
         "approval",
@@ -709,6 +826,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       to: tx.to,
       data: tx.data,
       value: 0n,
+      gas: await fundedGas(publicClient, tx.to, tx.data, 0n, config, expected),
     });
     progress(`Waiting for onchain confirmation · ${hash}`);
     return confirmed(hash, config, expected, "swap");
@@ -732,6 +850,15 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     if (await publicClient.getChainId() !== current.chainId) throw new Error("The balance RPC network differs from the selected network.");
     return publicClient.getBalance({ address: account });
   }
+  async function fundedGas(client: typeof publicClient, to: Address, data: Hex, value: bigint, config: RuntimeConfig, expected: Address) {
+    const [estimate, block] = await Promise.all([client.estimateGas({ account: expected, to, data, value }), client.getBlock()]);
+    const gas = bufferedLaunchGas(estimate, block.gasLimit);
+    await ensureGas(config, expected, value, gas); return gas;
+  }
+  async function fundedContractGas(client: typeof publicClient, request: { address: Address; abi: unknown; functionName: string; args: readonly unknown[] }, config: RuntimeConfig, expected: Address) {
+    const data = encodeFunctionData(request as Parameters<typeof encodeFunctionData>[0]);
+    return fundedGas(client, request.address, data, 0n, config, expected);
+  }
   async function ensureGas(config: RuntimeConfig, expected: Address, value: bigint, gas: bigint) {
     const client = transactionClient(config.chainId, config);
     const [fees, available] = await Promise.all([client.estimateFeesPerGas(), client.getBalance({ address: expected })]);
@@ -740,16 +867,19 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       throw new Error("Keep enough ETH for this transaction and its gas reserve. Reduce the payment amount and preview again.");
   }
   async function payFirstBuy(quote: FirstBuyPaymentQuote, config: RuntimeConfig, progress: (message: string) => void,
-    onHash: (hash: Hash) => void, assertCurrent?: () => void): Promise<FirstBuyPaymentVerification> {
+    onHash: (hash: Hash) => void, assertCurrent?: () => void, onQuote?: (quote: FirstBuyPaymentQuote) => void): Promise<FirstBuyPaymentVerification> {
     if (!account) throw new Error("Connect your wallet first");
     config = Object.freeze({ ...config });
     const expected = account, client = transactionClient(config.chainId, config);
+    let submittedQuote = quote;
+    let clearSubmission: (() => boolean) | undefined;
     const validate = async (frozen: FirstBuyPaymentQuote, current: RuntimeConfig) => {
       assertCurrent?.();
+      if (frozen.intentId) await assertLaunchIntentLock(config, expected, frozen.intentId);
       assertFirstBuyLaunchConfig(config, current);
       const swaps = assertFirstBuyPaymentQuote(frozen);
       const [facet, code] = await Promise.all([
-        client.readContract({ address: frozen.router, abi: firstBuyDiamondAbi, functionName: "facetAddress", args: [frozen.transaction.data.slice(0, 10) as Hex] }),
+        frozen.protocol === "wrap" ? Promise.resolve(frozen.facet) : client.readContract({ address: frozen.router, abi: firstBuyDiamondAbi, functionName: "facetAddress", args: [frozen.transaction.data.slice(0, 10) as Hex] }),
         client.getCode({ address: frozen.facet }),
       ]);
       if (!sameAddress(facet, frozen.facet) || !code || keccak256(code) !== frozen.facetRuntimeHash)
@@ -770,18 +900,23 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       }
       assertCurrent?.();
     };
-    const signingWallet = (transaction: LaunchTransaction, frozen: FirstBuyPaymentQuote) => signer(config, expected,
-      (current) => validate(frozen, current), (request) => assertLaunchRequest(request, { ...transaction, from: expected, chainId: config.chainId }));
+    const signingWallet = (transaction: LaunchTransaction, frozen: FirstBuyPaymentQuote, beforeSend?: () => void) => signer(config, expected,
+      (current) => validate(frozen, current), (request) => assertLaunchRequest(request, { ...transaction, from: expected, chainId: config.chainId }), beforeSend);
     const hash = await executeFirstBuyPayment(quote, config, expected, {
-      validate: async (frozen) => { await signer(config, expected, (current) => validate(frozen, current)); },
+      validate: (frozen) => validate(frozen, config),
+      refresh: async (previous) => ({ ...(await chainApi<FirstBuyPaymentQuote>(deploymentChain(config), "/first-buy/quote", {
+        account: expected, fromToken: previous.fromToken.address, toToken: previous.toToken.address,
+        amount: formatUnits(BigInt(previous.amountIn), previous.fromToken.decimals), slippageBps: previous.slippageBps,
+      })), intentId: previous.intentId }),
+      onQuote: (fresh) => { submittedQuote = fresh; onQuote?.(fresh); },
       balance: (token) => sameAddress(token, "0x0000000000000000000000000000000000000000")
         ? client.getBalance({ address: expected }) : client.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [expected] }),
       allowance: (token, spender) => client.readContract({ address: token, abi: erc20Abi, functionName: "allowance", args: [expected, spender] }),
       approve: async (tx, frozen) => {
-        const gas = await client.estimateGas({ account: expected, to: tx.to, data: tx.data, value: 0n });
-        await ensureGas(config, expected, 0n, gas);
-        const wallet = await signingWallet(tx, frozen);
-        await confirmed(await wallet.sendTransaction({ to: tx.to, data: tx.data, value: 0n, gas: gas * 120n / 100n }), config, expected, "approval");
+        const gas = await fundedGas(client, tx.to, tx.data, 0n, config, expected);
+        await confirmLaunchApproval(tx, config, expected, gas, { intentId: frozen.intentId, quote: frozen },
+          (beforeSend) => signingWallet(tx, frozen, beforeSend),
+          (hash) => progress(`Waiting for payment approval · ${hash}`));
       },
       simulate: async (frozen) => {
         await client.call({ account: expected, to: frozen.transaction.to, data: frozen.transaction.data, value: BigInt(frozen.transaction.value) })
@@ -789,17 +924,22 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         return client.estimateGas({ account: expected, to: frozen.transaction.to, data: frozen.transaction.data, value: BigInt(frozen.transaction.value) });
       },
       submit: async (frozen, gas) => {
+        gas = bufferedLaunchGas(gas, (await client.getBlock()).gasLimit);
         await ensureGas(config, expected, BigInt(frozen.transaction.value), gas);
-        const wallet = await signingWallet(frozen.transaction, frozen);
-        const submitted = await wallet.sendTransaction({ to: frozen.transaction.to, data: frozen.transaction.data,
-          value: BigInt(frozen.transaction.value), gas: gas * 120n / 100n });
-        const confirmation = confirmed(submitted, config, expected, "swap", { firstBuyPayment: frozen });
+        const { hash: submitted, clearMarker } = await submitTrackedLaunch(frozen.transaction, config, expected, gas,
+          { kind: "payment", intentId: frozen.intentId, quote: frozen },
+          (beforeSend) => signingWallet(frozen.transaction, frozen, beforeSend));
+        clearSubmission = clearMarker;
+        const confirmation = confirmed(submitted, config, expected, "swap", { firstBuyPayment: frozen, intentId: frozen.intentId });
         onHash(submitted);
         progress(`Waiting for payment conversion confirmation · ${submitted}`);
         return confirmation;
       }, progress,
     });
-    return chainApi<FirstBuyPaymentVerification>(deploymentChain(config), "/first-buy/verify", { quote, hash });
+    const verification = await chainApi<FirstBuyPaymentVerification>(deploymentChain(config), "/first-buy/verify", { quote: submittedQuote, hash });
+    if (verification.status !== "pending" && clearSubmission && !clearSubmission())
+      throw new Error("The saved payment request changed. Check the current transaction before continuing.");
+    return verification;
   }
   async function claimFirstBuy(token: Address, config: RuntimeConfig, onHash?: (hash: Hash) => void) {
     if (!account) throw new Error("Connect the recipient wallet first");
@@ -822,9 +962,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         throw new Error("The first buy lock changed. Refresh its status.");
     };
     const gas = await client.estimateGas({ account: expected, to: tx.to, data: tx.data, value: 0n });
-    await ensureGas(config, expected, 0n, gas);
+    const finalGas = bufferedLaunchGas(gas, (await client.getBlock()).gasLimit);
+    await ensureGas(config, expected, 0n, finalGas);
     const wallet = await signer(config, expected, validate, (request) => assertLaunchRequest(request, { ...tx, from: expected, chainId: config.chainId }));
-    const hash = await wallet.sendTransaction({ to: tx.to, data: tx.data, value: 0n, gas: gas * 120n / 100n });
+    const hash = await wallet.sendTransaction({ to: tx.to, data: tx.data, value: 0n, gas: finalGas });
     const confirmation = confirmed(hash, config, expected, "claim", { firstBuyClaim: { token, bundler: state.bundler, data: tx.data } }); onHash?.(hash);
     const confirmedHash = await confirmation;
     const receipt = await client.getTransactionReceipt({ hash: confirmedHash });
@@ -864,8 +1005,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     assertBuybackStep(step, config, expected);
     assertTransactionStorage();
     const rows = transactions();
-    if (rows.filter((t) => t.status === "pending").length >= 100)
-      throw new Error("Check the pending transaction first");
     if (rows.some((t) => t.batchId === step.batchId && t.buybackKind === step.kind &&
       (t.nonce === undefined || t.nonce === step.nonce) &&
       (t.status === "pending" || t.status === "success")))
@@ -903,7 +1042,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           await validate();
           return provider.request(request);
         },
-      } as Provider),
+      } as Provider, { retryCount: 0 }),
     });
     const hash = await wallet.sendTransaction({ to: step.to, data: step.data, value: 0n, nonce: step.nonce! });
     const confirmation = confirmed(hash, { chainId: step.chainId }, expected, "buyback", {

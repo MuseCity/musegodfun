@@ -1,4 +1,6 @@
 import type { Hex } from "viem";
+import { packPlan, unpackPlan } from "./plan-storage";
+import { defaultRuntimeControl, type RuntimeControl, type BudgetName, type BudgetResult } from "./runtime-policy";
 import type { TokenRecord } from "../src/lib/config";
 import { assertBuybackBatchId, type Store, type LaunchPlan, type BuybackBatchRecord } from "./store";
 export type StoreBackend = {
@@ -26,6 +28,7 @@ export class SupabaseStore implements StoreBackend {
   ): Promise<T> {
     const response = await fetch(`${this.url}/rest/v1/${path}`, {
       method,
+      redirect: "manual",
       headers: {
         apikey: this.key,
         ...(this.key.startsWith("eyJ")
@@ -51,9 +54,57 @@ export class SupabaseStore implements StoreBackend {
     await Promise.all([
       this.request(`musegod_quota?${this.where()}&select=key&limit=1`),
       this.request(`musegod_buyback_batches?${this.where()}&select=id&limit=1`),
+      this.request(`musegod_runtime_controls?${this.where()}&select=revision&limit=1`),
     ]);
   }
   close() {}
+  async runtimeControl(): Promise<RuntimeControl> {
+    const rows = await this.request<{paused:boolean;revision:number;updated_at:number;reason:string}[]>(`musegod_runtime_controls?${this.where()}&limit=1`);
+    return rows[0] ? { paused: rows[0].paused, revision: rows[0].revision, updatedAt: rows[0].updated_at, reason: rows[0].reason } : defaultRuntimeControl();
+  }
+  updateRuntimeControl(paused: boolean, reason: string, expectedRevision: number): Promise<RuntimeControl> {
+    return this.request("rpc/musegod_update_runtime_control", "POST", {p_scope:this.scope,p_paused:paused,p_reason:reason,p_revision:expectedRevision});
+  }
+  reserveBudget(name: BudgetName, now = Date.now(), recovery = false): Promise<BudgetResult> {
+    return this.request("rpc/musegod_reserve_runtime_budget", "POST", {p_name:name,p_now:now,p_recovery:recovery});
+  }
+  async blockBudget(name: BudgetName, until: number) {
+    await this.request("rpc/musegod_block_runtime_budget", "POST", {p_name:name,p_until:until});
+  }
+  reservePrepareSlot(owner: string, now = Date.now()): Promise<boolean> {
+    return this.request("rpc/musegod_reserve_prepare_slot","POST",{p_owner:owner,p_now:now});
+  }
+  async releasePrepareSlot(owner: string) {
+    await this.request(`musegod_prepare_slots?owner=eq.${encodeURIComponent(owner)}`,"DELETE");
+  }
+  async pendingLaunchCount(): Promise<number> {
+    const rows=await this.request<{hash:string}[]>(`musegod_pending_launches?${this.where()}&status=eq.pending&select=hash&limit=100`);
+    return rows.length;
+  }
+  async getPlan(id: string): Promise<LaunchPlan|null> {
+    const rows = await this.request<{payload:unknown}[]>(`musegod_plans?${this.where()}&id=eq.${encodeURIComponent(id)}&select=payload&limit=1`);
+    return rows[0] ? unpackPlan(rows[0].payload) : null;
+  }
+  async protectPlan(id: string) {
+    await this.request(`musegod_plans?${this.where()}&id=eq.${encodeURIComponent(id)}`, "PATCH", {protected_at:Date.now()});
+  }
+  async tokenByTxHash(hash: string): Promise<TokenRecord|null> {
+    const rows = await this.request<{payload:TokenRecord}[]>(`musegod_tokens?${this.where()}&tx_hash=eq.${encodeURIComponent(hash.toLowerCase())}&select=payload&limit=1`);
+    return rows[0]?.payload ?? null;
+  }
+  async tokenPage(limit = 50, before?: {createdAt:number;address:string}): Promise<TokenRecord[]> {
+    if (!Number.isInteger(limit) || limit<1 || limit>100) throw new Error("Invalid page size");
+    if (before && (!Number.isSafeInteger(before.createdAt) || !/^0x[0-9a-f]{40}$/i.test(before.address))) throw new Error("Invalid page cursor");
+    const cursor = before ? `&or=(created_at.lt.${before.createdAt},and(created_at.eq.${before.createdAt},address.gt.${before.address.toLowerCase()}))` : "";
+    const rows = await this.request<{payload:TokenRecord}[]>(`musegod_tokens?${this.where()}${cursor}&order=created_at.desc,address&select=payload&limit=${limit}`);
+    return rows.map(row=>row.payload);
+  }
+  async deferLaunch(hash: string, retryAt: number) {
+    await this.request("rpc/musegod_defer_launch", "POST", {p_scope:this.scope,p_hash:hash.toLowerCase(),p_retry_at:retryAt});
+  }
+  async finalizeLaunch(hash: string) {
+    await this.request(`musegod_pending_launches?${this.where()}&hash=eq.${encodeURIComponent(hash.toLowerCase())}&status=eq.confirmed`, "PATCH", {finalized:true});
+  }
   async saveBuybackBatch(batch: BuybackBatchRecord) {
     assertBuybackBatchId(batch.id);
     await this.request(
@@ -113,17 +164,18 @@ export class SupabaseStore implements StoreBackend {
         creator: plan.creator.toLowerCase(),
         data: plan.data,
         prepared_at: plan.preparedAt,
-        payload: plan,
+        payload: packPlan(plan),
       },
       "resolution=merge-duplicates,return=minimal",
     );
   }
-  findPlan(creator: string, data: string) {
-    return this.request<LaunchPlan | null>("rpc/musegod_find_plan", "POST", {
+  async findPlan(creator: string, data: string) {
+    const payload = await this.request<LaunchPlan | null>("rpc/musegod_find_plan", "POST", {
       p_scope: this.scope,
       p_creator: creator.toLowerCase(),
       p_data: data,
     });
+    return payload ? unpackPlan(payload) : null;
   }
   async saveToken(token: TokenRecord) {
     await this.request(
@@ -169,22 +221,24 @@ export class SupabaseStore implements StoreBackend {
       "resolution=ignore-duplicates,return=minimal",
     );
   }
-  async pendingLaunches() {
+  async pendingLaunches(now = Date.now()) {
     const rows = await this.request<
       {
         hash: Hex;
         plan_id: string;
         status: string;
         block_hash: string | null;
+        retry_at: number; attempts: number; finalized: boolean;
       }[]
     >(
-      `musegod_pending_launches?${this.where()}&status=not.in.(failed,replaced)&order=updated_at&limit=100`,
+      `musegod_pending_launches?${this.where()}&status=not.in.(failed,replaced)&finalized=eq.false&retry_at=lte.${now}&order=retry_at,updated_at&limit=100`,
     );
     return rows.map((r) => ({
       hash: r.hash,
       planId: r.plan_id,
       status: r.status,
       blockHash: r.block_hash,
+      retryAt: r.retry_at, attempts: r.attempts, finalized: r.finalized,
     }));
   }
   async launchStatus(

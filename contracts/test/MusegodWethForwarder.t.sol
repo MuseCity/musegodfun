@@ -82,6 +82,11 @@ contract ForwarderSwapperMock {
 }
 
 contract ForwarderNonSwapperMock {}
+contract ForwarderVaultMock {
+    address public weth; address public swapper;
+    address public constant musegod = 0x0379E228F6887c6F18bf394042ECAF81B308cb2e;
+    constructor(address w,address s) { weth=w; swapper=s; }
+}
 
 contract MusegodWethForwarderTest {
     struct ModuleCall {
@@ -99,13 +104,15 @@ contract MusegodWethForwarderTest {
     ForwarderTokenMock weth;
     ForwarderSwapperMock swapper;
     MusegodWethForwarder forwarder;
+    ForwarderVaultMock vault;
 
     event Forwarded(address indexed caller, uint256 amount);
 
     function setUp() public {
         weth = new ForwarderTokenMock();
         swapper = new ForwarderSwapperMock();
-        forwarder = new MusegodWethForwarder(SOURCE, address(weth), address(swapper));
+        vault = new ForwarderVaultMock(address(weth),address(swapper));
+        forwarder = new MusegodWethForwarder(SOURCE, address(weth), address(swapper), address(vault));
         weth.mint(SOURCE, 1000);
     }
 
@@ -115,7 +122,7 @@ contract MusegodWethForwarderTest {
         emit Forwarded(ALICE, 125);
         vm.prank(ALICE);
         forwarder.forward(125);
-        require(weth.balanceOf(SOURCE) == 875 && weth.balanceOf(address(swapper)) == 125, "transfer");
+        require(weth.balanceOf(SOURCE) == 875 && weth.balanceOf(address(vault)) == 125, "transfer");
         require(weth.balanceOf(ALICE) == 0 && weth.balanceOf(address(forwarder)) == 0, "caller paid");
         require(forwarder.totalForwarded() == 125 && weth.allowance(SOURCE, address(forwarder)) == 175, "accounting");
         require(forwarder.source() == SOURCE && address(forwarder.weth()) == address(weth), "fixed source/token");
@@ -140,7 +147,7 @@ contract MusegodWethForwarderTest {
             abi.encodePacked(abi.encodeCall(MusegodWethForwarder.forward, (100)), abi.encode(ALICE))
         );
         require(success, "fixed call failed");
-        require(weth.balanceOf(ALICE) == 0 && weth.balanceOf(address(swapper)) == 100, "redirected");
+        require(weth.balanceOf(ALICE) == 0 && weth.balanceOf(address(vault)) == 100, "redirected");
         (success,) = address(forwarder).call(abi.encodeWithSignature("forwardTo(uint256,address)", 1, ALICE));
         require(!success, "arbitrary recipient accepted");
     }
@@ -149,12 +156,12 @@ contract MusegodWethForwarderTest {
         ForwarderTokenMock unrelated = new ForwarderTokenMock();
         unrelated.mint(SOURCE, 444);
         unrelated.mint(address(forwarder), 555);
-        weth.mint(address(swapper), 777);
+        weth.mint(address(vault), 777);
         weth.mint(address(forwarder), 888);
         _approve(100);
         vm.prank(ALICE);
         forwarder.forward(100);
-        require(weth.balanceOf(SOURCE) == 900 && weth.balanceOf(address(swapper)) == 877, "actual delta");
+        require(weth.balanceOf(SOURCE) == 900 && weth.balanceOf(address(vault)) == 877, "actual delta");
         require(weth.balanceOf(address(forwarder)) == 888 && weth.balanceOf(ALICE) == 0, "weth donation swept");
         require(unrelated.balanceOf(SOURCE) == 444 && unrelated.balanceOf(address(forwarder)) == 555, "other token");
         require(forwarder.totalForwarded() == 100, "donation counted");
@@ -170,7 +177,7 @@ contract MusegodWethForwarderTest {
         );
         vm.expectRevert();
         forwarder.forward(1);
-        require(weth.balanceOf(SOURCE) == 850 && weth.balanceOf(address(swapper)) == 150, "exhausted changed funds");
+        require(weth.balanceOf(SOURCE) == 850 && weth.balanceOf(address(vault)) == 150, "exhausted changed funds");
         require(forwarder.totalForwarded() == 150, "exhausted counter");
     }
 
@@ -182,24 +189,20 @@ contract MusegodWethForwarderTest {
     }
 
     function testApprovalRevocationBlocksSubsequentForwarding() public {
-        _approve(type(uint256).max);
+        _approve(1000);
         forwarder.forward(100);
         _approve(0);
         vm.expectRevert();
         forwarder.forward(1);
-        require(weth.balanceOf(SOURCE) == 900 && weth.balanceOf(address(swapper)) == 100, "revocation ignored");
+        require(weth.balanceOf(SOURCE) == 900 && weth.balanceOf(address(vault)) == 100, "revocation ignored");
         require(forwarder.totalForwarded() == 100, "revoked counter");
     }
 
-    function testMaximumAllowancePersistsForFutureDeposits() public {
+    function testMaximumAllowanceCannotBypassFiniteApprovalPolicy() public {
         _approve(type(uint256).max);
+        vm.expectRevert(MusegodWethForwarder.InfiniteAllowance.selector);
         forwarder.forward(1000);
-        weth.mint(SOURCE, 200);
-        vm.prank(BOB);
-        forwarder.forward(200);
-        require(weth.balanceOf(SOURCE) == 0 && weth.balanceOf(address(swapper)) == 1200, "future deposit");
-        require(weth.allowance(SOURCE, address(forwarder)) == type(uint256).max, "max allowance consumed");
-        require(forwarder.totalForwarded() == 1200, "max accounting");
+        _unchanged(type(uint256).max, 0);
     }
 
     function testZeroAmountAndInsufficientBalanceRevert() public {
@@ -237,7 +240,7 @@ contract MusegodWethForwarderTest {
         vm.prank(ALICE);
         forwarder.forward(100);
         require(!weth.reentrySucceeded(), "reentered");
-        require(weth.balanceOf(SOURCE) == 900 && weth.balanceOf(address(swapper)) == 100, "reentrant delta");
+        require(weth.balanceOf(SOURCE) == 900 && weth.balanceOf(address(vault)) == 100, "reentrant delta");
         require(
             weth.allowance(SOURCE, address(forwarder)) == 100 && forwarder.totalForwarded() == 100,
             "reentrant accounting"
@@ -251,7 +254,7 @@ contract MusegodWethForwarderTest {
     function testAllowsCounterfactualSourceButStillRequiresApproval() public {
         address undeployed = address(0xC0FFEE);
         require(undeployed.code.length == 0, "source already deployed");
-        MusegodWethForwarder other = new MusegodWethForwarder(undeployed, address(weth), address(swapper));
+        MusegodWethForwarder other = new MusegodWethForwarder(undeployed, address(weth), address(swapper), address(vault));
         weth.mint(undeployed, 100);
         vm.expectRevert();
         other.forward(100);
@@ -262,21 +265,21 @@ contract MusegodWethForwarderTest {
         address[3] memory invalid = [address(0), DEAD, MUSEGOD];
         for (uint256 i; i < invalid.length; ++i) {
             vm.expectRevert(MusegodWethForwarder.InvalidConfiguration.selector);
-            new MusegodWethForwarder(invalid[i], address(weth), address(swapper));
+            new MusegodWethForwarder(invalid[i], address(weth), address(swapper), address(vault));
             vm.expectRevert(MusegodWethForwarder.InvalidConfiguration.selector);
-            new MusegodWethForwarder(SOURCE, invalid[i], address(swapper));
+            new MusegodWethForwarder(SOURCE, invalid[i], address(swapper), address(vault));
             vm.expectRevert(MusegodWethForwarder.InvalidConfiguration.selector);
-            new MusegodWethForwarder(SOURCE, address(weth), invalid[i]);
+            new MusegodWethForwarder(SOURCE, address(weth), invalid[i], address(vault));
         }
     }
 
     function testRejectsDuplicatedArguments() public {
         vm.expectRevert(MusegodWethForwarder.InvalidConfiguration.selector);
-        new MusegodWethForwarder(address(weth), address(weth), address(swapper));
+        new MusegodWethForwarder(address(weth), address(weth), address(swapper), address(vault));
         vm.expectRevert(MusegodWethForwarder.InvalidConfiguration.selector);
-        new MusegodWethForwarder(address(swapper), address(weth), address(swapper));
+        new MusegodWethForwarder(address(swapper), address(weth), address(swapper), address(vault));
         vm.expectRevert(MusegodWethForwarder.InvalidConfiguration.selector);
-        new MusegodWethForwarder(SOURCE, address(weth), address(weth));
+        new MusegodWethForwarder(SOURCE, address(weth), address(weth), address(vault));
     }
 
     function testRejectsSelfInAnyArgument() public {
@@ -288,25 +291,25 @@ contract MusegodWethForwarderTest {
             vm.expectRevert(MusegodWethForwarder.InvalidConfiguration.selector);
             new MusegodWethForwarder(
                 i == 0 ? predicted : SOURCE, i == 1 ? predicted : address(weth), i == 2 ? predicted : address(swapper)
-            );
+            , address(vault));
         }
     }
 
     function testRequiresWethAndSwapperCodeAndCorrectInterface() public {
         vm.expectRevert(MusegodWethForwarder.InvalidConfiguration.selector);
-        new MusegodWethForwarder(SOURCE, ALICE, address(swapper));
+        new MusegodWethForwarder(SOURCE, ALICE, address(swapper), address(vault));
         vm.expectRevert(MusegodWethForwarder.InvalidConfiguration.selector);
-        new MusegodWethForwarder(SOURCE, address(weth), ALICE);
+        new MusegodWethForwarder(SOURCE, address(weth), ALICE, address(vault));
         ForwarderNonSwapperMock invalid = new ForwarderNonSwapperMock();
         vm.expectRevert();
-        new MusegodWethForwarder(SOURCE, address(weth), address(invalid));
+        new MusegodWethForwarder(SOURCE, address(weth), address(invalid), address(vault));
     }
 
     function testRejectsSwapperOwnerPausedWrongBeneficiaryAndWrongOutput() public {
         for (uint256 i; i < 4; ++i) {
             swapper.configure(i == 0 ? ALICE : address(0), i == 1, i == 2 ? ALICE : DEAD, i == 3 ? ALICE : MUSEGOD);
             vm.expectRevert(MusegodWethForwarder.InvalidConfiguration.selector);
-            new MusegodWethForwarder(SOURCE, address(weth), address(swapper));
+            new MusegodWethForwarder(SOURCE, address(weth), address(swapper), address(vault));
         }
     }
 
@@ -358,13 +361,13 @@ contract MusegodWethForwarderTest {
         uint256 amount = uint256(rawAmount) + 1;
         uint256 donation = uint256(rawDonation);
         weth.mint(SOURCE, amount);
-        weth.mint(address(swapper), donation);
+        weth.mint(address(vault), donation);
         weth.mint(address(forwarder), donation);
         _approve(amount);
         vm.prank(ALICE);
         forwarder.forward(amount);
         require(weth.balanceOf(SOURCE) == 1000, "fuzz source");
-        require(weth.balanceOf(address(swapper)) == donation + amount, "fuzz recipient");
+        require(weth.balanceOf(address(vault)) == donation + amount, "fuzz recipient");
         require(weth.balanceOf(address(forwarder)) == donation && weth.balanceOf(ALICE) == 0, "fuzz donation");
         require(
             weth.allowance(SOURCE, address(forwarder)) == 0 && forwarder.totalForwarded() == amount, "fuzz accounting"
@@ -377,7 +380,7 @@ contract MusegodWethForwarderTest {
     }
 
     function _unchanged(uint256 approved, uint256 donated) private view {
-        require(weth.balanceOf(SOURCE) == 1000 && weth.balanceOf(address(swapper)) == 0, "funds changed");
+        require(weth.balanceOf(SOURCE) == 1000 && weth.balanceOf(address(vault)) == 0, "funds changed");
         require(
             weth.balanceOf(address(forwarder)) == donated && weth.allowance(SOURCE, address(forwarder)) == approved,
             "allowance/donation"

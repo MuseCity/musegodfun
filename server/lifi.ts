@@ -1,12 +1,15 @@
+import { BudgetUnavailable, recoveryBudget } from "./runtime-policy";
+import type { StoreBackend } from "./supabase-store";
 import { decodeFunctionData, formatUnits, getAddress, isAddress, keccak256, type Hex, type PublicClient, type Transport } from "viem";
 import { sameAddress } from "../src/lib/config";
-import { FIRST_BUY_PAYMENT_CONTRACTS, FIRST_BUY_PAYMENT_TTL, assertFirstBuyPaymentQuote, firstBuyDiamondAbi,
+import { FIRST_BUY_PAYMENT_CONTRACTS, FIRST_BUY_PAYMENT_TTL, assertFirstBuyPaymentQuote, createDirectWrapQuote, wrappedEther, firstBuyDiamondAbi,
   firstBuyInteger, firstBuyPaymentAbi, firstBuyPaymentAssets, firstBuyPaymentInput, firstBuyReceiptOutput,
   type FirstBuyPaymentAsset, type FirstBuyPaymentChain, type FirstBuyPaymentQuote, type FirstBuyPaymentQuoteInput,
   type FirstBuyPaymentVerification, type FirstBuyPrices, type FirstBuySwapData } from "../src/lib/first-buy-payment";
 
 export type FirstBuyPaymentDependencies = { client: PublicClient<Transport, any>; chainId: FirstBuyPaymentChain;
-  rpcChainId?: FirstBuyPaymentChain | 31337; integrator?: string; apiKey?: string; fetch?: typeof fetch; now?: () => number };
+  rpcChainId?: FirstBuyPaymentChain | 31337; integrator?: string; apiKey?: string; fetch?: typeof fetch; now?: () => number;
+  budget?: Pick<StoreBackend,"reserveBudget"|"blockBudget"> };
 const API = "https://li.quest/v1";
 const MAX_RESPONSE = 1_000_000;
 const RPC_TIMEOUT = 15_000;
@@ -50,6 +53,8 @@ export class FirstBuyPaymentReader {
   private readonly apiKey?: string;
   private readonly fetcher: typeof fetch;
   private readonly now: () => number;
+  private readonly budget?: Pick<StoreBackend,"reserveBudget"|"blockBudget">;
+  private readonly tokenCache = new Map<string,{expires:number;value:Promise<{data:unknown;quotedAt:number}>}>();
   constructor(deps: FirstBuyPaymentDependencies) {
     this.client = deps.client;
     this.chainId = deps.chainId;
@@ -58,17 +63,40 @@ export class FirstBuyPaymentReader {
     this.apiKey = deps.apiKey;
     this.fetcher = deps.fetch ?? fetch.bind(globalThis);
     this.now = deps.now ?? Date.now;
+    this.budget = deps.budget;
     if (![8453, 4663].includes(deps.chainId) || (this.rpcChainId !== deps.chainId && this.rpcChainId !== 31337) ||
       !/^[a-zA-Z0-9_.-]{1,64}$/.test(this.integrator) ||
       (this.apiKey !== undefined && (typeof this.apiKey !== "string" || this.apiKey.length > 512 || /[\r\n]/.test(this.apiKey))))
       throw new Error("Invalid server-side payment provider configuration.");
   }
+  private async tokenRequest(params: URLSearchParams): Promise<{data:unknown;quotedAt:number}> {
+    const key=params.toString(), cached=this.tokenCache.get(key), quotedAt=this.now();
+    if(cached && quotedAt<cached.expires)return cached.value;
+    const value=this.performRequest("token",params).then(data=>({data,quotedAt}));
+    if(this.tokenCache.size>=256)this.tokenCache.delete(this.tokenCache.keys().next().value!);
+    this.tokenCache.set(key,{expires:quotedAt+30_000,value});
+    try{return await value;}catch(error){if(this.tokenCache.get(key)?.value===value)this.tokenCache.delete(key);throw error;}
+  }
   private async request(path: string, params: URLSearchParams): Promise<unknown> {
+    return path === "token" ? (await this.tokenRequest(params)).data : this.performRequest(path,params);
+  }
+  private async performRequest(path: string, params: URLSearchParams): Promise<unknown> {
+    if(this.budget) {
+      const reservation=await this.budget.reserveBudget("lifi",this.now(),recoveryBudget());
+      if(!reservation.allowed)throw new BudgetUnavailable(reservation.retryAfter);
+    }
     const abort = new AbortController();
     const timer = setTimeout(() => abort.abort(), RPC_TIMEOUT);
     try {
       const response = await this.fetcher(`${API}/${path}?${params}`, { redirect: "manual", signal: abort.signal,
         headers: this.apiKey ? { "x-lifi-api-key": this.apiKey, Accept: "application/json" } : { Accept: "application/json" } });
+      if(response.status === 429) {
+        const raw=response.headers.get("retry-after");
+        const seconds=raw && /^\d+$/.test(raw) ? Number(raw) : raw ? Math.ceil((Date.parse(raw)-this.now())/1000) : 60;
+        const retryAfter=Math.max(1,Math.min(7200,Number.isFinite(seconds)?seconds:60));
+        await this.budget?.blockBudget("lifi",this.now()+retryAfter*1000);
+        throw new BudgetUnavailable(retryAfter);
+      }
       if (!response.ok || response.status < 200 || response.status >= 300)
         throw new Error("upstream response rejected");
       const length = response.headers.get("content-length");
@@ -89,7 +117,7 @@ export class FirstBuyPaymentReader {
       let offset = 0;
       for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
       return JSON.parse(new TextDecoder().decode(bytes));
-    } catch { throw new Error("LI.FI pricing or routing is unavailable. Try again later."); }
+    } catch (error) { if(error instanceof BudgetUnavailable)throw error; throw new Error("LI.FI pricing or routing is unavailable. Try again later."); }
     finally { clearTimeout(timer); }
   }
   // Opening-price probes reuse the same bounded, server-only HTTP boundary.
@@ -100,16 +128,22 @@ export class FirstBuyPaymentReader {
     return this.request(path, params);
   }
   async prices(pairedAsset?: string): Promise<FirstBuyPrices> {
-    const quotedAt = this.now();
+    let quotedAt = this.now(), capacityError: BudgetUnavailable | undefined;
     const assets = firstBuyPaymentAssets(this.chainId, pairedAsset);
     const priced = await Promise.all(assets.map(async (asset) => {
       try {
-        const result = tokenMatches(await this.request("token", new URLSearchParams({ chain: String(this.chainId), token: asset.address })), asset);
+        const response=await this.tokenRequest(new URLSearchParams({ chain: String(this.chainId), token: asset.address }));
+        quotedAt=Math.min(quotedAt,response.quotedAt);
+        const result = tokenMatches(response.data, asset);
         return { ...asset, priceUsd: price(result.priceUSD) };
-      } catch { return { ...asset, priceUsd: null }; }
+      } catch(error) {
+        if(error instanceof BudgetUnavailable)capacityError=error;
+        return { ...asset, priceUsd: null };
+      }
     }));
+    if(capacityError && priced.every(asset=>asset.priceUsd===null))throw capacityError;
     if (this.now() >= quotedAt + FIRST_BUY_PAYMENT_TTL) throw new Error("The payment prices expired. Refresh prices.");
-    return { chainId: this.chainId, quotedAt, expiresAt: quotedAt + FIRST_BUY_PAYMENT_TTL, referenceOnly: true, assets: priced };
+    return { chainId: this.chainId, quotedAt, expiresAt: quotedAt + FIRST_BUY_PAYMENT_TTL, serverTime:this.now(), referenceOnly: true, assets: priced };
   }
   private async identity(selector: Hex, swaps?: FirstBuySwapData[]) {
     const registry = FIRST_BUY_PAYMENT_CONTRACTS[this.chainId];
@@ -153,6 +187,14 @@ export class FirstBuyPaymentReader {
   async quote(input: FirstBuyPaymentQuoteInput): Promise<FirstBuyPaymentQuote> {
     const quotedAt = this.now();
     const normalized = firstBuyPaymentInput(this.chainId, input);
+    if(normalized.fromToken.address === "0x0000000000000000000000000000000000000000" && sameAddress(normalized.toToken.address,wrappedEther(this.chainId))) {
+      const message="The wrapped ETH contract could not be verified.";
+      const [actualChain,block]=await Promise.all([bounded(()=>this.client.getChainId(),message),bounded(()=>this.client.getBlock({blockTag:"latest"}),message)]);
+      if(actualChain!==this.rpcChainId || block.number===null || !block.hash)throw new Error(message);
+      const code=await bounded(()=>this.client.getCode({address:normalized.toToken.address,blockNumber:block.number!}),message);
+      if(!code || code==="0x" || (await bounded(()=>this.client.getBlock({blockNumber:block.number!}),message)).hash!==block.hash)throw new Error(message);
+      return createDirectWrapQuote(this.chainId,normalized.account,normalized.amountIn,code,{number:block.number,hash:block.hash},quotedAt);
+    }
     const params = new URLSearchParams({ fromChain: String(this.chainId), toChain: String(this.chainId),
       fromToken: normalized.fromToken.address, toToken: normalized.toToken.address, fromAmount: normalized.amountIn.toString(),
       fromAddress: normalized.account, toAddress: normalized.account, slippage: String(input.slippageBps / 10_000),
@@ -211,6 +253,7 @@ export class FirstBuyPaymentReader {
     }
     assertFirstBuyPaymentQuote(quote, this.now());
     // Price fields are display estimates, never the launch opening-price source.
+    quote.serverTime=this.now();
     return quote;
   }
   async verify(input: { quote: FirstBuyPaymentQuote; hash: Hex }): Promise<FirstBuyPaymentVerification> {
@@ -244,6 +287,10 @@ export class FirstBuyPaymentReader {
       blockNumber: receipt.blockNumber.toString(), blockHash: receipt.blockHash };
     if (receipt.status === "reverted") return { status: "reverted", hash: input.hash, actualOutput: null,
       blockNumber: receipt.blockNumber.toString(), blockHash: receipt.blockHash };
+    if(q.protocol === "wrap") {
+      const code=await bounded(()=>this.client.getCode({address:wrappedEther(this.chainId),blockNumber:receipt.blockNumber}),message);
+      if(!code || code==="0x" || keccak256(code)!==q.facetRuntimeHash)throw new Error("The wrapped ETH implementation differs from the frozen payment quote.");
+    }
     const actualOutput = firstBuyReceiptOutput(q, receipt.logs).toString();
     // Do not use a newer wallet balance or LI.FI status response as output proof.
     return { status: "success", hash: input.hash, actualOutput, blockNumber: receipt.blockNumber.toString(), blockHash: receipt.blockHash };

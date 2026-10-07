@@ -51,7 +51,7 @@ export default function FeeBreakdown({ policy, tradingFeeBps, children }: {
         {shares.platformOperations > 0 && <div><dt>Operating budget</dt><dd>{percent(shares.platformOperations)}</dd></div>}
       </dl>
     </section>
-    <p>{policy === ENGINE_FEE_POLICY ? "The buyback share goes directly to the public fee engine; the operating share goes to the treasury. Anyone can process supported fees through WETH and execute a MUSEGOD buyback. Buyback fees without a configured price source go to an independent Splits Automation account for external processing. Collected or forwarded fees are not completed burns." : "The treasury wallet allocates funds manually by batch. A budget does not represent a completed buyback or burn."}</p>
+    <p>{policy === ENGINE_FEE_POLICY ? "The buyback share goes directly to the public fee engine; the operating share goes to the treasury. Anyone can process supported fees through WETH and execute a MUSEGOD buyback. Buyback fees without a configured price source go to an operator-controlled Splits Automation account for external processing. Collected or forwarded fees are not completed burns." : "The treasury wallet allocates funds manually by batch. A budget does not represent a completed buyback or burn."}</p>
     <details className="fee-gross">
       <summary>Equivalent share of total fees</summary>
       <p>The percentages below use total fees before Doppler as the 100% basis and express the same two-stage policy.</p>

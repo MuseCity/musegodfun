@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import { Buffer } from "node:buffer";
 import { z } from "zod";
+import type { StoreBackend } from "./supabase-store";
+import { BudgetUnavailable } from "./runtime-policy";
 import { MAX_TOKEN_IMAGE_BYTES, TOKEN_IMAGE_SIZE } from "../src/lib/token-image";
 
 const pinataResponse = z.object({ data: z.object({ cid: z.string().regex(/^b[a-z2-7]{20,120}$/) }) });
@@ -47,7 +49,8 @@ export function validateTokenImage(bytes: Uint8Array) {
 }
 
 export class TokenImages {
-  constructor(private readonly pinataJwt?: string) {}
+  private readonly inflight = new Map<string,Promise<{image:string}>>();
+  constructor(private readonly pinataJwt?: string, private readonly store?: Pick<StoreBackend,"snapshot"|"saveSnapshot"|"reserveBudget">) {}
   async upload(body: unknown): Promise<{ image: string }> {
     const input = uploadSchema.parse(body), encoded = input.image.slice("data:image/webp;base64,".length);
     const bytes = Buffer.from(encoded, "base64");
@@ -56,6 +59,17 @@ export class TokenImages {
     const jwt = this.pinataJwt?.trim();
     if (!jwt) throw new Error("Token image uploads require server-side PINATA_JWT configuration.");
     const key = `${createHash("sha256").update(bytes).digest("hex")}.webp`;
+    const existing=await this.store?.snapshot(`pinata:${key}`);
+    if(existing && typeof (existing.data as any)?.image === "string")return existing.data as {image:string};
+    const pending=this.inflight.get(key);
+    if(pending)return pending;
+    const work=this.pin(bytes,key,jwt);
+    this.inflight.set(key,work);
+    try{return await work;}finally{this.inflight.delete(key);}
+  }
+  private async pin(bytes: Uint8Array, key: string, jwt: string): Promise<{image:string}> {
+    const budget=await this.store?.reserveBudget("pinata");
+    if(budget && !budget.allowed)throw new BudgetUnavailable(budget.retryAfter);
     const form = new FormData();
     form.append("network", "public");
     form.append("file", new Blob([new Uint8Array(bytes).buffer], { type: "image/webp" }), key);
@@ -63,12 +77,14 @@ export class TokenImages {
     form.append("cid_version", "v1");
     try {
       const response = await fetch("https://uploads.pinata.cloud/v3/files", {
-        method: "POST", headers: { Authorization: `Bearer ${jwt}` },
+        method: "POST", redirect: "manual", headers: { Authorization: `Bearer ${jwt}` },
         body: form, signal: AbortSignal.timeout(15_000),
       });
       if (!response.ok) throw new Error("Pinata upload rejected");
       const { data } = pinataResponse.parse(await response.json());
-      return { image: `https://gateway.pinata.cloud/ipfs/${data.cid}` };
+      const result={ image: `https://gateway.pinata.cloud/ipfs/${data.cid}` };
+      await this.store?.saveSnapshot(`pinata:${key}`,result,Date.now());
+      return result;
     } catch {
       throw new Error("The image could not be saved to Pinata. Try uploading again.");
     }

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { airlockAbi, computePoolId, DopplerSDK } from "@whetstone-research/doppler-sdk/evm";
-import { createPublicClient, http, encodeFunctionData, keccak256, encodeAbiParameters, encodeEventTopics, type Hex } from "viem";
+import { airlockAbi, computePoolId, DopplerSDK, rehypeDopplerHookInitializerAbi } from "@whetstone-research/doppler-sdk/evm";
+import { createPublicClient, http, encodeFunctionData, keccak256, encodeAbiParameters, encodeEventTopics, erc20Abi, zeroAddress, type Hex } from "viem";
 import { LaunchpadService } from "../server/service";
 import type { LaunchPlan } from "../server/store";
 import { CONTRACTS, STOCKS, ROBINHOOD_STOCKS, SUPPLY, type TokenRecord } from "../src/lib/config";
@@ -66,6 +66,8 @@ function validationService(plan: LaunchPlan | null, configuredTreasury: string |
   return Object.assign(Object.create(LaunchpadService.prototype), {
     runtime: { config: { mode: "base", chainId: 8453, treasury: configuredTreasury, writesEnabled: true } },
     store: {
+      runtimeControl: async () => ({ paused: false, revision: 1, updatedAt: Date.now(), reason: "" }),
+      protectPlan: async () => {},
       findPlan: async (account: string, data: string) =>
         plan && account === plan.creator && data === plan.data ? plan : null,
     },
@@ -75,7 +77,10 @@ function validationService(plan: LaunchPlan | null, configuredTreasury: string |
 test("launch signing validates the exact creator, calldata and current fee policy", async () => {
   const plan = planFixture();
   const service = validationService(plan);
-  assert.deepEqual(await service.validateLaunch(creator, plan.data), { valid: true, feePolicy: FEE_POLICY, curvePolicy: CURVE_POLICY });
+  const validation = await service.validateLaunch(creator, plan.data);
+  assert.equal(validation.valid, true); assert.equal(validation.feePolicy, FEE_POLICY);
+  assert.equal(validation.curvePolicy, CURVE_POLICY); assert.equal(validation.planId, plan.id);
+  assert(Number.isSafeInteger(validation.serverTime));
   await assert.rejects(() => service.validateLaunch(treasury, plan.data), /curve policy has changed/);
   await assert.rejects(() => service.validateLaunch(creator, "0x5678"), /curve policy has changed/);
   plan.feePolicy = "musegod-80-v1";
@@ -162,16 +167,17 @@ test(`already broadcast ${legacyPolicy ?? "unmarked"}${usdSnapshot ? " fixed USD
           address: CONTRACTS.airlock,
           topics: encodeEventTopics({ abi: airlockAbi, eventName: "Create", args: { numeraire: plan.draft.quoteAddress } }),
           data: encodeAbiParameters([{ type: "address" }, { type: "address" }, { type: "address" }], [asset, CONTRACTS.initializer, CONTRACTS.initializer]),
+        }, {
+          address: asset, topics: encodeEventTopics({ abi: erc20Abi, eventName: "Transfer", args: { from: zeroAddress, to: CONTRACTS.airlock } }),
+          data: encodeAbiParameters([{ type: "uint256" }], [SUPPLY]),
+        }, {
+          address: CONTRACTS.rehype, topics: encodeEventTopics({ abi: rehypeDopplerHookInitializerAbi, eventName: "FeeScheduleSet", args: { poolId: plan.poolId } }),
+          data: encodeAbiParameters([{ type: "uint32" }, { type: "uint24" }, { type: "uint24" }, { type: "uint32" }], [1_800_000_000, 10_000, 10_000, 0]),
         }],
       }),
       getBlockNumber: async () => 11n,
       getBlock: async () => ({ hash: blockHash, timestamp: 1_800_000_000n }),
-      readContract: async (input: { functionName: string; blockNumber?: bigint; args?: readonly unknown[] }) => {
-        if (input.functionName !== "getFeeSchedule") return SUPPLY;
-        assert.equal(input.blockNumber, 10n, "Recovery verifies the schedule at the receipt block");
-        assert.deepEqual(input.args, [plan.poolId]);
-        return [1_800_000_000, 10_000, 10_000, 10_000, 0];
-      },
+      readContract: async () => { throw new Error("Recovery must not read mutable state or require archive RPC"); },
     },
     sdk: { getMulticurvePool: async () => ({ getState: async () => ({ status: 2, numeraire: plan.draft.quoteAddress, poolKey }) }) },
     store: {
@@ -179,6 +185,8 @@ test(`already broadcast ${legacyPolicy ?? "unmarked"}${usdSnapshot ? " fixed USD
       trackLaunch: async (...args: unknown[]) => tracked.push(args),
       pendingLaunches: async () => [{ hash, planId: plan.id, status: "pending", blockHash: null }],
       tokens: async () => saved,
+      tokenByTxHash: async () => null,
+      deferLaunch: async () => {},
       saveToken: async (token: TokenRecord) => saved.push(token),
       launchStatus: async (...args: unknown[]) => statuses.push(args),
     },

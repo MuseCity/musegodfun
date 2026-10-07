@@ -1,10 +1,11 @@
+import { quoteNow } from "./quote-clock";
 import { decodeFunctionData, encodeFunctionData, erc20Abi, toHex, type Address, type Hash } from "viem";
 import { airlockAbi } from "@whetstone-research/doppler-sdk/evm";
 import { CURVE_POLICY } from "./launch-curve";
 import { contractsFor, deploymentChain, sameAddress, assetsFor, type RuntimeConfig } from "./config";
 import { assertOpeningValuation } from "./opening-valuation";
 import { assertSigningEnabled } from "./validation";
-import type { LaunchPlan, LaunchTransaction } from "./launch-plan";
+import { assertLaunchPlanValidity, type LaunchPlan, type LaunchTransaction } from "./launch-plan";
 import { launchGuardAbi } from "./launch-guard";
 import { transactionMatchesConfig, type Transaction } from "./transactions";
 import { ENGINE_FEE_POLICY, launchFeePolicy } from "./fee-policy";
@@ -73,7 +74,7 @@ export function freezeLaunchPlan(plan: LaunchPlan): LaunchPlan {
   return copy;
 }
 
-export function assertLaunchWalletPlan(plan: LaunchPlan, config: RuntimeConfig, account: Address, now = Date.now()) {
+export function assertLaunchWalletPlan(plan: LaunchPlan, config: RuntimeConfig, account: Address, now = quoteNow(plan)) {
   assertSigningEnabled(config);
   if (plan.curvePolicy !== CURVE_POLICY || config.curvePolicy !== CURVE_POLICY)
     throw new Error("The launch curve policy has changed. Run a new preview.");
@@ -81,7 +82,7 @@ export function assertLaunchWalletPlan(plan: LaunchPlan, config: RuntimeConfig, 
     plan.transaction.data.toLowerCase() !== plan.data.toLowerCase() || plan.transaction.value !== "0" ||
     !/^0x(?:[0-9a-fA-F]{2}){4,100000}$/.test(plan.data))
     throw new Error("The launch transaction does not match this preview. Run a new preview.");
-  assertOpeningValuation(plan.openingValuation, plan.draft.quoteAddress, deploymentChain(config), now);
+  assertLaunchPlanValidity(plan, deploymentChain(config), now);
   if (!assetsFor(config).some((asset) => sameAddress(asset.address, plan.draft.quoteAddress)))
     throw new Error("The selected quote asset is not supported on this network");
   if ((plan.feePolicy !== undefined || launchFeePolicy(config) === ENGINE_FEE_POLICY) && plan.feePolicy !== launchFeePolicy(config))
@@ -111,7 +112,12 @@ export function assertLaunchWalletPlan(plan: LaunchPlan, config: RuntimeConfig, 
     ![50, 100, 200, 500].includes(buy.slippageBps) ||
     ![0, 30, 90, 365].includes(lockDays) || (lockDays > 0 && config.launchLockAvailable !== true) ||
     ![buy.amountIn, buy.expectedAmountOut, buy.minAmountOut].every((amount) => /^[1-9]\d{0,77}$/.test(amount) && BigInt(amount) < 2n ** 128n) ||
-    BigInt(buy.minAmountOut) !== BigInt(buy.expectedAmountOut) * BigInt(10_000 - buy.slippageBps) / 10_000n)
+    (plan.validityVersion === 2
+      ? BigInt(buy.minAmountOut) < BigInt(buy.expectedAmountOut) * BigInt(10_000 - buy.slippageBps) / 10_000n ||
+        BigInt(buy.minAmountOut) > BigInt(buy.expectedAmountOut) ||
+        !!buy.acceptedMinAmountOut && BigInt(buy.minAmountOut) < BigInt(buy.acceptedMinAmountOut) ||
+        buy.deadline !== Math.floor(plan.signingExpiresAt! / 1000)
+      : BigInt(buy.minAmountOut) !== BigInt(buy.expectedAmountOut) * BigInt(10_000 - buy.slippageBps) / 10_000n))
     throw new Error("The first buy has expired or changed. Run a new preview.");
   const decoded = decodeFunctionData({ abi: launchGuardAbi, data: plan.data });
   if ((decoded.functionName !== "createAndBuy" && decoded.functionName !== "createAndBuyLocked") ||
@@ -157,12 +163,18 @@ export async function executeLaunchPlan(plan: LaunchPlan, config: RuntimeConfig,
   simulate: (frozen: LaunchPlan) => Promise<LaunchSimulation>;
   submit: (transaction: LaunchTransaction, gas: bigint, frozen: LaunchPlan) => Promise<Hash>;
   progress: (message: string) => void;
+  refresh?: (previous: LaunchPlan) => Promise<LaunchPlan>;
+  onPlan?: (plan: LaunchPlan) => void;
 }) {
-  const frozen = freezeLaunchPlan(plan);
+  let frozen = freezeLaunchPlan(plan);
   const validate = async () => {
     assertLaunchWalletPlan(frozen, config, account);
     await deps.validate(frozen);
   };
+  if (deps.refresh && frozen.validityVersion === 2 && frozen.signingExpiresAt! - quoteNow(frozen) < 60_000) {
+    const refreshed = freezeLaunchPlan(await deps.refresh(frozen));
+    assertAcceptedLaunchRefresh(frozen, refreshed); frozen = refreshed; deps.onPlan?.(frozen);
+  }
   await validate();
   if (frozen.firstBuy) {
     const buy = frozen.firstBuy;
@@ -175,6 +187,12 @@ export async function executeLaunchPlan(plan: LaunchPlan, config: RuntimeConfig,
       deps.progress("Approve only the first buy amount in your wallet");
       await validate();
       await deps.approve(frozen.approval!.transaction, frozen);
+      if (deps.refresh) {
+        const refreshed = freezeLaunchPlan(await deps.refresh(frozen));
+        assertAcceptedLaunchRefresh(frozen, refreshed);
+        frozen = refreshed;
+        deps.onPlan?.(frozen);
+      }
       await validate();
       if (await deps.allowance(buy.quoteAddress, buy.guard) < amount)
         throw new Error("The first buy approval is not sufficient. Check its transaction status.");
@@ -184,9 +202,36 @@ export async function executeLaunchPlan(plan: LaunchPlan, config: RuntimeConfig,
   await validate();
   const simulation = await deps.simulate(frozen);
   if (simulation.valid !== true || !/^[1-9]\d{0,19}$/.test(simulation.gas) ||
-    simulation.amountOut !== (frozen.firstBuy?.expectedAmountOut ?? null))
+    (frozen.firstBuy ? !simulation.amountOut || !/^[1-9]\d{0,77}$/.test(simulation.amountOut) ||
+      BigInt(simulation.amountOut) < BigInt(frozen.firstBuy.minAmountOut) : simulation.amountOut !== null))
     throw new Error("The simulated first buy or launch has changed. Run a new preview.");
   await validate();
   deps.progress(frozen.firstBuy ? "Confirm launch and first buy in your wallet" : "Confirm the launch in your wallet");
   return deps.submit(frozen.transaction!, BigInt(simulation.gas), frozen);
+}
+
+
+export class LaunchPriceChanged extends Error {
+  constructor(public plan: LaunchPlan) { super("The refreshed price is outside your accepted minimum. Review the difference to continue."); }
+}
+export function assertAcceptedLaunchRefresh(previous: LaunchPlan, next: LaunchPlan) {
+  if (previous.creator.toLowerCase() !== next.creator.toLowerCase() || previous.intentId !== next.intentId ||
+    (["name", "symbol", "description", "image", "website", "twitter", "telegram", "quoteAddress", "tradingFeeBps"] as const)
+      .some((key) => previous.draft[key] !== next.draft[key]) || previous.feePolicy !== next.feePolicy ||
+    previous.feeTreasury !== next.feeTreasury || previous.feeEngine !== next.feeEngine ||
+    !!previous.firstBuy !== !!next.firstBuy) throw new Error("The launch parameters changed. Review before continuing.");
+  if (previous.firstBuy && next.firstBuy) {
+    const a = previous.firstBuy, b = next.firstBuy;
+    if (a.amountIn !== b.amountIn || a.quoteAddress !== b.quoteAddress || a.recipient !== b.recipient ||
+      a.guard !== b.guard || a.bundler !== b.bundler || a.lockDays !== b.lockDays || a.slippageBps !== b.slippageBps)
+      throw new Error("The first buy parameters changed. Review before continuing.");
+    const floor = BigInt(a.acceptedMinAmountOut ?? a.minAmountOut);
+    if (next.requiresReconfirmation || BigInt(b.expectedAmountOut) < floor) throw new LaunchPriceChanged(next);
+    if (BigInt(b.minAmountOut) < floor) throw new Error("A refreshed quote cannot lower your accepted minimum.");
+  }
+}
+
+export function launchDraftInput(plan: LaunchPlan) {
+  const { openingCap: _derived, ...draft } = plan.draft;
+  return draft;
 }

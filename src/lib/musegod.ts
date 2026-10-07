@@ -1,3 +1,4 @@
+import { quoteNow } from "./quote-clock";
 import { encodeFunctionData, getAddress, parseAbi, type Address, type Hash } from "viem";
 import { deploymentChain, sameAddress, type RuntimeConfig } from "./config";
 import { minimumOutput } from "./validation";
@@ -84,7 +85,7 @@ export const musegodRouterAbi = parseAbi([
   "function refundETH() payable",
 ]);
 
-export function assertMusegodQuote(quote: MusegodQuote, config: RuntimeConfig, now = Date.now()) {
+export function assertMusegodQuote(quote: MusegodQuote, config: RuntimeConfig, now = quoteNow(quote)) {
   const raw = (x: unknown) => typeof x === "string" && /^[1-9]\d{0,77}$/.test(x) && BigInt(x) < 2n ** 256n;
   if (!musegodNetwork(config) || quote.protocol !== "sushi-v3" || quote.chainId !== config.chainId ||
     quote.deploymentChainId !== 4663 || !sameAddress(quote.token, MUSEGOD.token) || !sameAddress(quote.poolAddress, MUSEGOD.pool) ||
@@ -99,7 +100,7 @@ export function assertMusegodQuote(quote: MusegodQuote, config: RuntimeConfig, n
 }
 
 // Pure calldata construction; the wallet independently enforces the source gate.
-export function musegodSwapTransaction(quote: MusegodQuote, recipient: Address, config: RuntimeConfig, now = Date.now()) {
+export function musegodSwapTransaction(quote: MusegodQuote, recipient: Address, config: RuntimeConfig, now = quoteNow(quote)) {
   assertMusegodQuote(quote, config, now);
   const calls = [encodeFunctionData({ abi: musegodRouterAbi, functionName: "exactInputSingle", args: [{
     tokenIn: quote.side === "buy" ? MUSEGOD.weth : MUSEGOD.token,

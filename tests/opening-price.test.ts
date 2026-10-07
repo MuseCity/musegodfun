@@ -87,7 +87,7 @@ test("both deployments use fixed independent 100-unit probes and compact fee-adj
     assert.equal(result.quotedAt, NOW); assert.equal(result.sourceUpdatedAt, NOW); assert.equal(result.expiresAt, NOW + LAUNCH_PRICE_TTL);
     assert.equal(result.blockNumber, String(BLOCK)); assert.equal(result.blockHash, HASH); assert.equal(f.requests.length, 2);
     assert(!JSON.stringify(result).includes("transactionRequest")); assert(!JSON.stringify(result).includes("gasCosts"));
-    assert(f.rpc.every((name) => ["getBlock", "getCode", "symbol", "decimals"].includes(name)), "no retired oracle source read");
+    assert(f.rpc.every((name) => ["getBlock", "getCode", "symbol", "decimals", "assetFeeds"].includes(name)), "independent reference stays advisory");
   }
 });
 
@@ -109,11 +109,12 @@ test("minOut and gas do not determine price; each quote's own numeraire USD refe
   assert.equal(result.lifi.sell.numerairePriceUsd, "0.99"); assert.equal(result.lifi.divergenceBps, 102);
 });
 
-test("small crossed sequential quotes pass the absolute bound, but wide divergence fails", async () => {
+test("small crossed quotes pass; wide divergence is disclosed without rejecting valid evidence", async () => {
   const small = fixture(); small.setMutate((quote, leg) => { if (leg === "sell") { quote.estimate.toAmount = (BigInt(quote.estimate.toAmount) * 1001n / 1000n).toString(); quote.estimate.toAmountMin = (BigInt(quote.estimate.toAmount) * 9900n / 10000n).toString(); } });
   const price = await small.read(); assert(price.lifi.divergenceBps > 0 && price.lifi.divergenceBps < 20);
   const wide = fixture(); wide.setMutate((quote, leg) => { if (leg === "sell") { quote.estimate.toAmount = (BigInt(quote.estimate.toAmount) * 110n / 100n).toString(); quote.estimate.toAmountMin = (BigInt(quote.estimate.toAmount) * 9900n / 10000n).toString(); } });
-  await assert.rejects(wide.read(), /diverge too far/);
+  const widePrice = await wide.read(); assert(widePrice.lifi.divergenceBps > 500);
+  assert.equal(widePrice.warnings?.[0]?.code, "opening_spread");
 });
 
 test("token identity, exact quantities, actors, slippage and same-chain paths reject tampered provider data", async () => {
@@ -184,7 +185,7 @@ test("HTTP failures never fall back to retired sources or expose key/redirect re
   const secret = "TEST_SERVER_KEY_ONLY";
   for (const status of [307, 401, 404, 429, 503]) {
     const f = fixture(); let calls = 0;
-    await assert.rejects(f.read({ apiKey: secret, fetch: async (_input, init) => { calls++; assert.equal(init?.redirect, "manual"); assert.equal(new Headers(init?.headers).get("x-lifi-api-key"), secret); return new Response(secret, { status, headers: { location: "https://other.invalid" } }); } }), (error: unknown) => error instanceof Error && /routing is unavailable/.test(error.message) && !error.message.includes(secret));
+    await assert.rejects(f.read({ apiKey: secret, fetch: async (_input, init) => { calls++; assert.equal(init?.redirect, "manual"); assert.equal(new Headers(init?.headers).get("x-lifi-api-key"), secret); return new Response(secret, { status, headers: { location: "https://other.invalid" } }); } }), (error: unknown) => error instanceof Error && /routing is unavailable|capacity is temporarily limited/.test(error.message) && !error.message.includes(secret));
     assert.equal(calls, 1); assert(!f.rpc.some((name) => name.includes("oracle")));
   }
   const rawError = fixture(); await assert.rejects(rawError.read({ apiKey: secret, fetch: async () => { throw new Error(`https://private.invalid/${secret}`); } }), (error: unknown) => error instanceof Error && !error.message.includes(secret));

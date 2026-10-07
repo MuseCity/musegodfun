@@ -1,0 +1,306 @@
+{
+  "schemaVersion": 2,
+  "chainId": 4663,
+  "status": "pending_deployment",
+  "configHash": "dbc667ccfae630298336172414fd7ba1c17e47307b58bb229f730f327faa6621",
+  "constants": {
+    "treasury": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+    "weth": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+    "muse": "0x0379E228F6887c6F18bf394042ECAF81B308cb2e",
+    "museWethPool": "0x071eE139277688d64B139Af1e44f79a9acf12e53",
+    "ethUsdFeed": "0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9",
+    "initializer": "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544",
+    "rehype": "0x5F9eB5f6726Fe88D5e39867967F5b833d2fA3215",
+    "router": "0x6131B5fae19EA4f9D964eAc0408E4408b66337b5",
+    "swapRouter": "0xB2d8eD81e79eb64A0751352459eC215FbAFad669",
+    "swapperFactory": "0xa244bbe019cf1BA177EE5A532250be2663Fb55cA",
+    "beneficiary": "0x000000000000000000000000000000000000dEaD",
+    "routerExecutor": "0x8F10B468b06c6FD214B65F87778827F7D113f996",
+    "swapperImpl": "0x7fcdD45101E35fd626A539BA565d26A72d95fDa7",
+    "automation": "0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a",
+    "automationTreasury": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349"
+  },
+  "contracts": {
+    "oracle": {
+      "address": "0x768c2a29a345ed37202902f8b556d326bab832fd",
+      "runtimeHash": "0xe0a8457bc4f9d8452ef6001e5f938c3cef3957e210eb8485b31480554ec66e38",
+      "compilerInputSha256": "02fb498c616c503c0649f9771a2a6820c2d9f391368b0273d752fa0c0f97c515",
+      "creationHash": "0x29ff8980758694adbb44a6f0dda656144744721bcd8738ce97b64aea044785f8",
+      "sourceVerification": {
+        "matchId": "54942838",
+        "creationMatch": "exact_match",
+        "runtimeMatch": "exact_match",
+        "verifiedAt": "2026-10-06T05:38:40Z",
+        "match": "exact_match",
+        "chainId": "4663",
+        "address": "0x768c2a29a345ED37202902f8B556D326BAB832Fd"
+      }
+    },
+    "swapper": {
+      "address": "0xE8834943A4eD3758f3b5930E3EEfb43568B222b3",
+      "runtimeHash": "0x1351b40a6311cef8fe6c92d6939441e8502f5bbc8bf35e39288049a30222f1e5",
+      "creationHash": "0xd9fd8863c67e5ad7cb04f8efaf8b269c7be0821a69cad80d9a8cadbf3daa3e76"
+    },
+    "executor": {
+      "address": "0x787b6a964c3e86a005b8fda87991e088178a8455",
+      "runtimeHash": "0x9e92469807c4246e0f2f8c6ab06d3290aefc3f07f29280ef1227a42b7644fb47",
+      "compilerInputSha256": "ba2660e0fd4130afe3537fd80efee15425af1ea36ad281ff996fd57d5a267b89",
+      "creationHash": "0x2da0fa17a50552a86adb09caec1ec26f834ff842b052a712b1579fae5b1db66d",
+      "sourceVerification": {
+        "matchId": "54942885",
+        "creationMatch": "exact_match",
+        "runtimeMatch": "exact_match",
+        "verifiedAt": "2026-10-06T05:38:47Z",
+        "match": "exact_match",
+        "chainId": "4663",
+        "address": "0x787b6a964C3e86A005B8Fda87991e088178A8455"
+      }
+    },
+    "assetOracle": {
+      "address": null,
+      "runtimeHash": null
+    },
+    "vault": {
+      "address": null,
+      "runtimeHash": null
+    },
+    "engine": {
+      "address": null,
+      "runtimeHash": null
+    },
+    "forwarder": {
+      "address": null,
+      "runtimeHash": null
+    }
+  },
+  "transactions": [],
+  "automation": {
+    "status": "configured",
+    "account": "0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a",
+    "network": 4663,
+    "outputToken": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+    "allocationBps": 10000,
+    "recipient": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+    "ruleSignature": "Saved native policy observed in official authenticated UI; no separate cryptographic rule-signature proof claimed",
+    "nativeExecution": "not_run",
+    "forwarder": "0x3b6d01e627fe6e06c831e0f9f57ac976a88309ff",
+    "wethAllowance": "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+    "automaticTriggerUsd": 5,
+    "automationThreshold": "1 of 2",
+    "robinhoodEnabled": true,
+    "layer": "official_authenticated_saved_policy_UI_readback",
+    "screenshot": "docs/evidence/buyback-policy-live.jpg",
+    "setupReceipts": [
+      {
+        "transactionHash": "0x6ac0559a6b104d942b919edffa291517a04d3d1225951ac67ccc733a0179635c",
+        "userOpHash": "0xa64b20582cd9c69665924a9ade9896c70649ac778db8fccdfcdf381a82323189",
+        "status": "success",
+        "blockNumber": "81439616",
+        "blockHash": "0x50a404e1e89f755c7882847dda9cab81a63e6fb1f1dbaecb20f4b7e6efd25d36",
+        "confirmations": "6137",
+        "canonical": true,
+        "sender": "0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a",
+        "entryPoint": "0x0000000071727de22e5e9d8baf0edac6f37da032",
+        "callDataHash": "0xc3690ed62770036514d2866d3868a85806a2604904d9bc935a019bf9b77a6695",
+        "initializationDataHash": "0x449ef6f55ee8be3105af3c5a20f6b748462d5b3339cc1deaadd7eb65f04d7d5c",
+        "exactRequestedCallVerified": true,
+        "userOperationSuccess": true,
+        "accountRuntimeHash": "0xaaa52c8cc8a0e3fd27ce756cc6b4e70c51423e9b597b11f32d3e49f8b1fc890d"
+      },
+      {
+        "transactionHash": "0x583c08587322eceec51bf2b16f17b0ad01d9fc68a1d8816df72095f424cdf456",
+        "userOpHash": "0x364998405fc0f9a9225ea0b1ddae0c9076f7d5d37e2c98ae0a65e60ea23029ce",
+        "status": "success",
+        "blockNumber": "81440133",
+        "blockHash": "0x9a2f6fa6790bbd860b4d85e5e52bd9f2cb91c84c26520bb632143978712fb322",
+        "confirmations": "5620",
+        "canonical": true,
+        "sender": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+        "entryPoint": "0x0000000071727de22e5e9d8baf0edac6f37da032",
+        "callDataHash": "0x18714f347c7aa6490c036b4fd09e3c75e78ff15ea3bd4f11ab61f68da2b62a15",
+        "initializationDataHash": "0x8b3e3f7c661af0dc456efa806c123bf36c673bcbf4b375bdcf994ab478acafc3",
+        "exactRequestedCallVerified": true,
+        "userOperationSuccess": true,
+        "accountRuntimeHash": "0xaaa52c8cc8a0e3fd27ce756cc6b4e70c51423e9b597b11f32d3e49f8b1fc890d"
+      }
+    ]
+  },
+  "historicalDeployment": "contracts/artifacts/buyback-deployment.json",
+  "mainnetFeeExecution": "not_run",
+  "governance": {
+    "governor": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+    "delaySeconds": 604800,
+    "controlProof": "not_run"
+  },
+  "budget": {
+    "rollingSeconds": 300,
+    "maxWethWei": "10000000000000000",
+    "maxPriceDeviationBps": 200
+  },
+  "activation": {
+    "oldForwarderRevocation": "not_run",
+    "newFiniteAllowance": "not_run",
+    "nativeAutomationAcceptance": "not_run",
+    "sourceReview": "not_run",
+    "isolatedFork": "not_run"
+  },
+  "assetFeedDescriptions": {
+    "0x86923f96303d656e4aa86d9d42d1e57ad2023fdc": {
+      "description": "RHAMD / USD",
+      "descriptionHash": "0x7e7e82b5026680ee5f639817a8312bea380333c4ca988d2e6a507cca11be10e7"
+    },
+    "0x12f190a9f9d7d37a250758b26824b97ce941bf54": {
+      "description": "Robinhood AMZN / USD",
+      "descriptionHash": "0x5299e3e8648d6713520675be9fbdef44a675e838d581555409cd0271d71d0b90"
+    },
+    "0x5fc5360d0400a0fd4f2af552add042d716f1d168": {
+      "description": "USDG / USD",
+      "descriptionHash": "0xcc5f5376873b841ed0aa043da239abecc6cf3e9df142840529d7609012ffca08"
+    },
+    "0x0bd7d308f8e1639fab988df18a8011f41eacad73": {
+      "description": "ETH / USD",
+      "descriptionHash": "0x62ddc8c5ffbd077b5a28e92efd10abcc58e66fb2a326401f0efd02e173ac1777"
+    },
+    "0xaf3d76f1834a1d425780943c99ea8a608f8a93f9": {
+      "description": "Robinhood AAPL / USD",
+      "descriptionHash": "0x8db2218574d76947b50e267c6ebb25fcaeb9ef51cdbc3773424dde905f2fcaa3"
+    },
+    "0xcec185eb182c47d1ba1efc84e6959e18cd620be4": {
+      "description": "CBBTC / USD",
+      "descriptionHash": "0xa3cf9e3ec85fec9463c277e348e64902dec4a8af87add4d6ec1a5f68ef6419d8"
+    },
+    "0x6330d8c3178a418788df01a47479c0ce7ccf450b": {
+      "description": "Robinhood COIN / USD",
+      "descriptionHash": "0x874ad0627fa261baa97f8c054d952a599ee26544357f6d891f0c0beb9b22b011"
+    },
+    "0x5f10a1c971b69e47e059e1dc91901b59b3fb49c3": {
+      "description": "Robinhood CRWV / USD",
+      "descriptionHash": "0x29377070df70d819b6657ab5e60099f497326a727cb9370361e63a179d29316c"
+    },
+    "0x47f93d52cbec7c6d2cfc080e154002370a60daea": {
+      "description": "Robinhood ASML / USD",
+      "descriptionHash": "0x2bc37a0ef3123bbf666168d0d480a2e37edaeed399eac16ed036f10641aabaea"
+    },
+    "0xcbb95bbf36099d34da091dc6fa6f49efa257cee3": {
+      "description": "Robinhood CLSK / USD",
+      "descriptionHash": "0x12f2481c0d6377c34077d59236ed6c7b0587d0a84d81e6b18b87a0c53ccbbefe"
+    },
+    "0xad25ac6c84d497db898fa1e8387bf6af3532a1c4": {
+      "description": "Robinhood BABA / USD",
+      "descriptionHash": "0x5d6b4859503fef88bc6f49e3331b4f9ea821f9c721eaa1c5fd9e687deff365d3"
+    },
+    "0xdf0992e440dd0be65bd8439b609d6d4366bf1cb5": {
+      "description": "Robinhood CRCL / USD",
+      "descriptionHash": "0x5262790979daffaefc47e2ee064d4cd3e0a5fe73dd1fc4327eb00cf6d72ed2f9"
+    },
+    "0x7f0abef0c07280f82c6a08ead09ded6bae2c13fc": {
+      "description": "Robinhood EWY / USD",
+      "descriptionHash": "0xd04b2b73eb5ec2e23565e0ae0128e700f41f09ab72872c8016d935a077551487"
+    },
+    "0x1b0e319c6a659f002271b69db8a7df2f911c153e": {
+      "description": "Robinhood GME / USD",
+      "descriptionHash": "0x139d164829b9b77d8e41f267576d57655554a1478b768658cb474e8bfc9e2452"
+    },
+    "0x2e0847e8910a9732eb3fb1bb4b70a580adad4fe3": {
+      "description": "Robinhood GOOGL / USD",
+      "descriptionHash": "0x6d5ae42b026398879cfbcb728d05a4206edbd72eda7838d657f510d7ebb39603"
+    },
+    "0xc72b96e0e48ecd4dc75e1e45396e26300bc39681": {
+      "description": "RHINTC / USD",
+      "descriptionHash": "0x08dc9c50b00e03ea5178496344a0f65acc0212ff9c69bf71bc6a744b04a7a10e"
+    },
+    "0x941ae714ec6d8130c7b75d67160ca08f1e7d11dd": {
+      "description": "Robinhood DELL-USD",
+      "descriptionHash": "0x708adf37c9f7dca4f5eec465789781cb743f0d2cc61aad85b4966f2d4469f3a8"
+    },
+    "0x558378e000d634a36593e338ebacdd6207640efe": {
+      "description": "Robinhood IONQ / USD",
+      "descriptionHash": "0x59325a3cee25c4524797ac557582c95324f1e1eb4ddec1c5acc70ae4ddf13181"
+    },
+    "0xd0601ce157db5bdc3162bbac2a2c8af5320d9eec": {
+      "description": "RHNVDA / USD",
+      "descriptionHash": "0xf4d5d06d7807843aa0735028b7fe5befdae47885c80add0c32b055db49408b49"
+    },
+    "0x9d9c6684f596f66a64c030b93a886d51fd4d7931": {
+      "description": "Robinhood NBIS / USD",
+      "descriptionHash": "0x7e93b28fb68c8c662dbcadd3b1a41ffbc58cfa8bed133d357fb54c690f6fae5b"
+    },
+    "0xec262a75e413fafd0df80480274532c79d42da09": {
+      "description": "Robinhood MSTR / USD",
+      "descriptionHash": "0xc075e2c1b9527d82603e68d8dfe79878796234f613059d0b7eae7ee19b1240f7"
+    },
+    "0xe93237c50d904957cf27e7b1133b510c669c2e74": {
+      "description": "RHMSFT / USD",
+      "descriptionHash": "0x02547eac643f5e8de112fec5e4a5c65515a8be4bf315bcbcee653ec807786136"
+    },
+    "0xc0d6457c16cc70d6790dd43521c899c87ce02f35": {
+      "description": "Robinhood META / USD",
+      "descriptionHash": "0xaefa468e1cc717ed387c6424914704c927886a93610a32fc84a1daa3751f2705"
+    },
+    "0xff080c8ce2e5feadaca0da81314ae59d232d4afd": {
+      "description": "RHMU / USD",
+      "descriptionHash": "0x11e5ac5ab99ae1768890d8c60af870d544359665f4c90508b31b35ea45b813d5"
+    },
+    "0x92fd66527192e3e61d4ddd13322aa222de86f9b5": {
+      "description": "Robinhood SGOV-USD",
+      "descriptionHash": "0xca818783397c588bd10ce0d436fceabbe9d0300c6ff21288f4160f0f69a7bc4a"
+    },
+    "0x894e1ec2d74ffe5aef8dc8a9e84686accb964f2a": {
+      "description": "Robinhood PLTR / USD",
+      "descriptionHash": "0xb2dbb0784d3c3530c3f1c72fea116b826dad6344499023afbfb3e96394a53af1"
+    },
+    "0xd5f3879160bc7c32ebb4dc785f8a4f505888de68": {
+      "description": "Robinhood QQQ / USD",
+      "descriptionHash": "0xbb16354d4f0315208eaa99c21ff51b74a8a20ff0d772dd24bb9537180a36f16a"
+    },
+    "0xb0992820e760d836549ba69bc7598b4af75dee03": {
+      "description": "Robinhood ORCL / USD",
+      "descriptionHash": "0x6ff2461056da9427b6df422f581b9647c17da0656cff91700ffb26fe8560263f"
+    },
+    "0x3b14c39e89d60d627b42a1a4ca45b5bb45fc12e2": {
+      "description": "Robinhood RKLB / USD",
+      "descriptionHash": "0xfe4c83e24d67e88bf8ce42bdbadef9c6ac15175f6f54db101c80712dcbe2c7f8"
+    },
+    "0x284358abc07f9359f19f4b5b4ac91901be2597ba": {
+      "description": "Robinhood RGTI / USD",
+      "descriptionHash": "0xb5cc1167d2c861291c37d3b0a60f11a105d3a67e2ed77263c8ec95b3aa8dfcfd"
+    },
+    "0x322f0929c4625ed5bad873c95208d54e1c003b2d": {
+      "description": "RHTSLA / USD",
+      "descriptionHash": "0x21061a412bc2001aea5c01091075d79baaa41dd18f39279947c5a4bb6477e55d"
+    },
+    "0xb90a19ff0af67f7779aff50a882a9cff42446400": {
+      "description": "RHSNDK / USD",
+      "descriptionHash": "0xf032aa680324f84d13030e16b3fa8fea402dcd370fea0647ecc3f29b6f8a72cd"
+    },
+    "0x117cc2133c37b721f49de2a7a74833232b3b4c0c": {
+      "description": "RHSPY / USD",
+      "descriptionHash": "0x190e4f3e810824c01e9c6ca2353f2f211dd6d72b173ea5fe37217322bff8dd10"
+    },
+    "0x411efb0e7f985935daec3d4c3ebaea0d0ad7d89f": {
+      "description": "Robinhood SLV / USD",
+      "descriptionHash": "0x73fa9bc32ba265a28fdd4807cd6f09ae44fa80555b136cf1d938711b6023acb3"
+    },
+    "0x58ffe4a942d3885baa22d7520691f611ef09e7aa": {
+      "description": "Robinhood TSM / USD",
+      "descriptionHash": "0x50bd80716980bf67b5205e83fd7088f5834a92becebb4de4e62963593041bd3d"
+    },
+    "0x4a0e65a3eccec6dbe60ae065f2e7bb85fae35eea": {
+      "description": "Robinhood SPCX / USD",
+      "descriptionHash": "0x1f0e867a511f1ea5bdf93d5b37ee941bdf335dca59d15f140560289e2ec21387"
+    },
+    "0xd917b029c761d264c6a312bbbcda868658ef86a6": {
+      "description": "Robinhood USAR-USD",
+      "descriptionHash": "0xe1f0537168052dfb17a94d3a9651077c7c7135bf28529ff00210914be3dec011"
+    },
+    "0xa30fa36db767ad9ed3f7a60fc79526fb4d56d344": {
+      "description": "RHUSO / USD",
+      "descriptionHash": "0x328b100413d8815080be837cc922b99af28eabe2e7a92c854ec5778a3b00dba8"
+    }
+  },
+  "assetFeedMetadataObservation": {
+    "blockNumber": "82386879",
+    "blockHash": "0xc821c721ad5b64f4216edda496191571edd8fcd54d23004f9df605cbe7d99cf4",
+    "layer": "block_pinned_mainnet_read_only; initial feed labels only, not V2 deployment evidence"
+  }
+}

@@ -25,6 +25,8 @@ import { errorMessage, hashSchema } from "../lib/validation";
 import { recoverMusegodTransaction } from "../lib/musegod-recovery";
 import type { FirstBuyPaymentVerification } from "../lib/first-buy-payment";
 import type { FirstBuyLockStatus } from "../lib/launch-plan";
+import type { LaunchPlan } from "../lib/launch-plan";
+import { launchIntentStorageKey } from "../lib/launch-intent";
 const labels = {
   pending: "Pending",
   success: "Confirmed",
@@ -183,7 +185,11 @@ export async function checkHistoryTransaction(row: Transaction, deps: {
   }
   update({ status: receipt.status === "success" ? "success" : "failed" });
   if (row.action === "launch" && receipt.status === "success") {
-    await read(network.deploymentChainId, "/launch/register", { hash: row.hash });
+    let recoveryPlan: LaunchPlan | undefined;
+    try {
+      if (row.intentId) recoveryPlan = JSON.parse(localStorage.getItem(launchIntentStorageKey(network, row.account, row.intentId, "plan")) || "null") ?? undefined;
+    } catch { /* The server can still recover its retained plan. */ }
+    await read(network.deploymentChainId, "/launch/register", { hash: row.hash, ...(recoveryPlan ? { recoveryPlan } : {}) });
     update({ registered: true });
   }
 }

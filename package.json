@@ -34,10 +34,11 @@
     "test:launch-browser": "tsx scripts/test-launch-browser.mjs",
     "test:launch-fork-browser": "tsx scripts/test-launch-fork-browser.mjs",
     "test:first-buy-payment-fork": "tsx scripts/run.ts scripts/test-first-buy-payment-fork.ts",
-    "test:buyback-engine-contracts": "forge test --root contracts --match-contract \"Musegod(Buyback|FeeEngine|WethForwarder).*\"",
+    "test:buyback-engine-contracts": "forge test --root contracts --match-contract \"Musegod(Buyback|FeeEngine|WethForwarder|AssetFeedOracle).*\"",
     "test:buyback-engine-fork": "tsx scripts/run.ts scripts/test-buyback-engine-fork.ts",
     "verify:buyback-engine": "tsx scripts/deploy-buyback-engine.ts --verify-only",
-    "keeper:buyback": "tsx scripts/buyback-keeper.ts"
+    "keeper:buyback": "tsx scripts/buyback-keeper.ts",
+    "build:buyback-engine": "tsx scripts/build-buyback-artifacts.ts"
   },
   "dependencies": {
     "@vitejs/plugin-react": "6.1.1",

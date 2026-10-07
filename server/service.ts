@@ -3,7 +3,6 @@ import {
   airlockAbi,
   bundlerAbi,
   computePoolId,
-  rehypeDopplerHookInitializerAbi,
   verifyPreparedCreateExecution,
 } from "@whetstone-research/doppler-sdk/evm";
 import {
@@ -13,6 +12,7 @@ import {
   erc20Abi,
   http,
   keccak256,
+  zeroAddress,
   type Address,
   type Hex,
 } from "viem";
@@ -26,7 +26,6 @@ import {
   listedTokens,
   quoteAsset,
   poolCurrency,
-  SUPPLY,
   sameAddress,
   stockByAddress,
   type RuntimeConfig,
@@ -34,10 +33,11 @@ import {
   type TokenRecord,
   type ContractRegistry,
 } from "../src/lib/config";
-import { assertStock, buildLaunch } from "../src/lib/protocol";
+import { assertStock, buildLaunch, readStockStatus as readLaunchAssetStatus } from "../src/lib/protocol";
+import { firstBuyLockStatusFromPosition } from "./first-buy-lock-status";
 import { ENGINE_FEE_POLICY, launchFeePolicy } from "../src/lib/fee-policy";
 import { tradingFeeBpsFor } from "../src/lib/trading-fee";
-import { assertOpeningValuation, assertHistoricalOpeningValuation, openingCapInQuote, LAUNCH_PRICE_TTL } from "../src/lib/opening-valuation";
+import { assertOpeningValuation, assertHistoricalOpeningValuation, openingCapInQuote, type LifiOpeningValuation } from "../src/lib/opening-valuation";
 import { readOpeningValuation } from "./opening-price";
 import {
   addressSchema,
@@ -46,15 +46,16 @@ import {
   minimumOutput,
   errorMessage,
   simulationError,
+  assertSigningEnabled,
 } from "../src/lib/validation";
 import { SupabaseStore, type StoreBackend } from "./supabase-store";
 import { z } from "zod";
 import { Store, type LaunchPlan } from "./store";
 import { CURVE_POLICY } from "../src/lib/launch-curve";
 import { launchGuardAbi } from "../src/lib/launch-guard";
-import { restorePrepared, serializePrepared, type FirstBuyLockStatus } from "../src/lib/launch-plan";
+import { assertLaunchPlanValidity, LAUNCH_SIGNING_TTL, restorePrepared, serializePrepared, type FirstBuyLockStatus, type LaunchPrepareOptions } from "../src/lib/launch-plan";
 import { chainLaunchDependencies, verifyLaunchGuard } from "./launch-guard";
-import { assertLaunchTradingFee, assertPlanIntegrity, verifiedFirstBuyLock, verifyGuardedReceipt } from "./launch-verification";
+import { assertLaunchTradingFee, assertPlanIntegrity, assertRecoveryPlan, verifiedFirstBuyLock, verifyCreationAccounting, verifyGuardedReceipt } from "./launch-verification";
 import { verifyFeeEngine } from "./buyback-engine";
 import type { EngineClaimPreview } from "../src/lib/buyback-engine";
 
@@ -71,6 +72,8 @@ export class LaunchpadService {
   private readonly feeEngineCandidate: Address | null;
   private stocksCache?: { at: number; value: StockStatus[] };
   private stocksPromise?: Promise<StockStatus[]>;
+  private openingCache?: Map<string, { at: number; value: LifiOpeningValuation }>;
+  private openingRequests?: Map<string, Promise<LifiOpeningValuation>>;
   constructor(readonly runtime: ReturnType<typeof runtimeFromEnv>) {
     this.guardCandidate = runtime.launchGuardCandidate;
     this.firstBuyGuardCandidate = runtime.firstBuyGuardCandidate;
@@ -80,7 +83,8 @@ export class LaunchpadService {
       chain: { ...base, id: runtime.config.chainId, name: networkName(runtime.config) },
       transport: http(runtime.rpcUrl, {
         timeout: runtime.config.mode === "fork" ? 180_000 : 25_000,
-        retryCount: 0,
+        retryCount: 2,
+        retryDelay: 500,
       }),
       batch: { multicall: true },
     });
@@ -102,6 +106,7 @@ export class LaunchpadService {
             "base",
           )
         : new Store(runtime.dataDir, runtime.config.chainId);
+    this.runtime.lifi.budget = this.store;
   }
   async assertNetwork() {
     if ((await this.client.getChainId()) !== this.runtime.config.chainId)
@@ -142,18 +147,23 @@ export class LaunchpadService {
           ...(await Promise.all(
             this.assets.slice(i, i + 6).map(async (stock) => {
               try {
-                const result = await assertStock(
+                const result = await readLaunchAssetStatus(
                   this.client,
                   stock.address,
                   block,
                 );
                 return {
                   ...stock,
-                  verified: true,
+                  verified: result.identityVerified,
                   blockNumber: String(block),
                   onchainName: result.name,
-                  totalSupply: result.totalSupply.toString(),
+                  totalSupply: result.totalSupply?.toString() ?? null,
                   multiplierWad: result.multiplierWad?.toString() ?? null,
+                  availabilityWarning: result.warnings.map((warning) => warning.message).join(" ") || undefined,
+                  oraclePaused: result.oraclePaused ?? undefined,
+                  newMultiplierWad: result.newMultiplierWad?.toString() ?? null,
+                  multiplierEffectiveAt: result.multiplierEffectiveAt,
+                  paused: result.paused ?? undefined,
                 };
               } catch (error) {
                 return {
@@ -162,13 +172,13 @@ export class LaunchpadService {
                   blockNumber: String(block),
                   totalSupply: null,
                   multiplierWad: null,
-                  error: `Asset read or identity verification failed. Try refreshing later. ${redact(error)}`,
+                  error: `Asset read or identity verification failed. Try refreshing later. ${redact(error, this.runtime.environment)}`,
                 };
               }
             }),
           )),
         );
-      if (statuses.every((s) => s.verified))
+      if (statuses.every((s) => s.verified && !s.availabilityWarning))
         this.stocksCache = { at: Date.now(), value: statuses };
       return statuses;
     })();
@@ -188,6 +198,8 @@ export class LaunchpadService {
     let automationReceiver: Address | null = null;
     let automationTreasury: Address | null = null;
     let wethForwarder: Address | null = null;
+    let assetFeedOracle: Address | null = null;
+    let buybackVault: Address | null = null;
     for (const candidate of [
       { address: this.firstBuyGuardCandidate, requiredVersion: "vesting" as const },
       { address: this.guardCandidate, requiredVersion: undefined },
@@ -208,34 +220,70 @@ export class LaunchpadService {
           automationReceiver = verified.automationReceiver;
           automationTreasury = verified.automationTreasury;
           wethForwarder = verified.forwarder;
-          if (verified.sourceDeployed && BigInt(verified.sourceAllowance) > 0n) {
-            feeEngine = verified.engine;
-            buybackExecutor = verified.executor;
-          }
+          // Exhausted finite source allowance only pauses source forwarding;
+          // direct engine conversion and already funded vault work stay usable.
+          feeEngine = verified.engine;
+          buybackExecutor = verified.executor;
+          assetFeedOracle = verified.assetOracle;
+          buybackVault = verified.vault;
         }
       } catch { /* Candidate addresses are not exposed until the complete fixed graph is verified. */ }
     }
-    return { ...this.runtime.config, curvePolicy: CURVE_POLICY, launchGuard, launchLockAvailable, feeEngine, buybackExecutor, automationReceiver, automationTreasury, wethForwarder };
+    let writesEnabled = this.runtime.config.writesEnabled, blockReason = this.runtime.config.blockReason, controlRevision = 0, signingPaused = false;
+    if (this.runtime.config.mode !== "fork") {
+      try {
+        const control = await this.store.runtimeControl();
+        controlRevision = control.revision;
+        signingPaused = control.paused;
+        if (control.paused) { writesEnabled = false; blockReason = control.reason || "New signing is temporarily paused."; }
+      } catch { signingPaused = true; writesEnabled = false; blockReason = "Signing controls are temporarily unavailable."; }
+    }
+    return { ...this.runtime.config, writesEnabled, blockReason, controlRevision, signingPaused, securityProtocol: 1,
+      curvePolicy: CURVE_POLICY, launchGuard, launchLockAvailable, feeEngine, buybackExecutor, automationReceiver, automationTreasury, wethForwarder, assetFeedOracle, buybackVault };
   }
-  async preflightFirstBuyPayment(rawQuoteAddress: unknown): Promise<void> {
+  async openingValuation(quoteAddress: Address): Promise<LifiOpeningValuation> {
+    const chainId = deploymentChain(this.runtime.config), key = `${chainId}:${quoteAddress.toLowerCase()}:${launchFeePolicy(this.runtime.config)}:${this.runtime.lifi?.integrator ?? ""}`;
+    const cache = this.openingCache ??= new Map(), pending = this.openingRequests ??= new Map();
+    const saved = cache.get(key), now = Date.now();
+    if (saved && now - saved.at < 10_000 && now < saved.value.expiresAt - 10_000) return structuredClone(saved.value);
+    if (pending.has(key)) return structuredClone(await pending.get(key)!);
+    const request = readOpeningValuation(this.client, stockByAddress(quoteAddress, chainId), chainId,
+      { ...this.runtime.lifi, rpcChainId: this.runtime.config.mode === "fork" && this.runtime.config.chainId === 31337 ? 31337 : chainId });
+    pending.set(key, request);
+    try {
+      const value = await request;
+      cache.set(key, { at: Date.now(), value });
+      return structuredClone(value);
+    } finally { pending.delete(key); }
+  }
+  async assertCreatorAccount(account: Address): Promise<void> {
+    const code = await this.client.getCode({ address: account });
+    // Delegated EOA transactions still have the EOA as the outer sender. Other
+    // account-abstraction wallets submit through a relayer/EntryPoint, which
+    // the current creation-receipt protocol cannot attribute to this creator.
+    if (code && code !== "0x" && !/^0xef0100[\da-fA-F]{40}$/.test(code))
+      throw new Error("This smart-account launch is not supported yet. Use a wallet that submits transactions directly before converting payment.");
+  }
+  async preflightFirstBuyPayment(rawQuoteAddress: unknown, options?: { fromToken?: Address; account?: Address }): Promise<void> {
     const quoteAddress = addressSchema.parse(rawQuoteAddress);
     if (!this.runtime.config.treasury) throw new Error("The platform treasury is not configured.");
     if (!launchAssetsFor(this.runtime.config).some((asset) => sameAddress(asset.address, quoteAddress)))
       throw new Error("This asset is unavailable for a new launch because it is not in the verified LI.FI opening-price pairing list.");
     await this.assertNetwork();
+    if (options?.account) await this.assertCreatorAccount(options.account);
     const config = await this.config();
     if (launchFeePolicy(config) === ENGINE_FEE_POLICY && !config.feeEngine)
       throw new Error("The configured fee engine could not be verified. Try again after deployment verification.");
     if (!config.launchGuard)
       throw new Error("Atomic first buys are unavailable until the launch guard is configured and verified.");
-    await assertStock(this.client, quoteAddress);
-    const chainId = deploymentChain(this.runtime.config);
+    await readLaunchAssetStatus(this.client, quoteAddress);
     // Conversion precedes launch, so reject already-known blockers before the
     // separate payment. This does not prepare or persist a launch snapshot.
-    await readOpeningValuation(this.client, stockByAddress(quoteAddress, chainId), chainId,
-      { ...this.runtime.lifi, rpcChainId: this.runtime.config.mode === "fork" && this.runtime.config.chainId === 31337 ? 31337 : chainId });
+    const stock = stockByAddress(quoteAddress, deploymentChain(this.runtime.config));
+    const nativeWrap = options?.fromToken !== undefined && sameAddress(options.fromToken, zeroAddress) && stock.symbol === "WETH";
+    if (!nativeWrap) await this.openingValuation(quoteAddress);
   }
-  async prepare(raw: unknown, rawCreator: unknown, expectedCurvePolicy?: unknown, firstBuy?: unknown): Promise<LaunchPlan> {
+  async prepare(raw: unknown, rawCreator: unknown, expectedCurvePolicy?: unknown, firstBuy?: unknown, rawOptions?: LaunchPrepareOptions): Promise<LaunchPlan> {
     // This handshake must run before any RPC, including chain checks.
     if (expectedCurvePolicy !== CURVE_POLICY)
       throw new Error("The issuance curve policy has changed. Reload the launch page and run a new preview.");
@@ -246,9 +294,22 @@ export class LaunchpadService {
       throw new Error("This asset is unavailable for a new launch because it is not in the verified LI.FI opening-price pairing list.");
     const stock = stockByAddress(draft.quoteAddress);
     const buy = firstBuySchema.parse(firstBuy);
+    const options = prepareOptionsSchema.parse(rawOptions ?? {});
+    const previous = options.previousPlanId ? await this.store.getPlan(options.previousPlanId) : null;
+    if (options.previousPlanId && (!previous || !sameAddress(previous.creator, creator) || !options.intentId || previous.intentId !== options.intentId ||
+      !previous.prepared || !sameAddress(previous.draft.quoteAddress, draft.quoteAddress) ||
+      previous.draft.tradingFeeBps !== draft.tradingFeeBps ||
+      (previous.firstBuy?.lockDays ?? 0) !== (buy?.lockDays ?? 0) ||
+      (previous.firstBuy?.slippageBps ?? buy?.slippageBps) !== buy?.slippageBps ||
+      (previous.firstBuy?.amount ?? "0") !== (buy?.amount ?? "0")))
+      throw new Error("The refreshed launch must match the same creator, intent and reviewed purchase.");
+    if (options.reconfirmPrice && (!previous?.requiresReconfirmation || !previous.firstBuy || !options.reconfirmedMinimumOut ||
+      BigInt(options.reconfirmedMinimumOut) !== minimumOutput(BigInt(previous.firstBuy.expectedAmountOut), previous.firstBuy.slippageBps)))
+      throw new Error("Review the changed minimum before confirming this refreshed price.");
     const amountIn = buy && !/^0(?:\.0+)?$/.test(buy.amount) ? parseAmount(buy.amount, stock.decimals) : 0n;
     if (buy?.lockDays && amountIn === 0n) throw new Error("A locked first buy requires a positive amount.");
     await this.assertNetwork();
+    await this.assertCreatorAccount(creator);
     const launchConfig = await this.config();
     const feePolicy = launchFeePolicy(launchConfig);
     if (feePolicy === ENGINE_FEE_POLICY && !launchConfig.feeEngine)
@@ -260,12 +321,12 @@ export class LaunchpadService {
       if (buy?.lockDays && !launchConfig.launchLockAvailable)
         throw new Error("First buy locking is unavailable until the vesting launch guard is deployed and verified on this network.");
     }
-    await assertStock(this.client, draft.quoteAddress);
+    const assetStatus = await readLaunchAssetStatus(this.client, draft.quoteAddress);
     const chainId = deploymentChain(this.runtime.config);
-    const openingValuation = await readOpeningValuation(this.client, stock, chainId,
-      { ...this.runtime.lifi, rpcChainId: this.runtime.config.mode === "fork" && this.runtime.config.chainId === 31337 ? 31337 : chainId });
+    const openingValuation = await this.openingValuation(draft.quoteAddress);
     const protocolOwner = await this.sdk.getAirlockOwner();
-    const params = buildLaunch(this.sdk, draft, creator, treasury, protocolOwner, openingValuation, undefined, chainId, launchConfig.feeEngine ?? undefined);
+    const params = buildLaunch(this.sdk, draft, creator, treasury, protocolOwner, openingValuation,
+      previous?.prepared?.createParams.salt, chainId, launchConfig.feeEngine ?? undefined);
     if (amountIn > 0n) {
       params.modules = { ...params.modules, bundler: chainLaunchDependencies(chainId).bundler };
       const duration = BigInt(buy?.lockDays ?? 0) * 86400n;
@@ -275,14 +336,21 @@ export class LaunchpadService {
     const prepared = await this.sdk.factory.prepareCreateMulticurve(params, { account: creator })
       .catch((error: unknown) => { throw simulationError(error); });
     const { prediction } = prepared;
+    const finalizedAt = Date.now(), signingExpiresAt = finalizedAt + LAUNCH_SIGNING_TTL;
     let firstBuyPlan: LaunchPlan["firstBuy"], approval: LaunchPlan["approval"];
     let gas = prepared.gasEstimate.status === "estimated" ? prepared.gasEstimate.gas.toString() : null;
     if (amountIn > 0n && guard && buy && prepared.devBuy) {
       const expectedAmountOut = prepared.devBuy.simulatedAmountOut;
-      const minAmountOut = minimumOutput(expectedAmountOut, buy.slippageBps);
-      const deadline = Math.floor(openingValuation.expiresAt / 1000);
+      const previousMinimum = options.reconfirmPrice ? BigInt(options.reconfirmedMinimumOut!)
+        : previous?.firstBuy ? BigInt(previous.firstBuy.acceptedMinAmountOut ?? previous.firstBuy.minAmountOut)
+        : BigInt(options.acceptedMinAmountOut ?? minimumOutput(expectedAmountOut, buy.slippageBps));
+      const requestedMinimum = options.reconfirmPrice ? previousMinimum : BigInt(options.acceptedMinAmountOut ?? previousMinimum);
+      const acceptedMinAmountOut = requestedMinimum > previousMinimum ? requestedMinimum : previousMinimum;
+      const freshMinimum = minimumOutput(expectedAmountOut, buy.slippageBps);
+      const minAmountOut = freshMinimum > acceptedMinAmountOut ? freshMinimum : acceptedMinAmountOut;
+      const deadline = Math.floor(signingExpiresAt / 1000);
       firstBuyPlan = { amount: buy.amount, amountIn: String(amountIn), expectedAmountOut: String(expectedAmountOut),
-        minAmountOut: String(minAmountOut), slippageBps: buy.slippageBps, deadline, recipient: creator,
+        minAmountOut: String(minAmountOut), acceptedMinAmountOut: String(acceptedMinAmountOut), slippageBps: buy.slippageBps, deadline, recipient: creator,
         quoteAddress: stock.address, guard, bundler: chainLaunchDependencies(chainId).bundler, lockDays: buy.lockDays };
       prepared.transaction = { to: guard, data: buy.lockDays ? encodeFunctionData({ abi: launchGuardAbi,
         functionName: "createAndBuyLocked", args: [prepared.createParams, amountIn, minAmountOut, BigInt(deadline), buy.lockDays] })
@@ -304,11 +372,15 @@ export class LaunchpadService {
     const plan: LaunchPlan = {
       id: keccak256(transaction.data), creator, data: transaction.data,
       tokenAddress: prediction.tokenAddress, poolId: prediction.poolId,
-      draft: { ...draft, openingCap: openingCapInQuote(openingValuation) }, preparedAt: Date.now(), gas,
+      draft: { ...draft, openingCap: openingCapInQuote(openingValuation) }, preparedAt: finalizedAt, gas,
+      validityVersion: 2, finalizedAt, signingExpiresAt, serverTime: Date.now(), intentId: options.intentId ?? crypto.randomUUID(),
+      previousPlanId: previous?.id,
+      requiresReconfirmation: !!firstBuyPlan && BigInt(firstBuyPlan.expectedAmountOut) < BigInt(firstBuyPlan.minAmountOut),
+      warnings: [...assetStatus.warnings, ...(openingValuation.warnings ?? [])],
       feePolicy, feeTreasury: treasury, feeEngine: launchConfig.feeEngine ?? undefined, openingValuation, curvePolicy: CURVE_POLICY,
       prepared: serializePrepared(prepared), transaction, firstBuy: firstBuyPlan, approval,
     };
-    assertOpeningValuation(openingValuation, stock.address, chainId);
+    assertOpeningValuation(openingValuation, stock.address, chainId, finalizedAt);
     assertPlanIntegrity(plan, this.contracts);
     await this.store.savePlan(plan);
     return plan;
@@ -321,16 +393,14 @@ export class LaunchpadService {
       throw new Error("The issuance fee policy has changed. Run a new simulation.");
     if (!this.assets.some((asset) => sameAddress(asset.address, plan.draft.quoteAddress)))
       throw new Error("The paired asset is no longer supported on the active network. Run a new simulation.");
-    if (
-      !plan.feeTreasury || !this.runtime.config.treasury ||
-      !sameAddress(plan.feeTreasury, this.runtime.config.treasury) ||
-      Date.now() - plan.preparedAt > LAUNCH_PRICE_TTL
-    )
+    if (!plan.feeTreasury || !this.runtime.config.treasury || !sameAddress(plan.feeTreasury, this.runtime.config.treasury))
       throw new Error("The issuance preview expired or the treasury changed. Simulate again.");
-    assertOpeningValuation(plan.openingValuation, plan.draft.quoteAddress, deploymentChain(this.runtime.config));
+    assertLaunchPlanValidity(plan, deploymentChain(this.runtime.config));
+    if (plan.requiresReconfirmation) throw new Error("The refreshed price is below your accepted minimum. Review the changed price before signing.");
     assertPlanIntegrity(plan, this.contracts);
+    const config = await this.config();
+    assertSigningEnabled(config);
     if (plan.firstBuy || plan.feePolicy === ENGINE_FEE_POLICY) {
-      const config = await this.config();
       if (plan.feePolicy === ENGINE_FEE_POLICY && (!config.feeEngine || !plan.feeEngine || !sameAddress(config.feeEngine, plan.feeEngine)))
         throw new Error("The fee engine configuration changed or could not be verified. Run a new preview.");
       if (plan.firstBuy && (!config.launchGuard || !sameAddress(config.launchGuard, plan.firstBuy.guard)))
@@ -338,7 +408,9 @@ export class LaunchpadService {
       if (plan.firstBuy?.lockDays && !config.launchLockAvailable)
         throw new Error("The first buy lock guard could not be verified. Run a new preview.");
     }
-    return { valid: true, feePolicy: plan.feePolicy, curvePolicy: plan.curvePolicy };
+    await this.store.protectPlan(plan.id);
+    return { valid: true, feePolicy: plan.feePolicy, curvePolicy: plan.curvePolicy, planId: plan.id,
+      validityVersion: plan.validityVersion, signingExpiresAt: plan.signingExpiresAt, intentId: plan.intentId, serverTime: Date.now() };
   }
   async simulateLaunch(creator: Address, data: Hex) {
     await this.validateLaunch(creator, data);
@@ -361,8 +433,8 @@ export class LaunchpadService {
       if (!sameAddress(simulation.result[0], plan.tokenAddress) || computePoolId(simulation.result[1]) !== plan.poolId)
         throw new Error("The first buy pool identity changed. Run a new preview.");
       amountOut = String(simulation.result[4]);
-      if (amountOut !== buy.expectedAmountOut)
-        throw new Error("The first buy output changed. Run a new preview before signing.");
+      if (BigInt(amountOut) < BigInt(buy.minAmountOut))
+        throw new Error("The first buy output is below your accepted minimum. Review the changed price before signing.");
     } else {
       await this.client.call({ account: creator, to: prepared.transaction.to, data, value: 0n })
         .catch((error: unknown) => { throw simulationError(error); });
@@ -384,7 +456,7 @@ export class LaunchpadService {
     assertLaunchTransaction(plan, tx, this.contracts);
     await this.store.trackLaunch(hash, plan.id);
   }
-  async register(hash: Hex): Promise<TokenRecord> {
+  async register(hash: Hex, recoveryPlan?: LaunchPlan): Promise<TokenRecord> {
     hash = hash.toLowerCase() as Hex;
     // Receipt verification does not sign or broadcast. Keep it available when
     // signing is disabled so transactions already sent can finish registering.
@@ -395,9 +467,15 @@ export class LaunchpadService {
     if (head < receipt.blockNumber + 1n)
       throw new Error("Wait for at least two block confirmations before registering.");
     const tx = await this.client.getTransaction({ hash });
-    const plan = await this.store.findPlan(receipt.from, tx.input);
+    const savedPlan = await this.store.findPlan(receipt.from, tx.input);
+    const plan = savedPlan ?? recoveryPlan;
     if (!plan)
-      throw new Error("No matching issuance preview was found. Preserve the database and original transaction hash.");
+      throw new Error("No matching issuance preview was found. Supply the frozen local backup with the original transaction hash.");
+    if (!savedPlan) {
+      assertRecoveryPlan(plan, this.contracts, this.sdk);
+      assertLaunchTransaction(plan, tx, this.contracts);
+      if (plan.firstBuy) await verifyLaunchGuard(this.client, plan.firstBuy.guard, deploymentChain(this.runtime.config), plan.firstBuy.lockDays ? "vesting" : undefined);
+    }
     if (plan.openingValuation)
       assertHistoricalOpeningValuation(plan.openingValuation, plan.draft.quoteAddress, deploymentChain(this.runtime.config));
     assertLaunchTransaction(plan, tx, this.contracts);
@@ -407,8 +485,8 @@ export class LaunchpadService {
       const verified = await verifyPreparedCreateExecution({ prepared: restorePrepared(plan.prepared), receipt, publicClient: this.client });
       if (plan.firstBuy) verifyGuardedReceipt(plan, receipt, verified.devBuy?.amountOut);
     } else if (plan.firstBuy) throw new Error("The guarded creation snapshot is missing.");
-    await this.store.trackLaunch(hash, plan.id);
-    const event = receipt.logs
+    if (savedPlan) await this.store.trackLaunch(hash, plan.id);
+    const events = receipt.logs
       .filter((l) => sameAddress(l.address, this.contracts.airlock))
       .flatMap((l) => {
         try {
@@ -422,9 +500,10 @@ export class LaunchpadService {
           return [];
         }
       })
-      .find((e) => sameAddress(e.asset, plan.tokenAddress));
+      .filter((e) => sameAddress(e.asset, plan.tokenAddress));
+    const event = events[0];
     if (
-      !event ||
+      events.length !== 1 || !event ||
       !sameAddress(event.numeraire, plan.draft.quoteAddress) ||
       !sameAddress(event.initializer, this.contracts.initializer)
     )
@@ -438,29 +517,16 @@ export class LaunchpadService {
     )
       throw new Error("The on-chain pool state does not match the preview.");
     const tradingFeeBps = tradingFeeBpsFor(plan.draft.tradingFeeBps);
-    const [supply, block, feeSchedule] = await Promise.all([
-      this.client.readContract({
-        address: plan.tokenAddress,
-        abi: erc20Abi,
-        functionName: "totalSupply",
-      }),
-      this.client.getBlock({ blockNumber: receipt.blockNumber }),
-      this.client.readContract({ address: this.contracts.rehype, abi: rehypeDopplerHookInitializerAbi,
-        functionName: "getFeeSchedule", args: [plan.poolId], blockNumber: receipt.blockNumber }),
-    ]);
+    const block = await this.client.getBlock({ blockNumber: receipt.blockNumber });
     if (block.hash !== receipt.blockHash)
       throw new Error("The receipt block was reorganized. Wait for confirmation again.");
-    if (supply !== SUPPLY) throw new Error("Supply verification failed.");
-    const feePpm = tradingFeeBps * 100;
-    if (feeSchedule[1] !== feePpm || feeSchedule[2] !== feePpm || feeSchedule[3] !== feePpm || feeSchedule[4] !== 0)
-      throw new Error("The on-chain trading fee schedule does not match the issuance preview.");
+    const transfers = verifyCreationAccounting(plan, receipt, this.contracts, tradingFeeBps);
     const firstBuyLock = verifiedFirstBuyLock(plan, receipt, block.timestamp);
     if (firstBuyLock) {
-      const position = await this.client.readContract({ address: firstBuyLock.bundler, abi: bundlerAbi,
-        functionName: "vestingOf", args: [plan.tokenAddress], blockNumber: receipt.blockNumber });
-      if (!sameAddress(position[0], firstBuyLock.recipient) || position[1] || position[2] !== BigInt(firstBuyLock.start) ||
-        position[3] !== BigInt(firstBuyLock.cliffDuration) || position[4] !== BigInt(firstBuyLock.vestingDuration) ||
-        position[5] !== BigInt(firstBuyLock.totalAmount) || position[6] !== 0n)
+      const custody = transfers.reduce((sum, transfer) => sum +
+        (sameAddress(transfer.to, firstBuyLock.bundler) ? transfer.value : 0n) -
+        (sameAddress(transfer.from, firstBuyLock.bundler) ? transfer.value : 0n), 0n);
+      if (custody !== BigInt(firstBuyLock.totalAmount))
         throw new Error("The first buy lock custody does not match its creation receipt.");
     }
     const token: TokenRecord = {
@@ -482,6 +548,9 @@ export class LaunchpadService {
       curvePolicy: plan.curvePolicy,
       firstBuyLock,
     };
+    if (!savedPlan) {
+      await this.store.savePlan(plan); await this.store.protectPlan(plan.id); await this.store.trackLaunch(hash, plan.id);
+    }
     await this.store.saveToken(token);
     await this.store.launchStatus(hash, "confirmed", receipt.blockHash);
     return token;
@@ -495,6 +564,7 @@ export class LaunchpadService {
     try {
       await this.assertNetwork();
       const rows = await this.store.pendingLaunches();
+      const finalized = await this.client.getBlock({ blockTag: "finalized" }).catch(() => null);
       const cursor = rows.findIndex((row) => row.hash === this.reconcileCursor);
       const ordered = [...rows.slice(cursor + 1), ...rows.slice(0, cursor + 1)];
       for (const row of ordered) {
@@ -502,9 +572,7 @@ export class LaunchpadService {
         // next maintenance event. RPC timeouts retain the same receipt status.
         if (Date.now() >= deadline) break;
         try {
-          const token = (await this.store.tokens()).find(
-            (t) => t.transactionHash?.toLowerCase() === row.hash,
-          );
+          const token = await this.store.tokenByTxHash(row.hash);
           if (token?.blockNumber && row.blockHash) {
             const head = await this.client.getBlockNumber({ cacheTime: 0 });
             const canonical =
@@ -516,6 +584,15 @@ export class LaunchpadService {
             if (!canonical || canonical.hash !== row.blockHash) {
               await this.store.removeToken(row.hash);
               await this.store.launchStatus(row.hash, "pending");
+            } else if (row.status === "confirmed") {
+              // Only a node-reported finalized block leaves the hot queue.
+              // Older receipts are rechecked less often if finality is unavailable.
+              if (finalized?.number !== null && finalized?.number !== undefined && BigInt(token.blockNumber) <= finalized.number)
+                await this.store.finalizeLaunch(row.hash);
+              else if (!finalized && Date.now() - token.createdAt >= 86_400_000)
+                await this.store.deferLaunch(row.hash, Date.now() + 3_600_000);
+              else await this.store.deferLaunch(row.hash, Date.now() + 60_000);
+              continue;
             }
           }
           const receipt = await this.client.getTransactionReceipt({
@@ -531,6 +608,7 @@ export class LaunchpadService {
           } else await this.register(row.hash);
         } catch {
           /* Upstream absence or timeout is not evidence of failure. Retry after restart or next tick. */
+          await this.store.deferLaunch(row.hash, Date.now() + Math.min(300_000, 5000 * 2 ** Math.min(row.attempts ?? 0, 6)));
         } finally {
           this.reconcileCursor = row.hash;
         }
@@ -604,26 +682,35 @@ export class LaunchpadService {
   }
   async firstBuyLock(address: Address): Promise<FirstBuyLockStatus | null> {
     await this.assertNetwork();
-    const token = await this.token(address), record = token.firstBuyLock;
-    if (!record) return null;
-    const dependencies = chainLaunchDependencies(deploymentChain(this.runtime.config));
-    if (!sameAddress(record.bundler, dependencies.bundler)) throw new Error("The first buy lock Bundler does not match this network.");
+    const chainId = deploymentChain(this.runtime.config), dependencies = chainLaunchDependencies(chainId);
+    // Catalog/database availability never gates a user's on-chain custody.
+    const tokenLookup = Promise.resolve().then(() => this.store.token(address)).catch(() => null);
     const blockNumber = await this.client.getBlockNumber({ cacheTime: 0 });
     const [code, position, claimable] = await Promise.all([
-      this.client.getCode({ address: record.bundler, blockNumber }),
-      this.client.readContract({ address: record.bundler, abi: bundlerAbi, functionName: "vestingOf", args: [address], blockNumber }),
-      this.client.readContract({ address: record.bundler, abi: bundlerAbi, functionName: "claimable", args: [address], blockNumber }),
+      this.client.getCode({ address: dependencies.bundler, blockNumber }),
+      this.client.readContract({ address: dependencies.bundler, abi: bundlerAbi, functionName: "vestingOf", args: [address], blockNumber }),
+      this.client.readContract({ address: dependencies.bundler, abi: bundlerAbi, functionName: "claimable", args: [address], blockNumber }),
     ]);
-    if (!code || keccak256(code) !== dependencies.bundlerCodeHash || !sameAddress(position[0], record.recipient) || position[1] ||
-      position[2] !== BigInt(record.start) || position[3] !== BigInt(record.cliffDuration) ||
-      position[4] !== BigInt(record.vestingDuration) || position[5] !== BigInt(record.totalAmount) ||
-      position[6] > position[5] || claimable > position[5] - position[6])
-      throw new Error("The first buy lock state does not match the verified position.");
-    return { ...record, claimedAmount: String(position[6]), claimableAmount: String(claimable),
-      unlockAt: record.start + record.vestingDuration,
-      ...(claimable > 0n ? { claimTransaction: { to: record.bundler,
-        data: encodeFunctionData({ abi: bundlerAbi, functionName: "claim", args: [address] }), value: "0" } } : {}) };
+    if (!code || keccak256(code) !== dependencies.bundlerCodeHash)
+      throw new Error("The first buy Bundler identity does not match this network.");
+    const state = firstBuyLockStatusFromPosition(address, chainId, dependencies.bundler, position, claimable);
+    if (!state) return null;
+    // A slow or absent catalog cannot hold up an on-chain claim. Its metadata is optional.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const token = await Promise.race([tokenLookup, new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), 500); })]);
+    clearTimeout(timer);
+    const verifiedState = firstBuyLockStatusFromPosition(address, chainId, dependencies.bundler, position, claimable, token?.firstBuyLock)!;
+    const metadata = await Promise.race([Promise.allSettled([
+      this.client.readContract({ address, abi: erc20Abi, functionName: "symbol", blockNumber }),
+      this.client.readContract({ address, abi: erc20Abi, functionName: "decimals", blockNumber }),
+    ]), new Promise<undefined>((resolve) => { timer = setTimeout(() => resolve(undefined), 1_000); })]);
+    clearTimeout(timer);
+    const symbol = metadata?.[0], decimals = metadata?.[1];
+    return { ...verifiedState,
+      symbol: symbol?.status === "fulfilled" && typeof symbol.value === "string" && symbol.value.length <= 64 ? symbol.value : token?.symbol,
+      decimals: decimals?.status === "fulfilled" && Number.isInteger(decimals.value) && decimals.value >= 0 && decimals.value <= 36 ? decimals.value : token ? 18 : undefined };
   }
+
   async engineClaimPreview(address: Address, engine: Address): Promise<EngineClaimPreview> {
     const { token, state } = await this.state(address);
     if (token.feePolicy !== ENGINE_FEE_POLICY || !token.feeEngine || !sameAddress(token.feeEngine, engine))
@@ -642,6 +729,12 @@ export class LaunchpadService {
 const firstBuySchema = z.object({ amount: z.string().regex(/^(?:0|[1-9]\d{0,20})(?:\.\d{1,18})?$/),
   slippageBps: z.union([z.literal(50), z.literal(100), z.literal(200), z.literal(500)]),
   lockDays: z.union([z.literal(0), z.literal(30), z.literal(90), z.literal(365)]).default(0) }).strict().optional();
+const prepareOptionsSchema = z.object({ intentId: z.string().regex(/^[a-zA-Z0-9_-]{8,100}$/).optional(),
+  previousPlanId: z.string().regex(/^0x[\da-fA-F]{64}$/).optional(),
+  acceptedMinAmountOut: z.string().regex(/^[1-9]\d{0,38}$/).refine((value) => BigInt(value) < 2n ** 128n).optional(),
+  reconfirmPrice: z.boolean().optional(),
+  reconfirmedMinimumOut: z.string().regex(/^[1-9]\d{0,38}$/).refine((value) => BigInt(value) < 2n ** 128n).optional(),
+}).strict();
 function assertLaunchTransaction(plan: LaunchPlan, tx: { from: Address; to: Address | null; input: Hex; value: bigint }, contracts: ContractRegistry) {
   const target = plan.transaction?.to ?? contracts.airlock;
   if (!tx.to || !sameAddress(tx.to, target) || !sameAddress(tx.from, plan.creator) ||

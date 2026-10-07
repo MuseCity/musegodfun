@@ -14,6 +14,8 @@ export type Transaction = {
   at: number;
   replacement?: Hash;
   planId?: Hash;
+  intentId?: string;
+  tokenAddress?: Address;
   registered?: boolean;
   batchId?: string;
   buybackKind?: "approval" | "deposit" | "burn";
@@ -28,6 +30,13 @@ export type Transaction = {
   firstBuyPayment?: FirstBuyPaymentQuote;
   firstBuyClaim?: { token: Address; bundler: Address; data: `0x${string}` };
 };
+function unresolved(row: Transaction) {
+  return row.status === "pending" || !row.registered && (row.action === "launch" && ["success", "cancelled", "replaced"].includes(row.status) ||
+    !!(row.firstBuyPayment || row.firstBuyClaim || row.action === "buyback") && ["success", "cancelled", "replaced"].includes(row.status));
+}
+function retainHistory(rows: Transaction[]) {
+  return [...rows.filter((row) => !unresolved(row)).slice(-200), ...rows.filter(unresolved)].sort((a, b) => a.at - b.at);
+}
 export function validMusegodRecovery(row: Pick<Transaction, "action" | "chainId" | "deploymentChainId" | "musegodRecovery">) {
   const metadata = row.musegodRecovery;
   if (!metadata || (row.chainId !== 4663 && !(row.chainId === 31337 && row.deploymentChainId === 4663)) ||
@@ -46,7 +55,7 @@ export function transactions(): Transaction[] {
   try {
     const data: unknown = JSON.parse(localStorage.getItem(key) || "[]");
     return Array.isArray(data)
-      ? data
+      ? retainHistory(data
           .filter(
             (x): x is Transaction =>
               !!x &&
@@ -100,7 +109,7 @@ export function transactions(): Transaction[] {
             // authorize scans or turn a guessed nonce into an identity proof.
             return Number.isSafeInteger(row.nonce) && row.nonce! >= 0 ? row : { ...row, nonce: undefined };
           })
-          .slice(-200)
+          )
       : [];
   } catch {
     return [];
@@ -127,15 +136,12 @@ export function saveTransaction(tx: Transaction) {
     (t) => !(t.hash === tx.hash && t.chainId === tx.chainId &&
       (t.chainId !== 31337 || (t.deploymentChainId ?? 8453) === (tx.deploymentChainId ?? 8453))),
   );
-  // Preserve every unresolved transaction; refuse further submissions if the queue is full.
+  // Settled history is bounded; unresolved broadcasts and registration recovery
+  // remain intact regardless of how many other drafts the user completes.
   rows.push(tx);
-  const pending = rows.filter((t) => t.status === "pending"),
-    settled = rows
-      .filter((t) => t.status !== "pending")
-      .slice(-(200 - pending.length));
   localStorage.setItem(
     key,
-    JSON.stringify([...settled, ...pending].sort((a, b) => a.at - b.at)),
+    JSON.stringify(retainHistory(rows)),
   );
   window.dispatchEvent(new Event("musegod:transactions"));
 }

@@ -82,6 +82,8 @@ for (const secret of [
   "PINATA_API_KEY",
   "PINATA_API_SECRET",
   "PINATA_JWT",
+  "LIFI_API_KEY",
+  "TURNSTILE_SECRET_KEY",
 ]
   .map((k) => process.env[k])
   .filter(Boolean))

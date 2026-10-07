@@ -1,5 +1,6 @@
+import { quoteNow } from "./quote-clock";
 import { decodeEventLog, decodeFunctionData, encodeFunctionData, getAddress, isAddress, parseAbi,
-  parseUnits, zeroAddress, type Address, type Hex } from "viem";
+  parseUnits, zeroAddress, toEventSelector, keccak256, type Address, type Hex } from "viem";
 import { ROBINHOOD_STOCKS, STOCKS, sameAddress } from "./config";
 
 export const FIRST_BUY_PAYMENT_TTL = 60_000;
@@ -29,7 +30,8 @@ const STABLE_ASSETS: Record<FirstBuyPaymentChain, FirstBuyPaymentAsset[]> = {
 export function firstBuyPairedAsset(chainId: FirstBuyPaymentChain, address: string): FirstBuyPaymentAsset {
   if (![8453, 4663].includes(chainId) || !isAddress(address, { strict: false })) throw new Error("Invalid payment network or asset.");
   const assets = chainId === 4663 ? ROBINHOOD_STOCKS : STOCKS;
-  const asset = [...assets, ...STABLE_ASSETS[chainId]].find((item) => sameAddress(item.address, address));
+  const wrapped: FirstBuyPaymentAsset = { chainId, address: wrappedEther(chainId), symbol: "WETH", decimals: 18 };
+  const asset = [...assets, ...STABLE_ASSETS[chainId], wrapped].find((item) => sameAddress(item.address, address));
   if (!asset) throw new Error("Select a verified paired asset on the active network.");
   return { chainId, address: getAddress(asset.address), symbol: asset.symbol, decimals: asset.decimals };
 }
@@ -62,12 +64,12 @@ export const firstBuyDiamondAbi = parseAbi([
 const transferAbi = parseAbi(["event Transfer(address indexed from,address indexed to,uint256 value)"]);
 export type FirstBuySwapData = { callTo: Address; approveTo: Address; sendingAssetId: Address; receivingAssetId: Address;
   fromAmount: bigint; callData: Hex; requiresDeposit: boolean };
-export type FirstBuyPrices = { chainId: FirstBuyPaymentChain; quotedAt: number; expiresAt: number; referenceOnly: true;
+export type FirstBuyPrices = { chainId: FirstBuyPaymentChain; quotedAt: number; expiresAt: number; serverTime?: number; referenceOnly: true;
   assets: (FirstBuyPaymentAsset & { priceUsd: string | null })[] };
 export type FirstBuyPaymentQuoteInput = { account: string; fromToken: string; toToken: string; amount: string; slippageBps: number };
-export type FirstBuyPaymentQuote = { protocol: "lifi"; id: string; transactionId: Hex; integrator: string; tool: string;
+export type FirstBuyPaymentQuote = { protocol: "lifi" | "wrap"; id: string; transactionId: Hex; integrator: string; tool: string;
   chainId: FirstBuyPaymentChain; account: Address; fromToken: FirstBuyPaymentAsset; toToken: FirstBuyPaymentAsset;
-  amountIn: string; expectedOut: string; minimumOut: string; slippageBps: number; quotedAt: number; expiresAt: number;
+  amountIn: string; expectedOut: string; minimumOut: string; slippageBps: number; quotedAt: number; expiresAt: number; serverTime?: number; intentId?: string; warnings?: string[];
   router: Address; facet: Address; facetRuntimeHash: Hex; blockNumber: string; blockHash: Hex;
   transaction: { to: Address; data: Hex; value: string }; approval: { token: Address; spender: Address; amount: string } | null;
   feeAmount: string; feeUsd: string | null; gasFeeUsd: string | null; amountInUsd: string | null };
@@ -99,7 +101,20 @@ function assetMatches(actual: FirstBuyPaymentAsset, expected: FirstBuyPaymentAss
 }
 /** Static checks shared by backend and wallet. The inner aggregator remains a
  * LI.FI trust boundary; only the fixed facet's onchain whitelist may call it. */
-export function assertFirstBuyPaymentQuote(q: FirstBuyPaymentQuote, now = Date.now(), allowExpired = false): FirstBuySwapData[] {
+export function assertFirstBuyPaymentQuote(q: FirstBuyPaymentQuote, now = quoteNow(q), allowExpired = false): FirstBuySwapData[] {
+  if (q?.protocol === "wrap") {
+    const wrapped = [8453, 4663].includes(q.chainId) ? firstBuyPairedAsset(q.chainId, wrappedEther(q.chainId)) : null;
+    if (!wrapped || !assetMatches(q.toToken, wrapped) || q.fromToken.address !== zeroAddress || q.fromToken.chainId !== q.chainId ||
+      q.fromToken.decimals !== 18 || q.fromToken.symbol !== "ETH" || !isAddress(q.account, { strict: false }) || sameAddress(q.account, zeroAddress) ||
+      !sameAddress(q.router, wrapped.address) || !sameAddress(q.facet, wrapped.address) || !/^0x[\da-f]{64}$/i.test(q.facetRuntimeHash) ||
+      !/^0x[\da-f]{64}$/i.test(q.blockHash) || !/^\d{1,24}$/.test(q.blockNumber) ||
+      !Number.isSafeInteger(q.quotedAt) || q.quotedAt > now || !Number.isSafeInteger(q.expiresAt) ||
+      q.expiresAt <= q.quotedAt || q.expiresAt - q.quotedAt > FIRST_BUY_PAYMENT_TTL || !allowExpired && now >= q.expiresAt ||
+      !sameAddress(q.transaction.to, wrapped.address) || q.transaction.data !== encodeFunctionData({ abi: wrapAbi, functionName: "deposit" }) ||
+      q.approval !== null || q.feeAmount !== "0" || q.amountIn !== q.expectedOut || q.amountIn !== q.minimumOut || q.transaction.value !== q.amountIn)
+      return invalid();
+    firstBuyInteger(q.amountIn); return [];
+  }
   if (!q || q.protocol !== "lifi" || ![8453, 4663].includes(q.chainId)) return invalid();
   const registry = FIRST_BUY_PAYMENT_CONTRACTS[q.chainId];
   const toToken = firstBuyPairedAsset(q.chainId, q.toToken?.address);
@@ -164,6 +179,21 @@ export function assertFirstBuyPaymentQuote(q: FirstBuyPaymentQuote, now = Date.n
 }
 export type FirstBuyReceiptLog = { address: Address; topics: readonly Hex[]; data: Hex };
 export function firstBuyReceiptOutput(q: FirstBuyPaymentQuote, logs: readonly FirstBuyReceiptLog[]): bigint {
+  if (q.protocol === "wrap") {
+    const deposits: bigint[] = [];
+    for (const log of logs) {
+      if (!sameAddress(log.address, wrappedEther(q.chainId))) continue;
+      try {
+        const event = decodeEventLog({ abi: wrapAbi, topics: log.topics as [Hex, ...Hex[]], data: log.data, strict: true });
+        if (event.eventName === "Deposit") {
+          if (!sameAddress(event.args.dst, q.account)) return invalid();
+          deposits.push(event.args.wad);
+        }
+      } catch { if (log.topics[0]?.toLowerCase() === toEventSelector("Deposit(address,uint256)").toLowerCase()) return invalid(); }
+    }
+    if (deposits.length !== 1 || deposits[0] !== BigInt(q.amountIn)) return invalid();
+    return deposits[0];
+  }
   const completed: bigint[] = [];
   let netTransfers = 0n;
   for (const log of logs) {
@@ -178,7 +208,7 @@ export function firstBuyReceiptOutput(q: FirstBuyPaymentQuote, logs: readonly Fi
         completed.push(args.toAmount);
       } catch {
         // A malformed completion event must not be mistaken for an absent event.
-        if (log.topics[0]?.toLowerCase() === "0x38eee76fd911eabac79da7af16053e809be0e12c8637f156e77e1af309b995378c") return invalid();
+        if (log.topics[0]?.toLowerCase() === toEventSelector("LiFiGenericSwapCompleted(bytes32,string,string,address,address,address,uint256,uint256)").toLowerCase()) return invalid();
       }
     }
     if (sameAddress(log.address, q.toToken.address)) {
@@ -191,4 +221,21 @@ export function firstBuyReceiptOutput(q: FirstBuyPaymentQuote, logs: readonly Fi
   }
   if (completed.length !== 1 || completed[0] !== netTransfers || netTransfers < BigInt(q.minimumOut)) return invalid();
   return netTransfers;
+}
+
+
+export const wrapAbi = parseAbi(["function deposit() payable", "event Deposit(address indexed dst,uint256 wad)"]);
+export function wrappedEther(chainId: FirstBuyPaymentChain) {
+  return getAddress(chainId === 4663 ? "0x0bd7d308f8e1639fab988df18a8011f41eacad73" : "0x4200000000000000000000000000000000000006");
+}
+export function createDirectWrapQuote(chainId: FirstBuyPaymentChain, account: Address, amountIn: bigint, code: Hex,
+  block: { number: bigint; hash: Hex }, now = Date.now()): FirstBuyPaymentQuote {
+  const address = wrappedEther(chainId), data = encodeFunctionData({ abi: wrapAbi, functionName: "deposit" });
+  const q: FirstBuyPaymentQuote = { protocol: "wrap", id: `wrap-${now}`, transactionId: keccak256(data), integrator: "musegodfun", tool: "WETH",
+    chainId, account, fromToken: { chainId, address: zeroAddress, symbol: "ETH", decimals: 18 }, toToken: firstBuyPairedAsset(chainId, address),
+    amountIn: amountIn.toString(), expectedOut: amountIn.toString(), minimumOut: amountIn.toString(), slippageBps: 1,
+    quotedAt: now, expiresAt: now + FIRST_BUY_PAYMENT_TTL, serverTime: now, router: address, facet: address, facetRuntimeHash: keccak256(code),
+    blockNumber: block.number.toString(), blockHash: block.hash, transaction: { to: address, data, value: amountIn.toString() }, approval: null,
+    feeAmount: "0", feeUsd: "0", gasFeeUsd: null, amountInUsd: null };
+  assertFirstBuyPaymentQuote(q, now); return q;
 }

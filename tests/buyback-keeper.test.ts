@@ -12,14 +12,16 @@ import { MUSEGOD_BUYBACK } from "../src/lib/fee-policy";
 import { ENGINE_FEE_POLICY } from "../src/lib/fee-policy";
 import type { RuntimeConfig } from "../src/lib/config";
 import type { BuybackDeployment } from "../server/buyback-engine";
-import deployment from "../contracts/artifacts/buyback-deployment.json";
+import deployment from "../contracts/artifacts/buyback-v2-deployment.json";
 import { redact } from "../server/config";
 
 const stock = "0x1111111111111111111111111111111111111111" as Address;
 const unknown = "0x2222222222222222222222222222222222222222" as Address;
+const vault = "0x9999999999999999999999999999999999999999" as Address;
+const assetOracle = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" as Address;
 const poolId = `0x${"aa".repeat(32)}` as Hex;
 const asset = (address: Address, changes: Partial<EngineAssetStatus> = {}): EngineAssetStatus => ({ address, symbol: "TEST", decimals: 18, pending: "100", claimed: "100", converted: "0", forwarded: "0", automationForwarded: "0", pricing: "supported", available: "10", referenceWeth: "20", error: null, ...changes });
-const status = (changes: Partial<BuybackEngineStatus> = {}): BuybackEngineStatus => ({ available: true, reason: null, blockNumber: "100", engine: stock, swapper: stock, executor: stock, operationsTreasury: stock, automationReceiver: unknown, automationTreasury: deployment.constants.automationTreasury as Address, wethForwarder: "0x7777777777777777777777777777777777777777", sourceDeployed: true, sourceWeth: "0", sourceAllowance: "1", sourceForwarded: "0", sourceAvailable: "0", assets: [], pools: [], swapperWeth: "0", directBurned: "0", convertedWeth: "0", burns: [], burnScanFrom: "90", ...changes });
+const status = (changes: Partial<BuybackEngineStatus> = {}): BuybackEngineStatus => ({ available: true, reason: null, blockNumber: "100", engine: stock, swapper: stock, executor: stock, operationsTreasury: stock, automationReceiver: unknown, automationTreasury: deployment.constants.automationTreasury as Address, wethForwarder: "0x7777777777777777777777777777777777777777", sourceDeployed: true, sourceWeth: "0", sourceAllowance: "1", sourceForwarded: "0", sourceAvailable: "0", assets: [], pools: [], swapperWeth: "0", vault, assetOracle, vaultWeth: "0", vaultAvailable: "0", directBurned: "0", convertedWeth: "0", burns: [], burnScanFrom: "90", ...changes });
 
 test("keeper origins reject non-HTTPS hosts, redirects via paths and embedded credentials", () => {
   assert.equal(keeperApiOrigin("https://musegod.fun"), "https://musegod.fun");
@@ -41,7 +43,7 @@ test("keeper gas profitability stays in raw units and rounds the 20 percent buff
 });
 
 test("keeper selection isolates unsupported assets, respects window budgets and burns MUSEGOD directly", () => {
-  const tasks = selectKeeperTasks(status({ assets: [asset(BUYBACK_WETH), asset(stock), asset(unknown, { referenceWeth: null, error: "No feed" }), asset(MUSEGOD_BUYBACK.tokenAddress, { available: "0", referenceWeth: null }), asset(stock, { available: "0" })], swapperWeth: "20" }), 1_000_000);
+  const tasks = selectKeeperTasks(status({ assets: [asset(BUYBACK_WETH), asset(stock), asset(unknown, { referenceWeth: null, error: "No feed" }), asset(MUSEGOD_BUYBACK.tokenAddress, { available: "0", referenceWeth: null }), asset(stock, { available: "0" })], vaultAvailable: "20" }), 1_000_000);
   assert.deepEqual(tasks.map((task) => task.id), [`forward:${BUYBACK_WETH}`, `convert:${stock}`, `burn:${MUSEGOD_BUYBACK.tokenAddress}`, "execute:weth"]);
   const conversion = tasks[1]; assert("kind" in conversion); assert.equal(conversion.amount, "10");
   const burn = tasks[2]; assert("action" in burn); assert.deepEqual(burn.action, { kind: "burn", amount: "100" });
@@ -69,13 +71,14 @@ test("keeper binds the independent Automation receiver and operating treasury wi
   const forwarder = "0x7777777777777777777777777777777777777777" as Address;
   // Explicitly configured mock metadata does not prove a native rule was saved or run.
   const manifest: BuybackDeployment = { ...deployment, status: "deployed_verified",
-    contracts: { oracle: { address: "0x5555555555555555555555555555555555555555", runtimeHash: null }, engine: { address: engine, runtimeHash: null }, swapper: { address: stock, runtimeHash: null }, executor: { address: executor, runtimeHash: null }, forwarder: { address: forwarder, runtimeHash: null } },
+    contracts: { vault: { address: vault, runtimeHash: null }, assetOracle: { address: assetOracle, runtimeHash: null }, oracle: { address: "0x5555555555555555555555555555555555555555", runtimeHash: null }, engine: { address: engine, runtimeHash: null }, swapper: { address: stock, runtimeHash: null }, executor: { address: executor, runtimeHash: null }, forwarder: { address: forwarder, runtimeHash: null } },
     constants: { ...deployment.constants, automation: unknown },
     automation: { status: "configured", account: unknown, network: 4663, outputToken: BUYBACK_WETH, allocationBps: 10_000, recipient: source },
   };
-  const config: RuntimeConfig = { mode: "robinhood", deploymentChainId: 4663, chainId: 4663, treasury: ops, writesEnabled: true, blockReason: null, feePolicy: ENGINE_FEE_POLICY, feeEngine: engine, buybackExecutor: executor, automationReceiver: unknown, automationTreasury: source, wethForwarder: forwarder };
+  const config: RuntimeConfig = { mode: "robinhood", deploymentChainId: 4663, chainId: 4663, treasury: ops, writesEnabled: true, blockReason: null, feePolicy: ENGINE_FEE_POLICY, feeEngine: engine, buybackExecutor: executor, automationReceiver: unknown, automationTreasury: source, wethForwarder: forwarder, buybackVault: vault, assetFeedOracle: assetOracle };
   const current = status({ engine, executor, operationsTreasury: ops, automationReceiver: unknown });
   assert.doesNotThrow(() => assertKeeperGraph(config, current, manifest));
+  assert.doesNotThrow(() => assertKeeperGraph(config, { ...current, sourceAllowance: "0" }, manifest), "Exhausted finite source approval must not stop existing Vault funds");
   for (const receiver of [null, ops, stock]) {
     assert.throws(() => assertKeeperGraph({ ...config, automationReceiver: receiver }, current, manifest), /reviewed deployment/);
     assert.throws(() => assertKeeperGraph(config, { ...current, automationReceiver: receiver }, manifest), /reviewed deployment/);
@@ -86,7 +89,7 @@ test("keeper binds the independent Automation receiver and operating treasury wi
     assert.throws(() => assertKeeperGraph({ ...config, ...changes }, current, manifest), /reviewed deployment/);
     assert.throws(() => assertKeeperGraph(config, { ...current, ...changes }, manifest), /reviewed deployment/);
   }
-  for (const changes of [{ sourceDeployed: false }, { sourceAllowance: "0" }, { sourceAllowance: null }])
+  for (const changes of [{ sourceDeployed: false }, { sourceAllowance: String(2n ** 256n - 1n) }, { sourceAllowance: null }])
     assert.throws(() => assertKeeperGraph(config, { ...current, ...changes }, manifest), /reviewed deployment/);
   for (const changes of [{ status: "not_configured" }, { account: null }, { account: ops }, { network: 31337 }, { outputToken: stock }, { allocationBps: 8000 }, { recipient: executor }])
     assert.throws(() => assertKeeperGraph(config, current, { ...manifest, automation: { ...manifest.automation!, ...changes } }), /reviewed deployment/);
@@ -99,12 +102,12 @@ test("keeper binds the independent Automation receiver and operating treasury wi
 
 test("keeper forwards authorized source WETH before settlement without using Oracle prices or engine windows", () => {
   for (const [balance, allowance, amount] of [[100n, 25n, 25n], [10n, 25n, 10n]] as const) {
-    const tasks = selectKeeperTasks(status({ sourceWeth: String(balance), sourceAllowance: String(allowance), sourceAvailable: String(amount), swapperWeth: "1" }));
+    const tasks = selectKeeperTasks(status({ sourceWeth: String(balance), sourceAllowance: String(allowance), sourceAvailable: String(amount), vaultAvailable: "1" }));
     assert.deepEqual(tasks.map((task) => task.id), ["forward:source", "execute:weth"]);
     assert("action" in tasks[0]); assert.deepEqual(tasks[0].action, { kind: "forward_source", amount: String(amount) });
     assert.match(tasks[0].label, /no caller reward/);
   }
-  for (const changes of [{ sourceDeployed: false }, { sourceWeth: "0" }, { sourceAllowance: "0" }, { sourceAllowance: null }])
+  for (const changes of [{ sourceDeployed: false }, { sourceWeth: "0" }, { sourceAllowance: String(2n ** 256n - 1n) }, { sourceAllowance: null }])
     assert.equal(selectKeeperTasks(status({ sourceWeth: "100", sourceAllowance: "25", ...changes })).length, 0);
 });
 
@@ -174,15 +177,16 @@ test("the real once CLI stays read-only by default even when a dedicated key is 
   } finally { await new Promise<void>((done, reject) => server.close((error) => error ? reject(error) : done())); }
 });
 
-test("buyback candidate sizes halve at most six times without zero, duplicates or exceeding the balance", () => {
-  assert.deepEqual(buybackAmountCandidates(64n), [64n, 32n, 16n, 8n, 4n, 2n]);
+test("buyback candidate sizes halve at most twenty times and cap even enormous balances at 0.01 WETH", () => {
+  assert.deepEqual(buybackAmountCandidates(64n), [64n, 32n, 16n, 8n, 4n, 2n, 1n]);
   assert.deepEqual(buybackAmountCandidates(3n), [3n, 1n]);
   assert.deepEqual(buybackAmountCandidates(1n), [1n]);
   assert.deepEqual(buybackAmountCandidates(0n), []);
   assert.deepEqual(buybackAmountCandidates(-1n), []);
   const huge = buybackAmountCandidates(10n ** 30n);
-  assert.equal(huge.length, 6);
-  assert(huge.every((value) => value > 0n && value <= 10n ** 30n));
+  assert.equal(huge.length, 20);
+  assert.equal(huge[0], 10n ** 16n);
+  assert(huge.every((value) => value > 0n && value <= 10n ** 16n));
 });
 
 const transactionInput = "0x11223344" as Hex;
@@ -266,9 +270,10 @@ test("journal recovery requires exact nonce, target, calldata and canonical two-
     assert.equal(writes, 0);
   }
   let terminal: KeeperJournal | null = null;
-  await assert.rejects(() => reconcileKeeperJournal(journal, recoveryDeps(journal, async (entry) => { terminal = entry; }, {
+  const reverted = await reconcileKeeperJournal(journal, recoveryDeps(journal, async (entry) => { terminal = entry; }, {
     receipt: async (hash) => ({ status: "reverted", transactionHash: hash, from: stock, to: unknown, blockNumber: 10n, blockHash: canonicalHash }),
-  })), /reverted.*operator review/);
+  }));
+  assert.equal(reverted.status, "reverted", "A canonical failure is resolved; only a newly simulated attempt may retry later");
   assert.equal((terminal as KeeperJournal | null)?.status, "reverted");
 });
 

@@ -33,8 +33,10 @@ import { ENGINE_FEE_POLICY, FEE_POLICY, FEE_SHARES, MUSEGOD_BUYBACK } from "./fe
 import { CURVE_POLICY, buildLaunchCurves, LAUNCH_CURVE_TICK_SPACING } from "./launch-curve";
 import {
   assertOpeningValuation,
+  assertHistoricalOpeningValuation,
   openingCapInQuote,
   type OpeningValuation,
+  type LaunchWarning,
 } from "./opening-valuation";
 import { LP_FEE_PPM, tradingFeeBpsFor } from "./trading-fee";
 
@@ -47,10 +49,14 @@ export const permit2Abi = parseAbi([
 ]);
 // Only the selectors used for signing belong in the browser bundle.
 export const claimFeesAbi = parseAbi(["function collectFees(bytes32 poolId)"]);
-// multiplier() is supported by the deployed Beryl precompile. The newer
-// uiMultiplier() selector is not active on the verified mainnet snapshot.
+// Coinbase B20 and Robinhood ERC-8056 expose different multiplier selectors.
 export const b20Abi = parseAbi([
   "function multiplier() view returns (uint256)",
+  "function uiMultiplier() view returns (uint256)",
+  "function newUIMultiplier() view returns (uint256)",
+  "function effectiveAt() view returns (uint256)",
+  "function paused() view returns (bool)",
+  "function oraclePaused() view returns (bool)",
 ]);
 export function beneficiaries(entries: BeneficiaryData[]): BeneficiaryData[] {
   const merged = new Map<Address, bigint>();
@@ -70,8 +76,9 @@ export function beneficiaries(entries: BeneficiaryData[]): BeneficiaryData[] {
     throw new Error("Fee shares must total 100%");
   return result;
 }
-export function tokenMetadata(input: LaunchInput, openingValuation: OpeningValuation, chainId: 8453 | 4663 = 8453, feeEngine?: Address) {
-  assertOpeningValuation(openingValuation, input.quoteAddress, chainId);
+export function tokenMetadata(input: LaunchInput, openingValuation: OpeningValuation, chainId: 8453 | 4663 = 8453, feeEngine?: Address, recovery = false) {
+  if (recovery) assertHistoricalOpeningValuation(openingValuation, input.quoteAddress, chainId);
+  else assertOpeningValuation(openingValuation, input.quoteAddress, chainId);
   return {
     name: input.name,
     symbol: input.symbol,
@@ -118,12 +125,14 @@ export function buildLaunch(
   salt?: Hex,
   chainId: 8453 | 4663 = 8453,
   feeEngine?: Address,
+  recovery = false,
 ) {
   const contracts = contractsFor({ mode: chainId === 4663 ? "robinhood" : "base" });
   const draft = launchSchema.parse(input),
     stock = stockByAddress(draft.quoteAddress);
   if (stock.chainId !== chainId) throw new Error("The paired asset is on a different deployment network");
-  assertOpeningValuation(openingValuation, stock.address, chainId);
+  if (recovery) assertHistoricalOpeningValuation(openingValuation, stock.address, chainId);
+  else assertOpeningValuation(openingValuation, stock.address, chainId);
   if (feeEngine && (chainId !== 4663 || [creator, treasury, protocolOwner, DEAD, "0x0000000000000000000000000000000000000000"].some((address) => sameAddress(feeEngine, address))))
     throw new Error("The fee engine must be a distinct Robinhood Chain beneficiary");
   const lpBeneficiaries = beneficiaries([
@@ -158,7 +167,7 @@ export function buildLaunch(
       type: "dopplerERC20V1",
       name: draft.name,
       symbol: draft.symbol,
-      tokenURI: `data:application/json,${encodeURIComponent(JSON.stringify(tokenMetadata(draft, openingValuation, chainId, feeEngine)))}`,
+      tokenURI: `data:application/json,${encodeURIComponent(JSON.stringify(tokenMetadata(draft, openingValuation, chainId, feeEngine, recovery)))}`,
     })
     .saleConfig({
       initialSupply: SUPPLY,
@@ -216,7 +225,7 @@ export function buildLaunch(
 
 const launchPoolDataAbi = parseAbiParameters("(uint24 fee, int24 tickSpacing, int24 farTick, (int24 tickLower, int24 tickUpper, uint16 numPositions, uint256 shares)[] curves, (address beneficiary, uint96 shares)[] beneficiaries, address dopplerHook, bytes onInitializationDopplerHookCalldata, bytes graduationDopplerHookCalldata)");
 const rehypeInitializationDataAbi = parseAbiParameters("(address numeraire,address buybackDst,uint24 startFee,uint24 endFee,uint32 durationSeconds,uint32 startingTime,uint8 feeRoutingMode,(uint64 assetFeesToAssetBuybackWad,uint64 assetFeesToNumeraireBuybackWad,uint64 assetFeesToBeneficiaryWad,uint64 assetFeesToLpWad,uint64 numeraireFeesToAssetBuybackWad,uint64 numeraireFeesToNumeraireBuybackWad,uint64 numeraireFeesToBeneficiaryWad,uint64 numeraireFeesToLpWad) feeDistributionInfo,(address beneficiary,uint96 shares)[] feeBeneficiaries,(address integrator,uint24 feeShare,uint32 assetFeesToNumeraireRatio,uint32 numeraireFeesToAssetRatio,bool automaticPayout) integratorConfig)");
-function launchFeeData(poolInitializerData: Hex) {
+export function launchFeeData(poolInitializerData: Hex) {
   const [pool] = decodeAbiParameters(launchPoolDataAbi, poolInitializerData);
   const [hook] = decodeAbiParameters(rehypeInitializationDataAbi, pool.onInitializationDopplerHookCalldata);
   return { pool, hook };
@@ -328,49 +337,46 @@ export function swapTransaction(
     currencyOut,
   };
 }
-export async function assertStock(
+/** Auxiliary stock metadata is advisory. Only known transfer pauses and observed
+ * identity mismatches stop a preview; strict execution callers require identity. */
+export async function readStockStatus(
   client: Pick<PublicClient<Transport, typeof base>, "readContract">,
-  address: Address,
-  blockNumber?: bigint,
+  address: Address, blockNumber?: bigint, requireIdentity = false,
 ) {
-  const stock = stockByAddress(address);
-  // Official address + successful native calls identify the asset. B20s have
-  // a precompile marker (currently 0xef), not ordinary ERC-20 bytecode.
-  const [symbol, decimals, name, totalSupply, multiplierWad] =
-    await Promise.all([
-      client.readContract({
-        address,
-        abi: erc20Abi,
-        functionName: "symbol",
-        blockNumber,
-      }),
-      client.readContract({
-        address,
-        abi: erc20Abi,
-        functionName: "decimals",
-        blockNumber,
-      }),
-      client.readContract({
-        address,
-        abi: erc20Abi,
-        functionName: "name",
-        blockNumber,
-      }),
-      client.readContract({
-        address,
-        abi: erc20Abi,
-        functionName: "totalSupply",
-        blockNumber,
-      }),
-      stock.standard === "B20" ? client.readContract({
-        address, abi: b20Abi, functionName: "multiplier", blockNumber,
-      }) : Promise.resolve(null),
-    ]);
-  if (
-    symbol !== stock.symbol ||
-    decimals !== stock.decimals ||
-    (stock.standard === "B20" && (multiplierWad === null || multiplierWad <= 0n))
-  )
+  const stock = stockByAddress(address), rhStock = stock.chainId === 4663 && stock.issuer === "Robinhood";
+  const [symbol, decimals, name, totalSupply, multiplier, scheduled, effectiveAt, paused, oraclePaused] = await Promise.allSettled([
+    client.readContract({ address, abi: erc20Abi, functionName: "symbol", blockNumber }),
+    client.readContract({ address, abi: erc20Abi, functionName: "decimals", blockNumber }),
+    client.readContract({ address, abi: erc20Abi, functionName: "name", blockNumber }),
+    client.readContract({ address, abi: erc20Abi, functionName: "totalSupply", blockNumber }),
+    stock.standard === "B20" ? client.readContract({ address, abi: b20Abi, functionName: "multiplier", blockNumber }) :
+      rhStock ? client.readContract({ address, abi: b20Abi, functionName: "uiMultiplier", blockNumber }) : Promise.resolve(null),
+    rhStock ? client.readContract({ address, abi: b20Abi, functionName: "newUIMultiplier", blockNumber }) : Promise.resolve(null),
+    rhStock ? client.readContract({ address, abi: b20Abi, functionName: "effectiveAt", blockNumber }) : Promise.resolve(null),
+    client.readContract({ address, abi: b20Abi, functionName: "paused", blockNumber }),
+    rhStock ? client.readContract({ address, abi: b20Abi, functionName: "oraclePaused", blockNumber }) : Promise.resolve(null),
+  ]);
+  const identityVerified = symbol.status === "fulfilled" && decimals.status === "fulfilled";
+  if ((symbol.status === "fulfilled" && symbol.value !== stock.symbol) ||
+    (decimals.status === "fulfilled" && decimals.value !== stock.decimals) || (requireIdentity && !identityVerified))
     throw new Error(`${stock.ticker} contract identity verification failed`);
-  return { stock, name, totalSupply, multiplierWad };
+  if (paused.status === "fulfilled" && paused.value === true)
+    throw new Error(`${stock.ticker} transfers are paused on chain.`);
+  const positive = (result: PromiseSettledResult<bigint | null>) => result.status === "fulfilled" && typeof result.value === "bigint" && result.value > 0n ? result.value : null;
+  const multiplierWad = positive(multiplier), newMultiplierWad = positive(scheduled);
+  const warnings: LaunchWarning[] = [];
+  if ([symbol, decimals, name, totalSupply, multiplier, scheduled, effectiveAt].some((result) => result.status === "rejected") ||
+    ((stock.standard === "B20" || rhStock) && multiplierWad === null))
+    warnings.push({ code: "asset_status_unavailable", message: `${stock.ticker} has incomplete live metadata. Its pinned address and transaction simulation remain authoritative; share-equivalent estimates may be unavailable.` });
+  if (oraclePaused.status === "fulfilled" && oraclePaused.value === true)
+    warnings.push({ code: "asset_oracle_paused", message: `${stock.ticker}'s issuer price oracle is paused. Review the live executable quote; the reference feed is unavailable.` });
+  return { stock, name: name.status === "fulfilled" ? name.value : stock.name,
+    totalSupply: totalSupply.status === "fulfilled" ? totalSupply.value : null, multiplierWad, newMultiplierWad,
+    multiplierEffectiveAt: effectiveAt.status === "fulfilled" && typeof effectiveAt.value === "bigint" && effectiveAt.value <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(effectiveAt.value) : null,
+    paused: paused.status === "fulfilled" && typeof paused.value === "boolean" ? paused.value : null,
+    oraclePaused: oraclePaused.status === "fulfilled" && typeof oraclePaused.value === "boolean" ? oraclePaused.value : null,
+    identityVerified, warnings };
+}
+export async function assertStock(client: Pick<PublicClient<Transport, typeof base>, "readContract">, address: Address, blockNumber?: bigint) {
+  return readStockStatus(client, address, blockNumber, true);
 }

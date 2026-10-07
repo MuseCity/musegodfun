@@ -4,8 +4,9 @@ import { readFileSync } from "node:fs";
 import { encodeAbiParameters, encodeEventTopics, encodeFunctionData, keccak256, parseAbi, zeroAddress,
   type Address, type Hex, type PublicClient, type Transport } from "viem";
 import { FirstBuyPaymentReader } from "../server/lifi";
+import { BudgetUnavailable, withRecoveryBudget } from "../server/runtime-policy";
 import { FIRST_BUY_PAYMENT_CONTRACTS, assertFirstBuyPaymentQuote, firstBuyFeeAbi, firstBuyPairedAsset,
-  firstBuyPaymentAbi, firstBuyPaymentAssets, firstBuyPaymentInput, firstBuyReceiptOutput,
+  firstBuyPaymentAbi, firstBuyPaymentAssets, firstBuyPaymentInput, firstBuyReceiptOutput, wrappedEther,
   type FirstBuyPaymentChain, type FirstBuyPaymentQuote, type FirstBuySwapData } from "../src/lib/first-buy-payment";
 // Synthetic quotes/receipts exercise validation. Runtime snapshots are verified
 // Sourcify bytecode, not a funded transaction or fork-execution test.
@@ -23,7 +24,7 @@ function runtime(chain: FirstBuyPaymentChain) {
 function fixture(chainId: FirstBuyPaymentChain = 4663, native = true, fee = true, single = false) {
   const registry = FIRST_BUY_PAYMENT_CONTRACTS[chainId];
   const fromToken = firstBuyPaymentAssets(chainId).find((a) => native ? a.address === zeroAddress : a.symbol === (chainId === 4663 ? "USDG" : "USDC"))!;
-  const toToken = firstBuyPairedAsset(chainId, chainId === 4663 ? "0x0bd7d308f8e1639fab988df18a8011f41eacad73" : "0xb20000000000000000000078ee7ce2fE4908108C");
+  const toToken = firstBuyPairedAsset(chainId, chainId === 4663 ? "0x0379E228F6887c6F18bf394042ECAF81B308cb2e" : "0xb20000000000000000000078ee7ce2fE4908108C");
   const amountIn = native ? 10n ** 16n : 10n ** 7n, feeAmount = fee ? amountIn / 400n : 0n;
   const swaps: FirstBuySwapData[] = [];
   if (fee) swaps.push({ callTo: registry.feeForwarder, approveTo: registry.feeForwarder,
@@ -166,7 +167,7 @@ test("default native fetch keeps the global receiver for token prices and execut
   assert(prices.assets.every((asset) => asset.priceUsd === "1"));
   const quote = await reader.quote(f.body);
   assert.equal(quote.expectedOut, f.q.expectedOut);
-  assert.equal(paths.filter((path) => path === "/v1/token").length, assets.length + 1);
+  assert.equal(paths.filter((path) => path === "/v1/token").length, assets.length);
   assert.equal(paths.filter((path) => path === "/v1/quote").length, 1);
   assert(!JSON.stringify({ prices, quote }).includes("receiver-test-key"));
 });
@@ -226,4 +227,69 @@ test("fork verification requires explicit 31337 configuration and retains fixed 
   const implicit = new FirstBuyPaymentReader({ client: f.client, chainId: 8453, now: () => at });
   await assert.rejects(implicit.verify({ quote: q, hash }), /wrong network/);
   assert.throws(() => new FirstBuyPaymentReader({ client: f.client, chainId: 8453, rpcChainId: 4663 }));
+});
+
+
+test("native ETH to canonical WETH wraps exactly without any provider request",async()=>{
+  for(const chainId of [4663,8453] as const){
+    let requests=0;
+    const client={getChainId:async()=>chainId,getBlock:async()=>({number:10n,hash:blockHash}),getCode:async()=>"0x60006000"} as unknown as PublicClient<Transport,any>;
+    const reader=new FirstBuyPaymentReader({client,chainId,now:()=>at,fetch:async()=>{requests++;throw new Error("must not route a wrap");}});
+    const quote=await reader.quote({account,fromToken:zeroAddress,toToken:wrappedEther(chainId),amount:"0.01",slippageBps:100});
+    assert.equal(quote.protocol,"wrap");assert.equal(quote.expectedOut,"10000000000000000");assert.equal(quote.minimumOut,quote.amountIn);assert.equal(quote.feeAmount,"0");assert.equal(quote.approval,null);assert.equal(requests,0);
+    assert.deepEqual(assertFirstBuyPaymentQuote(quote,at),[]);
+  }
+});
+
+test("token cache shares provider work for thirty seconds without refreshing its source timestamp",async()=>{
+  let now=at,calls=0;
+  const assets=firstBuyPaymentAssets(4663),f=readerFixture();
+  const reader=new FirstBuyPaymentReader({client:f.client,chainId:4663,now:()=>now,fetch:async input=>{
+    calls++;
+    const address=new URL(String(input)).searchParams.get("token");
+    return Response.json({...assets.find(asset=>asset.address===address),priceUSD:"1"});
+  }});
+  const [first,duplicate]=await Promise.all([reader.prices(),reader.prices()]);
+  assert.equal(calls,assets.length);assert.equal(first.quotedAt,at);assert.equal(duplicate.quotedAt,at);
+  now+=29_000;
+  const cached=await reader.prices();
+  assert.equal(calls,assets.length);assert.equal(cached.quotedAt,at);assert.equal(cached.serverTime,now);assert.equal(cached.expiresAt,first.expiresAt);
+  now+=1_001;
+  assert.equal((await reader.prices()).quotedAt,now);assert.equal(calls,assets.length*2);
+});
+test("provider 429 persists Retry-After circuit and only verified recovery context uses reserved quota",async()=>{
+  let now=at,calls=0,until=0,status=429;
+  const reservations:boolean[]=[],f=readerFixture();
+  const reader=new FirstBuyPaymentReader({client:f.client,chainId:4663,now:()=>now,budget:{
+    reserveBudget:(_name,_now,recovery=false)=>{reservations.push(recovery);return {allowed:now>=until,retryAfter:Math.ceil((until-now)/1000)};},
+    blockBudget:(_name,value)=>{until=value;},
+  },fetch:async()=>{calls++;return new Response('{}',{status,headers:{"retry-after":new Date(at+90_000).toUTCString()}});}});
+  const params=new URLSearchParams({chain:"4663",token:zeroAddress});
+  await assert.rejects(reader.pricingRequest("token",params),error=>error instanceof BudgetUnavailable && error.retryAfter===90);
+  assert.equal(until,at+90_000);
+  await assert.rejects(reader.pricingRequest("token",params),BudgetUnavailable);assert.equal(calls,1);
+  now+=90_000;status=200;
+  await withRecoveryBudget(true,()=>reader.pricingRequest("token",params));
+  assert.deepEqual(reservations,[false,false,true]);assert.equal(calls,2);
+  await reader.pricingRequest("token",params);assert.equal(reservations.length,3,"cache hits spend no provider budget");
+});
+test("malformed provider responses consume their reservation and never become successful cached results",async()=>{
+  let reservations=0,calls=0;
+  const f=readerFixture(),params=new URLSearchParams({chain:"4663",token:zeroAddress});
+  const reader=new FirstBuyPaymentReader({client:f.client,chainId:4663,now:()=>at,budget:{reserveBudget:()=>{reservations++;return {allowed:true,retryAfter:0};},blockBudget:()=>{}},fetch:async()=>{calls++;return new Response("invalid-json");}});
+  await assert.rejects(reader.pricingRequest("token",params));
+  await assert.rejects(reader.pricingRequest("token",params));
+  assert.equal(reservations,2);assert.equal(calls,2);
+});
+test("wrap recovery binds canonical Deposit output and receipt-time implementation to the frozen quote",async()=>{
+  const deposit=parseAbi(["event Deposit(address indexed dst,uint256 wad)"]);
+  let code:Hex="0x60006000";
+  const client={getChainId:async()=>4663,getBlock:async()=>({number:10n,hash:blockHash}),getCode:async()=>code,getBlockNumber:async()=>11n} as any;
+  const reader=new FirstBuyPaymentReader({client,chainId:4663,now:()=>at,fetch:async()=>{throw new Error("no provider");}});
+  const quote=await reader.quote({account,fromToken:zeroAddress,toToken:wrappedEther(4663),amount:"0.01",slippageBps:100});
+  client.getTransaction=async()=>({hash,from:account,to:quote.router,chainId:4663,input:quote.transaction.data,value:BigInt(quote.amountIn),blockNumber:10n,blockHash});
+  client.getTransactionReceipt=async()=>({transactionHash:hash,blockNumber:10n,blockHash,status:"success",logs:[{address:quote.router,topics:encodeEventTopics({abi:deposit,eventName:"Deposit",args:{dst:account}}),data:encodeAbiParameters([{type:"uint256"}],[BigInt(quote.amountIn)])}]});
+  assert.equal((await reader.verify({quote,hash})).actualOutput,quote.amountIn);
+  code="0x60016000";
+  await assert.rejects(reader.verify({quote,hash}),/implementation differs/);
 });

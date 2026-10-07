@@ -67,7 +67,8 @@ export default function TokenCard({ token, market, onNavigate }: {
       <span className="token-card-symbol" title={`$${token.symbol}`}>${token.symbol}</span>
       <span className="token-card-pair"><QuoteIcon ticker={token.quote.ticker} />{token.quote.ticker} pair</span>
     </div>
-    <span className="token-card-venue">{token.kind === "musegod" ? "SushiSwap v3" : "Doppler · Uniswap v4"}</span>
+    <span className="token-card-venue">{token.kind === "musegod" ? "SushiSwap v3" : "Meme · Doppler · Uniswap v4"}</span>
+    <code className="token-card-address" title={token.address}>{shortAddress(token.address)}</code>
     <dl className="token-card-metrics">
       <div><dt>Market cap</dt><dd>{usd(stats?.marketCapUsd)}</dd></div>
       <div><dt>24h volume</dt><dd>{usd(stats?.periods.h24?.volume)}</dd></div>

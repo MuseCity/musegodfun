@@ -5,9 +5,9 @@ import { randomUUID } from "node:crypto";
 import { createPublicClient, createWalletClient, defineChain, http, keccak256, parseAbi, type Address, type Hash, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { robinhood } from "viem/chains";
-import deployment from "../contracts/artifacts/buyback-deployment.json";
+import deployment from "../contracts/artifacts/buyback-v2-deployment.json";
 import { verifyFeeEngine, type BuybackDeployment } from "../server/buyback-engine";
-import { BUYBACK_WETH, buybackAmountCandidates, buybackExecutorAbi, engineTransaction, type BuybackEngineStatus, type EngineAction, type EngineConversionQuote } from "../src/lib/buyback-engine";
+import { BUYBACK_WETH, buybackAmountCandidates, buybackVaultAbi, engineTransaction, type BuybackEngineStatus, type EngineAction, type EngineConversionQuote } from "../src/lib/buyback-engine";
 import { sameAddress, type RuntimeConfig } from "../src/lib/config";
 import { ENGINE_FEE_POLICY, MUSEGOD_BUYBACK } from "../src/lib/fee-policy";
 
@@ -110,7 +110,8 @@ export async function reconcileKeeperJournal(journal: KeeperJournal, deps: {
       throw new Error("The prior transaction is not an exact canonical two-confirmation match");
     const confirmed: KeeperJournal = { ...journal, status: receipt.status === "success" ? "confirmed" : "reverted", blockNumber: String(receipt.blockNumber), blockHash: receipt.blockHash };
     await deps.persist(confirmed);
-    if (receipt.status !== "success") throw new KeeperSigningStopped(`Keeper transaction ${journal.hash} reverted. Signing is stopped for operator review.`);
+    // A canonical reverted receipt consumed its nonce and resolved the outcome.
+    // The next round must rebuild and simulate before signing a fresh attempt.
     return confirmed;
   } catch (error) {
     if (error instanceof KeeperSigningStopped) throw error;
@@ -157,11 +158,12 @@ export function selectKeeperTasks(status: BuybackEngineStatus, now = Date.now())
   const seen = new Set<string>();
   const add = (task: KeeperTask) => { if (!seen.has(task.id.toLowerCase())) { seen.add(task.id.toLowerCase()); tasks.push(task); } };
   for (const pool of status.pools) {
+    if (status.assets.some((asset) => BigInt(asset.untracked ?? "0") > 0n)) add({ id: `sync:${pool.poolId}`, action: { kind: "sync", poolId: pool.poolId }, label: "Account for externally pushed fees separately" });
     if (pool.claimable?.some((asset) => (asset.lp !== null && BigInt(asset.lp) > 0n) || (asset.hook !== null && BigInt(asset.hook) > 0n)))
       add({ id: `claim:${pool.poolId}`, action: { kind: "claim", poolId: pool.poolId }, label: `Collect ${pool.symbol} pool fees` });
   }
   for (const asset of status.assets) {
-    if (BigInt(asset.pending) === 0n || asset.pricing === "unknown") continue;
+    if (BigInt(asset.pending) === 0n || asset.pricing === "unknown" || asset.error) continue;
     if (sameAddress(asset.address, MUSEGOD_BUYBACK.tokenAddress)) {
       add({ id: `burn:${asset.address}`, action: { kind: "burn", amount: asset.pending }, label: "Transfer collected MUSEGOD to the dead address" });
     } else if (asset.pricing === "unsupported_static" && !sameAddress(asset.address, BUYBACK_WETH)) {
@@ -174,25 +176,25 @@ export function selectKeeperTasks(status: BuybackEngineStatus, now = Date.now())
   if (status.sourceDeployed && status.sourceWeth !== null && status.sourceAllowance !== null) {
     const balance = BigInt(status.sourceWeth), allowance = BigInt(status.sourceAllowance);
     const amount = balance < allowance ? balance : allowance;
-    if (amount > 0n) add({ id: "forward:source", action: { kind: "forward_source", amount: String(amount) }, label: "Forward authorized source treasury WETH to the fixed Swapper (no caller reward)" });
+    if (amount > 0n && allowance < 2n ** 256n - 1n) add({ id: "forward:source", action: { kind: "forward_source", amount: String(amount) }, label: "Forward authorized source treasury WETH to the fixed budget vault (no caller reward)" });
   }
-  if (status.swapperWeth !== null && BigInt(status.swapperWeth) > 0n)
-    add({ id: "execute:weth", action: { kind: "execute", amount: status.swapperWeth, minProfit: "1", deadline: Math.floor(now / 1000) + 60 }, label: "Settle WETH/MUSEGOD Swapper offer" });
+  if (status.vaultAvailable && BigInt(status.vaultAvailable) > 0n && !status.buybackWaitReason)
+    add({ id: "execute:weth", action: { kind: "execute", amount: status.vaultAvailable, minProfit: "1", deadline: Math.floor(now / 1000) + 60 }, label: "Settle WETH/MUSEGOD Swapper offer" });
   return tasks;
 }
 export function assertKeeperGraph(config: RuntimeConfig, status: BuybackEngineStatus, manifest: BuybackDeployment = deployment) {
   const graph = manifest.contracts, constant = manifest.constants, automation = manifest.automation;
-  if (manifest.status !== "deployed_verified" || manifest.chainId !== 4663 || config.feePolicy !== ENGINE_FEE_POLICY ||
-    !config.feeEngine || !config.buybackExecutor || !config.treasury || !config.automationReceiver || !config.automationTreasury || !config.wethForwarder ||
-    !status.available || !status.engine || !status.swapper || !status.executor || !status.operationsTreasury || !status.automationReceiver || !status.automationTreasury || !status.wethForwarder ||
-    !status.sourceDeployed || status.sourceAllowance === null || BigInt(status.sourceAllowance) <= 0n ||
-    !graph.engine.address || !graph.swapper.address || !graph.executor.address || !graph.forwarder.address ||
+  if (manifest.status !== "deployed_verified" || manifest.schemaVersion !== 2 || manifest.chainId !== 4663 || config.feePolicy !== ENGINE_FEE_POLICY ||
+    !config.feeEngine || !config.buybackVault || !config.assetFeedOracle || !config.buybackExecutor || !config.treasury || !config.automationReceiver || !config.automationTreasury || !config.wethForwarder ||
+    !status.available || !status.vault || !status.assetOracle || !status.engine || !status.swapper || !status.executor || !status.operationsTreasury || !status.automationReceiver || !status.automationTreasury || !status.wethForwarder ||
+    !status.sourceDeployed || status.sourceAllowance === null || BigInt(status.sourceAllowance) >= 2n ** 256n - 1n ||
+    !graph.vault?.address || !graph.assetOracle?.address || !graph.engine.address || !graph.swapper.address || !graph.executor.address || !graph.forwarder.address ||
     [constant.treasury, constant.automation, constant.automationTreasury, ...Object.values(graph).map((entry) => entry.address)].some((address) => !address || sameAddress(address, "0x0000000000000000000000000000000000000000")) ||
-    new Set([constant.treasury, constant.automation, constant.automationTreasury, ...Object.values(graph).map((entry) => entry.address)].map((address) => address?.toLowerCase())).size !== 8 ||
+    new Set([constant.treasury, constant.automation, constant.automationTreasury, ...Object.values(graph).map((entry) => entry.address)].map((address) => address?.toLowerCase())).size !== 10 ||
     !automation || automation.status !== "configured" || !automation.account || !sameAddress(automation.account, constant.automation!) ||
     automation.network !== 4663 || !sameAddress(automation.outputToken, constant.weth) || automation.allocationBps !== 10_000 || !sameAddress(automation.recipient, constant.automationTreasury!) ||
-    !sameAddress(config.feeEngine, graph.engine.address) || !sameAddress(config.buybackExecutor, graph.executor.address) ||
-    !sameAddress(status.engine, graph.engine.address) || !sameAddress(status.swapper, graph.swapper.address) || !sameAddress(status.executor, graph.executor.address) ||
+    !sameAddress(config.buybackVault, graph.vault.address) || !sameAddress(config.assetFeedOracle, graph.assetOracle.address) || !sameAddress(config.feeEngine, graph.engine.address) || !sameAddress(config.buybackExecutor, graph.executor.address) ||
+    !sameAddress(status.vault, graph.vault.address) || !sameAddress(status.assetOracle, graph.assetOracle.address) || !sameAddress(status.engine, graph.engine.address) || !sameAddress(status.swapper, graph.swapper.address) || !sameAddress(status.executor, graph.executor.address) ||
     !sameAddress(config.treasury, constant.treasury) || !sameAddress(status.operationsTreasury, constant.treasury) ||
     !sameAddress(config.automationReceiver, constant.automation!) || !sameAddress(status.automationReceiver, constant.automation!) ||
     !sameAddress(config.automationTreasury, constant.automationTreasury!) || !sameAddress(status.automationTreasury, constant.automationTreasury!) ||
@@ -221,7 +223,7 @@ export function redactKeeperError(error: unknown, secrets: (string | undefined)[
 }
 const oracleAbi = parseAbi(["function quoteWethToMuse(uint256 amount) view returns(uint256)"]);
 async function readApi<T>(origin: string, path: string, body?: unknown): Promise<T> {
-  const response = await fetch(`${origin}/api${path}`, { redirect: "error", signal: AbortSignal.timeout(35_000),
+  const response = await fetch(`${origin}/api${path}`, { redirect: "manual", signal: AbortSignal.timeout(35_000),
     ...(body === undefined ? {} : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }) });
   if (!response.ok) throw new Error(`The keeper API request failed (${response.status})`);
   const text = await response.text();
@@ -313,14 +315,14 @@ export async function runKeeper(args = process.argv.slice(2)) {
                 const args = [amount, 1n, BigInt(deadline)] as const;
                 try {
                   const [simulation, gas, gasPrice] = await Promise.all([
-                    client.simulateContract({ address: graph.executor, abi: buybackExecutorAbi, functionName: "execute", args, account: caller }),
-                    client.estimateContractGas({ address: graph.executor, abi: buybackExecutorAbi, functionName: "execute", args, account: caller }),
+                    client.simulateContract({ address: graph.vault, abi: buybackVaultAbi, functionName: "execute", args, account: caller }),
+                    client.estimateContractGas({ address: graph.vault, abi: buybackVaultAbi, functionName: "execute", args, account: caller }),
                     client.getGasPrice(),
                   ]);
                   const gasMuse = await client.readContract({ address: graph.oracle, abi: oracleAbi, functionName: "quoteWethToMuse", args: [keeperGasCost(gas, gasPrice)] });
                   const minimumProfit = keeperProfitThreshold(gasMuse);
                   if (simulation.result[1] < minimumProfit) continue;
-                  await client.simulateContract({ address: graph.executor, abi: buybackExecutorAbi, functionName: "execute", args: [amount, minimumProfit, BigInt(deadline)], account: caller });
+                  await client.simulateContract({ address: graph.vault, abi: buybackVaultAbi, functionName: "execute", args: [amount, minimumProfit, BigInt(deadline)], account: caller });
                   selected = { kind: "execute", amount: String(amount), minProfit: String(minimumProfit), deadline };
                   break;
                 } catch { /* A failed size is only simulated; smaller sizes retain the same price floor. */ }
@@ -375,7 +377,8 @@ export async function runKeeper(args = process.argv.slice(2)) {
                 return reconcile(journal);
               },
             });
-            console.log(JSON.stringify({ task: task.id, state: "confirmed", hash: confirmed.hash, blockNumber: confirmed.blockNumber }));
+            console.log(JSON.stringify({ task: task.id, state: confirmed.status === "confirmed" ? "confirmed" : "reverted_waiting", hash: confirmed.hash, blockNumber: confirmed.blockNumber }));
+            if (confirmed.status === "reverted") break;
           } catch (error) {
             if (error instanceof KeeperSigningStopped) { stopSigning(error); return; }
             console.log(JSON.stringify({ task: task.id, state: "skipped", reason: safeError(error) }));

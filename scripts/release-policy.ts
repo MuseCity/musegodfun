@@ -69,6 +69,34 @@ export function requireSingleActiveVersion(deployment: { versions: { version_id:
   return deployment.versions[0].version_id;
 }
 
+
+// Live emergency edits must not be silently overwritten by the unchanged Git default.
+// Intentional changes committed on master remain fully automatic; the persistent
+// pause record is independent and no release is allowed to update it.
+export function assertSecurityTransition(previous: Record<string,string>, candidate: Record<string,string>, previousSource: Record<string,string>) {
+  const values=(vars:Record<string,string>)=>({
+    base:vars.ENABLE_BASE_TRANSACTIONS === "true" ? "true" : "false", robinhood:(vars.ENABLE_ROBINHOOD_TRANSACTIONS ?? vars.ENABLE_MAINNET_TRANSACTIONS) === "true" ? "true" : "false",
+    baseTreasury:vars.BASE_PLATFORM_TREASURY ?? vars.PLATFORM_TREASURY ?? "", robinhoodTreasury:vars.ROBINHOOD_PLATFORM_TREASURY ?? vars.PLATFORM_TREASURY ?? "",
+    baseGuard:vars.BASE_LAUNCH_GUARD_ADDRESS ?? "", robinhoodGuard:vars.ROBINHOOD_LAUNCH_GUARD_ADDRESS ?? vars.LAUNCH_GUARD_ADDRESS ?? "",
+    baseFirstBuy:vars.BASE_FIRST_BUY_GUARD_ADDRESS ?? "", robinhoodFirstBuy:vars.ROBINHOOD_FIRST_BUY_GUARD_ADDRESS ?? vars.FIRST_BUY_GUARD_ADDRESS ?? "",
+    feeEngine:vars.FEE_ENGINE_ADDRESS ?? "",
+  });
+  const live=values(previous),next=values(candidate),source=values(previousSource);
+  for(const key of Object.keys(live) as (keyof typeof live)[]) {
+    if(live[key].toLowerCase()!==source[key].toLowerCase() && next[key].toLowerCase()===source[key].toLowerCase())
+      throw new Error(`Live security configuration drift would be overwritten: ${key}. Commit the intended configuration explicitly.`);
+  }
+}
+
+// A rollback must understand the persisted stop record and cannot undo a
+// newly committed emergency signing disable by selecting a more permissive build.
+export function rollbackPreservesSafety(previous: Record<string,string>, candidate: Record<string,string>): boolean {
+  if(previous.RUNTIME_SECURITY_PROTOCOL !== "1")return false;
+  const enabled=(vars:Record<string,string>,chain:8453|4663)=>chain===8453 ? vars.ENABLE_BASE_TRANSACTIONS === "true"
+    : (vars.ENABLE_ROBINHOOD_TRANSACTIONS ?? vars.ENABLE_MAINNET_TRANSACTIONS) === "true";
+  return ([8453,4663] as const).every(chain=>!enabled(previous,chain) || enabled(candidate,chain));
+}
+
 export interface ReleaseLifecycle {
   commit: string;
   previousVersion: string;
@@ -82,9 +110,10 @@ export interface ReleaseLifecycle {
   activate(version: string): Promise<void>;
   verify(candidate: string): Promise<void>;
   verifyRollback(previous: string): Promise<void>;
+  rollbackAllowed?(previous: string): Promise<boolean>;
 }
 
-export type RollbackStatus = "not_needed" | "verified" | "failed" | "external_change";
+export type RollbackStatus = "not_needed" | "verified" | "failed" | "external_change" | "blocked_by_safety";
 
 export class ReleaseFailure extends Error {
   constructor(public readonly rollback: RollbackStatus, cause: unknown, public readonly rollbackError?: unknown) {
@@ -125,7 +154,9 @@ export async function publishCandidate(flow: ReleaseLifecycle): Promise<"success
     if (activationAttempted) {
       try {
         const active = await flow.activeVersion();
-        if (active === candidate) {
+        if (active === candidate && flow.rollbackAllowed && !await flow.rollbackAllowed(flow.previousVersion)) {
+          rollback = "blocked_by_safety";
+        } else if (active === candidate) {
           await flow.activate(flow.previousVersion);
           if (await flow.activeVersion() !== flow.previousVersion) throw new Error("Rollback version is not active at 100%");
           await flow.verifyRollback(flow.previousVersion);

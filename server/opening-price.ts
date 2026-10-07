@@ -1,13 +1,16 @@
-import { erc20Abi, formatUnits, getAddress, isAddress, parseUnits, zeroAddress, type PublicClient, type Transport } from "viem";
+import { erc20Abi, formatUnits, getAddress, isAddress, keccak256, parseAbi, parseUnits, zeroAddress, type Address, type PublicClient, type Transport } from "viem";
 import { ROBINHOOD_STOCKS, STOCKS, sameAddress, type Stock } from "../src/lib/config";
 import { FirstBuyPaymentReader } from "./lifi";
 import { firstBuyPaymentAssets, type FirstBuyPaymentAsset } from "../src/lib/first-buy-payment";
-import { assertOpeningValuation, deriveLifiOpeningPrice, LAUNCH_PRICE_TTL, OPENING_CAP_USD, OPENING_POLICY,
-  type LifiOpeningQuote, type LifiOpeningValuation } from "../src/lib/opening-valuation";
+import { assertOpeningValuation, deriveLifiOpeningPrice, openingValuationWarnings, LAUNCH_PRICE_TTL, OPENING_CAP_USD, OPENING_POLICY,
+  type LaunchWarning, type LifiOpeningQuote, type LifiOpeningValuation } from "../src/lib/opening-valuation";
+import type { StoreBackend } from "./supabase-store";
+import deployedBuyback from "../contracts/artifacts/buyback-deployment.json";
 
 export type OpeningPriceDependencies = {
   integrator?: string; apiKey?: string; fetch?: typeof fetch; now?: () => number;
   rpcChainId?: 8453 | 4663 | 31337;
+  budget?: Pick<StoreBackend, "reserveBudget" | "blockBudget">;
 };
 export const LIFI_OPENING_PROBE_ACCOUNT = getAddress("0x1111111111111111111111111111111111111111");
 const SLIPPAGE = 0.01;
@@ -54,6 +57,49 @@ async function identityRead<T>(work: () => Promise<T>): Promise<T> {
   finally { clearTimeout(timer); }
 }
 
+
+const referenceAbi = parseAbi([
+  "function assetFeeds(address asset) view returns (address feed,uint32 maxAge,uint8 tokenDecimals,uint8 feedDecimals,bool checkOraclePaused)",
+  "function latestRoundData() view returns (uint80 roundId,int256 answer,uint256 startedAt,uint256 updatedAt,uint80 answeredInRound)",
+  "function decimals() view returns (uint8)", "function oraclePaused() view returns (bool)",
+]);
+/** Advisory only. The deployed immutable oracle pins official feed mappings.
+ * RH feeds already incorporate uiMultiplier; never multiply their price again. */
+async function independentReference(client: PublicClient<Transport, any>, stock: Stock, blockNumber: bigint,
+  midpoint: string, now: number): Promise<Pick<LifiOpeningValuation, "reference" | "warnings">> {
+  const unavailable = { warnings: [{ code: "reference_price_unavailable" as const,
+    message: "An independent fresh price reference is unavailable. Review the opening price and minimum received before continuing." }] };
+  if (stock.chainId !== 4663) return unavailable;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([(async () => {
+      const oracle = deployedBuyback.contracts.oracle;
+      const [code, config] = await Promise.all([
+        client.getCode({ address: oracle.address as Address, blockNumber }),
+        client.readContract({ address: oracle.address as Address, abi: referenceAbi, functionName: "assetFeeds", args: [stock.address], blockNumber }),
+      ]);
+      if (!code || keccak256(code) !== oracle.runtimeHash) return unavailable;
+      const [feed, maxAge, tokenDecimals, feedDecimals, checkPaused] = config;
+      if (sameAddress(feed, zeroAddress) || tokenDecimals !== stock.decimals || maxAge <= 0 || feedDecimals > 18) return unavailable;
+      const [round, decimals, paused] = await Promise.all([
+        client.readContract({ address: feed, abi: referenceAbi, functionName: "latestRoundData", blockNumber }),
+        client.readContract({ address: feed, abi: referenceAbi, functionName: "decimals", blockNumber }),
+        checkPaused ? client.readContract({ address: stock.address, abi: referenceAbi, functionName: "oraclePaused", blockNumber }) : Promise.resolve(false),
+      ]);
+      const [roundId, answer, , updatedAt, answeredInRound] = round, nowSeconds = BigInt(Math.floor(now / 1000));
+      if (paused || decimals !== feedDecimals || answer <= 0n || updatedAt <= 0n || updatedAt > nowSeconds ||
+        nowSeconds - updatedAt > BigInt(maxAge) || answeredInRound < roundId) return unavailable;
+      const referenceWad = answer * 10n ** BigInt(18 - decimals), midWad = parseUnits(midpoint, 18);
+      const difference = midWad > referenceWad ? midWad - referenceWad : referenceWad - midWad;
+      const divergenceBps = Number((difference * 10_000n + referenceWad - 1n) / referenceWad);
+      return { reference: { source: "Chainlink" as const, feed, priceUsd: formatUnits(referenceWad, 18), updatedAt: Number(updatedAt) * 1000, divergenceBps },
+        warnings: divergenceBps > 500 ? [{ code: "reference_price_divergence" as const, divergenceBps,
+          message: `The opening price differs from its independent reference by ${(divergenceBps / 100).toFixed(2)}%. Review this difference before continuing.` }] : [] };
+    })(), new Promise<typeof unavailable>((resolve) => { timer = setTimeout(() => resolve(unavailable), 2_000); })]);
+  } catch { return unavailable; }
+  finally { clearTimeout(timer); }
+}
+
 /** Two unsigned probes provide a LI.FI USD reference midpoint. The recorded
  * canonical RPC block proves token identity; it is not a quote execution block. */
 export async function readOpeningValuation(client: PublicClient<Transport, any>, stock: Stock,
@@ -75,16 +121,21 @@ export async function readOpeningValuation(client: PublicClient<Transport, any>,
   const numeraire = sameAddress(asset.address, stable.address)
     ? firstBuyPaymentAssets(chainId).find((item) => item.address === zeroAddress)! : stable;
   const quoteToken: FirstBuyPaymentAsset = { chainId, address: asset.address, symbol: asset.symbol, decimals: asset.decimals };
+  const warnings: LaunchWarning[] = [];
   const identity = async (expected: FirstBuyPaymentAsset) => {
     if (expected.address === zeroAddress) return;
-    const [symbol, decimals, code] = await Promise.all([
+    const [symbol, decimals, code] = await Promise.allSettled([
       identityRead(() => client.readContract({ address: expected.address, abi: erc20Abi, functionName: "symbol", blockNumber: block.number! })),
       identityRead(() => client.readContract({ address: expected.address, abi: erc20Abi, functionName: "decimals", blockNumber: block.number! })),
       identityRead(() => client.getCode({ address: expected.address, blockNumber: block.number! })),
     ]);
     // Base B20 tokens legitimately have the native initialization marker 0xef.
-    if (symbol !== expected.symbol || decimals !== expected.decimals || !code || code === "0x")
+    if ((symbol.status === "fulfilled" && symbol.value !== expected.symbol) ||
+      (decimals.status === "fulfilled" && decimals.value !== expected.decimals) ||
+      (code.status === "fulfilled" && (!code.value || code.value === "0x")))
       throw new Error("The opening-price token identity does not match its verified address and decimals.");
+    if ([symbol, decimals, code].some((result) => result.status === "rejected"))
+      warnings.push({ code: "asset_status_unavailable", message: `${expected.symbol} live identity reads are incomplete. Pricing uses its pinned address and decimals; review the final simulation.` });
   };
   await Promise.all([identity(quoteToken), identity(numeraire)]);
   let probeAmount = 100n * 10n ** BigInt(numeraire.decimals);
@@ -156,5 +207,8 @@ export async function readOpeningValuation(client: PublicClient<Transport, any>,
     lifi: { numeraire: { ...numeraire, priceUsd: buy.numerairePriceUsd }, probeAmountIn: probeAmount.toString(), buy, sell, ...derived,
       ...(sizingPrice ? { probeUsd: "100", probeSizingPriceUsd: sizingPrice } : {}) } };
   assertOpeningValuation(snapshot, asset.address, chainId, now());
+  const reference = await independentReference(client, stock, block.number, snapshot.quotePriceUsd, now());
+  snapshot.reference = reference.reference;
+  snapshot.warnings = [...warnings, ...openingValuationWarnings(snapshot), ...(reference.warnings ?? [])];
   return snapshot;
 }

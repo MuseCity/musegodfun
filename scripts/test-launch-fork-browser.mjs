@@ -109,7 +109,6 @@ try {
     if (await choose.count()) await choose.click();
     await page.getByRole('button', { name: 'Review and continue', exact: true }).click();
     console.log('PASS fork browser parameter review: ' + (mobile ? 'mobile' : 'desktop'));
-    await page.getByRole('button', { name: 'Preview launch and first buy', exact: true }).click();
     await page.getByRole('button', { name: 'Confirm launch and first buy', exact: true }).waitFor();
     console.log('PASS fork browser preview: ' + (mobile ? 'mobile' : 'desktop'));
     assert(plan?.firstBuy); assert.equal(plan.firstBuy.lockDays ?? 0, 0); assert.equal(plan.curvePolicy, CURVE_POLICY);
