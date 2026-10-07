@@ -132,7 +132,7 @@
     },
     "sortedChangedFilesDigest": "a47a4d475b11e5cf5cd66cad8dee910c90208b07a979f2cbd1dc1183eb603aac",
     "digestEncoding": "Sorted relative path + NUL + lowercase SHA256 + newline. This evidence file itself is excluded to avoid a self-hash cycle.",
-    "hashScope": "Original implementation file set plus all follow-up files; evidence file itself excluded. baseCommit is the reviewed parent cc1d47a.",
+    "hashScope": "Historical file snapshot from the 74aac0d independent review, including its documentation/evidence updates; this evidence file is excluded. Current rebased file hashes are recorded in source.synchronization and do not relabel the historical review results.",
     "uncommittedChanges": "Only the six documentation/evidence files authorized for this review commit; no application/contract implementation modifications.",
     "reviewedCommit": "74aac0d13f2e52e4aa07b9e62b0b0c587b2e3964",
     "fixCommit": "a7ed56589411edac813e353ffca20a2aa61bbeae",
@@ -141,7 +141,49 @@
       "contracts/artifacts/MusegodFeeEngine.json",
       "contracts/artifacts/MusegodWethForwarder.compiler-input.json",
       "contracts/artifacts/MusegodWethForwarder.json"
-    ]
+    ],
+    "synchronization": {
+      "observedAt": "2026-10-07T23:39:23.485Z",
+      "operation": "rebase",
+      "upstreamCommit": "1f977128ecdd6582f904cf998288c167ec5233ee",
+      "originalEvidenceCommit": "7e8027e3c3d7648d15367ca7f5fbd1bba600e41a",
+      "rebasedEvidenceCommit": "26238e3d2944a554ad0fb8e17ae689a32c11cab2",
+      "scope": "SHA-256 refresh for all 15 upstream-changed files, including the 10 explicitly requested source files. docs/SPEC.md includes the upstream F5 update and the retained local documentation edit. Earlier review, browser, fork, contract and production evidence retains its original commit and observation time; this synchronization is not a full revalidation.",
+      "sha256Algorithm": "SHA-256 of exact bytes",
+      "changedFileHashes": {
+        "docs/SPEC.md": "2086afb27db4f72f6605eb30dc4c2162eceb4d28516ba6550c7acb15e603d2b2",
+        "scripts/test-http.ts": "c6343dc59352035542003f31cf7a88d3576c01cbe841eaa7fbd142f910feaf6b",
+        "scripts/test-launch-browser.mjs": "13b4ad830b0a64be219ce3bc913abf8be1038e371f1fb2e15c9d523a4b2a626e",
+        "server/abuse.ts": "48f59d2338685f486197fdb2f56a0e5841ac35f10ae42fcc13b28d6fadc300bb",
+        "server/http-security.ts": "b6e20fce1389ea42f1f7886ff4c28f5401593cdc5572ac69e1b65d8b3e15de17",
+        "server/launch-policy-registry.ts": "2acffa83a5da955977dbf2a1d09b9540296147a9f692f3cac82a1a1648edc786",
+        "server/launch-verification.ts": "ef089a79b15ac6cf887dd206c047d1e5a7b72c85e470852c26b25b7e225b2ab8",
+        "server/opening-price.ts": "cc1f5b4c0c0e6298911b98a8c228de094ef03b6718ad8d903421e848ebb0a865",
+        "server/service.ts": "7324081677f8681e9a10004413e9ecbe5da892d1a2cf4f1033604e9a8cb728d3",
+        "src/App.tsx": "cb2c968235bcbf4437f51722e69a5091144ee428874adf1c4e737346ac3151d9",
+        "src/lib/launch-intent.ts": "a6e9f07062dfb4f08e71cbf8cd41de2bf46be2ac82e8f8b259f868a847b3d233",
+        "tests/go-live-regressions.test.ts": "a663b9d69d08ea89f94844efba915ad8cc1f16469044ff6047c6be30e4ed9223",
+        "tests/launch-policy-registry.test.ts": "1302eaaa848c2b144e372bb8b5536148d204bc09a31293e170d01c5d9ded874c",
+        "tests/launch-service.test.ts": "1fdf5622050d4b0ec31af1175925c12357d2a132749b5e724805d27f82d2f1ac",
+        "worker/index.ts": "18ca52f19ce7e64e42a60e5c2c20a31eab114d251046953a7a85dbcf104fc100"
+      },
+      "sortedChangedFilesDigest": "9cee483aec7a332436cf9302e23482afc121a048003164d36634f16571dd6533",
+      "digestEncoding": "Sorted relative path + NUL + lowercase SHA256 + newline. This evidence file itself is excluded to avoid a self-hash cycle.",
+      "verification": {
+        "typecheck": {
+          "command": "npm run typecheck",
+          "exitCode": 0,
+          "status": "passed"
+        },
+        "targetedRegressionTests": {
+          "command": "node --import tsx --test --test-reporter=dot tests/go-live-regressions.test.ts tests/launch-policy-registry.test.ts tests/launch-service.test.ts",
+          "exitCode": 0,
+          "status": "passed"
+        },
+        "fullAcceptanceRerun": false,
+        "production": "not_run"
+      }
+    }
   },
   "approvedBounds": {
     "launchValidityVersion": 2,
