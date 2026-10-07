@@ -44,7 +44,7 @@ export async function executeFirstBuyPayment(quote: FirstBuyPaymentQuote, config
     if (frozen.chainId !== deploymentChain(config) || !sameAddress(frozen.account, account))
       throw new Error("The payment quote belongs to another network or wallet. Preview again.");
     if (!launchAssetsFor(config).some((asset) => sameAddress(asset.address, frozen.toToken.address)))
-      throw new Error("This asset is unavailable for a new launch because a verified LI.FI route on the active network is missing.");
+      throw new Error("This asset is unavailable for a new launch because it is not in the verified LI.FI opening-price pairing list.");
     await deps.validate(frozen);
   };
   await validate();

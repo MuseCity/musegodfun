@@ -218,7 +218,7 @@ export class LaunchpadService {
     const quoteAddress = addressSchema.parse(rawQuoteAddress);
     if (!this.runtime.config.treasury) throw new Error("The platform treasury is not configured.");
     if (!launchAssetsFor(this.runtime.config).some((asset) => sameAddress(asset.address, quoteAddress)))
-      throw new Error("This asset is unavailable for a new launch because a verified LI.FI route on the active network is missing.");
+      throw new Error("This asset is unavailable for a new launch because it is not in the verified LI.FI opening-price pairing list.");
     await this.assertNetwork();
     const config = await this.config();
     if (launchFeePolicy(config) === ENGINE_FEE_POLICY && !config.feeEngine)
@@ -240,7 +240,7 @@ export class LaunchpadService {
       treasury = this.runtime.config.treasury;
     if (!treasury) throw new Error("The platform treasury is not configured.");
     if (!launchAssetsFor(this.runtime.config).some((asset) => sameAddress(asset.address, draft.quoteAddress)))
-      throw new Error("This asset is unavailable for a new launch because a verified LI.FI route on the active network is missing.");
+      throw new Error("This asset is unavailable for a new launch because it is not in the verified LI.FI opening-price pairing list.");
     const stock = stockByAddress(draft.quoteAddress);
     const buy = firstBuySchema.parse(firstBuy);
     const amountIn = buy && !/^0(?:\.0+)?$/.test(buy.amount) ? parseAmount(buy.amount, stock.decimals) : 0n;

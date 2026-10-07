@@ -103,21 +103,15 @@ function registryOnlyAsset(chainId: 8453 | 4663) {
   const registry = assetsFor({ mode: "fork", deploymentChainId: chainId });
   const allowed = launchAssetsFor({ mode: "fork", deploymentChainId: chainId });
   const removed = registry.find((asset) => !allowed.some((candidate) => candidate.address === asset.address));
-  if (removed) return { asset: removed, restore() {} };
-  assert.equal(chainId, 8453, "Robinhood policy regressions must use an actual excluded issuer asset");
-  // While Base's audit snapshot contains every issuer asset, this local policy
-  // fixture exercises a registry identity absent from that route snapshot.
-  // It does not modify the production manifest or assert on-chain support.
-  const asset = { ...registry[0], address: `0x${chainId === 8453 ? "8" : "9"}`.padEnd(42, "0") as Address };
-  registry.push(asset);
-  return { asset, restore() { registry.splice(registry.indexOf(asset), 1); } };
+  assert(removed, "each chain has an actual issuer identity excluded from new issuance");
+  return { asset: removed, restore() {} };
 }
 
-test("new prepares and payment preflights reject route-snapshot exclusions before RPC, SDK or storage", async () => {
+test("new prepares and payment preflights reject opening-price exclusions before RPC, SDK or storage", async () => {
   for (const chainId of [8453, 4663] as const) {
     const actualExcluded = assetsFor({ mode: "fork", deploymentChainId: chainId }).filter((asset) =>
       !launchAssetsFor({ mode: "fork", deploymentChainId: chainId }).some((candidate) => candidate.address === asset.address));
-    if (chainId === 4663) assert.deepEqual(actualExcluded.map((asset) => asset.ticker).sort(), ["BND", "FISV", "LHX", "NAVN", "SATS", "SCHD"]);
+    assert.equal(actualExcluded.length, chainId === 8453 ? 21 : 83);
     const excluded = registryOnlyAsset(chainId);
     try {
       assert.equal(stockByAddress(excluded.asset.address, chainId), excluded.asset);
@@ -130,8 +124,8 @@ test("new prepares and payment preflights reject route-snapshot exclusions befor
           assertNetwork: async () => { rpc++; }, sdk: new Proxy({}, { get: untouched }), store: new Proxy({}, { get: untouched }) }) as LaunchpadService;
         const draft = { name: "Excluded route", symbol: "EXCLUDE", description: "", image: "", website: "", twitter: "", telegram: "", quoteAddress: asset.address };
         for (const firstBuy of [{ amount: "0", slippageBps: 100, lockDays: 0 }, { amount: "1", slippageBps: 100, lockDays: 30 }])
-          await assert.rejects(() => service.prepare(draft, creator, CURVE_POLICY, firstBuy), /new launch.*verified LI\.FI route/);
-        await assert.rejects(() => service.preflightFirstBuyPayment(asset.address), /new launch.*verified LI\.FI route/);
+          await assert.rejects(() => service.prepare(draft, creator, CURVE_POLICY, firstBuy), /new launch.*verified LI\.FI opening-price/);
+        await assert.rejects(() => service.preflightFirstBuyPayment(asset.address), /new launch.*verified LI\.FI opening-price/);
         assert.equal(rpc, 0); assert.equal(config.writesEnabled, false);
         assert(service.assets.some((candidate) => candidate.address === asset.address), "historical service registry remains complete");
       }
@@ -139,7 +133,7 @@ test("new prepares and payment preflights reject route-snapshot exclusions befor
   }
 });
 
-test("route-snapshot exclusions do not hide existing tokens or block their scoped lookup", async () => {
+test("opening-price exclusions do not hide existing tokens or block their scoped lookup", async () => {
   for (const chainId of [8453, 4663] as const) {
     const excluded = registryOnlyAsset(chainId);
     try {
@@ -476,7 +470,7 @@ test("payment preflight refuses missing guard, treasury, wrong-chain assets and 
   f.config.treasury = null;
   await assert.rejects(() => f.service.preflightFirstBuyPayment(f.asset.address), /treasury is not configured/);
   f.config.treasury = treasury;
-  await assert.rejects(() => f.service.preflightFirstBuyPayment(quote.address), /new launch.*verified LI\.FI route/);
+  await assert.rejects(() => f.service.preflightFirstBuyPayment(quote.address), /new launch.*verified LI\.FI opening-price/);
   f.state.rpcChainId = 4663;
   await assert.rejects(() => f.service.preflightFirstBuyPayment(f.asset.address), /RPC network does not match/);
   const rh = paymentPreflightFixture(4663);

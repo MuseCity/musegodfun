@@ -65,7 +65,7 @@ function dependencies(q: FirstBuyPaymentQuote, allowance = 0n) {
   return { deps, calls, approvals, sent };
 }
 test("removed paired assets retain full historical quote decoding but cannot start a new payment", async () => {
-  for (const symbol of ["BND", "SATS"]) {
+  for (const symbol of ["BND", "SATS", "AAOI"]) {
     const asset = ROBINHOOD_STOCKS.find((item) => item.symbol === symbol)!;
     assert(asset); assert(!launchAssetsFor(config).some((item) => item.address === asset.address));
     for (const native of [false, true]) {
@@ -73,7 +73,7 @@ test("removed paired assets retain full historical quote decoding but cannot sta
       assertFirstBuyPaymentQuote(q);
       const now = Date.now();
       assertFirstBuyPaymentQuote({ ...q, quotedAt: now - 120_000, expiresAt: now - 60_000 }, now, true);
-      await assert.rejects(executeFirstBuyPayment(q, config, account, f.deps), /new launch.*verified LI\.FI route/);
+      await assert.rejects(executeFirstBuyPayment(q, config, account, f.deps), /new launch.*verified LI\.FI opening-price/);
       assert.deepEqual(f.calls, [], "the new-entry policy rejects before RPC and signing dependencies");
       assert.equal(f.approvals.length, 0); assert.equal(f.sent.length, 0);
     }

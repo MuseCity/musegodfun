@@ -78,8 +78,8 @@ const launchAssetAddresses = {
   8453: new Set(lifiLaunchAssets[8453].map((address) => address.toLowerCase())),
   4663: new Set(lifiLaunchAssets[4663].map((address) => address.toLowerCase())),
 };
-// New issuance uses the verified LI.FI route snapshot. Historical identity and
-// transaction recovery retain the complete issuer registry through assetsFor.
+// New issuance uses successful LI.FI opening-price audit entries and fresh quotes.
+// Historical identity and transaction recovery retain the full assetsFor registry.
 export function launchAssetsFor(config?: Pick<RuntimeConfig, "mode" | "deploymentChainId">) {
   const supported = launchAssetAddresses[deploymentChain(config)];
   return assetsFor(config).filter((asset) => supported.has(asset.address.toLowerCase()));
