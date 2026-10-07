@@ -42,10 +42,8 @@ export function trustedLaunchPolicies(config: RuntimeConfig, manifest: EngineMan
   const { address, blockNumber } = manifest.contracts.engine;
   if (manifest.status === "deployed_verified" && address)
     add({ feePolicy: ENGINE_FEE_POLICY, treasury, feeEngine: getAddress(address), ...(blockNumber !== undefined ? { fromBlock: BigInt(blockNumber) } : {}) });
-  // Production engines are trusted only through the committed manifest. A
-  // local fork deploys its own engine, configured by the operator.
-  if (config.mode === "fork" && config.treasury && config.feeEngine)
-    add({ feePolicy: ENGINE_FEE_POLICY, treasury: getAddress(config.treasury), feeEngine: getAddress(config.feeEngine) });
+  // Engines are trusted only through the committed manifest, in every mode:
+  // an operator-configured address (even on a local fork) is never enough.
   return policies;
 }
 

@@ -507,14 +507,6 @@ export class LaunchpadService {
     load.active++; load.started.push(now);
     try { return await work(); } finally { load.active--; }
   }
-  /** The Airlock owner at the receipt block, or null when the RPC cannot serve
-   * that historical state. The current owner is never a substitute: it may
-   * have rotated since creation. */
-  private async airlockOwnerAt(blockNumber: bigint): Promise<Address | null> {
-    try {
-      return await this.client.readContract({ address: this.contracts.airlock, abi: airlockAbi, functionName: "owner", blockNumber });
-    } catch { return null; }
-  }
   private async registerOnce(hash: Hex, recoveryPlan?: LaunchPlan): Promise<TokenRecord> {
     // Receipt verification does not sign or broadcast. Keep it available when
     // signing is disabled so transactions already sent can finish registering.
@@ -539,7 +531,7 @@ export class LaunchpadService {
         throw new Error("The creation receipt does not match the preview's outer transaction.");
       assertTrustedLaunchPolicy(plan, this.runtime.config, receipt.blockNumber);
       await this.withRecoveryVerification(async () => {
-        assertRecoveryPlan(plan, this.contracts, this.sdk, await this.airlockOwnerAt(receipt.blockNumber));
+        assertRecoveryPlan(plan, this.contracts, this.sdk);
         const reference = await assertRecoveredOpeningValuation(this.client, plan.openingValuation!, receipt.blockNumber, deploymentChain(this.runtime.config));
         if (reference && reference.divergenceBps > LIFI_OPENING_MAX_DIVERGENCE_BPS)
           console.warn(JSON.stringify({ event: "recovery_reference_divergence", transactionHash: hash, token: plan.tokenAddress, divergenceBps: reference.divergenceBps }));

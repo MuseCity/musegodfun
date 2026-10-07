@@ -146,13 +146,13 @@ export function verifiedFirstBuyLock(plan: LaunchPlan, receipt: TransactionRecei
 /** A local recovery JSON is untrusted. Re-encode every creation parameter from
  * validated product inputs before it can replace a missing server preview.
  * This proves self-consistency only: the caller must separately bind the fee
- * routing to the trusted registry. `protocolOwner` is the Airlock owner read
- * at the receipt block, or null when that historical state is unavailable.
- * Then Doppler's own creation-time check is the proof: the Airlock and its
- * initializers revert (InvalidProtocolOwnerBeneficiary/Shares) unless that
- * owner held at least 5% of the actual transaction's immutable beneficiaries,
- * so only those beneficiaries are candidates, never the current owner. */
-export function assertRecoveryPlan(plan: LaunchPlan, contracts: ContractRegistry, sdk: DopplerSDK<8453 | 4663>, protocolOwner: Address | null) {
+ * routing to the trusted registry and the creator to the transaction sender.
+ * The protocol owner needs no state read. Inside the creation transaction,
+ * Doppler's Airlock and initializers revert (InvalidProtocolOwnerBeneficiary/
+ * Shares) unless the Airlock owner at that exact point holds at least 5% of
+ * these immutable beneficiaries, so only they are candidates. A block-level
+ * read cannot see an owner change elsewhere in the same block. */
+export function assertRecoveryPlan(plan: LaunchPlan, contracts: ContractRegistry, sdk: DopplerSDK<8453 | 4663>) {
   assertPlanIntegrity(plan, contracts);
   if (!plan.openingValuation || !plan.feeTreasury || (plan.feePolicy !== FEE_POLICY && plan.feePolicy !== ENGINE_FEE_POLICY))
     throw new Error("The local recovery preview is incomplete.");
@@ -162,7 +162,7 @@ export function assertRecoveryPlan(plan: LaunchPlan, contracts: ContractRegistry
     throw new Error("The local recovery opening valuation changed.");
   // assertPlanIntegrity bound these CreateParams to plan.data, which the caller
   // matched to the canonical transaction input before calling this helper.
-  const candidates = protocolOwner ? [protocolOwner] : [...new Set(launchFeeData(prepared.createParams.poolInitializerData).pool.beneficiaries
+  const candidates = [...new Set(launchFeeData(prepared.createParams.poolInitializerData).pool.beneficiaries
     .filter((entry) => entry.shares * 20n >= WAD).map((entry) => entry.beneficiary))];
   const actual = encodeFunctionData({ abi: airlockAbi, functionName: "create", args: [prepared.createParams] });
   const matches = candidates.some((owner) => {

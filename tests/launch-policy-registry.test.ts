@@ -50,11 +50,14 @@ test("the deployed V2 engine is trusted from its creation block, regardless of s
   assert.equal(trustedLaunchPolicies(robinhood(), deployed("partially_deployed")).filter((policy) => policy.feePolicy === ENGINE_FEE_POLICY).length, 0);
 });
 
-test("an operator-configured engine is trusted only on a local fork, and Base ignores the Robinhood manifest", () => {
-  const plan = { feePolicy: ENGINE_FEE_POLICY, feeTreasury: configured, feeEngine: unknown };
-  assert.throws(() => assertTrustedLaunchPolicy(plan, robinhood({ feeEngine: unknown }), 1n), /platform-approved/,
-    "a production engine must come from the committed manifest");
-  assert.doesNotThrow(() => assertTrustedLaunchPolicy(plan, robinhood({ mode: "fork", chainId: 31337, feeEngine: unknown }), 1n));
+test("an operator-configured engine is never trusted, even on a local fork, and Base ignores the Robinhood manifest", () => {
+  for (const configuredEngine of [unknown, neverActivated])
+    for (const config of [robinhood({ feeEngine: configuredEngine }), robinhood({ mode: "fork", chainId: 31337, feeEngine: configuredEngine })]) {
+      const plan = { feePolicy: ENGINE_FEE_POLICY, feeTreasury: configured, feeEngine: configuredEngine };
+      for (const block of [1n, 10n ** 12n]) assert.throws(() => assertTrustedLaunchPolicy(plan, config, block), /platform-approved/,
+        `${config.mode} ${configuredEngine}: engines come only from the committed manifest`);
+      assert(!trustedLaunchPolicies(config).some((policy) => policy.feePolicy === ENGINE_FEE_POLICY));
+    }
   const baseConfig: RuntimeConfig = { mode: "base", deploymentChainId: 8453, chainId: 8453, treasury: configured, writesEnabled: false, blockReason: null };
   assert.doesNotThrow(() => assertTrustedLaunchPolicy({ feePolicy: FEE_POLICY, feeTreasury: configured }, baseConfig, 1n));
   assert.throws(() => assertTrustedLaunchPolicy({ feePolicy: FEE_POLICY, feeTreasury: operations }, baseConfig, 1n));

@@ -636,7 +636,9 @@ test("payment preflight reads LI.FI swap evidence before conversion without old 
 
 test("local frozen backups are reconstructed before replacing missing server plans", () => {
   for (const f of [fixture(), historicalFixture(), ordinaryFixture(100), lockedFixture()]) {
-    assert.doesNotThrow(() => assertRecoveryPlan(f.plan, contracts, f.sdk, treasury), `${f.plan.openingValuation!.policy} ${f.plan.firstBuy?.lockDays}`);
+    // The protocol owner is recovered from the creation's own beneficiaries,
+    // which Doppler required to include it with at least 5% inside that transaction.
+    assert.doesNotThrow(() => assertRecoveryPlan(f.plan, contracts, f.sdk), `${f.plan.openingValuation!.policy} ${f.plan.firstBuy?.lockDays}`);
     for (const mutation of [
       (p: LaunchPlan) => { p.draft.name = "unproven metadata"; },
       (p: LaunchPlan) => { p.feeTreasury = creator; },
@@ -644,14 +646,8 @@ test("local frozen backups are reconstructed before replacing missing server pla
       (p: LaunchPlan) => { p.prepared!.createParams.initialSupply = "1"; },
     ]) {
       const copy = structuredClone(f.plan); mutation(copy);
-      assert.throws(() => assertRecoveryPlan(copy, contracts, f.sdk, treasury));
-      assert.throws(() => assertRecoveryPlan(copy, contracts, f.sdk, null), "creation-time beneficiary candidates cannot launder a changed backup");
+      assert.throws(() => assertRecoveryPlan(copy, contracts, f.sdk), "creation-time beneficiary candidates cannot launder a changed backup");
     }
-    // Without historical state, the owner is recovered from the creation's own
-    // beneficiaries, which Doppler required to include it with at least 5%.
-    assert.doesNotThrow(() => assertRecoveryPlan(f.plan, contracts, f.sdk, null), `${f.plan.openingValuation!.policy} ${f.plan.firstBuy?.lockDays} without owner`);
-    // The protocol owner comes from chain state, never from the backup's own beneficiaries.
-    assert.throws(() => assertRecoveryPlan(f.plan, contracts, f.sdk, creator), /canonical creation parameters/);
   }
 });
 
@@ -703,7 +699,7 @@ test("refresh preserves intent, salt and accepted floor until explicit confirmat
   try {
     const input = { amount: f.plan.firstBuy!.amount, slippageBps: 100, lockDays: 0 };
     const first = await service.prepare(f.plan.draft, creator, CURVE_POLICY, input, { intentId: "same-user-intent" });
-    assertRecoveryPlan(first, contracts, f.sdk, treasury);
+    assertRecoveryPlan(first, contracts, f.sdk);
     assert.equal(first.firstBuy!.minAmountOut, "990"); assert.equal(first.signingExpiresAt, first.finalizedAt! + 300_000);
     time += 1000; expected = 1500n;
     const improved = await service.prepare(f.plan.draft, creator, CURVE_POLICY, input, { intentId: first.intentId, previousPlanId: first.id });
@@ -770,7 +766,7 @@ test("payment proceeds may increase the paired input without lowering or ratchet
       const calldata = decodeFunctionData({ abi: launchGuardAbi, data: funded.data });
       assert.equal(calldata.functionName, "createAndBuy");
       assert.equal(calldata.args[1], 110n); assert.equal(calldata.args[2], protectedMinimum);
-      assertRecoveryPlan(funded, contracts, f.sdk, treasury);
+      assertRecoveryPlan(funded, contracts, f.sdk);
       if (output < 990n) {
         assert.equal(funded.requiresReconfirmation, true);
         await assert.rejects(() => service.validateLaunch(creator, funded.data), /accepted minimum/);
@@ -784,7 +780,7 @@ test("payment proceeds may increase the paired input without lowering or ratchet
 
 const oracleRuntime = readFileSync(new URL("./fixtures/buyback-oracle.runtime.hex", import.meta.url), "utf8").trim() as Hex;
 function recoveryService(f: ReturnType<typeof ordinaryFixture>, store: Store,
-  options: { treasury?: Address | null; owner?: Address; historicalOwner?: "unavailable"; reads?: string[]; valuationHash?: Hex; referencePrice?: bigint } = {}) {
+  options: { treasury?: Address | null; owner?: Address; reads?: string[]; valuationHash?: Hex; referencePrice?: bigint } = {}) {
   const nowSeconds = BigInt(Math.floor(Date.now() / 1000));
   const sdk = f.sdk, reads = options.reads ?? [];
   (sdk as any).getMulticurvePool = async () => ({ getState: async () => ({ status: 2, numeraire: quote.address, poolKey: f.poolKey }) });
@@ -803,10 +799,8 @@ function recoveryService(f: ReturnType<typeof ordinaryFixture>, store: Store,
       },
       readContract: async ({ functionName, blockNumber }: { functionName: string; blockNumber?: bigint }) => {
         reads.push(`${functionName}:${blockNumber ?? "latest"}`);
-        if (functionName === "owner") {
-          if (blockNumber !== undefined && options.historicalOwner === "unavailable") throw new Error("missing trie node");
-          return options.owner ?? treasury;
-        }
+        // What the chain would report as the Airlock owner at any block.
+        if (functionName === "owner") return options.owner ?? treasury;
         // The immutable oracle's mapped feed for the paired asset, 8 decimals.
         if (options.referencePrice !== undefined && functionName === "assetFeeds") return [guard, 86_400, quote.decimals, 8, false];
         if (options.referencePrice !== undefined && functionName === "latestRoundData") return [1n, options.referencePrice, 0n, nowSeconds - 10n, 1n];
@@ -828,7 +822,7 @@ test("a missing server preview recovers from a matching frozen local backup whil
     assert.equal(store.getPlan(f.plan.id), null);
     const record = await service.register(hash, f.plan);
     assert.equal(record.address, token); assert.equal(record.transactionHash, hash);
-    assert(reads.includes("owner:10"), "the protocol owner is read at the creation receipt block");
+    assert(!reads.some((read) => read.startsWith("owner:")), "the protocol owner is proven by the creation itself, not a state read");
     assert.equal(store.getPlan(f.plan.id)?.id, f.plan.id);
     assert.equal((await service.register(hash)).transactionHash, hash);
   } finally { store.close(); rmSync(directory, { recursive: true }); }
@@ -844,7 +838,7 @@ test("recovery lists only platform-approved fee routing, independent of the back
   const encode = f.sdk.factory.encodeCreateMulticurveParams.bind(f.sdk.factory);
   (f.sdk.factory as any).encodeCreateMulticurveParams = (params: any) => { encodes++; return encode(params); };
   try {
-    assert.doesNotThrow(() => assertRecoveryPlan(f.plan, contracts, f.sdk, treasury), "the attacker's backup is self-consistent");
+    assert.doesNotThrow(() => assertRecoveryPlan(f.plan, contracts, f.sdk), "the attacker's backup is self-consistent");
     encodes = 0;
     for (const configured of [platform, null]) {
       const service = recoveryService(f, store, { treasury: configured, reads });
@@ -868,22 +862,22 @@ test("recovery rejects a backup whose transaction or price snapshot does not mat
       /anchored to a canonical block/, "the price snapshot must name a canonical block");
     const early = { ...f, receipt: { ...f.receipt, blockNumber: 0n } };
     await assert.rejects(() => recoveryService(early, store).register(hash, early.plan), /newer than its creation receipt/);
-    await assert.rejects(() => recoveryService(f, store, { owner: creator }).register(hash, f.plan), /canonical creation parameters/,
-      "a backup encoded for a different protocol owner is rejected");
     assert.equal(store.tokenByTxHash(hash), null);
   } finally { store.close(); rmSync(directory, { recursive: true }); }
 });
 
-test("without historical state, a rotated Airlock owner cannot block a correct backup", async () => {
-  // The backup was encoded for the owner at creation (treasury); the owner has
-  // since rotated to another address and the RPC serves no historical state.
-  const f = ordinaryFixture(100), directory = mkdtempSync(join(tmpdir(), "recovery-owner-rotation-test-")), store = new Store(directory, 31337);
-  const reads: string[] = [];
-  try {
-    const record = await recoveryService(f, store, { owner: creator, historicalOwner: "unavailable", reads }).register(hash, f.plan);
-    assert.equal(record.address, token);
-    assert(reads.includes("owner:10") && !reads.includes("owner:latest"), "the current owner is never a substitute for the creation-time owner");
-  } finally { store.close(); rmSync(directory, { recursive: true }); }
+test("an Airlock owner change after creation, even later in the same block, cannot block a correct backup", async () => {
+  // The creation paid the owner at that point in the block (treasury). A later
+  // transfer in the same block makes every block-level read report another owner.
+  for (const reported of [creator, "0x5555555555555555555555555555555555555555" as Address]) {
+    const f = ordinaryFixture(100), directory = mkdtempSync(join(tmpdir(), "recovery-owner-change-test-")), store = new Store(directory, 31337);
+    const reads: string[] = [];
+    try {
+      const record = await recoveryService(f, store, { owner: reported, reads }).register(hash, f.plan);
+      assert.equal(record.address, token);
+      assert(!reads.some((read) => read.startsWith("owner:")), "no block-level owner state is consulted");
+    } finally { store.close(); rmSync(directory, { recursive: true }); }
+  }
 });
 
 test("an independent reference price divergence is reported for operators but never blocks a verified recovery", async (context) => {
