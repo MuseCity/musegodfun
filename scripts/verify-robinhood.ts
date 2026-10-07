@@ -131,7 +131,7 @@ const simulations = [];
 for (const ticker of ["WETH", "NVDA", "USDG", "cbBTC", "MUSEGOD"]) {
   const asset = assets.find((row) => row.ticker === ticker);
   assert(asset);
-  const openingValuation = await readOpeningValuation(client, asset, 4663);
+  const openingValuation = await readOpeningValuation(client, asset, 4663, runtime.lifi);
   const params = buildLaunch(sdk, {
     name: "Robinhood Read-only Simulation", symbol: "RHSIM",
     description: "Read-only eth_call. No signature or broadcast.", image: "",

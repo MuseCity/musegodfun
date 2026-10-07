@@ -1,0 +1,1760 @@
+{
+  "scope": "Existing Base ten issuer assets by the three supported payment inputs; live official LI.FI GET quotes and real existing Reader/RPC checks only",
+  "evidenceKind": "Unsigned quotes, not wallet authorization, transaction settlement, or guaranteed future route availability",
+  "startedAt": "2026-10-07T00:17:30.290Z",
+  "chainId": 8453,
+  "rateLimitPerMinute": 60,
+  "requests": 61,
+  "priorEvidence": "docs/evidence/lifi-launch-pairs.json",
+  "readerSourceSha256": "de1a6777e27bfe4a601e180d8ab17f31884e31adfffc535ab1bef94763b3bff3",
+  "canonicalQuoteCheckSha256": "7c6b9cd5e1b8ed098f3c066635b05dd9a28e8f56799ee986aba51d382af7717a",
+  "assets": [
+    {
+      "symbol": "NVDAc",
+      "address": "0xb20000000000000000000078ee7ce2fE4908108C",
+      "decimals": 8,
+      "inOfficialInventory": true,
+      "payments": [
+        {
+          "paySymbol": "USDC",
+          "payAddress": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "attempts": [
+            {
+              "nominalUsd": 10,
+              "amountIn": "10000000",
+              "skipSimulation": false,
+              "inbound": {
+                "observedAt": "2026-10-07T00:17:31.916Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                "toToken": "0xb20000000000000000000078ee7ce2fE4908108C",
+                "tool": "nordstern",
+                "selector": "0x5fd9ae2e",
+                "fromAmount": "10000000",
+                "expectedOut": "4150495",
+                "minimumOut": "4108990"
+              },
+              "appInbound": {
+                "status": "accepted",
+                "validatedAt": "2026-10-07T00:17:33.837Z",
+                "feeAmount": "25000",
+                "tool": "nordstern",
+                "selector": "0x5fd9ae2e",
+                "identityBlock": "52271452",
+                "identityBlockHash": "0x98e0e1bcdd03bf4bdf1db92eea980015c841f9582e09bf3776a28b3701801c3f",
+                "facetRuntimeHash": "0xc207f6fc07b111370c4d536c8c36de974367fd8876c867e390a5535cb120dbd7"
+              },
+              "outbound": {
+                "observedAt": "2026-10-07T00:17:34.480Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0xb20000000000000000000078ee7ce2fE4908108C",
+                "toToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                "tool": "bitget",
+                "selector": "0x5fd9ae2e",
+                "fromAmount": "4150495",
+                "expectedOut": "9950693",
+                "minimumOut": "9851186"
+              },
+              "rawBidirectional": true,
+              "appSupported": true
+            }
+          ],
+          "rawBidirectional": true,
+          "appSupported": true,
+          "temporary": false
+        },
+        {
+          "paySymbol": "USDT",
+          "payAddress": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
+          "attempts": [
+            {
+              "nominalUsd": 10,
+              "amountIn": "10000000",
+              "skipSimulation": false,
+              "inbound": {
+                "observedAt": "2026-10-07T00:17:35.378Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
+                "toToken": "0xb20000000000000000000078ee7ce2fE4908108C",
+                "tool": "nordstern",
+                "selector": "0x5fd9ae2e",
+                "fromAmount": "10000000",
+                "expectedOut": "4148240",
+                "minimumOut": "4106758"
+              },
+              "appInbound": {
+                "status": "accepted",
+                "validatedAt": "2026-10-07T00:17:36.258Z",
+                "feeAmount": "25000",
+                "tool": "nordstern",
+                "selector": "0x5fd9ae2e",
+                "identityBlock": "52271454",
+                "identityBlockHash": "0x70e6cbefbdfc3eb2e4c35b1378aa60ed02c92ea94b3a3a624790e4a0cedf0477",
+                "facetRuntimeHash": "0xc207f6fc07b111370c4d536c8c36de974367fd8876c867e390a5535cb120dbd7"
+              },
+              "outbound": {
+                "observedAt": "2026-10-07T00:17:37.200Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0xb20000000000000000000078ee7ce2fE4908108C",
+                "toToken": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
+                "tool": "kyberswap",
+                "selector": "0x5fd9ae2e",
+                "fromAmount": "4148240",
+                "expectedOut": "9951284",
+                "minimumOut": "9851771"
+              },
+              "rawBidirectional": true,
+              "appSupported": true
+            }
+          ],
+          "rawBidirectional": true,
+          "appSupported": true,
+          "temporary": false
+        },
+        {
+          "paySymbol": "ETH",
+          "payAddress": "0x0000000000000000000000000000000000000000",
+          "attempts": [
+            {
+              "nominalUsd": 10,
+              "amountIn": "3705336796588125",
+              "skipSimulation": false,
+              "inbound": {
+                "observedAt": "2026-10-07T00:17:37.831Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0x0000000000000000000000000000000000000000",
+                "toToken": "0xb20000000000000000000078ee7ce2fE4908108C",
+                "tool": "nordstern",
+                "selector": "0x736eac0b",
+                "fromAmount": "3705336796588125",
+                "expectedOut": "4149393",
+                "minimumOut": "4107899"
+              },
+              "appInbound": {
+                "status": "accepted",
+                "validatedAt": "2026-10-07T00:17:38.851Z",
+                "feeAmount": "9263341991470",
+                "tool": "nordstern",
+                "selector": "0x736eac0b",
+                "identityBlock": "52271455",
+                "identityBlockHash": "0xc1bb0c2493677951f6c7773f2e13cfb3a9176475536932c07227cf81b6af8745",
+                "facetRuntimeHash": "0xc207f6fc07b111370c4d536c8c36de974367fd8876c867e390a5535cb120dbd7"
+              },
+              "outbound": {
+                "observedAt": "2026-10-07T00:17:39.770Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0xb20000000000000000000078ee7ce2fE4908108C",
+                "toToken": "0x0000000000000000000000000000000000000000",
+                "tool": "1inch",
+                "selector": "0x2c57e884",
+                "fromAmount": "4149393",
+                "expectedOut": "3684875545368654",
+                "minimumOut": "3648026789914967"
+              },
+              "rawBidirectional": true,
+              "appSupported": true
+            }
+          ],
+          "rawBidirectional": true,
+          "appSupported": true,
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "symbol": "AAPLc",
+      "address": "0xb200000000000000000000C2e324d24d7eEcd1fb",
+      "decimals": 8,
+      "inOfficialInventory": true,
+      "payments": [
+        {
+          "paySymbol": "USDC",
+          "payAddress": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "attempts": [
+            {
+              "nominalUsd": 10,
+              "amountIn": "10000000",
+              "skipSimulation": false,
+              "inbound": {
+                "observedAt": "2026-10-07T00:17:40.721Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                "toToken": "0xb200000000000000000000C2e324d24d7eEcd1fb",
+                "tool": "nordstern",
+                "selector": "0x5fd9ae2e",
+                "fromAmount": "10000000",
+                "expectedOut": "2987661",
+                "minimumOut": "2957784"
+              },
+              "appInbound": {
+                "status": "accepted",
+                "validatedAt": "2026-10-07T00:17:41.558Z",
+                "feeAmount": "25000",
+                "tool": "nordstern",
+                "selector": "0x5fd9ae2e",
+                "identityBlock": "52271456",
+                "identityBlockHash": "0x6a6e0d0f81e0957783fc40a54ea02a5da3911336ea029c7ba4f999b149f84672",
+                "facetRuntimeHash": "0xc207f6fc07b111370c4d536c8c36de974367fd8876c867e390a5535cb120dbd7"
+              },
+              "outbound": {
+                "observedAt": "2026-10-07T00:17:42.444Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0xb200000000000000000000C2e324d24d7eEcd1fb",
+                "toToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                "tool": "1inch",
+                "selector": "0x5fd9ae2e",
+                "fromAmount": "2987661",
+                "expectedOut": "9943677",
+                "minimumOut": "9844240"
+              },
+              "rawBidirectional": true,
+              "appSupported": true
+            }
+          ],
+          "rawBidirectional": true,
+          "appSupported": true,
+          "temporary": false
+        },
+        {
+          "paySymbol": "USDT",
+          "payAddress": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
+          "attempts": [
+            {
+              "nominalUsd": 10,
+              "amountIn": "10000000",
+              "skipSimulation": false,
+              "inbound": {
+                "observedAt": "2026-10-07T00:17:43.146Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
+                "toToken": "0xb200000000000000000000C2e324d24d7eEcd1fb",
+                "tool": "nordstern",
+                "selector": "0x5fd9ae2e",
+                "fromAmount": "10000000",
+                "expectedOut": "2986039",
+                "minimumOut": "2956179"
+              },
+              "appInbound": {
+                "status": "accepted",
+                "validatedAt": "2026-10-07T00:17:43.665Z",
+                "feeAmount": "25000",
+                "tool": "nordstern",
+                "selector": "0x5fd9ae2e",
+                "identityBlock": "52271458",
+                "identityBlockHash": "0x3eff2f46485f6a6be990bedbfda279d7c3e7844c1afe6ae21ccf44795354eb43",
+                "facetRuntimeHash": "0xc207f6fc07b111370c4d536c8c36de974367fd8876c867e390a5535cb120dbd7"
+              },
+              "outbound": {
+                "observedAt": "2026-10-07T00:17:44.639Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0xb200000000000000000000C2e324d24d7eEcd1fb",
+                "toToken": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
+                "tool": "1inch",
+                "selector": "0x5fd9ae2e",
+                "fromAmount": "2986039",
+                "expectedOut": "9943600",
+                "minimumOut": "9844164"
+              },
+              "rawBidirectional": true,
+              "appSupported": true
+            }
+          ],
+          "rawBidirectional": true,
+          "appSupported": true,
+          "temporary": false
+        },
+        {
+          "paySymbol": "ETH",
+          "payAddress": "0x0000000000000000000000000000000000000000",
+          "attempts": [
+            {
+              "nominalUsd": 10,
+              "amountIn": "3705336796588125",
+              "skipSimulation": false,
+              "inbound": {
+                "observedAt": "2026-10-07T00:17:45.247Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0x0000000000000000000000000000000000000000",
+                "toToken": "0xb200000000000000000000C2e324d24d7eEcd1fb",
+                "tool": "nordstern",
+                "selector": "0x736eac0b",
+                "fromAmount": "3705336796588125",
+                "expectedOut": "2986869",
+                "minimumOut": "2957000"
+              },
+              "appInbound": {
+                "status": "accepted",
+                "validatedAt": "2026-10-07T00:17:47.153Z",
+                "feeAmount": "9263341991470",
+                "tool": "nordstern",
+                "selector": "0x736eac0b",
+                "identityBlock": "52271459",
+                "identityBlockHash": "0x17739ed9acb6e1339062abe1e6657d148099ef42e389e2a40a0f54b8417a160a",
+                "facetRuntimeHash": "0xc207f6fc07b111370c4d536c8c36de974367fd8876c867e390a5535cb120dbd7"
+              },
+              "outbound": {
+                "observedAt": "2026-10-07T00:17:47.808Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0xb200000000000000000000C2e324d24d7eEcd1fb",
+                "toToken": "0x0000000000000000000000000000000000000000",
+                "tool": "okx",
+                "selector": "0x2c57e884",
+                "fromAmount": "2986869",
+                "expectedOut": "3685453527078121",
+                "minimumOut": "3648598991807340"
+              },
+              "rawBidirectional": true,
+              "appSupported": true
+            }
+          ],
+          "rawBidirectional": true,
+          "appSupported": true,
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "symbol": "GOOGLc",
+      "address": "0xb2000000000000000000002D0BA3164cc74f58B7",
+      "decimals": 8,
+      "inOfficialInventory": true,
+      "payments": [
+        {
+          "paySymbol": "USDC",
+          "payAddress": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "attempts": [
+            {
+              "nominalUsd": 10,
+              "amountIn": "10000000",
+              "skipSimulation": false,
+              "inbound": {
+                "observedAt": "2026-10-07T00:17:48.795Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                "toToken": "0xb2000000000000000000002D0BA3164cc74f58B7",
+                "tool": "nordstern",
+                "selector": "0x5fd9ae2e",
+                "fromAmount": "10000000",
+                "expectedOut": "2861505",
+                "minimumOut": "2832890"
+              },
+              "appInbound": {
+                "status": "accepted",
+                "validatedAt": "2026-10-07T00:17:49.264Z",
+                "feeAmount": "25000",
+                "tool": "nordstern",
+                "selector": "0x5fd9ae2e",
+                "identityBlock": "52271460",
+                "identityBlockHash": "0xcd3d1503eb212186aca2e797b9e3829d5610f3e35a817985014a32b7e0f8d10e",
+                "facetRuntimeHash": "0xc207f6fc07b111370c4d536c8c36de974367fd8876c867e390a5535cb120dbd7"
+              },
+              "outbound": {
+                "observedAt": "2026-10-07T00:17:50.134Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0xb2000000000000000000002D0BA3164cc74f58B7",
+                "toToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                "tool": "okx",
+                "selector": "0x5fd9ae2e",
+                "fromAmount": "2861505",
+                "expectedOut": "9943107",
+                "minimumOut": "9843676"
+              },
+              "rawBidirectional": true,
+              "appSupported": true
+            }
+          ],
+          "rawBidirectional": true,
+          "appSupported": true,
+          "temporary": false
+        },
+        {
+          "paySymbol": "USDT",
+          "payAddress": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
+          "attempts": [
+            {
+              "nominalUsd": 10,
+              "amountIn": "10000000",
+              "skipSimulation": false,
+              "inbound": {
+                "observedAt": "2026-10-07T00:17:50.824Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
+                "toToken": "0xb2000000000000000000002D0BA3164cc74f58B7",
+                "tool": "nordstern",
+                "selector": "0x5fd9ae2e",
+                "fromAmount": "10000000",
+                "expectedOut": "2859950",
+                "minimumOut": "2831351"
+              },
+              "appInbound": {
+                "status": "accepted",
+                "validatedAt": "2026-10-07T00:17:53.278Z",
+                "feeAmount": "25000",
+                "tool": "nordstern",
+                "selector": "0x5fd9ae2e",
+                "identityBlock": "52271462",
+                "identityBlockHash": "0x8025204cff810e82b994f9960a8a087d0b3c3998af52296b5607cc65fce0d847",
+                "facetRuntimeHash": "0xc207f6fc07b111370c4d536c8c36de974367fd8876c867e390a5535cb120dbd7"
+              },
+              "outbound": {
+                "observedAt": "2026-10-07T00:17:54.071Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0xb2000000000000000000002D0BA3164cc74f58B7",
+                "toToken": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
+                "tool": "okx",
+                "selector": "0x5fd9ae2e",
+                "fromAmount": "2859950",
+                "expectedOut": "9943068",
+                "minimumOut": "9843637"
+              },
+              "rawBidirectional": true,
+              "appSupported": true
+            }
+          ],
+          "rawBidirectional": true,
+          "appSupported": true,
+          "temporary": false
+        },
+        {
+          "paySymbol": "ETH",
+          "payAddress": "0x0000000000000000000000000000000000000000",
+          "attempts": [
+            {
+              "nominalUsd": 10,
+              "amountIn": "3705336796588125",
+              "skipSimulation": false,
+              "inbound": {
+                "observedAt": "2026-10-07T00:17:54.828Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0x0000000000000000000000000000000000000000",
+                "toToken": "0xb2000000000000000000002D0BA3164cc74f58B7",
+                "tool": "nordstern",
+                "selector": "0x736eac0b",
+                "fromAmount": "3705336796588125",
+                "expectedOut": "2861180",
+                "minimumOut": "2832568"
+              },
+              "appInbound": {
+                "status": "accepted",
+                "validatedAt": "2026-10-07T00:17:55.280Z",
+                "feeAmount": "9263341991470",
+                "tool": "nordstern",
+                "selector": "0x736eac0b",
+                "identityBlock": "52271463",
+                "identityBlockHash": "0x9c59c656011d864656b70ce41efaf9a610ec04589f9915c087cc6890056b1af2",
+                "facetRuntimeHash": "0xc207f6fc07b111370c4d536c8c36de974367fd8876c867e390a5535cb120dbd7"
+              },
+              "outbound": {
+                "observedAt": "2026-10-07T00:17:56.161Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0xb2000000000000000000002D0BA3164cc74f58B7",
+                "toToken": "0x0000000000000000000000000000000000000000",
+                "tool": "1inch",
+                "selector": "0x2c57e884",
+                "fromAmount": "2861180",
+                "expectedOut": "3683121432284763",
+                "minimumOut": "3646290217961915"
+              },
+              "rawBidirectional": true,
+              "appSupported": true
+            }
+          ],
+          "rawBidirectional": true,
+          "appSupported": true,
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "symbol": "METAc",
+      "address": "0xb2000000000000000000008bC8786B856E61707C",
+      "decimals": 8,
+      "inOfficialInventory": true,
+      "payments": [
+        {
+          "paySymbol": "USDC",
+          "payAddress": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "attempts": [
+            {
+              "nominalUsd": 10,
+              "amountIn": "10000000",
+              "skipSimulation": false,
+              "inbound": {
+                "observedAt": "2026-10-07T00:17:56.869Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                "toToken": "0xb2000000000000000000008bC8786B856E61707C",
+                "tool": "nordstern",
+                "selector": "0x5fd9ae2e",
+                "fromAmount": "10000000",
+                "expectedOut": "1346296",
+                "minimumOut": "1332833"
+              },
+              "appInbound": {
+                "status": "accepted",
+                "validatedAt": "2026-10-07T00:17:57.604Z",
+                "feeAmount": "25000",
+                "tool": "nordstern",
+                "selector": "0x5fd9ae2e",
+                "identityBlock": "52271465",
+                "identityBlockHash": "0x6ce9db910b76ea14c7d2942fbb7505d5b851a9f9b8a0b0e864150606e16ea40e",
+                "facetRuntimeHash": "0xc207f6fc07b111370c4d536c8c36de974367fd8876c867e390a5535cb120dbd7"
+              },
+              "outbound": {
+                "observedAt": "2026-10-07T00:17:58.135Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0xb2000000000000000000008bC8786B856E61707C",
+                "toToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                "tool": "okx",
+                "selector": "0x5fd9ae2e",
+                "fromAmount": "1346296",
+                "expectedOut": "9947275",
+                "minimumOut": "9847802"
+              },
+              "rawBidirectional": true,
+              "appSupported": true
+            }
+          ],
+          "rawBidirectional": true,
+          "appSupported": true,
+          "temporary": false
+        },
+        {
+          "paySymbol": "USDT",
+          "payAddress": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
+          "attempts": [
+            {
+              "nominalUsd": 10,
+              "amountIn": "10000000",
+              "skipSimulation": false,
+              "inbound": {
+                "observedAt": "2026-10-07T00:17:59.283Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
+                "toToken": "0xb2000000000000000000008bC8786B856E61707C",
+                "tool": "nordstern",
+                "selector": "0x5fd9ae2e",
+                "fromAmount": "10000000",
+                "expectedOut": "1345554",
+                "minimumOut": "1332098"
+              },
+              "appInbound": {
+                "status": "accepted",
+                "validatedAt": "2026-10-07T00:17:59.720Z",
+                "feeAmount": "25000",
+                "tool": "nordstern",
+                "selector": "0x5fd9ae2e",
+                "identityBlock": "52271466",
+                "identityBlockHash": "0x7e1990a027f43343545ba492b6d3c1f6e673eecb56d8f6ffb320abde1ce638da",
+                "facetRuntimeHash": "0xc207f6fc07b111370c4d536c8c36de974367fd8876c867e390a5535cb120dbd7"
+              },
+              "outbound": {
+                "observedAt": "2026-10-07T00:18:00.265Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0xb2000000000000000000008bC8786B856E61707C",
+                "toToken": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
+                "tool": "okx",
+                "selector": "0x5fd9ae2e",
+                "fromAmount": "1345554",
+                "expectedOut": "9947174",
+                "minimumOut": "9847702"
+              },
+              "rawBidirectional": true,
+              "appSupported": true
+            }
+          ],
+          "rawBidirectional": true,
+          "appSupported": true,
+          "temporary": false
+        },
+        {
+          "paySymbol": "ETH",
+          "payAddress": "0x0000000000000000000000000000000000000000",
+          "attempts": [
+            {
+              "nominalUsd": 10,
+              "amountIn": "3705336796588125",
+              "skipSimulation": false,
+              "inbound": {
+                "observedAt": "2026-10-07T00:18:01.349Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0x0000000000000000000000000000000000000000",
+                "toToken": "0xb2000000000000000000008bC8786B856E61707C",
+                "tool": "nordstern",
+                "selector": "0x736eac0b",
+                "fromAmount": "3705336796588125",
+                "expectedOut": "1345939",
+                "minimumOut": "1332480"
+              },
+              "appInbound": {
+                "status": "accepted",
+                "validatedAt": "2026-10-07T00:18:02.086Z",
+                "feeAmount": "9263341991470",
+                "tool": "nordstern",
+                "selector": "0x736eac0b",
+                "identityBlock": "52271467",
+                "identityBlockHash": "0xfde47a3066d2247f0d64782ffea5d4c592b046d58b7b41c83d7d7cb121ff722a",
+                "facetRuntimeHash": "0xc207f6fc07b111370c4d536c8c36de974367fd8876c867e390a5535cb120dbd7"
+              },
+              "outbound": {
+                "observedAt": "2026-10-07T00:18:03.319Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0xb2000000000000000000008bC8786B856E61707C",
+                "toToken": "0x0000000000000000000000000000000000000000",
+                "tool": "kyberswap",
+                "selector": "0x2c57e884",
+                "fromAmount": "1345939",
+                "expectedOut": "3685002583503142",
+                "minimumOut": "3648152557668111"
+              },
+              "rawBidirectional": true,
+              "appSupported": true
+            }
+          ],
+          "rawBidirectional": true,
+          "appSupported": true,
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "symbol": "AMZNc",
+      "address": "0xb200000000000000000000d9192b6B456483C2E8",
+      "decimals": 8,
+      "inOfficialInventory": true,
+      "payments": [
+        {
+          "paySymbol": "USDC",
+          "payAddress": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "attempts": [
+            {
+              "nominalUsd": 10,
+              "amountIn": "10000000",
+              "skipSimulation": false,
+              "inbound": {
+                "observedAt": "2026-10-07T00:18:03.907Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                "toToken": "0xb200000000000000000000d9192b6B456483C2E8",
+                "tool": "nordstern",
+                "selector": "0x5fd9ae2e",
+                "fromAmount": "10000000",
+                "expectedOut": "3876845",
+                "minimumOut": "3838077"
+              },
+              "appInbound": {
+                "status": "accepted",
+                "validatedAt": "2026-10-07T00:18:04.355Z",
+                "feeAmount": "25000",
+                "tool": "nordstern",
+                "selector": "0x5fd9ae2e",
+                "identityBlock": "52271468",
+                "identityBlockHash": "0x716d25e5c132b13a3486aee7c946df3845f65d067f9196bf387c6541ff9e3850",
+                "facetRuntimeHash": "0xc207f6fc07b111370c4d536c8c36de974367fd8876c867e390a5535cb120dbd7"
+              },
+              "outbound": {
+                "observedAt": "2026-10-07T00:18:05.238Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0xb200000000000000000000d9192b6B456483C2E8",
+                "toToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                "tool": "1inch",
+                "selector": "0x5fd9ae2e",
+                "fromAmount": "3876845",
+                "expectedOut": "9943184",
+                "minimumOut": "9843752"
+              },
+              "rawBidirectional": true,
+              "appSupported": true
+            }
+          ],
+          "rawBidirectional": true,
+          "appSupported": true,
+          "temporary": false
+        },
+        {
+          "paySymbol": "USDT",
+          "payAddress": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
+          "attempts": [
+            {
+              "nominalUsd": 10,
+              "amountIn": "10000000",
+              "skipSimulation": false,
+              "inbound": {
+                "observedAt": "2026-10-07T00:18:06.000Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
+                "toToken": "0xb200000000000000000000d9192b6B456483C2E8",
+                "tool": "nordstern",
+                "selector": "0x5fd9ae2e",
+                "fromAmount": "10000000",
+                "expectedOut": "3874705",
+                "minimumOut": "3835958"
+              },
+              "appInbound": {
+                "status": "accepted",
+                "validatedAt": "2026-10-07T00:18:06.710Z",
+                "feeAmount": "25000",
+                "tool": "nordstern",
+                "selector": "0x5fd9ae2e",
+                "identityBlock": "52271469",
+                "identityBlockHash": "0xb00a120113e68aa5993d85e8bc11d1c02f6c2511ad5a25bd580e1d39afb015af",
+                "facetRuntimeHash": "0xc207f6fc07b111370c4d536c8c36de974367fd8876c867e390a5535cb120dbd7"
+              },
+              "outbound": {
+                "observedAt": "2026-10-07T00:18:07.555Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0xb200000000000000000000d9192b6B456483C2E8",
+                "toToken": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
+                "tool": "1inch",
+                "selector": "0x5fd9ae2e",
+                "fromAmount": "3874705",
+                "expectedOut": "9943017",
+                "minimumOut": "9843587"
+              },
+              "rawBidirectional": true,
+              "appSupported": true
+            }
+          ],
+          "rawBidirectional": true,
+          "appSupported": true,
+          "temporary": false
+        },
+        {
+          "paySymbol": "ETH",
+          "payAddress": "0x0000000000000000000000000000000000000000",
+          "attempts": [
+            {
+              "nominalUsd": 10,
+              "amountIn": "3705336796588125",
+              "skipSimulation": false,
+              "inbound": {
+                "observedAt": "2026-10-07T00:18:08.256Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0x0000000000000000000000000000000000000000",
+                "toToken": "0xb200000000000000000000d9192b6B456483C2E8",
+                "tool": "nordstern",
+                "selector": "0x736eac0b",
+                "fromAmount": "3705336796588125",
+                "expectedOut": "3875870",
+                "minimumOut": "3837111"
+              },
+              "appInbound": {
+                "status": "accepted",
+                "validatedAt": "2026-10-07T00:18:08.722Z",
+                "feeAmount": "9263341991470",
+                "tool": "nordstern",
+                "selector": "0x736eac0b",
+                "identityBlock": "52271470",
+                "identityBlockHash": "0x04fd8197aff32c013f5fd7a89569ef2ded9cd01dd79830835c72353eed587f71",
+                "facetRuntimeHash": "0xc207f6fc07b111370c4d536c8c36de974367fd8876c867e390a5535cb120dbd7"
+              },
+              "outbound": {
+                "observedAt": "2026-10-07T00:18:09.325Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0xb200000000000000000000d9192b6B456483C2E8",
+                "toToken": "0x0000000000000000000000000000000000000000",
+                "tool": "okx",
+                "selector": "0x2c57e884",
+                "fromAmount": "3875870",
+                "expectedOut": "3685305870400909",
+                "minimumOut": "3648452811696900"
+              },
+              "rawBidirectional": true,
+              "appSupported": true
+            }
+          ],
+          "rawBidirectional": true,
+          "appSupported": true,
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "symbol": "MSFTc",
+      "address": "0xB200000000000000000000Ab99cFa739E253872B",
+      "decimals": 8,
+      "inOfficialInventory": true,
+      "payments": [
+        {
+          "paySymbol": "USDC",
+          "payAddress": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "attempts": [
+            {
+              "nominalUsd": 10,
+              "amountIn": "10000000",
+              "skipSimulation": false,
+              "inbound": {
+                "observedAt": "2026-10-07T00:18:10.299Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                "toToken": "0xB200000000000000000000Ab99cFa739E253872B",
+                "tool": "nordstern",
+                "selector": "0x5fd9ae2e",
+                "fromAmount": "10000000",
+                "expectedOut": "1881434",
+                "minimumOut": "1862620"
+              },
+              "appInbound": {
+                "status": "accepted",
+                "validatedAt": "2026-10-07T00:18:10.733Z",
+                "feeAmount": "25000",
+                "tool": "nordstern",
+                "selector": "0x5fd9ae2e",
+                "identityBlock": "52271471",
+                "identityBlockHash": "0x888ce252e8547585db342786224869603adf33683b68929b43cf343a80de4c69",
+                "facetRuntimeHash": "0xc207f6fc07b111370c4d536c8c36de974367fd8876c867e390a5535cb120dbd7"
+              },
+              "outbound": {
+                "observedAt": "2026-10-07T00:18:11.297Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0xB200000000000000000000Ab99cFa739E253872B",
+                "toToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                "tool": "okx",
+                "selector": "0x5fd9ae2e",
+                "fromAmount": "1881434",
+                "expectedOut": "9940109",
+                "minimumOut": "9840708"
+              },
+              "rawBidirectional": true,
+              "appSupported": true
+            }
+          ],
+          "rawBidirectional": true,
+          "appSupported": true,
+          "temporary": false
+        },
+        {
+          "paySymbol": "USDT",
+          "payAddress": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
+          "attempts": [
+            {
+              "nominalUsd": 10,
+              "amountIn": "10000000",
+              "skipSimulation": false,
+              "inbound": {
+                "observedAt": "2026-10-07T00:18:12.535Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
+                "toToken": "0xB200000000000000000000Ab99cFa739E253872B",
+                "tool": "nordstern",
+                "selector": "0x5fd9ae2e",
+                "fromAmount": "10000000",
+                "expectedOut": "1880396",
+                "minimumOut": "1861592"
+              },
+              "appInbound": {
+                "status": "accepted",
+                "validatedAt": "2026-10-07T00:18:12.980Z",
+                "feeAmount": "25000",
+                "tool": "nordstern",
+                "selector": "0x5fd9ae2e",
+                "identityBlock": "52271472",
+                "identityBlockHash": "0xd83b3ac56f9e15f03706737174cd6d57e8eeacc764fc6150c444920a9362f800",
+                "facetRuntimeHash": "0xc207f6fc07b111370c4d536c8c36de974367fd8876c867e390a5535cb120dbd7"
+              },
+              "outbound": {
+                "observedAt": "2026-10-07T00:18:13.577Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0xB200000000000000000000Ab99cFa739E253872B",
+                "toToken": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
+                "tool": "okx",
+                "selector": "0x5fd9ae2e",
+                "fromAmount": "1880396",
+                "expectedOut": "9940012",
+                "minimumOut": "9840612"
+              },
+              "rawBidirectional": true,
+              "appSupported": true
+            }
+          ],
+          "rawBidirectional": true,
+          "appSupported": true,
+          "temporary": false
+        },
+        {
+          "paySymbol": "ETH",
+          "payAddress": "0x0000000000000000000000000000000000000000",
+          "attempts": [
+            {
+              "nominalUsd": 10,
+              "amountIn": "3705336796588125",
+              "skipSimulation": false,
+              "inbound": {
+                "observedAt": "2026-10-07T00:18:14.539Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0x0000000000000000000000000000000000000000",
+                "toToken": "0xB200000000000000000000Ab99cFa739E253872B",
+                "tool": "nordstern",
+                "selector": "0x736eac0b",
+                "fromAmount": "3705336796588125",
+                "expectedOut": "1880878",
+                "minimumOut": "1862069"
+              },
+              "appInbound": {
+                "status": "accepted",
+                "validatedAt": "2026-10-07T00:18:14.952Z",
+                "feeAmount": "9263341991470",
+                "tool": "nordstern",
+                "selector": "0x736eac0b",
+                "identityBlock": "52271473",
+                "identityBlockHash": "0xbdaf0c3551dc70b2bda4a517b2b76a486c9446552dbfa6c4aaa4917ba5bd0947",
+                "facetRuntimeHash": "0xc207f6fc07b111370c4d536c8c36de974367fd8876c867e390a5535cb120dbd7"
+              },
+              "outbound": {
+                "observedAt": "2026-10-07T00:18:15.542Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0xB200000000000000000000Ab99cFa739E253872B",
+                "toToken": "0x0000000000000000000000000000000000000000",
+                "tool": "okx",
+                "selector": "0x2c57e884",
+                "fromAmount": "1880878",
+                "expectedOut": "3682670101641138",
+                "minimumOut": "3645843400624727"
+              },
+              "rawBidirectional": true,
+              "appSupported": true
+            }
+          ],
+          "rawBidirectional": true,
+          "appSupported": true,
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "symbol": "MSTRc",
+      "address": "0xb2000000000000000000004884b426556b92883d",
+      "decimals": 8,
+      "inOfficialInventory": true,
+      "payments": [
+        {
+          "paySymbol": "USDC",
+          "payAddress": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "attempts": [
+            {
+              "nominalUsd": 10,
+              "amountIn": "10000000",
+              "skipSimulation": false,
+              "inbound": {
+                "observedAt": "2026-10-07T00:18:17.102Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                "toToken": "0xb2000000000000000000004884b426556b92883d",
+                "tool": "nordstern",
+                "selector": "0x5fd9ae2e",
+                "fromAmount": "10000000",
+                "expectedOut": "6044635",
+                "minimumOut": "5984189"
+              },
+              "appInbound": {
+                "status": "accepted",
+                "validatedAt": "2026-10-07T00:18:17.818Z",
+                "feeAmount": "25000",
+                "tool": "nordstern",
+                "selector": "0x5fd9ae2e",
+                "identityBlock": "52271475",
+                "identityBlockHash": "0x4da69017f72a24d1aea14da91639b4a20f5e6293724b7737144e9cd694d32224",
+                "facetRuntimeHash": "0xc207f6fc07b111370c4d536c8c36de974367fd8876c867e390a5535cb120dbd7"
+              },
+              "outbound": {
+                "observedAt": "2026-10-07T00:18:18.726Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0xb2000000000000000000004884b426556b92883d",
+                "toToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                "tool": "1inch",
+                "selector": "0x5fd9ae2e",
+                "fromAmount": "6044635",
+                "expectedOut": "9940108",
+                "minimumOut": "9840707"
+              },
+              "rawBidirectional": true,
+              "appSupported": true
+            }
+          ],
+          "rawBidirectional": true,
+          "appSupported": true,
+          "temporary": false
+        },
+        {
+          "paySymbol": "USDT",
+          "payAddress": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
+          "attempts": [
+            {
+              "nominalUsd": 10,
+              "amountIn": "10000000",
+              "skipSimulation": false,
+              "inbound": {
+                "observedAt": "2026-10-07T00:18:19.361Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
+                "toToken": "0xb2000000000000000000004884b426556b92883d",
+                "tool": "nordstern",
+                "selector": "0x5fd9ae2e",
+                "fromAmount": "10000000",
+                "expectedOut": "6041300",
+                "minimumOut": "5980887"
+              },
+              "appInbound": {
+                "status": "accepted",
+                "validatedAt": "2026-10-07T00:18:20.089Z",
+                "feeAmount": "25000",
+                "tool": "nordstern",
+                "selector": "0x5fd9ae2e",
+                "identityBlock": "52271476",
+                "identityBlockHash": "0xed60635b0496e3de015d0b8cf2ef53d41c0885b3227c3abffedaca652c57a620",
+                "facetRuntimeHash": "0xc207f6fc07b111370c4d536c8c36de974367fd8876c867e390a5535cb120dbd7"
+              },
+              "outbound": {
+                "observedAt": "2026-10-07T00:18:21.029Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0xb2000000000000000000004884b426556b92883d",
+                "toToken": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
+                "tool": "1inch",
+                "selector": "0x5fd9ae2e",
+                "fromAmount": "6041300",
+                "expectedOut": "9939941",
+                "minimumOut": "9840542"
+              },
+              "rawBidirectional": true,
+              "appSupported": true
+            }
+          ],
+          "rawBidirectional": true,
+          "appSupported": true,
+          "temporary": false
+        },
+        {
+          "paySymbol": "ETH",
+          "payAddress": "0x0000000000000000000000000000000000000000",
+          "attempts": [
+            {
+              "nominalUsd": 10,
+              "amountIn": "3705336796588125",
+              "skipSimulation": false,
+              "inbound": {
+                "observedAt": "2026-10-07T00:18:21.632Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0x0000000000000000000000000000000000000000",
+                "toToken": "0xb2000000000000000000004884b426556b92883d",
+                "tool": "nordstern",
+                "selector": "0x736eac0b",
+                "fromAmount": "3705336796588125",
+                "expectedOut": "6042692",
+                "minimumOut": "5982265"
+              },
+              "appInbound": {
+                "status": "accepted",
+                "validatedAt": "2026-10-07T00:18:22.653Z",
+                "feeAmount": "9263341991470",
+                "tool": "nordstern",
+                "selector": "0x736eac0b",
+                "identityBlock": "52271477",
+                "identityBlockHash": "0x426f6fa3e2dda60ecb9aac3505294897d23c917a70e2c84393782fa408a78dc5",
+                "facetRuntimeHash": "0xc207f6fc07b111370c4d536c8c36de974367fd8876c867e390a5535cb120dbd7"
+              },
+              "outbound": {
+                "observedAt": "2026-10-07T00:18:23.580Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0xb2000000000000000000004884b426556b92883d",
+                "toToken": "0x0000000000000000000000000000000000000000",
+                "tool": "1inch",
+                "selector": "0x2c57e884",
+                "fromAmount": "6042692",
+                "expectedOut": "3682570049583681",
+                "minimumOut": "3645744349087844"
+              },
+              "rawBidirectional": true,
+              "appSupported": true
+            }
+          ],
+          "rawBidirectional": true,
+          "appSupported": true,
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "symbol": "SNDKc",
+      "address": "0xb200000000000000000000397293Cb8cda9a10c5",
+      "decimals": 8,
+      "inOfficialInventory": true,
+      "payments": [
+        {
+          "paySymbol": "USDC",
+          "payAddress": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "attempts": [
+            {
+              "nominalUsd": 10,
+              "amountIn": "10000000",
+              "skipSimulation": false,
+              "inbound": {
+                "observedAt": "2026-10-07T00:18:24.225Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                "toToken": "0xb200000000000000000000397293Cb8cda9a10c5",
+                "tool": "nordstern",
+                "selector": "0x5fd9ae2e",
+                "fromAmount": "10000000",
+                "expectedOut": "598473",
+                "minimumOut": "592488"
+              },
+              "appInbound": {
+                "status": "accepted",
+                "validatedAt": "2026-10-07T00:18:24.643Z",
+                "feeAmount": "25000",
+                "tool": "nordstern",
+                "selector": "0x5fd9ae2e",
+                "identityBlock": "52271478",
+                "identityBlockHash": "0x226d586442b70bd62db983c842d79a36ac00b54b3af63e7c0c47b775ecbfacce",
+                "facetRuntimeHash": "0xc207f6fc07b111370c4d536c8c36de974367fd8876c867e390a5535cb120dbd7"
+              },
+              "outbound": {
+                "observedAt": "2026-10-07T00:18:25.188Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0xb200000000000000000000397293Cb8cda9a10c5",
+                "toToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                "tool": "okx",
+                "selector": "0x5fd9ae2e",
+                "fromAmount": "598473",
+                "expectedOut": "9941754",
+                "minimumOut": "9842336"
+              },
+              "rawBidirectional": true,
+              "appSupported": true
+            }
+          ],
+          "rawBidirectional": true,
+          "appSupported": true,
+          "temporary": false
+        },
+        {
+          "paySymbol": "USDT",
+          "payAddress": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
+          "attempts": [
+            {
+              "nominalUsd": 10,
+              "amountIn": "10000000",
+              "skipSimulation": false,
+              "inbound": {
+                "observedAt": "2026-10-07T00:18:26.200Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
+                "toToken": "0xb200000000000000000000397293Cb8cda9a10c5",
+                "tool": "nordstern",
+                "selector": "0x5fd9ae2e",
+                "fromAmount": "10000000",
+                "expectedOut": "598046",
+                "minimumOut": "592066"
+              },
+              "appInbound": {
+                "status": "accepted",
+                "validatedAt": "2026-10-07T00:18:26.931Z",
+                "feeAmount": "25000",
+                "tool": "nordstern",
+                "selector": "0x5fd9ae2e",
+                "identityBlock": "52271479",
+                "identityBlockHash": "0xc38e763d51b1752f76725c7cbb20d891c5622cb4e259783ee4d985cdd8ba819b",
+                "facetRuntimeHash": "0xc207f6fc07b111370c4d536c8c36de974367fd8876c867e390a5535cb120dbd7"
+              },
+              "outbound": {
+                "observedAt": "2026-10-07T00:18:27.465Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0xb200000000000000000000397293Cb8cda9a10c5",
+                "toToken": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
+                "tool": "okx",
+                "selector": "0x5fd9ae2e",
+                "fromAmount": "598046",
+                "expectedOut": "9940012",
+                "minimumOut": "9840612"
+              },
+              "rawBidirectional": true,
+              "appSupported": true
+            }
+          ],
+          "rawBidirectional": true,
+          "appSupported": true,
+          "temporary": false
+        },
+        {
+          "paySymbol": "ETH",
+          "payAddress": "0x0000000000000000000000000000000000000000",
+          "attempts": [
+            {
+              "nominalUsd": 10,
+              "amountIn": "3705336796588125",
+              "skipSimulation": false,
+              "inbound": {
+                "observedAt": "2026-10-07T00:18:28.512Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0x0000000000000000000000000000000000000000",
+                "toToken": "0xb200000000000000000000397293Cb8cda9a10c5",
+                "tool": "nordstern",
+                "selector": "0x736eac0b",
+                "fromAmount": "3705336796588125",
+                "expectedOut": "598181",
+                "minimumOut": "592199"
+              },
+              "appInbound": {
+                "status": "accepted",
+                "validatedAt": "2026-10-07T00:18:28.924Z",
+                "feeAmount": "9263341991470",
+                "tool": "nordstern",
+                "selector": "0x736eac0b",
+                "identityBlock": "52271480",
+                "identityBlockHash": "0x57794c30f15140994d8434409a1b21e5bce43f84d87843074f7f75c4a8524ead",
+                "facetRuntimeHash": "0xc207f6fc07b111370c4d536c8c36de974367fd8876c867e390a5535cb120dbd7"
+              },
+              "outbound": {
+                "observedAt": "2026-10-07T00:18:29.529Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0xb200000000000000000000397293Cb8cda9a10c5",
+                "toToken": "0x0000000000000000000000000000000000000000",
+                "tool": "fly",
+                "selector": "0x2c57e884",
+                "fromAmount": "598181",
+                "expectedOut": "3684100261535377",
+                "minimumOut": "3647259258920023"
+              },
+              "rawBidirectional": true,
+              "appSupported": true
+            }
+          ],
+          "rawBidirectional": true,
+          "appSupported": true,
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "symbol": "SPCXc",
+      "address": "0xb2000000000000000000007b9fcbd005511aCBd5",
+      "decimals": 8,
+      "inOfficialInventory": true,
+      "payments": [
+        {
+          "paySymbol": "USDC",
+          "payAddress": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "attempts": [
+            {
+              "nominalUsd": 10,
+              "amountIn": "10000000",
+              "skipSimulation": false,
+              "inbound": {
+                "observedAt": "2026-10-07T00:18:30.501Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                "toToken": "0xb2000000000000000000007b9fcbd005511aCBd5",
+                "tool": "nordstern",
+                "selector": "0x5fd9ae2e",
+                "fromAmount": "10000000",
+                "expectedOut": "5863122",
+                "minimumOut": "5804491"
+              },
+              "appInbound": {
+                "status": "accepted",
+                "validatedAt": "2026-10-07T00:18:30.920Z",
+                "feeAmount": "25000",
+                "tool": "nordstern",
+                "selector": "0x5fd9ae2e",
+                "identityBlock": "52271481",
+                "identityBlockHash": "0x5e19a4c94adb0e5d15dbe7e32fcc22371cb187148b63838e95a4af722c8dedb1",
+                "facetRuntimeHash": "0xc207f6fc07b111370c4d536c8c36de974367fd8876c867e390a5535cb120dbd7"
+              },
+              "outbound": {
+                "observedAt": "2026-10-07T00:18:31.489Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0xb2000000000000000000007b9fcbd005511aCBd5",
+                "toToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                "tool": "okx",
+                "selector": "0x5fd9ae2e",
+                "fromAmount": "5863122",
+                "expectedOut": "9950340",
+                "minimumOut": "9850837"
+              },
+              "rawBidirectional": true,
+              "appSupported": true
+            }
+          ],
+          "rawBidirectional": true,
+          "appSupported": true,
+          "temporary": false
+        },
+        {
+          "paySymbol": "USDT",
+          "payAddress": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
+          "attempts": [
+            {
+              "nominalUsd": 10,
+              "amountIn": "10000000",
+              "skipSimulation": false,
+              "inbound": {
+                "observedAt": "2026-10-07T00:18:33.522Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
+                "toToken": "0xb2000000000000000000007b9fcbd005511aCBd5",
+                "tool": "nordstern",
+                "selector": "0x5fd9ae2e",
+                "fromAmount": "10000000",
+                "expectedOut": "5859912",
+                "minimumOut": "5801313"
+              },
+              "appInbound": {
+                "status": "accepted",
+                "validatedAt": "2026-10-07T00:18:34.552Z",
+                "feeAmount": "25000",
+                "tool": "nordstern",
+                "selector": "0x5fd9ae2e",
+                "identityBlock": "52271483",
+                "identityBlockHash": "0x710b140e8647314b9de870f856d4af9c781d3f3849558590950694eaf8292c40",
+                "facetRuntimeHash": "0xc207f6fc07b111370c4d536c8c36de974367fd8876c867e390a5535cb120dbd7"
+              },
+              "outbound": {
+                "observedAt": "2026-10-07T00:18:35.747Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0xb2000000000000000000007b9fcbd005511aCBd5",
+                "toToken": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
+                "tool": "okx",
+                "selector": "0x5fd9ae2e",
+                "fromAmount": "5859912",
+                "expectedOut": "9950271",
+                "minimumOut": "9850768"
+              },
+              "rawBidirectional": true,
+              "appSupported": true
+            }
+          ],
+          "rawBidirectional": true,
+          "appSupported": true,
+          "temporary": false
+        },
+        {
+          "paySymbol": "ETH",
+          "payAddress": "0x0000000000000000000000000000000000000000",
+          "attempts": [
+            {
+              "nominalUsd": 10,
+              "amountIn": "3705336796588125",
+              "skipSimulation": false,
+              "inbound": {
+                "observedAt": "2026-10-07T00:18:36.355Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0x0000000000000000000000000000000000000000",
+                "toToken": "0xb2000000000000000000007b9fcbd005511aCBd5",
+                "tool": "nordstern",
+                "selector": "0x736eac0b",
+                "fromAmount": "3705336796588125",
+                "expectedOut": "5860554",
+                "minimumOut": "5801948"
+              },
+              "appInbound": {
+                "status": "accepted",
+                "validatedAt": "2026-10-07T00:18:36.790Z",
+                "feeAmount": "9263341991470",
+                "tool": "nordstern",
+                "selector": "0x736eac0b",
+                "identityBlock": "52271484",
+                "identityBlockHash": "0xd9810173144505b62dad47e6a793fd2bafcf267fc89e210ee814d6715f3131cb",
+                "facetRuntimeHash": "0xc207f6fc07b111370c4d536c8c36de974367fd8876c867e390a5535cb120dbd7"
+              },
+              "outbound": {
+                "observedAt": "2026-10-07T00:18:37.354Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0xb2000000000000000000007b9fcbd005511aCBd5",
+                "toToken": "0x0000000000000000000000000000000000000000",
+                "tool": "okx",
+                "selector": "0x2c57e884",
+                "fromAmount": "5860554",
+                "expectedOut": "3685801133372340",
+                "minimumOut": "3648943122038617"
+              },
+              "rawBidirectional": true,
+              "appSupported": true
+            }
+          ],
+          "rawBidirectional": true,
+          "appSupported": true,
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "symbol": "TSLAc",
+      "address": "0xb2000000000000000000001e800a7f5189430cD0",
+      "decimals": 8,
+      "inOfficialInventory": true,
+      "payments": [
+        {
+          "paySymbol": "USDC",
+          "payAddress": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "attempts": [
+            {
+              "nominalUsd": 10,
+              "amountIn": "10000000",
+              "skipSimulation": false,
+              "inbound": {
+                "observedAt": "2026-10-07T00:18:38.378Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                "toToken": "0xb2000000000000000000001e800a7f5189430cD0",
+                "tool": "nordstern",
+                "selector": "0x5fd9ae2e",
+                "fromAmount": "10000000",
+                "expectedOut": "2625451",
+                "minimumOut": "2599196"
+              },
+              "appInbound": {
+                "status": "accepted",
+                "validatedAt": "2026-10-07T00:18:39.134Z",
+                "feeAmount": "25000",
+                "tool": "nordstern",
+                "selector": "0x5fd9ae2e",
+                "identityBlock": "52271485",
+                "identityBlockHash": "0xee78777b0d44be0c2132585ab78f0c8d6b71bf995e9121b8bfc3db387967f468",
+                "facetRuntimeHash": "0xc207f6fc07b111370c4d536c8c36de974367fd8876c867e390a5535cb120dbd7"
+              },
+              "outbound": {
+                "observedAt": "2026-10-07T00:18:39.665Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0xb2000000000000000000001e800a7f5189430cD0",
+                "toToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                "tool": "okx",
+                "selector": "0x5fd9ae2e",
+                "fromAmount": "2625451",
+                "expectedOut": "9947277",
+                "minimumOut": "9847804"
+              },
+              "rawBidirectional": true,
+              "appSupported": true
+            }
+          ],
+          "rawBidirectional": true,
+          "appSupported": true,
+          "temporary": false
+        },
+        {
+          "paySymbol": "USDT",
+          "payAddress": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
+          "attempts": [
+            {
+              "nominalUsd": 10,
+              "amountIn": "10000000",
+              "skipSimulation": false,
+              "inbound": {
+                "observedAt": "2026-10-07T00:18:41.257Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
+                "toToken": "0xb2000000000000000000001e800a7f5189430cD0",
+                "tool": "nordstern",
+                "selector": "0x5fd9ae2e",
+                "fromAmount": "10000000",
+                "expectedOut": "2624014",
+                "minimumOut": "2597774"
+              },
+              "appInbound": {
+                "status": "accepted",
+                "validatedAt": "2026-10-07T00:18:41.695Z",
+                "feeAmount": "25000",
+                "tool": "nordstern",
+                "selector": "0x5fd9ae2e",
+                "identityBlock": "52271487",
+                "identityBlockHash": "0xf97497f3f72645dbcc1e659b1c7ebf618027f46b5c510be68e54f87e0ef539ba",
+                "facetRuntimeHash": "0xc207f6fc07b111370c4d536c8c36de974367fd8876c867e390a5535cb120dbd7"
+              },
+              "outbound": {
+                "observedAt": "2026-10-07T00:18:42.260Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0xb2000000000000000000001e800a7f5189430cD0",
+                "toToken": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
+                "tool": "okx",
+                "selector": "0x5fd9ae2e",
+                "fromAmount": "2624014",
+                "expectedOut": "9947207",
+                "minimumOut": "9847735"
+              },
+              "rawBidirectional": true,
+              "appSupported": true
+            }
+          ],
+          "rawBidirectional": true,
+          "appSupported": true,
+          "temporary": false
+        },
+        {
+          "paySymbol": "ETH",
+          "payAddress": "0x0000000000000000000000000000000000000000",
+          "attempts": [
+            {
+              "nominalUsd": 10,
+              "amountIn": "3705336796588125",
+              "skipSimulation": false,
+              "inbound": {
+                "observedAt": "2026-10-07T00:18:43.362Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0x0000000000000000000000000000000000000000",
+                "toToken": "0xb2000000000000000000001e800a7f5189430cD0",
+                "tool": "nordstern",
+                "selector": "0x736eac0b",
+                "fromAmount": "3705336796588125",
+                "expectedOut": "2624607",
+                "minimumOut": "2598361"
+              },
+              "appInbound": {
+                "status": "accepted",
+                "validatedAt": "2026-10-07T00:18:44.089Z",
+                "feeAmount": "9263341991470",
+                "tool": "nordstern",
+                "selector": "0x736eac0b",
+                "identityBlock": "52271488",
+                "identityBlockHash": "0x6fa52ce4cacf0184652cec690f0d042fb5a2d253c73ea144c1ed7336a479fde2",
+                "facetRuntimeHash": "0xc207f6fc07b111370c4d536c8c36de974367fd8876c867e390a5535cb120dbd7"
+              },
+              "outbound": {
+                "observedAt": "2026-10-07T00:18:44.642Z",
+                "status": "liquid_route",
+                "httpStatus": 200,
+                "providerCode": null,
+                "fromToken": "0xb2000000000000000000001e800a7f5189430cD0",
+                "toToken": "0x0000000000000000000000000000000000000000",
+                "tool": "okx",
+                "selector": "0x2c57e884",
+                "fromAmount": "2624607",
+                "expectedOut": "3685057347801094",
+                "minimumOut": "3648206774323083"
+              },
+              "rawBidirectional": true,
+              "appSupported": true
+            }
+          ],
+          "rawBidirectional": true,
+          "appSupported": true,
+          "temporary": false
+        }
+      ]
+    }
+  ],
+  "anchors": [
+    {
+      "chainId": 8453,
+      "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      "symbol": "USDC",
+      "decimals": 6,
+      "officialPriceUsd": "0.9985464726"
+    },
+    {
+      "chainId": 8453,
+      "address": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
+      "symbol": "USDT",
+      "decimals": 6,
+      "officialPriceUsd": "0.9991265921"
+    },
+    {
+      "chainId": 8453,
+      "address": "0x0000000000000000000000000000000000000000",
+      "symbol": "ETH",
+      "decimals": 18,
+      "officialPriceUsd": "2698.81"
+    }
+  ],
+  "summary": {
+    "USDC": {
+      "checked": 10,
+      "appSupported": [
+        "NVDAc",
+        "AAPLc",
+        "GOOGLc",
+        "METAc",
+        "AMZNc",
+        "MSFTc",
+        "MSTRc",
+        "SNDKc",
+        "SPCXc",
+        "TSLAc"
+      ],
+      "rawBidirectional": [
+        "NVDAc",
+        "AAPLc",
+        "GOOGLc",
+        "METAc",
+        "AMZNc",
+        "MSFTc",
+        "MSTRc",
+        "SNDKc",
+        "SPCXc",
+        "TSLAc"
+      ]
+    },
+    "USDT": {
+      "checked": 10,
+      "appSupported": [
+        "NVDAc",
+        "AAPLc",
+        "GOOGLc",
+        "METAc",
+        "AMZNc",
+        "MSFTc",
+        "MSTRc",
+        "SNDKc",
+        "SPCXc",
+        "TSLAc"
+      ],
+      "rawBidirectional": [
+        "NVDAc",
+        "AAPLc",
+        "GOOGLc",
+        "METAc",
+        "AMZNc",
+        "MSFTc",
+        "MSTRc",
+        "SNDKc",
+        "SPCXc",
+        "TSLAc"
+      ]
+    },
+    "ETH": {
+      "checked": 10,
+      "appSupported": [
+        "NVDAc",
+        "AAPLc",
+        "GOOGLc",
+        "METAc",
+        "AMZNc",
+        "MSFTc",
+        "MSTRc",
+        "SNDKc",
+        "SPCXc",
+        "TSLAc"
+      ],
+      "rawBidirectional": [
+        "NVDAc",
+        "AAPLc",
+        "GOOGLc",
+        "METAc",
+        "AMZNc",
+        "MSFTc",
+        "MSTRc",
+        "SNDKc",
+        "SPCXc",
+        "TSLAc"
+      ]
+    }
+  },
+  "completedAt": "2026-10-07T00:18:44.645Z"
+}

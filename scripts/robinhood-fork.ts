@@ -5,17 +5,21 @@ import type { AddressInfo } from "node:net";
 import { access } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createPublicClient, http } from "viem";
-import { robinhood } from "viem/chains";
+import { base, robinhood } from "viem/chains";
 
 // Only this loopback proxy sees the provider URL. Neither Anvil argv nor its
 // nodeInfo/logs receive the API key. It cannot forward signatures or writes.
 export async function startRobinhoodFork(upstreamUrl: string) {
+  return startChainFork(upstreamUrl, 4663);
+}
+
+export async function startChainFork(upstreamUrl: string, deploymentChainId: 8453 | 4663) {
   assert.equal(new URL(upstreamUrl).protocol, "https:");
   const upstream = createPublicClient({
-    chain: robinhood,
+    chain: deploymentChainId === 8453 ? base : robinhood,
     transport: http(upstreamUrl, { timeout: 40_000, retryCount: 0 }),
   });
-  assert.equal(await upstream.getChainId(), 4663);
+  assert.equal(await upstream.getChainId(), deploymentChainId);
   const blockNumber = await upstream.getBlockNumber({ cacheTime: 0 });
   let blockedUpstreamWrites = 0;
   const proxy = createServer(async (request, response) => {
@@ -85,6 +89,7 @@ export async function startRobinhoodFork(upstreamUrl: string) {
       "--host", "127.0.0.1", "--port", String(forkPort), "--chain-id", "31337",
       "--fork-url", forkSource, "--fork-block-number", String(blockNumber),
       "--hardfork", "cancun", "--code-size-limit", "98304", "--silent",
+      ...(deploymentChainId === 8453 ? ["--base"] : []),
     ], { stdio: ["ignore", "pipe", "pipe"] });
     for (const stream of [child.stdout, child.stderr]) stream?.on("data", (part) => {
       childOutput = (childOutput + String(part)).slice(-2000);
@@ -103,7 +108,7 @@ export async function startRobinhoodFork(upstreamUrl: string) {
         break;
       } catch { await new Promise((done) => setTimeout(done, 200)); }
     }
-    assert(ready, "Isolated Robinhood fork did not become ready");
+    assert(ready, "Isolated chain fork did not become ready");
     return { rpc, rpcCall, upstream, blockNumber, stop,
       blockedUpstreamWrites: () => blockedUpstreamWrites };
   } catch (error) { await stop(); throw error; }

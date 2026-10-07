@@ -37,7 +37,7 @@ test("endpoint selection excludes Robinhood launches, forks and unconfirmed runt
     assert.equal(plan.musegod, false);
     assert.deepEqual(plan.baseAddresses, []);
     let requests = 0;
-    assert.deepEqual(await loadCardMarkets(plan.baseAddresses, plan.musegod, async () => {
+    assert.deepEqual(await loadCardMarkets(4663, plan.baseAddresses, plan.musegod, async () => {
       requests++; throw new Error("Unexpected request");
     }), {});
     assert.equal(requests, 0);
@@ -50,7 +50,8 @@ test("Base uses stable deduplicated 30-address batches serially and isolates fai
   const addresses = Array.from({ length: 31 }, (_, index) => address(index + 1));
   const paths: string[] = [];
   let inFlight = 0;
-  const result = await loadCardMarkets([...addresses].reverse().concat(addresses[0].toUpperCase()), false, async <T>(path: string) => {
+  const result = await loadCardMarkets(8453, [...addresses].reverse().concat(addresses[0].toUpperCase()), false, async <T>(chainId: 8453 | 4663, path: string) => {
+    assert.equal(chainId, 8453);
     assert.equal(inFlight, 0, "batches must run serially");
     inFlight++;
     paths.push(path);
@@ -72,7 +73,7 @@ test("Base uses stable deduplicated 30-address batches serially and isolates fai
 test("a failed batch leaves later registered pools available and ignores unexpected returned addresses", async () => {
   const addresses = Array.from({ length: 31 }, (_, index) => address(index + 1));
   let calls = 0;
-  const result = await loadCardMarkets(addresses, false, async <T>() => {
+  const result = await loadCardMarkets(8453, addresses, false, async <T>() => {
     if (++calls === 1) throw new Error("Provider unavailable");
     return [{ address: addresses[30], summary: summary() }, { address: address(1000), summary: summary() }] as T;
   });
@@ -88,7 +89,7 @@ test("cancelling a delayed Base request stops the next batch and discards its la
   let requests = 0;
   let release: (rows: { address: string; summary: MarketSummary }[]) => void = () => {};
   const delayed = new Promise<{ address: string; summary: MarketSummary }[]>((resolve) => { release = resolve; });
-  const loading = loadCardMarkets(addresses, false, async <T>() => {
+  const loading = loadCardMarkets(8453, addresses, false, async <T>() => {
     requests++;
     return await delayed as T;
   }, () => active);
@@ -101,7 +102,8 @@ test("cancelling a delayed Base request stops the next batch and discards its la
 
 test("MUSEGOD uses the fixed same-origin summary and preserves missing values and true zero", async () => {
   const paths: string[] = [];
-  const result = await loadCardMarkets([], true, async <T>(path: string) => {
+  const result = await loadCardMarkets(4663, [], true, async <T>(chainId: 8453 | 4663, path: string) => {
+    assert.equal(chainId, 4663);
     paths.push(path);
     return summary() as T;
   });
@@ -111,6 +113,14 @@ test("MUSEGOD uses the fixed same-origin summary and preserves missing values an
   assert.equal(market.liquidityUsd, null);
   assert.equal(market.marketCapUsd, 0);
   assert.equal(market.periods.h24.change, 0);
+});
+
+test("market loaders reject requests whose tokens or featured token belong to another chain", async () => {
+  let requests = 0;
+  const read = async <T>() => { requests++; return summary() as T; };
+  await assert.rejects(loadCardMarkets(8453, [], true, read), /selected network/);
+  await assert.rejects(loadCardMarkets(4663, [address(1)], false, read), /selected network/);
+  assert.equal(requests, 0);
 });
 
 test("refresh keeps valid snapshot, failure labels it stale, and the 24-hour boundary clears it", () => {

@@ -1,13 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { encodeFunctionData, erc20Abi, parseUnits, toHex, type Address, type Hash } from "viem";
+import { decodeFunctionData, encodeFunctionData, erc20Abi, parseUnits, toHex, type Address, type Hash } from "viem";
 import { assetsFor, contractsFor, type RuntimeConfig } from "../src/lib/config";
 import { CURVE_POLICY } from "../src/lib/launch-curve";
 import { launchGuardAbi } from "../src/lib/launch-guard";
 import type { LaunchPlan } from "../src/lib/launch-plan";
-import { OPENING_CAP_USD, OPENING_POLICY, type OpeningValuation } from "../src/lib/opening-valuation";
+import { LAUNCH_PRICE_TTL, type HistoricalOpeningValuation } from "../src/lib/opening-valuation";
 import { assertLaunchRequest, assertLaunchWalletPlan, bufferedLaunchGas, executeLaunchPlan, freezeLaunchPlan, pendingLaunchResolution, terminalLaunchIsCanonical, type LaunchSimulation } from "../src/lib/launch-wallet";
 import type { Transaction } from "../src/lib/transactions";
+import { syntheticOpeningValuation } from "./fixtures";
 
 const account: Address = "0x1111111111111111111111111111111111111111";
 const other: Address = "0x2222222222222222222222222222222222222222";
@@ -20,15 +21,11 @@ const quote = assetsFor(config)[0];
 
 function plan(firstBuy = true): LaunchPlan {
   const now = Date.now();
-  const deadline = Math.floor((now + 300_000) / 1000);
+  const deadline = Math.floor((now + LAUNCH_PRICE_TTL) / 1000);
   const amountIn = parseUnits("0.01", quote.decimals);
   const expectedAmountOut = parseUnits("100", 18);
   const minAmountOut = expectedAmountOut * 9900n / 10000n;
-  const openingValuation: OpeningValuation = {
-    policy: OPENING_POLICY, marketCapUsd: OPENING_CAP_USD, chainId: 8453,
-    quoteAddress: quote.address, quotePriceUsd: "1", quotedAt: now, expiresAt: now + 300_000,
-    source: "Chainlink", blockNumber: "10", blockHash: hash, sourceUpdatedAt: now, feed: other,
-  };
+  const openingValuation = syntheticOpeningValuation(quote.address, "1", { quotedAt: now, blockNumber: "10", blockHash: hash });
   const createData = {
     initialSupply: parseUnits("1000000000", 18), numTokensToSell: parseUnits("1000000000", 18),
     numeraire: quote.address, tokenFactory: other, tokenFactoryData: "0x" as const,
@@ -72,6 +69,32 @@ test("launch wallet binds current curve, network, account, quote and frozen tran
     assert.throws(() => assertLaunchWalletPlan(value, { ...config, ...changed }, account));
 });
 
+test("an otherwise current unsigned plan cannot sign with a retired oracle snapshot", () => {
+  const value = plan(), quotedAt = value.preparedAt;
+  const legacy: HistoricalOpeningValuation = { policy: "fixed-usd-5000-v1", marketCapUsd: 5000,
+    chainId: 8453, quoteAddress: quote.address, quotePriceUsd: "1", quotedAt, expiresAt: quotedAt + 300_000,
+    source: "Chainlink", blockNumber: "10", blockHash: hash, sourceUpdatedAt: quotedAt, feed: other };
+  value.openingValuation = legacy;
+  assert.throws(() => assertLaunchWalletPlan(value, config, account, quotedAt), /policy has changed/);
+});
+
+test("locked wallet plans require the verified capability and frozen calldata duration", () => {
+  for (const days of [30, 90, 365] as const) {
+    const value = plan(), decoded = decodeFunctionData({ abi: launchGuardAbi, data: value.data });
+    if (decoded.functionName !== "createAndBuy") throw new Error("wrong fixture");
+    const data = encodeFunctionData({ abi: launchGuardAbi, functionName: "createAndBuyLocked", args: [...decoded.args, days] });
+    value.firstBuy!.lockDays = days; value.data = data; value.transaction!.data = data;
+    assert.doesNotThrow(() => assertLaunchWalletPlan(value, { ...config, launchLockAvailable: true }, account));
+    assert.throws(() => assertLaunchWalletPlan(value, config, account), /expired or changed/);
+    const changed = structuredClone(value); changed.firstBuy!.lockDays = days === 30 ? 90 : 30;
+    assert.throws(() => assertLaunchWalletPlan(changed, { ...config, launchLockAvailable: true }, account), /calldata/);
+    changed.firstBuy!.lockDays = 0;
+    assert.throws(() => assertLaunchWalletPlan(changed, { ...config, launchLockAvailable: true }, account), /calldata/);
+    const unprotected = plan(); unprotected.firstBuy!.lockDays = days;
+    assert.throws(() => assertLaunchWalletPlan(unprotected, { ...config, launchLockAvailable: true }, account), /calldata/);
+  }
+});
+
 test("launch approval is exact and cannot grant another spender or unlimited allowance", () => {
   const value = plan();
   for (const args of [[other, BigInt(value.firstBuy!.amountIn)], [guard, 2n ** 256n - 1n]] as const) {
@@ -97,6 +120,22 @@ test("launch provider transport permits only the frozen approval or launch trans
       { chainId: "0x1" }, { authorizationList: [] }])
       assert.throws(() => assertLaunchRequest({ method: "eth_sendTransaction", params: [{ ...tx, ...changed }] }, step));
   }
+});
+
+test("the frozen provider request permits only the exact native payment uint256 value", () => {
+  const transaction = plan().transaction!;
+  const native = { ...transaction, from: account, chainId: config.chainId, value: "1000000000000000" };
+  const tx = { from: account, to: native.to, data: native.data, value: toHex(BigInt(native.value)) };
+  assert.doesNotThrow(() => assertLaunchRequest({ method: "eth_sendTransaction", params: [tx] }, native));
+  for (const value of [undefined, "0x0", "0x1", toHex(BigInt(native.value) + 1n), "-1", "0x-1", "NaN", "1000000000000000", "0x", 1, "0x" + "f".repeat(65)])
+    assert.throws(() => assertLaunchRequest({ method: "eth_sendTransaction", params: [{ ...tx, value }] }, native), /value/);
+  for (const value of ["-1", "NaN", "1e15", "", "00", (2n ** 256n).toString()])
+    assert.throws(() => assertLaunchRequest({ method: "eth_sendTransaction", params: [tx] }, { ...native, value }), /value/);
+  const zero = { ...native, value: "0" };
+  assert.doesNotThrow(() => assertLaunchRequest({ method: "eth_sendTransaction", params: [{ ...tx, value: undefined }] }, zero));
+  assert.throws(() => assertLaunchRequest({ method: "eth_sendTransaction", params: [tx] }, zero), /value/);
+  const maximum = 2n ** 256n - 1n;
+  assert.doesNotThrow(() => assertLaunchRequest({ method: "eth_sendTransaction", params: [{ ...tx, value: toHex(maximum) }] }, { ...native, value: maximum.toString() }));
 });
 
 test("launch execution skips a sufficient allowance and simulates the full transaction before submission", async () => {

@@ -6,6 +6,7 @@ import { join } from "node:path";
 import type { BuildInfo } from "../src/lib/build-info";
 import { assertBuildManifest, assertFrozenBuild, assertLaunchRuntime, assertReleaseCheckout, publishCandidate, ReleaseFailure, requireSingleActiveVersion, runtimeVarsFromBindings, snapshotBuild, type ReleaseLifecycle } from "../scripts/release-policy";
 import { CURVE_POLICY } from "../src/lib/launch-curve";
+import { checkRuntime } from "../scripts/release";
 
 const commit = "a".repeat(40), newerCommit = "b".repeat(40);
 const previousVersion = "11111111-1111-4111-8111-111111111111", candidateVersion = "22222222-2222-4222-8222-222222222222";
@@ -56,6 +57,84 @@ test("publication verifies the curve and configured guard, while legacy rollback
   assert.throws(() => assertLaunchRuntime({ curvePolicy: CURVE_POLICY }, {}), /does not match/);
   assertLaunchRuntime({}, {}, false);
   assert.throws(() => assertLaunchRuntime({}, { LAUNCH_GUARD_ADDRESS: guard }, false), /does not match/);
+});
+
+test("guard selection isolates Base and requires vesting only for the selected first-buy candidate", () => {
+  const legacy = "0x1111111111111111111111111111111111111111", vesting = "0x2222222222222222222222222222222222222222";
+  const vars = { LAUNCH_GUARD_ADDRESS: legacy, FIRST_BUY_GUARD_ADDRESS: vesting };
+  const current = { curvePolicy: CURVE_POLICY, launchGuard: vesting, launchLockAvailable: true };
+  assertLaunchRuntime(current, vars);
+  assert.throws(() => assertLaunchRuntime({ ...current, launchLockAvailable: false }, vars), /does not match/);
+  assert.throws(() => assertLaunchRuntime({ ...current, launchGuard: legacy }, vars), /does not match/);
+  assertLaunchRuntime({ curvePolicy: CURVE_POLICY, launchGuard: null, launchLockAvailable: false }, vars, true, 8453);
+  assert.throws(() => assertLaunchRuntime(current, vars, true, 8453), /does not match/);
+  assertLaunchRuntime(current, { BASE_FIRST_BUY_GUARD_ADDRESS: vesting }, true, 8453);
+  assert.throws(() => assertLaunchRuntime({ ...current, launchLockAvailable: false }, { BASE_FIRST_BUY_GUARD_ADDRESS: vesting }, true, 8453), /does not match/);
+  // An explicit empty override suppresses the generic candidate as in runtimeFromEnv.
+  assertLaunchRuntime({ curvePolicy: CURVE_POLICY, launchGuard: legacy, launchLockAvailable: false },
+    { ...vars, ROBINHOOD_FIRST_BUY_GUARD_ADDRESS: "" });
+  assertLaunchRuntime({ curvePolicy: CURVE_POLICY, launchGuard: vesting, launchLockAvailable: false },
+    { ...vars, ROBINHOOD_FIRST_BUY_GUARD_ADDRESS: "", ROBINHOOD_LAUNCH_GUARD_ADDRESS: vesting });
+});
+
+const releaseOrigin = "https://release-runtime.test";
+const runtimeVars = { PLATFORM_TREASURY: "0x1111111111111111111111111111111111111111", ENABLE_MAINNET_TRANSACTIONS: "true",
+  LAUNCH_GUARD_ADDRESS: "0x2222222222222222222222222222222222222222" };
+function runtimeResponses() {
+  const rh = { mode: "robinhood", chainId: 4663, deploymentChainId: 4663, treasury: runtimeVars.PLATFORM_TREASURY,
+    writesEnabled: true, curvePolicy: CURVE_POLICY, launchGuard: runtimeVars.LAUNCH_GUARD_ADDRESS, launchLockAvailable: false };
+  const base = { mode: "base", chainId: 8453, deploymentChainId: 8453, treasury: runtimeVars.PLATFORM_TREASURY,
+    writesEnabled: false, curvePolicy: CURVE_POLICY, launchGuard: null, launchLockAvailable: false };
+  return {
+    "/readyz": { status: "ready", chainId: 4663, writesEnabled: true }, "/api/config": rh,
+    "/api/chains/4663/readyz": { status: "ready", chainId: 4663, writesEnabled: true }, "/api/chains/4663/config": rh,
+    "/api/chains/8453/readyz": { status: "ready", chainId: 8453, writesEnabled: false }, "/api/chains/8453/config": base,
+  };
+}
+
+test("candidate publication checks both scoped read-only runtimes and retains the legacy Robinhood ingress", async (context) => {
+  const responses = runtimeResponses(), paths: string[] = [];
+  context.mock.method(globalThis, "fetch", async (url: string, init?: RequestInit) => {
+    const target = new URL(url); assert.equal(target.origin, releaseOrigin); assert.equal(init?.method, undefined);
+    paths.push(target.pathname); assert(target.pathname in responses, "No quote, transaction or unrelated request is allowed");
+    return Response.json(responses[target.pathname as keyof typeof responses]);
+  });
+  await checkRuntime(releaseOrigin, { vars: runtimeVars });
+  assert.deepEqual(paths, Object.keys(responses));
+  const base = responses["/api/chains/8453/config"];
+  base.writesEnabled = true;
+  await assert.rejects(() => checkRuntime(releaseOrigin, { vars: runtimeVars }), /configuration check failed.*8453/);
+  base.writesEnabled = false;
+  responses["/api/chains/8453/readyz"].status = "unavailable";
+  await assert.rejects(() => checkRuntime(releaseOrigin, { vars: runtimeVars }), /configuration check failed.*8453/);
+  responses["/api/chains/8453/readyz"].status = "ready";
+  base.chainId = 4663;
+  await assert.rejects(() => checkRuntime(releaseOrigin, { vars: runtimeVars }), /configuration check failed.*8453/);
+});
+
+test("release runtime checks respect per-chain treasury and Robinhood signing overrides", async (context) => {
+  const responses = runtimeResponses(), rhTreasury = "0x3333333333333333333333333333333333333333", baseTreasury = "0x4444444444444444444444444444444444444444";
+  responses["/api/config"].treasury = rhTreasury; responses["/api/config"].writesEnabled = false;
+  responses["/readyz"].writesEnabled = false; responses["/api/chains/4663/readyz"].writesEnabled = false;
+  responses["/api/chains/8453/config"].treasury = baseTreasury;
+  context.mock.method(globalThis, "fetch", async (url: string) => Response.json(responses[new URL(url).pathname as keyof typeof responses]));
+  const vars = { ...runtimeVars, ROBINHOOD_PLATFORM_TREASURY: rhTreasury, BASE_PLATFORM_TREASURY: baseTreasury,
+    ENABLE_ROBINHOOD_TRANSACTIONS: "false" };
+  await checkRuntime(releaseOrigin, { vars });
+  await assert.rejects(() => checkRuntime(releaseOrigin, { vars: runtimeVars }), /configuration check failed.*4663/);
+});
+
+test("older rollback checks only legacy Robinhood endpoints and does not require scoped or lock capabilities", async (context) => {
+  const responses = runtimeResponses(), paths: string[] = [];
+  const { curvePolicy: _curve, launchGuard: _guard, launchLockAvailable: _lock, ...older } = responses["/api/config"];
+  context.mock.method(globalThis, "fetch", async (url: string) => {
+    const path = new URL(url).pathname; paths.push(path);
+    if (path === "/readyz") return Response.json(responses["/readyz"]);
+    if (path === "/api/config") return Response.json(older);
+    return new Response(null, { status: 404 });
+  });
+  await checkRuntime(releaseOrigin, { vars: { PLATFORM_TREASURY: runtimeVars.PLATFORM_TREASURY, ENABLE_MAINNET_TRANSACTIONS: "true" } }, false);
+  assert.deepEqual(paths, ["/readyz", "/api/config"]);
 });
 
 test("frozen inventory detects replacements and additions, and manifest covers encoded paths", () => {

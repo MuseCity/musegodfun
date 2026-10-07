@@ -103,20 +103,26 @@ export function assertLaunchWalletPlan(plan: LaunchPlan, config: RuntimeConfig, 
     return;
   }
   const buy = plan.firstBuy;
+  const lockDays = buy.lockDays ?? 0;
   if (!config.launchGuard || !sameAddress(buy.guard, config.launchGuard) ||
     !sameAddress(plan.transaction.to, buy.guard) || !sameAddress(buy.recipient, account) ||
     !sameAddress(buy.quoteAddress, plan.draft.quoteAddress) ||
     !Number.isSafeInteger(buy.deadline) || buy.deadline * 1000 <= now ||
     ![50, 100, 200, 500].includes(buy.slippageBps) ||
+    ![0, 30, 90, 365].includes(lockDays) || (lockDays > 0 && config.launchLockAvailable !== true) ||
     ![buy.amountIn, buy.expectedAmountOut, buy.minAmountOut].every((amount) => /^[1-9]\d{0,77}$/.test(amount) && BigInt(amount) < 2n ** 128n) ||
     BigInt(buy.minAmountOut) !== BigInt(buy.expectedAmountOut) * BigInt(10_000 - buy.slippageBps) / 10_000n)
     throw new Error("The first buy has expired or changed. Run a new preview.");
   const decoded = decodeFunctionData({ abi: launchGuardAbi, data: plan.data });
-  if (decoded.functionName !== "createAndBuy" ||
+  if ((decoded.functionName !== "createAndBuy" && decoded.functionName !== "createAndBuyLocked") ||
+    (lockDays > 0 ? decoded.functionName !== "createAndBuyLocked" || decoded.args[4] !== lockDays : decoded.functionName !== "createAndBuy") ||
     decoded.args[1] !== BigInt(buy.amountIn) || decoded.args[2] !== BigInt(buy.minAmountOut) ||
-    decoded.args[3] !== BigInt(buy.deadline) || !sameAddress(decoded.args[0].numeraire, buy.quoteAddress) ||
-    encodeFunctionData({ abi: launchGuardAbi, functionName: "createAndBuy", args: decoded.args }).toLowerCase() !== plan.data.toLowerCase())
+    decoded.args[3] !== BigInt(buy.deadline) || !sameAddress(decoded.args[0].numeraire, buy.quoteAddress))
     throw new Error("The launch calldata does not match the first buy preview");
+  const encoded = decoded.functionName === "createAndBuyLocked"
+    ? encodeFunctionData({ abi: launchGuardAbi, functionName: "createAndBuyLocked", args: decoded.args })
+    : encodeFunctionData({ abi: launchGuardAbi, functionName: "createAndBuy", args: decoded.args });
+  if (encoded.toLowerCase() !== plan.data.toLowerCase()) throw new Error("The launch calldata does not match the first buy preview");
   const approval = plan.approval;
   const data = encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [buy.guard, BigInt(buy.amountIn)] });
   if (!approval || !sameAddress(approval.token, buy.quoteAddress) || !sameAddress(approval.spender, buy.guard) ||
@@ -135,9 +141,12 @@ export function assertLaunchRequest(request: { method: string; params?: unknown 
     typeof tx.from !== "string" || !sameAddress(tx.from, step.from) ||
     typeof tx.to !== "string" || !sameAddress(tx.to, step.to) ||
     typeof tx.data !== "string" || tx.data.toLowerCase() !== step.data.toLowerCase() ||
-    (tx.value !== undefined && tx.value !== "0x0" && tx.value !== "0x00") ||
     (tx.chainId !== undefined && tx.chainId !== toHex(step.chainId)))
     throw new Error("The wallet transaction does not match the frozen launch preview");
+  if (typeof step.value !== "string" || !/^(?:0|[1-9]\d{0,77})$/.test(step.value) || BigInt(step.value) >= 2n ** 256n ||
+    (tx.value === undefined ? BigInt(step.value) !== 0n :
+      typeof tx.value !== "string" || !/^0x[0-9a-fA-F]{1,64}$/.test(tx.value) || BigInt(tx.value) !== BigInt(step.value)))
+    throw new Error("The wallet transaction does not match the frozen transaction value");
 }
 
 export async function executeLaunchPlan(plan: LaunchPlan, config: RuntimeConfig, account: Address, deps: {

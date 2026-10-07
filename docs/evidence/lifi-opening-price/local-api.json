@@ -1,0 +1,317 @@
+{
+  "observedAt": "2026-10-07T01:42:23.641Z",
+  "scope": "Real local HTTP \u2192 public RPC asset identity + live LI.FI quotes \u2192 SDK prepare/simulation \u2192 isolated SQLite plan; signing disabled on both chains; no wallet/mainnet transaction",
+  "origin": "http://127.0.0.1:5197",
+  "rows": [
+    {
+      "chainId": 8453,
+      "symbol": "NVDAc",
+      "status": "passed",
+      "httpStatus": 200,
+      "elapsedMs": 7782,
+      "signingEnabled": false,
+      "source": "LI.FI",
+      "policy": "fixed-usd-5000-lifi-v1",
+      "openingValuation": {
+        "policy": "fixed-usd-5000-lifi-v1",
+        "marketCapUsd": 5000,
+        "chainId": 8453,
+        "quoteAddress": "0xb20000000000000000000078ee7ce2fE4908108C",
+        "quotePriceUsd": "240.141369458085747633",
+        "quotedAt": 1791337324013,
+        "expiresAt": 1791337384013,
+        "source": "LI.FI",
+        "sourceUpdatedAt": 1791337324013,
+        "blockNumber": "52273987",
+        "blockHash": "0x4c883d29ef51be0efd1c892a69cd3d3b6df72808ee39b4a271e126f089808d5b",
+        "lifi": {
+          "numeraire": {
+            "chainId": 8453,
+            "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+            "symbol": "USDC",
+            "decimals": 6,
+            "priceUsd": "0.9976844859"
+          },
+          "probeAmountIn": "100000000",
+          "buy": {
+            "id": "a9847569-aca0-4ec2-81ff-1c07ab809de6:0",
+            "tool": "kyberswap",
+            "amountIn": "100000000",
+            "amountOut": "41440817",
+            "lifiFee": "250000",
+            "quotedAt": 1791337324013,
+            "obtainedAt": 1791337326420,
+            "expiresAt": 1791337384013,
+            "numerairePriceUsd": "0.9976844859"
+          },
+          "sell": {
+            "id": "e0f7cc70-3b9e-468b-acda-d5cee4a849b9:0",
+            "tool": "okx",
+            "amountIn": "41440817",
+            "amountOut": "99495662",
+            "lifiFee": "103602",
+            "quotedAt": 1791337326420,
+            "obtainedAt": 1791337326900,
+            "expiresAt": 1791337386420,
+            "numerairePriceUsd": "0.9976844859"
+          },
+          "askNumerairePerQuoteToken": "240.7047139056162913",
+          "bidNumerairePerQuoteToken": "240.69270752758742939",
+          "aggregateMid": "240.141369458085747633",
+          "divergenceBps": 1
+        }
+      },
+      "derivedOpeningCap": "20.821068903218275085",
+      "curvePolicy": "multicurve-97-3-v1",
+      "previewRemainingMs": 54763,
+      "planId": "0x0a4ef016dec4469de351f46d330270cd13cf63314384c945f0a3bded73ea5509",
+      "predictedToken": "0x7302539EA37Af3A283dddb511e1cC82E54816aEB",
+      "transactionHashOfCalldata": "0x0a4ef016dec4469de351f46d330270cd13cf63314384c945f0a3bded73ea5509",
+      "frozenPlanValidation": {
+        "httpStatus": 200,
+        "valid": true
+      },
+      "walletSigningGate": "assertSigningEnabled rejects current config as read-only",
+      "planPersistedIn": "isolated local SQLite cache",
+      "execution": "not_run",
+      "expiredSnapshotValidation": {
+        "observedAtMs": 1791337496932,
+        "httpStatus": 422,
+        "error": "The issuance preview expired or the treasury changed. Simulate again."
+      }
+    },
+    {
+      "chainId": 8453,
+      "symbol": "AMDc",
+      "status": "passed",
+      "httpStatus": 200,
+      "elapsedMs": 3894,
+      "signingEnabled": false,
+      "source": "LI.FI",
+      "policy": "fixed-usd-5000-lifi-v1",
+      "openingValuation": {
+        "policy": "fixed-usd-5000-lifi-v1",
+        "marketCapUsd": 5000,
+        "chainId": 8453,
+        "quoteAddress": "0xB2000000000000000000000d8Ce462E99ee7A47B",
+        "quotePriceUsd": "648.35908545856045271",
+        "quotedAt": 1791337330578,
+        "expiresAt": 1791337390578,
+        "source": "LI.FI",
+        "sourceUpdatedAt": 1791337330578,
+        "blockNumber": "52273991",
+        "blockHash": "0xddf2443714b86a95ff57df1ca9982acc8ece75871eec611e3893abaf72153967",
+        "lifi": {
+          "numeraire": {
+            "chainId": 8453,
+            "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+            "symbol": "USDC",
+            "decimals": 6,
+            "priceUsd": "0.9976844859"
+          },
+          "probeAmountIn": "100000000",
+          "buy": {
+            "id": "17730cea-3bd6-417b-872e-9d833cdc16f1:0",
+            "tool": "nordstern",
+            "amountIn": "100000000",
+            "amountOut": "15347326",
+            "lifiFee": "250000",
+            "quotedAt": 1791337330578,
+            "obtainedAt": 1791337331135,
+            "expiresAt": 1791337390578,
+            "numerairePriceUsd": "0.9976844859"
+          },
+          "sell": {
+            "id": "3aeac002-a6a1-42f8-a892-b15586a91124:0",
+            "tool": "okx",
+            "amountIn": "15347326",
+            "amountOut": "99474142",
+            "lifiFee": "38368",
+            "quotedAt": 1791337331135,
+            "obtainedAt": 1791337331777,
+            "expiresAt": 1791337391135,
+            "numerairePriceUsd": "0.9976844859"
+          },
+          "askNumerairePerQuoteToken": "649.950356172795182691",
+          "bidNumerairePerQuoteToken": "649.777352580103753632",
+          "aggregateMid": "648.35908545856045271",
+          "divergenceBps": 3
+        }
+      },
+      "derivedOpeningCap": "7.711775946601696081",
+      "curvePolicy": "multicurve-97-3-v1",
+      "previewRemainingMs": 57425,
+      "planId": "0x5d15ebe341ff7717c1a91967dfc0fddaf9ca70e90801e5a782bd9b918a7dfa02",
+      "predictedToken": "0x4123935b8084F04D1992E573287637987b77f694",
+      "transactionHashOfCalldata": "0x5d15ebe341ff7717c1a91967dfc0fddaf9ca70e90801e5a782bd9b918a7dfa02",
+      "frozenPlanValidation": {
+        "httpStatus": 200,
+        "valid": true
+      },
+      "walletSigningGate": "assertSigningEnabled rejects current config as read-only",
+      "planPersistedIn": "isolated local SQLite cache",
+      "execution": "not_run",
+      "expiredSnapshotValidation": {
+        "observedAtMs": 1791337496934,
+        "httpStatus": 422,
+        "error": "The issuance preview expired or the treasury changed. Simulate again."
+      }
+    },
+    {
+      "chainId": 4663,
+      "symbol": "USDG",
+      "status": "passed",
+      "httpStatus": 200,
+      "elapsedMs": 5834,
+      "signingEnabled": false,
+      "source": "LI.FI",
+      "policy": "fixed-usd-5000-lifi-v1",
+      "openingValuation": {
+        "policy": "fixed-usd-5000-lifi-v1",
+        "marketCapUsd": 5000,
+        "chainId": 4663,
+        "quoteAddress": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        "quotePriceUsd": "0.999292497313124727",
+        "quotedAt": 1791337335395,
+        "expiresAt": 1791337395395,
+        "source": "LI.FI",
+        "sourceUpdatedAt": 1791337335395,
+        "blockNumber": "82095981",
+        "blockHash": "0xbcfe5678e78ce729163d4c07b39562ea5fc7805834261cda752b3a8681ab4212",
+        "lifi": {
+          "numeraire": {
+            "chainId": 4663,
+            "address": "0x0000000000000000000000000000000000000000",
+            "symbol": "ETH",
+            "decimals": 18,
+            "priceUsd": "2684.8"
+          },
+          "probeAmountIn": "37247970916784308",
+          "buy": {
+            "id": "ddb94e84-dbb2-4d8d-9570-a8b399d6788f:0",
+            "tool": "nordstern",
+            "amountIn": "37247970916784308",
+            "amountOut": "99840657",
+            "lifiFee": "93119927291960",
+            "quotedAt": 1791337335395,
+            "obtainedAt": 1791337336370,
+            "expiresAt": 1791337395395,
+            "numerairePriceUsd": "2684.8"
+          },
+          "sell": {
+            "id": "8f4e1b81-6b21-476e-b4e2-a63cf5bd9d23:0",
+            "tool": "nordstern",
+            "amountIn": "99840657",
+            "amountOut": "37074355222697134",
+            "lifiFee": "249601",
+            "quotedAt": 1791337336370,
+            "obtainedAt": 1791337337056,
+            "expiresAt": 1791337396370,
+            "numerairePriceUsd": "2684.8"
+          },
+          "askNumerairePerQuoteToken": "0.000372141491311423",
+          "bidNumerairePerQuoteToken": "0.000372265911335422",
+          "aggregateMid": "0.999292497313124727",
+          "divergenceBps": 4,
+          "probeUsd": "100",
+          "probeSizingPriceUsd": "2684.71"
+        }
+      },
+      "derivedOpeningCap": "5003.540018006627640903",
+      "curvePolicy": "multicurve-97-3-v1",
+      "previewRemainingMs": 56404,
+      "planId": "0x4f4bc37990782a65f449289e848ae6f0a6912a55d280a0912b33cd28a3199467",
+      "predictedToken": "0xe108A0Bf5D3824730D0CbBc01FAE55f14ac88D76",
+      "transactionHashOfCalldata": "0x4f4bc37990782a65f449289e848ae6f0a6912a55d280a0912b33cd28a3199467",
+      "frozenPlanValidation": {
+        "httpStatus": 200,
+        "valid": true
+      },
+      "walletSigningGate": "assertSigningEnabled rejects current config as read-only",
+      "planPersistedIn": "isolated local SQLite cache",
+      "execution": "not_run",
+      "expiredSnapshotValidation": {
+        "observedAtMs": 1791337496937,
+        "httpStatus": 422,
+        "error": "The issuance preview expired or the treasury changed. Simulate again."
+      }
+    },
+    {
+      "chainId": 4663,
+      "symbol": "MUSEGOD",
+      "status": "passed",
+      "httpStatus": 200,
+      "elapsedMs": 4644,
+      "signingEnabled": false,
+      "source": "LI.FI",
+      "policy": "fixed-usd-5000-lifi-v1",
+      "openingValuation": {
+        "policy": "fixed-usd-5000-lifi-v1",
+        "marketCapUsd": 5000,
+        "chainId": 4663,
+        "quoteAddress": "0x0379E228F6887c6F18bf394042ECAF81B308cb2e",
+        "quotePriceUsd": "0.000283232003833679",
+        "quotedAt": 1791337340118,
+        "expiresAt": 1791337400118,
+        "source": "LI.FI",
+        "sourceUpdatedAt": 1791337340118,
+        "blockNumber": "82096022",
+        "blockHash": "0xfef0320fdc59a64c4ea03c8d0b77328621f00eeb7ecd18637cbb9b6215145592",
+        "lifi": {
+          "numeraire": {
+            "chainId": 4663,
+            "address": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+            "symbol": "USDG",
+            "decimals": 6,
+            "priceUsd": "0.9999730064"
+          },
+          "probeAmountIn": "100000000",
+          "buy": {
+            "id": "92411235-865a-4e84-8a3e-3f8b50ab5fbb:0",
+            "tool": "nordstern",
+            "amountIn": "100000000",
+            "amountOut": "348230984723428535531500",
+            "lifiFee": "250000",
+            "quotedAt": 1791337340118,
+            "obtainedAt": 1791337340888,
+            "expiresAt": 1791337400118,
+            "numerairePriceUsd": "0.9999730064"
+          },
+          "sell": {
+            "id": "26ea0efa-46d1-4f76-8467-af2f1a4591f4:0",
+            "tool": "nordstern",
+            "amountIn": "348230984723428535531500",
+            "amountOut": "97271855",
+            "lifiFee": "870577461808571338828",
+            "quotedAt": 1791337340888,
+            "obtainedAt": 1791337341619,
+            "expiresAt": 1791337400888,
+            "numerairePriceUsd": "0.9999730064"
+          },
+          "askNumerairePerQuoteToken": "0.000286447801533867",
+          "bidNumerairePerQuoteToken": "0.000280031497449098",
+          "aggregateMid": "0.000283232003833679",
+          "divergenceBps": 227
+        }
+      },
+      "derivedOpeningCap": "17653372.261335715888511022",
+      "curvePolicy": "multicurve-97-3-v1",
+      "previewRemainingMs": 56477,
+      "planId": "0x1bfea09055e850f15e9fe67cfc87d53292695b5ca3dc04e3db7d80baeaae4ee2",
+      "predictedToken": "0x24a3bF16bd3337b690a288cC70e22d17584a3958",
+      "transactionHashOfCalldata": "0x1bfea09055e850f15e9fe67cfc87d53292695b5ca3dc04e3db7d80baeaae4ee2",
+      "frozenPlanValidation": {
+        "httpStatus": 200,
+        "valid": true
+      },
+      "walletSigningGate": "assertSigningEnabled rejects current config as read-only",
+      "planPersistedIn": "isolated local SQLite cache",
+      "execution": "not_run",
+      "expiredSnapshotValidation": {
+        "observedAtMs": 1791337496939,
+        "httpStatus": 422,
+        "error": "The issuance preview expired or the treasury changed. Simulate again."
+      }
+    }
+  ]
+}

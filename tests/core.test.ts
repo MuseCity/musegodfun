@@ -40,7 +40,7 @@ import {
 } from "../src/lib/config";
 import { FEE_POLICY, FEE_SHARES, MUSEGOD_BUYBACK } from "../src/lib/fee-policy";
 import { CURVE_POLICY } from "../src/lib/launch-curve";
-import { OPENING_CAP_USD, OPENING_POLICY, LAUNCH_PRICE_TTL, assertOpeningValuation, openingCapInQuote } from "../src/lib/opening-valuation";
+import { OPENING_CAP_USD, OPENING_POLICY, LAUNCH_PRICE_TTL, assertHistoricalOpeningValuation, assertOpeningValuation, deriveLifiOpeningPrice, openingCapInQuote, type HistoricalOpeningValuation } from "../src/lib/opening-valuation";
 import {
   beneficiaries,
   buildLaunch,
@@ -79,7 +79,7 @@ const sdk = new DopplerSDK<8453>({
   chainId: 8453,
 });
 
-test("fixed USD valuation validates its exact asset, policy, evidence and five-minute price expiry", () => {
+test("LI.FI USD valuation validates exact identity, swap evidence and earliest one-minute expiry", () => {
   const quotedAt = 1_800_000_000_000;
   const snapshot = syntheticOpeningValuation(STOCKS[0].address, "100", {
     quotedAt, expiresAt: quotedAt + LAUNCH_PRICE_TTL, sourceUpdatedAt: quotedAt,
@@ -102,6 +102,75 @@ test("fixed USD valuation validates its exact asset, policy, evidence and five-m
     { blockNumber: "1e3" }, { sourceUpdatedAt: 0 }, { source: "unverified" },
     { source: "Chainlink" }, { source: "SushiSwap V3 TWAP", pool: creator, twapSeconds: 60 },
   ]) assert.throws(() => assertOpeningValuation({ ...snapshot, ...patch }, STOCKS[0].address, 8453, quotedAt));
+  for (const mutate of [
+    (value: typeof snapshot) => { value.lifi.buy.id = ""; },
+    (value: typeof snapshot) => { value.lifi.sell.amountIn = "1"; },
+    (value: typeof snapshot) => { value.lifi.buy.lifiFee = value.lifi.buy.amountIn; },
+    (value: typeof snapshot) => { value.lifi.numeraire.chainId = 4663; },
+    (value: typeof snapshot) => { value.lifi.numeraire.address = creator; },
+    (value: typeof snapshot) => { value.lifi.probeAmountIn = "1"; },
+    (value: typeof snapshot) => { value.lifi.numeraire.priceUsd = "1"; },
+    (value: typeof snapshot) => { value.lifi.aggregateMid = "101"; },
+    (value: typeof snapshot) => { value.lifi.divergenceBps = 1; },
+    (value: typeof snapshot) => { value.lifi.askNumerairePerQuoteToken = "100"; },
+    (value: typeof snapshot) => { value.lifi.sell.expiresAt += 1; },
+    (value: typeof snapshot) => { value.lifi.buy.obtainedAt = value.expiresAt; },
+  ]) {
+    const value = structuredClone(snapshot); mutate(value);
+    assert.throws(() => assertOpeningValuation(value, STOCKS[0].address, 8453, quotedAt));
+  }
+  const staggered = structuredClone(snapshot);
+  staggered.lifi.sell.quotedAt += 5_000;
+  staggered.lifi.sell.obtainedAt += 5_000;
+  staggered.lifi.sell.expiresAt += 5_000;
+  assert.doesNotThrow(() => assertOpeningValuation(staggered, STOCKS[0].address, 8453, quotedAt + 5_000));
+  assert.throws(() => assertOpeningValuation({ ...staggered, expiresAt: staggered.lifi.sell.expiresAt }, STOCKS[0].address, 8453, quotedAt + 5_000));
+});
+
+test("LI.FI midpoint removes only known input fees and preserves each leg's USD reference", () => {
+  const input = { quoteDecimals: 8, numeraireDecimals: 6, numerairePriceUsd: "1", sellNumerairePriceUsd: "1",
+    buyAmountIn: "100000000", buyAmountOut: "50000000", buyLifiFee: "250000",
+    sellAmountIn: "50000000", sellAmountOut: "99001875", sellLifiFee: "125000" };
+  assert.deepEqual(deriveLifiOpeningPrice(input), { askNumerairePerQuoteToken: "199.5", bidNumerairePerQuoteToken: "198.5", aggregateMid: "199", divergenceBps: 51 });
+  assert.equal(deriveLifiOpeningPrice({ ...input, sellNumerairePriceUsd: "1.001" }).aggregateMid, "199.09925");
+  assert.throws(() => deriveLifiOpeningPrice({ ...input, sellAmountIn: "50000001" }), /evidence/);
+  assert.throws(() => deriveLifiOpeningPrice({ ...input, buyLifiFee: input.buyAmountIn }), /evidence/);
+  assert.throws(() => deriveLifiOpeningPrice({ ...input, sellAmountOut: "50000000" }), /diverge/);
+});
+
+test("USDG uses a fixed-dollar native ETH probe without treating ETH's reference as a stable price", () => {
+  const stock = ROBINHOOD_STOCKS.find((asset) => asset.symbol === "USDG")!;
+  const snapshot = syntheticOpeningValuation(stock.address, "1", { chainId: 4663 });
+  const evidence = snapshot.lifi, nativeAmount = "31250000000000000";
+  evidence.numeraire.priceUsd = "3200";
+  evidence.probeSizingPriceUsd = "3200";
+  evidence.probeAmountIn = nativeAmount;
+  Object.assign(evidence.buy, { amountIn: nativeAmount, amountOut: "100000000", numerairePriceUsd: "3200" });
+  Object.assign(evidence.sell, { amountIn: "100000000", amountOut: nativeAmount, numerairePriceUsd: "3200" });
+  Object.assign(evidence, deriveLifiOpeningPrice({ quoteDecimals: 6, numeraireDecimals: 18,
+    numerairePriceUsd: "3200", sellNumerairePriceUsd: "3200", buyAmountIn: nativeAmount, buyAmountOut: "100000000", buyLifiFee: "0",
+    sellAmountIn: "100000000", sellAmountOut: nativeAmount, sellLifiFee: "0" }));
+  assert.equal(evidence.aggregateMid, "1");
+  assert.doesNotThrow(() => assertOpeningValuation(snapshot, stock.address, 4663));
+  assert.throws(() => assertOpeningValuation({ ...snapshot, lifi: { ...evidence, probeSizingPriceUsd: "1" } }, stock.address, 4663), /evidence/);
+});
+
+test("historical snapshots remain readable after expiry without reopening retired signing policy", () => {
+  const quotedAt = 1_800_000_000_000, now = quotedAt + 86_400_000;
+  for (const source of ["Robinhood", "Chainlink", "SushiSwap V3 TWAP"] as const) {
+    const legacy: HistoricalOpeningValuation = { policy: "fixed-usd-5000-v1", marketCapUsd: 5000,
+      chainId: 8453, quoteAddress: STOCKS[0].address, quotePriceUsd: "100", quotedAt,
+      expiresAt: quotedAt + 300_000, sourceUpdatedAt: quotedAt, source,
+      blockNumber: "1", blockHash: `0x${"a".repeat(64)}`, feed: creator, pool: owner, twapSeconds: 300 };
+    assert.doesNotThrow(() => assertHistoricalOpeningValuation(legacy, STOCKS[0].address, 8453, now));
+    assert.throws(() => assertOpeningValuation(legacy, STOCKS[0].address, 8453, quotedAt), /policy has changed/);
+    assert.throws(() => assertHistoricalOpeningValuation(legacy, STOCKS[1].address, 8453, now), /does not match/);
+    assert.throws(() => assertHistoricalOpeningValuation({ ...legacy, source: "LI.FI" }, STOCKS[0].address, 8453, now), /evidence/);
+  }
+  const current = syntheticOpeningValuation(STOCKS[0].address, "100", { quotedAt });
+  assert.doesNotThrow(() => assertHistoricalOpeningValuation(current, STOCKS[0].address, 8453, now));
+  assert.throws(() => assertOpeningValuation(current, STOCKS[0].address, 8453, now), /expired/);
+  assert.throws(() => assertHistoricalOpeningValuation({ ...current, lifi: undefined }, STOCKS[0].address, 8453, now), /evidence/);
 });
 
 test("quote-unit opening valuation uses integer precision without the retired 1 to 1,000,000 range", () => {
@@ -156,6 +225,29 @@ test("service preparation derives the cap and consumes price validity during sim
   let simulationTime = 0;
   context.mock.method(Date, "now", () => now);
   const stock = ROBINHOOD_STOCKS.find((asset) => asset.ticker === "WETH")!;
+  const numeraire = ROBINHOOD_STOCKS.find((asset) => asset.symbol === "USDG")!;
+  const quoteRequests: URLSearchParams[] = [];
+  context.mock.method(globalThis, "fetch", async (input: string | URL | Request) => {
+    const url = new URL(String(input));
+    assert.equal(url.origin, "https://li.quest");
+    assert.equal(url.pathname, "/v1/quote");
+    const params = url.searchParams; quoteRequests.push(params);
+    const buy = params.get("fromToken")!.toLowerCase() === numeraire.address.toLowerCase();
+    const from = buy ? numeraire : stock, to = buy ? stock : numeraire;
+    const amountIn = BigInt(params.get("fromAmount")!), fee = amountIn * 25n / 10_000n;
+    const amountOut = buy ? (amountIn - fee) * 10n ** 18n / (3000n * 10n ** 6n)
+      : (amountIn - fee) * 3000n * 10n ** 6n / 10n ** 18n;
+    const token = (asset: typeof stock) => ({ chainId: 4663, address: asset.address,
+      symbol: asset.symbol, decimals: asset.decimals, priceUSD: asset.symbol === "USDG" ? "1" : "3000" });
+    const action = { fromChainId: 4663, toChainId: 4663, fromToken: token(from), toToken: token(to),
+      fromAddress: params.get("fromAddress"), toAddress: params.get("toAddress"),
+      fromAmount: amountIn.toString(), slippage: Number(params.get("slippage")) };
+    return Response.json({ id: `${buy ? "buy" : "sell"}-${quoteRequests.length}`, tool: "synthetic-unit-test",
+      transactionRequest: { chainId: 4663, from: action.fromAddress, to: treasury, data: "0x12345678", value: "0x0" },
+      action, estimate: { fromAmount: amountIn.toString(), toAmount: amountOut.toString(), toAmountMin: (amountOut * 99n / 100n).toString(),
+        feeCosts: [{ name: "LIFI Fixed Fee", included: true, amount: fee.toString(), token: token(from), feeSplit: { integratorFee: "0", lifiFee: fee.toString() } }] },
+      includedSteps: [{ type: "swap", action }] });
+  });
   const saved: LaunchPlan[] = [];
   const robinhoodSdk = new DopplerSDK<4663>({
     publicClient: createPublicClient({ chain: { ...base, id: 4663 }, transport: http() }),
@@ -185,12 +277,14 @@ test("service preparation derives the cap and consumes price validity during sim
     assertNetwork: async () => {},
     sdk: robinhoodSdk,
     client: {
+      getChainId: async () => 4663,
+      getCode: async () => "0x1234",
       getBlock: async () => ({ number: 10n, hash: `0x${"a".repeat(64)}`, timestamp: BigInt(now / 1000) }),
       readContract: async ({ address, functionName }: { address: string; functionName: string }) => {
         if (address.toLowerCase() === stock.address.toLowerCase())
           return { name: stock.name, symbol: stock.symbol, decimals: stock.decimals, totalSupply: 1n }[functionName];
-        if (functionName === "decimals") return 8;
-        if (functionName === "latestRoundData") return [1n, 3000_00000000n, 1n, BigInt(now / 1000), 1n];
+        if (address.toLowerCase() === numeraire.address.toLowerCase())
+          return { name: numeraire.name, symbol: numeraire.symbol, decimals: numeraire.decimals, totalSupply: 1n }[functionName];
         throw new Error(`Unexpected fixture read: ${functionName}`);
       },
     },
@@ -198,8 +292,11 @@ test("service preparation derives the cap and consumes price validity during sim
   }) as LaunchpadService;
   const input = { ...draft, quoteAddress: stock.address };
   const plan = await service.prepare(input, creator, CURVE_POLICY);
-  assert.equal(plan.draft.openingCap, "1.666666666666666666");
-  assert.equal(plan.openingValuation?.quotePriceUsd, "3000");
+  assert.equal(quoteRequests.length, 2);
+  assert.equal(quoteRequests[0].get("fromAmount"), "100000000");
+  assert.equal(plan.openingValuation?.source, "LI.FI");
+  assert(Math.abs(Number(plan.draft.openingCap) - 5 / 3) < 0.000001);
+  assert(Math.abs(Number(plan.openingValuation?.quotePriceUsd) - 3000) < 0.001);
   assert.equal(plan.openingValuation?.marketCapUsd, OPENING_CAP_USD);
   assert.equal(plan.openingValuation?.expiresAt, now + LAUNCH_PRICE_TTL);
   await assert.rejects(() => service.prepare({ ...input, openingCap: "5000" }, creator, CURVE_POLICY));
@@ -321,13 +418,18 @@ test("Coinbase registry excludes wrapped stocks and unlisted B20 assets", () => 
       "SNDKc",
       "SPCXc",
       "TSLAc",
+      "AMDc", "ASTSc", "AVGOc", "BEc", "CAKEc", "DJTc", "DUOLc", "GMEc", "HIMSc", "HTZc",
+      "LLYc", "MRNAc", "MRVLc", "MUc", "NFLXc", "ORCLc", "PFEc", "PLTRc", "PMc", "PTONc",
+      "PYPLc", "QUBTc", "RBLXc", "RDDTc", "TTWOc", "WENc",
     ],
   );
   for (const stock of STOCKS) {
     assert.equal(stock.issuer, "Coinbase");
+    assert.equal(stock.standard, "B20");
     assert.equal(stock.decimals, 8);
     assert.equal(stock.chainId, 8453);
   }
+  assert.equal(new Set(STOCKS.map((stock) => stock.address.toLowerCase())).size, 36);
   for (const quoteAddress of [
     "0xFb5B41acdbA20a3230F84BE995173CFb98b8D6E7",
     "0xb200000000000000000000c85a31389D71F3ecfb",
@@ -423,6 +525,10 @@ test("B20 identity uses native calls, preserves unknown data and retries failure
     },
     rpcUrl: "http://127.0.0.1:1",
     dataDir: directory,
+    dataScope: "base",
+    launchGuardCandidate: null,
+    firstBuyGuardCandidate: null,
+    lifi: { integrator: "musegodfun" },
   });
   Object.defineProperty(service, "client", { value: client });
   try {

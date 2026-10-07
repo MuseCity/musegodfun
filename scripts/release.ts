@@ -117,14 +117,28 @@ function wrangler(args: string[], env: NodeJS.ProcessEnv = {}) {
   execFileSync(resolve("node_modules/.bin/wrangler"), args, { stdio: "inherit", env: { ...process.env, ...env }, timeout: 300_000 });
 }
 
-async function checkRuntime(origin: string, config: WranglerConfig, requireLaunchPolicy = true) {
+export async function checkRuntime(origin: string, config: Pick<WranglerConfig, "vars">, requireLaunchPolicy = true) {
   const headers = { "Cache-Control": "no-cache" };
-  const ready = await (await request(`${origin}/readyz`, { headers })).json() as { status: string; chainId: number; writesEnabled: boolean };
-  const runtime = await (await request(`${origin}/api/config`, { headers })).json() as { mode: string; chainId: number; deploymentChainId: number; treasury: string; writesEnabled: boolean; curvePolicy?: string; launchGuard?: string | null };
-  const writesEnabled = config.vars.ENABLE_MAINNET_TRANSACTIONS === "true";
-  if (ready.status !== "ready" || ready.chainId !== 4663 || ready.writesEnabled !== writesEnabled || runtime.mode !== "robinhood" || runtime.chainId !== 4663 || runtime.deploymentChainId !== 4663 || runtime.writesEnabled !== writesEnabled || runtime.treasury?.toLowerCase() !== config.vars.PLATFORM_TREASURY?.toLowerCase())
-    throw new Error(`Readiness/runtime configuration check failed for ${origin}`);
-  assertLaunchRuntime(runtime, config.vars, requireLaunchPolicy);
+  // Keep the legacy Robinhood ingress checked. Older rollback versions do not
+  // have scoped APIs, so only candidates must also pass both deployment scopes.
+  const targets: (8453 | 4663 | null)[] = requireLaunchPolicy ? [null, 4663, 8453] : [null];
+  for (const target of targets) {
+    const chainId = target ?? 4663, prefix = target ? `/api/chains/${target}` : "/api";
+    const readyPath = target ? `${prefix}/readyz` : "/readyz";
+    const ready = await (await request(`${origin}${readyPath}`, { headers })).json() as { status: string; chainId: number; writesEnabled: boolean };
+    const runtime = await (await request(`${origin}${prefix}/config`, { headers })).json() as { mode: string; chainId: number; deploymentChainId: number; treasury: string | null; writesEnabled: boolean; curvePolicy?: string; launchGuard?: string | null; launchLockAvailable?: boolean };
+    const treasury = (config.vars[chainId === 8453 ? "BASE_PLATFORM_TREASURY" : "ROBINHOOD_PLATFORM_TREASURY"]
+      ?? config.vars.PLATFORM_TREASURY) || null;
+    const signingFlag = chainId === 8453 ? config.vars.ENABLE_BASE_TRANSACTIONS
+      : config.vars.ENABLE_ROBINHOOD_TRANSACTIONS ?? config.vars.ENABLE_MAINNET_TRANSACTIONS;
+    const writesEnabled = !!treasury && signingFlag === "true";
+    if (ready.status !== "ready" || ready.chainId !== chainId || ready.writesEnabled !== writesEnabled ||
+      runtime.mode !== (chainId === 8453 ? "base" : "robinhood") || runtime.chainId !== chainId ||
+      runtime.deploymentChainId !== chainId || runtime.writesEnabled !== writesEnabled ||
+      runtime.treasury?.toLowerCase() !== treasury?.toLowerCase())
+      throw new Error(`Readiness/runtime configuration check failed for ${origin} (${chainId})`);
+    assertLaunchRuntime(runtime, config.vars, requireLaunchPolicy, chainId);
+  }
 }
 
 async function main() {

@@ -21,14 +21,18 @@ export function runtimeVarsFromBindings(bindings: { name: string; type: string; 
   return actual;
 }
 
-export function assertLaunchRuntime(runtime: { curvePolicy?: string; launchGuard?: string | null },
-  vars: Record<string, string>, required = true): void {
-  const expectedGuard = vars.LAUNCH_GUARD_ADDRESS || null;
+export function assertLaunchRuntime(runtime: { curvePolicy?: string; launchGuard?: string | null; launchLockAvailable?: boolean },
+  vars: Record<string, string>, required = true, chainId: 8453 | 4663 = 4663): void {
+  const firstBuyGuard = chainId === 8453 ? vars.BASE_FIRST_BUY_GUARD_ADDRESS
+    : vars.ROBINHOOD_FIRST_BUY_GUARD_ADDRESS ?? vars.FIRST_BUY_GUARD_ADDRESS;
+  const fallbackGuard = chainId === 8453 ? vars.BASE_LAUNCH_GUARD_ADDRESS
+    : vars.ROBINHOOD_LAUNCH_GUARD_ADDRESS ?? vars.LAUNCH_GUARD_ADDRESS;
+  const expectedGuard = firstBuyGuard || fallbackGuard || null;
   // Older rollback versions can predate the curve handshake and guard support.
   if (!required && !expectedGuard) return;
   if (runtime.curvePolicy !== CURVE_POLICY || (expectedGuard
     ? runtime.launchGuard?.toLowerCase() !== expectedGuard.toLowerCase()
-    : runtime.launchGuard !== null))
+    : runtime.launchGuard !== null) || (firstBuyGuard && runtime.launchLockAvailable !== true))
     throw new Error("Launch curve or verified guard runtime configuration does not match the release");
 }
 

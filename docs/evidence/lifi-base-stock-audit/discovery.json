@@ -1,0 +1,105 @@
+{
+  "capturedAt": "2026-10-07T00:26:53.322Z",
+  "chainId": 8453,
+  "scope": "Named official issuer catalogs and LI.FI Base directory; no claim to exhaust every permissionless Base issuance",
+  "sourceChanges": false,
+  "productionWrites": 0,
+  "privateCredentialsUsed": false,
+  "coinbase": {
+    "officialApi": "https://api.coinbase.com/v1/tokenized-stocks",
+    "officialApiDocs": "https://docs.base.org/sdks/tokenized-stocks/overview",
+    "officialChainEndpoint": "https://api.coinbase.com/v1/tokenized-stocks/chains",
+    "snapshotFile": ".cache/base-coinbase-official-stock-universe-2026-10-07.json",
+    "apiTokens": 92,
+    "isLiveTrueUnique": 92,
+    "positiveSupply": 39,
+    "supplyMissing": 53,
+    "positiveNav": 12,
+    "navMissing": 80,
+    "allLocal10InApi": true,
+    "lifiDirectoryMatches": 10,
+    "catalogConflict": {
+      "staticOfficialPage": "https://www.base.org/stocks",
+      "staticPageCount": 10,
+      "currentApiCount": 92,
+      "meaning": "stocks.json matches the static page but is not the full current API universe; API status does not prove executability"
+    }
+  },
+  "st0x": {
+    "officialSource": "https://www.st0x.io/",
+    "extraction": "Official SSR chainId8453 market token objects, no external JavaScript executed",
+    "snapshotFile": ".cache/base-stock-discovery/st0x-official-base-tokens.json",
+    "wrappedCurrentMarkets": 55,
+    "decimals": 18,
+    "unwrappedAddressesPublished": 55,
+    "legacyAddressesPublished": 11,
+    "lifiDirectoryMatches": 39,
+    "context": "wrapped current markets tested separately; unwrapped/legacy/receipt variants retained as context, not automatically substituted"
+  },
+  "backed": {
+    "officialProductIndex": "https://assets.backed.fi/products",
+    "officialChainCoverage": "https://assets.backed.fi/legal-documentation",
+    "snapshotFile": ".cache/base-stock-discovery/backed-official-base-tokens.json",
+    "officialBaseProductLinks": 17,
+    "onchainCodeAndIdentityMatches": 17,
+    "decimals": 18,
+    "positiveSupply": 6,
+    "zeroSupply": 11,
+    "blockNumber": "52271578",
+    "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+    "newIssuanceAvailable": false,
+    "redemptionSupported": true,
+    "lifiDirectoryMatches": 5,
+    "context": "legacy tracker products covering equities/ETFs/fixed income; not new Coinbase equities"
+  },
+  "ondo": {
+    "officialSource": "https://ondo.finance/ondo-stocks",
+    "officialTokenList": "https://github.com/ondoprotocol/ondo-global-markets-token-list/blob/main/tokenlist.json",
+    "tokenListRecords": 918,
+    "tokenListChains": {
+      "1": 459,
+      "56": 459
+    },
+    "baseRecords": 0,
+    "officialSiteChains": [
+      "Ethereum",
+      "BNB Chain",
+      "Solana"
+    ]
+  },
+  "xStocks": {
+    "officialSource": "https://xstocks.com/partner",
+    "issuerSource": "https://assets.backed.fi/legal-documentation",
+    "baseDeploymentConfirmed": false,
+    "context": "official xStocks chains do not include Base; Backed bTokens are a distinct legacy family which does include Base"
+  },
+  "dinari": {
+    "officialChainSource": "https://docs.dinari.com/docs/blockchain",
+    "supportsBase": true,
+    "officialTransparency": "https://app.dinari.com/transparency",
+    "publicTickerEndpoint": "https://api-data.dinari.com/api/v1/coingecko/tickers",
+    "publicTickerCount": 719,
+    "publicTickerHasChainContractMapping": false,
+    "currentOfficialRelease": "https://github.com/dinaricrypto/sbt-contracts/blob/main/releases/v0.4.0/dshare_factory.json",
+    "officialProductionFactory8453": "0xBCE6410A175a1C9B1a25D38d7e1A900F8393BC4D",
+    "factoryHasCode": true,
+    "factoryBeaconReadSucceeded": true,
+    "factoryGetDShares": "reverted",
+    "explorerLogsHttp": 403,
+    "baseAddressUniverse": "not_verified",
+    "excludedApproaches": [
+      "deprecated sbt-deployments defaultAddress; no code on Base",
+      "third-party symbol-only catalog substitution"
+    ]
+  },
+  "lifi": {
+    "source": "https://li.quest/v1/tokens?chains=8453",
+    "baseDirectoryCount": 1090,
+    "note": "directory inclusion is discovery only; quoted routes tested by root separately; absence does not alone prove no route"
+  },
+  "fileHashes": {
+    ".cache/base-coinbase-official-stock-universe-2026-10-07.json": "4593709f00950fd2cf263b143e55acc2aa3c3506ee2d2cc7aef73d38fd4015dd",
+    ".cache/base-stock-discovery/st0x-official-base-tokens.json": "8886d9bc19c6459b2fb604dc27132e7ca214965d5f1e4525caccbcc23cf9516a",
+    ".cache/base-stock-discovery/backed-official-base-tokens.json": "04b59aca7d16cdf76139fb2e0ba355cc3a9eea5085b17a2f7bb25151f08cf0d3"
+  }
+}

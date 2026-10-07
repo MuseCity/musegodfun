@@ -23,6 +23,7 @@ contract MusegodLaunchGuard is ReentrancyGuard {
     error OutputBelowMinimum(uint128 amountOut, uint128 minAmountOut);
     error ResidualQuoteBalance();
     error ResidualAllowance();
+    error InvalidLockDays();
 
     event GuardedLaunch(
         address indexed creator,
@@ -45,6 +46,20 @@ contract MusegodLaunchGuard is ReentrancyGuard {
         nonReentrant
         returns (address asset, PoolKey memory poolKey, address governance, address timelock, uint128 amountOut)
     {
+        return _createAndBuy(createData, amountIn, minAmountOut, deadline, 0);
+    }
+
+    /// @notice Locks this purchase until the selected duration has fully elapsed.
+    function createAndBuyLocked(
+        CreateParams calldata createData, uint128 amountIn, uint128 minAmountOut, uint256 deadline, uint16 lockDays
+    ) external nonReentrant returns (address asset, PoolKey memory poolKey, address governance, address timelock, uint128 amountOut) {
+        if (lockDays != 0 && lockDays != 30 && lockDays != 90 && lockDays != 365) revert InvalidLockDays();
+        return _createAndBuy(createData, amountIn, minAmountOut, deadline, uint64(lockDays) * 1 days);
+    }
+
+    function _createAndBuy(
+        CreateParams calldata createData, uint128 amountIn, uint128 minAmountOut, uint256 deadline, uint64 duration
+    ) private returns (address asset, PoolKey memory poolKey, address governance, address timelock, uint128 amountOut) {
         if (amountIn == 0) revert ZeroInput();
         if (minAmountOut == 0) revert ZeroMinimumOutput();
         if (createData.numeraire == address(0)) revert NativeNumeraire();
@@ -54,7 +69,7 @@ contract MusegodLaunchGuard is ReentrancyGuard {
         uint256 guardBefore = _collectInput(quote, amountIn);
         quote.forceApprove(address(bundler), amountIn);
         (asset, poolKey, governance, timelock, amountOut) =
-            bundler.bundle(createData, IDopplerBundler.VestingParams(false, 0, 0), amountIn, msg.sender);
+            bundler.bundle(createData, IDopplerBundler.VestingParams(false, duration, duration), amountIn, msg.sender);
         if (amountOut < minAmountOut) revert OutputBelowMinimum(amountOut, minAmountOut);
         quote.forceApprove(address(bundler), 0);
         if (quote.allowance(address(this), address(bundler)) != 0) revert ResidualAllowance();

@@ -12,6 +12,7 @@ import {
   defineChain,
   custom,
   decodeFunctionData,
+  decodeEventLog,
   encodeFunctionData,
   erc20Abi,
   getAddress,
@@ -26,7 +27,7 @@ import {
   type Hex,
 } from "viem";
 import { base, robinhood } from "viem/chains";
-import { contractsFor, deploymentChain, networkName, sameAddress, stockByAddress, type RuntimeConfig } from "./config";
+import { contractsFor, deploymentChain, networkName, sameAddress, stockByAddress, ROBINHOOD_BUNDLER, ROBINHOOD_BUNDLER_CODE_HASH, BASE_BUNDLER_CODE_HASH, type RuntimeConfig } from "./config";
 import { MUSEGOD_BUYBACK } from "./fee-policy";
 import { RELAY_APPROVAL_PROXY, RELAY_DEPOSITORY, buybackAuthorizationTypedData, type BuybackStep, type BuybackPrepareInput, type BuybackAuthorization, type BuybackBatch } from "./buyback";
 import { assertSigningEnabled, errorMessage, simulationError } from "./validation";
@@ -40,13 +41,19 @@ import {
 } from "./wallet-connection";
 import {
   assertTransactionStorage,
+  isUnresolvedFirstBuyClaim,
   applyBuybackRecovery,
   saveTransaction,
   transactions,
   updateTransaction,
   type Transaction,
 } from "./transactions";
-import { api } from "./api";
+import { api, chainApi } from "./api";
+import { useNetwork } from "./network";
+import { assertFirstBuyPaymentQuote, firstBuyDiamondAbi, type FirstBuyPaymentQuote, type FirstBuyPaymentVerification } from "./first-buy-payment";
+import { assertFirstBuyLaunchConfig, executeFirstBuyPayment } from "./first-buy-wallet";
+import { bundlerAbi } from "./first-buy-lock";
+import type { FirstBuyLockStatus } from "./launch-plan";
 import { MUSEGOD_ROUTER_VERIFICATION, assertMusegodTradingEnabled, type MusegodQuote } from "./musegod";
 import { executeMusegodTrade } from "./musegod-trade";
 import type { LaunchPlan, LaunchTransaction } from "./launch-plan";
@@ -69,18 +76,24 @@ export type Quote = {
   expiresAt: number;
 };
 export const publicClient = createPublicClient({
-  transport: http("/api/rpc", { retryCount: 0, timeout: 30_000 }),
+  transport: http("/api/chains/4663/rpc", { retryCount: 0, timeout: 30_000 }),
 });
 export const robinhoodClient = createPublicClient({
   chain: robinhood,
-  transport: http("/api/rpc/robinhood", { retryCount: 0, timeout: 30_000 }),
+  transport: http("/api/chains/4663/rpc", { retryCount: 0, timeout: 30_000 }),
 });
-export function transactionClient(chainId: number, config?: Pick<RuntimeConfig, "chainId">) {
+const scopedClients = new Map<string, typeof publicClient>();
+export function transactionClient(chainId: number, config?: Pick<RuntimeConfig, "chainId" | "deploymentChainId">) {
   if (![8453, 31337, 4663].includes(chainId)) throw new Error("Unsupported transaction network");
-  if (config?.chainId === chainId) return publicClient;
-  if (chainId === 4663) return robinhoodClient;
-  if (chainId === 8453 || chainId === 31337) return publicClient;
-  throw new Error("Unsupported transaction network");
+  const target = chainId === 31337 ? config?.deploymentChainId : chainId;
+  if (target !== 8453 && target !== 4663) throw new Error("A fork transaction requires its deployment network");
+  const key = `${chainId}:${target}`;
+  let client = scopedClients.get(key);
+  if (!client) {
+    client = createPublicClient({ transport: http(`/api/chains/${target}/rpc`, { retryCount: 0, timeout: 30_000 }) });
+    scopedClients.set(key, client);
+  }
+  return client;
 }
 export function walletChain(config: RuntimeConfig) {
   assertSigningEnabled(config);
@@ -159,7 +172,7 @@ export function buybackAuthorizationPayload(input: BuybackPrepareInput, treasury
   } });
 }
 export function submitBuybackPreparation(input: BuybackPrepareInput, authorization: BuybackAuthorization) {
-  return api<BuybackBatch>("/buyback/batches", { ...input, authorization });
+  return chainApi<BuybackBatch>(8453, "/buyback/batches", { ...input, authorization });
 }
 type WalletState = {
   account: Address | null;
@@ -186,8 +199,11 @@ type WalletState = {
   buyback: (step: BuybackStep, config: RuntimeConfig, onHash?: (hash: Hash) => void) => Promise<Hash>;
   prepareBuyback: (input: BuybackPrepareInput, config: RuntimeConfig) => Promise<BuybackBatch>;
   engineAction: (action: EngineAction, config: RuntimeConfig, onHash?: (hash: Hash) => void) => Promise<Hash>;
-  balance: (token: Address) => Promise<bigint>;
-  balanceNative: () => Promise<bigint>;
+  balance: (token: Address, config?: RuntimeConfig) => Promise<bigint>;
+  balanceNative: (config?: RuntimeConfig) => Promise<bigint>;
+  payFirstBuy: (quote: FirstBuyPaymentQuote, config: RuntimeConfig, progress: (message: string) => void,
+    onHash: (hash: Hash) => void, assertCurrent?: () => void) => Promise<FirstBuyPaymentVerification>;
+  claimFirstBuy: (token: Address, config: RuntimeConfig, onHash?: (hash: Hash) => void) => Promise<Hash>;
   tradeMusegod: (quote: MusegodQuote, config: RuntimeConfig, progress: (message: string) => void,
     onHash?: (hash: Hash) => void) => Promise<Hash>;
 };
@@ -198,6 +214,7 @@ const Context: ReturnType<typeof createContext<WalletState | null>> =
   createContext<WalletState | null>(null);
 if (import.meta.hot) import.meta.hot.data.walletContext = Context;
 export function WalletProvider({ children }: { children: ReactNode }) {
+  const network = useNetwork();
   const [connection, setConnection] = useState({
     account: null as Address | null,
     chainId: null as number | null,
@@ -238,10 +255,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setBalanceNetwork(null);
     if (account && chainId && [8453, 31337, 4663].includes(chainId))
       void (async () => {
-        const current = await api<RuntimeConfig>("/config");
-        if (chainId !== current.chainId && !(current.mode === "base" && chainId === 4663))
+        const current = await chainApi<RuntimeConfig>(chainId === 31337 ? network.chainId : chainId as 8453 | 4663, "/config");
+        if (chainId !== current.chainId)
           throw new Error("The wallet network is not active for this platform");
-        const client = transactionClient(chainId);
+        const client = transactionClient(chainId, current);
         if (await client.getChainId() !== chainId) throw new Error("The balance RPC network does not match the wallet network");
         return { amount: await client.getBalance({ address: account }),
           network: chainId === current.chainId ? networkName(current) : robinhood.name };
@@ -253,7 +270,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     return () => {
       active = false;
     };
-  }, [account, chainId, revision]);
+  }, [account, chainId, revision, network.chainId]);
   useEffect(() => {
     const wallets: WalletOption[] = [];
     let restored = false;
@@ -344,8 +361,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       // Recheck the server switch for every wallet request, including after an
       // approval. An open page cannot keep signing after an operator rollback.
       const [current, rpcChainId] = await Promise.all([
-        api<RuntimeConfig>("/config"),
-        publicClient.getChainId(),
+        chainApi<RuntimeConfig>(deploymentChain(config), "/config"),
+        transactionClient(config.chainId, config).getChainId(),
       ]);
       assertSigningEnabled(current);
       if (
@@ -377,7 +394,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     config: Pick<RuntimeConfig, "chainId" | "deploymentChainId">,
     expected: Address,
     action: Transaction["action"],
-    extra: Pick<Transaction, "batchId" | "buybackKind" | "nonce" | "musegodRecovery"> = {},
+    extra: Pick<Transaction, "batchId" | "buybackKind" | "nonce" | "musegodRecovery" | "firstBuyPayment" | "firstBuyClaim"> = {},
   ) {
     saveTransaction({
       hash,
@@ -391,18 +408,20 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     });
     let replaced = false;
     try {
-      const client = transactionClient(config.chainId);
+      const client = transactionClient(config.chainId, config);
       if (await client.getChainId() !== config.chainId)
         throw new Error("The transaction lookup RPC is on the wrong network");
-      if (extra.musegodRecovery) {
+      if (extra.musegodRecovery || extra.firstBuyPayment || extra.firstBuyClaim) {
         try {
           const submitted = await client.getTransaction({ hash });
-          if (sameAddress(submitted.from, expected) && submitted.to &&
-            sameAddress(submitted.to, extra.musegodRecovery.to) &&
-            keccak256(submitted.input) === extra.musegodRecovery.dataHash &&
-            submitted.value.toString() === extra.musegodRecovery.value) {
+          const fingerprint = extra.musegodRecovery ?? (extra.firstBuyPayment ? {
+            to: extra.firstBuyPayment.transaction.to, dataHash: keccak256(extra.firstBuyPayment.transaction.data), value: extra.firstBuyPayment.transaction.value,
+          } : extra.firstBuyClaim ? { to: extra.firstBuyClaim.bundler, dataHash: keccak256(extra.firstBuyClaim.data), value: "0" } : null);
+          if (fingerprint && sameAddress(submitted.from, expected) && submitted.to &&
+            sameAddress(submitted.to, fingerprint.to) &&
+            keccak256(submitted.input) === fingerprint.dataHash && submitted.value.toString() === fingerprint.value) {
             extra = { ...extra, nonce: submitted.nonce };
-            updateTransaction(hash, config.chainId, { nonce: submitted.nonce });
+            updateTransaction(hash, config.chainId, { nonce: submitted.nonce }, config.deploymentChainId);
           }
         } catch { /* Recovery retries nonce discovery from the actual transaction. */ }
       }
@@ -414,9 +433,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           updateTransaction(hash, config.chainId, {
             status: r.reason === "cancelled" ? "cancelled" : "replaced",
             replacement: r.transaction.hash,
-            ...(action === "launch" ? { nonce: r.transaction.nonce } : {}),
+            ...(action === "launch" || extra.firstBuyPayment || extra.firstBuyClaim ? { nonce: r.replacedTransaction.nonce } : {}),
             ...(action === "buyback" ? { registered: false } : {}),
-          });
+          }, config.deploymentChainId);
           replaced = r.reason !== "repriced";
           if (!replaced)
             saveTransaction({
@@ -433,11 +452,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
               ...extra,
             });
           if (extra.batchId && extra.buybackKind)
-            void api<BuybackBatch>(`/buyback/batches/${encodeURIComponent(extra.batchId)}/track`, {
+            void chainApi<BuybackBatch>(8453, `/buyback/batches/${encodeURIComponent(extra.batchId)}/track`, {
               kind: extra.buybackKind, hash: r.transaction.hash,
             }).then((batch) => {
               applyBuybackRecovery(batch, extra.buybackKind!, r.transaction.hash);
-              if (!replaced) updateTransaction(r.transaction.hash, config.chainId, { registered: true });
+              if (!replaced) updateTransaction(r.transaction.hash, config.chainId, { registered: true }, config.deploymentChainId);
             }).catch(() => {});
         },
       });
@@ -449,7 +468,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         throw new Error("The transaction confirmation changed. Check its pending status in transaction history.");
       updateTransaction(receipt.transactionHash, config.chainId, {
         status: receipt.status === "success" ? "success" : "failed",
-      });
+      }, config.deploymentChainId);
       if (receipt.status !== "success")
         throw new Error("The transaction failed. Check your transaction history.");
       return receipt.transactionHash;
@@ -472,6 +491,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     config: RuntimeConfig,
     onHash?: (hash: Hash) => void,
   ) {
+    const publicClient = transactionClient(config.chainId, config);
     if (!account) throw new Error("Connect your wallet first");
     const expected = account;
     const contracts = contractsFor(config);
@@ -499,6 +519,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     return confirmation;
   }
   async function engineAction(action: EngineAction, config: RuntimeConfig, onHash?: (hash: Hash) => void) {
+    const publicClient = transactionClient(config.chainId, config);
     if (!account) throw new Error("Connect your wallet first");
     const expected = account;
     const frozen = Object.freeze({ ...action }) as EngineAction;
@@ -522,6 +543,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   }
   async function launch(plan: LaunchPlan, config: RuntimeConfig, progress: (message: string) => void,
     onHash?: (hash: Hash) => void, assertCurrent?: () => void) {
+    const publicClient = transactionClient(config.chainId, config);
+    const api = <T,>(path: string, body?: unknown) => chainApi<T>(deploymentChain(config), path, body);
     if (!account) throw new Error("Connect your wallet first");
     const expected = account;
     const validate = async (frozen: LaunchPlan, current: RuntimeConfig) => {
@@ -549,6 +572,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           publicClient.getBlock(),
         ]);
         const gas = bufferedLaunchGas(estimate, block.gasLimit);
+        await ensureGas(config, expected, 0n, gas);
         const wallet = await signingWallet(transaction, frozen);
         const hash = await wallet.sendTransaction({ to: transaction.to, data: transaction.data, value: 0n, gas });
         progress(`Waiting for first buy approval · ${hash}`);
@@ -558,6 +582,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       submit: async (transaction, gas, frozen) => {
         const block = await publicClient.getBlock();
         const bufferedGas = bufferedLaunchGas(gas, block.gasLimit);
+        await ensureGas(config, expected, 0n, bufferedGas);
         const wallet = await signingWallet(transaction, frozen);
         const hash = await wallet.sendTransaction({ to: transaction.to, data: transaction.data, value: 0n, gas: bufferedGas });
         const confirmation = confirmed(hash, config, expected, "launch");
@@ -573,6 +598,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     config: RuntimeConfig,
     progress: (message: string) => void,
   ) {
+    const publicClient = transactionClient(config.chainId, config);
     if (!account) throw new Error("Connect your wallet first");
     const expected = account;
     const contracts = contractsFor(config);
@@ -687,8 +713,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     progress(`Waiting for onchain confirmation · ${hash}`);
     return confirmed(hash, config, expected, "swap");
   }
-  async function balance(token: Address) {
+  async function balance(token: Address, config?: RuntimeConfig) {
     if (!account) throw new Error("No wallet connected");
+    const current = config ?? await chainApi<RuntimeConfig>(network.chainId, "/config");
+    const publicClient = transactionClient(current.chainId, current);
+    if (await publicClient.getChainId() !== current.chainId) throw new Error("The balance RPC network does not match the selected network.");
     return publicClient.readContract({
       address: token,
       abi: erc20Abi,
@@ -696,13 +725,126 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       args: [account],
     });
   }
-  async function balanceNative() {
+  async function balanceNative(config?: RuntimeConfig) {
     if (!account) throw new Error("No wallet connected");
-    if (await publicClient.getChainId() !== chainId) throw new Error("The balance RPC network differs from the wallet network.");
+    const current = config ?? await chainApi<RuntimeConfig>(network.chainId, "/config");
+    const publicClient = transactionClient(current.chainId, current);
+    if (await publicClient.getChainId() !== current.chainId) throw new Error("The balance RPC network differs from the selected network.");
     return publicClient.getBalance({ address: account });
+  }
+  async function ensureGas(config: RuntimeConfig, expected: Address, value: bigint, gas: bigint) {
+    const client = transactionClient(config.chainId, config);
+    const [fees, available] = await Promise.all([client.estimateFeesPerGas(), client.getBalance({ address: expected })]);
+    const price = fees.maxFeePerGas ?? fees.gasPrice;
+    if (gas <= 0n || price === undefined || price < 0n || available < value + (gas * price * 120n + 99n) / 100n)
+      throw new Error("Keep enough ETH for this transaction and its gas reserve. Reduce the payment amount and preview again.");
+  }
+  async function payFirstBuy(quote: FirstBuyPaymentQuote, config: RuntimeConfig, progress: (message: string) => void,
+    onHash: (hash: Hash) => void, assertCurrent?: () => void): Promise<FirstBuyPaymentVerification> {
+    if (!account) throw new Error("Connect your wallet first");
+    config = Object.freeze({ ...config });
+    const expected = account, client = transactionClient(config.chainId, config);
+    const validate = async (frozen: FirstBuyPaymentQuote, current: RuntimeConfig) => {
+      assertCurrent?.();
+      assertFirstBuyLaunchConfig(config, current);
+      const swaps = assertFirstBuyPaymentQuote(frozen);
+      const [facet, code] = await Promise.all([
+        client.readContract({ address: frozen.router, abi: firstBuyDiamondAbi, functionName: "facetAddress", args: [frozen.transaction.data.slice(0, 10) as Hex] }),
+        client.getCode({ address: frozen.facet }),
+      ]);
+      if (!sameAddress(facet, frozen.facet) || !code || keccak256(code) !== frozen.facetRuntimeHash)
+        throw new Error("The payment router changed. Request a new quote after verification.");
+      for (const swap of swaps) {
+        const selector = swap.callData.slice(0, 10) as Hex;
+        const allowed = frozen.chainId === 4663
+          ? await client.readContract({ address: frozen.router, abi: firstBuyDiamondAbi, functionName: "isContractSelectorWhitelisted", args: [swap.callTo, selector] })
+          : (await client.readContract({ address: frozen.router, abi: firstBuyDiamondAbi, functionName: "isAddressWhitelisted", args: [swap.callTo] }) &&
+            await client.readContract({ address: frozen.router, abi: firstBuyDiamondAbi, functionName: "isFunctionSelectorWhitelisted", args: [selector] }));
+        if (!allowed) throw new Error("The payment route is no longer allowed by LI.FI. Preview again.");
+        if (!sameAddress(swap.approveTo, swap.callTo)) {
+          const approvalAllowed = frozen.chainId === 4663
+            ? await client.readContract({ address: frozen.router, abi: firstBuyDiamondAbi, functionName: "isContractSelectorWhitelisted", args: [swap.approveTo, "0xffffffff"] })
+            : await client.readContract({ address: frozen.router, abi: firstBuyDiamondAbi, functionName: "isAddressWhitelisted", args: [swap.approveTo] });
+          if (!approvalAllowed) throw new Error("The payment route approval target is no longer allowed by LI.FI.");
+        }
+      }
+      assertCurrent?.();
+    };
+    const signingWallet = (transaction: LaunchTransaction, frozen: FirstBuyPaymentQuote) => signer(config, expected,
+      (current) => validate(frozen, current), (request) => assertLaunchRequest(request, { ...transaction, from: expected, chainId: config.chainId }));
+    const hash = await executeFirstBuyPayment(quote, config, expected, {
+      validate: async (frozen) => { await signer(config, expected, (current) => validate(frozen, current)); },
+      balance: (token) => sameAddress(token, "0x0000000000000000000000000000000000000000")
+        ? client.getBalance({ address: expected }) : client.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [expected] }),
+      allowance: (token, spender) => client.readContract({ address: token, abi: erc20Abi, functionName: "allowance", args: [expected, spender] }),
+      approve: async (tx, frozen) => {
+        const gas = await client.estimateGas({ account: expected, to: tx.to, data: tx.data, value: 0n });
+        await ensureGas(config, expected, 0n, gas);
+        const wallet = await signingWallet(tx, frozen);
+        await confirmed(await wallet.sendTransaction({ to: tx.to, data: tx.data, value: 0n, gas: gas * 120n / 100n }), config, expected, "approval");
+      },
+      simulate: async (frozen) => {
+        await client.call({ account: expected, to: frozen.transaction.to, data: frozen.transaction.data, value: BigInt(frozen.transaction.value) })
+          .catch((error: unknown) => { throw simulationError(error); });
+        return client.estimateGas({ account: expected, to: frozen.transaction.to, data: frozen.transaction.data, value: BigInt(frozen.transaction.value) });
+      },
+      submit: async (frozen, gas) => {
+        await ensureGas(config, expected, BigInt(frozen.transaction.value), gas);
+        const wallet = await signingWallet(frozen.transaction, frozen);
+        const submitted = await wallet.sendTransaction({ to: frozen.transaction.to, data: frozen.transaction.data,
+          value: BigInt(frozen.transaction.value), gas: gas * 120n / 100n });
+        const confirmation = confirmed(submitted, config, expected, "swap", { firstBuyPayment: frozen });
+        onHash(submitted);
+        progress(`Waiting for payment conversion confirmation · ${submitted}`);
+        return confirmation;
+      }, progress,
+    });
+    return chainApi<FirstBuyPaymentVerification>(deploymentChain(config), "/first-buy/verify", { quote, hash });
+  }
+  async function claimFirstBuy(token: Address, config: RuntimeConfig, onHash?: (hash: Hash) => void) {
+    if (!account) throw new Error("Connect the recipient wallet first");
+    const expected = account, client = transactionClient(config.chainId, config);
+    if (transactions().some((row) => isUnresolvedFirstBuyClaim(row, token, expected, config)))
+      throw new Error("A claim for this first buy is already submitted. Check its saved status before submitting again.");
+    const state = await chainApi<FirstBuyLockStatus | null>(deploymentChain(config), `/first-buy-lock/${token}`);
+    if (!state?.claimTransaction || !sameAddress(state.recipient, expected) || BigInt(state.claimableAmount) <= 0n)
+      throw new Error("This first buy is not claimable by the connected wallet.");
+    const tx = state.claimTransaction;
+    const canonical = encodeFunctionData({ abi: bundlerAbi, functionName: "claim", args: [token] });
+    if (!sameAddress(tx.to, ROBINHOOD_BUNDLER) || !sameAddress(tx.to, state.bundler) || tx.data !== canonical || tx.value !== "0") throw new Error("The lock claim transaction does not match its position.");
+    const validate = async () => {
+      const code = await client.getCode({ address: ROBINHOOD_BUNDLER });
+      if (!code || keccak256(code) !== (deploymentChain(config) === 4663 ? ROBINHOOD_BUNDLER_CODE_HASH : BASE_BUNDLER_CODE_HASH))
+        throw new Error("The first buy Bundler identity changed. Claims are paused for verification.");
+      const fresh = await chainApi<FirstBuyLockStatus | null>(deploymentChain(config), `/first-buy-lock/${token}`);
+      if (!fresh?.claimTransaction || !sameAddress(fresh.recipient, expected) || fresh.claimTransaction.data !== tx.data ||
+        !sameAddress(fresh.claimTransaction.to, tx.to) || BigInt(fresh.claimableAmount) <= 0n)
+        throw new Error("The first buy lock changed. Refresh its status.");
+    };
+    const gas = await client.estimateGas({ account: expected, to: tx.to, data: tx.data, value: 0n });
+    await ensureGas(config, expected, 0n, gas);
+    const wallet = await signer(config, expected, validate, (request) => assertLaunchRequest(request, { ...tx, from: expected, chainId: config.chainId }));
+    const hash = await wallet.sendTransaction({ to: tx.to, data: tx.data, value: 0n, gas: gas * 120n / 100n });
+    const confirmation = confirmed(hash, config, expected, "claim", { firstBuyClaim: { token, bundler: state.bundler, data: tx.data } }); onHash?.(hash);
+    const confirmedHash = await confirmation;
+    const receipt = await client.getTransactionReceipt({ hash: confirmedHash });
+    let received = 0n;
+    for (const log of receipt.logs) {
+      if (!sameAddress(log.address, token)) continue;
+      try {
+        const event = decodeEventLog({ abi: erc20Abi, data: log.data, topics: log.topics });
+        if (event.eventName === "Transfer" && sameAddress(event.args.from, state.bundler) && sameAddress(event.args.to, expected)) received += event.args.value;
+      } catch { /* Ignore non-transfer token events. */ }
+    }
+    const fresh = await chainApi<FirstBuyLockStatus | null>(deploymentChain(config), `/first-buy-lock/${token}`);
+    if (received !== BigInt(state.claimableAmount) || !fresh || BigInt(fresh.claimedAmount) < BigInt(state.claimedAmount) + received)
+      throw new Error("The claim is confirmed, but its token receipt needs to be checked. Refresh the lock status before trying again.");
+    updateTransaction(confirmedHash, config.chainId, { registered: true }, config.deploymentChainId);
+    return confirmedHash;
   }
   async function tradeMusegod(quote: MusegodQuote, config: RuntimeConfig,
     progress: (message: string) => void, onHash?: (hash: Hash) => void) {
+    const publicClient = transactionClient(config.chainId, config);
     if (!account) throw new Error("Connect your wallet first");
     const expected = account;
     return executeMusegodTrade(quote, config, {
@@ -716,6 +858,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     });
   }
   async function buyback(step: BuybackStep, config: RuntimeConfig, onHash?: (hash: Hash) => void) {
+    const api = <T,>(path: string, body?: unknown) => chainApi<T>(8453, path, body);
     if (!account) throw new Error("Connect the treasury wallet first");
     const expected = account;
     assertBuybackStep(step, config, expected);
@@ -770,13 +913,15 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     const tracked = api<BuybackBatch>(`/buyback/batches/${encodeURIComponent(step.batchId)}/track`, { kind: step.kind, hash })
       .then((batch) => {
         applyBuybackRecovery(batch, step.kind, hash);
-        updateTransaction(hash, step.chainId, { registered: true });
+        updateTransaction(hash, step.chainId, { registered: true }, config.deploymentChainId);
       }).catch(() => {});
     const [confirmedHash] = await Promise.all([confirmation, tracked]);
     await api(`/buyback/batches/${encodeURIComponent(step.batchId)}/reconcile`, {}).catch(() => {});
     return confirmedHash;
   }
   async function prepareBuyback(input: BuybackPrepareInput, config: RuntimeConfig): Promise<BuybackBatch> {
+    const publicClient = transactionClient(config.chainId, config);
+    const api = <T,>(path: string, body?: unknown) => chainApi<T>(deploymentChain(config), path, body);
     if (!account) throw new Error("Connect the treasury wallet first");
     const expected = account;
     assertSigningEnabled(config);
@@ -832,6 +977,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         buyback: (...args) => exclusive(() => buyback(...args)),
         prepareBuyback: (...args) => exclusive(() => prepareBuyback(...args)),
         engineAction: (...args) => exclusive(() => engineAction(...args)),
+        payFirstBuy: (...args) => exclusive(() => payFirstBuy(...args)),
+        claimFirstBuy: (...args) => exclusive(() => claimFirstBuy(...args)),
         balance,
         balanceNative,
         tradeMusegod: (...args) => exclusive(() => tradeMusegod(...args)),

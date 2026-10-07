@@ -1,0 +1,112 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-10-07T02:14:30.719965+00:00",
+  "status": "preflight_verified_before_master_push",
+  "userRequest": "\u90e8\u7f72\u5e76\u63a8\u9001",
+  "releaseScope": "Website/Worker and Git master push; preserve signing flags and current deployed guard bindings",
+  "validation": {
+    "nodeTestsPassed": 427,
+    "contractTestsPassed": 115,
+    "typecheck": "Node and Worker passed",
+    "diffCheck": "passed",
+    "precedingFunctionalAcceptance": "lifi-opening-price/index.json"
+  },
+  "privateSecretSetup": {
+    "observedAt": "2026-10-07T02:13:10.629Z",
+    "scope": "Independent LI.FI secret configuration before immutable website code release; original code/asset resources and existing bindings retained",
+    "previousWorkerVersion": "367fe49d-2b11-49be-bdaf-c09799e12983",
+    "secretBaselineWorkerVersion": "a62ba10a-eefc-4221-806e-da9666d3c61f",
+    "sourceCommit": "1ca7c753866abab022038a2220e5838d8c2adb0b",
+    "addedPrivateSecretName": "LIFI_API_KEY",
+    "secretValuesRecorded": false,
+    "secretBindings": [
+      "ALCHEMY_API_KEY",
+      "LIFI_API_KEY",
+      "PINATA_JWT",
+      "SUPABASE_SECRET_KEY"
+    ],
+    "codeResourcesUnchanged": true,
+    "existingBindingsUnchanged": true,
+    "origins": [
+      {
+        "origin": "https://musegod.fun",
+        "workerVersion": "a62ba10a-eefc-4221-806e-da9666d3c61f",
+        "sourceCommit": "1ca7c753866abab022038a2220e5838d8c2adb0b",
+        "htmlSha256": "f57e29c63b3e86dc7e5c5e4191153b96a9b783eeb57cd827fba8f8ef9d8f12a4",
+        "config": {
+          "mode": "robinhood",
+          "deploymentChainId": 4663,
+          "chainId": 4663,
+          "treasury": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+          "writesEnabled": true,
+          "curvePolicy": "multicurve-97-3-v1",
+          "launchGuard": "0xfD919E60eB32AE9d02A89D6D9bAB94E2634cDE29",
+          "blockReason": null
+        },
+        "ready": {
+          "status": "ready",
+          "chainId": 4663,
+          "writesEnabled": true
+        }
+      },
+      {
+        "origin": "https://www.musegod.fun",
+        "workerVersion": "a62ba10a-eefc-4221-806e-da9666d3c61f",
+        "sourceCommit": "1ca7c753866abab022038a2220e5838d8c2adb0b",
+        "htmlSha256": "f57e29c63b3e86dc7e5c5e4191153b96a9b783eeb57cd827fba8f8ef9d8f12a4",
+        "config": {
+          "mode": "robinhood",
+          "deploymentChainId": 4663,
+          "chainId": 4663,
+          "treasury": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+          "writesEnabled": true,
+          "curvePolicy": "multicurve-97-3-v1",
+          "launchGuard": "0xfD919E60eB32AE9d02A89D6D9bAB94E2634cDE29",
+          "blockReason": null
+        },
+        "ready": {
+          "status": "ready",
+          "chainId": 4663,
+          "writesEnabled": true
+        }
+      }
+    ],
+    "websiteCodePublication": "pending_master_push",
+    "signingFlagsChanged": false,
+    "newMainnetGuardDeployments": "not_run",
+    "mainnetTransactions": "not_run"
+  },
+  "expectedCandidateRuntime": {
+    "robinhood": {
+      "chainId": 4663,
+      "writesEnabled": true,
+      "guard": "0xfD919E60eB32AE9d02A89D6D9bAB94E2634cDE29",
+      "lockAvailable": false
+    },
+    "base": {
+      "chainId": 8453,
+      "writesEnabled": false,
+      "guard": null,
+      "lockAvailable": false
+    }
+  },
+  "sourceSha256": {
+    "server/app.ts": "b9b5fc9a0449b398b88782734d383e376d6dff3b1d15ea35fa3627abe27631a6",
+    "scripts/release.ts": "3f38fb2a2cf6da8bdfa0b6d155e5327a35935bcdd6d6a1cceda8542de16dd213",
+    "scripts/release-policy.ts": "2dd1b0c23c77e53fca07781a8a1c66dcff0db224b06648225bb216c9de6f8668",
+    "tests/release-policy.test.ts": "768a0438c97071bf3e6d5786ba5d5ebdc83f6c4e3002e9f94a179116e9170139",
+    "tests/dualchain-runtime.test.ts": "9af31088da1fa455008ceaab109f70dfb8a7681876ed1bcd23d65a0997aece05",
+    "server/opening-price.ts": "217627cbadc01ab356cbe84230a4798bb639db8c2e45ce83095265851e7b99e5",
+    "server/lifi.ts": "f24ce42582281cce3925c2cf8de69bb97310e3afcc2cddbeb7b8699787eb1dbc",
+    "src/lib/opening-valuation.ts": "738cdcd43126e1445dfe097a6d47020e6dc0bccaeb30afad918f90948eefbce5",
+    "worker/index.ts": "63007b9fd8fd26b460033a991cedce3af5f19c8307b0597d60f40c07038a95e0",
+    "wrangler.jsonc": "7e113023ace92dd11fba8893f559424391b33e58f15b38103a9eec97056f7b66"
+  },
+  "productionReleaseStatus": "Authoritative final source/version/asset and deployment status are recorded in the immutable GitHub Release and GitHub Deployment after the master push",
+  "rollbackBeforeCodeActivation": {
+    "originalCodeVersion": "367fe49d-2b11-49be-bdaf-c09799e12983",
+    "secretConfiguredBaseline": "a62ba10a-eefc-4221-806e-da9666d3c61f"
+  },
+  "newMainnetVestingGuardDeployments": "not_run",
+  "mainnetTransactions": "not_run"
+}

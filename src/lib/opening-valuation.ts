@@ -1,38 +1,159 @@
 import { formatUnits, isAddress, parseUnits, type Address, type Hex } from "viem";
+import { sameAddress, stockByAddress } from "./config";
+import { firstBuyPaymentAssets, type FirstBuyPaymentAsset } from "./first-buy-payment";
 
 export const OPENING_CAP_USD = 5_000;
-export const OPENING_POLICY = "fixed-usd-5000-v1";
-export const LAUNCH_PRICE_TTL = 300_000;
+export const OPENING_POLICY = "fixed-usd-5000-lifi-v1";
+export const LAUNCH_PRICE_TTL = 60_000;
+export const LIFI_OPENING_MAX_DIVERGENCE_BPS = 500;
 
-export type OpeningValuation = {
-  policy: typeof OPENING_POLICY;
+type OpeningSnapshot = {
   marketCapUsd: typeof OPENING_CAP_USD;
   chainId: 8453 | 4663;
   quoteAddress: Address;
   quotePriceUsd: string;
   quotedAt: number;
   expiresAt: number;
-  source: "Robinhood" | "Chainlink" | "SushiSwap V3 TWAP";
   blockNumber: string;
   blockHash: Hex;
   sourceUpdatedAt: number;
+};
+export type LifiOpeningQuote = {
+  id: string;
+  tool: string;
+  amountIn: string;
+  amountOut: string;
+  lifiFee: string;
+  // These are HTTP request/response times, not the underlying price's update time.
+  quotedAt: number;
+  obtainedAt: number;
+  expiresAt: number;
+  // LI.FI's USD reference for the received/sent numeraire at this quote time.
+  numerairePriceUsd: string;
+};
+export type LifiOpeningEvidence = {
+  numeraire: FirstBuyPaymentAsset & { priceUsd: string };
+  probeAmountIn: string;
+  // Native ETH is sized to approximately $100 using this separate /token reference.
+  probeUsd?: "100";
+  probeSizingPriceUsd?: string;
+  buy: LifiOpeningQuote;
+  sell: LifiOpeningQuote;
+  askNumerairePerQuoteToken: string;
+  bidNumerairePerQuoteToken: string;
+  aggregateMid: string;
+  divergenceBps: number;
+};
+export type LifiOpeningValuation = OpeningSnapshot & {
+  policy: typeof OPENING_POLICY;
+  source: "LI.FI";
+  lifi: LifiOpeningEvidence;
+};
+export type HistoricalOpeningValuation = OpeningSnapshot & {
+  policy: "fixed-usd-5000-v1";
+  source: "Robinhood" | "Chainlink" | "SushiSwap V3 TWAP";
   feed?: Address;
   pool?: Address;
   twapSeconds?: 300;
 };
+export type OpeningValuation = LifiOpeningValuation | HistoricalOpeningValuation;
 
 const decimalPrice = /^(?:0|[1-9]\d{0,20})(?:\.\d{1,18})?$/;
+const WAD = 10n ** 18n;
+const UINT256_MAX = (1n << 256n) - 1n;
 
-function priceWad(snapshot: OpeningValuation): bigint {
+function decimalWad(value: unknown): bigint {
   if (
-    typeof snapshot.quotePriceUsd !== "string" ||
-    !decimalPrice.test(snapshot.quotePriceUsd) ||
-    !Number.isFinite(Number(snapshot.quotePriceUsd))
+    typeof value !== "string" || !decimalPrice.test(value)
   ) throw new Error("The paired asset USD price is invalid. Run a new simulation.");
-  const price = parseUnits(snapshot.quotePriceUsd, 18);
+  const price = parseUnits(value, 18);
   if (price <= 0n)
     throw new Error("The paired asset USD price is unavailable. Run a new simulation.");
   return price;
+}
+function priceWad(snapshot: OpeningValuation): bigint { return decimalWad(snapshot.quotePriceUsd); }
+function invalidEvidence(): never {
+  throw new Error("The opening valuation price evidence is invalid. Run a new simulation.");
+}
+function rawAmount(value: unknown, zero = false): bigint {
+  if (typeof value !== "string" || !/^(?:0|[1-9]\d{0,77})$/.test(value)) return invalidEvidence();
+  const amount = BigInt(value);
+  if ((!zero && amount === 0n) || amount > UINT256_MAX) return invalidEvidence();
+  return amount;
+}
+export function deriveLifiOpeningPrice(input: {
+  quoteDecimals: number; numeraireDecimals: number;
+  numerairePriceUsd: string; sellNumerairePriceUsd: string;
+  buyAmountIn: string; buyAmountOut: string; buyLifiFee: string;
+  sellAmountIn: string; sellAmountOut: string; sellLifiFee: string;
+}) {
+  if (![input.quoteDecimals, input.numeraireDecimals].every((decimals) => Number.isInteger(decimals) && decimals >= 0 && decimals <= 18))
+    return invalidEvidence();
+  const buyIn = rawAmount(input.buyAmountIn), buyOut = rawAmount(input.buyAmountOut), buyFee = rawAmount(input.buyLifiFee, true);
+  const sellIn = rawAmount(input.sellAmountIn), sellOut = rawAmount(input.sellAmountOut), sellFee = rawAmount(input.sellLifiFee, true);
+  if (buyFee >= buyIn || sellFee >= sellIn || sellIn !== buyOut) return invalidEvidence();
+  const quoteUnit = 10n ** BigInt(input.quoteDecimals), numeraireUnit = 10n ** BigInt(input.numeraireDecimals);
+  // Remove only the explicitly known LI.FI input fee. DEX fees and impact remain in each rate.
+  const ask = (buyIn - buyFee) * quoteUnit * WAD / (buyOut * numeraireUnit);
+  const bid = sellOut * quoteUnit * WAD / ((sellIn - sellFee) * numeraireUnit);
+  const askUsd = ask * decimalWad(input.numerairePriceUsd) / WAD;
+  const bidUsd = bid * decimalWad(input.sellNumerairePriceUsd) / WAD;
+  const mid = (askUsd + bidUsd) / 2n;
+  if (ask <= 0n || bid <= 0n || mid <= 0n) return invalidEvidence();
+  const spread = askUsd >= bidUsd ? askUsd - bidUsd : bidUsd - askUsd;
+  const divergence = (spread * 10_000n + mid - 1n) / mid;
+  if (divergence > BigInt(LIFI_OPENING_MAX_DIVERGENCE_BPS))
+    throw new Error("The opening price buy and sell quotes diverge too far. Run a new simulation.");
+  return { askNumerairePerQuoteToken: formatUnits(ask, 18), bidNumerairePerQuoteToken: formatUnits(bid, 18),
+    aggregateMid: formatUnits(mid, 18), divergenceBps: Number(divergence) };
+}
+
+function assertIdentity(value: OpeningValuation, quoteAddress: Address, chainId: 8453 | 4663) {
+  if (value.chainId !== chainId || !isAddress(value.quoteAddress, { strict: false }) || !sameAddress(value.quoteAddress, quoteAddress))
+    throw new Error("The opening valuation does not match this paired asset or network. Run a new simulation.");
+  priceWad(value);
+  if (typeof value.blockNumber !== "string" || !/^(?:0|[1-9]\d*)$/.test(value.blockNumber) ||
+    typeof value.blockHash !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(value.blockHash)) return invalidEvidence();
+}
+function assertLifiEvidence(value: LifiOpeningValuation, now: number, allowExpired: boolean) {
+  if (!Number.isSafeInteger(value.quotedAt) || value.quotedAt <= 0 || value.quotedAt > now ||
+    !Number.isSafeInteger(value.expiresAt) || value.expiresAt <= value.quotedAt ||
+    (!allowExpired && now >= value.expiresAt))
+    throw new Error("The opening valuation price expired. Run a new simulation.");
+  const evidence = value.lifi;
+  if (value.source !== "LI.FI" || !evidence || !evidence.numeraire || !evidence.buy || !evidence.sell) return invalidEvidence();
+  const stock = stockByAddress(value.quoteAddress, value.chainId);
+  const expectedSymbol = value.chainId === 4663 && stock.symbol === "USDG" ? "ETH" : value.chainId === 8453 ? "USDC" : "USDG";
+  const expected = firstBuyPaymentAssets(value.chainId).find((asset) => asset.symbol === expectedSymbol)!;
+  const numeraire = evidence.numeraire;
+  if (numeraire.chainId !== value.chainId || !isAddress(numeraire.address, { strict: false }) ||
+    !sameAddress(numeraire.address, expected.address) || numeraire.symbol !== expected.symbol || numeraire.decimals !== expected.decimals ||
+    numeraire.priceUsd !== evidence.buy.numerairePriceUsd || evidence.probeAmountIn !== evidence.buy.amountIn)
+    return invalidEvidence();
+  if (expectedSymbol === "ETH") {
+    if (evidence.probeUsd !== "100" || evidence.probeAmountIn !== (100n * WAD * WAD / decimalWad(evidence.probeSizingPriceUsd)).toString())
+      return invalidEvidence();
+  } else if (evidence.probeAmountIn !== (100n * 10n ** BigInt(expected.decimals)).toString() ||
+    evidence.probeUsd !== undefined || evidence.probeSizingPriceUsd !== undefined) return invalidEvidence();
+  for (const quote of [evidence.buy, evidence.sell]) {
+    if (typeof quote.id !== "string" || !quote.id.length || quote.id.length > 200 ||
+      typeof quote.tool !== "string" || !quote.tool.length || quote.tool.length > 80 ||
+      !Number.isSafeInteger(quote.quotedAt) || quote.quotedAt <= 0 || quote.quotedAt > now ||
+      !Number.isSafeInteger(quote.obtainedAt) || quote.obtainedAt < quote.quotedAt || quote.obtainedAt > now ||
+      quote.expiresAt !== quote.quotedAt + LAUNCH_PRICE_TTL || quote.obtainedAt >= value.expiresAt)
+      return invalidEvidence();
+  }
+  if (value.quotedAt !== Math.min(evidence.buy.quotedAt, evidence.sell.quotedAt) ||
+    value.expiresAt !== Math.min(evidence.buy.expiresAt, evidence.sell.expiresAt) || value.sourceUpdatedAt !== value.quotedAt)
+    return invalidEvidence();
+  const calculated = deriveLifiOpeningPrice({ quoteDecimals: stock.decimals, numeraireDecimals: numeraire.decimals,
+    numerairePriceUsd: evidence.buy.numerairePriceUsd, sellNumerairePriceUsd: evidence.sell.numerairePriceUsd,
+    buyAmountIn: evidence.buy.amountIn, buyAmountOut: evidence.buy.amountOut, buyLifiFee: evidence.buy.lifiFee,
+    sellAmountIn: evidence.sell.amountIn, sellAmountOut: evidence.sell.amountOut, sellLifiFee: evidence.sell.lifiFee });
+  if (evidence.askNumerairePerQuoteToken !== calculated.askNumerairePerQuoteToken ||
+    evidence.bidNumerairePerQuoteToken !== calculated.bidNumerairePerQuoteToken ||
+    evidence.aggregateMid !== calculated.aggregateMid || evidence.divergenceBps !== calculated.divergenceBps ||
+    value.quotePriceUsd !== calculated.aggregateMid) return invalidEvidence();
 }
 
 export function assertOpeningValuation(
@@ -40,32 +161,30 @@ export function assertOpeningValuation(
   quoteAddress: Address,
   chainId: 8453 | 4663,
   now = Date.now(),
-): asserts snapshot is OpeningValuation {
-  const value = snapshot as OpeningValuation | null | undefined;
+): asserts snapshot is LifiOpeningValuation {
+  const value = snapshot as LifiOpeningValuation | null | undefined;
   if (!value || value.policy !== OPENING_POLICY || value.marketCapUsd !== OPENING_CAP_USD)
     throw new Error("The opening market cap policy has changed. Run a new simulation.");
-  if (
-    value.chainId !== chainId ||
-    !isAddress(value.quoteAddress, { strict: false }) ||
-    value.quoteAddress.toLowerCase() !== quoteAddress.toLowerCase()
-  ) throw new Error("The opening valuation does not match this paired asset or network. Run a new simulation.");
-  priceWad(value);
-  if (
-    !Number.isSafeInteger(value.quotedAt) || value.quotedAt <= 0 || value.quotedAt > now ||
-    !Number.isSafeInteger(value.expiresAt) || value.expiresAt !== value.quotedAt + LAUNCH_PRICE_TTL ||
-    now >= value.expiresAt
-  ) throw new Error("The opening valuation price expired. Run a new simulation.");
-  if (
+  assertIdentity(value, quoteAddress, chainId);
+  assertLifiEvidence(value, now, false);
+}
+
+// For already broadcast transactions and historical records only. This does
+// not authorize an expired/current or retired-policy preview for new signing.
+export function assertHistoricalOpeningValuation(snapshot: unknown, quoteAddress: Address, chainId: 8453 | 4663,
+  now = Date.now()): asserts snapshot is OpeningValuation {
+  const value = snapshot as OpeningValuation | null | undefined;
+  if (!value || value.marketCapUsd !== OPENING_CAP_USD || ![OPENING_POLICY, "fixed-usd-5000-v1"].includes(value.policy))
+    throw new Error("The opening market cap policy is unrecognized.");
+  assertIdentity(value, quoteAddress, chainId);
+  if (value.policy === OPENING_POLICY) return assertLifiEvidence(value, now, true);
+  if (!Number.isSafeInteger(value.quotedAt) || value.quotedAt <= 0 || value.quotedAt > now ||
+    value.expiresAt !== value.quotedAt + 300_000 ||
+    !Number.isSafeInteger(value.sourceUpdatedAt) || value.sourceUpdatedAt <= 0 || value.sourceUpdatedAt > value.quotedAt + 60_000 ||
     !["Robinhood", "Chainlink", "SushiSwap V3 TWAP"].includes(value.source) ||
-    typeof value.blockNumber !== "string" || !/^(?:0|[1-9]\d*)$/.test(value.blockNumber) ||
-    typeof value.blockHash !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(value.blockHash) ||
-    !Number.isSafeInteger(value.sourceUpdatedAt) || value.sourceUpdatedAt <= 0 ||
-    value.sourceUpdatedAt > now + 60_000 ||
     (value.source === "Chainlink" && (!value.feed || !isAddress(value.feed, { strict: false }))) ||
-    (value.source === "SushiSwap V3 TWAP" && (
-      !value.pool || !isAddress(value.pool, { strict: false }) || value.twapSeconds !== 300
-    ))
-  ) throw new Error("The opening valuation price evidence is invalid. Run a new simulation.");
+    (value.source === "SushiSwap V3 TWAP" && (!value.pool || !isAddress(value.pool, { strict: false }) || value.twapSeconds !== 300)))
+    return invalidEvidence();
 }
 
 // This is a valuation, not an ERC20 transfer amount. Retain 18 decimal places

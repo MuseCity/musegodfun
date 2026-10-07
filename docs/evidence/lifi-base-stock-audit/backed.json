@@ -1,0 +1,1487 @@
+{
+  "scope": "Official issuer universe: USDC inbound and reverse routes plus a fixed canonical Base ERC20 metadata snapshot",
+  "evidenceKind": "Read-only official GET quotes/RPC; no signing, wallet execution, settlement, or automatic Create eligibility",
+  "issuer": "Backed legacy",
+  "chainId": 8453,
+  "startedAt": "2026-10-07T00:24:16.484Z",
+  "sourceFile": ".cache/base-stock-discovery/backed-official-base-tokens.json",
+  "sourceCapturedAt": "2026-10-07T00:20:48.218Z",
+  "sourceSha256": "04b59aca7d16cdf76139fb2e0ba355cc3a9eea5085b17a2f7bb25151f08cf0d3",
+  "readerSourceSha256": "de1a6777e27bfe4a601e180d8ab17f31884e31adfffc535ab1bef94763b3bff3",
+  "canonicalQuoteCheckSha256": "7c6b9cd5e1b8ed098f3c066635b05dd9a28e8f56799ee986aba51d382af7717a",
+  "apiRateLimitPerMinute": 28,
+  "skipSimulation": false,
+  "rpcIdentity": {
+    "scope": "Reuse the already verified fixed-block issuer discovery snapshot; no new identity read",
+    "source": "https://base-rpc.publicnode.com",
+    "tokens": [
+      {
+        "address": "0xC3cE78B037DDA1B966D31EC7979d3f3a38571A8E",
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bCSPX",
+        "decimals": 18,
+        "totalSupply": "10000000000000000000000",
+        "totalSupplyRaw": "10000000000000000000000",
+        "totalSupplyKnown": true,
+        "zeroSupply": false,
+        "erc20IdentityMatches": true
+      },
+      {
+        "address": "0xbbcb0356bB9e6B3Faa5CbF9E5F36185d53403Ac9",
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bCOIN",
+        "decimals": 18,
+        "totalSupply": "13500000000000000000000",
+        "totalSupplyRaw": "13500000000000000000000",
+        "totalSupplyKnown": true,
+        "zeroSupply": false,
+        "erc20IdentityMatches": true
+      },
+      {
+        "address": "0x0f76D32CDccDcbd602A55Af23EAF58FD1eE17245",
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bERNA",
+        "decimals": 18,
+        "totalSupply": "0",
+        "totalSupplyRaw": "0",
+        "totalSupplyKnown": true,
+        "zeroSupply": true,
+        "erc20IdentityMatches": true
+      },
+      {
+        "address": "0xEbee37Aaf2905b7BdA7E3b928043862e982E8F32",
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bGOOGL",
+        "decimals": 18,
+        "totalSupply": "0",
+        "totalSupplyRaw": "0",
+        "totalSupplyKnown": true,
+        "zeroSupply": true,
+        "erc20IdentityMatches": true
+      },
+      {
+        "address": "0x3f95AA88dDbB7D9D484aa3D482bf0a80009c52c9",
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bERNX",
+        "decimals": 18,
+        "totalSupply": "0",
+        "totalSupplyRaw": "0",
+        "totalSupplyKnown": true,
+        "zeroSupply": true,
+        "erc20IdentityMatches": true
+      },
+      {
+        "address": "0x7212088A11b4d8f6FC90fbB3dfE793B45dd72323",
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bGME",
+        "decimals": 18,
+        "totalSupply": "0",
+        "totalSupplyRaw": "0",
+        "totalSupplyKnown": true,
+        "zeroSupply": true,
+        "erc20IdentityMatches": true
+      },
+      {
+        "address": "0x20C64dEE8FdA5269A78f2D5BDBa861CA1d83DF7a",
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bHIGH",
+        "decimals": 18,
+        "totalSupply": "0",
+        "totalSupplyRaw": "0",
+        "totalSupplyKnown": true,
+        "zeroSupply": true,
+        "erc20IdentityMatches": true
+      },
+      {
+        "address": "0x2F123cF3F37CE3328CC9B5b8415f9EC5109b45e7",
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bC3M",
+        "decimals": 18,
+        "totalSupply": "0",
+        "totalSupplyRaw": "0",
+        "totalSupplyKnown": true,
+        "zeroSupply": true,
+        "erc20IdentityMatches": true
+      },
+      {
+        "address": "0x374A457967Ba24FD3Ae66294cAb08244185574b0",
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bMSFT",
+        "decimals": 18,
+        "totalSupply": "0",
+        "totalSupplyRaw": "0",
+        "totalSupplyKnown": true,
+        "zeroSupply": true,
+        "erc20IdentityMatches": true
+      },
+      {
+        "address": "0xCA30c93B02514f86d5C86a6e375E3A330B435Fb5",
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bIB01",
+        "decimals": 18,
+        "totalSupply": "10000000000000000000000",
+        "totalSupplyRaw": "10000000000000000000000",
+        "totalSupplyKnown": true,
+        "zeroSupply": false,
+        "erc20IdentityMatches": true
+      },
+      {
+        "address": "0x52d134c6DB5889FaD3542A09eAf7Aa90C0fdf9E4",
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bIBTA",
+        "decimals": 18,
+        "totalSupply": "0",
+        "totalSupplyRaw": "0",
+        "totalSupplyKnown": true,
+        "zeroSupply": true,
+        "erc20IdentityMatches": true
+      },
+      {
+        "address": "0xaC28C9178ACc8BA4A11A29E013a3A2627086e422",
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bMSTR",
+        "decimals": 18,
+        "totalSupply": "3000000000000000000000",
+        "totalSupplyRaw": "3000000000000000000000",
+        "totalSupplyKnown": true,
+        "zeroSupply": false,
+        "erc20IdentityMatches": true
+      },
+      {
+        "address": "0x2f11EeeE0bf21E7661A22dbBbb9068F4ad191b86",
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bNIU",
+        "decimals": 18,
+        "totalSupply": "0",
+        "totalSupplyRaw": "0",
+        "totalSupplyKnown": true,
+        "zeroSupply": true,
+        "erc20IdentityMatches": true
+      },
+      {
+        "address": "0x14A5f2872396802C3Cc8942A39Ab3E4118EE5038",
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bTSLA",
+        "decimals": 18,
+        "totalSupply": "3000000000000000000000",
+        "totalSupplyRaw": "3000000000000000000000",
+        "totalSupplyKnown": true,
+        "zeroSupply": false,
+        "erc20IdentityMatches": true
+      },
+      {
+        "address": "0xA34C5e0AbE843E10461E2C9586Ea03E55Dbcc495",
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bNVDA",
+        "decimals": 18,
+        "totalSupply": "7062699283142503103840",
+        "totalSupplyRaw": "7062699283142503103840",
+        "totalSupplyKnown": true,
+        "zeroSupply": false,
+        "erc20IdentityMatches": true
+      },
+      {
+        "address": "0xd8B95B1987741849cA7e71e976aEB535fd2e55a2",
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bCSBGC3",
+        "decimals": 18,
+        "totalSupply": "0",
+        "totalSupplyRaw": "0",
+        "totalSupplyKnown": true,
+        "zeroSupply": true,
+        "erc20IdentityMatches": true
+      },
+      {
+        "address": "0xAde6057FcAfa57d6d51FFa341C64ce4814995995",
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bZPR1",
+        "decimals": 18,
+        "totalSupply": "0",
+        "totalSupplyRaw": "0",
+        "totalSupplyKnown": true,
+        "zeroSupply": true,
+        "erc20IdentityMatches": true
+      }
+    ],
+    "blockNumber": "52271578",
+    "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4"
+  },
+  "assets": [
+    {
+      "symbol": "bCSPX",
+      "address": "0xC3cE78B037DDA1B966D31EC7979d3f3a38571A8E",
+      "decimals": 18,
+      "name": "bCSPX",
+      "officialLive": null,
+      "officialSupply": null,
+      "officialSupplyMissing": true,
+      "officialNav": null,
+      "officialNavMissing": true,
+      "rpcIdentity": {
+        "address": "0xC3cE78B037DDA1B966D31EC7979d3f3a38571A8E",
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bCSPX",
+        "decimals": 18,
+        "totalSupply": "10000000000000000000000",
+        "totalSupplyRaw": "10000000000000000000000",
+        "totalSupplyKnown": true,
+        "zeroSupply": false,
+        "erc20IdentityMatches": true
+      },
+      "currentRegistryRecognizes": false,
+      "currentCreateEligible": false,
+      "attempts": [
+        {
+          "nominalUsd": 10,
+          "inbound": {
+            "observedAt": "2026-10-07T00:24:17.513Z",
+            "status": "no_route",
+            "httpStatus": 404,
+            "providerCode": 1002,
+            "attempts": 1,
+            "fromToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+            "toToken": "0xC3cE78B037DDA1B966D31EC7979d3f3a38571A8E",
+            "requestedAmount": "10000000",
+            "skipSimulation": false
+          },
+          "appInbound": {
+            "status": "not_tested_no_inbound_route"
+          },
+          "outbound": {
+            "status": "not_tested_no_reliable_quantity"
+          },
+          "rawBidirectional": false,
+          "appInboundAccepted": false
+        }
+      ],
+      "independentOutboundBasis": {
+        "kind": "one_token_probe",
+        "nominalUsd": null,
+        "reason": "No reliable buy output or official NAV exists; not an equal-USD reverse test."
+      },
+      "independentOutbound": {
+        "observedAt": "2026-10-07T00:24:19.206Z",
+        "status": "no_route",
+        "httpStatus": 404,
+        "providerCode": 1002,
+        "attempts": 1,
+        "fromToken": "0xC3cE78B037DDA1B966D31EC7979d3f3a38571A8E",
+        "toToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "requestedAmount": "1000000000000000000",
+        "skipSimulation": false
+      },
+      "rawBidirectional": false,
+      "appInboundAccepted": false,
+      "temporary": false
+    },
+    {
+      "symbol": "bCOIN",
+      "address": "0xbbcb0356bB9e6B3Faa5CbF9E5F36185d53403Ac9",
+      "decimals": 18,
+      "name": "bCOIN",
+      "officialLive": null,
+      "officialSupply": null,
+      "officialSupplyMissing": true,
+      "officialNav": null,
+      "officialNavMissing": true,
+      "rpcIdentity": {
+        "address": "0xbbcb0356bB9e6B3Faa5CbF9E5F36185d53403Ac9",
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bCOIN",
+        "decimals": 18,
+        "totalSupply": "13500000000000000000000",
+        "totalSupplyRaw": "13500000000000000000000",
+        "totalSupplyKnown": true,
+        "zeroSupply": false,
+        "erc20IdentityMatches": true
+      },
+      "currentRegistryRecognizes": false,
+      "currentCreateEligible": false,
+      "attempts": [
+        {
+          "nominalUsd": 10,
+          "inbound": {
+            "observedAt": "2026-10-07T00:24:21.541Z",
+            "status": "liquid_route",
+            "httpStatus": 200,
+            "providerCode": null,
+            "attempts": 1,
+            "fromToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+            "toToken": "0xbbcb0356bB9e6B3Faa5CbF9E5F36185d53403Ac9",
+            "requestedAmount": "10000000",
+            "skipSimulation": false,
+            "tool": "okx",
+            "selector": "0x5fd9ae2e",
+            "outerSwapMethod": "swapTokensMultipleV3ERC20ToERC20",
+            "expectedOut": "5858966977120893",
+            "minimumOut": "5800377307349684",
+            "fromSymbol": "USDC",
+            "toSymbol": "bCOIN",
+            "toDecimals": 18
+          },
+          "appInbound": {
+            "status": "unsupported_asset_current_registry",
+            "reason": "The official identity is not configured in the current app issuer registry; raw quote support remains separate."
+          },
+          "outbound": {
+            "observedAt": "2026-10-07T00:24:23.965Z",
+            "status": "liquid_route",
+            "httpStatus": 200,
+            "providerCode": null,
+            "attempts": 1,
+            "fromToken": "0xbbcb0356bB9e6B3Faa5CbF9E5F36185d53403Ac9",
+            "toToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+            "requestedAmount": "5858966977120893",
+            "skipSimulation": false,
+            "tool": "kyberswap",
+            "selector": "0x5fd9ae2e",
+            "outerSwapMethod": "swapTokensMultipleV3ERC20ToERC20",
+            "expectedOut": "46744",
+            "minimumOut": "46277",
+            "fromSymbol": "bCOIN",
+            "toSymbol": "USDC",
+            "toDecimals": 6
+          },
+          "receivingTokenMatchesOfficial": true,
+          "outboundQuantityBasis": "actual inbound quoted expectedOut",
+          "rawBidirectional": true,
+          "appInboundAccepted": false
+        }
+      ],
+      "rawBidirectional": true,
+      "appInboundAccepted": false,
+      "temporary": false
+    },
+    {
+      "symbol": "bERNA",
+      "address": "0x0f76D32CDccDcbd602A55Af23EAF58FD1eE17245",
+      "decimals": 18,
+      "name": "bERNA",
+      "officialLive": null,
+      "officialSupply": null,
+      "officialSupplyMissing": true,
+      "officialNav": null,
+      "officialNavMissing": true,
+      "rpcIdentity": {
+        "address": "0x0f76D32CDccDcbd602A55Af23EAF58FD1eE17245",
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bERNA",
+        "decimals": 18,
+        "totalSupply": "0",
+        "totalSupplyRaw": "0",
+        "totalSupplyKnown": true,
+        "zeroSupply": true,
+        "erc20IdentityMatches": true
+      },
+      "currentRegistryRecognizes": false,
+      "currentCreateEligible": false,
+      "attempts": [
+        {
+          "nominalUsd": 10,
+          "inbound": {
+            "observedAt": "2026-10-07T00:24:26.315Z",
+            "status": "no_route",
+            "httpStatus": 404,
+            "providerCode": 1002,
+            "attempts": 1,
+            "fromToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+            "toToken": "0x0f76D32CDccDcbd602A55Af23EAF58FD1eE17245",
+            "requestedAmount": "10000000",
+            "skipSimulation": false
+          },
+          "appInbound": {
+            "status": "not_tested_no_inbound_route"
+          },
+          "outbound": {
+            "status": "not_tested_no_reliable_quantity"
+          },
+          "rawBidirectional": false,
+          "appInboundAccepted": false
+        }
+      ],
+      "independentOutboundBasis": {
+        "kind": "one_token_probe",
+        "nominalUsd": null,
+        "reason": "No reliable buy output or official NAV exists; not an equal-USD reverse test."
+      },
+      "independentOutbound": {
+        "observedAt": "2026-10-07T00:24:28.357Z",
+        "status": "no_route",
+        "httpStatus": 404,
+        "providerCode": 1002,
+        "attempts": 1,
+        "fromToken": "0x0f76D32CDccDcbd602A55Af23EAF58FD1eE17245",
+        "toToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "requestedAmount": "1000000000000000000",
+        "skipSimulation": false
+      },
+      "rawBidirectional": false,
+      "appInboundAccepted": false,
+      "temporary": false
+    },
+    {
+      "symbol": "bGOOGL",
+      "address": "0xEbee37Aaf2905b7BdA7E3b928043862e982E8F32",
+      "decimals": 18,
+      "name": "bGOOGL",
+      "officialLive": null,
+      "officialSupply": null,
+      "officialSupplyMissing": true,
+      "officialNav": null,
+      "officialNavMissing": true,
+      "rpcIdentity": {
+        "address": "0xEbee37Aaf2905b7BdA7E3b928043862e982E8F32",
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bGOOGL",
+        "decimals": 18,
+        "totalSupply": "0",
+        "totalSupplyRaw": "0",
+        "totalSupplyKnown": true,
+        "zeroSupply": true,
+        "erc20IdentityMatches": true
+      },
+      "currentRegistryRecognizes": false,
+      "currentCreateEligible": false,
+      "attempts": [
+        {
+          "nominalUsd": 10,
+          "inbound": {
+            "observedAt": "2026-10-07T00:24:30.886Z",
+            "status": "no_route",
+            "httpStatus": 404,
+            "providerCode": 1002,
+            "attempts": 1,
+            "fromToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+            "toToken": "0xEbee37Aaf2905b7BdA7E3b928043862e982E8F32",
+            "requestedAmount": "10000000",
+            "skipSimulation": false
+          },
+          "appInbound": {
+            "status": "not_tested_no_inbound_route"
+          },
+          "outbound": {
+            "status": "not_tested_no_reliable_quantity"
+          },
+          "rawBidirectional": false,
+          "appInboundAccepted": false
+        }
+      ],
+      "independentOutboundBasis": {
+        "kind": "one_token_probe",
+        "nominalUsd": null,
+        "reason": "No reliable buy output or official NAV exists; not an equal-USD reverse test."
+      },
+      "independentOutbound": {
+        "observedAt": "2026-10-07T00:24:32.372Z",
+        "status": "no_route",
+        "httpStatus": 404,
+        "providerCode": 1002,
+        "attempts": 1,
+        "fromToken": "0xEbee37Aaf2905b7BdA7E3b928043862e982E8F32",
+        "toToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "requestedAmount": "1000000000000000000",
+        "skipSimulation": false
+      },
+      "rawBidirectional": false,
+      "appInboundAccepted": false,
+      "temporary": false
+    },
+    {
+      "symbol": "bERNX",
+      "address": "0x3f95AA88dDbB7D9D484aa3D482bf0a80009c52c9",
+      "decimals": 18,
+      "name": "bERNX",
+      "officialLive": null,
+      "officialSupply": null,
+      "officialSupplyMissing": true,
+      "officialNav": null,
+      "officialNavMissing": true,
+      "rpcIdentity": {
+        "address": "0x3f95AA88dDbB7D9D484aa3D482bf0a80009c52c9",
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bERNX",
+        "decimals": 18,
+        "totalSupply": "0",
+        "totalSupplyRaw": "0",
+        "totalSupplyKnown": true,
+        "zeroSupply": true,
+        "erc20IdentityMatches": true
+      },
+      "currentRegistryRecognizes": false,
+      "currentCreateEligible": false,
+      "attempts": [
+        {
+          "nominalUsd": 10,
+          "inbound": {
+            "observedAt": "2026-10-07T00:24:35.095Z",
+            "status": "no_route",
+            "httpStatus": 404,
+            "providerCode": 1002,
+            "attempts": 1,
+            "fromToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+            "toToken": "0x3f95AA88dDbB7D9D484aa3D482bf0a80009c52c9",
+            "requestedAmount": "10000000",
+            "skipSimulation": false
+          },
+          "appInbound": {
+            "status": "not_tested_no_inbound_route"
+          },
+          "outbound": {
+            "status": "not_tested_no_reliable_quantity"
+          },
+          "rawBidirectional": false,
+          "appInboundAccepted": false
+        }
+      ],
+      "independentOutboundBasis": {
+        "kind": "one_token_probe",
+        "nominalUsd": null,
+        "reason": "No reliable buy output or official NAV exists; not an equal-USD reverse test."
+      },
+      "independentOutbound": {
+        "observedAt": "2026-10-07T00:24:37.511Z",
+        "status": "no_route",
+        "httpStatus": 404,
+        "providerCode": 1002,
+        "attempts": 1,
+        "fromToken": "0x3f95AA88dDbB7D9D484aa3D482bf0a80009c52c9",
+        "toToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "requestedAmount": "1000000000000000000",
+        "skipSimulation": false
+      },
+      "rawBidirectional": false,
+      "appInboundAccepted": false,
+      "temporary": false
+    },
+    {
+      "symbol": "bGME",
+      "address": "0x7212088A11b4d8f6FC90fbB3dfE793B45dd72323",
+      "decimals": 18,
+      "name": "bGME",
+      "officialLive": null,
+      "officialSupply": null,
+      "officialSupplyMissing": true,
+      "officialNav": null,
+      "officialNavMissing": true,
+      "rpcIdentity": {
+        "address": "0x7212088A11b4d8f6FC90fbB3dfE793B45dd72323",
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bGME",
+        "decimals": 18,
+        "totalSupply": "0",
+        "totalSupplyRaw": "0",
+        "totalSupplyKnown": true,
+        "zeroSupply": true,
+        "erc20IdentityMatches": true
+      },
+      "currentRegistryRecognizes": false,
+      "currentCreateEligible": false,
+      "attempts": [
+        {
+          "nominalUsd": 10,
+          "inbound": {
+            "observedAt": "2026-10-07T00:24:39.404Z",
+            "status": "no_route",
+            "httpStatus": 404,
+            "providerCode": 1002,
+            "attempts": 1,
+            "fromToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+            "toToken": "0x7212088A11b4d8f6FC90fbB3dfE793B45dd72323",
+            "requestedAmount": "10000000",
+            "skipSimulation": false
+          },
+          "appInbound": {
+            "status": "not_tested_no_inbound_route"
+          },
+          "outbound": {
+            "status": "not_tested_no_reliable_quantity"
+          },
+          "rawBidirectional": false,
+          "appInboundAccepted": false
+        }
+      ],
+      "independentOutboundBasis": {
+        "kind": "one_token_probe",
+        "nominalUsd": null,
+        "reason": "No reliable buy output or official NAV exists; not an equal-USD reverse test."
+      },
+      "independentOutbound": {
+        "observedAt": "2026-10-07T00:24:41.397Z",
+        "status": "no_route",
+        "httpStatus": 404,
+        "providerCode": 1002,
+        "attempts": 1,
+        "fromToken": "0x7212088A11b4d8f6FC90fbB3dfE793B45dd72323",
+        "toToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "requestedAmount": "1000000000000000000",
+        "skipSimulation": false
+      },
+      "rawBidirectional": false,
+      "appInboundAccepted": false,
+      "temporary": false
+    },
+    {
+      "symbol": "bHIGH",
+      "address": "0x20C64dEE8FdA5269A78f2D5BDBa861CA1d83DF7a",
+      "decimals": 18,
+      "name": "bHIGH",
+      "officialLive": null,
+      "officialSupply": null,
+      "officialSupplyMissing": true,
+      "officialNav": null,
+      "officialNavMissing": true,
+      "rpcIdentity": {
+        "address": "0x20C64dEE8FdA5269A78f2D5BDBa861CA1d83DF7a",
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bHIGH",
+        "decimals": 18,
+        "totalSupply": "0",
+        "totalSupplyRaw": "0",
+        "totalSupplyKnown": true,
+        "zeroSupply": true,
+        "erc20IdentityMatches": true
+      },
+      "currentRegistryRecognizes": false,
+      "currentCreateEligible": false,
+      "attempts": [
+        {
+          "nominalUsd": 10,
+          "inbound": {
+            "observedAt": "2026-10-07T00:24:45.123Z",
+            "status": "no_route",
+            "httpStatus": 404,
+            "providerCode": 1002,
+            "attempts": 1,
+            "fromToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+            "toToken": "0x20C64dEE8FdA5269A78f2D5BDBa861CA1d83DF7a",
+            "requestedAmount": "10000000",
+            "skipSimulation": false
+          },
+          "appInbound": {
+            "status": "not_tested_no_inbound_route"
+          },
+          "outbound": {
+            "status": "not_tested_no_reliable_quantity"
+          },
+          "rawBidirectional": false,
+          "appInboundAccepted": false
+        }
+      ],
+      "independentOutboundBasis": {
+        "kind": "one_token_probe",
+        "nominalUsd": null,
+        "reason": "No reliable buy output or official NAV exists; not an equal-USD reverse test."
+      },
+      "independentOutbound": {
+        "observedAt": "2026-10-07T00:24:46.040Z",
+        "status": "no_route",
+        "httpStatus": 404,
+        "providerCode": 1002,
+        "attempts": 1,
+        "fromToken": "0x20C64dEE8FdA5269A78f2D5BDBa861CA1d83DF7a",
+        "toToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "requestedAmount": "1000000000000000000",
+        "skipSimulation": false
+      },
+      "rawBidirectional": false,
+      "appInboundAccepted": false,
+      "temporary": false
+    },
+    {
+      "symbol": "bC3M",
+      "address": "0x2F123cF3F37CE3328CC9B5b8415f9EC5109b45e7",
+      "decimals": 18,
+      "name": "bC3M",
+      "officialLive": null,
+      "officialSupply": null,
+      "officialSupplyMissing": true,
+      "officialNav": null,
+      "officialNavMissing": true,
+      "rpcIdentity": {
+        "address": "0x2F123cF3F37CE3328CC9B5b8415f9EC5109b45e7",
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bC3M",
+        "decimals": 18,
+        "totalSupply": "0",
+        "totalSupplyRaw": "0",
+        "totalSupplyKnown": true,
+        "zeroSupply": true,
+        "erc20IdentityMatches": true
+      },
+      "currentRegistryRecognizes": false,
+      "currentCreateEligible": false,
+      "attempts": [
+        {
+          "nominalUsd": 10,
+          "inbound": {
+            "observedAt": "2026-10-07T00:24:47.840Z",
+            "status": "no_route",
+            "httpStatus": 404,
+            "providerCode": 1002,
+            "attempts": 1,
+            "fromToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+            "toToken": "0x2F123cF3F37CE3328CC9B5b8415f9EC5109b45e7",
+            "requestedAmount": "10000000",
+            "skipSimulation": false
+          },
+          "appInbound": {
+            "status": "not_tested_no_inbound_route"
+          },
+          "outbound": {
+            "status": "not_tested_no_reliable_quantity"
+          },
+          "rawBidirectional": false,
+          "appInboundAccepted": false
+        }
+      ],
+      "independentOutboundBasis": {
+        "kind": "one_token_probe",
+        "nominalUsd": null,
+        "reason": "No reliable buy output or official NAV exists; not an equal-USD reverse test."
+      },
+      "independentOutbound": {
+        "observedAt": "2026-10-07T00:24:50.074Z",
+        "status": "no_route",
+        "httpStatus": 404,
+        "providerCode": 1002,
+        "attempts": 1,
+        "fromToken": "0x2F123cF3F37CE3328CC9B5b8415f9EC5109b45e7",
+        "toToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "requestedAmount": "1000000000000000000",
+        "skipSimulation": false
+      },
+      "rawBidirectional": false,
+      "appInboundAccepted": false,
+      "temporary": false
+    },
+    {
+      "symbol": "bMSFT",
+      "address": "0x374A457967Ba24FD3Ae66294cAb08244185574b0",
+      "decimals": 18,
+      "name": "bMSFT",
+      "officialLive": null,
+      "officialSupply": null,
+      "officialSupplyMissing": true,
+      "officialNav": null,
+      "officialNavMissing": true,
+      "rpcIdentity": {
+        "address": "0x374A457967Ba24FD3Ae66294cAb08244185574b0",
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bMSFT",
+        "decimals": 18,
+        "totalSupply": "0",
+        "totalSupplyRaw": "0",
+        "totalSupplyKnown": true,
+        "zeroSupply": true,
+        "erc20IdentityMatches": true
+      },
+      "currentRegistryRecognizes": false,
+      "currentCreateEligible": false,
+      "attempts": [
+        {
+          "nominalUsd": 10,
+          "inbound": {
+            "observedAt": "2026-10-07T00:24:52.687Z",
+            "status": "no_route",
+            "httpStatus": 404,
+            "providerCode": 1002,
+            "attempts": 1,
+            "fromToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+            "toToken": "0x374A457967Ba24FD3Ae66294cAb08244185574b0",
+            "requestedAmount": "10000000",
+            "skipSimulation": false
+          },
+          "appInbound": {
+            "status": "not_tested_no_inbound_route"
+          },
+          "outbound": {
+            "status": "not_tested_no_reliable_quantity"
+          },
+          "rawBidirectional": false,
+          "appInboundAccepted": false
+        }
+      ],
+      "independentOutboundBasis": {
+        "kind": "one_token_probe",
+        "nominalUsd": null,
+        "reason": "No reliable buy output or official NAV exists; not an equal-USD reverse test."
+      },
+      "independentOutbound": {
+        "observedAt": "2026-10-07T00:24:54.928Z",
+        "status": "no_route",
+        "httpStatus": 404,
+        "providerCode": 1002,
+        "attempts": 1,
+        "fromToken": "0x374A457967Ba24FD3Ae66294cAb08244185574b0",
+        "toToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "requestedAmount": "1000000000000000000",
+        "skipSimulation": false
+      },
+      "rawBidirectional": false,
+      "appInboundAccepted": false,
+      "temporary": false
+    },
+    {
+      "symbol": "bIB01",
+      "address": "0xCA30c93B02514f86d5C86a6e375E3A330B435Fb5",
+      "decimals": 18,
+      "name": "bIB01",
+      "officialLive": null,
+      "officialSupply": null,
+      "officialSupplyMissing": true,
+      "officialNav": null,
+      "officialNavMissing": true,
+      "rpcIdentity": {
+        "address": "0xCA30c93B02514f86d5C86a6e375E3A330B435Fb5",
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bIB01",
+        "decimals": 18,
+        "totalSupply": "10000000000000000000000",
+        "totalSupplyRaw": "10000000000000000000000",
+        "totalSupplyKnown": true,
+        "zeroSupply": false,
+        "erc20IdentityMatches": true
+      },
+      "currentRegistryRecognizes": false,
+      "currentCreateEligible": false,
+      "attempts": [
+        {
+          "nominalUsd": 10,
+          "inbound": {
+            "observedAt": "2026-10-07T00:24:56.629Z",
+            "status": "no_route",
+            "httpStatus": 404,
+            "providerCode": 1002,
+            "attempts": 1,
+            "fromToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+            "toToken": "0xCA30c93B02514f86d5C86a6e375E3A330B435Fb5",
+            "requestedAmount": "10000000",
+            "skipSimulation": false
+          },
+          "appInbound": {
+            "status": "not_tested_no_inbound_route"
+          },
+          "outbound": {
+            "status": "not_tested_no_reliable_quantity"
+          },
+          "rawBidirectional": false,
+          "appInboundAccepted": false
+        }
+      ],
+      "independentOutboundBasis": {
+        "kind": "one_token_probe",
+        "nominalUsd": null,
+        "reason": "No reliable buy output or official NAV exists; not an equal-USD reverse test."
+      },
+      "independentOutbound": {
+        "observedAt": "2026-10-07T00:24:58.858Z",
+        "status": "no_route",
+        "httpStatus": 404,
+        "providerCode": 1002,
+        "attempts": 1,
+        "fromToken": "0xCA30c93B02514f86d5C86a6e375E3A330B435Fb5",
+        "toToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "requestedAmount": "1000000000000000000",
+        "skipSimulation": false
+      },
+      "rawBidirectional": false,
+      "appInboundAccepted": false,
+      "temporary": false
+    },
+    {
+      "symbol": "bIBTA",
+      "address": "0x52d134c6DB5889FaD3542A09eAf7Aa90C0fdf9E4",
+      "decimals": 18,
+      "name": "bIBTA",
+      "officialLive": null,
+      "officialSupply": null,
+      "officialSupplyMissing": true,
+      "officialNav": null,
+      "officialNavMissing": true,
+      "rpcIdentity": {
+        "address": "0x52d134c6DB5889FaD3542A09eAf7Aa90C0fdf9E4",
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bIBTA",
+        "decimals": 18,
+        "totalSupply": "0",
+        "totalSupplyRaw": "0",
+        "totalSupplyKnown": true,
+        "zeroSupply": true,
+        "erc20IdentityMatches": true
+      },
+      "currentRegistryRecognizes": false,
+      "currentCreateEligible": false,
+      "attempts": [
+        {
+          "nominalUsd": 10,
+          "inbound": {
+            "observedAt": "2026-10-07T00:25:01.303Z",
+            "status": "no_route",
+            "httpStatus": 404,
+            "providerCode": 1002,
+            "attempts": 1,
+            "fromToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+            "toToken": "0x52d134c6DB5889FaD3542A09eAf7Aa90C0fdf9E4",
+            "requestedAmount": "10000000",
+            "skipSimulation": false
+          },
+          "appInbound": {
+            "status": "not_tested_no_inbound_route"
+          },
+          "outbound": {
+            "status": "not_tested_no_reliable_quantity"
+          },
+          "rawBidirectional": false,
+          "appInboundAccepted": false
+        }
+      ],
+      "independentOutboundBasis": {
+        "kind": "one_token_probe",
+        "nominalUsd": null,
+        "reason": "No reliable buy output or official NAV exists; not an equal-USD reverse test."
+      },
+      "independentOutbound": {
+        "observedAt": "2026-10-07T00:25:03.206Z",
+        "status": "no_route",
+        "httpStatus": 404,
+        "providerCode": 1002,
+        "attempts": 1,
+        "fromToken": "0x52d134c6DB5889FaD3542A09eAf7Aa90C0fdf9E4",
+        "toToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "requestedAmount": "1000000000000000000",
+        "skipSimulation": false
+      },
+      "rawBidirectional": false,
+      "appInboundAccepted": false,
+      "temporary": false
+    },
+    {
+      "symbol": "bMSTR",
+      "address": "0xaC28C9178ACc8BA4A11A29E013a3A2627086e422",
+      "decimals": 18,
+      "name": "bMSTR",
+      "officialLive": null,
+      "officialSupply": null,
+      "officialSupplyMissing": true,
+      "officialNav": null,
+      "officialNavMissing": true,
+      "rpcIdentity": {
+        "address": "0xaC28C9178ACc8BA4A11A29E013a3A2627086e422",
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bMSTR",
+        "decimals": 18,
+        "totalSupply": "3000000000000000000000",
+        "totalSupplyRaw": "3000000000000000000000",
+        "totalSupplyKnown": true,
+        "zeroSupply": false,
+        "erc20IdentityMatches": true
+      },
+      "currentRegistryRecognizes": false,
+      "currentCreateEligible": false,
+      "attempts": [
+        {
+          "nominalUsd": 10,
+          "inbound": {
+            "observedAt": "2026-10-07T00:25:05.456Z",
+            "status": "no_route",
+            "httpStatus": 404,
+            "providerCode": 1002,
+            "attempts": 1,
+            "fromToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+            "toToken": "0xaC28C9178ACc8BA4A11A29E013a3A2627086e422",
+            "requestedAmount": "10000000",
+            "skipSimulation": false
+          },
+          "appInbound": {
+            "status": "not_tested_no_inbound_route"
+          },
+          "outbound": {
+            "status": "not_tested_no_reliable_quantity"
+          },
+          "rawBidirectional": false,
+          "appInboundAccepted": false
+        }
+      ],
+      "independentOutboundBasis": {
+        "kind": "one_token_probe",
+        "nominalUsd": null,
+        "reason": "No reliable buy output or official NAV exists; not an equal-USD reverse test."
+      },
+      "independentOutbound": {
+        "observedAt": "2026-10-07T00:25:07.607Z",
+        "status": "no_route",
+        "httpStatus": 404,
+        "providerCode": 1002,
+        "attempts": 1,
+        "fromToken": "0xaC28C9178ACc8BA4A11A29E013a3A2627086e422",
+        "toToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "requestedAmount": "1000000000000000000",
+        "skipSimulation": false
+      },
+      "rawBidirectional": false,
+      "appInboundAccepted": false,
+      "temporary": false
+    },
+    {
+      "symbol": "bNIU",
+      "address": "0x2f11EeeE0bf21E7661A22dbBbb9068F4ad191b86",
+      "decimals": 18,
+      "name": "bNIU",
+      "officialLive": null,
+      "officialSupply": null,
+      "officialSupplyMissing": true,
+      "officialNav": null,
+      "officialNavMissing": true,
+      "rpcIdentity": {
+        "address": "0x2f11EeeE0bf21E7661A22dbBbb9068F4ad191b86",
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bNIU",
+        "decimals": 18,
+        "totalSupply": "0",
+        "totalSupplyRaw": "0",
+        "totalSupplyKnown": true,
+        "zeroSupply": true,
+        "erc20IdentityMatches": true
+      },
+      "currentRegistryRecognizes": false,
+      "currentCreateEligible": false,
+      "attempts": [
+        {
+          "nominalUsd": 10,
+          "inbound": {
+            "observedAt": "2026-10-07T00:25:09.803Z",
+            "status": "no_route",
+            "httpStatus": 404,
+            "providerCode": 1002,
+            "attempts": 1,
+            "fromToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+            "toToken": "0x2f11EeeE0bf21E7661A22dbBbb9068F4ad191b86",
+            "requestedAmount": "10000000",
+            "skipSimulation": false
+          },
+          "appInbound": {
+            "status": "not_tested_no_inbound_route"
+          },
+          "outbound": {
+            "status": "not_tested_no_reliable_quantity"
+          },
+          "rawBidirectional": false,
+          "appInboundAccepted": false
+        }
+      ],
+      "independentOutboundBasis": {
+        "kind": "one_token_probe",
+        "nominalUsd": null,
+        "reason": "No reliable buy output or official NAV exists; not an equal-USD reverse test."
+      },
+      "independentOutbound": {
+        "observedAt": "2026-10-07T00:25:12.009Z",
+        "status": "no_route",
+        "httpStatus": 404,
+        "providerCode": 1002,
+        "attempts": 1,
+        "fromToken": "0x2f11EeeE0bf21E7661A22dbBbb9068F4ad191b86",
+        "toToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "requestedAmount": "1000000000000000000",
+        "skipSimulation": false
+      },
+      "rawBidirectional": false,
+      "appInboundAccepted": false,
+      "temporary": false
+    },
+    {
+      "symbol": "bTSLA",
+      "address": "0x14A5f2872396802C3Cc8942A39Ab3E4118EE5038",
+      "decimals": 18,
+      "name": "bTSLA",
+      "officialLive": null,
+      "officialSupply": null,
+      "officialSupplyMissing": true,
+      "officialNav": null,
+      "officialNavMissing": true,
+      "rpcIdentity": {
+        "address": "0x14A5f2872396802C3Cc8942A39Ab3E4118EE5038",
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bTSLA",
+        "decimals": 18,
+        "totalSupply": "3000000000000000000000",
+        "totalSupplyRaw": "3000000000000000000000",
+        "totalSupplyKnown": true,
+        "zeroSupply": false,
+        "erc20IdentityMatches": true
+      },
+      "currentRegistryRecognizes": false,
+      "currentCreateEligible": false,
+      "attempts": [
+        {
+          "nominalUsd": 10,
+          "inbound": {
+            "observedAt": "2026-10-07T00:25:14.571Z",
+            "status": "no_route",
+            "httpStatus": 404,
+            "providerCode": 1002,
+            "attempts": 1,
+            "fromToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+            "toToken": "0x14A5f2872396802C3Cc8942A39Ab3E4118EE5038",
+            "requestedAmount": "10000000",
+            "skipSimulation": false
+          },
+          "appInbound": {
+            "status": "not_tested_no_inbound_route"
+          },
+          "outbound": {
+            "status": "not_tested_no_reliable_quantity"
+          },
+          "rawBidirectional": false,
+          "appInboundAccepted": false
+        }
+      ],
+      "independentOutboundBasis": {
+        "kind": "one_token_probe",
+        "nominalUsd": null,
+        "reason": "No reliable buy output or official NAV exists; not an equal-USD reverse test."
+      },
+      "independentOutbound": {
+        "observedAt": "2026-10-07T00:25:16.399Z",
+        "status": "no_route",
+        "httpStatus": 404,
+        "providerCode": 1002,
+        "attempts": 1,
+        "fromToken": "0x14A5f2872396802C3Cc8942A39Ab3E4118EE5038",
+        "toToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "requestedAmount": "1000000000000000000",
+        "skipSimulation": false
+      },
+      "rawBidirectional": false,
+      "appInboundAccepted": false,
+      "temporary": false
+    },
+    {
+      "symbol": "bNVDA",
+      "address": "0xA34C5e0AbE843E10461E2C9586Ea03E55Dbcc495",
+      "decimals": 18,
+      "name": "bNVDA",
+      "officialLive": null,
+      "officialSupply": null,
+      "officialSupplyMissing": true,
+      "officialNav": null,
+      "officialNavMissing": true,
+      "rpcIdentity": {
+        "address": "0xA34C5e0AbE843E10461E2C9586Ea03E55Dbcc495",
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bNVDA",
+        "decimals": 18,
+        "totalSupply": "7062699283142503103840",
+        "totalSupplyRaw": "7062699283142503103840",
+        "totalSupplyKnown": true,
+        "zeroSupply": false,
+        "erc20IdentityMatches": true
+      },
+      "currentRegistryRecognizes": false,
+      "currentCreateEligible": false,
+      "attempts": [
+        {
+          "nominalUsd": 10,
+          "inbound": {
+            "observedAt": "2026-10-07T00:25:18.883Z",
+            "status": "no_route",
+            "httpStatus": 404,
+            "providerCode": 1002,
+            "attempts": 1,
+            "fromToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+            "toToken": "0xA34C5e0AbE843E10461E2C9586Ea03E55Dbcc495",
+            "requestedAmount": "10000000",
+            "skipSimulation": false
+          },
+          "appInbound": {
+            "status": "not_tested_no_inbound_route"
+          },
+          "outbound": {
+            "status": "not_tested_no_reliable_quantity"
+          },
+          "rawBidirectional": false,
+          "appInboundAccepted": false
+        }
+      ],
+      "independentOutboundBasis": {
+        "kind": "one_token_probe",
+        "nominalUsd": null,
+        "reason": "No reliable buy output or official NAV exists; not an equal-USD reverse test."
+      },
+      "independentOutbound": {
+        "observedAt": "2026-10-07T00:25:20.808Z",
+        "status": "no_route",
+        "httpStatus": 404,
+        "providerCode": 1002,
+        "attempts": 1,
+        "fromToken": "0xA34C5e0AbE843E10461E2C9586Ea03E55Dbcc495",
+        "toToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "requestedAmount": "1000000000000000000",
+        "skipSimulation": false
+      },
+      "rawBidirectional": false,
+      "appInboundAccepted": false,
+      "temporary": false
+    },
+    {
+      "symbol": "bCSBGC3",
+      "address": "0xd8B95B1987741849cA7e71e976aEB535fd2e55a2",
+      "decimals": 18,
+      "name": "bCSBGC3",
+      "officialLive": null,
+      "officialSupply": null,
+      "officialSupplyMissing": true,
+      "officialNav": null,
+      "officialNavMissing": true,
+      "rpcIdentity": {
+        "address": "0xd8B95B1987741849cA7e71e976aEB535fd2e55a2",
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bCSBGC3",
+        "decimals": 18,
+        "totalSupply": "0",
+        "totalSupplyRaw": "0",
+        "totalSupplyKnown": true,
+        "zeroSupply": true,
+        "erc20IdentityMatches": true
+      },
+      "currentRegistryRecognizes": false,
+      "currentCreateEligible": false,
+      "attempts": [
+        {
+          "nominalUsd": 10,
+          "inbound": {
+            "observedAt": "2026-10-07T00:25:23.613Z",
+            "status": "no_route",
+            "httpStatus": 404,
+            "providerCode": 1002,
+            "attempts": 1,
+            "fromToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+            "toToken": "0xd8B95B1987741849cA7e71e976aEB535fd2e55a2",
+            "requestedAmount": "10000000",
+            "skipSimulation": false
+          },
+          "appInbound": {
+            "status": "not_tested_no_inbound_route"
+          },
+          "outbound": {
+            "status": "not_tested_no_reliable_quantity"
+          },
+          "rawBidirectional": false,
+          "appInboundAccepted": false
+        }
+      ],
+      "independentOutboundBasis": {
+        "kind": "one_token_probe",
+        "nominalUsd": null,
+        "reason": "No reliable buy output or official NAV exists; not an equal-USD reverse test."
+      },
+      "independentOutbound": {
+        "observedAt": "2026-10-07T00:25:25.696Z",
+        "status": "no_route",
+        "httpStatus": 404,
+        "providerCode": 1002,
+        "attempts": 1,
+        "fromToken": "0xd8B95B1987741849cA7e71e976aEB535fd2e55a2",
+        "toToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "requestedAmount": "1000000000000000000",
+        "skipSimulation": false
+      },
+      "rawBidirectional": false,
+      "appInboundAccepted": false,
+      "temporary": false
+    },
+    {
+      "symbol": "bZPR1",
+      "address": "0xAde6057FcAfa57d6d51FFa341C64ce4814995995",
+      "decimals": 18,
+      "name": "bZPR1",
+      "officialLive": null,
+      "officialSupply": null,
+      "officialSupplyMissing": true,
+      "officialNav": null,
+      "officialNavMissing": true,
+      "rpcIdentity": {
+        "address": "0xAde6057FcAfa57d6d51FFa341C64ce4814995995",
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bZPR1",
+        "decimals": 18,
+        "totalSupply": "0",
+        "totalSupplyRaw": "0",
+        "totalSupplyKnown": true,
+        "zeroSupply": true,
+        "erc20IdentityMatches": true
+      },
+      "currentRegistryRecognizes": false,
+      "currentCreateEligible": false,
+      "attempts": [
+        {
+          "nominalUsd": 10,
+          "inbound": {
+            "observedAt": "2026-10-07T00:25:29.813Z",
+            "status": "no_route",
+            "httpStatus": 404,
+            "providerCode": 1002,
+            "attempts": 1,
+            "fromToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+            "toToken": "0xAde6057FcAfa57d6d51FFa341C64ce4814995995",
+            "requestedAmount": "10000000",
+            "skipSimulation": false
+          },
+          "appInbound": {
+            "status": "not_tested_no_inbound_route"
+          },
+          "outbound": {
+            "status": "not_tested_no_reliable_quantity"
+          },
+          "rawBidirectional": false,
+          "appInboundAccepted": false
+        }
+      ],
+      "independentOutboundBasis": {
+        "kind": "one_token_probe",
+        "nominalUsd": null,
+        "reason": "No reliable buy output or official NAV exists; not an equal-USD reverse test."
+      },
+      "independentOutbound": {
+        "observedAt": "2026-10-07T00:25:30.686Z",
+        "status": "no_route",
+        "httpStatus": 404,
+        "providerCode": 1002,
+        "attempts": 1,
+        "fromToken": "0xAde6057FcAfa57d6d51FFa341C64ce4814995995",
+        "toToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "requestedAmount": "1000000000000000000",
+        "skipSimulation": false
+      },
+      "rawBidirectional": false,
+      "appInboundAccepted": false,
+      "temporary": false
+    }
+  ],
+  "requests": 34,
+  "summary": {
+    "checked": 17,
+    "rawBidirectional": [
+      {
+        "symbol": "bCOIN",
+        "address": "0xbbcb0356bB9e6B3Faa5CbF9E5F36185d53403Ac9"
+      }
+    ],
+    "appInboundAccepted": [],
+    "notCurrentlyConfigured": [
+      "bCSPX",
+      "bCOIN",
+      "bERNA",
+      "bGOOGL",
+      "bERNX",
+      "bGME",
+      "bHIGH",
+      "bC3M",
+      "bMSFT",
+      "bIB01",
+      "bIBTA",
+      "bMSTR",
+      "bNIU",
+      "bTSLA",
+      "bNVDA",
+      "bCSBGC3",
+      "bZPR1"
+    ],
+    "rpcZeroSupply": [
+      "bERNA",
+      "bGOOGL",
+      "bERNX",
+      "bGME",
+      "bHIGH",
+      "bC3M",
+      "bMSFT",
+      "bIBTA",
+      "bNIU",
+      "bCSBGC3",
+      "bZPR1"
+    ],
+    "rpcSupplyUnknown": [],
+    "tempError": [],
+    "verifiedIdentityBidirectional": [
+      {
+        "symbol": "bCOIN",
+        "address": "0xbbcb0356bB9e6B3Faa5CbF9E5F36185d53403Ac9",
+        "decimals": 18
+      }
+    ],
+    "verifiedIdentityBidirectionalCount": 1,
+    "identityMismatches": []
+  },
+  "completedAt": "2026-10-07T00:25:30.695Z",
+  "sourceSnapshot": ".cache/lifi-base-payment-matrix-backed17-2026-10-07.source.json",
+  "sourceSnapshotSha256": "04b59aca7d16cdf76139fb2e0ba355cc3a9eea5085b17a2f7bb25151f08cf0d3",
+  "newIssuanceAvailable": false
+}

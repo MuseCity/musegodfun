@@ -1,7 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { httpServerHandler } from "cloudflare:node";
 import { createServer } from "node:http";
-import { createApp, knownPage } from "../server/app";
+import { createApp, knownPage, chainApiRoute, legacyTokenPath } from "../server/app";
 import { redact, runtimeFromEnv } from "../server/config";
 import { securityHeaders } from "../server/http-security";
 
@@ -9,6 +9,8 @@ interface Env {
   ASSETS: Fetcher;
   LAUNCHPAD: DurableObjectNamespace<LaunchpadRuntime>;
   CF_VERSION_METADATA: { id: string; tag?: string; timestamp: string };
+  LIFI_INTEGRATOR?: string;
+  LIFI_API_KEY?: string;
 }
 
 export class LaunchpadRuntime extends DurableObject<Env> {
@@ -17,10 +19,17 @@ export class LaunchpadRuntime extends DurableObject<Env> {
   private activeRequests = 0;
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
-    const runtime = runtimeFromEnv();
-    if (runtime.config.mode !== "robinhood" || !process.env.SUPABASE_URL || !process.env.SUPABASE_SECRET_KEY)
-      throw new Error("Cloudflare requires Robinhood mainnet and server-side Supabase storage");
-    const { app, service } = createApp(undefined, true);
+    const chainId = ctx.id.equals(env.LAUNCHPAD.idFromName("robinhood-mainnet")) ? 4663
+      : ctx.id.equals(env.LAUNCHPAD.idFromName("base-mainnet")) ? 8453 : null;
+    if (!chainId) throw new Error("Unknown launchpad runtime identity");
+    const configured = runtimeFromEnv(chainId);
+    const runtime = { ...configured, lifi: {
+      integrator: env.LIFI_INTEGRATOR ?? configured.lifi.integrator,
+      ...(env.LIFI_API_KEY ?? configured.lifi.apiKey ? { apiKey: env.LIFI_API_KEY ?? configured.lifi.apiKey } : {}),
+    } };
+    if (runtime.config.mode === "fork" || !runtime.supabase?.url || !runtime.supabase.secretKey)
+      throw new Error("Cloudflare requires a mainnet runtime and server-side Supabase storage");
+    const { app, service } = createApp(undefined, true, runtime);
     this.service = service;
     this.app = app;
   }
@@ -91,14 +100,26 @@ export default {
     const url = new URL(request.url);
     let response: Response;
     if (url.pathname === "/api" || url.pathname.startsWith("/api/") || ["/healthz", "/readyz"].includes(url.pathname)) {
+      let selected: ReturnType<typeof chainApiRoute>;
+      try { selected = chainApiRoute(url.pathname); }
+      catch { return Response.json({ error: "Unsupported deployment network" }, { status: 400, headers: securityHeaders(url.protocol === "https:") }); }
       const headers = new Headers(request.headers);
       // Replace caller-supplied proxy headers before Express trusts them.
       headers.delete("forwarded");
       headers.set("x-forwarded-for", request.headers.get("cf-connecting-ip") || "127.0.0.1");
       headers.set("x-forwarded-proto", url.protocol.slice(0, -1));
       headers.set("x-forwarded-host", url.host);
-      response = await env.LAUNCHPAD.get(env.LAUNCHPAD.idFromName("robinhood-mainnet")).fetch(new Request(request, { headers }));
+      const chainId = selected?.chainId ?? 4663;
+      const forwardedUrl = new URL(request.url);
+      if (selected) forwardedUrl.pathname = selected.path;
+      response = await env.LAUNCHPAD.get(env.LAUNCHPAD.idFromName(chainId === 8453 ? "base-mainnet" : "robinhood-mainnet"))
+        .fetch(new Request(forwardedUrl, new Request(request, { headers })));
     } else {
+      const redirect = legacyTokenPath(url.pathname);
+      if (redirect && request.method === "GET") {
+        url.pathname = redirect;
+        return new Response(null, { status: 308, headers: { Location: url.toString(), ...securityHeaders(url.protocol === "https:"), "Cache-Control": "no-cache" } });
+      }
       const assetUrl = new URL(request.url);
       if (knownPage(url.pathname)) assetUrl.pathname = "/index.html";
       response = await env.ASSETS.fetch(new Request(assetUrl, request));

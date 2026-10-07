@@ -44,7 +44,8 @@ const sdk = new DopplerSDK<4663>({
     transport: http(fork.rpc, { timeout: 120_000, retryCount: 0 }),
   }).extend(() => ({ getChainId: async () => 4663 })),
 });
-const serviceRuntime = { config: forkConfig, rpcUrl: fork.rpc, dataDir };
+const serviceRuntime = { config: forkConfig, rpcUrl: fork.rpc, dataDir, dataScope: "robinhood",
+  launchGuardCandidate: null, firstBuyGuardCandidate: null, lifi: runtimeFromEnv(4663).lifi };
 let service = new LaunchpadService(serviceRuntime);
 const snapshot = await fork.rpcCall("evm_snapshot");
 let snapshotRestored = false;

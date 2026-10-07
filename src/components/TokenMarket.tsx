@@ -1,8 +1,8 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { RefreshCw, TrendingUp, Users } from "lucide-react";
 import { formatUnits } from "viem";
-import { api } from "../lib/api";
-import { explorerFor, shortAddress, type TokenRecord } from "../lib/config";
+import { chainApi } from "../lib/api";
+import { deploymentChain, explorerFor, shortAddress, type TokenRecord } from "../lib/config";
 import { MUSEGOD } from "../lib/musegod";
 import {
   CHART_INTERVALS,
@@ -20,7 +20,12 @@ const usd = (n: number | null | undefined, precise = false) =>
     : `$${n.toLocaleString("en-US", precise ? { maximumSignificantDigits: 6 } : { notation: "compact", maximumFractionDigits: 2 })}`;
 const count = (n: number) =>
   n.toLocaleString("en-US", { notation: "compact", maximumFractionDigits: 2 });
-export type MarketToken = Pick<TokenRecord, "address" | "symbol" | "mode">;
+export type MarketToken = Pick<TokenRecord, "address" | "symbol" | "mode" | "deploymentChainId">;
+export function marketEndpoint(token: MarketToken, kind: "launch" | "musegod", section: string) {
+  const chainId = kind === "musegod" ? 4663 : deploymentChain(token);
+  const path = kind === "musegod" ? `/musegod/market/${section}` : `/tokens/${token.address}/market/${section}`;
+  return { chainId, path, key: `${chainId}:${token.mode}:${path}` };
+}
 function useMarket<
   T extends { fetchedAt: string; status?: string; warning?: string },
 >(token: MarketToken, kind: "launch" | "musegod", section: string, revision: number, enabled = true) {
@@ -30,11 +35,11 @@ function useMarket<
     loading: boolean;
   }>({ data: null, error: "", loading: true });
   const previousPath = useRef("");
-  const path = kind === "musegod" ? `/musegod/market/${section}` : `/tokens/${token.address}/market/${section}`;
+  const { chainId, path, key } = marketEndpoint(token, kind, section);
   useEffect(() => {
     let active = true;
-    const samePath = previousPath.current === path;
-    previousPath.current = path;
+    const samePath = previousPath.current === key;
+    previousPath.current = key;
     setResult((previous) => ({
       data: samePath ? previous.data : null,
       error: "",
@@ -49,7 +54,7 @@ function useMarket<
       });
       return;
     }
-    api<T>(path)
+    chainApi<T>(chainId, path)
       .then((data) => {
         if (active) setResult({ data, error: "", loading: false });
       })
@@ -72,7 +77,7 @@ function useMarket<
     return () => {
       active = false;
     };
-  }, [path, token.mode, revision, enabled]);
+  }, [key, chainId, path, revision, enabled]);
   useEffect(() => {
     if (!result.data) return;
     const remaining = Date.parse(result.data.fetchedAt) + 86400000 - Date.now();
@@ -81,7 +86,7 @@ function useMarket<
     const timer=setTimeout(expire,remaining);
     return () => clearTimeout(timer);
   },[result.data?.fetchedAt]);
-  return result;
+  return previousPath.current === key ? result : { data: null, error: "", loading: enabled };
 }
 function Message({
   loading,

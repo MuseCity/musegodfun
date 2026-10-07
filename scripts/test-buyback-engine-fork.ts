@@ -262,7 +262,8 @@ async function issue(ticker: string, buyAmount: string) {
   assert(asset);
   const amount = parseUnits(buyAmount, asset.decimals);
   const funding = await fund(asset, amount * 2n);
-  const valuation = await readOpeningValuation(client, asset, 4663);
+  const valuation = await readOpeningValuation(client, asset, 4663,
+    { integrator: process.env.LIFI_INTEGRATOR || "musegodfun", apiKey: process.env.LIFI_API_KEY, rpcChainId: 31337 });
   const owner = await sdk.getAirlockOwner();
   const input = { name: `${ticker} fee burn fork proof`, symbol: `BF${ticker}`, description: "Isolated fork acceptance.",
     image: "", quoteAddress: asset.address };

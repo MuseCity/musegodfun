@@ -1,0 +1,29 @@
+{
+  "sourceHash": "86fe1ecda134b046098a4ceba90f45856ffb8bbed6c68307103fe288e95b6a3f",
+  "artifactHash": "c0c0faeffbefd973e717c3c93c0be15b0d0dbec58acf85d3792350946ef0ad8a",
+  "mainnetTransactions": "not_run",
+  "chains": [
+    {
+      "deploymentChainId": 4663,
+      "forkBlockNumber": "82100250",
+      "executionChainId": 31337,
+      "asset": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+      "guard": "0xf99add941432ec09b498ea1b680be13f2e717d88",
+      "launchHash": "0x9ffee728958cdecaaa534dd5a08c8356ebb0efaa761cb6d961359404a2ed39a1",
+      "claimHash": "0x60aad31270243a938f7e8b2606757a3af79fb2459a37d665eb99b5bd82b2022e",
+      "tokenAddress": "0xD91d1Ac312603CE2b3874CEc68E824380613e47A",
+      "lock": {
+        "bundler": "0xf45588E8e0B1df9dB9ae7E20eCE5726AE931357c",
+        "recipient": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+        "totalAmount": "536316058417382485786533",
+        "start": 1791337838,
+        "cliffDuration": 2592000,
+        "vestingDuration": 2592000,
+        "lockDays": 30
+      },
+      "actualInput": "1000000000000000",
+      "snapshotRestored": true,
+      "upstreamWrites": 0
+    }
+  ]
+}

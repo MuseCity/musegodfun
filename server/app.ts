@@ -4,7 +4,9 @@ import { TokenImages } from "./token-images";
 import { z } from "zod";
 import type { Hex } from "viem";
 import { LaunchpadService, runtimeFromEnv } from "./service";
-import { redact } from "./config";
+import { redact, type Runtime, type DeploymentChainId } from "./config";
+import { deploymentChain } from "../src/lib/config";
+import { FirstBuyPaymentReader } from "./lifi";
 import { MarketUnavailable } from "./snapshots";
 import { MarketReader } from "./market";
 import { MusegodReader } from "./musegod";
@@ -23,14 +25,29 @@ import {
 
 export const knownPage = (path: string) =>
   /^\/(?:create|rewards|buyback)?$/.test(path) ||
-  /^\/token\/0x[0-9a-fA-F]{40}$/.test(path);
+  /^\/token\/(?:(?:base|robinhood)\/)?0x[0-9a-fA-F]{40}$/.test(path);
+
+export function legacyTokenPath(path: string): string | null {
+  return /^\/token\/0x[0-9a-fA-F]{40}$/.test(path)
+    ? path.replace("/token/", "/token/robinhood/") : null;
+}
+
+export function chainApiRoute(path: string): { chainId: DeploymentChainId; path: string } | null {
+  if (!path.startsWith("/api/chains")) return null;
+  const match = /^\/api\/chains\/(8453|4663)(\/.*)?$/.exec(path);
+  if (!match) throw new Error("Unsupported deployment network");
+  const target = `/api${match[2] || ""}`;
+  if (target === "/api/rpc/robinhood") throw new Error("Use the selected chain RPC endpoint");
+  return { chainId: Number(match[1]) as DeploymentChainId, path: target };
+}
 
 export function createApp(
   configurePages?: (app: express.Express) => void,
   trustProxy: "loopback" | true = "loopback",
+  runtime: Runtime = runtimeFromEnv(),
 ) {
 const app = express(),
-  service = new LaunchpadService(runtimeFromEnv());
+  service = new LaunchpadService(runtime);
 const images = new TokenImages(process.env.PINATA_JWT);
 const market = new MarketReader({
   store: service.store,
@@ -41,6 +58,8 @@ const musegodMarket = new MusegodMarketReader(service.runtime.config, service.st
 const buyback = new BuybackReader(service.runtime.config.treasury);
 const buybackBatches = new BuybackBatchService(buyback, service.store, service.client, service.runtime.config);
 const buybackEngine = new BuybackEngineReader(service.client, () => service.config(), () => service.tokens(), (address, engine) => service.engineClaimPreview(address, engine));
+const payments = new FirstBuyPaymentReader({ client: service.client, chainId: deploymentChain(runtime.config),
+  rpcChainId: runtime.config.mode === "fork" && runtime.config.chainId === 31337 ? 31337 : deploymentChain(runtime.config), ...runtime.lifi });
 app.set("trust proxy", trustProxy);
 app.disable("x-powered-by");
 app.set("json replacer", (_key: string, value: unknown) =>
@@ -123,7 +142,7 @@ app.post("/api/token-images", route(async (req, res) => {
 let readyCheck: Promise<boolean> | undefined,
   readyAt = 0;
 app.get(
-  "/readyz",
+  ["/readyz", "/api/readyz"],
   route(async (_req, res) => {
     if (!readyCheck || Date.now() - readyAt > 15000) {
       readyAt = Date.now();
@@ -184,6 +203,23 @@ app.post(
   }),
 );
 app.get("/api/config", route(async (_req, res) => res.json(await service.config())));
+app.get("/api/first-buy/prices", route(async (req, res) => {
+  const pairedAsset = req.query.pairedAsset === undefined ? undefined : addressSchema.parse(req.query.pairedAsset);
+  res.json(await payments.prices(pairedAsset));
+}));
+app.post("/api/first-buy/quote", route(async (req, res) => {
+  const input = z.object({ account: addressSchema, fromToken: addressSchema, toToken: addressSchema,
+    amount: z.string().max(40), slippageBps: z.union([z.literal(50), z.literal(100), z.literal(200), z.literal(500)]) }).strict().parse(req.body);
+  await service.preflightFirstBuyPayment(input.toToken);
+  res.json(await payments.quote(input));
+}));
+app.post("/api/first-buy/verify", route(async (req, res) => {
+  const input = z.object({ quote: z.unknown(), hash: hashSchema }).strict().parse(req.body);
+  res.json(await payments.verify({ quote: input.quote as Parameters<FirstBuyPaymentReader["verify"]>[0]["quote"], hash: input.hash as Hex }));
+}));
+app.get("/api/first-buy-lock/:address", route(async (req, res) =>
+  res.json(await service.firstBuyLock(addressSchema.parse(req.params.address))),
+));
 app.get("/api/buyback/engine", route(async (_req, res) => res.json(await buybackEngine.read())));
 let engineQuoting = false;
 app.post("/api/buyback/engine/quote", route(async (req, res) => {
@@ -465,4 +501,34 @@ app.use(
   },
 );
 return { app, service };
+}
+
+export function createDualChainApp(
+  configurePages?: (app: express.Express) => void,
+  trustProxy: "loopback" | true = "loopback",
+  runtimes: Runtime[] = process.env.CHAIN_MODE === "fork" ? [runtimeFromEnv()] : [runtimeFromEnv(4663), runtimeFromEnv(8453)],
+) {
+  const app = express();
+  app.set("trust proxy", trustProxy);
+  app.disable("x-powered-by");
+  const chains = new Map(runtimes.map((runtime) => [deploymentChain(runtime.config), createApp(undefined, trustProxy, runtime)]));
+  const legacy = chains.get(4663) ?? (runtimes[0]?.config.mode === "fork" ? chains.get(deploymentChain(runtimes[0].config)) : undefined);
+  if (!legacy) throw new Error("A Robinhood runtime is required for legacy API routes");
+  app.use((req, res, next) => {
+    for (const [key, value] of Object.entries(securityHeaders(req.secure, process.env.NODE_ENV === "production"))) res.setHeader(key, value);
+    let selected: ReturnType<typeof chainApiRoute>;
+    try { selected = chainApiRoute(req.path); }
+    catch { res.status(400).json({ error: "Unsupported deployment network" }); return; }
+    if (selected) {
+      const target = chains.get(selected.chainId);
+      if (!target) { res.status(422).json({ error: "The requested network is unavailable in this local fork" }); return; }
+      const query = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
+      req.url = selected.path + query;
+      target.app(req, res, next);
+    } else if (req.path === "/api" || req.path.startsWith("/api/") || ["/healthz", "/readyz"].includes(req.path)) {
+      legacy.app(req, res, next);
+    } else next();
+  });
+  configurePages?.(app);
+  return { app, services: new Map([...chains].map(([chainId, entry]) => [chainId, entry.service])) };
 }

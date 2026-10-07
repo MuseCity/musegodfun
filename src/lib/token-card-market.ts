@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api } from "./api";
+import { chainApi } from "./api";
 import { deploymentChain, type RuntimeConfig, type TokenRecord } from "./config";
 import type { MarketSummary } from "./market";
 import { MUSEGOD } from "./musegod";
@@ -18,7 +18,7 @@ type MarketPlan = {
   baseAddresses: string[];
   musegod: boolean;
 };
-type SummaryReader = <T>(path: string) => Promise<T>;
+type SummaryReader = typeof chainApi;
 const MAX_AGE = 24 * 60 * 60_000;
 const MUSEGOD_ADDRESS = MUSEGOD.token.toLowerCase();
 const unavailable = (error = "Market data unavailable"): CardMarketState => ({
@@ -53,14 +53,16 @@ export function cardMarketPlan(tokens: TokenRecord[], config: RuntimeConfig | nu
 
 // The existing endpoint admits at most 30 registered addresses per request.
 export async function loadCardMarkets(
-  baseAddresses: string[], musegod: boolean, read: SummaryReader = api,
+  chainId: 8453 | 4663, baseAddresses: string[], musegod: boolean, read: SummaryReader = chainApi,
   isActive: () => boolean = () => true,
 ): Promise<CardMarkets> {
   const rows: CardMarkets = {};
   if (!isActive()) return rows;
+  if ((musegod && chainId !== 4663) || (baseAddresses.length > 0 && chainId !== 8453))
+    throw new Error("The market request does not match the selected network");
   if (musegod) {
     try {
-      const data = await read<MarketSummary>("/musegod/market/summary");
+      const data = await read<MarketSummary>(4663, "/musegod/market/summary");
       if (!isActive()) return rows;
       rows[MUSEGOD_ADDRESS] = { data, loading: false, error: "" };
     } catch (error) {
@@ -74,6 +76,7 @@ export async function loadCardMarkets(
     const batch = addresses.slice(offset, offset + 30);
     try {
       const result = await read<{ address: string; summary: MarketSummary | null }[]>(
+        chainId,
         `/market/summaries?addresses=${encodeURIComponent(batch.join(","))}`,
       );
       if (!isActive()) return rows;
@@ -140,7 +143,7 @@ export function useTokenCardMarkets(
         ? retainCardMarket(previous.rows[address], state) : state,
     ])) }));
     if (baseKey || requestMusegod) {
-      void loadCardMarkets(baseKey ? baseKey.split(",") : [], requestMusegod, api, () => active).then((result) => {
+      void loadCardMarkets(deploymentChain(config!), baseKey ? baseKey.split(",") : [], requestMusegod, chainApi, () => active).then((result) => {
         if (!active) return;
         setStore((previous) => {
           if (previous.scope !== scope) return previous;

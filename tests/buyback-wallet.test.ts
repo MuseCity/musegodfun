@@ -86,7 +86,7 @@ test("buyback provider transport rejects messages and any write differing from t
     { chainId: "0x2105" }, { authorizationList: [] }, { nonce: "0x8" }, { nonce: undefined },
   ]) assert.throws(() => assertBuybackRequest({ method: "eth_sendTransaction", params: [{ ...tx, ...changed }] }, step));
   assert.throws(() => transactionClient(1));
-  assert.equal(transactionClient(4663).chain?.id, 4663);
+  assert.equal(transactionClient(4663).transport.url, "/api/chains/4663/rpc");
 });
 
 test("budget authorization serializes the exact app, account, asset, raw amount, claims, nonce and expiry", () => {
@@ -119,7 +119,7 @@ test("wallet preparation submits the authorization and exact budget in the HTTP 
   let calls = 0;
   globalThis.fetch = async (url, options) => {
     calls++;
-    assert.equal(url, "/api/buyback/batches");
+    assert.equal(url, "/api/chains/8453/buyback/batches");
     assert.equal(options?.method, "POST");
     assert.deepEqual(JSON.parse(options?.body as string), { ...input, authorization });
     return new Response(JSON.stringify({ id: "prepared-batch" }), { status: 200 });

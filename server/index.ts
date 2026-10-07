@@ -1,14 +1,20 @@
 import express from "express";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { createApp, knownPage } from "./app";
+import { createDualChainApp, knownPage, legacyTokenPath } from "./app";
 import { loadEnvironment, redact } from "./config";
 
 loadEnvironment();
 const vite = process.env.NODE_ENV === "production" ? null : await (await import("vite")).createServer({
   server: { middlewareMode: true }, appType: "custom",
 });
-const { app, service } = createApp((app) => {
+const { app, services } = createDualChainApp((app) => {
+  app.get("/token/:address", (req, res, next) => {
+    const target = legacyTokenPath(req.path);
+    if (!target) { next(); return; }
+    const query = req.originalUrl.includes("?") ? req.originalUrl.slice(req.originalUrl.indexOf("?")) : "";
+    res.redirect(308, target + query);
+  });
   if (!vite) {
     app.use(express.static(resolve("dist"), {
       setHeaders(res, path) {
@@ -34,28 +40,31 @@ const { app, service } = createApp((app) => {
 const port = Number(process.env.PORT || 5188);
 const server = app.listen(port, "127.0.0.1", () =>
   console.log(
-    `musegod.fun: http://127.0.0.1:${port} · ${service.runtime.config.mode} · signing ${service.runtime.config.writesEnabled ? "enabled" : "disabled"}`,
+    `musegod.fun: http://127.0.0.1:${port} · ${[...services.values()].map((service) => `${service.runtime.config.mode}: signing ${service.runtime.config.writesEnabled ? "enabled" : "disabled"}`).join(", ")}`,
   ),
 );
 
 server.headersTimeout = 15000;
 server.requestTimeout = 30000;
 const upkeep = setInterval(() => {
-  void Promise.resolve(service.store.cleanup()).catch(() => {});
-  void service.reconcile().catch(() => {});
+  for (const service of services.values()) {
+    void Promise.resolve(service.store.cleanup()).catch(() => {});
+    void service.reconcile().catch(() => {});
+  }
 }, 30000);
 upkeep.unref();
 // Keep health/read-only diagnostics available through a transient database
 // outage. Every operation still requires its persistent store to succeed.
-void Promise.resolve(service.store.health())
-  .then(() => service.store.cleanup())
-  .then(() => service.reconcile())
-  .catch((error) => console.error(`Database startup check failed: ${redact(error)}`));
+for (const service of services.values())
+  void Promise.resolve(service.store.health())
+    .then(() => service.store.cleanup())
+    .then(() => service.reconcile())
+    .catch((error) => console.error(`Database startup check failed: ${redact(error)}`));
 for (const signal of ["SIGTERM", "SIGINT"] as const)
   process.once(signal, () => {
     clearInterval(upkeep);
     server.close(() => {
-      void Promise.resolve(service.store.close()).finally(() =>
+      void Promise.all([...services.values()].map((service) => Promise.resolve(service.store.close()))).finally(() =>
         process.exit(0),
       );
     });

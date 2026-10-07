@@ -98,6 +98,13 @@ contract LaunchToken {
     constructor(address recipient, uint128 output) {
         balanceOf[recipient] = output;
     }
+
+    function transfer(address recipient, uint256 amount) external returns (bool) {
+        require(balanceOf[msg.sender] >= amount, "balance");
+        balanceOf[msg.sender] -= amount;
+        balanceOf[recipient] += amount;
+        return true;
+    }
 }
 
 contract MockBundler is IDopplerBundler {
@@ -116,6 +123,15 @@ contract MockBundler is IDopplerBundler {
     bool public reentrySucceeded;
     bytes public reentryResult;
     mapping(bytes32 => bool) private usedSalt;
+    struct Position {
+        address recipient;
+        uint64 start;
+        uint64 duration;
+        uint128 amount;
+        bool claimed;
+    }
+    mapping(address => Position) public vestingOf;
+    VestingParams public lastVesting;
 
     function configure(uint128 value, uint128 leave, bool fail) external {
         output = value;
@@ -149,7 +165,8 @@ contract MockBundler is IDopplerBundler {
         payable
         returns (address asset, PoolKey memory key, address governance, address timelock, uint128 amountOut)
     {
-        require(!vesting.permissionlessClaim && vesting.vestingDuration == 0 && vesting.cliffDuration == 0, "vesting");
+        require(!vesting.permissionlessClaim && vesting.cliffDuration == vesting.vestingDuration, "vesting");
+        lastVesting = vesting;
         require(msg.value == 0, "value");
         require(!usedSalt[data.salt], "duplicate salt");
         usedSalt[data.salt] = true;
@@ -161,7 +178,9 @@ contract MockBundler is IDopplerBundler {
                 abi.encodeCall(MusegodLaunchGuard.createAndBuy, (data, amountIn, uint128(1), block.timestamp))
             );
         }
-        asset = address(new LaunchToken{salt: data.salt}(recipient, output));
+        asset = address(new LaunchToken{salt: data.salt}(vesting.vestingDuration == 0 ? recipient : address(this), output));
+        if (vesting.vestingDuration != 0)
+            vestingOf[asset] = Position(recipient, uint64(block.timestamp), vesting.vestingDuration, output, false);
         createdCount += 1;
         IERC20(data.numeraire).safeTransferFrom(msg.sender, address(this), amountIn - unspent);
         require(!shouldRevert, "bundler failure");
@@ -169,6 +188,15 @@ contract MockBundler is IDopplerBundler {
             ? PoolKey(asset, data.numeraire, 0x800000, 10, address(0xC1))
             : PoolKey(data.numeraire, asset, 0x800000, 10, address(0xC1));
         return (asset, key, address(0xD1), address(0xE1), output);
+    }
+
+    function claim(address asset) external returns (uint128) {
+        Position storage position = vestingOf[asset];
+        require(msg.sender == position.recipient, "recipient");
+        require(block.timestamp >= uint256(position.start) + position.duration && !position.claimed, "locked");
+        position.claimed = true;
+        LaunchToken(asset).transfer(position.recipient, position.amount);
+        return position.amount;
     }
 }
 
@@ -247,6 +275,53 @@ contract MusegodLaunchGuardTest {
         assertEq(official.lastPayer(), address(guard));
         assertEq(official.observedAllowance(), INPUT);
         assertEq(address(guard.bundler()), address(official));
+    }
+
+    function testLockSchedulesHoldAllOutputUntilTheExactUnlockAndOnlyPayCreator() public {
+        uint16[3] memory durations = [uint16(30), uint16(90), uint16(365)];
+        for (uint256 i; i < durations.length; ++i) {
+            uint64 start = uint64(block.timestamp);
+            vm.prank(ALICE);
+            quote.approve(address(guard), INPUT);
+            vm.prank(ALICE);
+            (address asset,,,,) = guard.createAndBuyLocked(params(bytes32(uint256(i + 10))), INPUT, OUTPUT, block.timestamp, durations[i]);
+            assertEq(LaunchToken(asset).balanceOf(ALICE), 0);
+            assertEq(LaunchToken(asset).balanceOf(address(official)), OUTPUT);
+            (bool permissionless, uint64 duration, uint64 cliff) = official.lastVesting();
+            require(!permissionless && duration == uint64(durations[i]) * 1 days && cliff == duration, "schedule");
+            assertEq(quote.balanceOf(address(guard)), 0);
+            assertEq(quote.allowance(address(guard), address(official)), 0);
+            vm.warp(uint256(start) + duration - 1);
+            vm.expectRevert();
+            vm.prank(ALICE);
+            official.claim(asset);
+            vm.warp(uint256(start) + duration);
+            vm.expectRevert();
+            vm.prank(BOB);
+            official.claim(asset);
+            vm.prank(ALICE);
+            assertEq(official.claim(asset), OUTPUT);
+            assertEq(LaunchToken(asset).balanceOf(ALICE), OUTPUT);
+            assertEq(LaunchToken(asset).balanceOf(address(official)), 0);
+            vm.expectRevert();
+            vm.prank(ALICE);
+            official.claim(asset);
+        }
+    }
+
+    function testInvalidLockDaysRejectsBeforeTakingFunds() public {
+        vm.expectRevert(MusegodLaunchGuard.InvalidLockDays.selector);
+        vm.prank(ALICE);
+        guard.createAndBuyLocked(params(bytes32(uint256(20))), INPUT, OUTPUT, block.timestamp, 31);
+        assertEq(quote.balanceOf(ALICE), 10_000);
+        assertEq(official.createdCount(), 0);
+    }
+
+    function testLockedMinimumFailureRollsBackCreationAndCustody() public {
+        vm.expectRevert(abi.encodeWithSelector(MusegodLaunchGuard.OutputBelowMinimum.selector, OUTPUT, OUTPUT + 1));
+        vm.prank(ALICE);
+        guard.createAndBuyLocked(params(bytes32(uint256(21))), INPUT, OUTPUT + 1, block.timestamp, 30);
+        assertRollback(official.predict(bytes32(uint256(21)), address(official)));
     }
 
     function testMinimumOneRawUnitHigherRollsBackCreationAndFunds() public {

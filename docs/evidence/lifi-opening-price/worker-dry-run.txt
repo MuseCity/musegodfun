@@ -1,0 +1,19 @@
+
+ ⛅️ wrangler 4.147.0
+────────────────────
+✨ Read 207 files from the assets directory /Volumes/code/opc/musegodfun/dist
+Total Upload: 3659.60 KiB / gzip: 766.61 KiB
+Your Worker has access to the following bindings:
+Binding                                                                           Resource
+env.LAUNCHPAD (LaunchpadRuntime)                                                  Durable Object
+env.ASSETS                                                                        Assets
+env.CF_VERSION_METADATA                                                           Worker Version Metadata
+env.CHAIN_MODE ("robinhood")                                                      Environment Variable
+env.SUPABASE_DATA_SCOPE ("robinhood")                                             Environment Variable
+env.PLATFORM_TREASURY ("0xc4F87C3715374445C4657aa14c47CBB339b...")                Environment Variable
+env.ENABLE_MAINNET_TRANSACTIONS ("true")                                          Environment Variable
+env.LAUNCH_GUARD_ADDRESS ("0xfD919E60eB32AE9d02A89D6D9bAB94E2634...")             Environment Variable
+env.SUPABASE_URL ("https://vrhzgmulcyqqzkkforsl.supabase...")                     Environment Variable
+env.NODE_ENV ("production")                                                       Environment Variable
+
+--dry-run: exiting now.

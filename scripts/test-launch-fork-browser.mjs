@@ -10,6 +10,9 @@ import { launchGuardAbi } from '../src/lib/launch-guard.ts';
 
 const context = JSON.parse(await readFile('.cache/launch-browser-context.json', 'utf8'));
 assert(['127.0.0.1', 'localhost'].includes(new URL(context.rpc).hostname));
+assert.equal(context.deploymentChainId, 4663, 'This local-fork acceptance covers Robinhood and No lock only');
+assert.equal(context.executionChainId, 31337);
+const apiPrefix = `/api/chains/${context.deploymentChainId}`;
 const client = createPublicClient({ transport: http(context.rpc, { timeout: 120000 }) });
 assert.equal(await client.getChainId(), 31337);
 const quote = ROBINHOOD_STOCKS.find(asset => asset.symbol === 'WETH');
@@ -29,32 +32,34 @@ async function rpc(method, params = []) {
 }
 const log = createWriteStream('.cache/launch-fork-browser-server.log');
 const server = spawn(process.execPath, ['node_modules/tsx/dist/cli.mjs', 'server/index.ts'], {
-  env: { ...process.env, NODE_ENV: 'production', PORT: String(port), CHAIN_MODE: 'fork', FORK_CHAIN_ID: '4663', FORK_RPC_URL: context.rpc,
-    PLATFORM_TREASURY: context.treasury, LAUNCH_GUARD_ADDRESS: context.guard, DATA_DIR: context.dataDir,
+  env: { ...process.env, NODE_ENV: 'production', PORT: String(port), CHAIN_MODE: 'fork', FORK_CHAIN_ID: String(context.deploymentChainId), FORK_RPC_URL: context.rpc,
+    PLATFORM_TREASURY: context.treasury, ROBINHOOD_PLATFORM_TREASURY: context.treasury,
+    LAUNCH_GUARD_ADDRESS: context.guard, ROBINHOOD_LAUNCH_GUARD_ADDRESS: context.guard,
+    ROBINHOOD_FIRST_BUY_GUARD_ADDRESS: context.guard, DATA_DIR: context.dataDir,
     SUPABASE_URL: '', SUPABASE_SECRET_KEY: '', ENABLE_MAINNET_TRANSACTIONS: 'false' },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 server.stdout.pipe(log); server.stderr.pipe(log);
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const browser = await chromium.launch({ headless: true });
-const report = { observedAt: new Date().toISOString(), chainId: 31337, curvePolicy: CURVE_POLICY,
-  scope: 'Actual local API, official contracts on isolated fork and local unlocked Anvil test account; no real user wallet, mainnet transaction or publication.',
+const report = { observedAt: new Date().toISOString(), chainId: 31337, deploymentChainId: context.deploymentChainId, curvePolicy: CURVE_POLICY,
+  scope: 'Actual scoped local API, official contracts on isolated Robinhood fork and local unlocked Anvil test account, paired WETH payment and No lock; no real user wallet, conversion, mainnet transaction or publication.',
   guard: context.guard, checks: [], productionPublication: 'not_run' };
 let activePage;
 try {
   for (let attempt = 0; attempt < 100; attempt++) {
-    try { if ((await fetch(origin + '/api/config')).ok) break; } catch {}
+    try { if ((await fetch(origin + apiPrefix + '/config')).ok) break; } catch {}
     if (attempt === 99) throw new Error('Local acceptance server did not start');
     await new Promise(resolve => setTimeout(resolve, 500));
   }
   console.log('LOCAL FORK BROWSER ' + origin);
-  const config = await (await fetch(origin + '/api/config')).json();
-  assert.equal(config.chainId, 31337); assert.equal(config.curvePolicy, CURVE_POLICY);
+  const config = await (await fetch(origin + apiPrefix + '/config')).json();
+  assert.equal(config.chainId, 31337); assert.equal(config.deploymentChainId, context.deploymentChainId); assert.equal(config.curvePolicy, CURVE_POLICY);
   assert(sameAddress(config.launchGuard, context.guard)); assert.equal(config.writesEnabled, true);
   const assetVerificationStarted = Date.now();
-  const verifiedAssets = await (await fetch(origin + '/api/stocks', { signal: AbortSignal.timeout(300000) })).json();
+  const verifiedAssets = await (await fetch(origin + apiPrefix + '/stocks', { signal: AbortSignal.timeout(300000) })).json();
   assert(verifiedAssets.find(asset => sameAddress(asset.address, quote.address))?.verified);
-  report.assetVerification = { source: 'actual /api/stocks, warmed before browser navigation',
+  report.assetVerification = { source: `actual ${apiPrefix}/stocks, warmed before browser navigation`,
     count: verifiedAssets.length, verified: verifiedAssets.filter(asset => asset.verified).length,
     elapsedMs: Date.now() - assetVerificationStarted };
   console.log('PASS actual asset verification: ' + report.assetVerification.verified);
@@ -90,13 +95,15 @@ try {
     page.setDefaultTimeout(120000);
     const errors = []; page.on('pageerror', error => errors.push(error.message));
     page.on('response', async response => {
-      if (response.url().endsWith('/api/launch/prepare') && response.ok()) plan = await response.json();
+      if (new URL(response.url()).pathname === `${apiPrefix}/launch/prepare` && response.ok()) plan = await response.json();
     });
-    await page.goto(origin + '/create');
+    await page.goto(origin + `/create?chainId=${context.deploymentChainId}`);
     await page.getByText('Asset details · Contract identity verified', { exact: true }).waitFor();
     await page.getByLabel('Token name', { exact: true }).fill(mobile ? 'Local mobile curve' : 'Local desktop curve');
     await page.getByLabel('Token symbol', { exact: true }).fill(mobile ? 'MOBL' : 'DESK');
-    await page.getByLabel('Spend WETH', { exact: true }).fill('0.0001');
+    await page.getByLabel('Pay with', { exact: true }).selectOption(quote.address);
+    await page.getByLabel('First buy amount in WETH', { exact: true }).fill('0.0001');
+    await page.getByRole('button', { name: 'No lock', exact: true }).click();
     await page.getByRole('button', { name: 'Connect wallet', exact: true }).click();
     const choose = page.getByRole('button', { name: /Local fork test wallet/ });
     if (await choose.count()) await choose.click();
@@ -105,9 +112,9 @@ try {
     await page.getByRole('button', { name: 'Preview launch and first buy', exact: true }).click();
     await page.getByRole('button', { name: 'Confirm launch and first buy', exact: true }).waitFor();
     console.log('PASS fork browser preview: ' + (mobile ? 'mobile' : 'desktop'));
-    assert(plan?.firstBuy); assert.equal(plan.curvePolicy, CURVE_POLICY);
+    assert(plan?.firstBuy); assert.equal(plan.firstBuy.lockDays ?? 0, 0); assert.equal(plan.curvePolicy, CURVE_POLICY);
     const before = await client.readContract({ address: quote.address, abi: erc20Abi, functionName: 'balanceOf', args: [context.creator] });
-    const screenshot = `docs/evidence/launch-curve-fork-${mobile ? 'mobile' : 'desktop'}-review.png`;
+    const screenshot = `.cache/launch-scoped-fork-browser-${mobile ? 'mobile' : 'desktop'}-review.png`;
     await page.screenshot({ path: screenshot, fullPage: true });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     await page.getByRole('button', { name: 'Confirm launch and first buy', exact: true }).click();
@@ -134,10 +141,10 @@ try {
     console.log(`PASS actual local-fork browser: ${mobile ? 'mobile' : 'desktop'}`);
     await browserContext.close();
   }
-  await writeFile('docs/evidence/launch-curve-fork-browser.json', JSON.stringify(report, null, 2) + '\n');
+  await writeFile('.cache/launch-scoped-fork-browser.json', JSON.stringify(report, null, 2) + '\n');
 } catch (error) {
   if (activePage && !activePage.isClosed()) {
-    await activePage.screenshot({ path: '.cache/launch-fork-browser-failure.png', fullPage: true });
+    await activePage.screenshot({ path: '.cache/launch-scoped-fork-browser-failure.png', fullPage: true });
     console.error(await activePage.locator('body').innerText());
   }
   throw error;

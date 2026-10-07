@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { getAddress, isAddress, parseUnits, zeroAddress } from "viem";
-import { DEAD, assetsFor, stockByAddress, type RuntimeConfig } from "./config";
+import { DEAD, launchAssetsFor, stockByAddress, type RuntimeConfig } from "./config";
 
 export function assertSigningEnabled(config: RuntimeConfig) {
   if (!config.writesEnabled)
@@ -71,7 +71,7 @@ export const launchSchema = z
   .strict();
 export type LaunchInput = z.infer<typeof launchSchema>;
 export function restoreDraft(raw: string | null, config?: Pick<RuntimeConfig, "mode" | "deploymentChainId">): LaunchInput {
-  const assets = assetsFor(config);
+  const assets = launchAssetsFor(config);
   const draft: LaunchInput = {
     name: "",
     symbol: "",

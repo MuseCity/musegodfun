@@ -164,8 +164,8 @@ if (config.body.mode === "robinhood") {
   assert.equal(simulation.body.feePolicy, FEE_POLICY);
   assert.equal(simulation.body.feeTreasury.toLowerCase(), config.body.treasury.toLowerCase());
   assertOpeningValuation(simulation.body.openingValuation, musegod.address, 4663);
-  assert.equal(simulation.body.openingValuation.source, "SushiSwap V3 TWAP");
-  checks.push("MUSEGOD fixed $5,000 issuance simulation uses same-chain five-minute TWAP; no signature");
+  assert.equal(simulation.body.openingValuation.source, "LI.FI");
+  checks.push("MUSEGOD fixed $5,000 issuance simulation uses LI.FI buy/sell quote pricing; no signature");
 }
 const deferred = await call("/buyback/quote", { stockAddress: STOCKS[0].address, amount: "1" });
 assert.equal(deferred.body.code, "CROSS_CHAIN_DEFERRED");

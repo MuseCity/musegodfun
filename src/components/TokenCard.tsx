@@ -5,8 +5,9 @@ import { MUSEGOD } from "../lib/musegod";
 import { safeImage } from "../lib/validation";
 import type { CardMarketState } from "../lib/token-card-market";
 import assetLogos from "../lib/asset-logos.json";
+import { tokenPath } from "../lib/network";
 
-export type TokenCardToken = Pick<TokenRecord, "address" | "name" | "symbol" | "image" | "creator" | "mode"> & {
+export type TokenCardToken = Pick<TokenRecord, "address" | "name" | "symbol" | "image" | "creator" | "mode" | "deploymentChainId"> & {
   kind: "launch" | "musegod";
   quote: Stock;
 };
@@ -43,7 +44,7 @@ export default function TokenCard({ token, market, onNavigate }: {
   const source = stats?.source === "Bankr" ? "Bankr / Pools" : stats?.source;
   const at = stats && Number.isFinite(Date.parse(stats.fetchedAt)) ? new Date(stats.fetchedAt) : null;
   const snapshotLabel = stats?.status === "stale" ? "Previous snapshot" : "Updated";
-  const href = `/token/${token.address}`;
+  const href = tokenPath(token);
   return <a href={href} className={`token-card${token.kind === "musegod" ? " featured-token" : ""}`}
     aria-label={`${token.name} token details`}
     onClick={(event) => {

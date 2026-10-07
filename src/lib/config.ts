@@ -1,12 +1,14 @@
 import { getAddress, type Address } from "viem";
 import stockData from "./stocks.json";
 import robinhoodData from "./robinhood-assets.json";
+import lifiLaunchAssets from "./lifi-launch-assets.json";
 import type { FeePolicy } from "./fee-policy";
 import type { OpeningValuation } from "./opening-valuation";
+import type { FirstBuyLockRecord } from "./launch-plan";
 
 export const SUPPLY = 1_000_000_000n * 10n ** 18n;
 export const WAD = 10n ** 18n;
-export const COINBASE_STOCKS_SOURCE = "https://www.base.org/stocks";
+export const COINBASE_STOCKS_SOURCE = "https://api.coinbase.com/v1/tokenized-stocks";
 export const DEAD = "0x000000000000000000000000000000000000dEaD" as Address;
 // Official Doppler Deployments.json + docs, checked 2026-09-21.
 export const CONTRACTS = {
@@ -39,6 +41,7 @@ export const ROBINHOOD_CONTRACTS = {
 };
 export const ROBINHOOD_BUNDLER = getAddress("0xf45588E8e0B1df9dB9ae7E20eCE5726AE931357c");
 export const ROBINHOOD_BUNDLER_CODE_HASH = "0x8d7c135bd087b74d2f2d1362593f23b824d5752bebe6a3c8bc6db0a6fa75e066" as const;
+export const BASE_BUNDLER_CODE_HASH = "0xead06e5d9d0349000bfc7408621d9ef28857743925dc3aa2351993f2d29a4beb" as const;
 export type ContractRegistry = typeof CONTRACTS;
 export type Stock = {
   ticker: string;
@@ -71,6 +74,16 @@ export function deploymentChain(config?: Pick<RuntimeConfig, "mode" | "deploymen
 export function assetsFor(config?: Pick<RuntimeConfig, "mode" | "deploymentChainId">) {
   return deploymentChain(config) === 4663 ? ROBINHOOD_STOCKS : STOCKS;
 }
+const launchAssetAddresses = {
+  8453: new Set(lifiLaunchAssets[8453].map((address) => address.toLowerCase())),
+  4663: new Set(lifiLaunchAssets[4663].map((address) => address.toLowerCase())),
+};
+// New issuance uses the verified LI.FI route snapshot. Historical identity and
+// transaction recovery retain the complete issuer registry through assetsFor.
+export function launchAssetsFor(config?: Pick<RuntimeConfig, "mode" | "deploymentChainId">) {
+  const supported = launchAssetAddresses[deploymentChain(config)];
+  return assetsFor(config).filter((asset) => supported.has(asset.address.toLowerCase()));
+}
 export function contractsFor(config?: Pick<RuntimeConfig, "mode" | "deploymentChainId">): ContractRegistry {
   return deploymentChain(config) === 4663 ? ROBINHOOD_CONTRACTS : CONTRACTS;
 }
@@ -82,8 +95,9 @@ export function explorerFor(config?: Pick<RuntimeConfig, "mode" | "deploymentCha
   return config?.mode === "fork" ? undefined : deploymentChain(config) === 4663
     ? "https://robinhoodchain.blockscout.com" : "https://basescan.org";
 }
-export function stockByAddress(address: string): Stock {
-  const stock = [...STOCKS, ...ROBINHOOD_STOCKS].find(
+export function stockByAddress(address: string, chainId?: 8453 | 4663): Stock {
+  const registry = chainId === 8453 ? STOCKS : chainId === 4663 ? ROBINHOOD_STOCKS : [...STOCKS, ...ROBINHOOD_STOCKS];
+  const stock = registry.find(
     (s) => s.address.toLowerCase() === address.toLowerCase(),
   );
   if (!stock) throw new Error("Unsupported paired asset. Select an asset from the verified list.");
@@ -101,6 +115,7 @@ export type RuntimeConfig = {
   blockReason: string | null;
   curvePolicy?: string;
   launchGuard?: Address | null;
+  launchLockAvailable?: boolean;
   feePolicy?: FeePolicy;
   feeEngine?: Address | null;
   buybackExecutor?: Address | null;
@@ -137,6 +152,7 @@ export type TokenRecord = {
   curvePolicy?: string;
   mode: "base" | "robinhood" | "fork";
   deploymentChainId?: 8453 | 4663;
+  firstBuyLock?: FirstBuyLockRecord;
   // Absent for older launches. Never backfill
   // these from current policy/config: deployed beneficiary shares are fixed.
   feePolicy?: FeePolicy;

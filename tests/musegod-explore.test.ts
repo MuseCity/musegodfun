@@ -6,6 +6,7 @@ import { syntheticToken } from "./fixtures";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import TokenMarket from "../src/components/TokenMarket";
+import { NetworkProvider } from "../src/lib/network";
 
 // Vite supplies this immutable build value in browser bundles.
 const previousBuild = Object.getOwnPropertyDescriptor(globalThis, "__BUILD_IDENTITY__");
@@ -71,12 +72,12 @@ test("MUSEGOD stays within the Robinhood deployment and does not leak into Base 
 
 test("the homepage still renders its local-logo featured card when catalog loading or reads fail", () => {
   for (const state of [{ loading: true, tokenError: "" }, { loading: false, tokenError: "Catalog request failed" }]) {
-    const markup = renderToStaticMarkup(createElement(Explore, {
+    const markup = renderToStaticMarkup(createElement(NetworkProvider, null, createElement(Explore, {
       tokens: null, stocks: null, stockError: "", config, refresh: () => {}, ...state,
-    }));
+    })));
     assert.match(markup, /Featured/);
     assert.match(markup, /\/asset-logos\/MUSEGOD.png/);
-    assert.match(markup, new RegExp(`/token/${MUSEGOD.token}`));
+    assert.match(markup, new RegExp(`/token/robinhood/${MUSEGOD.token}`));
     assert.match(markup, /class="count">1</);
     assert.doesNotMatch(markup, /The first story starts with you/);
     if (state.tokenError) assert.match(markup, /Platform launches could not be loaded: Catalog request failed/);

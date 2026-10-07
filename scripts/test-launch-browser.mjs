@@ -1,14 +1,15 @@
 import assert from 'node:assert/strict';
 import { writeFile, mkdir } from 'node:fs/promises';
 import { DopplerSDK, computePoolId, airlockAbi } from '@whetstone-research/doppler-sdk/evm';
-import { createPublicClient, http, encodeFunctionData, erc20Abi, keccak256, toHex } from 'viem';
+import { createPublicClient, http, encodeFunctionData, erc20Abi, keccak256, parseUnits, toHex } from 'viem';
 import { ROBINHOOD_STOCKS, ROBINHOOD_CONTRACTS, ROBINHOOD_BUNDLER, SUPPLY } from '../src/lib/config.ts';
 import { CURVE_POLICY } from '../src/lib/launch-curve.ts';
-import { OPENING_POLICY } from '../src/lib/opening-valuation.ts';
+import { syntheticOpeningValuation } from '../tests/fixtures.ts';
 import { FEE_POLICY } from '../src/lib/fee-policy.ts';
 import { launchGuardAbi } from '../src/lib/launch-guard.ts';
 import { buildLaunch } from '../src/lib/protocol.ts';
 import { serializePrepared } from '../src/lib/launch-plan.ts';
+import { firstBuyPaymentAssets } from '../src/lib/first-buy-payment.ts';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const origin = process.env.BROWSER_ORIGIN || 'http://127.0.0.1:5191';
 assert(['127.0.0.1', 'localhost'].includes(new URL(origin).hostname), 'Browser acceptance must target a local server');
@@ -18,15 +19,17 @@ const quote = ROBINHOOD_STOCKS.find(x => x.symbol === 'WETH');
 const contracts = ROBINHOOD_CONTRACTS;
 const blockHash = '0x' + 'bb'.repeat(32), out = 543327925691014316198420n;
 const sdk = new DopplerSDK({ chainId: 4663, publicClient: createPublicClient({ transport: http('http://127.0.0.1:1') }) });
-const config = { mode: 'fork', chainId: 31337, deploymentChainId: 4663, treasury, writesEnabled: true, blockReason: null, curvePolicy: CURVE_POLICY, launchGuard: guard };
-const report = { scope: 'Local browser UI with explicitly injected wallet/API/RPC fixtures. No real-wallet or chain settlement proof.', observedAt: new Date().toISOString(), origin, checks: [], screenshots: [], productionPublication: 'not_run' };
+const config = { mode: 'fork', chainId: 31337, deploymentChainId: 4663, treasury, writesEnabled: true, blockReason: null, curvePolicy: CURVE_POLICY, launchGuard: guard, launchLockAvailable: false };
+const report = { scope: 'Purely mocked local browser UI with injected wallet/API/RPC and reference-price fixtures, scoped to Robinhood fork and No lock. No real-wallet, conversion or chain settlement proof.', observedAt: new Date().toISOString(), origin, checks: [], screenshots: [], productionPublication: 'not_run' };
 const browser = await chromium.launch({ headless: true });
 let activePage;
-await mkdir('docs/evidence', { recursive: true });
+await mkdir('.cache', { recursive: true });
 function preparedPlan(draft, buy, run) {
-  const now = Date.now(), openingValuation = { policy: OPENING_POLICY, marketCapUsd: 5000, chainId: 4663, quoteAddress: draft.quoteAddress, quotePriceUsd: '3000', quotedAt: now, expiresAt: now + 300000, source: 'Chainlink', blockNumber: '16', blockHash, sourceUpdatedAt: now - 1000, feed: treasury };
+  const now = Date.now(), openingValuation = syntheticOpeningValuation(draft.quoteAddress, '3000',
+    { chainId: 4663, quotedAt: now, sourceUpdatedAt: now, blockNumber: '16', blockHash });
   const params = sdk.factory.encodeCreateMulticurveParams(buildLaunch(sdk, draft, creator, treasury, treasury, openingValuation, keccak256(toHex(`browser-${run}`)), 4663));
-  const amountIn = BigInt(Math.round(Number(buy?.amount || '0') * 1e18));
+  assert.equal(buy?.lockDays ?? 0, 0, 'This fixture only covers No lock');
+  const amountIn = parseUnits(buy?.amount || '0', quote.decimals);
   const poolKey = { currency0: token, currency1: draft.quoteAddress, fee: 8388608, tickSpacing: 10, hooks: contracts.initializer };
   const poolId = computePoolId(poolKey), deadline = Math.floor(openingValuation.expiresAt / 1000);
   const min = out * BigInt(10000 - (buy?.slippageBps || 100)) / 10000n;
@@ -36,7 +39,7 @@ function preparedPlan(draft, buy, run) {
   const prepared = { chainId: 4663, account: creator, airlock: contracts.airlock, createParams: params, prediction: { tokenAddress: token, poolOrHookAddress: token, governanceAddress: treasury, timelockAddress: treasury, poolKey, poolId, tokenIsCurrency0: true }, transaction, approvalTransaction,
     devBuy: amountIn ? { exactAmountIn: amountIn, recipient: creator, vesting: { permissionlessClaim: false, cliffDuration: 0n, vestingDuration: 0n }, bundler: ROBINHOOD_BUNDLER, simulatedAmountOut: out } : undefined, gasEstimate: { status: 'unavailable' } };
   return { id: keccak256(transaction.data), creator, data: transaction.data, tokenAddress: token, poolId, draft, preparedAt: now, gas: null, openingValuation, feePolicy: FEE_POLICY, feeTreasury: treasury, curvePolicy: CURVE_POLICY, prepared: serializePrepared(prepared), transaction: { ...transaction, value: '0' },
-    firstBuy: amountIn ? { amount: buy.amount, amountIn: amountIn.toString(), expectedAmountOut: out.toString(), minAmountOut: min.toString(), slippageBps: buy.slippageBps, deadline, recipient: creator, quoteAddress: draft.quoteAddress, guard, bundler: ROBINHOOD_BUNDLER } : undefined,
+    firstBuy: amountIn ? { amount: buy.amount, amountIn: amountIn.toString(), expectedAmountOut: out.toString(), minAmountOut: min.toString(), slippageBps: buy.slippageBps, lockDays: 0, deadline, recipient: creator, quoteAddress: draft.quoteAddress, guard, bundler: ROBINHOOD_BUNDLER } : undefined,
     approval: amountIn ? { token: draft.quoteAddress, spender: guard, amount: amountIn.toString(), required: true, transaction: { ...approvalTransaction, value: '0' } } : undefined };
 }
 function block() { return { number: '0x20', hash: blockHash, parentHash: blockHash, timestamp: toHex(Math.floor(Date.now()/1000)), gasLimit: '0x5f5e100', gasUsed: '0x0', baseFeePerGas: '0x1', difficulty: '0x0', totalDifficulty: '0x0', size: '0x0', extraData: '0x', logsBloom: '0x'+'00'.repeat(256), transactions: [] }; }
@@ -71,11 +74,24 @@ async function casePage(mode, viewport = { width: 1440, height: 1000 }) {
     return { hash, changeAccount: approval && mode === 'account_change', changeChain: approval && mode === 'network_change' };
   });
   await context.route('**/api/**', async route => {
-    const url = new URL(route.request().url()); const path = url.pathname; const payload = route.request().method() === 'POST' ? route.request().postDataJSON() : null;
+    const url = new URL(route.request().url()); const payload = route.request().method() === 'POST' ? route.request().postDataJSON() : null;
     const reply = (body, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
+    // Execution is always local 31337; only its reviewed Robinhood deployment scope exists.
+    if (url.pathname.startsWith('/api/chains') && !/^\/api\/chains\/4663(?:\/|$)/.test(url.pathname))
+      return reply({ error: 'The requested network is unavailable in this local fork fixture' }, 404);
+    const path = url.pathname.replace(/^\/api\/chains\/4663(?=\/|$)/, '/api');
     if (path === '/api/config') return reply(mode === 'stale_page' ? { ...config, curvePolicy: 'old-curve-v1' } : config);
     if (path === '/api/stocks') return reply(ROBINHOOD_STOCKS.map(x=>({ ...x, verified: true, blockNumber: '16', totalSupply: '1000000000000000000000000', multiplierWad: null })));
     if (path === '/api/tokens') return reply([]);
+    if (path === '/api/first-buy/prices') {
+      const pairedAsset = url.searchParams.get('pairedAsset');
+      if (!pairedAsset || pairedAsset.toLowerCase() !== quote.address.toLowerCase())
+        return reply({ error: 'This reference-price fixture only covers paired WETH' }, 400);
+      const now = Date.now();
+      return reply({ chainId: 4663, quotedAt: now, expiresAt: now + 60000, referenceOnly: true,
+        assets: firstBuyPaymentAssets(4663, quote.address).map(asset => ({ ...asset,
+          priceUsd: asset.symbol === 'USDG' ? '1' : '3000' })) });
+    }
     if (path === '/api/launch/prepare') { assert.equal(payload.expectedCurvePolicy, CURVE_POLICY); state.plans++; state.expired=false; state.plan=preparedPlan(payload.draft,payload.firstBuy,state.plans); return reply(state.plan); }
     if (path === '/api/launch/validate') return state.expired ? reply({ error: 'The opening valuation price expired. Run a new simulation.' },400) : reply({ valid: true, feePolicy: FEE_POLICY, curvePolicy: CURVE_POLICY });
     if (path === '/api/launch/simulate') return mode === 'simulation_failure' ? reply({ error: 'Transaction simulation failed. The transaction was not submitted.' },400) : reply({ valid: true, gas: '5000000', amountOut: state.plan.firstBuy?.expectedAmountOut || null, simulatedAt: Date.now() });
@@ -88,6 +104,14 @@ async function casePage(mode, viewport = { width: 1440, height: 1000 }) {
         else if (item.method === 'eth_blockNumber') result='0x20';
         else if (item.method === 'eth_getBlockByNumber' || item.method === 'eth_getBlockByHash') result=block();
         else if (item.method === 'eth_getBalance') result=toHex(10n**20n);
+        else if (item.method === 'eth_gasPrice') result='0x2';
+        else if (item.method === 'eth_maxPriorityFeePerGas') result='0x1';
+        else if (item.method === 'eth_feeHistory') {
+          const count = Number(BigInt(item.params[0]));
+          assert(count > 0 && count <= 1024, 'Unexpected fixture fee-history block count');
+          result={ oldestBlock: '0x20', baseFeePerGas: Array(count + 1).fill('0x1'),
+            gasUsedRatio: Array(count).fill(0), reward: Array.from({ length: count }, () => Array(item.params[2]?.length ?? 0).fill('0x1')) };
+        }
         else if (item.method === 'eth_estimateGas') result='0xea60';
         else if (item.method === 'eth_call') { const data=item.params[0].data; result=toHex(data.startsWith('0xdd62ed3e') ? state.allowance : 10n**20n,{size:32}); }
         else if (item.method === 'eth_getTransactionCount') result=toHex(state.sends.length);
@@ -103,8 +127,11 @@ async function casePage(mode, viewport = { width: 1440, height: 1000 }) {
     return reply({ error:'Unavailable fixture route' },404);
   });
   const page = await context.newPage(); activePage = page; const pageErrors=[]; page.on('pageerror',e=>pageErrors.push(e.message));
-  await page.goto(origin+'/create'); await page.getByLabel('Token name',{exact:true}).fill('Browser '+mode);
-  await page.getByLabel('Token symbol',{exact:true}).fill('BROWSE'); await page.getByLabel('Spend WETH',{exact:true}).fill(mode==='plain'?'0':'0.001');
+  await page.goto(origin+'/create?chainId=4663'); await page.getByLabel('Token name',{exact:true}).fill('Browser '+mode);
+  await page.getByLabel('Token symbol',{exact:true}).fill('BROWSE');
+  await page.getByLabel('Pay with',{exact:true}).selectOption(quote.address);
+  await page.getByLabel('First buy amount in WETH',{exact:true}).fill(mode==='plain'?'0':'0.001');
+  if (mode !== 'plain') await page.getByRole('button',{name:'No lock',exact:true}).click();
   await page.getByRole('button',{name:'Connect wallet',exact:true}).click();
   const choose=page.getByRole('button',{name:/Local acceptance wallet/}); if (await choose.count()) await choose.click();
   await page.getByRole('button',{name:'Review and continue',exact:true}).click();
@@ -117,8 +144,8 @@ try {
   for (const mode of (process.env.BROWSER_CASES?.split(',') || ['success','plain','duplicate','stale_page','reject_approval','expiry','account_change','network_change','simulation_failure','pending'])) {
     const {context,page,state,pageErrors}=await casePage(mode);
     if (mode === 'success') {
-      await page.screenshot({path:'docs/evidence/launch-curve-desktop-review.png',fullPage:true});
-      report.screenshots.push('launch-curve-desktop-review.png');
+      await page.screenshot({path:'.cache/launch-scoped-browser-desktop-review.png',fullPage:true});
+      report.screenshots.push('.cache/launch-scoped-browser-desktop-review.png');
     }
     if (mode === 'stale_page') {
       await page.getByText(/curve policy has changed/).waitFor(); assert.equal(state.plans,0); assert.equal(state.sends.length,0);
@@ -139,13 +166,13 @@ try {
   }
   const { context,page,state,pageErrors }=await casePage('success',{width:390,height:844});
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
-  await page.screenshot({path:'docs/evidence/launch-curve-mobile-review.png',fullPage:true}); report.screenshots.push('launch-curve-mobile-review.png');
+  await page.screenshot({path:'.cache/launch-scoped-browser-mobile-review.png',fullPage:true}); report.screenshots.push('.cache/launch-scoped-browser-mobile-review.png');
   await page.getByRole('button',{name:'Confirm launch and first buy',exact:true}).click(); await page.waitForURL('**/token/**'); assert.equal(state.sends.length,2); assert.deepEqual(pageErrors,[]);
   report.checks.push({mode:'success',viewport:'mobile 390x844',walletCalls:2,status:'passed'}); await context.close();
-  await writeFile('docs/evidence/launch-curve-browser.json',JSON.stringify(report,null,2)+'\n');
+  await writeFile('.cache/launch-scoped-browser.json',JSON.stringify(report,null,2)+'\n');
 } catch (error) {
   if (activePage && !activePage.isClosed()) {
-    await activePage.screenshot({ path: '.cache/launch-browser-failure.png', fullPage: true });
+    await activePage.screenshot({ path: '.cache/launch-scoped-browser-failure.png', fullPage: true });
     console.error(await activePage.locator('body').innerText());
   }
   throw error;

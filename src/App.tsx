@@ -45,6 +45,7 @@ import {
 } from "./lib/fee-policy";
 import {
   assetsFor,
+  launchAssetsFor,
   contractsFor,
   deploymentChain,
   explorerFor,
@@ -72,7 +73,14 @@ import {
   safeSocialLink,
   type LaunchInput,
 } from "./lib/validation";
-import { api } from "./lib/api";
+import { api, chainApi } from "./lib/api";
+import { useNetwork, tokenPath } from "./lib/network";
+import { firstBuyDraft, launchDraftKey, savedLaunchDraft, type FirstBuyDraft } from "./lib/launch-draft";
+import FirstBuy from "./components/FirstBuy";
+import FirstBuyLock from "./components/FirstBuyLock";
+import { firstBuyPaymentAssets, assertFirstBuyPaymentQuote, type FirstBuyPrices, type FirstBuyPaymentQuote, type FirstBuyPaymentVerification } from "./lib/first-buy-payment";
+import { resolveFirstBuyPayment, sameFirstBuyPayment, paymentMatchesLaunch, registeredLaunchConsumesPayment,
+  type FirstBuyPaymentAttempt } from "./lib/first-buy-recovery";
 import {
   OPENING_CAP_USD,
   assertOpeningValuation,
@@ -97,6 +105,7 @@ import TokenCard from "./components/TokenCard";
 import { useTokenCardMarkets } from "./lib/token-card-market";
 
 function useResource<T>(path: string, version = 0) {
+  const { chainId } = useNetwork();
   const [data, setData] = useState<T | null>(null),
     [error, setError] = useState(""),
     [loading, setLoading] = useState(true);
@@ -105,7 +114,7 @@ function useResource<T>(path: string, version = 0) {
     setLoading(true);
     setData(null);
     setError("");
-    api<T>(path)
+    chainApi<T>(chainId, path)
       .then((x) => {
         if (active) setData(x);
       })
@@ -118,7 +127,7 @@ function useResource<T>(path: string, version = 0) {
     return () => {
       active = false;
     };
-  }, [path, version]);
+  }, [path, version, chainId]);
   return { data, error, loading };
 }
 function navigate(path: string) {
@@ -136,14 +145,16 @@ function Link({
   className?: string;
   title?: string;
 }) {
+  const { chainId } = useNetwork();
+  const target = ["/", "/create", "/rewards"].includes(href) ? `${href}?chainId=${chainId}` : href;
   return (
     <a
-      href={href}
+      href={target}
       {...rest}
       onClick={(e) => {
         if (!e.metaKey && !e.ctrlKey && !e.shiftKey) {
           e.preventDefault();
-          navigate(href);
+          navigate(target);
         }
       }}
     >
@@ -326,17 +337,18 @@ function TxLink({ hash, config }: { hash: string; config: RuntimeConfig }) {
 }
 const feePercent = (basisPoints: number) => `${basisPoints / 100}%`;
 const openingCapUsdLabel = `$${OPENING_CAP_USD.toLocaleString("en-US")}`;
-function restoreFirstBuy() {
-  try {
-    const saved = JSON.parse(localStorage.getItem("musegod.launch.draft") || "null")?.firstBuy;
-    if (saved && typeof saved.amount === "string" && saved.amount.length <= 40 &&
-      [50, 100, 200, 500].includes(saved.slippageBps))
-      return { amount: saved.amount, slippageBps: saved.slippageBps as number };
-  } catch { /* Invalid saved first buys use the default. */ }
-  return { amount: "0", slippageBps: 100 };
+type PaymentAttempt = FirstBuyPaymentAttempt;
+function paymentKey(config: RuntimeConfig, account: Address) {
+  return `musegod.first-buy.payment.${config.chainId}.${deploymentChain(config)}.${account.toLowerCase()}`;
+}
+function scopedApi(config: RuntimeConfig | null) {
+  return <T,>(path: string, body?: unknown): Promise<T> => config
+    ? chainApi<T>(deploymentChain(config), path, body)
+    : Promise.reject(new Error("Wait for the network configuration to load."));
 }
 
 export function App() {
+  const network = useNetwork();
   const helpDialog = useRef<HTMLDialogElement>(null);
   const [path, setPath] = useState(location.pathname),
     [version, setVersion] = useState(0),
@@ -361,7 +373,15 @@ export function App() {
         : path === "/buyback"
           ? "buyback"
           : "explore";
-  const tokenAddress = path.startsWith("/token/") ? path.split("/")[2] : null;
+  const tokenAddress = path.startsWith("/token/") ? path.split("/").at(-1)! : null;
+  useEffect(() => {
+    if (/^\/token\/0x[0-9a-fA-F]{40}$/.test(path)) {
+      const canonical = `/token/robinhood/${path.split("/")[2]}`;
+      history.replaceState({}, "", canonical);
+      setPath(canonical);
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    }
+  }, [path]);
   const assets = assetsFor(config.data ?? undefined);
   const chainName = config.data ? networkName(config.data) : "Loading network…";
   const nav = [
@@ -432,6 +452,10 @@ export function App() {
             {title}
           </div>
           <div className="topbar-actions">
+            <select aria-label="Launch network" className="network-select" value={network.chainId}
+              onChange={(event) => network.selectChain(Number(event.target.value) as 8453 | 4663)}>
+              <option value={4663}>Robinhood Chain</option><option value={8453}>Base</option>
+            </select>
             {(!config.data?.writesEnabled || config.data?.mode === "fork") && (
               <span className="preview-badge">
                 <span className="dot" />
@@ -488,13 +512,14 @@ export function App() {
             )}
           <TransactionHistory config={config.data} />
           {!/^\/(?:create|rewards|buyback)?$/.test(path) &&
-          !/^\/token\/0x[0-9a-fA-F]{40}$/.test(path) ? (
+          !/^\/token\/(?:(?:base|robinhood)\/)?0x[0-9a-fA-F]{40}$/.test(path) ? (
             <section className="panel">
               <h1>Page not found</h1>
               <Link href="/">Back to home</Link>
             </section>
           ) : current === "create" ? (
             <CreatePage
+              key={`${network.chainId}:${config.data?.chainId ?? "loading"}`}
               stocks={stocks.data}
               stockError={stocks.error}
               config={config.data}
@@ -504,16 +529,17 @@ export function App() {
             <Rewards tokens={tokens.data ?? []} config={config.data} />
           ) : current === "buyback" ? (
             <BuybackPage config={config.data} />
-          ) : tokenAddress && sameAddress(tokenAddress, MUSEGOD.token) ? (
+          ) : network.chainId === 4663 && tokenAddress && sameAddress(tokenAddress, MUSEGOD.token) ? (
             <MusegodPage config={config.data} navigate={navigate} />
           ) : tokenAddress ? (
             <TokenPage
-              key={tokenAddress}
+              key={`${network.chainId}:${tokenAddress}`}
               address={tokenAddress}
               config={config.data}
             />
           ) : (
             <Explore
+              key={network.chainId}
               tokens={tokens.data}
               tokenError={tokens.error}
               stocks={stocks.data}
@@ -592,7 +618,7 @@ export function App() {
 }
 
 // Display entries are separate from verified launch records and their fee policy.
-export type ExploreToken = Pick<TokenRecord, "address" | "name" | "symbol" | "description" | "image" | "createdAt" | "mode" | "creator"> & {
+export type ExploreToken = Pick<TokenRecord, "address" | "name" | "symbol" | "description" | "image" | "createdAt" | "mode" | "deploymentChainId" | "creator"> & {
   kind: "launch" | "musegod";
   quote: Stock;
 };
@@ -606,13 +632,13 @@ export function exploreTokens(
     .map((token) => ({
       kind: "launch", address: token.address, name: token.name, symbol: token.symbol,
       description: token.description, image: token.image, createdAt: token.createdAt,
-      mode: token.mode, creator: token.creator, quote: quoteAsset(token),
+      mode: token.mode, deploymentChainId: token.deploymentChainId, creator: token.creator, quote: quoteAsset(token),
     }));
   if (featured) {
     const quote = assetsFor({ mode: "robinhood" }).find((asset) => sameAddress(asset.address, MUSEGOD.weth))!;
     entries.push({ kind: "musegod", address: MUSEGOD.token, name: MUSEGOD.name,
       symbol: MUSEGOD.symbol, description: MUSEGOD.description, image: MUSEGOD.image,
-      createdAt: MUSEGOD.createdAt, mode: config?.mode ?? "robinhood", creator: null, quote });
+      createdAt: MUSEGOD.createdAt, mode: config?.mode ?? "robinhood", deploymentChainId: 4663, creator: null, quote });
   }
   const query = search.trim().toLowerCase();
   return entries
@@ -825,6 +851,7 @@ function CreatePage({
   config: RuntimeConfig | null;
   refresh: () => void;
 }) {
+  const api = scopedApi(config);
   const generation = useRef(0);
   const activeSimulation = useRef<number | null>(null);
   const formRef = useRef<HTMLFormElement>(null),
@@ -834,12 +861,12 @@ function CreatePage({
   const wallet = useWallet(),
     [draft, setDraft] = useState<LaunchInput>(() => {
       try {
-        return restoreDraft(localStorage.getItem("musegod.launch.draft"), config ?? undefined);
+        return restoreDraft(savedLaunchDraft(config), config ?? undefined);
       } catch {
         return restoreDraft(null, config ?? undefined);
       }
     }),
-    [firstBuy, setFirstBuy] = useState(restoreFirstBuy);
+    [firstBuy, setFirstBuy] = useState<FirstBuyDraft>(() => firstBuyDraft(config));
   const [query, setQuery] = useState(""),
     [category, setCategory] = useState<AssetCategory>("all"),
     [showAllAssets, setShowAllAssets] = useState(false),
@@ -854,10 +881,15 @@ function CreatePage({
     [uploadingImage, setUploadingImage] = useState(false),
     [imageError, setImageError] = useState(""),
     [txHash, setTxHash] = useState<Hex | null>(null),
-    [confirmed, setConfirmed] = useState(false);
-  const assets = assetsFor(config ?? undefined);
+    [confirmed, setConfirmed] = useState(false),
+    [paymentQuote, setPaymentQuote] = useState<FirstBuyPaymentQuote | null>(null),
+    [paymentAttempt, setPaymentAttempt] = useState<PaymentAttempt | null>(null),
+    [paymentBalance, setPaymentBalance] = useState<bigint | null>(null),
+    [priceRevision, setPriceRevision] = useState(0);
+  const [paymentExpired, setPaymentExpired] = useState(false);
+  const assets = launchAssetsFor(config ?? undefined);
   const stock = assets.find((asset) => sameAddress(asset.address, draft.quoteAddress)) ?? assets[0],
-    status = stocks?.find((s) => sameAddress(s.address, stock.address)),
+    status = stocks?.find((s) => s.chainId === stock.chainId && sameAddress(s.address, stock.address)),
     matching = (
       stocks ??
       assets.map((s) => ({
@@ -868,15 +900,60 @@ function CreatePage({
         multiplierWad: null,
       }))
     ).filter((s) =>
+      assets.some((asset) => asset.chainId === s.chainId && sameAddress(asset.address, s.address)) &&
       (category === "all" || assetCategory(s) === category) &&
       `${s.ticker} ${s.symbol} ${s.name} ${s.address}`
         .toLowerCase()
         .includes(query.trim().toLowerCase()),
     );
   const visibleAssets = matching.slice(0, showAllAssets || query.trim() ? matching.length : 12);
+  const paymentAssets = firstBuyPaymentAssets(stock.chainId, stock.address);
+  const paymentAsset = paymentAssets.find((a) => sameAddress(a.address, firstBuy.payAddress)) ?? paymentAssets[0];
+  const paymentPrices = useResource<FirstBuyPrices>(`/first-buy/prices?pairedAsset=${stock.address}`, priceRevision);
+  const paymentPrice = paymentPrices.data && paymentPrices.data.expiresAt > Date.now()
+    ? paymentPrices.data.assets.find((a) => sameAddress(a.address, paymentAsset.address))?.priceUsd ?? null : null;
+  const converting = !sameAddress(paymentAsset.address, stock.address) && /[1-9]/.test(firstBuy.amount);
+  const converted = !!paymentAttempt?.actualOutput && sameAddress(paymentAttempt.quote.toToken.address, stock.address) &&
+    sameAddress(paymentAttempt.quote.fromToken.address, paymentAsset.address) &&
+    paymentAttempt.quote.amountIn === (() => { try { return parseAmount(firstBuy.amount, paymentAsset.decimals).toString(); } catch { return ""; } })();
+  const paymentPairSupported = !paymentAttempt || assets.some((asset) => sameAddress(asset.address, paymentAttempt.quote.toToken.address));
+  useEffect(() => {
+    if (!paymentPrices.data) return;
+    const timer = setTimeout(() => setPriceRevision((v) => v + 1), Math.max(1000, paymentPrices.data.expiresAt - Date.now()));
+    return () => clearTimeout(timer);
+  }, [paymentPrices.data]);
+  useEffect(() => {
+    setPaymentExpired(!!paymentQuote && paymentQuote.expiresAt <= Date.now());
+    if (!paymentQuote) return;
+    const timer = setTimeout(() => setPaymentExpired(true), Math.max(0, paymentQuote.expiresAt - Date.now()));
+    return () => clearTimeout(timer);
+  }, [paymentQuote]);
+  useEffect(() => {
+    let active = true;
+    setPaymentBalance(null);
+    if (wallet.account && config) void (sameAddress(paymentAsset.address, "0x0000000000000000000000000000000000000000")
+      ? wallet.balanceNative(config) : wallet.balance(paymentAsset.address, config)).then((balance) => {
+        if (active) setPaymentBalance(balance);
+      }).catch(() => {});
+    return () => { active = false; };
+  }, [wallet.account, wallet.revision, config?.chainId, config?.deploymentChainId, paymentAsset.address, paymentAttempt]);
+  useEffect(() => {
+    setPaymentAttempt(null);
+    if (!wallet.account || !config) return;
+    try {
+      const saved = JSON.parse(localStorage.getItem(paymentKey(config, wallet.account)) || "null") as PaymentAttempt | null;
+      if (saved) {
+        assertFirstBuyPaymentQuote(saved.quote, Date.now(), true);
+        if (saved.quote.chainId === deploymentChain(config) && sameAddress(saved.quote.account, wallet.account) && /^0x[\da-f]{64}$/i.test(saved.hash))
+          setPaymentAttempt({ ...saved, actualOutput: null }); // Always reverify receipt after a reload.
+      }
+    } catch { /* Untrusted storage never establishes a successful conversion. */ }
+  }, [wallet.account, wallet.revision, config?.chainId, config?.deploymentChainId]);
   useEffect(() => {
     generation.current++;
     setPlan(null);
+    setPaymentQuote(null);
+    setBusy(false);
     setMessage("");
     return () => {
       generation.current++;
@@ -887,7 +964,7 @@ function CreatePage({
     if (!config || assets.some((asset) => sameAddress(asset.address, draft.quoteAddress))) return;
     generation.current++;
     setDraft((previous) => ({ ...previous, quoteAddress: assets[0].address }));
-    setFirstBuy((previous) => ({ ...previous, amount: "0" }));
+    setFirstBuy((previous) => ({ ...previous, amount: "0", payAddress: assets[0].address, lockDays: 0 }));
     setPlan(null);
     setReview(false);
     setInvalidField("");
@@ -912,17 +989,18 @@ function CreatePage({
     return () => clearTimeout(timer);
   }, [plan]);
   useEffect(() => {
+    if (!config) return;
     setDraftSaved(false);
     const timer = setTimeout(() => {
       try {
-        localStorage.setItem("musegod.launch.draft", JSON.stringify({ ...draft, firstBuy }));
+        localStorage.setItem(launchDraftKey(config), JSON.stringify({ ...draft, firstBuy }));
         setDraftSaved(true);
       } catch {
         setDraftSaved(false);
       }
     }, 250);
     return () => clearTimeout(timer);
-  }, [draft, firstBuy]);
+  }, [draft, firstBuy, config?.chainId, config?.deploymentChainId]);
   useEffect(() => {
     if (!config) return;
     try {
@@ -958,7 +1036,7 @@ function CreatePage({
   }, [txHash, config?.chainId, config?.deploymentChainId]);
   async function terminalLaunchProof(result: PendingLaunchResolution) {
     if (!config || !result.terminal) return false;
-    const client = transactionClient(config.chainId);
+    const client = transactionClient(config.chainId, config);
     if (await client.getChainId().catch(() => null) !== config.chainId) return false;
     return terminalLaunchIsCanonical(result, {
       receipt: (hash) => client.getTransactionReceipt({ hash }),
@@ -975,19 +1053,23 @@ function CreatePage({
     generation.current++;
     setDraft((d) => ({ ...d, [key]: value }));
     if (key === "quoteAddress" && !sameAddress(String(value), draft.quoteAddress))
-      setFirstBuy((previous) => ({ ...previous, amount: "0" }));
+      setFirstBuy((previous) => ({ ...previous, amount: "0", payAddress: String(value), lockDays: 0 }));
     setInvalidField("");
     setReview(false);
     setPlan(null);
     setError("");
     setMessage("");
   }
-  function updateFirstBuy(next: typeof firstBuy) {
+  function updateFirstBuy(next: typeof firstBuy, keepReview = false) {
+    if (paymentAttempt && !paymentAttempt.actualOutput) {
+      setError("Check the submitted payment conversion before changing the first buy."); return;
+    }
     generation.current++;
     setFirstBuy(next);
     setInvalidField("");
-    setReview(false);
+    if (!keepReview) setReview(false);
     setPlan(null);
+    setPaymentQuote(null);
     setError("");
     setMessage("");
   }
@@ -1016,6 +1098,9 @@ function CreatePage({
     if (uploadingImage) return;
     setError("");
     setMessage("");
+    if (paymentAttempt && !paymentAttempt.actualOutput) {
+      setError("Check the submitted payment conversion before preparing another launch."); return;
+    }
     if (txHash && !confirmed) {
       setError("A launch transaction is already submitted. Recover its status before preparing another launch.");
       return;
@@ -1039,11 +1124,12 @@ function CreatePage({
     try {
       const amount = firstBuy.amount || "0";
       amountSchema.parse(amount);
-      if ((amount.split(".")[1]?.length ?? 0) > stock.decimals)
-        throw new Error(`The amount supports up to ${stock.decimals} decimal places`);
+      if ((amount.split(".")[1]?.length ?? 0) > paymentAsset.decimals)
+        throw new Error(`The amount supports up to ${paymentAsset.decimals} decimal places`);
       if (Number(amount) !== 0) {
-        parseAmount(amount, stock.decimals);
+        parseAmount(amount, paymentAsset.decimals);
         if (!config.launchGuard) throw new Error("First buys are unavailable on this network. Set the amount to 0 to launch without a buy.");
+        if (firstBuy.lockDays > 0 && !config.launchLockAvailable) throw new Error("Locked first buys are not yet enabled on this network. Choose No lock.");
       }
       if (![50, 100, 200, 500].includes(firstBuy.slippageBps)) throw new Error("Choose a supported first buy slippage");
       setFirstBuy({ ...firstBuy, amount });
@@ -1066,14 +1152,36 @@ function CreatePage({
     setBusy(true);
     try {
       if (!wallet.account) throw new Error("Connect a wallet first");
+      if (paymentAttempt && !paymentAttempt.actualOutput) throw new Error("Check the submitted payment conversion before preparing another launch.");
       if (txHash && !confirmed) throw new Error("Recover the submitted launch before preparing another launch.");
       if (config?.curvePolicy !== CURVE_POLICY)
         throw new Error("The launch curve policy has changed. Refresh this page before previewing.");
+      if (converting && !converted) {
+        if (paymentAttempt) throw new Error("Check the submitted payment conversion before requesting another quote.");
+        const quote = await api<FirstBuyPaymentQuote>("/first-buy/quote", { account: wallet.account, fromToken: paymentAsset.address,
+          toToken: stock.address, amount: firstBuy.amount, slippageBps: firstBuy.slippageBps });
+        if (request !== generation.current) return;
+        assertFirstBuyPaymentQuote(quote);
+        setPaymentQuote(quote);
+        setMessage("Payment conversion quoted. Review its minimum received and fees before confirming the conversion.");
+        return;
+      }
+      let requestedAmount = firstBuy.amount;
+      if (converted) {
+        const payment = await api<FirstBuyPaymentVerification>("/first-buy/verify", { quote: paymentAttempt!.quote, hash: paymentAttempt!.hash });
+        if (request !== generation.current) return;
+        if (payment.status !== "success" || !payment.actualOutput) {
+          setPaymentAttempt({ ...paymentAttempt!, actualOutput: null });
+          throw new Error("The payment confirmation changed. Check the submitted payment before continuing.");
+        }
+        requestedAmount = formatUnits(BigInt(payment.actualOutput), stock.decimals);
+        setPaymentAttempt({ ...paymentAttempt!, actualOutput: payment.actualOutput });
+      }
       const next = await api<LaunchPlan>("/launch/prepare", {
         draft,
         creator: wallet.account,
         expectedCurvePolicy: CURVE_POLICY,
-        firstBuy,
+        firstBuy: { amount: requestedAmount, slippageBps: firstBuy.slippageBps, lockDays: firstBuy.lockDays },
       });
       if (request !== generation.current) return;
       if (next.feePolicy !== launchFeePolicy(config) || !next.feeTreasury || !config?.treasury || !sameAddress(next.feeTreasury, config.treasury) ||
@@ -1084,8 +1192,9 @@ function CreatePage({
         throw new Error("The launch curve policy does not match. Refresh and preview again.");
       const requestedBuy = Number(firstBuy.amount || "0") > 0;
       if (!!next.firstBuy !== requestedBuy || (next.firstBuy && (
-        next.firstBuy.amountIn !== parseAmount(firstBuy.amount, stock.decimals).toString() ||
+        next.firstBuy.amountIn !== parseAmount(requestedAmount, stock.decimals).toString() ||
         next.firstBuy.slippageBps !== firstBuy.slippageBps ||
+        (next.firstBuy.lockDays ?? 0) !== firstBuy.lockDays ||
         !sameAddress(next.firstBuy.quoteAddress, stock.address) || !sameAddress(next.firstBuy.recipient, wallet.account))))
         throw new Error("The first buy preview does not match your requested amount or wallet. Preview again.");
       setPlan(next);
@@ -1099,12 +1208,90 @@ function CreatePage({
       }
     }
   }
-  async function register(hash: Hex) {
+  async function recoverPayment() {
+    if (!config || !wallet.account || !paymentAttempt) return;
+    const request = ++generation.current;
+    setBusy(true); setError("");
+    try {
+      const client = transactionClient(config.chainId, config);
+      const resolution = await resolveFirstBuyPayment(paymentAttempt.hash, paymentAttempt.quote, transactions(), config, {
+        receipt: (hash) => client.getTransactionReceipt({ hash }), transaction: (hash) => client.getTransaction({ hash }),
+        head: () => client.getBlockNumber(), block: (blockNumber) => client.getBlock({ blockNumber }),
+      });
+      if (request !== generation.current) return;
+      if (resolution.cancelled) {
+        localStorage.removeItem(paymentKey(config, wallet.account)); setPaymentAttempt(null); setPaymentQuote(null);
+        setMessage("The payment was cancelled or replaced on-chain. You can request a new quote."); return;
+      }
+      const hash = resolution.hash;
+      const result = await api<FirstBuyPaymentVerification>("/first-buy/verify", { quote: paymentAttempt.quote, hash });
+      if (request !== generation.current) return;
+      if (result.status === "pending") throw new Error("The payment conversion is still pending. Check it again before continuing.");
+      if (result.status === "reverted") {
+        localStorage.removeItem(paymentKey(config, wallet.account)); setPaymentAttempt(null); setPaymentQuote(null);
+        setMessage("The payment conversion reverted. You can request a new quote."); return;
+      }
+      if (!result.actualOutput) throw new Error("The payment output could not be verified.");
+      const next = { ...paymentAttempt, hash: result.hash, actualOutput: result.actualOutput };
+      if (next.launchHash) {
+        const saved = JSON.parse(localStorage.getItem(paymentKey(config, wallet.account)) || "null") as PaymentAttempt | null;
+        if (!saved || !sameFirstBuyPayment(saved, next)) delete next.launchHash;
+      }
+      localStorage.setItem(paymentKey(config, wallet.account), JSON.stringify(next)); setPaymentAttempt(next); setPaymentQuote(null); setPlan(null);
+      if (assets.some((asset) => sameAddress(asset.address, next.quote.toToken.address))) {
+        setDraft((draft) => ({ ...draft, quoteAddress: next.quote.toToken.address }));
+        setFirstBuy((old) => ({ ...old, payAddress: next.quote.fromToken.address, amount: formatUnits(BigInt(next.quote.amountIn), next.quote.fromToken.decimals) }));
+        setMessage("Payment received and verified. Preview the launch using the actual paired-asset amount.");
+      } else {
+        setMessage(`Payment received and verified in ${next.quote.toToken.symbol}. This asset is unavailable for new launches; the received tokens stay in your wallet.`);
+      }
+    } catch (error) { if (request === generation.current) setError(errorMessage(error)); }
+    finally { if (request === generation.current) setBusy(false); }
+  }
+  async function convertPayment() {
+    if (!config || !wallet.account || !paymentQuote || paymentAttempt) return;
+    const request = generation.current, account = wallet.account;
+    setBusy(true); setError("");
+    try {
+      const current = () => { if (request !== generation.current) throw new Error("The draft or wallet changed. Preview again."); };
+      const result = await wallet.payFirstBuy(paymentQuote, config, setMessage, (hash) => {
+        const attempt = { quote: paymentQuote, hash, actualOutput: null };
+        localStorage.setItem(paymentKey(config, account), JSON.stringify(attempt));
+        if (request === generation.current) setPaymentAttempt(attempt);
+      }, current);
+      if (result.status !== "success" || !result.actualOutput) throw new Error("Check the submitted payment status before continuing.");
+      const attempt = { quote: paymentQuote, hash: result.hash, actualOutput: result.actualOutput };
+      localStorage.setItem(paymentKey(config, account), JSON.stringify(attempt));
+      if (request !== generation.current) return;
+      setPaymentAttempt(attempt); setPaymentQuote(null); setPlan(null);
+      setMessage("Payment received and verified. Preview the launch using the actual paired-asset amount.");
+    } catch (error) { if (request === generation.current) setError(errorMessage(error)); }
+    finally { setBusy(false); }
+  }
+  async function register(hash: Hex, request = generation.current) {
     const token = await api<TokenRecord>("/launch/register", { hash });
-    if (config) updateTransaction(hash, config.chainId, { registered: true });
-    setConfirmed(true);
-    refresh();
-    setMessage("The launch is confirmed on-chain and registered on the platform.");
+    if (config) updateTransaction(hash, config.chainId, { registered: true }, config.deploymentChainId);
+    let consumedPayment = false;
+    if (config && token.creator) {
+      const key = paymentKey(config, token.creator);
+      try {
+        const saved = JSON.parse(localStorage.getItem(key) || "null") as PaymentAttempt | null;
+        if (saved?.launchHash && sameAddress(saved.launchHash, hash)) {
+          const verification = await api<FirstBuyPaymentVerification>("/first-buy/verify", { quote: saved.quote, hash: saved.hash });
+          const current = JSON.parse(localStorage.getItem(key) || "null") as PaymentAttempt | null;
+          if (current && sameFirstBuyPayment(saved, current) && current.launchHash && sameAddress(current.launchHash, hash) &&
+            registeredLaunchConsumesPayment(saved, token, hash, verification)) {
+            localStorage.removeItem(key);
+            consumedPayment = true;
+          }
+        }
+      } catch { /* Unknown payment evidence never blocks recovery of an already registered launch. */ }
+    }
+    if (request === generation.current) {
+      if (consumedPayment) { setPaymentAttempt(null); setPaymentQuote(null); }
+      setConfirmed(true);
+      refresh(); setMessage("The launch is confirmed on-chain and registered on the platform.");
+    }
     return token;
   }
   async function launch() {
@@ -1116,27 +1303,56 @@ function CreatePage({
       if (request !== generation.current) throw new Error("The draft or wallet has changed. Run a new preview.");
     };
     try {
+      if (paymentAttempt && !paymentAttempt.actualOutput) throw new Error("Check the submitted payment conversion before confirming another launch.");
       if (txHash && !confirmed) throw new Error("Recover the submitted launch before confirming another launch.");
       assertOpeningValuation(plan.openingValuation, stock.address, deploymentChain(config));
       if (!wallet.account || !sameAddress(plan.creator, wallet.account))
         throw new Error("The wallet has changed. Preview again.");
+      let consumed: PaymentAttempt | null = null;
+      if (paymentAttempt && paymentMatchesLaunch(paymentAttempt, plan)) {
+        const verified = await api<FirstBuyPaymentVerification>("/first-buy/verify", { quote: paymentAttempt.quote, hash: paymentAttempt.hash });
+        current();
+        if (verified.status !== "success" || !sameAddress(verified.hash, paymentAttempt.hash) ||
+          verified.actualOutput !== paymentAttempt.actualOutput || !verified.blockNumber || !verified.blockHash) {
+          setPaymentAttempt({ ...paymentAttempt, actualOutput: null });
+          throw new Error("The payment confirmation changed. Check the submitted payment before continuing.");
+        }
+        consumed = structuredClone(paymentAttempt);
+      }
+      let submittedHash: Hex | undefined;
+      const bindPayment = (hash: Hex, previous?: Hex) => {
+        if (!consumed) return;
+        try {
+          const key = paymentKey(config, plan.creator);
+          const saved = JSON.parse(localStorage.getItem(key) || "null") as PaymentAttempt | null;
+          if (!saved || !sameFirstBuyPayment(saved, consumed) || !paymentMatchesLaunch(saved, plan) ||
+            (previous ? !saved.launchHash || !sameAddress(saved.launchHash, previous) : !!saved.launchHash && !sameAddress(saved.launchHash, hash))) return;
+          const bound = { ...saved, launchHash: hash };
+          localStorage.setItem(key, JSON.stringify(bound));
+          if (request === generation.current) setPaymentAttempt(bound);
+        } catch { /* Keep the original payment record if association cannot be saved. */ }
+      };
       const hash = await wallet.launch(
         plan,
         config,
         setMessage,
         (h) => {
+          submittedHash = h;
+          bindPayment(h);
           setTxHash(h);
           localStorage.setItem(pendingLaunchKey(config!), h);
-          updateTransaction(h, config.chainId, { planId: plan.id });
+          updateTransaction(h, config.chainId, { planId: plan.id }, config.deploymentChainId);
           void api("/launch/track", { hash: h, planId: plan.id }).catch(() =>
             setMessage("The transaction hash is saved. Registration will be retried when you resume checking."),
           );
         },
         current,
       );
-      const token = await register(hash);
+      if (submittedHash && !sameAddress(submittedHash, hash)) bindPayment(hash, submittedHash);
+      const token = await register(hash, request);
       localStorage.removeItem(pendingLaunchKey(config!));
-      navigate(`/token/${token.address}`);
+      if (request !== generation.current) return;
+      navigate(tokenPath(token));
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -1171,7 +1387,7 @@ function CreatePage({
       }
       const token = await register(hash);
       localStorage.removeItem(pendingLaunchKey(config!));
-      navigate(`/token/${token.address}`);
+      navigate(tokenPath(token));
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -1545,29 +1761,28 @@ function CreatePage({
               </div>
             </details>
           </section>
-          <section className="panel first-buy-panel" aria-labelledby="first-buy-heading">
-            <div className="panel-heading"><div>
-              <h2 id="first-buy-heading">First buy <span className="optional">Optional</span></h2>
-              <p>Buy your token in the same transaction as its launch. Leave the amount at 0 to launch without buying.</p>
-            </div></div>
-            <label htmlFor="launch-first-buy">Spend {stock.symbol}
-              <input id="launch-first-buy" name="firstBuy" inputMode="decimal" autoComplete="off"
-                aria-invalid={invalidField === "firstBuy"}
-                aria-describedby={invalidField === "firstBuy" ? "launch-error-firstBuy" : "launch-first-buy-help"}
-                value={firstBuy.amount} onChange={(event) => updateFirstBuy({ ...firstBuy, amount: event.target.value })} />
-              <FieldError name="firstBuy" invalidField={invalidField} error={error} />
-            </label>
-            <div className="first-buy-slippage">
-              <span>Slippage tolerance</span>
-              <div role="group" aria-label="First buy slippage tolerance">
-                {[50, 100, 200, 500].map((bps) => <button type="button" key={bps}
-                  aria-pressed={firstBuy.slippageBps === bps}
-                  onClick={() => updateFirstBuy({ ...firstBuy, slippageBps: bps })}>{bps / 100}%</button>)}
-              </div>
-            </div>
-            <p id="launch-first-buy-help" className="muted">The amount uses {stock.symbol} tokens. Changing the quote asset resets it to 0. Trading fees are included in the preview; network gas is separate.</p>
-            {!config.launchGuard && <p className="muted">First buys are currently unavailable on this network. You can launch with an amount of 0.</p>}
-          </section>
+          <FirstBuy value={firstBuy} asset={paymentAsset} assets={paymentAssets} balance={paymentBalance} price={paymentPrice}
+            lockAvailable={!!config.launchLockAvailable} busy={busy || (!!paymentAttempt && !paymentAttempt.actualOutput)}
+            error={invalidField === "firstBuy" ? error : ""} onChange={updateFirstBuy} />
+          {paymentAttempt && <section className="panel payment-recovery" aria-label="First buy payment status">
+            <h3>{paymentAttempt.actualOutput ? "Payment received" : "Submitted payment conversion"}</h3>
+            {paymentAttempt.actualOutput && <p>{formatUnits(BigInt(paymentAttempt.actualOutput), paymentAttempt.quote.toToken.decimals)} {paymentAttempt.quote.toToken.symbol} verified in your wallet. {paymentPairSupported ? "Preview the launch using this amount." : "This asset is unavailable for new launches. These tokens stay in your wallet."}</p>}
+            <TxLink hash={paymentAttempt.hash} config={config} />
+            <button type="button" className="secondary" disabled={busy} onClick={() => void recoverPayment()}><RefreshCw size={14} /> Check payment status</button>
+            {paymentAttempt.actualOutput && <button type="button" className="text-button" disabled={busy} onClick={() => {
+              if (!wallet.account) return;
+              generation.current++;
+              if (paymentPairSupported) setDraft((draft) => ({ ...draft, quoteAddress: paymentAttempt.quote.toToken.address }));
+              setFirstBuy(paymentPairSupported ? { ...firstBuy, payAddress: paymentAttempt.quote.toToken.address,
+                amount: formatUnits(BigInt(paymentAttempt.actualOutput!), paymentAttempt.quote.toToken.decimals) }
+                : { ...firstBuy, payAddress: stock.address, amount: "0", lockDays: 0 });
+              setPlan(null); setPaymentQuote(null); setPaymentAttempt(null);
+              localStorage.removeItem(paymentKey(config, wallet.account));
+              setMessage(paymentPairSupported ? "Use the paired asset in your wallet directly. You can adjust the first buy amount."
+                : `${paymentAttempt.quote.toToken.symbol} stays in your wallet. Choose a new first buy for the current paired asset.`);
+            }}>{paymentPairSupported ? "Use paired asset directly" : "Keep tokens and start a new first buy"}</button>}
+            <p className="muted">A completed conversion stays in your wallet if you cancel or the launch fails. This check never sends another conversion.</p>
+          </section>}
         </form>
         <aside className="preview-column" aria-label="Live launch preview">
           <section className="preview-card">
@@ -1606,7 +1821,7 @@ function CreatePage({
                   <b>1,000,000,000 tokens</b>{" "}Fixed supply, all deposited into the pool
                 </li>
                 <li>
-                  Opens at <b>{openingCapUsdLabel}</b> market cap
+                  Targets <b>{openingCapUsdLabel}</b> before the first buy
                 </li>
                 <li>
                   A trading pool settled in <b>{stock.symbol}</b>
@@ -1637,7 +1852,7 @@ function CreatePage({
                 openingValuation={plan?.openingValuation} quoteDecimals={stock.decimals}
                 tokenAddress={plan?.tokenAddress} quoteAddress={stock.address} />
               <p>
-                All 1 billion tokens enter the pool: 97% spans {openingCapUsdLabel} to ${LAUNCH_CURVE_MAIN_END_USD.toLocaleString("en-US")} market cap across 18 adjacent price doublings. The remaining 3% supplies a higher price tail with a finite limit. The initial positions are fixed at launch. The quote asset’s USD reference price sets the opening valuation; tick rounding and later asset price changes affect USD market cap. Buys move the price up and sells move it down.
+                All 1 billion tokens enter the pool: 97% spans {openingCapUsdLabel} to ${LAUNCH_CURVE_MAIN_END_USD.toLocaleString("en-US")} market cap across 18 adjacent price doublings. The remaining 3% supplies a higher price tail with a finite limit. The initial positions are fixed at launch. A LI.FI buy/sell quote reference sets the initial valuation and expires after 60 seconds. Tick rounding, the optional first buy and later asset price changes affect USD market cap. Buys move the price up and sells move it down.
               </p>
             </details>
             <div className="fee-heading">
@@ -1666,13 +1881,15 @@ function CreatePage({
             <button
               type="button"
               className="text-button"
+              disabled={busy || (!!paymentAttempt && !paymentAttempt.actualOutput)}
               onClick={() => {
                 generation.current++;
                 imageUpload.current++;
                 setUploadingImage(false);
                 setImageError("");
                 setDraft(restoreDraft(null, config ?? undefined));
-                setFirstBuy({ amount: "0", slippageBps: 100 });
+                setFirstBuy({ amount: "0", slippageBps: 100, payAddress: launchAssetsFor(config)[0].address, lockDays: 0 });
+                setPaymentQuote(null);
                 setQuery("");
                 setPlan(null);
                 setReview(false);
@@ -1757,10 +1974,14 @@ function CreatePage({
               <dd>1 billion tokens · 100% in the pool</dd>
             </div>
             <div>
-              <dt>Opening market cap</dt>
+              <dt>Initial valuation target</dt>
               <dd>
-                Opens at <b>{openingCapUsdLabel}</b> market cap
+                <b>{openingCapUsdLabel}</b> before the first buy
               </dd>
+            </div>
+            <div>
+              <dt>Opening price reference</dt>
+              <dd>LI.FI buy/sell quotes · 60-second validity</dd>
             </div>
             <div>
               <dt>Net fee distribution (after Doppler)</dt>
@@ -1784,12 +2005,30 @@ function CreatePage({
             </div>
             <div>
               <dt>Launch cost</dt>
-              <dd>{Number(firstBuy.amount || "0") > 0 ? `${firstBuy.amount} ${stock.symbol} + network gas` : "Network gas only"}</dd>
+              <dd>{Number(firstBuy.amount || "0") > 0 ? `${firstBuy.amount} ${paymentAsset.symbol} + network gas` : "Network gas only"}</dd>
             </div>
             {Number(firstBuy.amount || "0") > 0 && <div>
               <dt>First buy slippage</dt><dd>{firstBuy.slippageBps / 100}%</dd>
             </div>}
           </dl>
+          {Number(firstBuy.amount || "0") > 0 && <div className="first-buy-slippage">
+            <span>Slippage per conversion / first buy</span><div role="group" aria-label="First buy slippage tolerance">
+              {[50, 100, 200, 500].map((bps) => <button type="button" key={bps} aria-pressed={firstBuy.slippageBps === bps}
+                disabled={busy || !!paymentAttempt} onClick={() => updateFirstBuy({ ...firstBuy, slippageBps: bps }, true)}>{bps / 100}%</button>)}
+            </div>
+          </div>}
+          {paymentQuote && <section className="first-buy-preview" aria-label="Payment conversion review">
+            <h3>Convert payment with LI.FI</h3><dl className="review-facts">
+              <div><dt>You pay</dt><dd>{formatUnits(BigInt(paymentQuote.amountIn), paymentQuote.fromToken.decimals)} {paymentQuote.fromToken.symbol}</dd></div>
+              <div><dt>Estimated paired asset</dt><dd>{formatUnits(BigInt(paymentQuote.expectedOut), paymentQuote.toToken.decimals)} {paymentQuote.toToken.symbol}</dd></div>
+              <div><dt>Minimum paired asset</dt><dd>{formatUnits(BigInt(paymentQuote.minimumOut), paymentQuote.toToken.decimals)} {paymentQuote.toToken.symbol}</dd></div>
+              <div><dt>LI.FI route fee</dt><dd>{formatUnits(BigInt(paymentQuote.feeAmount), paymentQuote.fromToken.decimals)} {paymentQuote.fromToken.symbol}{paymentQuote.feeUsd && ` (≈ $${paymentQuote.feeUsd})`}</dd></div>
+              <div><dt>Estimated conversion gas</dt><dd>{paymentQuote.gasFeeUsd ? `≈ $${paymentQuote.gasFeeUsd}` : "Unavailable"}</dd></div>
+              <div><dt>Recipient</dt><dd><code>{paymentQuote.account}</code></dd></div>
+              <div><dt>Quote expires</dt><dd>{new Date(paymentQuote.expiresAt).toLocaleString("en-US")}</dd></div>
+              <div><dt>First buy lock</dt><dd>{firstBuy.lockDays === 0 ? "No lock" : firstBuy.lockDays === 365 ? "1 year" : `${firstBuy.lockDays} days`}</dd></div>
+            </dl><p>This transaction converts your payment into the paired asset. After confirmation, review the actual first buy before launching. LI.FI and network fees are separate from the first buy's protocol and liquidity fees.</p>
+          </section>}
           {plan?.firstBuy && <section className="first-buy-preview" aria-label="First buy preview">
             <h3>Your first buy</h3>
             <dl className="review-facts">
@@ -1798,6 +2037,7 @@ function CreatePage({
               <div><dt>Minimum tokens received</dt><dd><NumberText value={plan.firstBuy.minAmountOut} decimals={18} /> {draft.symbol}</dd></div>
               <div><dt>Share of total supply</dt><dd>{formatUnits(BigInt(plan.firstBuy.expectedAmountOut) * 100_000_000n / SUPPLY, 6)}%</dd></div>
               <div><dt>Recipient</dt><dd><code>{plan.firstBuy.recipient}</code></dd></div>
+              <div><dt>First buy lock</dt><dd>{(plan.firstBuy.lockDays ?? 0) === 0 ? "No lock" : plan.firstBuy.lockDays === 365 ? "1 year" : `${plan.firstBuy.lockDays} days`}</dd></div>
               <div><dt>Preview expires</dt><dd>{new Date(plan.firstBuy.deadline * 1000).toLocaleString("en-US")}</dd></div>
               <div><dt>Slippage tolerance</dt><dd>{plan.firstBuy.slippageBps / 100}%</dd></div>
               <div><dt>Approval amount</dt><dd>{plan.firstBuy.amount} {stock.symbol} only</dd></div>
@@ -1818,7 +2058,7 @@ function CreatePage({
           {message && !planExpired && <Notice kind="success">{message}</Notice>}
           {plan && !planExpired && (
             <p className="launch-caption">
-              Set using the quote asset’s USD reference price at preview time. This preview is valid for five minutes, including simulation time.
+              Set using LI.FI buy/sell quotes at preview time. This reference expires after 60 seconds, including simulation time. The optional first buy moves the pool price above its initial target.
             </p>
           )}
           {planExpired && !busy && (
@@ -1836,6 +2076,11 @@ function CreatePage({
               {wallet.connecting ? "Connecting…" : "Connect wallet to continue"}
               <Wallet size={16} />
             </button>
+          ) : paymentAttempt && !paymentAttempt.actualOutput ? (
+            <button className="primary full" disabled={busy} onClick={() => void recoverPayment()}>Check submitted payment</button>
+          ) : paymentQuote && !paymentExpired ? (
+            <button className="primary full" disabled={busy || !config.writesEnabled || wallet.chainId !== config.chainId}
+              onClick={() => void convertPayment()}>{busy ? "Confirming payment…" : "Confirm payment conversion"}<ArrowRight size={17} /></button>
           ) : !plan || (planExpired && !busy) ? (
             <button
               className="primary full"
@@ -1897,6 +2142,7 @@ function TokenPage({
   address: string;
   config: RuntimeConfig | null;
 }) {
+  const api = scopedApi(config);
   const generation = useRef(0);
   const directory = useResource<TokenRecord[]>("/tokens");
   const resource = useResource<{
@@ -2042,6 +2288,7 @@ function TokenPage({
       <div className="detail-layout token-trading-layout">
         <div>
           <TokenMarket token={token} refreshKey={hash ?? ""} />
+          <FirstBuyLock token={token} config={config} />
           <section className="panel">
             <h2>About {token.name}</h2>
             <p className="body-copy">
@@ -2369,6 +2616,7 @@ function FeeCard({
   token: TokenRecord;
   config: RuntimeConfig | null;
 }) {
+  const api = scopedApi(config);
   const generation = useRef(0);
   const wallet = useWallet(),
     [data, setData] = useState<FeeData | null>(null),

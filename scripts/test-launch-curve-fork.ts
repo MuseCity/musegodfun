@@ -260,10 +260,9 @@ try {
   guard = deployed.contractAddress;
   guardDeployment = { hash: deployed.transactionHash, gasUsed: deployed.gasUsed };
   config.launchGuard = guard;
-  // The isolated process must use its local deployment even when a production
-  // environment file already supplies a different guard address.
-  process.env.LAUNCH_GUARD_ADDRESS = guard;
-  service = new LaunchpadService({ config, rpcUrl: fork.rpc, dataDir });
+  // Keep the isolated dependency explicit; production environment values cannot override it.
+  service = new LaunchpadService({ config, rpcUrl: fork.rpc, dataDir, dataScope: "robinhood",
+    launchGuardCandidate: null, firstBuyGuardCandidate: guard, lifi: runtimeFromEnv(4663).lifi });
   assert(sameAddress((await service.config()).launchGuard!, guard));
   for (const ticker of priorAssetProof ? [] : tickers) {
     const asset = ROBINHOOD_STOCKS.find((row) => row.ticker === ticker)!;
@@ -339,7 +338,8 @@ try {
   boundaries.push({ reverse: true, capital, opening, atTail, crossedMainBoundaries: 18, ...reverse });
   await saveBoundaryProgress();
   await service.store.close();
-  service = new LaunchpadService({ config: { ...config, writesEnabled: false }, rpcUrl: fork.rpc, dataDir });
+  service = new LaunchpadService({ config: { ...config, writesEnabled: false }, rpcUrl: fork.rpc, dataDir, dataScope: "robinhood",
+    launchGuardCandidate: null, firstBuyGuardCandidate: guard, lifi: runtimeFromEnv(4663).lifi });
   await service.reconcile();
   for (const token of testedTokens) assert(await service.store.token(token));
   if (process.env.LAUNCH_FORK_KEEP_RUNNING === "true") {

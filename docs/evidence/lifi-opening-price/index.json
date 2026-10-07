@@ -1,0 +1,181 @@
+{
+  "schemaVersion": 1,
+  "completedAt": "2026-10-07T01:52:57.819205+00:00",
+  "sourceScope": "Local implementation and verification only; Base 36 Coinbase B20 assets and Robinhood 192 new-launch assets. ST0x and Backed remain excluded.",
+  "implementation": {
+    "policy": "fixed-usd-5000-lifi-v1",
+    "marketCapUsd": 5000,
+    "targetApplies": "Initial pool boundary before an optional first buy; tick rounding and later price changes apply",
+    "source": "LI.FI",
+    "ttlMs": 60000,
+    "expiryStart": "Earliest buy/sell quote HTTP request start, including retrieval, simulation and approval",
+    "probe": "100 USDC on Base, 100 USDG on Robinhood; USDG self-pair uses ETH sized near $100 from LI.FI ETH/USD reference",
+    "derivation": "Per-leg USD ask/bid from exchange amounts and numeraire priceUSD; remove explicit LI.FI source fees, retain DEX costs/impact, midpoint with integer arithmetic",
+    "maximumAbsoluteDivergenceBps": 500,
+    "fallback": "none for new issuance",
+    "historicalRecovery": "Old policy snapshots remain readable for canonical already-broadcast receipt recovery; unsigned previews must use current policy/expiry"
+  },
+  "liveQuoteAudit": {
+    "record": "quotes.json",
+    "independentDecimalRecalculation": "price-diagnostics.json",
+    "startedAt": "2026-10-07T01:34:23.977Z",
+    "completedAt": "2026-10-07T01:46:57.397Z",
+    "requests": 479,
+    "counts": {
+      "4663": {
+        "sampled": 192,
+        "passed": 115,
+        "rejected": 77,
+        "rejectionCategories": {
+          "price_divergence": 49,
+          "no_route": 28
+        }
+      },
+      "8453": {
+        "sampled": 36,
+        "passed": 15,
+        "rejected": 21,
+        "rejectionCategories": {
+          "price_divergence": 16,
+          "no_route": 5
+        }
+      }
+    },
+    "base10UsdcPayments": {
+      "sampled": 36,
+      "passed": 36
+    },
+    "rateEvidence": {
+      "maxRequestsInRolling60Seconds": 43,
+      "minimumActualStartGapMs": 1311
+    },
+    "boundary": "130 successful snapshots completed final canonical identity block reread; 98 rejections produced no snapshot. Samples are now expired, not signing authority. Route eligibility does not guarantee opening-reference availability at every amount/time."
+  },
+  "localHttp": {
+    "record": "local-api.json",
+    "realApiPassed": 4,
+    "cases": [
+      "Base NVDAc",
+      "Base AMDc",
+      "Robinhood USDG self-pair",
+      "Robinhood MUSEGOD"
+    ],
+    "scope": "Local HTTP -> real read-only public RPC identity + live LI.FI quote -> SDK prepare/simulation -> isolated SQLite plan. Both configs signing disabled; frozen plan validates while fresh and rejects at expiry with HTTP422.",
+    "mainnetTransactions": "not_run"
+  },
+  "lockedFirstBuyForks": {
+    "record": "locked-first-buy.json",
+    "passed": 2,
+    "executionChainId": 31337,
+    "mainnetTransactions": "not_run",
+    "upstreamWrites": 0,
+    "scope": "Synthetic local funding; exact input, custody, 30-day cliff, unauthorized/early claim rejection, full creator claim, allowance reset and snapshot restore. Existing script does not persist individual opening quote legs."
+  },
+  "browser": {
+    "scope": "LOCAL UI FIXTURE only: production-compiled frontend with mock wallet/API/RPC/prices and receipts; no real wallet or settlement evidence",
+    "browser": "Chrome controlled through CUA",
+    "checks": [
+      "Base shows 36 Coinbase identities",
+      "Robinhood shows 192 route-eligible identities",
+      "Both review screens disclose LI.FI buy/sell quotes and 60-second validity",
+      "Initial valuation is described as a $5,000 target before the first buy",
+      "Base simulated preview expires after 60 seconds, removes confirm and displays Refresh preview",
+      "Robinhood 10 USDG first-buy mock preview uses the same source and expiry wording"
+    ],
+    "walletSendCounts": {
+      "approval": 0,
+      "payment": 0,
+      "launch": 0,
+      "claim": 0,
+      "cancel": 0
+    },
+    "images": [
+      "base-preview.jpg",
+      "base-expired.jpg",
+      "robinhood-first-buy.jpg"
+    ]
+  },
+  "validation": {
+    "unitTests": {
+      "command": "npm test",
+      "passed": 423,
+      "failed": 0,
+      "skipped": 0,
+      "log": "unit-tests.txt"
+    },
+    "typecheck": "Node and Worker passed",
+    "build": {
+      "command": "npm run build",
+      "result": "passed",
+      "log": "build.txt",
+      "note": "Existing large-bundle warning remains"
+    },
+    "worker": {
+      "command": "wrangler deploy --dry-run",
+      "result": "passed; no upload/deployment",
+      "log": "worker-dry-run.txt"
+    },
+    "diffCheck": "passed",
+    "independentReview": "No immediate math, historical recovery or signing boundary defect found",
+    "secretScan": {
+      "scannedFiles": 218,
+      "secretValueMatches": 0,
+      "scope": "Saved evidence and browser dist bytes; private runtime credentials never printed"
+    }
+  },
+  "sourceSha256": {
+    "server/opening-price.ts": "217627cbadc01ab356cbe84230a4798bb639db8c2e45ce83095265851e7b99e5",
+    "server/lifi.ts": "f24ce42582281cce3925c2cf8de69bb97310e3afcc2cddbeb7b8699787eb1dbc",
+    "src/lib/opening-valuation.ts": "738cdcd43126e1445dfe097a6d47020e6dc0bccaeb30afad918f90948eefbce5",
+    "src/lib/first-buy-payment.ts": "7c6b9cd5e1b8ed098f3c066635b05dd9a28e8f56799ee986aba51d382af7717a",
+    "src/lib/config.ts": "56f2725ad9e7b7d9c2898377e8de976474037f612ae1ae1700d115f520a83b16",
+    "src/lib/stocks.json": "5a2a979652cc52aa8a32ce8cb6359fd36a7858db78811a480956d6d4121b4804",
+    "src/lib/robinhood-assets.json": "3ce519759ed0672463641474794e70970e6343a58893dadd597762e1e8e40fae",
+    "src/lib/lifi-launch-assets.json": "d6a6589cc44aa6ffe2cc8d12a635bdae863a7cb618232ea59d13681085b8f989",
+    "src/App.tsx": "0b60fb1e809fe2c2d0d629d403fc7bcd0f79af8cf98e3fc0b917133880b9046f",
+    "server/service.ts": "5537518b38a385b09c1e56c6f53c4141df07eddd06708ce34ca5611b461a087d",
+    "server/config.ts": "c59e9fc78f5852f194b09ae92fb55f168585a5dc4c72dc5de32f84823bac81bc",
+    "worker/index.ts": "63007b9fd8fd26b460033a991cedce3af5f19c8307b0597d60f40c07038a95e0",
+    "src/lib/launch-wallet.ts": "e0a4dca30bee3a34e31c4ab63f1830fcc2df93824240fb0dce0eb1d7162ce185",
+    "src/lib/protocol.ts": "c3467d84dfc08ef88d328c2d957e685638934f840689fe95491bbff2eaba2c1f",
+    "tests/fixtures.ts": "558d1ec12dbd3d5680a9f5c5677482988692fe7d6d87eeff954bc46f7657639d",
+    "tests/core.test.ts": "0f4cf9daf6c2010839caf68c57e4246067f59b6e3e1db44640a0cf5bf16f9bde",
+    "tests/opening-price.test.ts": "a7ce6c3e7a0d20d2e37a60b3d971478fb8c5411a6111d99ffd0da1dc8de33ba7",
+    "tests/launch-service.test.ts": "950e3d0c9c3f441a46a0e8a04925be663b7a060bf15d76dfc7b44f6df2f63044",
+    "tests/dualchain-runtime.test.ts": "a68fd30fa379ce646ac4a2b91f845f3fe0a7d401d74c141ed668cfa4ae49670b",
+    "tests/launch-wallet.test.ts": "63cc8c1f6a4140c804eea97f41c7cf147a62e0b7984ff659a754b63589d2d6ac"
+  },
+  "artifacts": {
+    "base-expired.jpg": "f3d8ff3bc40b3169537f350802a543c0f59de5f8432f216a03cad20fbbfe491b",
+    "base-preview.jpg": "406809c5f427757384858016671617638f279643ed8a1fc095a9afaac74f4d75",
+    "build.txt": "6bd6cce6e163d5e675c10fed2e29b0df0ff0aab1098c7e33866acc9b43e04cb9",
+    "local-api.json": "60cc2bcafb7462bf81885988069e7415282b3c8c9db97c12a757afb55eaa37ce",
+    "locked-first-buy-4663.json": "5d0d0368ea4f2237d1329891e91f592746efad0e513c315665deaf583d2a6e59",
+    "locked-first-buy-8453.json": "dfd5582df892a0ff638ace9fbea99f20ac20ee3e45cd0ff02d6774d05765e1f3",
+    "locked-first-buy.json": "232b006fe28729beec003c7852449855f333ca5b82e3c75d94e25e5ceae1a150",
+    "price-diagnostics.json": "6fb5d7497f87430a3e7db51140e9e919b87861a92ef818d0664dfd0ccf2625dc",
+    "quotes.json": "cdba53a185bd1a214dbabf7fef0e8b57390d9d6fc6ac856884009f1b0d89ab43",
+    "robinhood-first-buy.jpg": "2f313baf2b39b038d5b6d1c0ec72610aed674a22643f7e9868d1ac10bf760434",
+    "unit-tests.txt": "debdb1bec59aa53c5282c8baf7bf80b1136e8fa07e74e03ca64d8e481b139842",
+    "worker-dry-run.txt": "c9c90e92f7cb92dee300fe98b7ebbc3e0fce1e158671373e263664cac56b5ea5"
+  },
+  "releaseBoundary": {
+    "productionDeployment": "not_run",
+    "mainnetTransactions": "not_run",
+    "commit": "not_run",
+    "push": "not_run",
+    "productionState": "No production runtime/configuration changed by this source change"
+  },
+  "artifactNormalization": [
+    {
+      "file": "worker-dry-run.txt",
+      "originalSha256": "513256989c40ffe84b22406273942842af6807911769e400de45262450f6f357",
+      "change": "Trailing log whitespace removed before Git publication; diagnostic content unchanged"
+    },
+    {
+      "file": "build.txt",
+      "originalSha256": "ddc28960d762eb16607c34e49315d5c793eb031e3e7913793a81b9ab1fb528f4",
+      "change": "Trailing log whitespace removed before Git publication; diagnostic content unchanged"
+    }
+  ]
+}

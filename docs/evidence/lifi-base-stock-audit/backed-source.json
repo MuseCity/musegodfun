@@ -1,0 +1,314 @@
+{
+  "capturedAt": "2026-10-07T00:20:48.218Z",
+  "issuerSource": "https://assets.backed.fi/products",
+  "status": "bTokens no longer available for new issuance; redemption remains supported; addresses taken only from Base-labelled official product link",
+  "rows": [
+    {
+      "source": "https://assets.backed.fi/products/bcspx",
+      "chainId": 8453,
+      "symbol": "bCSPX",
+      "addresses": [
+        "0xc3ce78b037dda1b966d31ec7979d3f3a38571a8e"
+      ],
+      "newIssuanceAvailable": false,
+      "classification": "issuer-published bToken; underlying stock/ETF/fixed-income type retained at source",
+      "onchain": {
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bCSPX",
+        "decimals": 18,
+        "totalSupply": "10000000000000000000000"
+      }
+    },
+    {
+      "source": "https://assets.backed.fi/products/bcoin",
+      "chainId": 8453,
+      "symbol": "bCOIN",
+      "addresses": [
+        "0xbbcb0356bb9e6b3faa5cbf9e5f36185d53403ac9"
+      ],
+      "newIssuanceAvailable": false,
+      "classification": "issuer-published bToken; underlying stock/ETF/fixed-income type retained at source",
+      "onchain": {
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bCOIN",
+        "decimals": 18,
+        "totalSupply": "13500000000000000000000"
+      }
+    },
+    {
+      "source": "https://assets.backed.fi/products/berna",
+      "chainId": 8453,
+      "symbol": "bERNA",
+      "addresses": [
+        "0x0f76d32cdccdcbd602a55af23eaf58fd1ee17245"
+      ],
+      "newIssuanceAvailable": false,
+      "classification": "issuer-published bToken; underlying stock/ETF/fixed-income type retained at source",
+      "onchain": {
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bERNA",
+        "decimals": 18,
+        "totalSupply": "0"
+      }
+    },
+    {
+      "source": "https://assets.backed.fi/products/bgoogl",
+      "chainId": 8453,
+      "symbol": "bGOOGL",
+      "addresses": [
+        "0xEbee37Aaf2905b7BdA7E3b928043862e982E8F32"
+      ],
+      "newIssuanceAvailable": false,
+      "classification": "issuer-published bToken; underlying stock/ETF/fixed-income type retained at source",
+      "onchain": {
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bGOOGL",
+        "decimals": 18,
+        "totalSupply": "0"
+      }
+    },
+    {
+      "source": "https://assets.backed.fi/products/bernx",
+      "chainId": 8453,
+      "symbol": "bERNX",
+      "addresses": [
+        "0x3f95aa88ddbb7d9d484aa3d482bf0a80009c52c9"
+      ],
+      "newIssuanceAvailable": false,
+      "classification": "issuer-published bToken; underlying stock/ETF/fixed-income type retained at source",
+      "onchain": {
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bERNX",
+        "decimals": 18,
+        "totalSupply": "0"
+      }
+    },
+    {
+      "source": "https://assets.backed.fi/products/bgme",
+      "chainId": 8453,
+      "symbol": "bGME",
+      "addresses": [
+        "0x7212088A11b4d8f6FC90fbB3dfE793B45dd72323"
+      ],
+      "newIssuanceAvailable": false,
+      "classification": "issuer-published bToken; underlying stock/ETF/fixed-income type retained at source",
+      "onchain": {
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bGME",
+        "decimals": 18,
+        "totalSupply": "0"
+      }
+    },
+    {
+      "source": "https://assets.backed.fi/products/bhigh",
+      "chainId": 8453,
+      "symbol": "bHIGH",
+      "addresses": [
+        "0x20c64dee8fda5269a78f2d5bdba861ca1d83df7a"
+      ],
+      "newIssuanceAvailable": false,
+      "classification": "issuer-published bToken; underlying stock/ETF/fixed-income type retained at source",
+      "onchain": {
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bHIGH",
+        "decimals": 18,
+        "totalSupply": "0"
+      }
+    },
+    {
+      "source": "https://assets.backed.fi/products/bc3m",
+      "chainId": 8453,
+      "symbol": "bC3M",
+      "addresses": [
+        "0x2f123cf3f37ce3328cc9b5b8415f9ec5109b45e7"
+      ],
+      "newIssuanceAvailable": false,
+      "classification": "issuer-published bToken; underlying stock/ETF/fixed-income type retained at source",
+      "onchain": {
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bC3M",
+        "decimals": 18,
+        "totalSupply": "0"
+      }
+    },
+    {
+      "source": "https://assets.backed.fi/products/bmsft",
+      "chainId": 8453,
+      "symbol": "bMSFT",
+      "addresses": [
+        "0x374A457967Ba24FD3Ae66294cAb08244185574b0"
+      ],
+      "newIssuanceAvailable": false,
+      "classification": "issuer-published bToken; underlying stock/ETF/fixed-income type retained at source",
+      "onchain": {
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bMSFT",
+        "decimals": 18,
+        "totalSupply": "0"
+      }
+    },
+    {
+      "source": "https://assets.backed.fi/products/bib01",
+      "chainId": 8453,
+      "symbol": "bIB01",
+      "addresses": [
+        "0xca30c93b02514f86d5c86a6e375e3a330b435fb5"
+      ],
+      "newIssuanceAvailable": false,
+      "classification": "issuer-published bToken; underlying stock/ETF/fixed-income type retained at source",
+      "onchain": {
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bIB01",
+        "decimals": 18,
+        "totalSupply": "10000000000000000000000"
+      }
+    },
+    {
+      "source": "https://assets.backed.fi/products/bibta",
+      "chainId": 8453,
+      "symbol": "bIBTA",
+      "addresses": [
+        "0x52d134c6db5889fad3542a09eaf7aa90c0fdf9e4"
+      ],
+      "newIssuanceAvailable": false,
+      "classification": "issuer-published bToken; underlying stock/ETF/fixed-income type retained at source",
+      "onchain": {
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bIBTA",
+        "decimals": 18,
+        "totalSupply": "0"
+      }
+    },
+    {
+      "source": "https://assets.backed.fi/products/bmstr",
+      "chainId": 8453,
+      "symbol": "bMSTR",
+      "addresses": [
+        "0xaC28C9178ACc8BA4A11A29E013a3A2627086e422"
+      ],
+      "newIssuanceAvailable": false,
+      "classification": "issuer-published bToken; underlying stock/ETF/fixed-income type retained at source",
+      "onchain": {
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bMSTR",
+        "decimals": 18,
+        "totalSupply": "3000000000000000000000"
+      }
+    },
+    {
+      "source": "https://assets.backed.fi/products/bniu",
+      "chainId": 8453,
+      "symbol": "bNIU",
+      "addresses": [
+        "0x2f11eeee0bf21e7661a22dbbbb9068f4ad191b86"
+      ],
+      "newIssuanceAvailable": false,
+      "classification": "issuer-published bToken; underlying stock/ETF/fixed-income type retained at source",
+      "onchain": {
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bNIU",
+        "decimals": 18,
+        "totalSupply": "0"
+      }
+    },
+    {
+      "source": "https://assets.backed.fi/products/btsla",
+      "chainId": 8453,
+      "symbol": "bTSLA",
+      "addresses": [
+        "0x14A5f2872396802C3Cc8942A39Ab3E4118EE5038"
+      ],
+      "newIssuanceAvailable": false,
+      "classification": "issuer-published bToken; underlying stock/ETF/fixed-income type retained at source",
+      "onchain": {
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bTSLA",
+        "decimals": 18,
+        "totalSupply": "3000000000000000000000"
+      }
+    },
+    {
+      "source": "https://assets.backed.fi/products/bnvda",
+      "chainId": 8453,
+      "symbol": "bNVDA",
+      "addresses": [
+        "0xA34C5e0AbE843E10461E2C9586Ea03E55Dbcc495"
+      ],
+      "newIssuanceAvailable": false,
+      "classification": "issuer-published bToken; underlying stock/ETF/fixed-income type retained at source",
+      "onchain": {
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bNVDA",
+        "decimals": 18,
+        "totalSupply": "7062699283142503103840"
+      }
+    },
+    {
+      "source": "https://assets.backed.fi/products/bcsbgc3",
+      "chainId": 8453,
+      "symbol": "bCSBGC3",
+      "addresses": [
+        "0xd8B95B1987741849cA7e71e976aEB535fd2e55a2"
+      ],
+      "newIssuanceAvailable": false,
+      "classification": "issuer-published bToken; underlying stock/ETF/fixed-income type retained at source",
+      "onchain": {
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bCSBGC3",
+        "decimals": 18,
+        "totalSupply": "0"
+      }
+    },
+    {
+      "source": "https://assets.backed.fi/products/bzpr1",
+      "chainId": 8453,
+      "symbol": "bZPR1",
+      "addresses": [
+        "0xade6057fcafa57d6d51ffa341c64ce4814995995"
+      ],
+      "newIssuanceAvailable": false,
+      "classification": "issuer-published bToken; underlying stock/ETF/fixed-income type retained at source",
+      "onchain": {
+        "hasCode": true,
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "symbol": "bZPR1",
+        "decimals": 18,
+        "totalSupply": "0"
+      }
+    }
+  ],
+  "onchainSource": "https://base-rpc.publicnode.com"
+}

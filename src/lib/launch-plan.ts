@@ -8,6 +8,22 @@ export type Serialized<T> = T extends bigint ? string : T extends readonly unkno
   ? { [K in keyof T]: Serialized<T[K]> } : T extends object
     ? { [K in keyof T]: Serialized<T[K]> } : T;
 export type LaunchTransaction = { to: Address; data: Hex; value: string };
+export type FirstBuyLockDays = 0 | 30 | 90 | 365;
+export type FirstBuyLockRecord = {
+  bundler: Address;
+  recipient: Address;
+  totalAmount: string;
+  start: number;
+  cliffDuration: number;
+  vestingDuration: number;
+  lockDays: Exclude<FirstBuyLockDays, 0>;
+};
+export type FirstBuyLockStatus = FirstBuyLockRecord & {
+  claimedAmount: string;
+  claimableAmount: string;
+  unlockAt: number;
+  claimTransaction?: LaunchTransaction;
+};
 export type FirstBuyPlan = {
   amount: string;
   amountIn: string;
@@ -19,6 +35,8 @@ export type FirstBuyPlan = {
   quoteAddress: Address;
   guard: Address;
   bundler: Address;
+  // Absent in historical previews, where no purchase was locked.
+  lockDays?: FirstBuyLockDays;
 };
 export type LaunchPlan = {
   id: Hex;

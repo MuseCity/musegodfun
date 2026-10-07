@@ -95,9 +95,16 @@ test("the entire card has one native detail link, an escaped full-name title, an
   const entry = token({ name: 'A <Story> & "Launch" with a deliberately long name' });
   const markup = card(entry);
   assert.equal((markup.match(/<a\b/g) ?? []).length, 1);
-  assert.match(markup, new RegExp(`href="/token/${entry.address}"`));
+  assert.match(markup, new RegExp(`href="/token/base/${entry.address}"`));
   assert.match(markup, /title="A &lt;Story&gt; &amp; &quot;Launch&quot; with a deliberately long name"/);
   assert.doesNotMatch(markup, /<button\b|<Story>/);
+});
+
+test("identical token addresses and fork deployments retain their canonical chain path", () => {
+  const entry = token();
+  assert.match(card(entry), new RegExp(`href="/token/base/${entry.address}"`));
+  assert.match(card({ ...entry, mode: "robinhood" }), new RegExp(`href="/token/robinhood/${entry.address}"`));
+  assert.match(card({ ...entry, mode: "fork", deploymentChainId: 4663 }), new RegExp(`href="/token/robinhood/${entry.address}"`));
 });
 
 test("launch images use public HTTPS and suppress referrers, while unsafe or absent images use an initial", () => {

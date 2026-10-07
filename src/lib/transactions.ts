@@ -1,7 +1,9 @@
-import type { Address, Hash } from "viem";
+import { encodeFunctionData, isAddress, type Address, type Hash } from "viem";
 import type { BuybackBatch, BuybackStepKind } from "./buyback";
-import { deploymentChain, type RuntimeConfig } from "./config";
+import { deploymentChain, ROBINHOOD_BUNDLER, sameAddress, type RuntimeConfig } from "./config";
 import { MUSEGOD } from "./musegod";
+import { assertFirstBuyPaymentQuote, type FirstBuyPaymentQuote } from "./first-buy-payment";
+import { bundlerAbi } from "./first-buy-lock";
 export type Transaction = {
   hash: Hash;
   chainId: number;
@@ -23,6 +25,8 @@ export type Transaction = {
     fromBlock: string;
     checkedBlock?: string;
   };
+  firstBuyPayment?: FirstBuyPaymentQuote;
+  firstBuyClaim?: { token: Address; bundler: Address; data: `0x${string}` };
 };
 export function validMusegodRecovery(row: Pick<Transaction, "action" | "chainId" | "deploymentChainId" | "musegodRecovery">) {
   const metadata = row.musegodRecovery;
@@ -71,6 +75,22 @@ export function transactions(): Transaction[] {
               Number.isFinite(x.at),
           )
           .map((row) => {
+            row = { ...row };
+            if (row.firstBuyPayment !== undefined) {
+              try {
+                assertFirstBuyPaymentQuote(row.firstBuyPayment, Date.now(), true);
+                const chain = row.chainId === 31337 ? row.deploymentChainId ?? 8453 : row.chainId;
+                if (row.action !== "swap" || row.firstBuyPayment.chainId !== chain || !sameAddress(row.firstBuyPayment.account, row.account))
+                  throw new Error("Invalid payment transaction context");
+              } catch { delete row.firstBuyPayment; }
+            }
+            if (row.firstBuyClaim !== undefined) {
+              const claim = row.firstBuyClaim;
+              if (row.action !== "claim" || !claim || typeof claim.token !== "string" || !isAddress(claim.token, { strict: false }) ||
+                typeof claim.bundler !== "string" || !sameAddress(claim.bundler, ROBINHOOD_BUNDLER) ||
+                claim.data !== encodeFunctionData({ abi: bundlerAbi, functionName: "claim", args: [claim.token] }))
+                delete row.firstBuyClaim;
+            }
             if (row.musegodRecovery === undefined) return row;
             if (!validMusegodRecovery(row)) {
               const { musegodRecovery: _ignored, ...legacy } = row;
@@ -93,12 +113,19 @@ export function transactionMatchesConfig(
   return transaction.chainId === config.chainId &&
     (config.mode !== "fork" || (transaction.deploymentChainId ?? 8453) === deploymentChain(config));
 }
+export function isUnresolvedFirstBuyClaim(row: Transaction, token: Address, account: Address,
+  config: Pick<RuntimeConfig, "chainId" | "mode" | "deploymentChainId">) {
+  return !!row.firstBuyClaim && sameAddress(row.firstBuyClaim.token, token) && sameAddress(row.account, account) &&
+    transactionMatchesConfig(row, config) &&
+    (row.status === "pending" || (!row.registered && (row.status === "cancelled" || row.status === "replaced")));
+}
 export function assertTransactionStorage() {
   localStorage.setItem(key, JSON.stringify(transactions()));
 }
 export function saveTransaction(tx: Transaction) {
   const rows = transactions().filter(
-    (t) => !(t.hash === tx.hash && t.chainId === tx.chainId),
+    (t) => !(t.hash === tx.hash && t.chainId === tx.chainId &&
+      (t.chainId !== 31337 || (t.deploymentChainId ?? 8453) === (tx.deploymentChainId ?? 8453))),
   );
   // Preserve every unresolved transaction; refuse further submissions if the queue is full.
   rows.push(tx);
@@ -116,9 +143,11 @@ export function updateTransaction(
   hash: Hash,
   chainId: number,
   patch: Partial<Transaction>,
+  deploymentChainId?: 8453 | 4663,
 ) {
   const tx = transactions().find(
-    (t) => t.hash === hash && t.chainId === chainId,
+    (t) => t.hash === hash && t.chainId === chainId &&
+      (chainId !== 31337 || (t.deploymentChainId ?? 8453) === (deploymentChainId ?? 8453)),
   );
   if (tx) saveTransaction({ ...tx, ...patch });
 }

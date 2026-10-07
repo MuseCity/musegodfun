@@ -3,13 +3,14 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { WalletProvider } from "./lib/wallet";
 import { App } from "./App";
+import { NetworkProvider } from "./lib/network";
 import "./styles.css";
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <ErrorBoundary>
-      <WalletProvider>
+      <NetworkProvider><WalletProvider>
         <App />
-      </WalletProvider>
+      </WalletProvider></NetworkProvider>
     </ErrorBoundary>
   </React.StrictMode>,
 );

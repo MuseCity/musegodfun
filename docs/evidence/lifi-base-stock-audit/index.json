@@ -1,0 +1,1126 @@
+{
+  "schemaVersion": 1,
+  "chainId": 8453,
+  "stage": "complete",
+  "generatedAt": "2026-10-07T00:42:03.166Z",
+  "scope": "164 addresses from verified official Coinbase B20, current wrapped ST0x, and legacy Backed catalogs. This does not claim to exhaust every issuer or permissionless Base token.",
+  "evidenceKind": "Official quotes plus fixed-block RPC identity; not signing, mainnet settlement, redemption acceptance, or new Create readiness",
+  "quoteParameters": {
+    "fromChain": 8453,
+    "toChain": 8453,
+    "payToken": "Base USDC",
+    "representativeAmounts": [
+      10,
+      100
+    ],
+    "reverseQuantity": "Actual inbound quote expectedOut when available; independent official NAV or one-token probes are labeled separately.",
+    "skipSimulation": false,
+    "applicationFee": 0
+  },
+  "tested": 164,
+  "verifiedIdentityBidirectional": 83,
+  "groups": [
+    {
+      "issuer": "Coinbase B20",
+      "checked": 92,
+      "verifiedIdentityBidirectional": 36,
+      "report": "coinbase.json",
+      "source": "coinbase-source.json",
+      "sourceCapturedAt": "2026-10-07T00:15:37.114Z",
+      "startedAt": "2026-10-07T00:22:09.281Z",
+      "completedAt": "2026-10-07T00:28:04.536Z",
+      "requests": 242,
+      "identity": {
+        "blockNumber": "52271589",
+        "blockHash": "0x7dc5bd9b56242349f09b3e15219d6f683eb07babd4214c395cf9c8b45050e635",
+        "knownSupply": 92,
+        "zeroSupply": 53,
+        "positiveSupply": 39,
+        "unknownSupply": 0
+      },
+      "supported": [
+        {
+          "symbol": "AAPLc",
+          "address": "0xb200000000000000000000C2e324d24d7eEcd1fb",
+          "decimals": 8,
+          "currentCreateEligible": true,
+          "appInboundAccepted": true
+        },
+        {
+          "symbol": "AMDc",
+          "address": "0xB2000000000000000000000d8Ce462E99ee7A47B",
+          "decimals": 8,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "AMZNc",
+          "address": "0xb200000000000000000000d9192b6B456483C2E8",
+          "decimals": 8,
+          "currentCreateEligible": true,
+          "appInboundAccepted": true
+        },
+        {
+          "symbol": "ASTSc",
+          "address": "0xB200000000000000000000B1a29cF17A1819288a",
+          "decimals": 8,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "AVGOc",
+          "address": "0xB200000000000000000000Fc737aeA6196aB5a4c",
+          "decimals": 8,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "BEc",
+          "address": "0xb20000000000000000000016f9dfe862feBA122b",
+          "decimals": 8,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "CAKEc",
+          "address": "0xb200000000000000000000f215E4C890CFb7176B",
+          "decimals": 8,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "DJTc",
+          "address": "0xb200000000000000000000428E3a3eebBb20692B",
+          "decimals": 8,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "DUOLc",
+          "address": "0xb200000000000000000000A613D12dEAfBBb1Db7",
+          "decimals": 8,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "GMEc",
+          "address": "0xb2000000000000000000007790ed6E48e06eD935",
+          "decimals": 8,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "GOOGLc",
+          "address": "0xb2000000000000000000002D0BA3164cc74f58B7",
+          "decimals": 8,
+          "currentCreateEligible": true,
+          "appInboundAccepted": true
+        },
+        {
+          "symbol": "HIMSc",
+          "address": "0xB20000000000000000000043a599976181Bcf336",
+          "decimals": 8,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "HTZc",
+          "address": "0xb2000000000000000000002601C5C94F435da168",
+          "decimals": 8,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "LLYc",
+          "address": "0xB200000000000000000000f1a0F91e34892E4718",
+          "decimals": 8,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "METAc",
+          "address": "0xb2000000000000000000008bC8786B856E61707C",
+          "decimals": 8,
+          "currentCreateEligible": true,
+          "appInboundAccepted": true
+        },
+        {
+          "symbol": "MRNAc",
+          "address": "0xB200000000000000000000e215e9B76ecBA02468",
+          "decimals": 8,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "MRVLc",
+          "address": "0xB200000000000000000000eC3c4c7395Cc609813",
+          "decimals": 8,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "MSFTc",
+          "address": "0xB200000000000000000000Ab99cFa739E253872B",
+          "decimals": 8,
+          "currentCreateEligible": true,
+          "appInboundAccepted": true
+        },
+        {
+          "symbol": "MSTRc",
+          "address": "0xb2000000000000000000004884b426556b92883d",
+          "decimals": 8,
+          "currentCreateEligible": true,
+          "appInboundAccepted": true
+        },
+        {
+          "symbol": "MUc",
+          "address": "0xb200000000000000000000Fd2f87532B90095211",
+          "decimals": 8,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "NFLXc",
+          "address": "0xb20000000000000000000058B8c947e44011dFE6",
+          "decimals": 8,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "NVDAc",
+          "address": "0xb20000000000000000000078ee7ce2fE4908108C",
+          "decimals": 8,
+          "currentCreateEligible": true,
+          "appInboundAccepted": true
+        },
+        {
+          "symbol": "ORCLc",
+          "address": "0xb200000000000000000000347AFbA223D7B6b63C",
+          "decimals": 8,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "PFEc",
+          "address": "0xB20000000000000000000018FE7eC7d6DfeeB528",
+          "decimals": 8,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "PLTRc",
+          "address": "0xb2000000000000000000007d16372840dF4dAbbe",
+          "decimals": 8,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "PMc",
+          "address": "0xB2000000000000000000008FC2A8C23cf5937b66",
+          "decimals": 8,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "PTONc",
+          "address": "0xB2000000000000000000009272A491812842Aa84",
+          "decimals": 8,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "PYPLc",
+          "address": "0xb200000000000000000000450ad3abE5d4846c6E",
+          "decimals": 8,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "QUBTc",
+          "address": "0xb200000000000000000000CA425ab42e07C35bC3",
+          "decimals": 8,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "RBLXc",
+          "address": "0xB2000000000000000000005bd7AE89b9E6189Bb5",
+          "decimals": 8,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "RDDTc",
+          "address": "0xb20000000000000000000066242d4067724cB7A1",
+          "decimals": 8,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "SNDKc",
+          "address": "0xb200000000000000000000397293Cb8cda9a10c5",
+          "decimals": 8,
+          "currentCreateEligible": true,
+          "appInboundAccepted": true
+        },
+        {
+          "symbol": "SPCXc",
+          "address": "0xb2000000000000000000007b9fcbd005511aCBd5",
+          "decimals": 8,
+          "currentCreateEligible": true,
+          "appInboundAccepted": true
+        },
+        {
+          "symbol": "TSLAc",
+          "address": "0xb2000000000000000000001e800a7f5189430cD0",
+          "decimals": 8,
+          "currentCreateEligible": true,
+          "appInboundAccepted": true
+        },
+        {
+          "symbol": "TTWOc",
+          "address": "0xB200000000000000000000f720C26062Bc3067Da",
+          "decimals": 8,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "WENc",
+          "address": "0xB20000000000000000000044E3CD7a0E1028E57a",
+          "decimals": 8,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        }
+      ],
+      "withoutCompleteBidirectionalEvidence": [
+        {
+          "symbol": "AAOIc",
+          "address": "0xb200000000000000000000cf36D05963A3E2205c"
+        },
+        {
+          "symbol": "AEOc",
+          "address": "0xB2000000000000000000006064f8EC027f042294"
+        },
+        {
+          "symbol": "AMCc",
+          "address": "0xB200000000000000000000CD7e6b8042cb7c2BB5"
+        },
+        {
+          "symbol": "AXONc",
+          "address": "0xb2000000000000000000004cc3E96cEb78541d33"
+        },
+        {
+          "symbol": "AXTIc",
+          "address": "0xb200000000000000000000A640Ec8C1de0EFb484"
+        },
+        {
+          "symbol": "BIRDc",
+          "address": "0xB200000000000000000000535fE96f18204BFD96"
+        },
+        {
+          "symbol": "BJc",
+          "address": "0xB200000000000000000000082f7FEA8F2eE8f438"
+        },
+        {
+          "symbol": "BMNRc",
+          "address": "0xB200000000000000000000eA2df44A307CaB279C"
+        },
+        {
+          "symbol": "BRK.Bc",
+          "address": "0xb20000000000000000000024170488e788CBbCb4"
+        },
+        {
+          "symbol": "BYNDc",
+          "address": "0xB200000000000000000000801830b13b8E493423"
+        },
+        {
+          "symbol": "CELHc",
+          "address": "0xB2000000000000000000004161B4168d03841511"
+        },
+        {
+          "symbol": "CIFRc",
+          "address": "0xB200000000000000000000690275843B6e246286"
+        },
+        {
+          "symbol": "CLOVc",
+          "address": "0xb20000000000000000000055e63C4c1cDC6b7A36"
+        },
+        {
+          "symbol": "CLSKc",
+          "address": "0xB200000000000000000000fa63cFFF5c794dbB95"
+        },
+        {
+          "symbol": "CORZc",
+          "address": "0xB2000000000000000000001aaa9010Cd65f82c5E"
+        },
+        {
+          "symbol": "CRCLc",
+          "address": "0xB20000000000000000000019f6E7C675b73C2e4D"
+        },
+        {
+          "symbol": "CROXc",
+          "address": "0xb200000000000000000000431a5C1E48E3b1d130"
+        },
+        {
+          "symbol": "CRWVc",
+          "address": "0xB200000000000000000000F111184A74720787E6"
+        },
+        {
+          "symbol": "EATc",
+          "address": "0xB200000000000000000000808E9CCA9ED8e4Da61"
+        },
+        {
+          "symbol": "ELFc",
+          "address": "0xb2000000000000000000006b7f6966EE0453E251"
+        },
+        {
+          "symbol": "FIGRc",
+          "address": "0xb2000000000000000000005A41bef59807119850"
+        },
+        {
+          "symbol": "GLXYc",
+          "address": "0xB2000000000000000000006de7888c3FffD803ac"
+        },
+        {
+          "symbol": "GPROc",
+          "address": "0xB200000000000000000000F0e13d9C1cdfd211C8"
+        },
+        {
+          "symbol": "HPQc",
+          "address": "0xB2000000000000000000009a3602cF5d020afA98"
+        },
+        {
+          "symbol": "HUTc",
+          "address": "0xb2000000000000000000006Ee1C139a723872e09"
+        },
+        {
+          "symbol": "INTCc",
+          "address": "0xB2000000000000000000004AFF16039bA04bdFBc"
+        },
+        {
+          "symbol": "IONQc",
+          "address": "0xb20000000000000000000058F143099d5F79b0ec"
+        },
+        {
+          "symbol": "KODKc",
+          "address": "0xb200000000000000000000a63E35E673e3776B88"
+        },
+        {
+          "symbol": "KSSc",
+          "address": "0xB200000000000000000000105A1f43ff3605C5De"
+        },
+        {
+          "symbol": "LCIDc",
+          "address": "0xB20000000000000000000081050Ac3d4395Df527"
+        },
+        {
+          "symbol": "LITEc",
+          "address": "0xB200000000000000000000eDA6C2c6F11E0F838f"
+        },
+        {
+          "symbol": "LUVc",
+          "address": "0xb200000000000000000000d5c0393796E92FCAB0"
+        },
+        {
+          "symbol": "LYVc",
+          "address": "0xb2000000000000000000001347ccD9e83d5Bf3e0"
+        },
+        {
+          "symbol": "MARAc",
+          "address": "0xB200000000000000000000a310e034E09186Fb2d"
+        },
+        {
+          "symbol": "NVAXc",
+          "address": "0xB200000000000000000000C597c476FCf9Aed3a8"
+        },
+        {
+          "symbol": "OKLOc",
+          "address": "0xB2000000000000000000009188EDFd2FCc8cc81e"
+        },
+        {
+          "symbol": "OPENc",
+          "address": "0xb200000000000000000000259694B27Bf052E7d7"
+        },
+        {
+          "symbol": "PLNTc",
+          "address": "0xb20000000000000000000011b20aebe0Bd567F1c"
+        },
+        {
+          "symbol": "RGTIc",
+          "address": "0xb200000000000000000000C22fFF2785Bb27b39A"
+        },
+        {
+          "symbol": "RIOTc",
+          "address": "0xb200000000000000000000bd0C7627b663c581A6"
+        },
+        {
+          "symbol": "RIVNc",
+          "address": "0xB2000000000000000000003e4249C65bd6c037d9"
+        },
+        {
+          "symbol": "RKTc",
+          "address": "0xb200000000000000000000000D3176ee4af1102d"
+        },
+        {
+          "symbol": "ROOTc",
+          "address": "0xB2000000000000000000004AA2B559CA0a0bbF5D"
+        },
+        {
+          "symbol": "SEZLc",
+          "address": "0xb2000000000000000000000C1F8aCD3c4496a762"
+        },
+        {
+          "symbol": "SMRc",
+          "address": "0xb200000000000000000000978546Fe604b8dcbC6"
+        },
+        {
+          "symbol": "SOUNc",
+          "address": "0xB2000000000000000000002137743D4a01Fe4e88"
+        },
+        {
+          "symbol": "TKOc",
+          "address": "0xB200000000000000000000b8f841940325DB6B2c"
+        },
+        {
+          "symbol": "USDEc",
+          "address": "0xB2000000000000000000009426B660396eBCf343"
+        },
+        {
+          "symbol": "VKTXc",
+          "address": "0xb200000000000000000000979eF4Dd6A001b58b1"
+        },
+        {
+          "symbol": "VVVc",
+          "address": "0xb200000000000000000000FEC679b39992F67627"
+        },
+        {
+          "symbol": "WDCc",
+          "address": "0xb2000000000000000000008fde21a1F5c69FeC0b"
+        },
+        {
+          "symbol": "WINGc",
+          "address": "0xB200000000000000000000281C973bf2555dD94B"
+        },
+        {
+          "symbol": "WULFc",
+          "address": "0xb200000000000000000000432a1d2Bd864ACEc82"
+        },
+        {
+          "symbol": "WWc",
+          "address": "0xb20000000000000000000089221e238277d52515"
+        },
+        {
+          "symbol": "XXIc",
+          "address": "0xB200000000000000000000115bf2283265FB04Db"
+        },
+        {
+          "symbol": "XYZc",
+          "address": "0xB20000000000000000000067C8C151f24E1c9924"
+        }
+      ],
+      "excludedFromBasePairing": false
+    },
+    {
+      "issuer": "ST0x",
+      "checked": 55,
+      "verifiedIdentityBidirectional": 46,
+      "report": "st0x.json",
+      "source": "st0x-source.json",
+      "sourceCapturedAt": "2026-10-07T00:18:45.101Z",
+      "startedAt": "2026-10-07T00:28:07.118Z",
+      "completedAt": "2026-10-07T00:30:11.744Z",
+      "requests": 119,
+      "identity": {
+        "blockNumber": "52271769",
+        "blockHash": "0x554f47de7f01bb2fa74628c5f10823470ffc64e0ebcb40df02240c073d187d5a",
+        "knownSupply": 55,
+        "zeroSupply": 6,
+        "positiveSupply": 49,
+        "unknownSupply": 0
+      },
+      "supported": [
+        {
+          "symbol": "wtSKHY",
+          "address": "0xFcD17aC4c4BF6a72c93018096F3fC09e66573Ff9",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "wtNKE",
+          "address": "0x0883f32d23Ed5535057a4B5E3eB1970FE08606AF",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "wtAMAT",
+          "address": "0x522DC65c89C9Af4f410BAe01bbf53aF75854a9f9",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "wtMSFT",
+          "address": "0x515A3Ac2a6aB590bDFa970caFFFd7fAdC680886E",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "wtFGI",
+          "address": "0x6aed8b1aCfb04F4e0e6db580F12fF41438a394e5",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "wtTSM",
+          "address": "0x71C66449d2528E23514A9c197BFD55Ae9DB3B714",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "wtSPYM",
+          "address": "0x31C2C14134e6E3B7ef9478297F199331133Fc2d8",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "wtORCL",
+          "address": "0xCB9571aB96aA47374eF30D8E9ACCC1cD51064726",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "wtASML",
+          "address": "0x8200c6d9AB9E02A25D7F2099244C476d99a085ef",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "wtGOOGL",
+          "address": "0x6a2357Df4975C667B171bE53dA6FFe6deBf7030c",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "wtLLY",
+          "address": "0x892CcF5E75f4a7Ee6402971a1587F65BEE4d52bd",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "wtQQQM",
+          "address": "0x823FF7Bbde2869aAe73A6CD53e7f614442836757",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "wtWEN",
+          "address": "0x31Fa821F8B1BDea7Db357ec9622d1A2f6aFE903d",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "wtTTWO",
+          "address": "0x045Fb493D970f94a54FeaF931033622fC82192e6",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "wtDNUT",
+          "address": "0x1db49Ff8BEe88ec73F82F395B0BEAd372BdcAdb7",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "wtSMCI",
+          "address": "0xA759FAbbD866e6DB8bF76613C35825dC2e380bf0",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "wtMSTR",
+          "address": "0xFF05E1bD696900dc6A52CA35Ca61Bb1024eDa8e2",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "wtGRND",
+          "address": "0x1197E6FA778c4D13E47875bD1761c68C22c928e0",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "wtNVDA",
+          "address": "0xFb5B41acdbA20a3230F84BE995173CFb98b8D6E7",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "wtSGOV",
+          "address": "0x78c31580c97101694C70022c83D570150c11e935",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "wtLRCX",
+          "address": "0x328B9aFFa511fE26673edBb4fEa37eDaF908A3bc",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "wtSPCX",
+          "address": "0x19F89aaEf8a93f38A974beca9776f09aB844887F",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "wtPLBY",
+          "address": "0x35fDe767dBFAa610D12cf99914bCd6CFEda73B7B",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "wtCEG",
+          "address": "0x3aF952888Cd89DAD3e8AF67cf4b7E740B36829C3",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "wtINTC",
+          "address": "0xf567652fC2d7Db8D5469fD06AEbe8C9c4372d722",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "wtTQQQ",
+          "address": "0x295e9eCAb319006900a53b3f8D6Fcb0C131F4ada",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "wtPPLT",
+          "address": "0x82f5BAEE1076334357a34A19E04f7c282D51cE47",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "wtMCD",
+          "address": "0x7ecAE30Ed8ee4F72653ada7b0941bDE7a0a8eE8d",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "wtCOIN",
+          "address": "0x5cDa0E1CA4ce2af96315f7F8963C85399c172204",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "wtAMD",
+          "address": "0x648042Acd8638E12fEfd51C2b25A9f993f21a612",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "wtAVGO",
+          "address": "0x70A182f481AEF05836666B6CfDbe84dCBCE8AC19",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "wtCRCL",
+          "address": "0x8AFba81DEc38DE0A18E2Df5E1967a7493651eebf",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "wtMU",
+          "address": "0x89EcfE9E0728D6b3c5eb0EE7236f8C6F806C7B56",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "wtARKK",
+          "address": "0x9FfF48B4535AF3765Ac9E1b164720EDc01DF8EE7",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "wtBMNR",
+          "address": "0x2512EC661f0bA089c275EA105E31bAD6FcFcf319",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "wtDRAM",
+          "address": "0x1A91Df4a970EBaB1bB4AF32Eb6d10509028eE4b8",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "wtBABA",
+          "address": "0x7e5cc7eAe0455A07Ab4abf354E0f5657BA2888BD",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "wtVWO",
+          "address": "0x23ec6886b49D7ab123E9ee8e474D2fa7AB6Cbc2d",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "wtTR",
+          "address": "0x433fd2Fc0964B07E9820e4cd01774eDE59D1F002",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "wtAAPL",
+          "address": "0x1020EC8Aa3f709a1f3D8705cdBa89b950451bd88",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "wtHOOD",
+          "address": "0xd50f561322fe3235DBc9Ec8b3aB7693383d8A425",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "wtPTY",
+          "address": "0xb6D779A79E7493ed821a65D52bA419F0F6D5dD0a",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "wtIAU",
+          "address": "0x1E46d7eFef64A833AFB1CD49299a7AD5B439f4d8",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "wtAMZN",
+          "address": "0x997baE3EC193a249596d3708C3fAB7C501Bb8a53",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "wtTSLA",
+          "address": "0x219A8d384a10BF19b9f24cB5cC53F79Dd0e5A03D",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        },
+        {
+          "symbol": "wtSIVR",
+          "address": "0xEB7F3E4093C9d68253b6104FbbfF561F3eC0442F",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        }
+      ],
+      "withoutCompleteBidirectionalEvidence": [
+        {
+          "symbol": "wtMC.PA",
+          "address": "0xd92cc92557BFC33028195983ED31465F99b4A01c"
+        },
+        {
+          "symbol": "wtBMW.DE",
+          "address": "0xD0269618455cF7dA71665856f16C2D03A1b26290"
+        },
+        {
+          "symbol": "wtAIR.PA",
+          "address": "0x1C600EF167c675C878BF3222f3935C4fA2A43C31"
+        },
+        {
+          "symbol": "wtSPY",
+          "address": "0x9Aa9c5a24e976096A6A7aB44986DAE8230fa5b27"
+        },
+        {
+          "symbol": "wtSIE.DE",
+          "address": "0xed0B0fdD92F7eece606A0FB0457352616d6e6B34"
+        },
+        {
+          "symbol": "wtFTF",
+          "address": "0x9bDe199Ac6E7E050334306D9267c93e3D6d38333"
+        },
+        {
+          "symbol": "wtMBG.DE",
+          "address": "0xfae641bfE7009B5326396048b951E3aa31902a2B"
+        },
+        {
+          "symbol": "wtRHM.DE",
+          "address": "0xD3c42aB4D5A60A50401b3A67D10B03Ce7D96DA19"
+        },
+        {
+          "symbol": "wtCBRS",
+          "address": "0xB457cfBF31995d3aAAa704dA9999cC0b011820ca"
+        }
+      ],
+      "excludedFromBasePairing": true
+    },
+    {
+      "issuer": "Backed legacy",
+      "checked": 17,
+      "verifiedIdentityBidirectional": 1,
+      "report": "backed.json",
+      "source": "backed-source.json",
+      "sourceCapturedAt": "2026-10-07T00:20:48.218Z",
+      "startedAt": "2026-10-07T00:24:16.484Z",
+      "completedAt": "2026-10-07T00:25:30.695Z",
+      "requests": 34,
+      "identity": {
+        "blockNumber": "52271578",
+        "blockHash": "0xf4a6ddb3d0139b7f47a0b3b78ff4cc098d7d202ab7b9a76fea2bc45d14c5e0f4",
+        "knownSupply": 17,
+        "zeroSupply": 11,
+        "positiveSupply": 6,
+        "unknownSupply": 0
+      },
+      "supported": [
+        {
+          "symbol": "bCOIN",
+          "address": "0xbbcb0356bB9e6B3Faa5CbF9E5F36185d53403Ac9",
+          "decimals": 18,
+          "currentCreateEligible": false,
+          "appInboundAccepted": false
+        }
+      ],
+      "withoutCompleteBidirectionalEvidence": [
+        {
+          "symbol": "bCSPX",
+          "address": "0xC3cE78B037DDA1B966D31EC7979d3f3a38571A8E"
+        },
+        {
+          "symbol": "bERNA",
+          "address": "0x0f76D32CDccDcbd602A55Af23EAF58FD1eE17245"
+        },
+        {
+          "symbol": "bGOOGL",
+          "address": "0xEbee37Aaf2905b7BdA7E3b928043862e982E8F32"
+        },
+        {
+          "symbol": "bERNX",
+          "address": "0x3f95AA88dDbB7D9D484aa3D482bf0a80009c52c9"
+        },
+        {
+          "symbol": "bGME",
+          "address": "0x7212088A11b4d8f6FC90fbB3dfE793B45dd72323"
+        },
+        {
+          "symbol": "bHIGH",
+          "address": "0x20C64dEE8FdA5269A78f2D5BDBa861CA1d83DF7a"
+        },
+        {
+          "symbol": "bC3M",
+          "address": "0x2F123cF3F37CE3328CC9B5b8415f9EC5109b45e7"
+        },
+        {
+          "symbol": "bMSFT",
+          "address": "0x374A457967Ba24FD3Ae66294cAb08244185574b0"
+        },
+        {
+          "symbol": "bIB01",
+          "address": "0xCA30c93B02514f86d5C86a6e375E3A330B435Fb5"
+        },
+        {
+          "symbol": "bIBTA",
+          "address": "0x52d134c6DB5889FaD3542A09eAf7Aa90C0fdf9E4"
+        },
+        {
+          "symbol": "bMSTR",
+          "address": "0xaC28C9178ACc8BA4A11A29E013a3A2627086e422"
+        },
+        {
+          "symbol": "bNIU",
+          "address": "0x2f11EeeE0bf21E7661A22dbBbb9068F4ad191b86"
+        },
+        {
+          "symbol": "bTSLA",
+          "address": "0x14A5f2872396802C3Cc8942A39Ab3E4118EE5038"
+        },
+        {
+          "symbol": "bNVDA",
+          "address": "0xA34C5e0AbE843E10461E2C9586Ea03E55Dbcc495"
+        },
+        {
+          "symbol": "bCSBGC3",
+          "address": "0xd8B95B1987741849cA7e71e976aEB535fd2e55a2"
+        },
+        {
+          "symbol": "bZPR1",
+          "address": "0xAde6057FcAfa57d6d51FFa341C64ce4814995995"
+        }
+      ],
+      "newIssuanceAvailable": false,
+      "excludedFromBasePairing": true
+    }
+  ],
+  "existingCreate": {
+    "configuredAssets": 10,
+    "readerAcceptedInboundCells": 30,
+    "reverseRouteCells": 30,
+    "currencies": [
+      "USDC",
+      "USDT",
+      "ETH"
+    ],
+    "report": "payment-matrix.json",
+    "newCandidatesAdded": 0,
+    "reason": "The current registry and verified total-return opening feeds cover the original ten Coinbase assets only. Route discovery alone does not satisfy issuance identity/oracle and wallet execution requirements."
+  },
+  "discovery": "discovery.json",
+  "unverifiedUniverse": {
+    "issuer": "Dinari",
+    "status": "not_verified",
+    "reason": "Official Base support is confirmed, but a public authoritative Base address mapping could not be retrieved; ticker-only data and deprecated deployments were not substituted."
+  },
+  "officialReferences": {
+    "lifiTokenAddresses": "https://docs.li.fi/faqs/token-support",
+    "quote": "https://docs.li.fi/api-reference/get-a-quote-for-a-token-transfer",
+    "b20Identity": "https://github.com/base/base-std/blob/main/docs/integration-architecture.md"
+  },
+  "identityMismatches": 0,
+  "temporaryErrors": 0,
+  "failureMeaning": "A failed quantity/time or absent inventory entry does not prove permanent token unsupported status. Missing API supply/NAV remains unknown; only successful fixed-block totalSupply calls determine zero supply. An independent one-token reverse probe has no asserted equal-USD value.",
+  "mainnetTransactions": "not_run",
+  "productionPublication": "not_run",
+  "artifacts": [
+    {
+      "path": "coinbase.json",
+      "sha256": "eadaa158d45d829ea09b6623221bdc6c908fe439f7480e18da4d1ae8dace6204",
+      "bytes": 358679,
+      "originalPath": ".cache/lifi-base-payment-matrix-coinbase92-2026-10-07.json"
+    },
+    {
+      "path": "coinbase-source.json",
+      "sha256": "4593709f00950fd2cf263b143e55acc2aa3c3506ee2d2cc7aef73d38fd4015dd",
+      "bytes": 46984,
+      "originalPath": ".cache/lifi-base-payment-matrix-coinbase92-2026-10-07.source.json"
+    },
+    {
+      "path": "st0x.json",
+      "sha256": "201fd890068510fdf69a4aa98df3465ccd8c6a1924fde695bd3350e3dbf20e70",
+      "bytes": 216940,
+      "originalPath": ".cache/lifi-base-payment-matrix-st0x55-2026-10-07.json"
+    },
+    {
+      "path": "st0x-source.json",
+      "sha256": "8886d9bc19c6459b2fb604dc27132e7ca214965d5f1e4525caccbcc23cf9516a",
+      "bytes": 19067,
+      "originalPath": ".cache/lifi-base-payment-matrix-st0x55-2026-10-07.source.json"
+    },
+    {
+      "path": "backed.json",
+      "sha256": "6c51d3264e3be6d414346c1d568221d7734f259e380c4ae87b69d07e4a26d162",
+      "bytes": 50580,
+      "originalPath": ".cache/lifi-base-payment-matrix-backed17-2026-10-07.json"
+    },
+    {
+      "path": "backed-source.json",
+      "sha256": "04b59aca7d16cdf76139fb2e0ba355cc3a9eea5085b17a2f7bb25151f08cf0d3",
+      "bytes": 10756,
+      "originalPath": ".cache/lifi-base-payment-matrix-backed17-2026-10-07.source.json"
+    },
+    {
+      "path": "payment-matrix.json",
+      "sha256": "a14263dcba2f2200961a0baacbd1b2a33a56c6cc3327aba43f107514a896932f",
+      "bytes": 68403,
+      "originalPath": ".cache/lifi-base-payment-matrix-2026-10-07.json"
+    },
+    {
+      "path": "discovery.json",
+      "sha256": "00d071be1d3a227eb746ecf48e4e02fe8853f33fe47d3dff45d868d5080299f3",
+      "bytes": 4616,
+      "originalPath": ".cache/base-stock-universe-discovery-summary-2026-10-07.json"
+    },
+    {
+      "path": "browser-checks.json",
+      "sha256": "5e98464183c5824b45fe74ae39d234d0128b987a69eddebb43f1cafb67279448",
+      "bytes": 159201,
+      "originalPath": ".cache/lifi-base-jumper-browser-checks-2026-10-07.json"
+    },
+    {
+      "path": "jumper-usdc-amdc.jpg",
+      "sha256": "744c0cca80ce01fcf09df7a4f83ec658e2f5ceec709387a65ca0d7b429e38cea",
+      "bytes": 62930,
+      "originalPath": "/tmp/musegod-jumper-base-usdc-amdc.jpg"
+    }
+  ],
+  "browser": {
+    "report": "browser-checks.json",
+    "sameChainQuoteChecks": 24,
+    "completeExistingCreateAssets": 10,
+    "additionalSamples": [
+      "AMDc",
+      "wtNVDA"
+    ],
+    "screenshots": [
+      "jumper-usdc-amdc.jpg"
+    ],
+    "walletExecution": "not_run"
+  },
+  "apiQuoteAuditGetRequests": 456,
+  "basePairedAssetScope": {
+    "issuer": "Coinbase B20",
+    "testedBidirectionalCandidates": 36,
+    "excludedIssuers": [
+      {
+        "issuer": "ST0x",
+        "testedBidirectionalCandidates": 46,
+        "reason": "Excluded from Base pairing by user instruction, regardless of observed routes."
+      },
+      {
+        "issuer": "Backed legacy",
+        "testedBidirectionalCandidates": 1,
+        "reason": "Excluded from Base pairing by user instruction, regardless of observed routes."
+      }
+    ],
+    "currentCreateAssets": 10,
+    "additionalCoinbaseRouteCandidates": 26,
+    "currentCreateExpansion": "not_added; additional identities and verified total-return opening feeds are not configured"
+  }
+}

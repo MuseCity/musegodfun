@@ -68,5 +68,187 @@
     "name": "Tesla",
     "address": "0xb2000000000000000000001e800a7f5189430cD0",
     "decimals": 8
+  },
+  {
+    "ticker": "AMD",
+    "symbol": "AMDc",
+    "name": "Advanced Micro Devices, Inc.",
+    "address": "0xB2000000000000000000000d8Ce462E99ee7A47B",
+    "decimals": 8
+  },
+  {
+    "ticker": "ASTS",
+    "symbol": "ASTSc",
+    "name": "AST SpaceMobile, Inc.",
+    "address": "0xB200000000000000000000B1a29cF17A1819288a",
+    "decimals": 8
+  },
+  {
+    "ticker": "AVGO",
+    "symbol": "AVGOc",
+    "name": "Broadcom Inc.",
+    "address": "0xB200000000000000000000Fc737aeA6196aB5a4c",
+    "decimals": 8
+  },
+  {
+    "ticker": "BE",
+    "symbol": "BEc",
+    "name": "Bloom Energy Corporation",
+    "address": "0xb20000000000000000000016f9dfe862feBA122b",
+    "decimals": 8
+  },
+  {
+    "ticker": "CAKE",
+    "symbol": "CAKEc",
+    "name": "Cheesecake Factory Inc",
+    "address": "0xb200000000000000000000f215E4C890CFb7176B",
+    "decimals": 8
+  },
+  {
+    "ticker": "DJT",
+    "symbol": "DJTc",
+    "name": "Trump Media & Technology Group Corp.",
+    "address": "0xb200000000000000000000428E3a3eebBb20692B",
+    "decimals": 8
+  },
+  {
+    "ticker": "DUOL",
+    "symbol": "DUOLc",
+    "name": "Duolingo, Inc.",
+    "address": "0xb200000000000000000000A613D12dEAfBBb1Db7",
+    "decimals": 8
+  },
+  {
+    "ticker": "GME",
+    "symbol": "GMEc",
+    "name": "GameStop Corp.",
+    "address": "0xb2000000000000000000007790ed6E48e06eD935",
+    "decimals": 8
+  },
+  {
+    "ticker": "HIMS",
+    "symbol": "HIMSc",
+    "name": "Hims & Hers Health, Inc.",
+    "address": "0xB20000000000000000000043a599976181Bcf336",
+    "decimals": 8
+  },
+  {
+    "ticker": "HTZ",
+    "symbol": "HTZc",
+    "name": "Hertz Global Holdings, Inc.",
+    "address": "0xb2000000000000000000002601C5C94F435da168",
+    "decimals": 8
+  },
+  {
+    "ticker": "LLY",
+    "symbol": "LLYc",
+    "name": "Eli Lilly & Co",
+    "address": "0xB200000000000000000000f1a0F91e34892E4718",
+    "decimals": 8
+  },
+  {
+    "ticker": "MRNA",
+    "symbol": "MRNAc",
+    "name": "Moderna, Inc.",
+    "address": "0xB200000000000000000000e215e9B76ecBA02468",
+    "decimals": 8
+  },
+  {
+    "ticker": "MRVL",
+    "symbol": "MRVLc",
+    "name": "Marvell Technology, Inc.",
+    "address": "0xB200000000000000000000eC3c4c7395Cc609813",
+    "decimals": 8
+  },
+  {
+    "ticker": "MU",
+    "symbol": "MUc",
+    "name": "Micron Technology Inc.",
+    "address": "0xb200000000000000000000Fd2f87532B90095211",
+    "decimals": 8
+  },
+  {
+    "ticker": "NFLX",
+    "symbol": "NFLXc",
+    "name": "Netflix Inc",
+    "address": "0xb20000000000000000000058B8c947e44011dFE6",
+    "decimals": 8
+  },
+  {
+    "ticker": "ORCL",
+    "symbol": "ORCLc",
+    "name": "Oracle Corporation",
+    "address": "0xb200000000000000000000347AFbA223D7B6b63C",
+    "decimals": 8
+  },
+  {
+    "ticker": "PFE",
+    "symbol": "PFEc",
+    "name": "Pfizer Inc",
+    "address": "0xB20000000000000000000018FE7eC7d6DfeeB528",
+    "decimals": 8
+  },
+  {
+    "ticker": "PLTR",
+    "symbol": "PLTRc",
+    "name": "Palantir Technologies Inc.",
+    "address": "0xb2000000000000000000007d16372840dF4dAbbe",
+    "decimals": 8
+  },
+  {
+    "ticker": "PM",
+    "symbol": "PMc",
+    "name": "Philip Morris International Inc.",
+    "address": "0xB2000000000000000000008FC2A8C23cf5937b66",
+    "decimals": 8
+  },
+  {
+    "ticker": "PTON",
+    "symbol": "PTONc",
+    "name": "Peloton Interactive, Inc.",
+    "address": "0xB2000000000000000000009272A491812842Aa84",
+    "decimals": 8
+  },
+  {
+    "ticker": "PYPL",
+    "symbol": "PYPLc",
+    "name": "PayPal Holdings, Inc.",
+    "address": "0xb200000000000000000000450ad3abE5d4846c6E",
+    "decimals": 8
+  },
+  {
+    "ticker": "QUBT",
+    "symbol": "QUBTc",
+    "name": "Quantum Computing Inc.",
+    "address": "0xb200000000000000000000CA425ab42e07C35bC3",
+    "decimals": 8
+  },
+  {
+    "ticker": "RBLX",
+    "symbol": "RBLXc",
+    "name": "Roblox Corporation",
+    "address": "0xB2000000000000000000005bd7AE89b9E6189Bb5",
+    "decimals": 8
+  },
+  {
+    "ticker": "RDDT",
+    "symbol": "RDDTc",
+    "name": "Reddit, Inc.",
+    "address": "0xb20000000000000000000066242d4067724cB7A1",
+    "decimals": 8
+  },
+  {
+    "ticker": "TTWO",
+    "symbol": "TTWOc",
+    "name": "Take-Two Interactive Software, Inc.",
+    "address": "0xB200000000000000000000f720C26062Bc3067Da",
+    "decimals": 8
+  },
+  {
+    "ticker": "WEN",
+    "symbol": "WENc",
+    "name": "Wendy's Co",
+    "address": "0xB20000000000000000000044E3CD7a0E1028E57a",
+    "decimals": 8
   }
 ]

@@ -1,26 +1,28 @@
 import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
-import { createPublicClient, createWalletClient, defineChain, getAddress, http, keccak256,
+import { createPublicClient, createWalletClient, defineChain, http, keccak256,
   parseAbi, type Abi, type Address, type Hex } from "viem";
-import { ROBINHOOD_CONTRACTS, sameAddress } from "../src/lib/config";
+import { sameAddress } from "../src/lib/config";
+import { chainLaunchDependencies } from "../server/launch-guard";
 import { loadEnvironment, redact, runtimeFromEnv } from "../server/config";
 
 // This script intentionally has no production broadcast mode or private-key input.
-const OFFICIAL_BUNDLER = getAddress("0xf45588E8e0B1df9dB9ae7E20eCE5726AE931357c");
-const BUNDLER_CODE_HASH = "0x8d7c135bd087b74d2f2d1362593f23b824d5752bebe6a3c8bc6db0a6fa75e066";
 const bindingsAbi = parseAbi([
   "function airlock() view returns (address)", "function poolManager() view returns (address)",
   "function bundler() view returns (address)",
 ]);
 const args = process.argv.slice(2);
 for (let i = 0; i < args.length; ++i) {
-  assert(["--rpc", "--output", "--deploy-local"].includes(args[i]), `Unknown argument: ${args[i]}`);
+  assert(["--rpc", "--output", "--deploy-local", "--chain"].includes(args[i]), `Unknown argument: ${args[i]}`);
   if (args[i] !== "--deploy-local") assert(args[++i], "Missing argument value");
 }
 const option = (name: string) => { const i = args.indexOf(name); return i < 0 ? undefined : args[i + 1]; };
 loadEnvironment();
 try {
-const rpcUrl = option("--rpc") || runtimeFromEnv().rpcUrl;
+const targetChainId = Number(option("--chain") || "4663") as 8453 | 4663;
+assert([8453, 4663].includes(targetChainId), "Target chain must be Base 8453 or Robinhood 4663");
+const { bundler: OFFICIAL_BUNDLER, bundlerCodeHash: BUNDLER_CODE_HASH, contracts } = chainLaunchDependencies(targetChainId);
+const rpcUrl = option("--rpc") || runtimeFromEnv(targetChainId).rpcUrl;
 const deployLocal = args.includes("--deploy-local");
 const url = new URL(rpcUrl);
 if (deployLocal) assert(["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)
@@ -28,8 +30,8 @@ if (deployLocal) assert(["localhost", "127.0.0.1", "[::1]"].includes(url.hostnam
 const transport = http(rpcUrl, { timeout: 40_000, retryCount: 0 });
 const client = createPublicClient({ transport });
 const chainId = await client.getChainId();
-assert.equal(chainId, deployLocal ? 31337 : 4663,
-  "Default verification is Robinhood Chain; local deployment requires isolated chain 31337");
+assert.equal(chainId, deployLocal ? 31337 : targetChainId,
+  "Verification must match the target chain; local deployment requires isolated chain 31337");
 const blockNumber = await client.getBlockNumber({ cacheTime: 0 });
 const block = await client.getBlock({ blockNumber });
 const bundlerCode = await client.getCode({ address: OFFICIAL_BUNDLER, blockNumber });
@@ -39,8 +41,8 @@ const [airlock, poolManager] = await Promise.all([
   client.readContract({ address: OFFICIAL_BUNDLER, abi: bindingsAbi, functionName: "airlock", blockNumber }),
   client.readContract({ address: OFFICIAL_BUNDLER, abi: bindingsAbi, functionName: "poolManager", blockNumber }),
 ]);
-assert(sameAddress(airlock, ROBINHOOD_CONTRACTS.airlock), "Bundler Airlock mismatch");
-assert(sameAddress(poolManager, ROBINHOOD_CONTRACTS.poolManager), "Bundler PoolManager mismatch");
+assert(sameAddress(airlock, contracts.airlock), "Bundler Airlock mismatch");
+assert(sameAddress(poolManager, contracts.poolManager), "Bundler PoolManager mismatch");
 const dependencies = [];
 for (const [name, address] of Object.entries({ bundler: OFFICIAL_BUNDLER, airlock, poolManager })) {
   const code = await client.getCode({ address, blockNumber });
@@ -51,7 +53,7 @@ const artifact = JSON.parse(await readFile(new URL("../contracts/artifacts/Museg
   abi: Abi; bytecode: Hex; deployedBytecode: Hex; compilerInputSha256: string;
   immutableReferences: Record<string, { start: number; length: number }[]>;
 };
-const evidence: Record<string, unknown> = { chainId, blockNumber: blockNumber.toString(),
+const evidence: Record<string, unknown> = { chainId, targetChainId, blockNumber: blockNumber.toString(),
   blockHash: block.hash, blockTimestamp: block.timestamp.toString(), dependencies,
   compilerInputSha256: artifact.compilerInputSha256, productionDeployment: "not_run",
   localDeployment: "not_run" };

@@ -4,20 +4,22 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DopplerSDK, airlockAbi, bundlerAbi, computePoolId, verifyPreparedCreateExecution } from "@whetstone-research/doppler-sdk/evm";
-import { createPublicClient, http, encodeFunctionData, encodeEventTopics, encodeAbiParameters, erc20Abi, keccak256, type Hex, type Address, type TransactionReceipt } from "viem";
-import { ROBINHOOD_BUNDLER, ROBINHOOD_CONTRACTS as contracts, ROBINHOOD_STOCKS, SUPPLY } from "../src/lib/config";
+import { createPublicClient, http, encodeFunctionData, encodeEventTopics, encodeAbiParameters, decodeAbiParameters, parseAbiParameters, erc20Abi, formatUnits, keccak256, zeroAddress, type Hex, type Address, type TransactionReceipt } from "viem";
+import { ROBINHOOD_BUNDLER, ROBINHOOD_CONTRACTS as contracts, ROBINHOOD_STOCKS, STOCKS, SUPPLY, assetsFor, launchAssetsFor, listedTokens, stockByAddress, type RuntimeConfig, type Stock, type TokenRecord } from "../src/lib/config";
 import { CURVE_POLICY } from "../src/lib/launch-curve";
 import { launchGuardAbi } from "../src/lib/launch-guard";
 import { restorePrepared, serializePrepared, type LaunchPlan } from "../src/lib/launch-plan";
 import { buildLaunch } from "../src/lib/protocol";
-import { FEE_POLICY } from "../src/lib/fee-policy";
+import { ENGINE_FEE_POLICY, FEE_POLICY } from "../src/lib/fee-policy";
 import { minimumOutput } from "../src/lib/validation";
 import { syntheticOpeningValuation } from "./fixtures";
-import { assertPlanIntegrity, verifyGuardedReceipt } from "../server/launch-verification";
-import { expectedGuardRuntime, verifyLaunchGuard } from "../server/launch-guard";
+import { OPENING_CAP_USD, openingCapInQuote, type HistoricalOpeningValuation } from "../src/lib/opening-valuation";
+import { assertPlanIntegrity, verifiedFirstBuyLock, verifyGuardedReceipt } from "../server/launch-verification";
+import { chainLaunchDependencies, expectedGuardRuntime, identifyGuardVersion, verifyLaunchGuard } from "../server/launch-guard";
 import { LaunchpadService } from "../server/service";
 import { Store } from "../server/store";
 import { SupabaseStore } from "../server/supabase-store";
+import { FIRST_BUY_PAYMENT_CONTRACTS, assertFirstBuyPaymentQuote, firstBuyPairedAsset, firstBuyPaymentAbi, firstBuyPaymentAssets, type FirstBuyPaymentQuote } from "../src/lib/first-buy-payment";
 
 const creator = "0x1111111111111111111111111111111111111111" as Address;
 const treasury = "0x2222222222222222222222222222222222222222" as Address;
@@ -25,7 +27,8 @@ const guard = "0x3333333333333333333333333333333333333333" as Address;
 const token = "0x4444444444444444444444444444444444444444" as Address;
 const hash = `0x${"aa".repeat(32)}` as Hex, blockHash = `0x${"bb".repeat(32)}` as Hex;
 const quote = ROBINHOOD_STOCKS.find((asset) => asset.symbol === "WETH")!;
-function fixture() {
+function fixture(quoteAsset: Stock = quote) {
+  const quote = quoteAsset;
   const sdk = new DopplerSDK<4663>({ publicClient: createPublicClient({ transport: http("http://127.0.0.1:1") }), chainId: 4663 });
   const openingValuation = syntheticOpeningValuation(quote.address, "3000", { chainId: 4663 });
   const draft = { name: "Guard Test", symbol: "GUARD", description: "", image: "", quoteAddress: quote.address };
@@ -40,7 +43,7 @@ function fixture() {
   const plan: LaunchPlan = { id: keccak256(transaction.data), creator, data: transaction.data, tokenAddress: token, poolId: prepared.prediction.poolId, draft,
     preparedAt: Date.now(), gas: null, feePolicy: FEE_POLICY, feeTreasury: treasury, openingValuation, curvePolicy: CURVE_POLICY,
     prepared: serializePrepared(prepared), transaction: { ...transaction, value: "0" },
-    firstBuy: { amount: "0.0000000000000001", amountIn: "100", expectedAmountOut: "1000", minAmountOut: "990", slippageBps: 100, deadline, recipient: creator, quoteAddress: quote.address, guard, bundler: ROBINHOOD_BUNDLER },
+    firstBuy: { amount: formatUnits(amountIn, quote.decimals), amountIn: "100", expectedAmountOut: "1000", minAmountOut: "990", slippageBps: 100, deadline, recipient: creator, quoteAddress: quote.address, guard, bundler: ROBINHOOD_BUNDLER },
     approval: { token: quote.address, spender: guard, amount: "100", required: true, transaction: { ...approval, value: "0" } } };
   const guardLog = { address: guard, topics: encodeEventTopics({ abi: launchGuardAbi, eventName: "GuardedLaunch", args: { creator, asset: token, numeraire: quote.address } }),
     data: encodeAbiParameters([{ type: "uint128" }, { type: "uint128" }, { type: "uint128" }, { type: "uint256" }, { type: "bytes32" }], [amountIn, expected, min, BigInt(deadline), plan.poolId]) };
@@ -52,6 +55,154 @@ function fixture() {
   const tx = { hash, from: creator, to: guard, input: plan.data, value: 0n };
   return { plan, prepared, receipt, tx, guardLog, poolKey };
 }
+
+function historicalFixture(quotedAt = Date.now()) {
+  const f = fixture();
+  const legacy: HistoricalOpeningValuation = { policy: "fixed-usd-5000-v1", marketCapUsd: OPENING_CAP_USD,
+    chainId: 4663, quoteAddress: quote.address, quotePriceUsd: "3000", quotedAt, expiresAt: quotedAt + 300_000,
+    source: "Chainlink", sourceUpdatedAt: quotedAt, blockNumber: "10", blockHash, feed: treasury };
+  const factoryDataAbi = parseAbiParameters("string name,string symbol,uint256 yearlyMintRate,uint256 vestingDuration,address[] vestingRecipients,uint256[] vestingAmounts,string tokenURI");
+  const decoded = decodeAbiParameters(factoryDataAbi, f.prepared.createParams.tokenFactoryData);
+  const metadata = JSON.parse(decodeURIComponent(decoded[6].slice("data:application/json,".length)));
+  metadata.properties.openingValuation = legacy;
+  metadata.properties.openingCap = openingCapInQuote(legacy);
+  const tokenURI = `data:application/json,${encodeURIComponent(JSON.stringify(metadata))}`;
+  f.prepared.createParams.tokenFactoryData = encodeAbiParameters(factoryDataAbi,
+    [decoded[0], decoded[1], decoded[2], decoded[3], decoded[4], decoded[5], tokenURI]);
+  const deadline = Math.floor(legacy.expiresAt / 1000);
+  f.plan.openingValuation = legacy; f.plan.draft.openingCap = openingCapInQuote(legacy); f.plan.preparedAt = quotedAt;
+  f.plan.firstBuy!.deadline = deadline;
+  const data = encodeFunctionData({ abi: launchGuardAbi, functionName: "createAndBuy", args: [f.prepared.createParams, 100n, 990n, BigInt(deadline)] });
+  f.prepared.transaction.data = data;
+  f.plan.data = data; f.plan.id = keccak256(data); f.plan.transaction!.data = data;
+  f.plan.prepared = serializePrepared(f.prepared); f.tx.input = data;
+  f.guardLog.data = encodeAbiParameters([{ type: "uint128" }, { type: "uint128" }, { type: "uint128" }, { type: "uint256" }, { type: "bytes32" }],
+    [100n, 1000n, 990n, BigInt(deadline), f.plan.poolId]);
+  assertPlanIntegrity(f.plan, contracts);
+  return { ...f, tokenURI };
+}
+
+function lockedFixture(lockDays: 30 | 90 | 365 = 30, quoteAsset: Stock = quote) {
+  const f = fixture(quoteAsset), duration = BigInt(lockDays) * 86400n, start = BigInt(f.plan.firstBuy!.deadline - 1);
+  f.plan.firstBuy!.lockDays = lockDays;
+  f.prepared.devBuy.vesting = { permissionlessClaim: false, cliffDuration: duration, vestingDuration: duration };
+  const data = encodeFunctionData({ abi: launchGuardAbi, functionName: "createAndBuyLocked",
+    args: [f.prepared.createParams, 100n, 990n, BigInt(f.plan.firstBuy!.deadline), lockDays] });
+  f.prepared.transaction.data = data;
+  f.plan.data = data; f.plan.id = keccak256(data); f.plan.transaction!.data = data;
+  f.plan.prepared = serializePrepared(f.prepared);
+  f.tx.input = data;
+  const vestingLog = { address: ROBINHOOD_BUNDLER, topics: encodeEventTopics({ abi: bundlerAbi, eventName: "VestingCreated", args: { asset: token, recipient: creator } }),
+    data: encodeAbiParameters([{ type: "bool" }, { type: "uint128" }, { type: "uint64" }, { type: "uint64" }, { type: "uint64" }],
+      [false, 1000n, start, duration, duration]) };
+  f.receipt.logs.push(vestingLog as unknown as TransactionReceipt["logs"][number]);
+  return { ...f, start, duration, vestingLog };
+}
+
+function registryOnlyAsset(chainId: 8453 | 4663) {
+  const registry = assetsFor({ mode: "fork", deploymentChainId: chainId });
+  const allowed = launchAssetsFor({ mode: "fork", deploymentChainId: chainId });
+  const removed = registry.find((asset) => !allowed.some((candidate) => candidate.address === asset.address));
+  if (removed) return { asset: removed, restore() {} };
+  assert.equal(chainId, 8453, "Robinhood policy regressions must use an actual excluded issuer asset");
+  // While Base's audit snapshot contains every issuer asset, this local policy
+  // fixture exercises a registry identity absent from that route snapshot.
+  // It does not modify the production manifest or assert on-chain support.
+  const asset = { ...registry[0], address: `0x${chainId === 8453 ? "8" : "9"}`.padEnd(42, "0") as Address };
+  registry.push(asset);
+  return { asset, restore() { registry.splice(registry.indexOf(asset), 1); } };
+}
+
+test("new prepares and payment preflights reject route-snapshot exclusions before RPC, SDK or storage", async () => {
+  for (const chainId of [8453, 4663] as const) {
+    const actualExcluded = assetsFor({ mode: "fork", deploymentChainId: chainId }).filter((asset) =>
+      !launchAssetsFor({ mode: "fork", deploymentChainId: chainId }).some((candidate) => candidate.address === asset.address));
+    if (chainId === 4663) assert.deepEqual(actualExcluded.map((asset) => asset.ticker).sort(), ["BND", "FISV", "LHX", "NAVN", "SATS", "SCHD"]);
+    const excluded = registryOnlyAsset(chainId);
+    try {
+      assert.equal(stockByAddress(excluded.asset.address, chainId), excluded.asset);
+      for (const asset of actualExcluded.length ? actualExcluded : [excluded.asset]) for (const mode of [chainId === 8453 ? "base" : "robinhood", "fork"] as const) {
+        const config: RuntimeConfig = { mode, deploymentChainId: chainId, chainId: mode === "fork" ? 31337 : chainId,
+          treasury, writesEnabled: false, blockReason: "Read-only" };
+        let rpc = 0;
+        const untouched = () => { throw new Error("Excluded asset must not access SDK or storage"); };
+        const service = Object.assign(Object.create(LaunchpadService.prototype), { runtime: { config },
+          assertNetwork: async () => { rpc++; }, sdk: new Proxy({}, { get: untouched }), store: new Proxy({}, { get: untouched }) }) as LaunchpadService;
+        const draft = { name: "Excluded route", symbol: "EXCLUDE", description: "", image: "", website: "", twitter: "", telegram: "", quoteAddress: asset.address };
+        for (const firstBuy of [{ amount: "0", slippageBps: 100, lockDays: 0 }, { amount: "1", slippageBps: 100, lockDays: 30 }])
+          await assert.rejects(() => service.prepare(draft, creator, CURVE_POLICY, firstBuy), /new launch.*verified LI\.FI route/);
+        await assert.rejects(() => service.preflightFirstBuyPayment(asset.address), /new launch.*verified LI\.FI route/);
+        assert.equal(rpc, 0); assert.equal(config.writesEnabled, false);
+        assert(service.assets.some((candidate) => candidate.address === asset.address), "historical service registry remains complete");
+      }
+    } finally { excluded.restore(); }
+  }
+});
+
+test("route-snapshot exclusions do not hide existing tokens or block their scoped lookup", async () => {
+  for (const chainId of [8453, 4663] as const) {
+    const excluded = registryOnlyAsset(chainId);
+    try {
+      const tokenRecord = { address: token, mode: "fork", deploymentChainId: chainId, transactionHash: hash,
+        quoteAddress: excluded.asset.address } as TokenRecord;
+      assert.deepEqual(listedTokens([tokenRecord], "fork", chainId), [tokenRecord]);
+      assert.deepEqual(listedTokens([tokenRecord], "fork", chainId === 8453 ? 4663 : 8453), []);
+      const service = Object.assign(Object.create(LaunchpadService.prototype), {
+        runtime: { config: { mode: "fork", chainId: 31337, deploymentChainId: chainId } },
+        store: { tokens: async () => [tokenRecord], token: async () => tokenRecord },
+      }) as LaunchpadService;
+      assert.deepEqual(await service.tokens(), [tokenRecord]); assert.equal(await service.token(token), tokenRecord);
+    } finally { excluded.restore(); }
+  }
+});
+
+test("removed paired assets remain valid in frozen launch integrity, old-plan validation and receipt recovery", async () => {
+  const excluded = registryOnlyAsset(4663), directory = mkdtempSync(join(tmpdir(), "removed-asset-recovery-test-")), store = new Store(directory, 31337);
+  try {
+    const f = lockedFixture(30, excluded.asset);
+    assertPlanIntegrity(f.plan, contracts);
+    verifyGuardedReceipt(f.plan, f.receipt, 1000n);
+    store.savePlan(f.plan);
+    const config: RuntimeConfig = { mode: "fork", chainId: 31337, deploymentChainId: 4663,
+      treasury, writesEnabled: false, blockReason: "Read-only", curvePolicy: CURVE_POLICY, feePolicy: FEE_POLICY,
+      launchGuard: guard, launchLockAvailable: true };
+    const service = Object.assign(Object.create(LaunchpadService.prototype), { runtime: { config }, store,
+      config: async () => config, assertNetwork: async () => {},
+      client: { getTransaction: async () => f.tx, getTransactionReceipt: async () => f.receipt,
+        getBlockNumber: async () => 11n, getBlock: async () => ({ hash: blockHash, timestamp: f.start }),
+        readContract: async (input: { functionName: string }) => input.functionName === "totalSupply" ? SUPPLY
+          : [creator, false, f.start, f.duration, f.duration, 1000n, 0n] },
+      sdk: { getMulticurvePool: async () => ({ getState: async () => ({ status: 2, numeraire: excluded.asset.address, poolKey: f.poolKey }) }) },
+    }) as LaunchpadService;
+    assert.equal((await service.validateLaunch(creator, f.plan.data)).valid, true);
+    config.launchGuard = null; config.launchLockAvailable = false; config.curvePolicy = "future"; config.treasury = null;
+    const saved = await service.register(hash);
+    assert.equal(saved.quoteAddress, excluded.asset.address); assert.equal(saved.firstBuyLock?.totalAmount, "1000");
+    assert.equal((await service.token(token)).address, token);
+  } finally { store.close(); rmSync(directory, { recursive: true }); excluded.restore(); }
+});
+
+test("expired frozen payments still decode removed paired assets through the complete historical registry", () => {
+  for (const chainId of [8453, 4663] as const) {
+    const excluded = registryOnlyAsset(chainId);
+    try {
+      const registry = FIRST_BUY_PAYMENT_CONTRACTS[chainId], now = Date.now();
+      const fromToken = firstBuyPaymentAssets(chainId).find((asset) => asset.address === zeroAddress)!;
+      const toToken = firstBuyPairedAsset(chainId, excluded.asset.address);
+      const payment: FirstBuyPaymentQuote = { protocol: "lifi", id: "historical-route-policy", transactionId: hash,
+        integrator: "musegodfun", tool: "verified", chainId, account: creator, fromToken, toToken, amountIn: "1000",
+        expectedOut: "1000", minimumOut: "990", slippageBps: 100, quotedAt: now - 120_000, expiresAt: now - 60_000,
+        router: registry.diamond, facet: registry.facet, facetRuntimeHash: registry.runtimeHash, blockNumber: "10", blockHash,
+        transaction: { to: registry.diamond, value: "1000", data: encodeFunctionData({ abi: firstBuyPaymentAbi,
+          functionName: "swapTokensSingleV3NativeToERC20", args: [hash, "musegodfun", zeroAddress, creator, 990n,
+            { callTo: treasury, approveTo: treasury, sendingAssetId: zeroAddress, receivingAssetId: toToken.address,
+              fromAmount: 1000n, callData: "0x3f0bde25", requiresDeposit: true }] }) },
+        approval: null, feeAmount: "0", feeUsd: null, gasFeeUsd: null, amountInUsd: null };
+      assertFirstBuyPaymentQuote(payment, now, true);
+      assert.throws(() => assertFirstBuyPaymentQuote(payment, now), /could not be verified/);
+    } finally { excluded.restore(); }
+  }
+});
 
 test("missing and stale curve handshakes reject before any RPC", async () => {
   let rpc = 0;
@@ -93,6 +244,54 @@ test("guarded execution requires matching SDK outer/Create/Bundled and one prote
   }
 });
 
+test("locked previews and receipts bind each schedule, amount, recipient and actual block timestamp", async () => {
+  for (const days of [30, 90, 365] as const) {
+    const f = lockedFixture(days);
+    assertPlanIntegrity(f.plan, contracts);
+    const result = await verifyPreparedCreateExecution({ prepared: f.prepared, receipt: f.receipt, publicClient: { getTransaction: async () => f.tx } });
+    const record = verifiedFirstBuyLock(f.plan, f.receipt, f.start)!;
+    assert.equal(result.devBuy?.amountOut, 1000n);
+    assert.equal(record.totalAmount, "1000"); assert.equal(record.lockDays, days);
+    assert.equal(record.recipient, creator); assert.equal(record.cliffDuration, days * 86400);
+    assert.throws(() => verifiedFirstBuyLock(f.plan, f.receipt, f.start + 1n), /lock event/);
+    const changed = structuredClone(f.plan); changed.firstBuy!.lockDays = days === 30 ? 90 : 30;
+    assert.throws(() => assertPlanIntegrity(changed, contracts), /changed/);
+    await assert.rejects(() => verifyPreparedCreateExecution({ prepared: f.prepared,
+      receipt: { ...f.receipt, logs: f.receipt.logs.filter((log) => log !== f.vestingLog) }, publicClient: { getTransaction: async () => f.tx } }));
+    assert.throws(() => verifiedFirstBuyLock(f.plan, { ...f.receipt, logs: [...f.receipt.logs, f.vestingLog] as TransactionReceipt["logs"] }, f.start), /lock event/);
+  }
+});
+
+test("guard versions remain distinguishable and Base binds its own official dependency hash", () => {
+  const legacy = expectedGuardRuntime(4663, "legacy"), vesting = expectedGuardRuntime(4663, "vesting");
+  assert.notEqual(legacy, vesting);
+  assert.equal(identifyGuardVersion(legacy, 4663), "legacy");
+  assert.equal(identifyGuardVersion(vesting, 8453), "vesting");
+  assert.equal(identifyGuardVersion("0x1234", 8453), null);
+  assert.notEqual(chainLaunchDependencies(8453).bundlerCodeHash, chainLaunchDependencies(4663).bundlerCodeHash);
+  assert.equal(chainLaunchDependencies(8453).contracts.airlock.toLowerCase(), "0x660eaaedebc968f8f3694354fa8ec0b4c5ba8d12");
+});
+
+test("registration persists only verified locked custody and recovers without current signing capabilities", async () => {
+  const f = lockedFixture(), directory = mkdtempSync(join(tmpdir(), "locked-recovery-test-")), store = new Store(directory, 31337);
+  try {
+    store.savePlan(f.plan);
+    let badPosition = false;
+    const client = { getTransaction: async () => f.tx, getTransactionReceipt: async () => f.receipt,
+      getBlockNumber: async () => 11n, getBlock: async () => ({ hash: blockHash, timestamp: f.start }),
+      readContract: async (args: { functionName: string }) => args.functionName === "totalSupply" ? SUPPLY
+        : [creator, false, f.start, f.duration, f.duration, badPosition ? 999n : 1000n, 0n] };
+    const service = Object.assign(Object.create(LaunchpadService.prototype), { runtime: { config: { mode: "fork", chainId: 31337,
+      deploymentChainId: 4663, writesEnabled: false, launchGuard: null, launchLockAvailable: false } }, store, client,
+      assertNetwork: async () => {}, sdk: { getMulticurvePool: async () => ({ getState: async () => ({ status: 2, numeraire: quote.address, poolKey: f.poolKey }) }) } }) as LaunchpadService;
+    badPosition = true; await assert.rejects(() => service.register(hash), /custody/);
+    assert.equal(store.token(token), null);
+    badPosition = false; const saved = await service.register(hash);
+    assert.equal(saved.firstBuyLock?.totalAmount, "1000"); assert.equal(saved.firstBuyLock?.start, Number(f.start));
+    assert.deepEqual((await service.register(hash)).firstBuyLock, saved.firstBuyLock);
+  } finally { store.close(); rmSync(directory, { recursive: true }); }
+});
+
 test("guard receipt recovery survives restart, expiry and disabled signing; reorg/unknown stay recoverable", async () => {
   const { plan, receipt, tx, poolKey } = fixture();
   const directory = mkdtempSync(join(tmpdir(), "launch-recovery-test-"));
@@ -112,6 +311,41 @@ test("guard receipt recovery survives restart, expiry and disabled signing; reor
     canonicalHash = `0x${"cc".repeat(32)}`; unknown = true;
     await service.reconcile(); assert.equal(store.token(token), null); assert.equal(store.pendingLaunches()[0].status, "pending");
     canonicalHash = blockHash; unknown = false; await service.reconcile(); assert.equal(store.token(token)?.address, token);
+  } finally { store.close(); rmSync(directory, { recursive: true }); }
+});
+
+test("broadcast retired-price plans recover original metadata after expiry while unsigned plans cannot validate", async (context) => {
+  const current = fixture(), unsigned = historicalFixture(), old = historicalFixture(Date.now() - 86_400_000);
+  const directory = mkdtempSync(join(tmpdir(), "legacy-price-recovery-test-")), store = new Store(directory, 31337);
+  let pricingRequests = 0;
+  context.mock.method(globalThis, "fetch", async () => { pricingRequests++; throw new Error("Recovery must not reprice an already broadcast launch"); });
+  const config: RuntimeConfig = { mode: "fork", chainId: 31337, deploymentChainId: 4663, treasury,
+    writesEnabled: false, blockReason: "Read-only", curvePolicy: CURVE_POLICY, feePolicy: FEE_POLICY, launchGuard: guard };
+  const service = Object.assign(Object.create(LaunchpadService.prototype), { runtime: { config }, store,
+    config: async () => config, assertNetwork: async () => {},
+    client: { getTransaction: async () => old.tx, getTransactionReceipt: async () => old.receipt,
+      getBlockNumber: async () => 11n, getBlock: async () => ({ hash: blockHash, timestamp: BigInt(old.plan.firstBuy!.deadline - 1) }),
+      readContract: async () => SUPPLY },
+    sdk: { getMulticurvePool: async () => ({ getState: async () => ({ status: 2, numeraire: quote.address, poolKey: old.poolKey }) }) },
+  }) as LaunchpadService;
+  try {
+    store.savePlan(current.plan);
+    assert.equal((await service.validateLaunch(creator, current.plan.data)).valid, true);
+    store.savePlan(unsigned.plan);
+    await assert.rejects(() => service.validateLaunch(creator, unsigned.plan.data), /opening market cap policy has changed/);
+    store.savePlan(old.plan);
+    assert(old.plan.openingValuation!.expiresAt < Date.now());
+    const embedded = JSON.parse(decodeURIComponent(old.tokenURI.slice("data:application/json,".length)));
+    assert.deepEqual(embedded.properties.openingValuation, old.plan.openingValuation);
+    assert.equal(embedded.properties.openingValuation.policy, "fixed-usd-5000-v1");
+    assert.equal(embedded.properties.openingValuation.source, "Chainlink");
+    config.treasury = null; config.launchGuard = null; config.curvePolicy = "future";
+    await service.trackLaunch(hash, old.plan.id);
+    const recovered = await service.register(hash);
+    assert.deepEqual(recovered.openingValuation, old.plan.openingValuation);
+    assert.equal(recovered.openingCap, old.plan.draft.openingCap);
+    assert.equal(store.pendingLaunches()[0].status, "confirmed");
+    assert.equal(pricingRequests, 0);
   } finally { store.close(); rmSync(directory, { recursive: true }); }
 });
 
@@ -165,4 +399,117 @@ test("failed guard verification cannot inherit another request's verified addres
   rejectNetwork(new Error("RPC verification failed"));
   assert.equal((await failedRequest).launchGuard, null);
   assert.equal(runtime.config.launchGuard, guard, "config reads do not mutate shared state");
+});
+
+function paymentPreflightFixture(chainId: 8453 | 4663 = 8453) {
+  const asset = chainId === 8453 ? STOCKS.find((stock) => stock.ticker === "NVDA")! : quote;
+  const numeraire = firstBuyPaymentAssets(chainId).find((item) => item.symbol === (chainId === 8453 ? "USDC" : "USDG"))!;
+  const calls: string[] = [];
+  const requests: URLSearchParams[] = [], identityBlocks: bigint[] = [];
+  const state = { fault: "", rpcChainId: chainId as number, guard: guard as Address | null, feePolicy: FEE_POLICY as string };
+  const config: RuntimeConfig = { mode: chainId === 8453 ? "base" : "robinhood", deploymentChainId: chainId,
+    chainId, treasury, writesEnabled: false, blockReason: "Read-only" };
+  const untouched = () => { throw new Error("Payment preflight must not access SDK preparation or storage"); };
+  const service = Object.assign(Object.create(LaunchpadService.prototype), {
+    runtime: { config, lifi: { integrator: "service-preflight-test" } }, store: new Proxy({}, { get: untouched }), sdk: new Proxy({}, { get: untouched }),
+    config: async () => ({ ...config, launchGuard: state.guard, feePolicy: state.feePolicy, feeEngine: null }),
+    rpcRequest: async (method: string) => { assert.equal(method, "web3_clientVersion"); return "anvil synthetic unit-test fixture"; },
+    client: {
+      getChainId: async () => state.rpcChainId,
+      getBlock: async () => ({ number: 1n, hash: blockHash, timestamp: BigInt(Math.floor(Date.now() / 1000)) - 5n }),
+      getCode: async ({ blockNumber }: { blockNumber: bigint }) => { identityBlocks.push(blockNumber); return "0x1234"; },
+      readContract: async (input: { address: Address; functionName: string; blockNumber?: bigint }) => {
+        calls.push(input.functionName);
+        const target = input.address.toLowerCase() === asset.address.toLowerCase() ? asset : numeraire;
+        if (input.blockNumber !== undefined) identityBlocks.push(input.blockNumber);
+        if (input.functionName === "symbol") return state.fault === "identity" ? "WRONG" : target.symbol;
+        if (input.functionName === "decimals") return target.decimals;
+        if (input.functionName === "name") return asset.name;
+        if (input.functionName === "totalSupply") return 1n;
+        if (input.functionName === "multiplier") return 10n ** 18n;
+        throw new Error(`Unexpected payment preflight call ${input.functionName}`);
+      },
+    },
+  }) as LaunchpadService;
+  const fetcher: typeof fetch = async (input, init) => {
+    const url = new URL(String(input));
+    assert.equal(url.origin, "https://li.quest"); assert.equal(url.pathname, "/v1/quote");
+    assert.equal(init?.redirect, "manual"); assert(init?.signal);
+    const params = url.searchParams; requests.push(params);
+    assert.equal(params.get("integrator"), "service-preflight-test");
+    assert.equal(params.get("fee"), "0"); assert.equal(params.get("allowBridges"), "none");
+    assert.equal(params.get("fromChain"), String(chainId)); assert.equal(params.get("toChain"), String(chainId));
+    if (state.fault === "missing" || (state.fault === "reverse-missing" && requests.length === 2))
+      return Response.json({ error: "No same-chain route" }, { status: 404 });
+    if (state.fault === "timeout") throw new DOMException("Synthetic fetch deadline", "TimeoutError");
+    const buy = params.get("fromToken")!.toLowerCase() === numeraire.address.toLowerCase();
+    const from = buy ? numeraire : asset, to = buy ? asset : numeraire;
+    const amountIn = BigInt(params.get("fromAmount")!), fee = amountIn * 25n / 10_000n;
+    const amountOut = buy ? (amountIn - fee) * 10n ** BigInt(asset.decimals) / (100n * 10n ** 6n)
+      : (amountIn - fee) * 100n * 10n ** 6n / 10n ** BigInt(asset.decimals);
+    const tokenData = (value: typeof numeraire) => ({ ...value, priceUSD: value.symbol === numeraire.symbol ? "1" : "100" });
+    const action = { fromChainId: chainId, toChainId: chainId, fromToken: tokenData(from), toToken: tokenData(to),
+      fromAddress: params.get("fromAddress"), toAddress: params.get("toAddress"), fromAmount: amountIn.toString(), slippage: Number(params.get("slippage")) };
+    if (state.fault === "mismatch") action.toToken.address = treasury;
+    return Response.json({ id: `${buy ? "buy" : "sell"}-${requests.length}`, tool: "synthetic-unit-test", action,
+      transactionRequest: { chainId, from: action.fromAddress, to: treasury, data: "0x12345678", value: "0x0" },
+      estimate: { fromAmount: amountIn.toString(), toAmount: amountOut.toString(), toAmountMin: (amountOut * 99n / 100n).toString(),
+        feeCosts: [{ name: "LIFI Fixed Fee", included: true, amount: fee.toString(), token: tokenData(from), feeSplit: { integratorFee: "0", lifiFee: fee.toString() } }] },
+      includedSteps: [{ type: "swap", action }] });
+  };
+  const run = async () => {
+    const previous = globalThis.fetch; globalThis.fetch = fetcher;
+    try { await service.preflightFirstBuyPayment(asset.address); }
+    finally { globalThis.fetch = previous; }
+  };
+  return { service, asset, calls, requests, identityBlocks, state, config, run };
+}
+
+test("payment preflight refuses missing guard, treasury, wrong-chain assets and unverified fee engine", async (context) => {
+  let http = 0;
+  context.mock.method(globalThis, "fetch", async () => { http++; throw new Error("Dependency failures must precede LI.FI requests"); });
+  const f = paymentPreflightFixture();
+  f.state.guard = null;
+  await assert.rejects(() => f.service.preflightFirstBuyPayment(f.asset.address), /guard is configured and verified/);
+  assert.equal(f.calls.length, 0);
+  f.state.guard = guard;
+  f.config.treasury = null;
+  await assert.rejects(() => f.service.preflightFirstBuyPayment(f.asset.address), /treasury is not configured/);
+  f.config.treasury = treasury;
+  await assert.rejects(() => f.service.preflightFirstBuyPayment(quote.address), /new launch.*verified LI\.FI route/);
+  f.state.rpcChainId = 4663;
+  await assert.rejects(() => f.service.preflightFirstBuyPayment(f.asset.address), /RPC network does not match/);
+  const rh = paymentPreflightFixture(4663);
+  rh.state.feePolicy = ENGINE_FEE_POLICY;
+  await assert.rejects(() => rh.service.preflightFirstBuyPayment(rh.asset.address), /fee engine could not be verified/);
+  assert.equal(rh.calls.length, 0);
+  assert.equal(f.calls.length, 0);
+  assert.equal(http, 0);
+});
+
+test("payment preflight reads LI.FI swap evidence before conversion without old feeds or launch plans", async () => {
+  for (const chainId of [8453, 4663] as const) {
+    for (const fault of ["missing", "reverse-missing", "mismatch", "timeout", "identity"]) {
+      const f = paymentPreflightFixture(chainId);
+      f.state.fault = fault;
+      await assert.rejects(f.run, /LI\.FI pricing or routing is unavailable|fixed same-chain price probe|identity verification failed/, `${chainId} ${fault}`);
+      assert.equal(f.config.writesEnabled, false, "a failed read cannot enable signing");
+      assert.equal(f.calls.some((call) => ["latestRoundData", "getOracleParams", "observe"].includes(call)), false);
+      assert.equal(f.requests.length, fault === "identity" ? 0 : fault === "reverse-missing" ? 2 : 1);
+    }
+    const f = paymentPreflightFixture(chainId), before = structuredClone(f.config);
+    await f.run();
+    assert.equal(f.requests.length, 2); assert.equal(f.requests[0].get("fromAmount"), "100000000");
+    assert.equal(f.requests[0].get("toToken")?.toLowerCase(), f.asset.address.toLowerCase());
+    assert.equal(f.requests[1].get("fromToken")?.toLowerCase(), f.asset.address.toLowerCase());
+    assert(f.identityBlocks.length >= 6); assert(f.identityBlocks.every((block) => block === 1n));
+    assert.equal(f.calls.some((call) => ["latestRoundData", "getOracleParams", "observe"].includes(call)), false);
+    assert.deepEqual(f.config, before, "read-only preview leaves runtime permissions unchanged");
+    f.state.fault = "missing";
+    await assert.rejects(f.run, /LI\.FI pricing or routing is unavailable/, "each request fetches a new swap probe");
+    const fork = paymentPreflightFixture(chainId);
+    fork.config.mode = "fork"; fork.config.chainId = 31337; fork.state.rpcChainId = 31337;
+    await fork.run(); assert.equal(fork.requests.length, 2);
+    assert(fork.requests.every((request) => request.get("fromChain") === String(chainId)), "fork RPC identity does not rewrite deployment-chain quotes");
+  }
 });

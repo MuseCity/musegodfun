@@ -1,0 +1,558 @@
+{
+  "capturedAt": "2026-10-07T00:18:45.101Z",
+  "source": "https://www.st0x.io/",
+  "discovery": "official SSR token records, direct field parsing, no external JS execution",
+  "tokens": [
+    {
+      "chainId": 8453,
+      "address": "0xfcd17ac4c4bf6a72c93018096f3fc09e66573ff9",
+      "symbol": "wtSKHY",
+      "decimals": 18,
+      "name": "Wrapped SK hynix Inc. ADR ST0x",
+      "unwrappedAddress": "0x4DBA41f0feb390F208a85e96168fF5d8aC2b6F5c",
+      "legacyAddress": null,
+      "isin": "US78392B2060"
+    },
+    {
+      "chainId": 8453,
+      "address": "0x0883f32d23ed5535057a4b5e3eb1970fe08606af",
+      "symbol": "wtNKE",
+      "decimals": 18,
+      "name": "Wrapped NIKE, Inc. ST0x",
+      "unwrappedAddress": "0x88C3F4E2E0a977Fed97ed246c70BFD7A01070246",
+      "legacyAddress": null,
+      "isin": "US6541061031"
+    },
+    {
+      "chainId": 8453,
+      "address": "0x522dc65c89c9af4f410bae01bbf53af75854a9f9",
+      "symbol": "wtAMAT",
+      "decimals": 18,
+      "name": "Wrapped Applied Materials, Inc. ST0x",
+      "unwrappedAddress": "0x98C02B58b7E65EF5a4262d9536162949e3B2E141",
+      "legacyAddress": null,
+      "isin": "US0382221051"
+    },
+    {
+      "chainId": 8453,
+      "address": "0x515a3ac2a6ab590bdfa970cafffd7fadc680886e",
+      "symbol": "wtMSFT",
+      "decimals": 18,
+      "name": "Wrapped Microsoft Corporation ST0x",
+      "unwrappedAddress": "0x6a071E25fa25653cF15d1ee320eA3df771926Aa0",
+      "legacyAddress": null,
+      "isin": "US5949181045"
+    },
+    {
+      "chainId": 8453,
+      "address": "0x6aed8b1acfb04f4e0e6db580f12ff41438a394e5",
+      "symbol": "wtFGI",
+      "decimals": 18,
+      "name": "Wrapped FGI Industries Ltd. ST0x",
+      "unwrappedAddress": "0x785BD77B8e92866f87E01416D1022d729975D529",
+      "legacyAddress": null,
+      "isin": "KYG3302D2024"
+    },
+    {
+      "chainId": 8453,
+      "address": "0x71c66449d2528e23514a9c197bfd55ae9db3b714",
+      "symbol": "wtTSM",
+      "decimals": 18,
+      "name": "Wrapped Taiwan Semiconductor Manufacturing Company ST0x",
+      "unwrappedAddress": "0x7001e2974F775f0Fd73a3D2e5914e591f3EC3fBB",
+      "legacyAddress": null,
+      "isin": "US8740391003"
+    },
+    {
+      "chainId": 8453,
+      "address": "0xd92cc92557bfc33028195983ed31465f99b4a01c",
+      "symbol": "wtMC.PA",
+      "decimals": 18,
+      "name": "Wrapped LVMH Moët Hennessy Louis Vuitton SE ST0x",
+      "unwrappedAddress": "0xF5245a17E5eb64D53dEa213d40aBa01821D465Cd",
+      "legacyAddress": null,
+      "isin": "FR0000121014"
+    },
+    {
+      "chainId": 8453,
+      "address": "0x31c2c14134e6e3b7ef9478297f199331133fc2d8",
+      "symbol": "wtSPYM",
+      "decimals": 18,
+      "name": "Wrapped SPDR Portfolio S&P 500 ETF ST0x",
+      "unwrappedAddress": "0x8fdf41116f755771bfe0747d5f8c3711d5debfbb",
+      "legacyAddress": "0x2289249984f1fa2ce86c4e8867e7eb819ea7df95",
+      "isin": "US78464A8541"
+    },
+    {
+      "chainId": 8453,
+      "address": "0xcb9571ab96aa47374ef30d8e9accc1cd51064726",
+      "symbol": "wtORCL",
+      "decimals": 18,
+      "name": "Wrapped Oracle Corporation ST0x",
+      "unwrappedAddress": "0x57573351f3fdD20a57dEE4a7f836de1cE9900d4B",
+      "legacyAddress": null,
+      "isin": "US68389X1054"
+    },
+    {
+      "chainId": 8453,
+      "address": "0xd0269618455cf7da71665856f16c2d03a1b26290",
+      "symbol": "wtBMW.DE",
+      "decimals": 18,
+      "name": "Wrapped Bayerische Motoren Werke Aktiengesellschaft ST0x",
+      "unwrappedAddress": "0x9610C265EB8F38B22Fec78498C74924D9fe55891",
+      "legacyAddress": null,
+      "isin": "DE0005190003"
+    },
+    {
+      "chainId": 8453,
+      "address": "0x8200c6d9ab9e02a25d7f2099244c476d99a085ef",
+      "symbol": "wtASML",
+      "decimals": 18,
+      "name": "Wrapped ASML Holding N.V. New York Registry Shares ST0x",
+      "unwrappedAddress": "0x722Cb373f1871A176fb5DC3953046f2EAE22F619",
+      "legacyAddress": null,
+      "isin": "USN070592100"
+    },
+    {
+      "chainId": 8453,
+      "address": "0x6a2357df4975c667b171be53da6ffe6debf7030c",
+      "symbol": "wtGOOGL",
+      "decimals": 18,
+      "name": "Wrapped Alphabet Inc. Class A ST0x",
+      "unwrappedAddress": "0x15De944Cd020A18C8E5626fB0F81b36e73956199",
+      "legacyAddress": null,
+      "isin": "US02079K3059"
+    },
+    {
+      "chainId": 8453,
+      "address": "0x1c600ef167c675c878bf3222f3935c4fa2a43c31",
+      "symbol": "wtAIR.PA",
+      "decimals": 18,
+      "name": "Wrapped Airbus SE ST0x",
+      "unwrappedAddress": "0xDdB07ADd0e23BB7eC97f53C0959d9c6Cc09624f4",
+      "legacyAddress": null,
+      "isin": "NL0000235190"
+    },
+    {
+      "chainId": 8453,
+      "address": "0x892ccf5e75f4a7ee6402971a1587f65bee4d52bd",
+      "symbol": "wtLLY",
+      "decimals": 18,
+      "name": "Wrapped Eli Lilly and Company ST0x",
+      "unwrappedAddress": "0xA41Ce7B8255A01062ED1AF23ea5E8137B9300554",
+      "legacyAddress": null,
+      "isin": "US5324571083"
+    },
+    {
+      "chainId": 8453,
+      "address": "0x823ff7bbde2869aae73a6cd53e7f614442836757",
+      "symbol": "wtQQQM",
+      "decimals": 18,
+      "name": "Wrapped Invesco NASDAQ 100 ETF ST0x",
+      "unwrappedAddress": "0x09ee803ba675052e10a54bfc8e18c0f67793056b",
+      "legacyAddress": null,
+      "isin": "US46138G6492"
+    },
+    {
+      "chainId": 8453,
+      "address": "0x31fa821f8b1bdea7db357ec9622d1a2f6afe903d",
+      "symbol": "wtWEN",
+      "decimals": 18,
+      "name": "Wrapped The Wendy's Company ST0x",
+      "unwrappedAddress": "0xedA4df511dEA07b6529db2196998B30E03791d87",
+      "legacyAddress": null,
+      "isin": "US95058W1009"
+    },
+    {
+      "chainId": 8453,
+      "address": "0x045fb493d970f94a54feaf931033622fc82192e6",
+      "symbol": "wtTTWO",
+      "decimals": 18,
+      "name": "Wrapped Take-Two Interactive Software, Inc. ST0x",
+      "unwrappedAddress": "0x1a29eD11DF8295D5F3B5F59849FD94caD615E024",
+      "legacyAddress": null,
+      "isin": "US8740541094"
+    },
+    {
+      "chainId": 8453,
+      "address": "0x9aa9c5a24e976096a6a7ab44986dae8230fa5b27",
+      "symbol": "wtSPY",
+      "decimals": 18,
+      "name": "Wrapped State Street SPDR S&P 500 ETF Trust ST0x",
+      "unwrappedAddress": "0xda2e8d6e2a7d0a38a6b39a274d6911476062298b",
+      "legacyAddress": null,
+      "isin": "US78462F1030"
+    },
+    {
+      "chainId": 8453,
+      "address": "0x1db49ff8bee88ec73f82f395b0bead372bdcadb7",
+      "symbol": "wtDNUT",
+      "decimals": 18,
+      "name": "Wrapped Krispy Kreme, Inc. ST0x",
+      "unwrappedAddress": "0x6C2b6Ed57d4d9e93F3E4975FAc70eE4B180F4Eb9",
+      "legacyAddress": null,
+      "isin": "US50101L1061"
+    },
+    {
+      "chainId": 8453,
+      "address": "0xa759fabbd866e6db8bf76613c35825dc2e380bf0",
+      "symbol": "wtSMCI",
+      "decimals": 18,
+      "name": "Wrapped Super Micro Computer, Inc. ST0x",
+      "unwrappedAddress": "0x8518931497d2A8f07Bc607D1D3295b398D065A65",
+      "legacyAddress": null,
+      "isin": "US86800U3023"
+    },
+    {
+      "chainId": 8453,
+      "address": "0xff05e1bd696900dc6a52ca35ca61bb1024eda8e2",
+      "symbol": "wtMSTR",
+      "decimals": 18,
+      "name": "Wrapped MicroStrategy Incorporated ST0x",
+      "unwrappedAddress": "0x013b782f402d61aa1004cca95b9f5bb402c9d5fe",
+      "legacyAddress": "0xff647ad8c4b065bd746911bb9ea1a33c38c63604",
+      "isin": "US5949724083"
+    },
+    {
+      "chainId": 8453,
+      "address": "0x1197e6fa778c4d13e47875bd1761c68c22c928e0",
+      "symbol": "wtGRND",
+      "decimals": 18,
+      "name": "Wrapped Grindr Inc. ST0x",
+      "unwrappedAddress": "0xA4178410216F5f00C718BE88C2fF8AC24de192bc",
+      "legacyAddress": null,
+      "isin": "US39854F1012"
+    },
+    {
+      "chainId": 8453,
+      "address": "0xfb5b41acdba20a3230f84be995173cfb98b8d6e7",
+      "symbol": "wtNVDA",
+      "decimals": 18,
+      "name": "Wrapped NVIDIA Corporation ST0x",
+      "unwrappedAddress": "0x7271a3c91bb6070ed09333b84a815949d4f16d14",
+      "legacyAddress": "0x69fca9f7fad46a7eef3acef5beac9df5b7eca73b",
+      "isin": "US67066G1040"
+    },
+    {
+      "chainId": 8453,
+      "address": "0x78c31580c97101694c70022c83d570150c11e935",
+      "symbol": "wtSGOV",
+      "decimals": 18,
+      "name": "Wrapped iShares 0-3 Month Treasury Bond ETF ST0x",
+      "unwrappedAddress": "0xc941C1506B7555Ba8C506Fb6c9b9CC259902d612",
+      "legacyAddress": null,
+      "isin": "US46436E7186"
+    },
+    {
+      "chainId": 8453,
+      "address": "0x328b9affa511fe26673edbb4fea37edaf908a3bc",
+      "symbol": "wtLRCX",
+      "decimals": 18,
+      "name": "Wrapped Lam Research Corporation ST0x",
+      "unwrappedAddress": "0xDdE9346107609A05439A0B59Ab6eD4f7F81a1FBF",
+      "legacyAddress": null,
+      "isin": "US5128073062"
+    },
+    {
+      "chainId": 8453,
+      "address": "0x19f89aaef8a93f38a974beca9776f09ab844887f",
+      "symbol": "wtSPCX",
+      "decimals": 18,
+      "name": "Wrapped Space Exploration Technologies Corp. ST0x",
+      "unwrappedAddress": "0xc585AeB8B76c5F5e4215470A7625258e86ED7746",
+      "legacyAddress": null,
+      "isin": "US84615Q1031"
+    },
+    {
+      "chainId": 8453,
+      "address": "0xed0b0fdd92f7eece606a0fb0457352616d6e6b34",
+      "symbol": "wtSIE.DE",
+      "decimals": 18,
+      "name": "Wrapped Siemens Aktiengesellschaft ST0x",
+      "unwrappedAddress": "0xa662066a60964a528aD05209139a79BDa3a7577f",
+      "legacyAddress": null,
+      "isin": "DE0007236101"
+    },
+    {
+      "chainId": 8453,
+      "address": "0x35fde767dbfaa610d12cf99914bcd6cfeda73b7b",
+      "symbol": "wtPLBY",
+      "decimals": 18,
+      "name": "Wrapped Playboy, Inc. ST0x",
+      "unwrappedAddress": "0xe9bc7eF69f123cA2bcA1021D1BE30224271a9217",
+      "legacyAddress": null,
+      "isin": "US72814P1093"
+    },
+    {
+      "chainId": 8453,
+      "address": "0x3af952888cd89dad3e8af67cf4b7e740b36829c3",
+      "symbol": "wtCEG",
+      "decimals": 18,
+      "name": "Wrapped Constellation Energy Corporation ST0x",
+      "unwrappedAddress": "0x9a5D3cAeC90b0332b18C0B93fEF42F3F8C918289",
+      "legacyAddress": null,
+      "isin": "US21037T1097"
+    },
+    {
+      "chainId": 8453,
+      "address": "0xf567652fc2d7db8d5469fd06aebe8c9c4372d722",
+      "symbol": "wtINTC",
+      "decimals": 18,
+      "name": "Wrapped Intel Corporation ST0x",
+      "unwrappedAddress": "0xBDC237Aa3B67cC3088adAf117913F30Bf08157a3",
+      "legacyAddress": null,
+      "isin": "US4581401001"
+    },
+    {
+      "chainId": 8453,
+      "address": "0x295e9ecab319006900a53b3f8d6fcb0c131f4ada",
+      "symbol": "wtTQQQ",
+      "decimals": 18,
+      "name": "Wrapped ProShares UltraPro QQQ ST0x",
+      "unwrappedAddress": "0xcA1A378F9a250131A2fE51c10f120FeF7EDCa56E",
+      "legacyAddress": null,
+      "isin": "US74347X8314"
+    },
+    {
+      "chainId": 8453,
+      "address": "0x82f5baee1076334357a34a19e04f7c282d51ce47",
+      "symbol": "wtPPLT",
+      "decimals": 18,
+      "name": "Wrapped abrdn Physical Platinum Shares ETF ST0x",
+      "unwrappedAddress": "0x1f17523b147ccc2a2328c0f014f6d49c479ea063",
+      "legacyAddress": "0x6192539a2036c786aba3ca6a2222ff7a0f9c287e",
+      "isin": "US0032601066"
+    },
+    {
+      "chainId": 8453,
+      "address": "0x7ecae30ed8ee4f72653ada7b0941bde7a0a8ee8d",
+      "symbol": "wtMCD",
+      "decimals": 18,
+      "name": "Wrapped McDonald's Corporation ST0x",
+      "unwrappedAddress": "0x6363657E19A82ABE0E210e9b8c88Ea61d96eceaB",
+      "legacyAddress": null,
+      "isin": "US5801351017"
+    },
+    {
+      "chainId": 8453,
+      "address": "0x5cda0e1ca4ce2af96315f7f8963c85399c172204",
+      "symbol": "wtCOIN",
+      "decimals": 18,
+      "name": "Wrapped Coinbase Global Inc ST0x",
+      "unwrappedAddress": "0x626757e6f50675d17fcad312e82f989ae7a23d38",
+      "legacyAddress": "0xb616f8b391d1adc118fd7e4063526d5530d49b10",
+      "isin": "US19260Q1076"
+    },
+    {
+      "chainId": 8453,
+      "address": "0x9bde199ac6e7e050334306d9267c93e3d6d38333",
+      "symbol": "wtFTF",
+      "decimals": 18,
+      "name": "Wrapped Franklin Limited Duration Income Trust ST0x",
+      "unwrappedAddress": "0x51d5c8c8040358686952a30fac116aac32390d6a",
+      "legacyAddress": null,
+      "isin": "US35472T1016"
+    },
+    {
+      "chainId": 8453,
+      "address": "0x648042acd8638e12fefd51c2b25a9f993f21a612",
+      "symbol": "wtAMD",
+      "decimals": 18,
+      "name": "Wrapped Advanced Micro Devices, Inc. ST0x",
+      "unwrappedAddress": "0x50b5225409A55B873fD6C2Fd5880AF5a11acE9b1",
+      "legacyAddress": null,
+      "isin": "US0079031078"
+    },
+    {
+      "chainId": 8453,
+      "address": "0x70a182f481aef05836666b6cfdbe84dcbce8ac19",
+      "symbol": "wtAVGO",
+      "decimals": 18,
+      "name": "Wrapped Broadcom Inc. ST0x",
+      "unwrappedAddress": "0x6088F8ef741AE1f5A61882866f130631b41617E2",
+      "legacyAddress": null,
+      "isin": "US11135F1012"
+    },
+    {
+      "chainId": 8453,
+      "address": "0x8afba81dec38de0a18e2df5e1967a7493651eebf",
+      "symbol": "wtCRCL",
+      "decimals": 18,
+      "name": "Wrapped Circle Internet Group Inc ST0x",
+      "unwrappedAddress": "0x38eb797892ed71da69bdc27a456a7c83ff813b52",
+      "legacyAddress": "0x43422a9d11a6640ef0d5f65292ef8adf87cf8522",
+      "isin": "US1725731079"
+    },
+    {
+      "chainId": 8453,
+      "address": "0x89ecfe9e0728d6b3c5eb0ee7236f8c6f806c7b56",
+      "symbol": "wtMU",
+      "decimals": 18,
+      "name": "Wrapped Micron Technology, Inc. ST0x",
+      "unwrappedAddress": "0x7d89a2DFfDaF9f48A64337C725D925381b431aE2",
+      "legacyAddress": null,
+      "isin": "US5951121038"
+    },
+    {
+      "chainId": 8453,
+      "address": "0x9fff48b4535af3765ac9e1b164720edc01df8ee7",
+      "symbol": "wtARKK",
+      "decimals": 18,
+      "name": "Wrapped ARK Innovation ETF ST0x",
+      "unwrappedAddress": "0x323804af6f3bb463d688b854667c6870a0fc06ad",
+      "legacyAddress": null,
+      "isin": "US00214Q1040"
+    },
+    {
+      "chainId": 8453,
+      "address": "0x2512ec661f0ba089c275ea105e31bad6fcfcf319",
+      "symbol": "wtBMNR",
+      "decimals": 18,
+      "name": "Wrapped Bitmine Immersion Technologies, Inc ST0x",
+      "unwrappedAddress": "0xfbde45df60249203b12148452fc77c3b5f811eb2",
+      "legacyAddress": "0xf8fdfd6a686346d34b3143fc23072aa45c9e8386",
+      "isin": "US09175A2069"
+    },
+    {
+      "chainId": 8453,
+      "address": "0x1a91df4a970ebab1bb4af32eb6d10509028ee4b8",
+      "symbol": "wtDRAM",
+      "decimals": 18,
+      "name": "Wrapped Roundhill Memory ETF ST0x",
+      "unwrappedAddress": "0x96DE077262609298CD891E4Ab21bd34837dE33aB",
+      "legacyAddress": null,
+      "isin": "US77926X3200"
+    },
+    {
+      "chainId": 8453,
+      "address": "0x7e5cc7eae0455a07ab4abf354e0f5657ba2888bd",
+      "symbol": "wtBABA",
+      "decimals": 18,
+      "name": "Wrapped Alibaba Group Holding Limited ADR ST0x",
+      "unwrappedAddress": "0x6B8fa7288dBEc7C1c62BfE59Cbd7Bec7EBF846C5",
+      "legacyAddress": null,
+      "isin": "US01609W1027"
+    },
+    {
+      "chainId": 8453,
+      "address": "0x23ec6886b49d7ab123e9ee8e474d2fa7ab6cbc2d",
+      "symbol": "wtVWO",
+      "decimals": 18,
+      "name": "Wrapped Vanguard Emerging Markets Stock Index Fund ST0x",
+      "unwrappedAddress": "0x0acfea6833c4a3f41bf2fbd736aa9eea547d90ee",
+      "legacyAddress": null,
+      "isin": "US9220428588"
+    },
+    {
+      "chainId": 8453,
+      "address": "0x433fd2fc0964b07e9820e4cd01774ede59d1f002",
+      "symbol": "wtTR",
+      "decimals": 18,
+      "name": "Wrapped Tootsie Roll Industries, Inc. ST0x",
+      "unwrappedAddress": "0xeF935b17d5BE5b7ecA803158a845A08A7A9383f2",
+      "legacyAddress": null,
+      "isin": "US8905161076"
+    },
+    {
+      "chainId": 8453,
+      "address": "0x1020ec8aa3f709a1f3d8705cdba89b950451bd88",
+      "symbol": "wtAAPL",
+      "decimals": 18,
+      "name": "Wrapped Apple Inc. ST0x",
+      "unwrappedAddress": "0xD36056a4a03707D3743fCE4e9C08852820ADcfdC",
+      "legacyAddress": null,
+      "isin": "US0378331005"
+    },
+    {
+      "chainId": 8453,
+      "address": "0xd50f561322fe3235dbc9ec8b3ab7693383d8a425",
+      "symbol": "wtHOOD",
+      "decimals": 18,
+      "name": "Wrapped Robinhood Markets, Inc. ST0x",
+      "unwrappedAddress": "0x5cEfd886dD05001c2Fc32c313E05360D07f37d8f",
+      "legacyAddress": null,
+      "isin": "US7707001027"
+    },
+    {
+      "chainId": 8453,
+      "address": "0xb6d779a79e7493ed821a65d52ba419f0f6d5dd0a",
+      "symbol": "wtPTY",
+      "decimals": 18,
+      "name": "Wrapped PIMCO Corporate & Income Opportunity Fund ST0x",
+      "unwrappedAddress": "0xb6021810971714cD48572af527307Acc324ecF61",
+      "legacyAddress": null,
+      "isin": "US72201B1017"
+    },
+    {
+      "chainId": 8453,
+      "address": "0x1e46d7efef64a833afb1cd49299a7ad5b439f4d8",
+      "symbol": "wtIAU",
+      "decimals": 18,
+      "name": "Wrapped iShares Gold Trust ST0x",
+      "unwrappedAddress": "0x9a507314ea2a6c5686c0d07bfecb764dcf324dff",
+      "legacyAddress": "0xd0a90b7c9ae5facbe09ca4c576a3795eda53b397",
+      "isin": "US4642852044"
+    },
+    {
+      "chainId": 8453,
+      "address": "0xfae641bfe7009b5326396048b951e3aa31902a2b",
+      "symbol": "wtMBG.DE",
+      "decimals": 18,
+      "name": "Wrapped Mercedes-Benz Group AG ST0x",
+      "unwrappedAddress": "0x07d7ca9384812b86e7E429473dF354fb59DA73A0",
+      "legacyAddress": null,
+      "isin": "DE0007100000"
+    },
+    {
+      "chainId": 8453,
+      "address": "0xd3c42ab4d5a60a50401b3a67d10b03ce7d96da19",
+      "symbol": "wtRHM.DE",
+      "decimals": 18,
+      "name": "Wrapped Rheinmetall AG ST0x",
+      "unwrappedAddress": "0x725E0Df28D1EB09338f63776B76bCfc00f3b6f44",
+      "legacyAddress": null,
+      "isin": "DE0007030009"
+    },
+    {
+      "chainId": 8453,
+      "address": "0x997bae3ec193a249596d3708c3fab7c501bb8a53",
+      "symbol": "wtAMZN",
+      "decimals": 18,
+      "name": "Wrapped Amazon.com Inc ST0x",
+      "unwrappedAddress": "0x466cb2e46fa1afc0ab5e22274b34d0391db18efd",
+      "legacyAddress": "0x8d8c315db61f60dcc3c66cdb48ca87fc643e35ea",
+      "isin": "US0231351067"
+    },
+    {
+      "chainId": 8453,
+      "address": "0x219a8d384a10bf19b9f24cb5cc53f79dd0e5a03d",
+      "symbol": "wtTSLA",
+      "decimals": 18,
+      "name": "Wrapped Tesla Inc ST0x",
+      "unwrappedAddress": "0x4e169cd2ab4f82640a8c65c68fed55863866fdb0",
+      "legacyAddress": "0x470b06815a2e286df8c38c9c73280e0760088623",
+      "isin": "US88160R1014"
+    },
+    {
+      "chainId": 8453,
+      "address": "0xb457cfbf31995d3aaaa704da9999cc0b011820ca",
+      "symbol": "wtCBRS",
+      "decimals": 18,
+      "name": "Wrapped Cerebras Systems Inc. ST0x",
+      "unwrappedAddress": "0xbeb0c2011bd5520a0998b69132e9245e39ac5d1d",
+      "legacyAddress": null,
+      "isin": "US15675D1037"
+    },
+    {
+      "chainId": 8453,
+      "address": "0xeb7f3e4093c9d68253b6104fbbff561f3ec0442f",
+      "symbol": "wtSIVR",
+      "decimals": 18,
+      "name": "Wrapped abrdn Physical Silver Shares ETF ST0x",
+      "unwrappedAddress": "0x58ce5024b89b4f73c27814c0f0abbea331c99be8",
+      "legacyAddress": "0x826a85de1f7b70f4c7450c0f882a6db06000ed80",
+      "isin": "US0032641088"
+    }
+  ],
+  "notes": "Wrapped markets are current official 55; unwrapped/legacy addresses are discovery context and kept separate from active-market addresses."
+}

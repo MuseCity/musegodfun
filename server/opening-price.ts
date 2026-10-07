@@ -1,223 +1,160 @@
-import { getSqrtRatioAtTick } from "@whetstone-research/doppler-sdk/evm";
-import { erc20Abi, formatUnits, parseAbi, type Address, type PublicClient, type Transport } from "viem";
-import { ROBINHOOD_STOCKS, sameAddress, type Stock } from "../src/lib/config";
-import {
-  LAUNCH_PRICE_TTL,
-  OPENING_CAP_USD,
-  OPENING_POLICY,
-  type OpeningValuation,
-} from "../src/lib/opening-valuation";
+import { erc20Abi, formatUnits, getAddress, isAddress, parseUnits, zeroAddress, type PublicClient, type Transport } from "viem";
+import { ROBINHOOD_STOCKS, STOCKS, sameAddress, type Stock } from "../src/lib/config";
+import { FirstBuyPaymentReader } from "./lifi";
+import { firstBuyPaymentAssets, type FirstBuyPaymentAsset } from "../src/lib/first-buy-payment";
+import { assertOpeningValuation, deriveLifiOpeningPrice, LAUNCH_PRICE_TTL, OPENING_CAP_USD, OPENING_POLICY,
+  type LifiOpeningQuote, type LifiOpeningValuation } from "../src/lib/opening-valuation";
 
-const ETH_FEED = "0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9" as Address;
-const USDG_FEED = "0x61B7e5650328764B076A108EFF5fa7282a1B9aD2" as Address;
-const CBBTC_FEED = "0x0009cD492adf8167f9eEBf1293556A673530a21a" as Address;
-const MUSEGOD = "0x0379E228F6887c6F18bf394042ECAF81B308cb2e" as Address;
-const WETH = "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73" as Address;
-const MUSEGOD_POOL = "0x071eE139277688d64B139Af1e44f79a9acf12e53" as Address;
-const SUSHI_FACTORY = "0xE51960f1B45f1C9FB6D166E6a884F866fC70433B" as Address;
-const SOURCE_MAX_AGE = 60_000;
-const FEED_HEARTBEAT = 86_400_000;
-const TWAP_SECONDS = 300 as const;
-const WAD = 10n ** 18n;
-const Q192 = 1n << 192n;
-
-const feedAbi = parseAbi([
-  "function latestRoundData() view returns (uint80,int256,uint256,uint256,uint80)",
-  "function decimals() view returns (uint8)",
-]);
-const stockAbi = parseAbi([
-  "function uiMultiplier() view returns (uint256)",
-  "function oraclePaused() view returns (bool)",
-]);
-const poolAbi = parseAbi([
-  "function token0() view returns (address)",
-  "function token1() view returns (address)",
-  "function factory() view returns (address)",
-  "function fee() view returns (uint24)",
-  "function liquidity() view returns (uint128)",
-  "function slot0() view returns (uint160,int24,uint16,uint16,uint16,uint8,bool)",
-  "function observe(uint32[] secondsAgos) view returns (int56[] tickCumulatives,uint160[] secondsPerLiquidityCumulativeX128s)",
-]);
-const factoryAbi = parseAbi([
-  "function getPool(address,address,uint24) view returns (address)",
-]);
-
-type Dependencies = { fetch?: typeof fetch; now?: () => number };
-type Decimal = { value: bigint; scale: bigint };
-function decimal(value: unknown): Decimal {
-  if (typeof value !== "string" || value.length > 160 || !/^\d+(?:\.\d+)?$/.test(value))
-    throw new Error("The opening price provider returned an invalid decimal value.");
-  const [whole, fraction = ""] = value.split(".");
-  if (fraction.length > 80)
-    throw new Error("The opening price provider returned unsupported precision.");
-  const result = { value: BigInt(whole + fraction), scale: 10n ** BigInt(fraction.length) };
-  if (result.value <= 0n) throw new Error("The paired asset USD price must be positive.");
+export type OpeningPriceDependencies = {
+  integrator?: string; apiKey?: string; fetch?: typeof fetch; now?: () => number;
+  rpcChainId?: 8453 | 4663 | 31337;
+};
+export const LIFI_OPENING_PROBE_ACCOUNT = getAddress("0x1111111111111111111111111111111111111111");
+const SLIPPAGE = 0.01;
+const UINT256_MAX = (1n << 256n) - 1n;
+const RPC_TIMEOUT = 15_000;
+const PRICE = /^(?:0|[1-9]\d{0,20})(?:\.\d{1,18})?$/;
+function invalidQuote(): never { throw new Error("The LI.FI opening quote does not match the fixed same-chain price probe."); }
+function record(value: unknown): Record<string, any> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return invalidQuote();
+  return value as Record<string, any>;
+}
+function amount(value: unknown, allowZero = false): bigint {
+  if (typeof value !== "string" || !/^(?:0|[1-9]\d{0,77})$/.test(value)) return invalidQuote();
+  const result = BigInt(value);
+  if ((!allowZero && result === 0n) || result > UINT256_MAX) return invalidQuote();
   return result;
 }
-function priceString(numerator: bigint, denominator: bigint): string {
-  if (numerator <= 0n || denominator <= 0n)
-    throw new Error("The paired asset USD price must be positive.");
-  const amount = numerator * WAD / denominator;
-  if (amount <= 0n) throw new Error("The paired asset USD price is below supported precision.");
-  return formatUnits(amount, 18);
+function price(value: unknown): string {
+  if (typeof value !== "string" || !PRICE.test(value) || parseUnits(value, 18) <= 0n) return invalidQuote();
+  return formatUnits(parseUnits(value, 18), 18);
 }
-function timestamp(seconds: bigint): number {
-  const ms = seconds * 1000n;
-  if (ms <= 0n || ms > BigInt(Number.MAX_SAFE_INTEGER))
-    throw new Error("The opening price source timestamp is invalid.");
-  return Number(ms);
+function token(value: unknown, expected: FirstBuyPaymentAsset) {
+  const actual = record(value);
+  if (actual.chainId !== expected.chainId || !isAddress(actual.address ?? "", { strict: false }) ||
+    !sameAddress(actual.address, expected.address) || actual.symbol !== expected.symbol || actual.decimals !== expected.decimals)
+    return invalidQuote();
+  return actual;
 }
-function recent(at: number, now: number, age: number, message: string) {
-  if (!Number.isSafeInteger(at) || at <= 0 || at > now || now - at > age)
-    throw new Error(message);
+function intermediateToken(value: unknown, chainId: 8453 | 4663) {
+  const actual = record(value);
+  if (actual.chainId !== chainId || !isAddress(actual.address ?? "", { strict: false }) ||
+    typeof actual.symbol !== "string" || !actual.symbol || actual.symbol.length > 64 ||
+    !Number.isInteger(actual.decimals) || actual.decimals < 0 || actual.decimals > 36) return invalidQuote();
 }
-// Never propagate upstream exceptions: RPC URLs can contain provider credentials.
-async function bounded<T>(work: () => Promise<T>, message: string): Promise<T> {
+// RPC exceptions can contain credential-bearing URLs. Preserve only a fixed
+// identity failure, as with the shared LI.FI HTTP boundary.
+async function identityRead<T>(work: () => Promise<T>): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    return await Promise.race([
-      work(),
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(message)), 15_000);
-      }),
-    ]);
-  } catch {
-    throw new Error(message);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
+    return await Promise.race([work(), new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error("identity timeout")), RPC_TIMEOUT);
+    })]);
+  } catch { throw new Error("The opening-price asset identity could not be verified on the selected RPC."); }
+  finally { clearTimeout(timer); }
 }
 
-/** Capture one USD reference valuation for the existing five-minute launch preview. */
-export async function readOpeningValuation(
-  client: PublicClient<Transport, any>,
-  stock: Stock,
-  chainId: 8453 | 4663,
-  deps: Dependencies = {},
-): Promise<OpeningValuation> {
-  if (chainId !== 4663 || stock.chainId !== 4663)
-    throw new Error("Fixed USD opening prices are only configured for Robinhood Chain.");
-  const asset = ROBINHOOD_STOCKS.find((item) => sameAddress(item.address, stock.address));
-  if (!asset || asset.symbol !== stock.symbol || asset.decimals !== stock.decimals)
-    throw new Error("The paired asset does not match the verified Robinhood asset list.");
+/** Two unsigned probes provide a LI.FI USD reference midpoint. The recorded
+ * canonical RPC block proves token identity; it is not a quote execution block. */
+export async function readOpeningValuation(client: PublicClient<Transport, any>, stock: Stock,
+  chainId: 8453 | 4663, deps: OpeningPriceDependencies = {}): Promise<LifiOpeningValuation> {
+  const asset = (chainId === 4663 ? ROBINHOOD_STOCKS : STOCKS).find((item) => sameAddress(item.address, stock.address));
+  if (![8453, 4663].includes(chainId) || stock.chainId !== chainId || !asset ||
+    asset.symbol !== stock.symbol || asset.decimals !== stock.decimals) throw new Error("The opening-price asset does not match the selected issuer registry.");
+  const rpcChainId = deps.rpcChainId ?? chainId;
+  if (rpcChainId !== chainId && rpcChainId !== 31337) throw new Error("Invalid opening-price RPC network.");
+  const [actualChain, block] = await Promise.all([
+    identityRead(() => client.getChainId()), identityRead(() => client.getBlock({ blockTag: "latest" })),
+  ]);
+  if (actualChain !== rpcChainId || block.number === null || block.hash === null ||
+    !/^0x[\da-fA-F]{64}$/.test(block.hash)) throw new Error("The opening-price identity RPC does not match the selected network.");
   const now = deps.now ?? Date.now;
-  const block = await bounded(() => client.getBlock({ blockTag: "latest" }),
-    "The opening price block is unavailable. Try preparing the launch again.");
-  if (block.number === null || block.hash === null)
-    throw new Error("The opening price block is incomplete.");
-  const blockTime = timestamp(block.timestamp);
-  recent(blockTime, now(), SOURCE_MAX_AGE, "The opening price block is stale. Try preparing the launch again.");
-  const read = <T>(work: () => Promise<T>) => bounded(work,
-    "The paired asset opening price could not be verified onchain. Try preparing the launch again.");
-  const identity = async (address: Address, symbol: string, decimals: number) => {
-    const [actualSymbol, actualDecimals] = await Promise.all([
-      read(() => client.readContract({ address, abi: erc20Abi, functionName: "symbol", blockNumber: block.number! })),
-      read(() => client.readContract({ address, abi: erc20Abi, functionName: "decimals", blockNumber: block.number! })),
+  const protectedKey = deps.apiKey;
+  const http = new FirstBuyPaymentReader({ client, chainId, ...deps, rpcChainId });
+  const stable = firstBuyPaymentAssets(chainId).find((item) => item.symbol === (chainId === 8453 ? "USDC" : "USDG"))!;
+  const numeraire = sameAddress(asset.address, stable.address)
+    ? firstBuyPaymentAssets(chainId).find((item) => item.address === zeroAddress)! : stable;
+  const quoteToken: FirstBuyPaymentAsset = { chainId, address: asset.address, symbol: asset.symbol, decimals: asset.decimals };
+  const identity = async (expected: FirstBuyPaymentAsset) => {
+    if (expected.address === zeroAddress) return;
+    const [symbol, decimals, code] = await Promise.all([
+      identityRead(() => client.readContract({ address: expected.address, abi: erc20Abi, functionName: "symbol", blockNumber: block.number! })),
+      identityRead(() => client.readContract({ address: expected.address, abi: erc20Abi, functionName: "decimals", blockNumber: block.number! })),
+      identityRead(() => client.getCode({ address: expected.address, blockNumber: block.number! })),
     ]);
-    if (actualSymbol !== symbol || actualDecimals !== decimals)
-      throw new Error("The paired asset contract identity does not match the verified asset.");
+    // Base B20 tokens legitimately have the native initialization marker 0xef.
+    if (symbol !== expected.symbol || decimals !== expected.decimals || !code || code === "0x")
+      throw new Error("The opening-price token identity does not match its verified address and decimals.");
   };
-  const feedPrice = async (feed: Address) => {
-    const [round, decimals] = await Promise.all([
-      read(() => client.readContract({ address: feed, abi: feedAbi, functionName: "latestRoundData", blockNumber: block.number! })),
-      read(() => client.readContract({ address: feed, abi: feedAbi, functionName: "decimals", blockNumber: block.number! })),
-    ]);
-    if (round[0] <= 0n || round[1] <= 0n || round[4] < round[0] || !Number.isInteger(decimals) || decimals < 0 || decimals > 36)
-      throw new Error("The Chainlink opening price is invalid or incomplete.");
-    const updatedAt = timestamp(round[3]);
-    recent(updatedAt, blockTime, FEED_HEARTBEAT, "The Chainlink opening price is stale. Try preparing the launch again.");
-    return { numerator: round[1], denominator: 10n ** BigInt(decimals), updatedAt };
-  };
-  await identity(asset.address, asset.symbol, asset.decimals);
-  let details: Pick<OpeningValuation, "quotePriceUsd" | "source" | "sourceUpdatedAt" | "feed" | "pool" | "twapSeconds">;
-  const cryptoFeed = asset.symbol === "WETH" ? ETH_FEED : asset.symbol === "USDG" ? USDG_FEED
-    : asset.symbol === "cbBTC" ? CBBTC_FEED : undefined;
-  if (cryptoFeed) {
-    const price = await feedPrice(cryptoFeed);
-    details = { quotePriceUsd: priceString(price.numerator, price.denominator), source: "Chainlink",
-      sourceUpdatedAt: price.updatedAt, feed: cryptoFeed };
-  } else if (sameAddress(asset.address, MUSEGOD)) {
-    const [token0, token1, factory, fee, liquidity, slot0, observations, ethPrice] = await Promise.all([
-      read(() => client.readContract({ address: MUSEGOD_POOL, abi: poolAbi, functionName: "token0", blockNumber: block.number! })),
-      read(() => client.readContract({ address: MUSEGOD_POOL, abi: poolAbi, functionName: "token1", blockNumber: block.number! })),
-      read(() => client.readContract({ address: MUSEGOD_POOL, abi: poolAbi, functionName: "factory", blockNumber: block.number! })),
-      read(() => client.readContract({ address: MUSEGOD_POOL, abi: poolAbi, functionName: "fee", blockNumber: block.number! })),
-      read(() => client.readContract({ address: MUSEGOD_POOL, abi: poolAbi, functionName: "liquidity", blockNumber: block.number! })),
-      read(() => client.readContract({ address: MUSEGOD_POOL, abi: poolAbi, functionName: "slot0", blockNumber: block.number! })),
-      read(() => client.readContract({ address: MUSEGOD_POOL, abi: poolAbi, functionName: "observe", args: [[TWAP_SECONDS, 0]], blockNumber: block.number! })),
-      feedPrice(ETH_FEED), identity(WETH, "WETH", 18),
-    ]);
-    if (!sameAddress(token0, MUSEGOD) || !sameAddress(token1, WETH) || !sameAddress(factory, SUSHI_FACTORY) || fee !== 10_000)
-      throw new Error("The MUSEGOD price pool identity does not match the verified SushiSwap pool.");
-    if (liquidity <= 0n || slot0[0] <= 0n || !slot0[6])
-      throw new Error("The MUSEGOD price pool has no usable liquidity.");
-    const canonical = await read(() => client.readContract({ address: SUSHI_FACTORY, abi: factoryAbi,
-      functionName: "getPool", args: [MUSEGOD, WETH, 10_000], blockNumber: block.number! }));
-    if (!sameAddress(canonical, MUSEGOD_POOL))
-      throw new Error("The MUSEGOD price pool could not be confirmed by its factory.");
-    if (observations[0].length !== 2 || observations[1].length !== 2 || observations[1][1] <= observations[1][0])
-      throw new Error("The MUSEGOD pool does not have a complete five-minute price observation.");
-    const delta = observations[0][1] - observations[0][0];
-    const seconds = BigInt(TWAP_SECONDS);
-    // Solidity division truncates toward zero; Uniswap mean ticks round down.
-    const meanTick = delta / seconds - (delta < 0n && delta % seconds !== 0n ? 1n : 0n);
-    if (meanTick < -887272n || meanTick > 887272n)
-      throw new Error("The MUSEGOD pool returned an invalid average price tick.");
-    const sqrtRatio = getSqrtRatioAtTick(Number(meanTick));
-    details = { quotePriceUsd: priceString(sqrtRatio * sqrtRatio * ethPrice.numerator, Q192 * ethPrice.denominator),
-      source: "SushiSwap V3 TWAP", sourceUpdatedAt: ethPrice.updatedAt, feed: ETH_FEED,
-      pool: MUSEGOD_POOL, twapSeconds: TWAP_SECONDS };
-  } else {
-    const get = async (url: string): Promise<unknown> => {
-      try {
-        const response = await (deps.fetch ?? fetch)(url, { signal: AbortSignal.timeout(15_000), headers: { accept: "application/json" } });
-        if (!response.ok) throw new Error();
-        return await response.json();
-      } catch {
-        throw new Error("The Robinhood opening price is unavailable. Try preparing the launch again.");
-      }
-    };
-    const [rawQuotes, rawRegistry, multiplier, paused] = await Promise.all([
-      get(`https://api.robinhood.com/rhj/prices/${encodeURIComponent(asset.symbol)}`),
-      get("https://api.robinhood.com/rhj/assets/"),
-      read(() => client.readContract({ address: asset.address, abi: stockAbi, functionName: "uiMultiplier", blockNumber: block.number! })),
-      read(() => client.readContract({ address: asset.address, abi: stockAbi, functionName: "oraclePaused", blockNumber: block.number! })),
-    ]);
-    if (paused !== false || multiplier <= 0n)
-      throw new Error("The Robinhood paired asset oracle is paused or its multiplier is unavailable.");
-    const quoteRows = (rawQuotes as { quotes?: unknown[] } | null)?.quotes;
-    const assetRows = (rawRegistry as { assets?: unknown[] } | null)?.assets;
-    type Row = { tokenSymbol?: string; deployments?: { chainId?: number; contractAddress?: string }[];
-      currency?: string; bid?: string; ask?: string; generatedAt?: string; isTradingHalt?: boolean;
-      currentMultiplier?: string; status?: string };
-    const matches = (row: Row) => row.tokenSymbol === asset.symbol && Array.isArray(row.deployments)
-      && row.deployments.some((deployment) => deployment !== null && typeof deployment === "object" && deployment.chainId === chainId
-        && typeof deployment.contractAddress === "string" && sameAddress(deployment.contractAddress, asset.address));
-    const quotes = Array.isArray(quoteRows) ? quoteRows.filter((row) => row !== null && typeof row === "object" && matches(row as Row)) as Row[] : [];
-    const registry = Array.isArray(assetRows) ? assetRows.filter((row) => row !== null && typeof row === "object" && matches(row as Row)) as Row[] : [];
-    if (quotes.length !== 1 || registry.length !== 1 || quotes[0].currency !== "USD" || quotes[0].isTradingHalt !== false
-      || registry[0].status !== "ASSET_STATUS_ACTIVE")
-      throw new Error("The Robinhood opening price does not match an active verified paired asset.");
-    const quote = quotes[0];
-    const updatedAt = typeof quote.generatedAt === "string" ? Date.parse(quote.generatedAt) : NaN;
-    recent(updatedAt, now(), SOURCE_MAX_AGE, "The Robinhood opening price is stale. Try preparing the launch again.");
-    const registryMultiplier = decimal(registry[0].currentMultiplier);
-    if (registryMultiplier.value * WAD !== multiplier * registryMultiplier.scale)
-      throw new Error("The Robinhood asset multiplier changed. Try preparing the launch again.");
-    const bid = decimal(quote.bid), ask = decimal(quote.ask);
-    if (bid.value * ask.scale > ask.value * bid.scale)
-      throw new Error("The Robinhood opening price bid and ask are invalid.");
-    details = { quotePriceUsd: priceString((bid.value * ask.scale + ask.value * bid.scale) * multiplier,
-      2n * bid.scale * ask.scale * WAD), source: "Robinhood", sourceUpdatedAt: updatedAt };
+  await Promise.all([identity(quoteToken), identity(numeraire)]);
+  let probeAmount = 100n * 10n ** BigInt(numeraire.decimals);
+  let sizingPrice: string | undefined;
+  if (numeraire.address === zeroAddress) {
+    const raw = token(await http.pricingRequest("token", new URLSearchParams({ chain: String(chainId), token: zeroAddress })), numeraire);
+    sizingPrice = price(raw.priceUSD);
+    probeAmount = 100n * 10n ** 36n / parseUnits(sizingPrice, 18);
+    if (probeAmount <= 0n || probeAmount > UINT256_MAX) return invalidQuote();
   }
-  const confirmedBlock = await bounded(() => client.getBlock({ blockNumber: block.number! }),
-    "The opening price block could not be confirmed. Try preparing the launch again.");
-  if (confirmedBlock.number !== block.number || confirmedBlock.hash?.toLowerCase() !== block.hash.toLowerCase())
-    throw new Error("The opening price block changed. Try preparing the launch again.");
-  const quotedAt = now();
-  recent(blockTime, quotedAt, SOURCE_MAX_AGE, "The opening price block is stale. Try preparing the launch again.");
-  recent(details.sourceUpdatedAt, quotedAt, details.source === "Robinhood" ? SOURCE_MAX_AGE : FEED_HEARTBEAT,
-    "The paired asset USD price is stale. Try preparing the launch again.");
-  return { policy: OPENING_POLICY, marketCapUsd: OPENING_CAP_USD, chainId, quoteAddress: asset.address,
-    quotedAt, expiresAt: quotedAt + LAUNCH_PRICE_TTL, blockNumber: block.number.toString(), blockHash: block.hash, ...details };
+  const probe = async (from: FirstBuyPaymentAsset, to: FirstBuyPaymentAsset, input: bigint): Promise<LifiOpeningQuote> => {
+    const quotedAt = now();
+    const params = new URLSearchParams({ fromChain: String(chainId), toChain: String(chainId),
+      fromToken: from.address, toToken: to.address, fromAmount: input.toString(),
+      fromAddress: LIFI_OPENING_PROBE_ACCOUNT, toAddress: LIFI_OPENING_PROBE_ACCOUNT,
+      integrator: http.integrator, fee: "0", slippage: String(SLIPPAGE), skipSimulation: "false", allowBridges: "none" });
+    const raw = record(await http.pricingRequest("quote", params)), action = record(raw.action), estimate = record(raw.estimate), transaction = record(raw.transactionRequest);
+    const obtainedAt = now(), expiresAt = quotedAt + LAUNCH_PRICE_TTL;
+    if (obtainedAt >= expiresAt || obtainedAt < quotedAt) throw new Error("The LI.FI opening-price probe expired during retrieval.");
+    const fromToken = token(action.fromToken, from), toToken = token(action.toToken, to);
+    if (action.fromChainId !== chainId || action.toChainId !== chainId ||
+      !sameAddress(action.fromAddress ?? "", LIFI_OPENING_PROBE_ACCOUNT) || !sameAddress(action.toAddress ?? "", LIFI_OPENING_PROBE_ACCOUNT) ||
+      action.fromAmount !== input.toString() || estimate.fromAmount !== input.toString() || action.slippage !== SLIPPAGE ||
+      typeof raw.id !== "string" || !raw.id || raw.id.length > 160 || typeof raw.tool !== "string" || !/^[a-zA-Z0-9_.-]{1,64}$/.test(raw.tool) ||
+      (protectedKey !== undefined && protectedKey.length > 0 && [raw.id, raw.tool].some((field) => field.includes(protectedKey))) ||
+      !Array.isArray(raw.includedSteps) || raw.includedSteps.length === 0 || raw.includedSteps.length > 12 ||
+      !Array.isArray(estimate.feeCosts) || estimate.feeCosts.length > 1) return invalidQuote();
+    if (transaction.chainId !== chainId || !isAddress(transaction.from ?? "", { strict: false }) ||
+      !sameAddress(transaction.from, LIFI_OPENING_PROBE_ACCOUNT) || !isAddress(transaction.to ?? "", { strict: false }) ||
+      sameAddress(transaction.to, zeroAddress) || typeof transaction.data !== "string" || !/^0x(?:[\da-fA-F]{2}){4,}$/.test(transaction.data) ||
+      typeof transaction.value !== "string" || !/^0x[\da-fA-F]{1,64}$/.test(transaction.value) ||
+      BigInt(transaction.value) !== (from.address === zeroAddress ? input : 0n)) return invalidQuote();
+    for (const value of raw.includedSteps) {
+      const step = record(value), stepAction = record(step.action);
+      if (!["swap", "protocol"].includes(step.type) || stepAction.fromChainId !== chainId || stepAction.toChainId !== chainId) return invalidQuote();
+      intermediateToken(stepAction.fromToken, chainId); intermediateToken(stepAction.toToken, chainId);
+    }
+    token(raw.includedSteps[0].action.fromToken, from);
+    token(raw.includedSteps[raw.includedSteps.length - 1].action.toToken, to);
+    const output = amount(estimate.toAmount), minimum = amount(estimate.toAmountMin);
+    if (minimum > output || minimum < output * 9900n / 10000n) return invalidQuote();
+    // Minimum output protects swaps; it is never the price numerator/denominator.
+    let lifiFee = 0n;
+    for (const value of estimate.feeCosts) {
+      const fee = record(value), split = record(fee.feeSplit);
+      token(fee.token, from);
+      const cost = amount(fee.amount, true);
+      if (fee.name !== "LIFI Fixed Fee" || fee.included !== true || split.integratorFee !== "0" ||
+        amount(split.lifiFee, true) !== cost || lifiFee > 0n) return invalidQuote();
+      lifiFee += cost;
+    }
+    if (lifiFee >= input) return invalidQuote();
+    return { id: raw.id, tool: raw.tool, amountIn: input.toString(), amountOut: output.toString(), lifiFee: lifiFee.toString(),
+      quotedAt, obtainedAt, expiresAt, numerairePriceUsd: price(sameAddress(from.address, numeraire.address) ? fromToken.priceUSD : toToken.priceUSD) };
+  };
+  const buy = await probe(numeraire, quoteToken, probeAmount);
+  const sell = await probe(quoteToken, numeraire, amount(buy.amountOut));
+  const quotedAt = Math.min(buy.quotedAt, sell.quotedAt), expiresAt = Math.min(buy.expiresAt, sell.expiresAt);
+  if (now() >= expiresAt || sell.obtainedAt >= expiresAt) throw new Error("The LI.FI opening-price snapshot expired during its two probes.");
+  const derived = deriveLifiOpeningPrice({ quoteDecimals: asset.decimals, numeraireDecimals: numeraire.decimals,
+    numerairePriceUsd: buy.numerairePriceUsd, sellNumerairePriceUsd: sell.numerairePriceUsd,
+    buyAmountIn: buy.amountIn, buyAmountOut: buy.amountOut, buyLifiFee: buy.lifiFee,
+    sellAmountIn: sell.amountIn, sellAmountOut: sell.amountOut, sellLifiFee: sell.lifiFee });
+  const canonical = await identityRead(() => client.getBlock({ blockNumber: block.number! }));
+  if (canonical.hash !== block.hash) throw new Error("The opening-price identity block changed during retrieval.");
+  const snapshot: LifiOpeningValuation = { policy: OPENING_POLICY, marketCapUsd: OPENING_CAP_USD, chainId, quoteAddress: asset.address,
+    quotePriceUsd: derived.aggregateMid, quotedAt, expiresAt, source: "LI.FI", sourceUpdatedAt: quotedAt,
+    blockNumber: block.number.toString(), blockHash: block.hash,
+    lifi: { numeraire: { ...numeraire, priceUsd: buy.numerairePriceUsd }, probeAmountIn: probeAmount.toString(), buy, sell, ...derived,
+      ...(sizingPrice ? { probeUsd: "100", probeSizingPriceUsd: sizingPrice } : {}) } };
+  assertOpeningValuation(snapshot, asset.address, chainId, now());
+  return snapshot;
 }
