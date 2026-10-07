@@ -1,6 +1,6 @@
 import { airlockAbi, bundlerAbi, type DopplerSDK, computePoolId, rehypeDopplerHookInitializerAbi } from "@whetstone-research/doppler-sdk/evm";
 import { decodeEventLog, decodeFunctionData, encodeFunctionData, erc20Abi, keccak256, zeroAddress, type Address, type Hex, type TransactionReceipt } from "viem";
-import { CONTRACTS, ROBINHOOD_BUNDLER, SUPPLY, sameAddress, type ContractRegistry } from "../src/lib/config";
+import { CONTRACTS, ROBINHOOD_BUNDLER, SUPPLY, WAD, sameAddress, type ContractRegistry } from "../src/lib/config";
 import { openingCapInQuote } from "../src/lib/opening-valuation";
 import { ENGINE_FEE_POLICY, FEE_POLICY } from "../src/lib/fee-policy";
 import { CURVE_POLICY } from "../src/lib/launch-curve";
@@ -8,7 +8,7 @@ import { launchGuardAbi } from "../src/lib/launch-guard";
 import { LAUNCH_SIGNING_TTL, restorePrepared, type FirstBuyLockRecord, type LaunchPlan } from "../src/lib/launch-plan";
 import { minimumOutput, parseAmount } from "../src/lib/validation";
 import { stockByAddress } from "../src/lib/config";
-import { assertEngineFeeCalldata, assertTradingFeeCalldata, buildLaunch } from "../src/lib/protocol";
+import { assertEngineFeeCalldata, assertTradingFeeCalldata, buildLaunch, launchFeeData } from "../src/lib/protocol";
 
 // Recovery deliberately uses the stored preview and actual transaction, without
 // requiring current signing policy, price freshness or a historical SDK snapshot.
@@ -146,8 +146,13 @@ export function verifiedFirstBuyLock(plan: LaunchPlan, receipt: TransactionRecei
 /** A local recovery JSON is untrusted. Re-encode every creation parameter from
  * validated product inputs before it can replace a missing server preview.
  * This proves self-consistency only: the caller must separately bind the fee
- * routing to the trusted registry and pass the Airlock owner read from chain. */
-export function assertRecoveryPlan(plan: LaunchPlan, contracts: ContractRegistry, sdk: DopplerSDK<8453 | 4663>, protocolOwner: Address) {
+ * routing to the trusted registry. `protocolOwner` is the Airlock owner read
+ * at the receipt block, or null when that historical state is unavailable.
+ * Then Doppler's own creation-time check is the proof: the Airlock and its
+ * initializers revert (InvalidProtocolOwnerBeneficiary/Shares) unless that
+ * owner held at least 5% of the actual transaction's immutable beneficiaries,
+ * so only those beneficiaries are candidates, never the current owner. */
+export function assertRecoveryPlan(plan: LaunchPlan, contracts: ContractRegistry, sdk: DopplerSDK<8453 | 4663>, protocolOwner: Address | null) {
   assertPlanIntegrity(plan, contracts);
   if (!plan.openingValuation || !plan.feeTreasury || (plan.feePolicy !== FEE_POLICY && plan.feePolicy !== ENGINE_FEE_POLICY))
     throw new Error("The local recovery preview is incomplete.");
@@ -155,12 +160,17 @@ export function assertRecoveryPlan(plan: LaunchPlan, contracts: ContractRegistry
   const { openingCap, ...draft } = plan.draft;
   if (openingCap !== undefined && openingCap !== openingCapInQuote(plan.openingValuation))
     throw new Error("The local recovery opening valuation changed.");
+  // assertPlanIntegrity bound these CreateParams to plan.data, which the caller
+  // matched to the canonical transaction input before calling this helper.
+  const candidates = protocolOwner ? [protocolOwner] : [...new Set(launchFeeData(prepared.createParams.poolInitializerData).pool.beneficiaries
+    .filter((entry) => entry.shares * 20n >= WAD).map((entry) => entry.beneficiary))];
   const actual = encodeFunctionData({ abi: airlockAbi, functionName: "create", args: [prepared.createParams] });
-  let canonical: Hex | undefined;
-  try {
-    const params = buildLaunch(sdk, draft, plan.creator, plan.feeTreasury, protocolOwner,
-      plan.openingValuation, prepared.createParams.salt, prepared.chainId, plan.feeEngine, true);
-    canonical = encodeFunctionData({ abi: airlockAbi, functionName: "create", args: [sdk.factory.encodeCreateMulticurveParams(params)] });
-  } catch { /* Reported below as a mismatch. */ }
-  if (canonical !== actual) throw new Error("The local recovery preview does not match the full canonical creation parameters.");
+  const matches = candidates.some((owner) => {
+    try {
+      const params = buildLaunch(sdk, draft, plan.creator, plan.feeTreasury!, owner,
+        plan.openingValuation!, prepared.createParams.salt, prepared.chainId, plan.feeEngine, true);
+      return encodeFunctionData({ abi: airlockAbi, functionName: "create", args: [sdk.factory.encodeCreateMulticurveParams(params)] }) === actual;
+    } catch { return false; }
+  });
+  if (!matches) throw new Error("The local recovery preview does not match the full canonical creation parameters.");
 }

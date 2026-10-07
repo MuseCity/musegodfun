@@ -38,7 +38,7 @@ import { assertStock, buildLaunch, readStockStatus as readLaunchAssetStatus } fr
 import { firstBuyLockStatusFromPosition } from "./first-buy-lock-status";
 import { ENGINE_FEE_POLICY, launchFeePolicy } from "../src/lib/fee-policy";
 import { tradingFeeBpsFor } from "../src/lib/trading-fee";
-import { assertOpeningValuation, assertHistoricalOpeningValuation, openingCapInQuote, type LifiOpeningValuation } from "../src/lib/opening-valuation";
+import { assertOpeningValuation, assertHistoricalOpeningValuation, openingCapInQuote, LIFI_OPENING_MAX_DIVERGENCE_BPS, type LifiOpeningValuation } from "../src/lib/opening-valuation";
 import { assertRecoveredOpeningValuation, readOpeningValuation } from "./opening-price";
 import {
   addressSchema,
@@ -507,14 +507,13 @@ export class LaunchpadService {
     load.active++; load.started.push(now);
     try { return await work(); } finally { load.active--; }
   }
-  private async airlockOwnerAt(blockNumber: bigint): Promise<Address> {
+  /** The Airlock owner at the receipt block, or null when the RPC cannot serve
+   * that historical state. The current owner is never a substitute: it may
+   * have rotated since creation. */
+  private async airlockOwnerAt(blockNumber: bigint): Promise<Address | null> {
     try {
       return await this.client.readContract({ address: this.contracts.airlock, abi: airlockAbi, functionName: "owner", blockNumber });
-    } catch {
-      // Non-archive RPCs cannot serve historical state; the owner rarely changes,
-      // and on-chain creation already required the owner at that block.
-      return this.client.readContract({ address: this.contracts.airlock, abi: airlockAbi, functionName: "owner" });
-    }
+    } catch { return null; }
   }
   private async registerOnce(hash: Hex, recoveryPlan?: LaunchPlan): Promise<TokenRecord> {
     // Receipt verification does not sign or broadcast. Keep it available when
@@ -541,7 +540,9 @@ export class LaunchpadService {
       assertTrustedLaunchPolicy(plan, this.runtime.config, receipt.blockNumber);
       await this.withRecoveryVerification(async () => {
         assertRecoveryPlan(plan, this.contracts, this.sdk, await this.airlockOwnerAt(receipt.blockNumber));
-        await assertRecoveredOpeningValuation(this.client, plan.openingValuation!, receipt.blockNumber, deploymentChain(this.runtime.config));
+        const reference = await assertRecoveredOpeningValuation(this.client, plan.openingValuation!, receipt.blockNumber, deploymentChain(this.runtime.config));
+        if (reference && reference.divergenceBps > LIFI_OPENING_MAX_DIVERGENCE_BPS)
+          console.warn(JSON.stringify({ event: "recovery_reference_divergence", transactionHash: hash, token: plan.tokenAddress, divergenceBps: reference.divergenceBps }));
         if (plan.firstBuy) await verifyLaunchGuard(this.client, plan.firstBuy.guard, deploymentChain(this.runtime.config), plan.firstBuy.lockDays ? "vesting" : undefined);
       });
     }
@@ -708,12 +709,19 @@ export class LaunchpadService {
     return { token, state };
   }
   /** Catalog metadata comes from storage; pool state needs the RPC. A failed
-   * state read leaves the record readable but reports no tradable state. */
-  async tokenDetail(address: Address): Promise<{ token: TokenRecord; state: Awaited<ReturnType<LaunchpadService["state"]>>["state"] | null; stateError?: string } | null> {
+   * or slow state read leaves the record readable but reports no tradable
+   * state, well inside the client's request deadline (RPC retries alone can
+   * exceed it). The abandoned read finishes or fails on its own. */
+  async tokenDetail(address: Address, stateDeadlineMs = TOKEN_STATE_DEADLINE_MS): Promise<{ token: TokenRecord; state: Awaited<ReturnType<LaunchpadService["state"]>>["state"] | null; stateError?: string } | null> {
     const token = await this.store.token(address);
     if (!token || !listedTokens([token], this.runtime.config.mode, deploymentChain(this.runtime.config)).length) return null;
-    try { return await this.state(address); }
-    catch (error) { return { token, state: null, stateError: redact(error, this.runtime.environment) }; }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([this.state(address), new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("The on-chain pool state read timed out.")), stateDeadlineMs);
+      })]);
+    } catch (error) { return { token, state: null, stateError: redact(error, this.runtime.environment) }; }
+    finally { clearTimeout(timer); }
   }
   async tokens() {
     if (this.tokensCache && Date.now() - this.tokensCache.at < 10_000) return structuredClone(this.tokensCache.value);
@@ -833,6 +841,8 @@ const prepareOptionsSchema = z.object({ intentId: z.string().regex(/^[a-zA-Z0-9_
   reconfirmPrice: z.boolean().optional(),
   reconfirmedMinimumOut: z.string().regex(/^[1-9]\d{0,38}$/).refine((value) => BigInt(value) < 2n ** 128n).optional(),
 }).strict();
+// Client API requests give up after 35 seconds; token metadata must arrive first.
+const TOKEN_STATE_DEADLINE_MS = 8_000;
 // Recovery verification reads several historical blocks and re-encodes the
 // SDK parameters. Real recoveries are rare; this leaves ample headroom.
 const RECOVERY_VERIFICATION_CONCURRENCY = 4;

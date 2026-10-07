@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DopplerSDK, airlockAbi, bundlerAbi, computePoolId, rehypeDopplerHookInitializerAbi, verifyPreparedCreateExecution } from "@whetstone-research/doppler-sdk/evm";
@@ -645,7 +645,11 @@ test("local frozen backups are reconstructed before replacing missing server pla
     ]) {
       const copy = structuredClone(f.plan); mutation(copy);
       assert.throws(() => assertRecoveryPlan(copy, contracts, f.sdk, treasury));
+      assert.throws(() => assertRecoveryPlan(copy, contracts, f.sdk, null), "creation-time beneficiary candidates cannot launder a changed backup");
     }
+    // Without historical state, the owner is recovered from the creation's own
+    // beneficiaries, which Doppler required to include it with at least 5%.
+    assert.doesNotThrow(() => assertRecoveryPlan(f.plan, contracts, f.sdk, null), `${f.plan.openingValuation!.policy} ${f.plan.firstBuy?.lockDays} without owner`);
     // The protocol owner comes from chain state, never from the backup's own beneficiaries.
     assert.throws(() => assertRecoveryPlan(f.plan, contracts, f.sdk, creator), /canonical creation parameters/);
   }
@@ -778,8 +782,10 @@ test("payment proceeds may increase the paired input without lowering or ratchet
   } finally { store.close(); rmSync(directory, { recursive: true }); }
 });
 
+const oracleRuntime = readFileSync(new URL("./fixtures/buyback-oracle-v1.runtime.hex", import.meta.url), "utf8").trim() as Hex;
 function recoveryService(f: ReturnType<typeof ordinaryFixture>, store: Store,
-  options: { treasury?: Address | null; owner?: Address; reads?: string[]; valuationHash?: Hex } = {}) {
+  options: { treasury?: Address | null; owner?: Address; historicalOwner?: "unavailable"; reads?: string[]; valuationHash?: Hex; referencePrice?: bigint } = {}) {
+  const nowSeconds = BigInt(Math.floor(Date.now() / 1000));
   const sdk = f.sdk, reads = options.reads ?? [];
   (sdk as any).getMulticurvePool = async () => ({ getState: async () => ({ status: 2, numeraire: quote.address, poolKey: f.poolKey }) });
   const valuation = f.plan.openingValuation!;
@@ -793,14 +799,21 @@ function recoveryService(f: ReturnType<typeof ordinaryFixture>, store: Store,
       getBlock: async ({ blockNumber }: { blockNumber: bigint }) => {
         reads.push(`block:${blockNumber}`);
         return { hash: blockNumber === BigInt(valuation.blockNumber) ? options.valuationHash ?? valuation.blockHash : blockHash,
-          timestamp: BigInt(Math.floor(Date.now() / 1000)) };
+          timestamp: nowSeconds };
       },
       readContract: async ({ functionName, blockNumber }: { functionName: string; blockNumber?: bigint }) => {
         reads.push(`${functionName}:${blockNumber ?? "latest"}`);
-        if (functionName === "owner") return options.owner ?? treasury;
+        if (functionName === "owner") {
+          if (blockNumber !== undefined && options.historicalOwner === "unavailable") throw new Error("missing trie node");
+          return options.owner ?? treasury;
+        }
+        // The immutable oracle's mapped feed for the paired asset, 8 decimals.
+        if (options.referencePrice !== undefined && functionName === "assetFeeds") return [guard, 86_400, quote.decimals, 8, false];
+        if (options.referencePrice !== undefined && functionName === "latestRoundData") return [1n, options.referencePrice, 0n, nowSeconds - 10n, 1n];
+        if (options.referencePrice !== undefined && functionName === "decimals") return 8;
         throw new Error("No independent reference in this fixture");
       },
-      getCode: async () => undefined,
+      getCode: async () => options.referencePrice !== undefined ? oracleRuntime : undefined,
     },
   }) as LaunchpadService;
 }
@@ -859,6 +872,37 @@ test("recovery rejects a backup whose transaction or price snapshot does not mat
       "a backup encoded for a different protocol owner is rejected");
     assert.equal(store.tokenByTxHash(hash), null);
   } finally { store.close(); rmSync(directory, { recursive: true }); }
+});
+
+test("without historical state, a rotated Airlock owner cannot block a correct backup", async () => {
+  // The backup was encoded for the owner at creation (treasury); the owner has
+  // since rotated to another address and the RPC serves no historical state.
+  const f = ordinaryFixture(100), directory = mkdtempSync(join(tmpdir(), "recovery-owner-rotation-test-")), store = new Store(directory, 31337);
+  const reads: string[] = [];
+  try {
+    const record = await recoveryService(f, store, { owner: creator, historicalOwner: "unavailable", reads }).register(hash, f.plan);
+    assert.equal(record.address, token);
+    assert(reads.includes("owner:10") && !reads.includes("owner:latest"), "the current owner is never a substitute for the creation-time owner");
+  } finally { store.close(); rmSync(directory, { recursive: true }); }
+});
+
+test("an independent reference price divergence is reported for operators but never blocks a verified recovery", async (context) => {
+  const f = ordinaryFixture(100), directory = mkdtempSync(join(tmpdir(), "recovery-reference-test-")), store = new Store(directory, 31337);
+  const warnings: string[] = [];
+  context.mock.method(console, "warn", (message: string) => { warnings.push(message); });
+  try {
+    // The backup priced WETH at $3000; the immutable oracle's feed reads $1000.
+    const record = await recoveryService(f, store, { referencePrice: 1000n * 10n ** 8n }).register(hash, f.plan);
+    assert.equal(record.address, token);
+    const reported = warnings.map((line) => JSON.parse(line)).find((entry) => entry.event === "recovery_reference_divergence");
+    assert(reported && reported.divergenceBps > 500 && reported.transactionHash === hash, JSON.stringify(warnings));
+  } finally { store.close(); rmSync(directory, { recursive: true }); }
+  warnings.length = 0;
+  const g = ordinaryFixture(100), second = mkdtempSync(join(tmpdir(), "recovery-reference-close-test-")), close = new Store(second, 31337);
+  try {
+    await recoveryService(g, close, { referencePrice: 3010n * 10n ** 8n }).register(hash, g.plan);
+    assert.deepEqual(warnings, [], "a reference within the review threshold is silent");
+  } finally { close.close(); rmSync(second, { recursive: true }); }
 });
 
 test("recovery stores the normalized draft and only known preview fields", async () => {

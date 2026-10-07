@@ -71,5 +71,11 @@ test("real Worker routes refresh native secrets and flags while persistent pause
       assert.equal(response.status,i<180?404:429,"caller-controlled proxy headers cannot bypass the ingress limiter");
     }
     const other=await mf.dispatchFetch("https://musegod.fun/api/not-found",{headers:{"cf-connecting-ip":"192.0.2.99"}});assert.equal(other.status,404);
+    // A body that never finishes ends as a timeout, not an adapter error, and frees its slot.
+    const trickle=new ReadableStream<Uint8Array>({start(controller){controller.enqueue(new TextEncoder().encode("{"));}});
+    const started=Date.now();
+    const slow=await mf.dispatchFetch("https://musegod.fun/api/rpc",{method:"POST",headers:{"cf-connecting-ip":"192.0.2.77","content-type":"application/json"},body:trickle,duplex:"half"} as never);
+    assert.equal(slow.status,408);assert(Date.now()-started<15_000,"the standard body deadline is ten seconds");
+    const after=await mf.dispatchFetch("https://musegod.fun/api/not-found",{headers:{"cf-connecting-ip":"192.0.2.77"}});assert.equal(after.status,404);
   }finally{await mf.dispose();}
 });

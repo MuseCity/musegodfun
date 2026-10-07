@@ -10,6 +10,7 @@ import { ROBINHOOD_STOCKS } from "../src/lib/config";
 import { syntheticToken } from "./fixtures";
 import { engineStatusReason } from "../server/buyback-engine";
 import { IngressLimiter, INGRESS_CLASSES, ingressClass } from "../server/abuse";
+import { bodyReadDeadline, readBoundedBody } from "../server/http-security";
 import { BUYBACK_FORWARDER_ALLOWANCE_CAP } from "../src/lib/buyback-engine";
 import type { Address } from "viem";
 
@@ -91,4 +92,41 @@ test("page reads need several sources to fill and recovery is bounded without ch
   const limited = recovery.admit("192.0.2.51", "/api/launch/register", 2100);
   assert.equal(limited.status, 429); assert.equal(limited.challenge, false, "recovery is rate-limited without a challenge");
   const later = recovery.admit("192.0.2.51", "/api/launch/register", 63_000); assert.equal(later.status, undefined); later.release();
+});
+
+test("a hung pool state read still returns stored metadata well before the client's 35 second deadline", async (context) => {
+  await httpFixture(async ({service}) => {
+    const token = syntheticToken({mode:"fork", deploymentChainId:4663, quoteAddress:weth, address:"0x0000000000000000000000000000000000000abd" as Address});
+    await service.store.saveToken(token);
+    service.state = () => new Promise(() => {});
+    context.mock.timers.enable({ apis: ["setTimeout"] });
+    let settled = false;
+    const pending = service.tokenDetail(token.address).then((value) => { settled = true; return value; });
+    await new Promise((resolve) => setImmediate(resolve));
+    context.mock.timers.tick(7_999); await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(settled, false);
+    context.mock.timers.tick(1);
+    const detail = await pending;
+    assert.equal(detail?.token.name, token.name); assert.equal(detail?.state, null); assert.match(detail!.stateError!, /timed out/);
+    context.mock.timers.reset();
+  });
+});
+
+test("trickled request bodies end as 408 in either cancellation style, oversized ones as 413", async () => {
+  const stream = (chunks: Uint8Array[], close: boolean) => new ReadableStream<Uint8Array>({ start(controller) {
+    chunks.forEach((chunk) => controller.enqueue(chunk)); if (close) controller.close();
+  } });
+  const complete = await readBoundedBody(stream([new Uint8Array([1, 2]), new Uint8Array([3])], true), 10, 1000);
+  assert.deepEqual("bytes" in complete ? [...complete.bytes] : complete, [1, 2, 3]);
+  assert.deepEqual(await readBoundedBody(stream([new Uint8Array(11)], true), 10, 1000), { status: 413 });
+  assert.deepEqual(await readBoundedBody(stream([new Uint8Array([1])], false), 10, 20), { status: 408 }, "a pending read resolved by cancellation");
+  // workerd rejects a read that is pending when its reader is cancelled.
+  const rejecting = { getReader: () => {
+    let fail: (error: Error) => void = () => {};
+    return { read: () => new Promise<never>((_, reject) => { fail = reject; }), cancel: async () => { fail(new Error("This ReadableStream was canceled")); } };
+  } };
+  assert.deepEqual(await readBoundedBody(rejecting, 10, 20), { status: 408 });
+  const broken = { getReader: () => ({ read: async () => { throw new Error("network reset"); }, cancel: async () => {} }) };
+  await assert.rejects(() => readBoundedBody(broken, 10, 1000), /network reset/, "a genuine read failure is not disguised as a timeout");
+  assert.equal(bodyReadDeadline(65_536), 10_000); assert.equal(bodyReadDeadline(262_144), 20_000);
 });

@@ -100,14 +100,13 @@ async function independentReference(client: PublicClient<Transport, any>, stock:
   finally { clearTimeout(timer); }
 }
 
-// Far beyond the 5% review warning: a real preview this distant from the
-// immutable oracle's feed would already have been an extreme outlier.
-export const RECOVERY_REFERENCE_MAX_DIVERGENCE_BPS = 2_000;
 /** A recovered preview's price snapshot is unsigned caller JSON. Bind it to a
- * canonical block no later than the creation receipt and, where the immutable
- * oracle maps an independent feed, to that feed's price at the same block. */
+ * canonical block no later than the creation receipt. The independent feed
+ * comparison is advisory, like the review-time warning: the launch already
+ * exists on chain, so a divergence is reported for operators, never a reason
+ * to leave a verified creation unregistered. */
 export async function assertRecoveredOpeningValuation(client: Pick<PublicClient<Transport, any>, "getBlock" | "getCode" | "readContract">,
-  valuation: OpeningValuation, receiptBlock: bigint, chainId: 8453 | 4663) {
+  valuation: OpeningValuation, receiptBlock: bigint, chainId: 8453 | 4663): Promise<{ divergenceBps: number } | null> {
   const blockNumber = BigInt(valuation.blockNumber);
   if (blockNumber > receiptBlock) throw new Error("The recovered opening valuation is newer than its creation receipt.");
   const block = await client.getBlock({ blockNumber });
@@ -115,8 +114,7 @@ export async function assertRecoveredOpeningValuation(client: Pick<PublicClient<
     throw new Error("The recovered opening valuation is not anchored to a canonical block.");
   const checked = await independentReference(client as PublicClient<Transport, any>, stockByAddress(valuation.quoteAddress, chainId),
     blockNumber, valuation.quotePriceUsd, Number(block.timestamp) * 1000);
-  if (checked.reference && checked.reference.divergenceBps > RECOVERY_REFERENCE_MAX_DIVERGENCE_BPS)
-    throw new Error("The recovered opening price differs from its independent on-chain reference.");
+  return checked.reference ? { divergenceBps: checked.reference.divergenceBps } : null;
 }
 
 /** Two unsigned probes provide a LI.FI USD reference midpoint. The recorded

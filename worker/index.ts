@@ -3,7 +3,7 @@ import { httpServerHandler } from "cloudflare:node";
 import { createServer } from "node:http";
 import { createApp, knownPage, chainApiRoute, legacyTokenPath } from "../server/app";
 import { redact, runtimeFromEnv } from "../server/config";
-import { securityHeaders, requestBodyLimitForPath } from "../server/http-security";
+import { securityHeaders, requestBodyLimitForPath, readBoundedBody, bodyReadDeadline } from "../server/http-security";
 import { IngressLimiter, PreviewQueue, RiskChallenge } from "../server/abuse";
 import type { RuntimeEnvironment } from "../server/config";
 
@@ -65,32 +65,13 @@ export class LaunchpadRuntime extends DurableObject<Env> {
     // Drain the actual ingress stream before Node can reject a request early.
     // The adapter may otherwise continue reading it after sending the response.
     if (request.body) {
-      const reader = request.body.getReader();
-      const chunks: Uint8Array[] = [];
       const maximumBody = requestBodyLimitForPath(new URL(request.url).pathname);
-      let size = 0, timedOut = false;
-      // A legitimate body arrives in well under these deadlines; a trickled
-      // one must not hold its ingress slot for long.
-      const timeout = setTimeout(() => { timedOut = true; void reader.cancel(); }, maximumBody > 65_536 ? 20_000 : 10_000);
-      try {
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        size += value.byteLength;
-        if (size > maximumBody) {
-          await reader.cancel();
-          return Response.json({ error: "Request body is too large" }, { status: 413 });
-        }
-        chunks.push(value);
-      }
-      } finally { clearTimeout(timeout); }
-      if (timedOut) return Response.json({ error: "Request timed out" }, { status: 408 });
-      const body = new Uint8Array(size);
-      let offset = 0;
-      for (const chunk of chunks) { body.set(chunk, offset); offset += chunk.byteLength; }
+      const read = await readBoundedBody(request.body, maximumBody, bodyReadDeadline(maximumBody));
+      if ("status" in read)
+        return Response.json({ error: read.status === 413 ? "Request body is too large" : "Request timed out" }, { status: read.status });
       const headers = new Headers(request.headers);
-      headers.set("content-length", String(size));
-      request = new Request(request.url, { method: request.method, headers, body, signal: request.signal });
+      headers.set("content-length", String(read.bytes.byteLength));
+      request = new Request(request.url, { method: request.method, headers, body: read.bytes, signal: request.signal });
     }
     // Node's virtual port registry is isolate-wide, so each request owns a
     // temporary server rather than retaining a fixed port across DO eviction.
