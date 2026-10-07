@@ -22,7 +22,7 @@ The tests use an ABI-compatible mock Bundler to isolate rollback and ERC20 behav
 
 ## Buyback V2
 
-V2 adds `MusegodAssetFeedOracle` and `MusegodBuybackBudgetVault`, and replaces the fee engine and WETH forwarder. The already deployed burn Oracle, canonical Splits Swapper and buyback Executor remain fixed. The historical deployment and compiler artifacts under `artifacts/` are preserved. The V2 manifest also pins the actually observed initial feed description hashes, with their read block; human labels in historical config are not used as on-chain metadata. New compiled artifacts live under `artifacts/buyback-v2/`; `artifacts/buyback-v2-deployment.json` is a pending template until actual deployment receipts and exact runtime verification populate it.
+V2 adds `MusegodAssetFeedOracle` and `MusegodBuybackBudgetVault`, and replaces the fee engine and WETH forwarder. The already deployed burn Oracle, canonical Splits Swapper and buyback Executor remain fixed. Historical deployment manifests, receipts and evidence are preserved, along with the reused Oracle and Executor compiler artifacts. The never-activated V1 Engine and Forwarder local compiler artifacts have been removed; their historical source and artifacts remain available in Git history. The V2 manifest also pins the actually observed initial feed description hashes, with their read block; human labels in historical config are not used as on-chain metadata. New compiled artifacts live under `artifacts/buyback-v2/`; `artifacts/buyback-v2-deployment.json` is a pending template until actual deployment receipts and exact runtime verification populate it.
 
 The paths are:
 

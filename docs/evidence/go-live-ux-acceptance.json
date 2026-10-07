@@ -1,74 +1,74 @@
 {
   "schemaVersion": 1,
-  "status": "local_remediation_passed_production_not_run",
-  "observedAt": "2026-10-07T12:55:05.823601+00:00",
-  "scope": "UX-first implementation plus all15 post-commit review remediations. Current uncommitted source and named local/isolated checks only; no production publication, actual wallet/native scheduler execution or gas profitability proof.",
+  "status": "independent_review_changes_required_production_not_run",
+  "observedAt": "2026-10-07T22:52:18.179Z",
+  "scope": "Independent revalidation ofa7ed565 and its74aac0d V1 cleanup. IR2/IR4/IR5 resolved; productionIR1 closed with a local-fork parity regression. IR3 archive failure fixed but successful same-block post-state owner reads still reject. V2 source gate passes; production remainsnot_run.",
   "source": {
     "repository": "MuseCity/musegodfun",
     "workspace": "/Volumes/code/opc/musegodfun",
     "branch": "codex/robinhood-go-live-ux",
-    "baseCommit": "cc1d47a3befb20a95a616218d1db222bae3aeb8b",
+    "baseCommit": "74aac0d13f2e52e4aa07b9e62b0b0c587b2e3964",
     "dirty": true,
-    "committed": "not_run_at_observation",
-    "pushed": "not_run",
+    "committed": "74aac0d13f2e52e4aa07b9e62b0b0c587b2e3964",
+    "pushed": "verified_tracking_ref_at_review",
     "sha256Algorithm": "SHA-256 of exact bytes",
     "changedFileHashes": {
       ".env.example": "f308c632990a2bbde8f1a80b6bcd448ba4902f23f16a8b63fccd0fd6029a480c",
       ".github/workflows/deploy.yml": "2f6b45e85b005bb5e452a8e86ec22bea4f63d92ffe8090b786a1b0e3585a9170",
       "README.md": "74fe903aa3c4652e2823216690cf02988f2fe7ebdb2ac250643579b820b9f02d",
-      "contracts/README.md": "b77559485825ce60e76eb5ebfe51908a648f59ca5c4b2d274c2cabcec7bdd9ee",
+      "contracts/README.md": "16813180739836e43f911a926b41e224e4a6863a268efd5a152c65ce42651736",
       "contracts/artifacts/buyback-v2-deployment.json": "f210db7851f7cdc4016825f3cc05c34efafcfd2f3ee9d73f94a374338481c562",
       "contracts/artifacts/buyback-v2/MusegodAssetFeedOracle.compiler-input.json": "19511040cb3e0f882152c2ff2bb74115b69516b1339aea9cf88263c7c2c66c80",
       "contracts/artifacts/buyback-v2/MusegodAssetFeedOracle.json": "677ac2d82a59de249d0d04c65253ebf8fd65792318ca0675bf1d55d39cd998a1",
       "contracts/artifacts/buyback-v2/MusegodBuybackBudgetVault.compiler-input.json": "fc2782084b52a6315b765e5821482fd66dee3856ab05c49dadbb619447ef26e1",
       "contracts/artifacts/buyback-v2/MusegodBuybackBudgetVault.json": "07a6e1c29b00a4fef346ba98519af167e24a6fc44345b634ae15c0ce55161ef8",
-      "contracts/artifacts/buyback-v2/MusegodFeeEngine.compiler-input.json": "ef928c1fce372535820073826ab5ab360b3cac81e4f395b614300e3d187f97bb",
-      "contracts/artifacts/buyback-v2/MusegodFeeEngine.json": "3b53abf1e7150c457cd57ef54e86d1569182001a4615b3419c4eebd6153c110e",
+      "contracts/artifacts/buyback-v2/MusegodFeeEngine.compiler-input.json": "d04b46da2f7cbee0d007c764165730fe0e15658d763e7c9f92f9c95b46dbce19",
+      "contracts/artifacts/buyback-v2/MusegodFeeEngine.json": "f72c83e71482dfeaf88ccbe0e3e08c7a283f1ecacec711fc70a8ab52d25a0546",
       "contracts/artifacts/buyback-v2/MusegodWethForwarder.compiler-input.json": "21061ff16dd65816e58cea8a65f82c93b9298d39035cef360a87432eb1bebeea",
       "contracts/artifacts/buyback-v2/MusegodWethForwarder.json": "f03d53095dcfc329527a86b08c5b3f8d095dccedc772fa41519f8db39535f4e4",
       "contracts/src/MusegodAssetFeedOracle.sol": "d7839f50e57ced82e63300e69b4a46cff2941ea7e77c60b073afd82b6a6a0566",
       "contracts/src/MusegodBuybackBudgetVault.sol": "cf7a679770e25fbb797cea330eb393bd44d2a1dde4c88136bc7b62f9658ea98d",
-      "contracts/src/MusegodFeeEngine.sol": "25d7fce1008c6c57d3c25028083396188e140b97231bcce189163264608dd0a2",
+      "contracts/src/MusegodFeeEngine.sol": "0f7fdff409b9cfba8d3e4a248feaab6e0bc0401d6621fb38cc7bd544e5d511ff",
       "contracts/src/MusegodWethForwarder.sol": "d48851a873e5608791e9c6d2fb38f7b9dcce202a10c6a5ca96fd21f87c1abe69",
       "contracts/test/MusegodAssetFeedOracle.t.sol": "1dd5509312325875168ab980095780f05d13d6044197b173251e672b2a41692b",
       "contracts/test/MusegodBuybackBudgetVault.t.sol": "55a680417538e7a582f693084c04fbbc41994c0a04f550e07b4fca8990ec3c40",
-      "contracts/test/MusegodFeeEngine.t.sol": "377a11ca4657a83f17ac06b149dbc7619989a4cdf855943427dcf3a69f5bbc45",
+      "contracts/test/MusegodFeeEngine.t.sol": "6aedcbf06755dd876e017b93c92bbe6a5c15cc825a41a311c6ad58990391b515",
       "contracts/test/MusegodWethForwarder.t.sol": "89a78bab49a8ff321abafcd46a1b75f43177f54fe4cc5c16df26f92febba3b92",
-      "docs/SPEC.md": "e8b9204795e9c3d849c78d1533cfa9d1f10bbf4ff11b38c00dd013ff744c135e",
+      "docs/SPEC.md": "5ae05e9bb74d9bcf23cfca4455bd2327a81a95095ea73e7ffc38e20c868ccb0b",
       "docs/evidence/buyback-v2-accounting-gas.json": "1b6af03fcff96545ac411060cb667eb603a630b540d962367cc3c0105f4a114b",
-      "docs/evidence/buyback-v2-fee-custody.json": "6b32b21c55894c656086e322968cfbaa81072c3dcf83d4d46b05bb2c7af4729a",
-      "docs/evidence/buyback-v2-fork.json": "476a0b179f86dd086719f5c02a6bd054d64cd82053b01250733cd059a3891ef4",
-      "docs/evidence/buyback-v2-review.json": "beef9b1b720b3ddf6fc0fe624745c9baaf64061a87305f0c8c6e835087299583",
+      "docs/evidence/buyback-v2-fee-custody.json": "33e84818e3bf264f636230b17422915666755af581b24f01057edb536045e111",
+      "docs/evidence/buyback-v2-fork.json": "c32855ec2279ef7780e7853582e16c1b83d81626f26e91e8df101ed61f31de9b",
+      "docs/evidence/buyback-v2-review.json": "2b61191bcfff400c0c47e8f980316a8ee44a1cd9c0cb870a0b9c4037a44cfcf4",
       "docs/evidence/buyback-v2-vault-fixture.json": "12aa29afcca5cd7212001663ef2550714cd6e49724985ec6e0c15d9cda326068",
       "package.json": "c32b4a7baca01d8f1dbef292097af6a05fef0d79f4d3d036001ddc113c6a8524",
       "scripts/build-buyback-artifacts.ts": "57ef7b3889f1e9a55b6cf9138d0a891b1e8e81e75dac82357c6cf02cbd60f397",
-      "scripts/buyback-keeper.ts": "eb6f52cd7efff4debb152299f07bb83edad6f804b46ace5e4cff47e12fadbdd0",
+      "scripts/buyback-keeper.ts": "fd07716590939647fe782171215e0ceef669b8f71a20ced2e1e9b325a81189bc",
       "scripts/deploy-buyback-engine.ts": "e8dc77f9d96046c104866fd7762928d91362b922d6efaaa46b742823b60f9c3f",
       "scripts/release-policy.ts": "88b435398da9e3f920c34b3d24d72858d7fcdb718e52241f4eb1be6d8610d891",
       "scripts/release.ts": "84f314ef2b6352dc7e43071669ffabfe01272b226e32ffd276e5f09f7ca19687",
       "scripts/runtime-control.ts": "c4c60756afc4cec57a9a01aa894a377a7bc4b7cfa91d29017f935c3e977d1eea",
       "scripts/test-buyback-engine-fork.ts": "8716049a1c82ed30b924831efa33129f54176c8a291634079b4474fe22047322",
       "scripts/test-buyback-vault-fork.ts": "854efc4775023b185c1d4043d0b24c0146e23bd1c0270a6638aa048bdebfd116",
-      "scripts/test-launch-browser.mjs": "a696963aee91533e3c3cf0138395aa99f7c1a6b67974bfd4bd86b690b0bc1408",
+      "scripts/test-launch-browser.mjs": "e068932e35cf1680ff903bb12daa838fef53e12fa4f6cee21c3fc4088b63e899",
       "scripts/test-launch-fork-browser.mjs": "856691f62a49822797d40bf7d8712cd8d4e38414754426900b875a7262053ecc",
       "scripts/test-runtime-http.ts": "b55345da123f120a840ab597a6900a6f8ef1d31f14af668dbb7d41a34f330e3c",
-      "server/abuse.ts": "df1ee935d88a26e7a910257d8573c631b992cb28f3a7908f3e847f270d0ca0f4",
-      "server/app.ts": "580d0c4bb615b3e753a2cf5430a6c07ee764810bd144e94de0dccf00dbf20cab",
+      "server/abuse.ts": "d64a0e5f37415c192621b6c2f03490e11a3455ab80fca9e48f1d6037e90c3df4",
+      "server/app.ts": "b3691a5f44f4c165d37c01fff0d39e1bf1f35769d005c73ff395f7db2301991d",
       "server/buyback-activation.ts": "ce8d853ad86a457e17d5675b45f0f58d0780f6a69e70b7720188a11d24ccbaa3",
-      "server/buyback-engine.ts": "09c1aed1eda983c3ae8a1e1ce82bc750aedd07332bbf2401dfddd0dac04b7abc",
+      "server/buyback-engine.ts": "c0f2bdf79332914960b6ef1468d4d2e5850ddbe5d63136ec8f5c9512d01dcf2c",
       "server/config.ts": "86929f737c939e7e868c1c8f0d698a260663f4816532ce742b6440037864b4bd",
       "server/first-buy-lock-status.ts": "3290c7f4e1bf372cb949cac002be524c5021353a109debedd3f8a1cfd5078f7c",
-      "server/http-security.ts": "bd25cf7e14174cd6e09970f19952bc3ae797a341df51c39ec7d8394d20d9b343",
-      "server/launch-verification.ts": "b6e6b3eedb0ca0f11932118c46eb49ea3e389c871fa24ea37e9cdde2988c635a",
+      "server/http-security.ts": "f9efb56b5d867281480adceca526a3206648c046d7ac8d00c715b02ca799ce4a",
+      "server/launch-verification.ts": "bb1cc6713cc4b1d4edfd946c58178359415f854c63cd82054b5b3c6624063883",
       "server/lifi.ts": "d5de5f8b9ca7b42915dea81f4ad8d8c04ca26e792b91a270040c40d1ca086643",
-      "server/opening-price.ts": "3f8123992387b29135003d05b8e68e17f36095d7793123ed5fda2cd3004298ff",
+      "server/opening-price.ts": "1bd42c9e07dd391ba4974742a0b837fa31fe10c1fdcef3e0ce1f38b04ad67653",
       "server/plan-storage.ts": "973e04d63bc68c6577e91ad587c8a85666d0ddd2707a55d8b8cea31f0c14ed14",
       "server/runtime-policy.ts": "7dcf1cbf8f222113ad867d55190f99c62e54d91c06742be1c338b97a84ced37b",
-      "server/service.ts": "43e045efd580ee7c4b0a950dca83f1003200a5106d738484c2f03987d1478f96",
+      "server/service.ts": "53d87bd02c4b69a4a8477af52e885db4a5185d1bb126c1f2f832e7e25b57244c",
       "server/store.ts": "d6fec05ab3ba6322bf533b928af11cacc95c26f56689869b70e412bd4000ab97",
       "server/supabase-store.ts": "59b359df7db12acde0e818809344d2ddab1e2efd656c895c5999685c19b63a64",
       "server/token-images.ts": "c0654b1eceba6a47aa61408dde6c3b0f22f13ed22d05f8d85806bede1ded1589",
-      "src/App.tsx": "6b32c31a1c8910fe4004cb175a444b6f0b9e9a11a7e57f473e9c682dcb5abb19",
+      "src/App.tsx": "c547b0402dca349df22b0aeb4d368272eca408fbf2598a407697c29a5f71358a",
       "src/components/BuybackEngine.tsx": "714b0526bc6191d08090dccdc852d771011e5f6c3956dd4987fdfaddbcbe968c",
       "src/components/FeeBreakdown.tsx": "24c044c029e9961c54e6cdafc933e0a5e1d8dd30d7f7eb1f8cae31a7ea8b3141",
       "src/components/FirstBuyLock.tsx": "5bcef6bc766d58ee8e872717807613d6c91e9c94d75ab0bb6e4901fc40f0c290",
@@ -78,13 +78,13 @@
       "src/components/TransactionHistory.tsx": "e7cb4a43fc92eb6ebe6da5e868581887910280ed72d32bf8b2664c12901c942d",
       "src/components/TurnstileGate.tsx": "9c4d2b7220c0f1ac0c57550b51edf282e0207284636010c85f2d6f74c448dcf0",
       "src/lib/api.ts": "b37c850993de94799d651252e3cf6ffe81dcd5e28f04047b6e8bbcb0c2cd55e8",
-      "src/lib/buyback-engine.ts": "171c73a250125516e81d0ee033c8e34bff48ee1aab1ef5eea8691574340050f3",
+      "src/lib/buyback-engine.ts": "f91665f30d2720db9ff839b2e465b362718b7217cbb0f8fce8dd8ff856c37dc8",
       "src/lib/config.ts": "9fd766fdc903802eb2a1ccba1c6ef3a46645042ca036fd24e2ccbe518d9c4b1d",
       "src/lib/first-buy-payment.ts": "a085e28b65cc77910df0c5521ff82fdc0bec113ea3c5c1a42d24229d9e434883",
       "src/lib/first-buy-recovery.ts": "d953a4461bc5f1b10ff2775e4fc92b82cae4d50471c239e0c64e52ea6d2823b5",
       "src/lib/first-buy-wallet.ts": "109dfefad5e1b910f7d5cb20e5b5b4693f0e9377a0d3f7cd627ff959da0a6d48",
       "src/lib/launch-draft.ts": "9edc737a33556d253d08a88cec43efa4cf507000c2ee31eca325b320dbce1482",
-      "src/lib/launch-intent.ts": "4f17ee2da4195e4771b1a035ed94c82f62148f884c1a5a6d8127d1fef61dcdc1",
+      "src/lib/launch-intent.ts": "e1bbe2b0a05a462ceae0bb35ccfca6d8b8e9aa7257269cf2598a8481232cd802",
       "src/lib/launch-plan.ts": "044b789a3c6a960f0d03a80ada49fd9e480c56be3d04a5c0fcfe23ce4fe7af9f",
       "src/lib/launch-wallet.ts": "48cd624a9877c9498e11f61a84b518e5beae41968e15831425e80b941f77ac9e",
       "src/lib/musegod.ts": "bc58fba772097db078d050819ca0a49b5a12919e34468ab396189c57d8b33ab7",
@@ -101,7 +101,7 @@
       "tests/buyback-deployment.test.ts": "d6a17c0bd7fcb5baa4860f69a89104528f38738521026490f2bf84f8dd7334c0",
       "tests/buyback-engine.test.ts": "01955311caa3858d3876f963f8799e9c9605bc828c8b6a8e14ddab071954d505",
       "tests/buyback-index.test.ts": "cc5225176be1761a459b03abc01b6099e6734a1d0716131eff411cab9aa65a73",
-      "tests/buyback-keeper.test.ts": "db71d7729ffb66af1de3a3bc038682c2b68b87d1b8dd2004a8cfe1c3c6b75439",
+      "tests/buyback-keeper.test.ts": "d09eed0d77c5141f3d78f8035ab05c69fc1f170b805e7ba53b3bab40b04fffcd",
       "tests/core.test.ts": "24b7d861dfa260784e6f0b22150fa8cb996c9fba5116b7042c73308a0f1f27d8",
       "tests/dualchain-runtime.test.ts": "3c76b0262a8cc4d10e7f843b9c578c520e11343513144c95b798827ee2d414f8",
       "tests/fee-policy.test.ts": "9ce920623dc1e3ec8ccb2f576d6a7cd895951a1bb81d03ca33cabb7d6c26d4c5",
@@ -109,7 +109,7 @@
       "tests/first-buy-wallet.test.ts": "6251dd588ed2aa74738ec1590ee6fdf483350431b46b23b1a5dff0eafb7272f4",
       "tests/launch-intent-lock.test.ts": "8cc84111021d58c7fcee087d112d833ee3a02f45b0edbb667454afe6d0d7387e",
       "tests/launch-resilience.test.ts": "0a4060c20a9383338ada838d9153963f2909d755bb6f5ebfafdd964f994e52dd",
-      "tests/launch-service.test.ts": "4a50f7da5a86b4b0e6bbd10aa1e5940d4dba8237dca2eb5c644f5b7418ddd80a",
+      "tests/launch-service.test.ts": "755d99a7936abf5077bc2b88cad398a96615111231f3106d5f58b77d3aee3df4",
       "tests/launch-wallet.test.ts": "ed52109387a8cc8a7f7e2ed1dcb40284fdeb8aa5a3afba95c5a35dc8fc752c27",
       "tests/opening-price.test.ts": "f61898fcc54b6bdfb6af6f2095ed8112cf6a85001a928be42a52632a741c0113",
       "tests/quote-clock.test.ts": "bad3a656eedee89aefc84497f78ec2cdb5c101ed03760791edb21b717cfd0d70",
@@ -117,17 +117,31 @@
       "tests/reconcile-budget.test.ts": "7ef930aac7892e8588373968a97b33a3383ef9dbb4889010081eb2f63a77de2a",
       "tests/recovery-http-size.test.ts": "e48d44b746557c7a5403d3341027c60eca9db5db4a24448d6bbc0f8b3306fde8",
       "tests/release-policy.test.ts": "1ee741d426e49ffecb9f48ee33fde28ee6e75de28ee3159fde360f11cbcfe0f4",
-      "tests/review-regressions.test.ts": "7a054361a7dbe70e7f5e20a7beddbc9f7ea420c0bea32ff2566d42eab79c4d9e",
+      "tests/review-regressions.test.ts": "de4e2d856dc5b61ef265e358e0331f9b9a1c21a67e0953445226e01163be8bba",
       "tests/runtime-database.test.ts": "a431c64c6d780735d52ba38dd25dbea8ce37436533a7fe5caf122dccadfec912",
-      "tests/runtime-safety.test.ts": "7691a67111fbcfd0af2c85f6c63178914c7914784ca57d66aa5f260dd5ce6f95",
-      "tests/runtime-worker.test.ts": "51fb2aa496d0ca9b363e0bc766d305dc1790b6e5f2483c824d7a605171c278d7",
+      "tests/runtime-safety.test.ts": "1d84d27946cd0b43a2215e93fd4cd6ce3611278a8b8f9ebdb45cbe595db4cdc8",
+      "tests/runtime-worker.test.ts": "241804dbcf7b071fa89f2adaa09267150e3e82aa2cb232f56fc95a76c1b592ab",
       "tests/token-images.test.ts": "42799de4ba917b86321b6d9541f70601304b840f2637ea299f895d97fdb23c25",
-      "worker/index.ts": "0a4147d529e21c78cc6f6d57da25ec9b1389e36c5f56022f276771e352528b3d",
-      "wrangler.jsonc": "80251d212e9987743616fa739147b0dbe298b4a26a8fb568f73486df0424df89"
+      "worker/index.ts": "1e7ea49c1efec978780b6865957541a9b74e8e57d5b955e7aeef3ed01d5a4616",
+      "wrangler.jsonc": "80251d212e9987743616fa739147b0dbe298b4a26a8fb568f73486df0424df89",
+      "server/launch-policy-registry.ts": "dd22c1a557af9825880694038cce6d4c0ab227fb87e2fbfcd4f98b07fa03ad99",
+      "tests/go-live-regressions.test.ts": "0b6caaccc8c7a623d49df8bc9ba9731b6498010697732f2447c5618e258defd3",
+      "tests/launch-policy-registry.test.ts": "9f4438b1ea2ce0b3d08b9163ec4db415388cb4319c2bff07d08014d066afc8b8",
+      "contracts/export-artifact.mjs": "b4a5209adedf22c93ef38c4244c598fb68a165d49eb9d53de7f3238d9935fc4d",
+      "tests/fixtures/buyback-oracle.runtime.hex": "102435abaae9a0fdb8f37c40d105e17d1e4dd2f7c53aa698f03eaf101d35ca55"
     },
     "sortedChangedFilesDigest": "a47a4d475b11e5cf5cd66cad8dee910c90208b07a979f2cbd1dc1183eb603aac",
     "digestEncoding": "Sorted relative path + NUL + lowercase SHA256 + newline. This evidence file itself is excluded to avoid a self-hash cycle.",
-    "hashScope": "Original implementation file set plus all follow-up files; evidence file itself excluded. baseCommit is the reviewed parent cc1d47a."
+    "hashScope": "Original implementation file set plus all follow-up files; evidence file itself excluded. baseCommit is the reviewed parent cc1d47a.",
+    "uncommittedChanges": "Only the six documentation/evidence files authorized for this review commit; no application/contract implementation modifications.",
+    "reviewedCommit": "74aac0d13f2e52e4aa07b9e62b0b0c587b2e3964",
+    "fixCommit": "a7ed56589411edac813e353ffca20a2aa61bbeae",
+    "removedFiles": [
+      "contracts/artifacts/MusegodFeeEngine.compiler-input.json",
+      "contracts/artifacts/MusegodFeeEngine.json",
+      "contracts/artifacts/MusegodWethForwarder.compiler-input.json",
+      "contracts/artifacts/MusegodWethForwarder.json"
+    ]
   },
   "approvedBounds": {
     "launchValidityVersion": 2,
@@ -871,22 +885,20 @@
     {
       "command": "npm test",
       "status": "passed",
-      "tests": 543,
+      "tests": 560,
       "failed": 0,
       "skipped": 0,
-      "log": ".cache/review-fixes-tests.log",
-      "logSha256": "8daa6766ac5bfd96c4843574fbd9cc71a06cc884134e716cfc7c4dd991021c39",
-      "runtimeCoverage": "Actual local HTTP parameter/body/parallel-NAT regression, workerd native-binding/admission/stream limits with fixture upstreams, and isolated pinned PostgreSQL migration/RLS/restore. No production database access."
+      "log": ".cache/independent-74aac0d-node.log",
+      "logSha256": "aff05da090ee1c0f7e06a8fcc360190bde7e36f4bfd8253ef8bcf7378acdbe1a"
     },
     {
       "command": "forge test --root contracts",
       "status": "passed",
-      "tests": 142,
+      "tests": 143,
       "failed": 0,
       "skipped": 0,
-      "log": ".cache/claim-fixes-forge-all.log",
-      "logSha256": "85243f8ad58d19b90959b0a8890884985dcdf6bda058a07c7a2509db03160ff8",
-      "scope": "Includes dense/FIFO expiry boundaries, independent receipt-model fuzz, gas ceilings, deficit isolation and bounded approval. Mock dependencies are not actual mainnet economics."
+      "log": ".cache/independent-74aac0d-forge.log",
+      "logSha256": "44288e167a7c7ef992bc1fc0bb5ee79f2072835ffb36bb0df182771a6c339a49"
     },
     {
       "command": "npm run build",
@@ -896,24 +908,33 @@
         "tsc --noEmit -p tsconfig.worker.json",
         "vite build"
       ],
-      "log": ".cache/review-fixes-build.log",
-      "logSha256": "ba9d9dc140ecc9a4ccfafcc10817fb88f14de6449a1bb26a8d03b81c41e9068f",
-      "warning": "Main frontend chunk exceeds Vite500kB warning; successful build is not measured production performance."
+      "log": ".cache/independent-74aac0d-build.log",
+      "logSha256": "96e74cd79146fe418d306a71569ce6e14997ab32724bac05f0c8a40d5e7aec5f"
     },
     {
-      "command": "npm run build:buyback-engine",
+      "command": "Independent six-artifactSolc0.8.24 reproduction and17-source closure",
       "status": "passed",
-      "log": ".cache/claim-fixes-artifacts.log",
-      "logSha256": "0b55d84dc7dd1e5d0774726ca839dbd94ef8f5d8b30c42d51698f81f9403ebeb",
-      "scope": "Independent Solc0.8.24/Forge exact bytecode and six production-source compiler closures checked; new V2 artifacts regenerated."
+      "reviewer": "Codex independent_buyback_7d34"
     },
     {
-      "command": "WRANGLER_SEND_METRICS=false npx --no-install wrangler versions upload --dry-run --outdir .wrangler/review-fixes-dry-run",
+      "command": "WRANGLER_SEND_METRICS=false wrangler versions upload --dry-run",
       "status": "passed",
-      "log": ".cache/review-fixes-worker-build.log",
-      "logSha256": "dc5ad2ad1c40249e80c091a413b3fa7b84457be3cc6ae228da6e01e50cdf2b25",
       "uploaded": false,
-      "deployed": false
+      "deployed": false,
+      "log": ".cache/independent-74aac0d-worker-build.log",
+      "logSha256": "5d8c894aa8f57327aabcca5416f27eef184101b193947a67dddef2266f691fc6"
+    },
+    {
+      "command": "Independent recovery owner/policy probes with address-specific verified implementation",
+      "status": "changes_required",
+      "report": ".cache/independent-74aac0d-recovery-probes.json",
+      "reportSha256": "a34cc73ba49a09283a22426033c034b2af2e9e01630e607420b388188f2c1bed"
+    },
+    {
+      "command": "Independent runtime40 targeted tests + realworkerd10/20s and real8s fallback",
+      "status": "passed",
+      "report": ".cache/independent-a7-runtime-summary.json",
+      "reportSha256": "1fbc5ffdb7d6a59db825209c8ffe98c5ee6fc257213306f342808fc975d1a73b"
     },
     {
       "command": "git diff --check",
@@ -921,33 +942,225 @@
     }
   ],
   "localFrontendArtifact": {
-    "manifestPath": "dist/build-info.json",
-    "manifestSha256": "300ab800bf968fe1d1b03096666b4d04b724a2db2ec5a070f26d73829a758bbb",
-    "identity": {
-      "schemaVersion": 1,
-      "repository": "https://github.com/MuseCity/musegodfun",
-      "commit": "cc1d47a3befb20a95a616218d1db222bae3aeb8b",
-      "source": "local",
-      "dirty": true,
-      "buildId": null,
-      "runUrl": null,
-      "releaseUrl": null
-    },
-    "fileCount": 204,
-    "allManifestBytesVerified": true,
-    "codeFiles": {
-      "/assets/ccip-f1654ROq.js": "dff19a5ed41b59d6672c8fb345e7e0ec9b918966c213386595105fada8e0c3ca",
+    "schemaVersion": 1,
+    "repository": "https://github.com/MuseCity/musegodfun",
+    "commit": "74aac0d13f2e52e4aa07b9e62b0b0c587b2e3964",
+    "source": "local",
+    "dirty": true,
+    "buildId": null,
+    "runUrl": null,
+    "releaseUrl": null,
+    "files": {
+      "/asset-logos/AAOI.png": "30b9bfb6111413f7737b0f50e0f356b93d54b14c44f68bdaa23cdedd3cbcde04",
+      "/asset-logos/AAPL.png": "2d754775796b8457afcd46ac105da51be5c355fa05bbcdef9f726b03eb53a3f8",
+      "/asset-logos/ABCL.png": "08b99501b281c484eb8c72ff5a5f2f42c7b3966252d593d6a026079c6d2534dd",
+      "/asset-logos/ADBE.png": "6e57bca79840d4693637f2f30c389455e74b101cd755acf4e6e0cd35dd7e9ee1",
+      "/asset-logos/AEHR.png": "5f1fc6fb65ae8c0764856288fbbb41d18d94517ac1080a033250ae950bcb47dd",
+      "/asset-logos/AEIS.png": "70aec8a6be3f715980350889b9e3e843fdd87e3b9745122e17bf8980541a4b4c",
+      "/asset-logos/ALAB.png": "311ac14a95db2532d6c01f396365c631f7a2f93f3958bffb02d5fec0d1ac1e5f",
+      "/asset-logos/AMAT.png": "c4b44d24f81a746d111bae2d072ca7ac3c0fcbda39184e00668031ad99fc8c9c",
+      "/asset-logos/AMBA.png": "17fcbc12bb373d1e74a5a717125eea84752251e46e4d450fb89c66544f27747d",
+      "/asset-logos/AMC.png": "ed6ed38c50aa9ae0825e1a3895e491310c292162c6116ca10d1248a67e0b5c99",
+      "/asset-logos/AMD.png": "89d7527d8a589222d6ed015dde2f6b2cacaf9be598074ca0fdfc778c00bfebce",
+      "/asset-logos/AMKR.png": "2ce4ad2f15c614e40b54b03be934c9225698baa3376a03d27aaf1dde024433d6",
+      "/asset-logos/AMZN.png": "89bc323904320b9c8cfc5dd3cf3b5243f11b6517121f7bcfc41bfb48b4ce38f2",
+      "/asset-logos/ANET.png": "82bf495355f13885b285ff0eb20c80f02d3bcbcc1cc76792891d9e5d9bdc0eab",
+      "/asset-logos/APLD.png": "68e88642d45640e0afa4563eed9ef3947912f7f6d2800c683c6f56ba8f26188e",
+      "/asset-logos/APP.png": "cb904d33c6fb9c5ebf08e787dba2b6d29db53270c1c2199def1443e39f5ef9a4",
+      "/asset-logos/ASML.png": "f5ccc6f303e12c53db019fbec6278ee735e2572eef5aa67ab635e05702cc245c",
+      "/asset-logos/ASTS.png": "24bdbe295fecf6a9f8c3f39be709fb8ce4e3b65f9ad1164b0045d03464f26e82",
+      "/asset-logos/AUR.png": "31ad54c0ed24bab14ec2f3edee2e6cd21402d8299cf8ccea74b027ff7a7a3f5a",
+      "/asset-logos/AVAV.png": "0b97df216f2b25e0756f0f1e310c7a8e4fec2007142dc3a72b55639fed8f7c7a",
+      "/asset-logos/AVGO.png": "79e5f0a95a8824fecd271df9627562f8c275de7e6525acb0e2256e0878e74a55",
+      "/asset-logos/AXON.png": "793a96e0fe5a6dac7c98087ae89796e99d3b81d8719a2c9c173340229f75fbf4",
+      "/asset-logos/AXTI.png": "d98853d62e7076211a21b55c5261fc465a88a70e4906cfa0669b5afd282bd27f",
+      "/asset-logos/BA.png": "c47a4dd1b5af7ef8f68a9e43dd8b6b6a65a485c35633fc3f72f0eb720c112d66",
+      "/asset-logos/BABA.png": "5a7e3b5063c20db01cf7121d709bbf2bc730d9e655b58bfce82002f6e53d132c",
+      "/asset-logos/BB.png": "7fa97b21dfe4a85d7d5c2800eea22f62e53ddd251251502039eba5afa7bf6723",
+      "/asset-logos/BE.png": "033f699af6d0093c9d7462fd5828b2c91591a02e60e7e9bf491a50ed610063e5",
+      "/asset-logos/BND.png": "2e3c9b60c7795cc9b6eda314f9b4db736c83bdfd419d124a833e1b37ce7218b8",
+      "/asset-logos/BULL.png": "5237cbf7afb8c5a29448e3127dbab9086c1b137e53fd306267982c6fef99a6aa",
+      "/asset-logos/cbBTC.svg": "c08e8d3a4bfbb24dc8075b1783bb55a7ed62cd8c620787ab3602b0730a68256e",
+      "/asset-logos/CBRS.png": "c606b375fad5d6d7c2b19e9b0bc4f490a452c6babfdd19b4decfa17651de71b1",
+      "/asset-logos/CCL.png": "925f188ad80b285a2ed61a17b793fcbf7a7d26bc841da79d79e232a16762d7a2",
+      "/asset-logos/CEG.png": "e59f878141fdf206f178064a2069a8ecb7878eb820c704ac9420a49ec317747c",
+      "/asset-logos/CELH.png": "5dfa316aafa463d54bcf36f609663bcf46c31e332996074b1ae01fc59e3e998d",
+      "/asset-logos/CIEN.png": "85278cc5df3ffbacd9581b3b10d9bca4407d9087098dfe7e96d284989de02f4c",
+      "/asset-logos/CLOV.png": "7a86e7f6fe5441ae9f001d2aba46185e3dcfd44f1ffd753e1606ef7fa7c2595d",
+      "/asset-logos/CLS.png": "e2c5ac626d526de15e0267bedb336ce0559592ac5e07ee3839cbd539e12f7397",
+      "/asset-logos/CLSK.png": "f05a834804570a58493c88b81700c43d2fa8e62fc796e5def8579c32b2305e42",
+      "/asset-logos/COHR.png": "552ea7f575ce243ab9c330815c12cebedb7ecd585ad7fed333069a921b3768e3",
+      "/asset-logos/COIN.png": "21e675904ae589f3fd7859bcdbaec7e2e449dc3cc10f87644e99f43a8fe0d54c",
+      "/asset-logos/COST.png": "eafb8eb8d28df955ded6165fca73bacead072841df086943291052f9dd3de30a",
+      "/asset-logos/CRCL.png": "2f896f7a08d098a4fbfeff30d1025aabef0334d8f0a13662f5a980d503b44291",
+      "/asset-logos/CRDO.png": "d081abb463bbe92138fd933bf17a4b458a98ec0f489c6713df13ac0f5f89daad",
+      "/asset-logos/CRM.png": "7a4333ed6f974bd61929f656fb73d749c29275a5e6ea847f56198b52657a4171",
+      "/asset-logos/CRWD.png": "850866bea33ab5827e0cea49032968283618c86f077010e48fdc7045d28e03f5",
+      "/asset-logos/CRWV.png": "c8d44c8ef580b0c573c5b1232325efbb97e042b5961afacff869da64d8889cba",
+      "/asset-logos/CSCO.png": "06a7d7d036efd8d50f1202a959a4954ebc4457b96980a824fd54faf5ca2c4210",
+      "/asset-logos/CTSH.png": "725a2aa3f3de86c7a4008dadd5309bb5c497ce4b0ee52429284e8f8dfeeac4dc",
+      "/asset-logos/CVNA.png": "99c24f82503f6bb80d7ed5743a133ea4cebb5c4a3c17c4aa91311360723b273e",
+      "/asset-logos/DDOG.png": "4606ca3c82026d9a43550abf4809fc3c8475b67acbf5d4e4c2a528149e81ad55",
+      "/asset-logos/DELL.png": "01620cc084b3d6aecfd1b0d22915cccf4cbef83de20ae8ea5f0502cc1999dbbb",
+      "/asset-logos/DJT.png": "fb58f59bb4a9a36e00f72fd60c574fd6e2db73b496dc6e1401384b068c21ada6",
+      "/asset-logos/DOCN.png": "1f20fcc41bb50cd06179fe62c691279ff631076e972e8f93df98e71f3d6b892b",
+      "/asset-logos/ELF.png": "01656e3c23c51bed52b47aa04d2d0572b725afaa710eeab8ff18465b8aaccc2d",
+      "/asset-logos/EWT.png": "4c971025a99b3022dc4f1773f144f5b8c816feb196e7179cac40ed09fbb9d3bb",
+      "/asset-logos/EWY.png": "4c971025a99b3022dc4f1773f144f5b8c816feb196e7179cac40ed09fbb9d3bb",
+      "/asset-logos/F.png": "2dc8726431e8222a4f6f7ed997148e3a575e393cb64533e8c16e86380fde33c3",
+      "/asset-logos/FICO.png": "5c9284864edf389f800e6dcaeb809e7b6813cc8e991b9c1b7d7a83884aca243d",
+      "/asset-logos/FIG.png": "cf8bda1e1e8e263b5f9d096ff2af1d8f63bdb040ac7dd69587199b4fc9d34657",
+      "/asset-logos/FISV.png": "6d477d31478429c420eb9ee21ba96a69f9aa466d1ba41e430c16c95f83ba5acf",
+      "/asset-logos/FIX.png": "1b51b9883a8607c8d603c1aa397eabffff01710e8833e57630727acd9db79d6c",
+      "/asset-logos/FLNC.png": "7bd45a73d8155b99edb265ad3e6897f1004491a4d9a5cf8bf15a32faf0656d31",
+      "/asset-logos/FLY.png": "adf6c8eac2e302af545c4b29a82f8d6f9ab9180d8db1e7a6a1b93983f49da3aa",
+      "/asset-logos/FTNT.png": "f87c2bd0b6c56c41b40d1561bec876384841f9f92405aaf3e753a3b8faf3cfb1",
+      "/asset-logos/FUTU.png": "4cc3179742ba4c718312a315eaf215c27b8273ae2bd4b482bea7dfac8c511eb3",
+      "/asset-logos/GE.png": "6f0608448a5281687cc4981d11889b23f279afadcc5a5ef1ea9efee95fbdfd1c",
+      "/asset-logos/GEV.png": "56896a81068fd8a04061e2c9d139989381452e61dea3922566804b2dab3c4001",
+      "/asset-logos/GLD.png": "d58b0e4c4f2580bf2dccdb14aa5c7985527fbd59534a5f6a38def93528f3eb25",
+      "/asset-logos/GLW.png": "7b9c664c7cf4ecdc53549d3a593756decbf3d2385db147754c5fe363ccf32819",
+      "/asset-logos/GLXY.png": "b2b246dcd68f03541ec7ca420ddbeff970b10d451d5058de7fd14aa6c2fc8f1b",
+      "/asset-logos/GME.png": "a062701bc3fcf2057386bc9b2d50ff1aac488fca5b4bf8c1903e8eeff74d1499",
+      "/asset-logos/GOOGL.png": "5b44fe4d837d6f5e99b49aa57b6b419ca4c92a06b4503ca8d71663ab382de3bf",
+      "/asset-logos/HII.png": "3227184253b97c5d674b468b483fcb5c399de3e91c00af66d89ab175071d2c41",
+      "/asset-logos/HIMS.png": "9eefed81611948491383eb75c98c38037f13622eda508347f743bd4b72eb2d61",
+      "/asset-logos/HPE.png": "cc90464362cd4814eb0e13f5753a79d07d552f372b6eca80a96eec0aa89ae51e",
+      "/asset-logos/HWM.png": "49b498ef37e809623e846d241fcd65ce4b04cbc6cf8c23a402f1de18e9e93769",
+      "/asset-logos/IBM.png": "ca59c3fcce94d89ab98ff5f6de45d33a717bde49b0f2f0058935e24c1b59229b",
+      "/asset-logos/IBRX.png": "e572a7131c021df645a5d11ac3b84cd233e1a0c53dfaa541c2d89e9ec79d1f57",
+      "/asset-logos/INDA.png": "4c971025a99b3022dc4f1773f144f5b8c816feb196e7179cac40ed09fbb9d3bb",
+      "/asset-logos/INFQ.png": "b7d3841feeb2a5164b903b56181fbaf489d4a293e6fa93003f99499b5b09ae8e",
+      "/asset-logos/INOD.png": "2970c3da3fd67fd12046ce3c92e6a5a46e2d0f360e423cfd59fa0ba88a51c70d",
+      "/asset-logos/INTC.png": "fa59b43779d3aa510dae27cd9bce07f28b22e238458a8c7ecb6e88491de1b0d3",
+      "/asset-logos/INTU.png": "cffe3e8908274dcd99ade7cd6176be9cf7b14d6f07ca06611cb08de597eab481",
+      "/asset-logos/IONQ.png": "1ac6052881c06b4d3d5817e31ed45b01769ec98d49d64cc0e336d879701397ae",
+      "/asset-logos/IREN.png": "ee6a83952278fdffa9d01eca3c14c63bcc428ffb9cf774029db6576ffb084984",
+      "/asset-logos/JBL.png": "e973be2e8392dc63c3be3a861c399b266b12c151488d8f1df9eaa02d2bcb771b",
+      "/asset-logos/JNJ.png": "60b3f6d05b8037673c188c082d4cc122b7e96bdd075d4d86c284edb4ff84e50c",
+      "/asset-logos/JOBY.png": "2a93f398738bc848fbf9c5594ab5eeacc5343663a90cae0f03726d2e3f43bd33",
+      "/asset-logos/KLAC.png": "9722a7a6086971556267c799672458e41640f5c87ec224e5d00c698f363b6121",
+      "/asset-logos/KSS.png": "1a495532fd393fd2757b74918e820ee50dfb1b90ee3ada5891dc4dd4b9609ed7",
+      "/asset-logos/KTOS.png": "d3a5b740c6a42df5ccd624820cd753247f65bba9cc4b4877c5d278e59fc5beca",
+      "/asset-logos/LHX.png": "c16d85cbdcc7b4007515b70967dd131d7a8cea1ee8141dd5a627e9400b6d0667",
+      "/asset-logos/LITE.png": "58499df1eecc687d19cf9f74ef8f49e560acdfc70a21645e36f813f657451bd0",
+      "/asset-logos/LLY.png": "1f3068d038693f85b5ae58bb44bacb5138f22095fb9fca9d5555a9092d7d20d3",
+      "/asset-logos/LMT.png": "42bd089fc112354add4041a33c2d54b6f80292f7065e8853501102903e4938c2",
+      "/asset-logos/LRCX.png": "66efa957034906c1ea7e942432c3c6d4670f06d31710ecdf745f6c78e743ea22",
+      "/asset-logos/LULU.png": "0ce6aa8860945d963cb799fbc22f03b5a8058b35fa26cb626bdf87066dc8d848",
+      "/asset-logos/LUNR.png": "92dfec9297e9616951390289c5c3a611115bf67dcaf3e9491a9e77b6b94b444d",
+      "/asset-logos/MDB.png": "ddfea4c9ef6564059ad09159b864a1f8c5735673fc8060ebedaa6b2f7db2fd53",
+      "/asset-logos/META.png": "a3e388c1c46959fe8a77a0f82cca95d52214a86720594568035a51fe8c81a6bf",
+      "/asset-logos/MOD.png": "ce1664a48a5e556247375b80a3b46ba36abf27bd61cae5fa722e2f790a70be4d",
+      "/asset-logos/MPWR.png": "3630c7a580a4d1d8e3d9070512059030b44de3494a9a3a8f70e617bc5f334766",
+      "/asset-logos/MRNA.png": "4dc123fc8d31db52b574663ea178be0c031e11a7949ed154a16754730904af09",
+      "/asset-logos/MRVL.png": "1ea180d5633b45786b3f83f03305320d9d33606ad75f3fb1b3bace9e244ac33a",
+      "/asset-logos/MSFT.png": "b80e679046268e722888cb99736e49e24b1525ac1d055b1cf50d0d75cceee550",
+      "/asset-logos/MSTR.png": "dbc5c51d02a5197f5c90cbee1388d9df50436ae507cb0f270fd2bd56d3c40408",
+      "/asset-logos/MTSI.png": "38a5e106ba99f24173801aa8d8c97a43ac1cda8d5dd429ec7f8e396b372ba144",
+      "/asset-logos/MU.png": "438cfd9d81dd1c93ea502ebf26bc23815d9e1b13ac43404f5a6f0ca3d4a9d258",
+      "/asset-logos/MUSEGOD.png": "98b55e32d4619be5329ba589c7f17a24d44dde82d5853e3bd1e73ad2f4ab5840",
+      "/asset-logos/MXL.png": "995002da904d192c302be081c0e9190aa37c6226b0bb793f3e6186764998071e",
+      "/asset-logos/NAVN.png": "5a8e67f253db3a6a36813c39cc4376bc5ed1b22e75467b1ab5fc5d9f50ae8644",
+      "/asset-logos/NBIS.png": "c2d8b049c17a2511cf288a97ebe3763de35843970d61ba657df8cdb89c1832e1",
+      "/asset-logos/NET.png": "e45fd8edf567f20eaefef448312cb19d83bbb06f19ca554e74a61e4c6bc57c34",
+      "/asset-logos/NFLX.png": "411a9bef0961b22cef324a5cb396cd841afaef3f0ad255692032a50c0ee5c90d",
+      "/asset-logos/NNE.png": "3aa53886855967ef9a159913f098b68400d45568d91443fa9964fb20c9ca6c26",
+      "/asset-logos/NOW.png": "db7006886b98e52bf48d2f8e05cca7f494f27fe263670b5975194acf2589e154",
+      "/asset-logos/NU.png": "ad184fde98bfc27f3df17631fb413ed60e8a15b10c88c08b6f9abb6497428a6f",
+      "/asset-logos/NVDA.png": "77a8862fa5b6f69f0d1e006f959109bf6b447884e7f4fd68d0d7a4baa6fe1592",
+      "/asset-logos/NVTS.png": "8496959bcd47ef4d8ee71864b60e1be93f19f3036010069452cfb69931a4e88d",
+      "/asset-logos/OKLO.png": "aba0dd6b16eda54d1b0cc06ea47eb01aa2bcdcd32f97644e310e59826e6c7121",
+      "/asset-logos/ON.png": "7dfe29fde8bd7c435010987c37fbefd7ecdb49505c3f4cba52b560f3f331b593",
+      "/asset-logos/ONTO.png": "bfab798bd0eeae7574723477b658ab2ef0100f808ebe622723638373c209c778",
+      "/asset-logos/ORCL.png": "6b75e289726a221080505bcc4c7e363e10f214db0f83aa34b4985a8104bbacc3",
+      "/asset-logos/OUST.png": "0bb79b58d7af273b916e2b64c19daf1f2d4164b821c93bc5b4eb9b3680f84c53",
+      "/asset-logos/P.png": "e74f009797c55a7479c39d2e222a466435dc4c6818ac9c9f909d5e670b8bdfd7",
+      "/asset-logos/PANW.png": "eaa8b2c5995092f913aa43f28a37f587a57dce8c3a2bfbb7fdaefd6f34c15836",
+      "/asset-logos/PATH.png": "253b5df683c5b7a5c87f924f7ed8d05ce6d86bac9cfa30152e2b2cee735f495b",
+      "/asset-logos/PENG.png": "a50c6b4a06158f2c0fd2754f44595ddb59d43cfa3d8bbe53f8d3e1ecc28ef0e6",
+      "/asset-logos/PFE.png": "a5c5cae18b88d05272454d1c17b1a94a3af08ffa9929586046dd17bbd91435c3",
+      "/asset-logos/PL.png": "e9fb09eecc5eb7213bd75c25dc29319d26f622ebfd33c6daf0d31f50171f4dde",
+      "/asset-logos/PLTR.png": "39e630d29cef44e92b452f10eae611524fcee38f2bf891f377652ed98157a0b5",
+      "/asset-logos/POET.png": "488f9a019a5c5f1b130b0574d6b3c9b5615c6dc83083dc5ec0788af412bfc2fb",
+      "/asset-logos/POWL.png": "f6cab2326138599870f13b498d0c0bf92876043e53539e67965aac859051cdfc",
+      "/asset-logos/PR.png": "152321f9484e2754d37e3a800bf12e63bfd8f88f183389f37dd0ff9f804286cc",
+      "/asset-logos/PWR.png": "d70f481ea40a8aa39780c3b8729cdad5f6774a064512541ac779a2453c9e1612",
+      "/asset-logos/QBTS.png": "e725218794030d71398ccfa8776a8cec4859bfc05bbe85cc9553a2ae6a3be941",
+      "/asset-logos/QCOM.png": "e0f41f529001e45331413552edbadb01a0c36a0a84e82ffa1ee714b20c4a639d",
+      "/asset-logos/QQQ.png": "d8525b3f7d8cc9c921e8e4cceb89bd0d2d07e860717f83bae11d4c6852b105d8",
+      "/asset-logos/QUBT.png": "b16a3ea7d078ead3157837d2983ed6d12b945655ba2b9a8f7158a347990d5bb5",
+      "/asset-logos/RBLX.png": "30886c2dbaac9a5c100bed92e7cf2c0aa216c5f9e720e51e9642f8ca8db23d12",
+      "/asset-logos/RCAT.png": "6e5fb6625147e189347848cee5d45649272ec9f2627f53c2514e0c05f101424e",
+      "/asset-logos/RDDT.png": "4c7fda71be239e644aa0fa44481d4c57b6a0a6abe37dd759984b0425fbe58e27",
+      "/asset-logos/RDW.png": "4467ddea126889362a85a8c25d1fc22a445ddb666a2b83e86e0c0287caa45915",
+      "/asset-logos/RGTI.png": "cbcd7b2125e9d2bf49cb8a37096750ee9ad9e6455f23321ba1472aceb82a68dc",
+      "/asset-logos/RIVN.png": "93b489d194a19dc8790946245b6c7c227f88e5f44b9c7d19d39b2e307918d937",
+      "/asset-logos/RKLB.png": "6fde41eef501d519e936d819f28b5218d9ef31298b2bc861b10eda9b275abb63",
+      "/asset-logos/RUN.png": "532203d7a73067c49a9441f7a039a4d6a7dae697517161fe6571e447d1fe12f1",
+      "/asset-logos/SATS.png": "833dee4439d399b47484f736bf661503affdd8fc83c2b73d919e7a9db532e882",
+      "/asset-logos/SCHD.png": "6f500a3901ef0dac7c14a9003ac10b9e0920e6bcd0316c701eb9f715a114e608",
+      "/asset-logos/SGOV.png": "ed448ce7d370bb252f2d347c60b101f7933e700e1faecfe8cd947f7642e36258",
+      "/asset-logos/SHOP.png": "00864a251b0b373891569a88ed6ece9a0e516594656fca2fd3bcb9370bf13eb8",
+      "/asset-logos/SHY.png": "4c971025a99b3022dc4f1773f144f5b8c816feb196e7179cac40ed09fbb9d3bb",
+      "/asset-logos/SIMO.png": "38d492f33e0b70d30eab7573d79be088898b231953b06893386caee4ff046cd0",
+      "/asset-logos/SKHY.png": "f6f837c932a631385a0a30ab25b7d8098517b7320a3482c5082381d4e8ae8928",
+      "/asset-logos/SLS.png": "fd93ce1b1159ef6bc1158560aeda22fd7d1c15fc847c8f7c4714a07f3ccf39f1",
+      "/asset-logos/SLV.png": "e62ff19b62a21777f6d8a3e63b32bafb1b9c020d44f476c60f4f8bbf2ad968df",
+      "/asset-logos/SMCI.png": "02ee971c164df13726b7ffbd6a3088881219596f960d9a739a3409901e87815c",
+      "/asset-logos/SMH.png": "18a4b19cde6ff2e0591245b2728c6b86ddd7dc0c6b528ba32c01acf58a7aeeaf",
+      "/asset-logos/SMR.png": "4be5ed0815619f42e7dbf8f021e6477e1714ea1fbb745d11752dd1132a18e560",
+      "/asset-logos/SNAP.png": "4b22fcc9dba5b69121df7209647c058d6232cf5bd0bac03ace07f7f131953167",
+      "/asset-logos/SNDK.png": "cd99d4f78bb908fdd94f9510fc66e7129213995de105737ba2383ef7dd06e632",
+      "/asset-logos/SNOW.png": "0ef97815cf8f90da267ddadaa2f41bfc7a110c65fa79ee76e51fbddfb1401aff",
+      "/asset-logos/SOFI.png": "b4af696b673cc698af05f4de7e5e29b927e2606fe7928d4195bce55f9ec4df96",
+      "/asset-logos/SOUN.png": "a0fceb80051db4b0decbc023877b1606318d1259602c1062a2ae5e751012195d",
+      "/asset-logos/SOXX.png": "4c971025a99b3022dc4f1773f144f5b8c816feb196e7179cac40ed09fbb9d3bb",
+      "/asset-logos/SPCX.png": "22086a111dee379791c99151082ff3864518b7e9c1b7497deb7660bc731e9a7a",
+      "/asset-logos/SPMO.png": "aeb53c751377591ff667de69d4a8a434fe589b6d8355bb4232bd89381ba16d0a",
+      "/asset-logos/SPY.png": "86f09be5e368426defc3c995bf6639ea71f00f71965529393798b09d64b5a274",
+      "/asset-logos/TE.png": "67e14744a2ef0615c044a383f6f071fc827fd54b0dd328c1087b44160fa92082",
+      "/asset-logos/TEAM.png": "9bac2f40f4b4e6e2350ba8b5f15a65b66bcd354010f7177af3568e74a8b56337",
+      "/asset-logos/TEM.png": "c3eb68954ed0ca1c21b13ef9abcb851cc9d39c3f88691d6800fa9d6ab67dcc9a",
+      "/asset-logos/TER.png": "6636543fecd77eeb74b15d240fad6df01be55c4a90744ba9dd2ffa6a9f65bc2d",
+      "/asset-logos/TSEM.png": "6e56195b5a328767547fdf0266a6e67cefbc4a19573e3c43a164cf2ee3cd8a0c",
+      "/asset-logos/TSLA.png": "b47de7e50c5b44750a37d2676e0362da79e811336ad4ec7df77d3685a21e433f",
+      "/asset-logos/TSM.png": "7af9d5e4492e947d069b08760745c4b54ecd9e5ffc16782bdb8f7af2f39ed1be",
+      "/asset-logos/TTD.png": "4444ca4c127c1a3a1d8b6476c162482a6ba542cca526b43c0891bb1913c7335c",
+      "/asset-logos/TTWO.png": "53aed82b78a07f7b5be102020ee40b91d21478a90eb345ecbe9a3b793b5eb567",
+      "/asset-logos/UMC.png": "935c4abd8804df1b4da085b19a9da8224ec7209590376c8fb2158b3d9ad6b53c",
+      "/asset-logos/UNH.png": "d6d4905e5a440eac4bf2d289689ffae39804c4fcaf6e574b4a863634ee2a6950",
+      "/asset-logos/UPS.png": "140b410409ef96412d03de383f30b3e6be4a9c85048bc0aa56e560f6c546d0b4",
+      "/asset-logos/USAR.png": "9417496a4838856f58c86459ebca6f3794f04d9a6fa461d6698e3c3e20cb1a33",
+      "/asset-logos/USDG.png": "1873e7469ee4b55247aa6c65a93b6127953a55697f9cce2e2f072b8a556ed2da",
+      "/asset-logos/USO.png": "829df1e7bceff48e178a637275b1d2b07b996863f955579c7c6d682e917b2f65",
+      "/asset-logos/VICR.png": "ade2a4d731a81321e77121297d2c4d669b7e9909c9cc3d8a59c2f5ac843f0f7f",
+      "/asset-logos/VRT.png": "1f610fec857b1c2fb6eae10b7ccd1b3f6b39ce13a2392ded63494b9908ac0f71",
+      "/asset-logos/VSAT.png": "e1218d10fc99e341a8429c70e54a9707a49af8f7b201cd15d7d8a8efe1d0701e",
+      "/asset-logos/VST.png": "0bd3a06e070143ffdb5fe6d4b73dd7e9e7ca29e6618eb1ef2e870843d5724dac",
+      "/asset-logos/VTI.png": "2e3c9b60c7795cc9b6eda314f9b4db736c83bdfd419d124a833e1b37ce7218b8",
+      "/asset-logos/WDAY.png": "b2e5351f3ab97457e98bea15e0482bcdd3b835c92a420c2c56b506612cfba812",
+      "/asset-logos/WDC.png": "f6a0caca3b733586dd843ca7b855056c2b20ebc1981c4cdbac69cc590b3ee890",
+      "/asset-logos/WETH.svg": "b07728f9941396befd107b3dd40758e0527d55b91561999809be7a43432db796",
+      "/asset-logos/WULF.png": "b0c4327651e5abf1116c1e09baff1486881b5d94bc5045b9b1ac083adfadfc20",
+      "/asset-logos/WYFI.png": "0e65651800ffff8a0f0b8f31f71172c24f1db1ac95e1dd16ce6d6f69e1f5ccb6",
+      "/asset-logos/XLK.png": "cfb41a642aff865b7998666cc8f493a8f0fa8e797781b94198ee9750c140e4d5",
+      "/asset-logos/XNDU.png": "66aa63b5a65964ea3418c5177a0c4a2bc223fea36d1ba323c68c501e3336f8c9",
+      "/asset-logos/XOM.png": "0f08fc3d81158008223aca2110184b728b2bc5d48eb142bd0e58f8794279d1b4",
+      "/asset-logos/ZM.png": "696cfa2df37de7a09c767a59d45aef19834775a14f64b984cc86850dcc654972",
+      "/asset-logos/ZS.png": "a7e0def27fa522abfa9e943e4c98c7fca6b0c84b3652a6621bd8c224d0c79f30",
+      "/assets/ccip-qsm2Mjlr.js": "e678ecab64a0d0972f673197c0ccfdd9f2acdd4b6f91a88fea9da6f5eb6e9f24",
       "/assets/index-1v82cpLg.css": "0166ca7a1535bf7a906ee039b9894e744660529711c3a69523baa07a01b6a0a7",
-      "/assets/index-Dm5axhiw.js": "a84c61a1004fb5b471cf2edf3d7411864afd02ff034f4b35fe520ed38a4f3a4d",
-      "/assets/PriceChart-hcEv6JaN.js": "100691abbfab542b002521fd4761d6bddddf264b6548958ae5e997c057f0ef87",
-      "/index.html": "5fae19f409b6e660bf7e9806a9dcd290d61a0f129dd13b34b7d0ef325474b66f"
-    },
-    "productionCleanCommitManifestVerification": "not_run; actual clean master-push workflow must rebuild from final committed source"
+      "/assets/index-B1Wd0R1r.js": "9ba6d617267ba8539d7ba9a0df3de22d116ea02397a62459d02a56fb3937c014",
+      "/assets/PriceChart-8IqO4_V-.js": "3bdb9ce006acbeb5c9e806100effbee9da039576551fe13cc9ba4c38552766fc",
+      "/favicon.svg": "6a5152525b72e3ce020b60073afcfb312bd691c724af34de1fa6ab75467dde6b",
+      "/index.html": "e854a838289e6281506e458919f9fcace3187fae0dc1a9f8a2177b6a94d8123e"
+    }
   },
   "browser": {
     "scope": "Local Chromium UI with injected mock wallet/API/RPC and reference-price fixtures, scoped to Robinhood fork and No lock. Cross-tab checks use separate browser pages sharing one origin and storage. No real-wallet, conversion or chain settlement proof.",
-    "observedAt": "2026-10-07T12:26:15.249Z",
-    "origin": "http://127.0.0.1:5198",
+    "observedAt": "2026-10-07T14:25:00.069Z",
+    "origin": "http://127.0.0.1:5191",
     "checks": [
       {
         "mode": "success",
@@ -1235,6 +1448,22 @@
         "status": "passed"
       },
       {
+        "mode": "token_detail_state_unavailable",
+        "viewport": "desktop",
+        "walletCalls": 0,
+        "plans": 1,
+        "partialCatalogDidNotHideToken": true,
+        "status": "passed"
+      },
+      {
+        "mode": "token_detail_unregistered_backup",
+        "viewport": "desktop",
+        "walletCalls": 0,
+        "plans": 1,
+        "partialCatalogDidNotHideToken": true,
+        "status": "passed"
+      },
+      {
         "mode": "success",
         "viewport": "mobile 390x844",
         "walletCalls": 2,
@@ -1242,58 +1471,89 @@
       }
     ],
     "screenshots": [
-      {
-        "path": ".cache/launch-scoped-browser-desktop-review.png",
-        "sha256": "b00149d26a0f621e0e043dcc37e6175126a21ebe530c830698f90ed473b302c0",
-        "availability": "Ignored local mock/browser visual QA only"
-      },
-      {
-        "path": ".cache/launch-wrap-price-change.png",
-        "sha256": "4e9288b1965a37aad299d1633675227d9cba5f41f030c83165e6f7cb2373b299",
-        "availability": "Ignored local mock/browser visual QA only"
-      },
-      {
-        "path": ".cache/launch-scoped-browser-mobile-review.png",
-        "sha256": "3d8fcf313461d02fb8e280db0f2f4bdd910abf850c1a08fb369701d49086ca2f",
-        "availability": "Ignored local mock/browser visual QA only"
-      }
+      ".cache/launch-scoped-browser-desktop-review.png",
+      ".cache/launch-wrap-price-change.png",
+      ".cache/launch-scoped-browser-mobile-review.png"
     ],
     "productionPublication": "not_run",
-    "recordSha256": "fd6429465a9493533afb6941c75053a57229d6b6cd6fa7f23a214c8e3dfc280a",
+    "recordSha256": "8a28360980636efe27e90b4e35126a9a4130c179ddb3b9eb93f60e5b85f002f8",
     "actualSigning": "not_run",
     "chainSettlement": "not_run",
     "sourceHashes": {
-      "src/App.tsx": "6b32c31a1c8910fe4004cb175a444b6f0b9e9a11a7e57f473e9c682dcb5abb19",
+      "src/App.tsx": "c547b0402dca349df22b0aeb4d368272eca408fbf2598a407697c29a5f71358a",
       "src/lib/wallet.tsx": "cf29e233db542d6d083d7d813d154c7389d9a1cab8ede097cde35db4e6a0f722",
       "src/lib/first-buy-payment.ts": "a085e28b65cc77910df0c5521ff82fdc0bec113ea3c5c1a42d24229d9e434883",
-      "scripts/test-launch-browser.mjs": "a696963aee91533e3c3cf0138395aa99f7c1a6b67974bfd4bd86b690b0bc1408"
+      "scripts/test-launch-browser.mjs": "e068932e35cf1680ff903bb12daa838fef53e12fa4f6cee21c3fc4088b63e899"
+    },
+    "carriedForward": {
+      "fromReviewedCommit": "7d34c86969f0378d4c632dca6038e8db71a6cf65",
+      "compatibilityCheckedAt": "2026-10-07T22:52:18.179Z",
+      "rerun": false,
+      "reason": "Frontend and browser-harness source hashes are unchanged. Its36 injected wallet/API/RPC checks do not exercise the new server fixes; current service/workerd evidence is separate."
     }
   },
   "isolatedBuybackEvidence": {
     "docs/evidence/buyback-v2-fork.json": {
-      "sha256": "476a0b179f86dd086719f5c02a6bd054d64cd82053b01250733cd059a3891ef4",
+      "sha256": "c32855ec2279ef7780e7853582e16c1b83d81626f26e91e8df101ed61f31de9b",
       "scope": "Isolated Robinhood fork, actual deployed Doppler, Splits and AMMs; no mainnet writes",
-      "observedAt": "2026-10-07T12:21:31.983Z",
+      "observedAt": "2026-10-07T14:25:00.557Z",
       "upstreamChainId": 4663,
       "executionChainId": 31337,
-      "forkBlockNumber": "82468567",
-      "fullWethFeeBurnFlowPassed": false,
+      "forkBlockNumber": "82540890",
+      "fullWethFeeBurnFlowPassed": true,
       "fullWethSettlementSafetyPassed": true,
       "fullUnpricedFeeAutomationTransferPassed": true,
       "fullSourceWethForwarderFlowPassed": true,
       "snapshotRestored": true,
       "blockedUpstreamWrites": 0,
-      "status": "real_code_fees_conversions_forwarding_passed_final_burn_waiting_at_fixed_price_floor"
+      "status": "passed_named_isolated_scope",
+      "runner": {
+        "observedAt": "2026-10-07T14:31:46.825Z",
+        "binary": ".cache/bin/base-anvil-v1.1.1/anvil",
+        "binarySha256": "ce6a8b3fe445e19832591faf14e86c8b4723006cb02096e651f5a8eefac29e4f",
+        "version": "anvil Version: 1.6.0-v1.1.1\nCommit SHA: dccbdfd0b37d364cc50e0e15f1686ab029543c6f\nBuild Timestamp: 2026-07-21T17:05:08.682644000Z (1784653508)\nBuild Profile: dist",
+        "clientVersion": "anvil/v1.6.0",
+        "forkBlockNumber": "82540890",
+        "executionChainId": 31337,
+        "hardfork": "cancun",
+        "nodeVersion": "v24.11.1",
+        "scope": "Actual repository-default binary on loopback Robinhood fork. All upstream traffic passes the test harness read-only proxy; this metadata is not production execution proof."
+      },
+      "retainedCompatibility": {
+        "reviewedCommit": "74aac0d13f2e52e4aa07b9e62b0b0c587b2e3964",
+        "observedAt": "2026-10-07T22:52:18.179Z",
+        "rerun": false,
+        "checks": "Exact retained producer/config/six production artifact SHA match; six compiler inputs independently reproduced withSolc0.8.24 and17 source closures match. This records compatibility, not a new fork execution or current price/profitability acceptance."
+      }
     },
     "docs/evidence/buyback-v2-fee-custody.json": {
-      "sha256": "6b32b21c55894c656086e322968cfbaa81072c3dcf83d4d46b05bb2c7af4729a",
+      "sha256": "33e84818e3bf264f636230b17422915666755af581b24f01057edb536045e111",
       "scope": "Fresh isolated actual Doppler claim/release custody receipts from the reviewed V2 source",
-      "observedAt": null,
+      "observedAt": "2026-10-07T14:34:26.726Z",
       "upstreamChainId": 4663,
       "executionChainId": 31337,
       "snapshotRestored": true,
       "blockedUpstreamWrites": 0,
-      "status": "passed_named_isolated_scope"
+      "status": "passed_named_isolated_scope",
+      "forkBlockNumber": "82540890",
+      "runner": {
+        "observedAt": "2026-10-07T14:31:46.825Z",
+        "binary": ".cache/bin/base-anvil-v1.1.1/anvil",
+        "binarySha256": "ce6a8b3fe445e19832591faf14e86c8b4723006cb02096e651f5a8eefac29e4f",
+        "version": "anvil Version: 1.6.0-v1.1.1\nCommit SHA: dccbdfd0b37d364cc50e0e15f1686ab029543c6f\nBuild Timestamp: 2026-07-21T17:05:08.682644000Z (1784653508)\nBuild Profile: dist",
+        "clientVersion": "anvil/v1.6.0",
+        "forkBlockNumber": "82540890",
+        "executionChainId": 31337,
+        "hardfork": "cancun",
+        "nodeVersion": "v24.11.1",
+        "scope": "Actual repository-default binary on loopback Robinhood fork. All upstream traffic passes the test harness read-only proxy; this metadata is not production execution proof."
+      },
+      "retainedCompatibility": {
+        "reviewedCommit": "74aac0d13f2e52e4aa07b9e62b0b0c587b2e3964",
+        "observedAt": "2026-10-07T22:52:18.179Z",
+        "rerun": false,
+        "checks": "Exact retained producer/config/six production artifact SHA match; six compiler inputs independently reproduced withSolc0.8.24 and17 source closures match. This records compatibility, not a new fork execution or current price/profitability acceptance."
+      }
     },
     "docs/evidence/buyback-v2-vault-fixture.json": {
       "sha256": "12aa29afcca5cd7212001663ef2550714cd6e49724985ec6e0c15d9cda326068",
@@ -1309,10 +1569,10 @@
       "gasProfitabilityProven": false
     },
     "docs/evidence/buyback-v2-review.json": {
-      "sha256": "beef9b1b720b3ddf6fc0fe624745c9baaf64061a87305f0c8c6e835087299583",
+      "sha256": "2b61191bcfff400c0c47e8f980316a8ee44a1cd9c0cb870a0b9c4037a44cfcf4",
       "scope": "Internal independent source review and isolated execution evidence only. This is a source-integrity gate for a subsequently explicitly authorized deployment; it grants no deployment, publication, signing, funding, treasury approval or production activation authority.",
-      "observedAt": "2026-10-07T12:52:26.742203+00:00",
-      "status": "passed"
+      "observedAt": "2026-10-07T22:52:18.179Z",
+      "status": "passed_source_integrity_only"
     },
     "docs/evidence/buyback-v2-accounting-gas.json": {
       "sha256": "1b6af03fcff96545ac411060cb667eb603a630b540d962367cc3c0105f4a114b",
@@ -1322,18 +1582,26 @@
     }
   },
   "proofBoundaries": [
-    "Browser34 uses production application/wallet code with injected wallet/API/RPC/price fixtures. Mobile390x844 is responsive logic, not a real mobile wallet signature. Long idle/hidden and legacy wrap1 near-expiry scenarios preserve a single business confirmation and original floors.",
+    "Browser36 (35 desktop and one mobile layout check) uses production application/wallet code with injected wallet/API/RPC/price fixtures. Mobile390x844 is responsive logic, not a real mobile wallet signature. Long idle/hidden and legacy wrap1 near-expiry scenarios preserve a single business confirmation and original floors.",
     "Actual Node HTTP backup/body/parallel-NAT regressions cover the route-to-service boundary. The real SDK maximal complete backup exceeds64KiB and is transmitted unchanged under recovery-only256KiB. Canonical chain verification remains in separate service tests and isolated forks.",
-    "New retained-history fork82468567 uses actual Robinhood dependency code on local31337. Fee collection, USDG/cbBTC conversion, finite source forwarding and protected waiting pass. Final burn does not execute at the unchanged price floor; fullWethFeeBurnFlowPassed=false. Older-source successful burn is not reused.",
-    "Fresh fee-custody raw receipts come from the same current retained fork producer, matching initializer/Rehype-to-Engine transfers and claim/release log order. They do not prove a native external scheduler ran.",
-    "New stable-time fixture82473425 advances local time1801s at unchanged spot and then executes0.01WETH through new Vault and actual oldSplits/AMM at722632gas. This is hypothetical market history, never current market/mainnet execution or gas profitability.",
+    "Retained independent Robinhood fork82540890, observedAt2026-10-07T14:25:00.557Z, uses the repository-default binary, actual dependency code and local31337. fullWethFeeBurnFlowPassed=true; settlement safety/unpriced/source-forwarding pass. It was not rerun for74aac0d and is not mainnet or native scheduler execution.",
+    "Retained fee-custody raw receipts come from the same2026-10-07 isolated fork producer, matching initializer/Rehype-to-Engine transfers and claim/release log order. They were not rerun for74aac0d and do not prove a native external scheduler ran.",
+    "Retained stable-time fixture82473425 advances local time1801s at unchanged spot and then executes0.01WETH through new Vault and actual oldSplits/AMM at722632gas. It was not rerun this turn; this is hypothetical market history, never current market/mainnet execution or gas profitability.",
     "Source approvals/revocation are fork-only impersonation fixtures, never human treasury authorization. Source ceiling2.88WETH is a fixed code bound; no actual approval was granted and initial canary stays<=0.01WETH.",
     "Deficit isolation does not alter underlying manager contracts. If a manager itself atomically reverts both-currency collection because of issuer transfer restrictions, Engine cannot split that upstream call. No write-off/withdrawal permission was added.",
     "Keeper known-revert backoff/attempt/gas limits are background execution controls; no ordinary-user creation limit or new business confirmation. Unknown outcomes still globally stop that keeper signing, and broadcasts are never automatically retried.",
     "Immutable identity checks are cached/merged; runtime graph warm fixture is14RPC. Full activation/canonical receipts/current governor authority plus persistent signing pause remain fresh and additional; complete config is not falsely declared zero-RPC.",
     "A legacy rollback target is refused before upload and checked again before activation. The separately authorized paused protocol-compatible production baseline is not yet deployed. No old runtime is relabeled protocol1.",
     "All fork snapshots/new contracts/source bridge state are restored and upstream writes0. Existing immutable pools retain policies and old/directSwapper balances remain outside V2 Vault budget.",
-    "Actual WAF/Turnstile/workers.dev/monitor/provider tier/capacity calibration, native scheduler, real desktop/mobile wallet, deployment and profitability acceptance remain not_run."
+    "Actual WAF/Turnstile/workers.dev/monitor/provider tier/capacity calibration, native scheduler, real desktop/mobile wallet, deployment and profitability acceptance remain not_run.",
+    "Passing immediate RPC-error browser fixtures does not prove slow/hanging-RPC degradation. The historical7d34c86 timing probe exposed a metadata deadline issue; a7ed565 added the8000ms fallback, independently revalidated at74aac0d. IR4 is resolved.",
+    "Caller-authored recovered opening valuations plus a canonical block are not authenticated USD-price evidence. Reference availability/divergence remains separate from successful transaction correctness.",
+    "Historical owner/Engine policy probes are synthetic read-only fixtures, not proof of a real malicious transaction or current historical ownership rotation.",
+    "The36 prior Chromium checks are carried forward only because their four source hashes are unchanged; no browser rerun or new real-wallet evidence is claimed at74aac0d.",
+    "The current runtimefix was independently exercised in localworkerd with ordinary and recovery streaming requests, and a synthetic token service with the real8000ms deadline. This does not establish deployedCloudflare or publicRPC behavior.",
+    ">=5% recovery candidates are supported by address-specific initializer source/runtime evidence, not just ABI error names. A successful end-of-block owner read still differs from transaction-position ownership after a same-block transfer.",
+    "No new largefork was run for74aac0d: retained fork82540890 keeps its original observedAt and actual execution limits. Only producer/config/artifact compatibility was revalidated.",
+    "Future replacement of the single V2 manifest needs reviewed Engine trust windows and historical recovery retention. Current code does not implement Engine toBlock import; this is a future-release limitation, not an existing V2 deployment or fund-authority change."
   ],
   "production": {
     "status": "not_run",
@@ -1535,5 +1803,957 @@
       }
     ],
     "additionalRecoveryBoundary": "Real SDK complete maximal legal backup exceeds64KiB; Node/Worker register-only256KiB wire bound is verified. Other routes keep64KiB and both return413 for oversize."
-  }
+  },
+  "previousIndependentReviewSnapshot": {
+    "observedAt": "2026-10-07T12:55:05.823601+00:00",
+    "status": "local_remediation_passed_production_not_run",
+    "source": {
+      "repository": "MuseCity/musegodfun",
+      "workspace": "/Volumes/code/opc/musegodfun",
+      "branch": "codex/robinhood-go-live-ux",
+      "baseCommit": "cc1d47a3befb20a95a616218d1db222bae3aeb8b",
+      "dirty": true,
+      "committed": "not_run_at_observation",
+      "pushed": "not_run",
+      "sha256Algorithm": "SHA-256 of exact bytes",
+      "changedFileHashes": {
+        ".env.example": "f308c632990a2bbde8f1a80b6bcd448ba4902f23f16a8b63fccd0fd6029a480c",
+        ".github/workflows/deploy.yml": "2f6b45e85b005bb5e452a8e86ec22bea4f63d92ffe8090b786a1b0e3585a9170",
+        "README.md": "74fe903aa3c4652e2823216690cf02988f2fe7ebdb2ac250643579b820b9f02d",
+        "contracts/README.md": "b77559485825ce60e76eb5ebfe51908a648f59ca5c4b2d274c2cabcec7bdd9ee",
+        "contracts/artifacts/buyback-v2-deployment.json": "f210db7851f7cdc4016825f3cc05c34efafcfd2f3ee9d73f94a374338481c562",
+        "contracts/artifacts/buyback-v2/MusegodAssetFeedOracle.compiler-input.json": "19511040cb3e0f882152c2ff2bb74115b69516b1339aea9cf88263c7c2c66c80",
+        "contracts/artifacts/buyback-v2/MusegodAssetFeedOracle.json": "677ac2d82a59de249d0d04c65253ebf8fd65792318ca0675bf1d55d39cd998a1",
+        "contracts/artifacts/buyback-v2/MusegodBuybackBudgetVault.compiler-input.json": "fc2782084b52a6315b765e5821482fd66dee3856ab05c49dadbb619447ef26e1",
+        "contracts/artifacts/buyback-v2/MusegodBuybackBudgetVault.json": "07a6e1c29b00a4fef346ba98519af167e24a6fc44345b634ae15c0ce55161ef8",
+        "contracts/artifacts/buyback-v2/MusegodFeeEngine.compiler-input.json": "ef928c1fce372535820073826ab5ab360b3cac81e4f395b614300e3d187f97bb",
+        "contracts/artifacts/buyback-v2/MusegodFeeEngine.json": "3b53abf1e7150c457cd57ef54e86d1569182001a4615b3419c4eebd6153c110e",
+        "contracts/artifacts/buyback-v2/MusegodWethForwarder.compiler-input.json": "21061ff16dd65816e58cea8a65f82c93b9298d39035cef360a87432eb1bebeea",
+        "contracts/artifacts/buyback-v2/MusegodWethForwarder.json": "f03d53095dcfc329527a86b08c5b3f8d095dccedc772fa41519f8db39535f4e4",
+        "contracts/src/MusegodAssetFeedOracle.sol": "d7839f50e57ced82e63300e69b4a46cff2941ea7e77c60b073afd82b6a6a0566",
+        "contracts/src/MusegodBuybackBudgetVault.sol": "cf7a679770e25fbb797cea330eb393bd44d2a1dde4c88136bc7b62f9658ea98d",
+        "contracts/src/MusegodFeeEngine.sol": "25d7fce1008c6c57d3c25028083396188e140b97231bcce189163264608dd0a2",
+        "contracts/src/MusegodWethForwarder.sol": "d48851a873e5608791e9c6d2fb38f7b9dcce202a10c6a5ca96fd21f87c1abe69",
+        "contracts/test/MusegodAssetFeedOracle.t.sol": "1dd5509312325875168ab980095780f05d13d6044197b173251e672b2a41692b",
+        "contracts/test/MusegodBuybackBudgetVault.t.sol": "55a680417538e7a582f693084c04fbbc41994c0a04f550e07b4fca8990ec3c40",
+        "contracts/test/MusegodFeeEngine.t.sol": "377a11ca4657a83f17ac06b149dbc7619989a4cdf855943427dcf3a69f5bbc45",
+        "contracts/test/MusegodWethForwarder.t.sol": "89a78bab49a8ff321abafcd46a1b75f43177f54fe4cc5c16df26f92febba3b92",
+        "docs/SPEC.md": "e8b9204795e9c3d849c78d1533cfa9d1f10bbf4ff11b38c00dd013ff744c135e",
+        "docs/evidence/buyback-v2-accounting-gas.json": "1b6af03fcff96545ac411060cb667eb603a630b540d962367cc3c0105f4a114b",
+        "docs/evidence/buyback-v2-fee-custody.json": "6b32b21c55894c656086e322968cfbaa81072c3dcf83d4d46b05bb2c7af4729a",
+        "docs/evidence/buyback-v2-fork.json": "476a0b179f86dd086719f5c02a6bd054d64cd82053b01250733cd059a3891ef4",
+        "docs/evidence/buyback-v2-review.json": "beef9b1b720b3ddf6fc0fe624745c9baaf64061a87305f0c8c6e835087299583",
+        "docs/evidence/buyback-v2-vault-fixture.json": "12aa29afcca5cd7212001663ef2550714cd6e49724985ec6e0c15d9cda326068",
+        "package.json": "c32b4a7baca01d8f1dbef292097af6a05fef0d79f4d3d036001ddc113c6a8524",
+        "scripts/build-buyback-artifacts.ts": "57ef7b3889f1e9a55b6cf9138d0a891b1e8e81e75dac82357c6cf02cbd60f397",
+        "scripts/buyback-keeper.ts": "eb6f52cd7efff4debb152299f07bb83edad6f804b46ace5e4cff47e12fadbdd0",
+        "scripts/deploy-buyback-engine.ts": "e8dc77f9d96046c104866fd7762928d91362b922d6efaaa46b742823b60f9c3f",
+        "scripts/release-policy.ts": "88b435398da9e3f920c34b3d24d72858d7fcdb718e52241f4eb1be6d8610d891",
+        "scripts/release.ts": "84f314ef2b6352dc7e43071669ffabfe01272b226e32ffd276e5f09f7ca19687",
+        "scripts/runtime-control.ts": "c4c60756afc4cec57a9a01aa894a377a7bc4b7cfa91d29017f935c3e977d1eea",
+        "scripts/test-buyback-engine-fork.ts": "8716049a1c82ed30b924831efa33129f54176c8a291634079b4474fe22047322",
+        "scripts/test-buyback-vault-fork.ts": "854efc4775023b185c1d4043d0b24c0146e23bd1c0270a6638aa048bdebfd116",
+        "scripts/test-launch-browser.mjs": "a696963aee91533e3c3cf0138395aa99f7c1a6b67974bfd4bd86b690b0bc1408",
+        "scripts/test-launch-fork-browser.mjs": "856691f62a49822797d40bf7d8712cd8d4e38414754426900b875a7262053ecc",
+        "scripts/test-runtime-http.ts": "b55345da123f120a840ab597a6900a6f8ef1d31f14af668dbb7d41a34f330e3c",
+        "server/abuse.ts": "df1ee935d88a26e7a910257d8573c631b992cb28f3a7908f3e847f270d0ca0f4",
+        "server/app.ts": "580d0c4bb615b3e753a2cf5430a6c07ee764810bd144e94de0dccf00dbf20cab",
+        "server/buyback-activation.ts": "ce8d853ad86a457e17d5675b45f0f58d0780f6a69e70b7720188a11d24ccbaa3",
+        "server/buyback-engine.ts": "09c1aed1eda983c3ae8a1e1ce82bc750aedd07332bbf2401dfddd0dac04b7abc",
+        "server/config.ts": "86929f737c939e7e868c1c8f0d698a260663f4816532ce742b6440037864b4bd",
+        "server/first-buy-lock-status.ts": "3290c7f4e1bf372cb949cac002be524c5021353a109debedd3f8a1cfd5078f7c",
+        "server/http-security.ts": "bd25cf7e14174cd6e09970f19952bc3ae797a341df51c39ec7d8394d20d9b343",
+        "server/launch-verification.ts": "b6e6b3eedb0ca0f11932118c46eb49ea3e389c871fa24ea37e9cdde2988c635a",
+        "server/lifi.ts": "d5de5f8b9ca7b42915dea81f4ad8d8c04ca26e792b91a270040c40d1ca086643",
+        "server/opening-price.ts": "3f8123992387b29135003d05b8e68e17f36095d7793123ed5fda2cd3004298ff",
+        "server/plan-storage.ts": "973e04d63bc68c6577e91ad587c8a85666d0ddd2707a55d8b8cea31f0c14ed14",
+        "server/runtime-policy.ts": "7dcf1cbf8f222113ad867d55190f99c62e54d91c06742be1c338b97a84ced37b",
+        "server/service.ts": "43e045efd580ee7c4b0a950dca83f1003200a5106d738484c2f03987d1478f96",
+        "server/store.ts": "d6fec05ab3ba6322bf533b928af11cacc95c26f56689869b70e412bd4000ab97",
+        "server/supabase-store.ts": "59b359df7db12acde0e818809344d2ddab1e2efd656c895c5999685c19b63a64",
+        "server/token-images.ts": "c0654b1eceba6a47aa61408dde6c3b0f22f13ed22d05f8d85806bede1ded1589",
+        "src/App.tsx": "6b32c31a1c8910fe4004cb175a444b6f0b9e9a11a7e57f473e9c682dcb5abb19",
+        "src/components/BuybackEngine.tsx": "714b0526bc6191d08090dccdc852d771011e5f6c3956dd4987fdfaddbcbe968c",
+        "src/components/FeeBreakdown.tsx": "24c044c029e9961c54e6cdafc933e0a5e1d8dd30d7f7eb1f8cae31a7ea8b3141",
+        "src/components/FirstBuyLock.tsx": "5bcef6bc766d58ee8e872717807613d6c91e9c94d75ab0bb6e4901fc40f0c290",
+        "src/components/LockRecovery.tsx": "75e175fd6d41be02e7a0ee3b05f3708cea2deeafee6d8ee4f9f8a9bd9bd7e7d1",
+        "src/components/MusegodPage.tsx": "21a65a7b28c45d0663da213c66d260abf015a92263a399b2bd5f545955776593",
+        "src/components/TokenCard.tsx": "f56608687d4527af4dab388daf0069e335884ff3d39a50816462e67cf28c297b",
+        "src/components/TransactionHistory.tsx": "e7cb4a43fc92eb6ebe6da5e868581887910280ed72d32bf8b2664c12901c942d",
+        "src/components/TurnstileGate.tsx": "9c4d2b7220c0f1ac0c57550b51edf282e0207284636010c85f2d6f74c448dcf0",
+        "src/lib/api.ts": "b37c850993de94799d651252e3cf6ffe81dcd5e28f04047b6e8bbcb0c2cd55e8",
+        "src/lib/buyback-engine.ts": "171c73a250125516e81d0ee033c8e34bff48ee1aab1ef5eea8691574340050f3",
+        "src/lib/config.ts": "9fd766fdc903802eb2a1ccba1c6ef3a46645042ca036fd24e2ccbe518d9c4b1d",
+        "src/lib/first-buy-payment.ts": "a085e28b65cc77910df0c5521ff82fdc0bec113ea3c5c1a42d24229d9e434883",
+        "src/lib/first-buy-recovery.ts": "d953a4461bc5f1b10ff2775e4fc92b82cae4d50471c239e0c64e52ea6d2823b5",
+        "src/lib/first-buy-wallet.ts": "109dfefad5e1b910f7d5cb20e5b5b4693f0e9377a0d3f7cd627ff959da0a6d48",
+        "src/lib/launch-draft.ts": "9edc737a33556d253d08a88cec43efa4cf507000c2ee31eca325b320dbce1482",
+        "src/lib/launch-intent.ts": "4f17ee2da4195e4771b1a035ed94c82f62148f884c1a5a6d8127d1fef61dcdc1",
+        "src/lib/launch-plan.ts": "044b789a3c6a960f0d03a80ada49fd9e480c56be3d04a5c0fcfe23ce4fe7af9f",
+        "src/lib/launch-wallet.ts": "48cd624a9877c9498e11f61a84b518e5beae41968e15831425e80b941f77ac9e",
+        "src/lib/musegod.ts": "bc58fba772097db078d050819ca0a49b5a12919e34468ab396189c57d8b33ab7",
+        "src/lib/opening-valuation.ts": "ba49731b0293e07b06f3af3c2e774bee9c80551189d075c56e59c9d9da141ffb",
+        "src/lib/protocol.ts": "0fd4de83d8c1994f1526547ad38b6962ecb015d92b56a3509602f8965687f08c",
+        "src/lib/quote-clock.ts": "3d00b308d7f107b82f70f8c8c1656740bb6d3b8f2c1d18ac71b6b9cf90a2a4cf",
+        "src/lib/token-catalog.ts": "98fe5b6e3dc05c0c85e8577354e87c182b7af5aaa980db222b5b4172a61d463d",
+        "src/lib/transactions.ts": "83e79968a66163e306f4f3ea445d9c6ec3b891c8fc9c3087dec3843331d3751d",
+        "src/lib/validation.ts": "e540ac21d32182e143df644bda93502ad9971008f4c74173363f566da2d02f5a",
+        "src/lib/wallet.tsx": "cf29e233db542d6d083d7d813d154c7389d9a1cab8ede097cde35db4e6a0f722",
+        "src/styles.css": "bbfd0219c727e919c4cf3df6149eaa2d06c538869d61de244e8f0f3f7f295dfd",
+        "supabase/migrations/20261007094402_runtime_safety_controls.sql": "5da5b3a18bba1e8878aca48afc4da5794f781fd407dc02b419d3c5f770988258",
+        "tests/buyback-activation.test.ts": "618addc1e0ecb12e6595c73f1c221b2c133af8caf62ec3ec91259c5c22c507a2",
+        "tests/buyback-deployment.test.ts": "d6a17c0bd7fcb5baa4860f69a89104528f38738521026490f2bf84f8dd7334c0",
+        "tests/buyback-engine.test.ts": "01955311caa3858d3876f963f8799e9c9605bc828c8b6a8e14ddab071954d505",
+        "tests/buyback-index.test.ts": "cc5225176be1761a459b03abc01b6099e6734a1d0716131eff411cab9aa65a73",
+        "tests/buyback-keeper.test.ts": "db71d7729ffb66af1de3a3bc038682c2b68b87d1b8dd2004a8cfe1c3c6b75439",
+        "tests/core.test.ts": "24b7d861dfa260784e6f0b22150fa8cb996c9fba5116b7042c73308a0f1f27d8",
+        "tests/dualchain-runtime.test.ts": "3c76b0262a8cc4d10e7f843b9c578c520e11343513144c95b798827ee2d414f8",
+        "tests/fee-policy.test.ts": "9ce920623dc1e3ec8ccb2f576d6a7cd895951a1bb81d03ca33cabb7d6c26d4c5",
+        "tests/first-buy-payment.test.ts": "5d3f9fc72ad5c7602e799c98a9fda71a464a8b88ddcc6e9b1f3de0b0458ea1c4",
+        "tests/first-buy-wallet.test.ts": "6251dd588ed2aa74738ec1590ee6fdf483350431b46b23b1a5dff0eafb7272f4",
+        "tests/launch-intent-lock.test.ts": "8cc84111021d58c7fcee087d112d833ee3a02f45b0edbb667454afe6d0d7387e",
+        "tests/launch-resilience.test.ts": "0a4060c20a9383338ada838d9153963f2909d755bb6f5ebfafdd964f994e52dd",
+        "tests/launch-service.test.ts": "4a50f7da5a86b4b0e6bbd10aa1e5940d4dba8237dca2eb5c644f5b7418ddd80a",
+        "tests/launch-wallet.test.ts": "ed52109387a8cc8a7f7e2ed1dcb40284fdeb8aa5a3afba95c5a35dc8fc752c27",
+        "tests/opening-price.test.ts": "f61898fcc54b6bdfb6af6f2095ed8112cf6a85001a928be42a52632a741c0113",
+        "tests/quote-clock.test.ts": "bad3a656eedee89aefc84497f78ec2cdb5c101ed03760791edb21b717cfd0d70",
+        "tests/readonly.test.ts": "0080219e0f8e06ae7a9153ff19dfa758fa5662969f04a4c1b0f952b65737868c",
+        "tests/reconcile-budget.test.ts": "7ef930aac7892e8588373968a97b33a3383ef9dbb4889010081eb2f63a77de2a",
+        "tests/recovery-http-size.test.ts": "e48d44b746557c7a5403d3341027c60eca9db5db4a24448d6bbc0f8b3306fde8",
+        "tests/release-policy.test.ts": "1ee741d426e49ffecb9f48ee33fde28ee6e75de28ee3159fde360f11cbcfe0f4",
+        "tests/review-regressions.test.ts": "7a054361a7dbe70e7f5e20a7beddbc9f7ea420c0bea32ff2566d42eab79c4d9e",
+        "tests/runtime-database.test.ts": "a431c64c6d780735d52ba38dd25dbea8ce37436533a7fe5caf122dccadfec912",
+        "tests/runtime-safety.test.ts": "7691a67111fbcfd0af2c85f6c63178914c7914784ca57d66aa5f260dd5ce6f95",
+        "tests/runtime-worker.test.ts": "51fb2aa496d0ca9b363e0bc766d305dc1790b6e5f2483c824d7a605171c278d7",
+        "tests/token-images.test.ts": "42799de4ba917b86321b6d9541f70601304b840f2637ea299f895d97fdb23c25",
+        "worker/index.ts": "0a4147d529e21c78cc6f6d57da25ec9b1389e36c5f56022f276771e352528b3d",
+        "wrangler.jsonc": "80251d212e9987743616fa739147b0dbe298b4a26a8fb568f73486df0424df89"
+      },
+      "sortedChangedFilesDigest": "a47a4d475b11e5cf5cd66cad8dee910c90208b07a979f2cbd1dc1183eb603aac",
+      "digestEncoding": "Sorted relative path + NUL + lowercase SHA256 + newline. This evidence file itself is excluded to avoid a self-hash cycle.",
+      "hashScope": "Original implementation file set plus all follow-up files; evidence file itself excluded. baseCommit is the reviewed parent cc1d47a."
+    },
+    "validation": [
+      {
+        "command": "npm test",
+        "status": "passed",
+        "tests": 543,
+        "failed": 0,
+        "skipped": 0,
+        "log": ".cache/review-fixes-tests.log",
+        "logSha256": "8daa6766ac5bfd96c4843574fbd9cc71a06cc884134e716cfc7c4dd991021c39",
+        "runtimeCoverage": "Actual local HTTP parameter/body/parallel-NAT regression, workerd native-binding/admission/stream limits with fixture upstreams, and isolated pinned PostgreSQL migration/RLS/restore. No production database access."
+      },
+      {
+        "command": "forge test --root contracts",
+        "status": "passed",
+        "tests": 142,
+        "failed": 0,
+        "skipped": 0,
+        "log": ".cache/claim-fixes-forge-all.log",
+        "logSha256": "85243f8ad58d19b90959b0a8890884985dcdf6bda058a07c7a2509db03160ff8",
+        "scope": "Includes dense/FIFO expiry boundaries, independent receipt-model fuzz, gas ceilings, deficit isolation and bounded approval. Mock dependencies are not actual mainnet economics."
+      },
+      {
+        "command": "npm run build",
+        "status": "passed",
+        "includes": [
+          "tsc --noEmit",
+          "tsc --noEmit -p tsconfig.worker.json",
+          "vite build"
+        ],
+        "log": ".cache/review-fixes-build.log",
+        "logSha256": "ba9d9dc140ecc9a4ccfafcc10817fb88f14de6449a1bb26a8d03b81c41e9068f",
+        "warning": "Main frontend chunk exceeds Vite500kB warning; successful build is not measured production performance."
+      },
+      {
+        "command": "npm run build:buyback-engine",
+        "status": "passed",
+        "log": ".cache/claim-fixes-artifacts.log",
+        "logSha256": "0b55d84dc7dd1e5d0774726ca839dbd94ef8f5d8b30c42d51698f81f9403ebeb",
+        "scope": "Independent Solc0.8.24/Forge exact bytecode and six production-source compiler closures checked; new V2 artifacts regenerated."
+      },
+      {
+        "command": "WRANGLER_SEND_METRICS=false npx --no-install wrangler versions upload --dry-run --outdir .wrangler/review-fixes-dry-run",
+        "status": "passed",
+        "log": ".cache/review-fixes-worker-build.log",
+        "logSha256": "dc5ad2ad1c40249e80c091a413b3fa7b84457be3cc6ae228da6e01e50cdf2b25",
+        "uploaded": false,
+        "deployed": false
+      },
+      {
+        "command": "git diff --check",
+        "status": "passed"
+      }
+    ],
+    "browserRecordSha256": "fd6429465a9493533afb6941c75053a57229d6b6cd6fa7f23a214c8e3dfc280a",
+    "isolatedBuybackEvidence": {
+      "docs/evidence/buyback-v2-fork.json": {
+        "sha256": "476a0b179f86dd086719f5c02a6bd054d64cd82053b01250733cd059a3891ef4",
+        "scope": "Isolated Robinhood fork, actual deployed Doppler, Splits and AMMs; no mainnet writes",
+        "observedAt": "2026-10-07T12:21:31.983Z",
+        "upstreamChainId": 4663,
+        "executionChainId": 31337,
+        "forkBlockNumber": "82468567",
+        "fullWethFeeBurnFlowPassed": false,
+        "fullWethSettlementSafetyPassed": true,
+        "fullUnpricedFeeAutomationTransferPassed": true,
+        "fullSourceWethForwarderFlowPassed": true,
+        "snapshotRestored": true,
+        "blockedUpstreamWrites": 0,
+        "status": "real_code_fees_conversions_forwarding_passed_final_burn_waiting_at_fixed_price_floor"
+      },
+      "docs/evidence/buyback-v2-fee-custody.json": {
+        "sha256": "6b32b21c55894c656086e322968cfbaa81072c3dcf83d4d46b05bb2c7af4729a",
+        "scope": "Fresh isolated actual Doppler claim/release custody receipts from the reviewed V2 source",
+        "observedAt": null,
+        "upstreamChainId": 4663,
+        "executionChainId": 31337,
+        "snapshotRestored": true,
+        "blockedUpstreamWrites": 0,
+        "status": "passed_named_isolated_scope"
+      },
+      "docs/evidence/buyback-v2-vault-fixture.json": {
+        "sha256": "12aa29afcca5cd7212001663ef2550714cd6e49724985ec6e0c15d9cda326068",
+        "scope": "Isolated real-contract settlement with explicit stable-spot time fixture",
+        "observedAt": null,
+        "upstreamChainId": 4663,
+        "forkBlock": "82473425",
+        "mainnetExecutableProof": false,
+        "snapshotRestored": true,
+        "blockedUpstreamWrites": 0,
+        "status": "passed_hypothetical_stable_time_only",
+        "gasUsed": "722632",
+        "gasProfitabilityProven": false
+      },
+      "docs/evidence/buyback-v2-review.json": {
+        "sha256": "beef9b1b720b3ddf6fc0fe624745c9baaf64061a87305f0c8c6e835087299583",
+        "scope": "Internal independent source review and isolated execution evidence only. This is a source-integrity gate for a subsequently explicitly authorized deployment; it grants no deployment, publication, signing, funding, treasury approval or production activation authority.",
+        "observedAt": "2026-10-07T12:52:26.742203+00:00",
+        "status": "passed"
+      },
+      "docs/evidence/buyback-v2-accounting-gas.json": {
+        "sha256": "1b6af03fcff96545ac411060cb667eb603a630b540d962367cc3c0105f4a114b",
+        "scope": "Local accounting, exact rolling budget and bounded allowance regressions; no production actions",
+        "observedAt": "2026-10-07T12:24:48.332539+00:00",
+        "status": "passed_named_isolated_scope"
+      }
+    },
+    "proofBoundaries": [
+      "Browser34 uses production application/wallet code with injected wallet/API/RPC/price fixtures. Mobile390x844 is responsive logic, not a real mobile wallet signature. Long idle/hidden and legacy wrap1 near-expiry scenarios preserve a single business confirmation and original floors.",
+      "Actual Node HTTP backup/body/parallel-NAT regressions cover the route-to-service boundary. The real SDK maximal complete backup exceeds64KiB and is transmitted unchanged under recovery-only256KiB. Canonical chain verification remains in separate service tests and isolated forks.",
+      "New retained-history fork82468567 uses actual Robinhood dependency code on local31337. Fee collection, USDG/cbBTC conversion, finite source forwarding and protected waiting pass. Final burn does not execute at the unchanged price floor; fullWethFeeBurnFlowPassed=false. Older-source successful burn is not reused.",
+      "Fresh fee-custody raw receipts come from the same current retained fork producer, matching initializer/Rehype-to-Engine transfers and claim/release log order. They do not prove a native external scheduler ran.",
+      "New stable-time fixture82473425 advances local time1801s at unchanged spot and then executes0.01WETH through new Vault and actual oldSplits/AMM at722632gas. This is hypothetical market history, never current market/mainnet execution or gas profitability.",
+      "Source approvals/revocation are fork-only impersonation fixtures, never human treasury authorization. Source ceiling2.88WETH is a fixed code bound; no actual approval was granted and initial canary stays<=0.01WETH.",
+      "Deficit isolation does not alter underlying manager contracts. If a manager itself atomically reverts both-currency collection because of issuer transfer restrictions, Engine cannot split that upstream call. No write-off/withdrawal permission was added.",
+      "Keeper known-revert backoff/attempt/gas limits are background execution controls; no ordinary-user creation limit or new business confirmation. Unknown outcomes still globally stop that keeper signing, and broadcasts are never automatically retried.",
+      "Immutable identity checks are cached/merged; runtime graph warm fixture is14RPC. Full activation/canonical receipts/current governor authority plus persistent signing pause remain fresh and additional; complete config is not falsely declared zero-RPC.",
+      "A legacy rollback target is refused before upload and checked again before activation. The separately authorized paused protocol-compatible production baseline is not yet deployed. No old runtime is relabeled protocol1.",
+      "All fork snapshots/new contracts/source bridge state are restored and upstream writes0. Existing immutable pools retain policies and old/directSwapper balances remain outside V2 Vault budget.",
+      "Actual WAF/Turnstile/workers.dev/monitor/provider tier/capacity calibration, native scheduler, real desktop/mobile wallet, deployment and profitability acceptance remain not_run."
+    ],
+    "limitation": "Historical snapshot from the previous remediation; not current acceptance for7d34c86."
+  },
+  "independentReview": {
+    "reviewedCommit": "74aac0d13f2e52e4aa07b9e62b0b0c587b2e3964",
+    "fixCommit": "a7ed56589411edac813e353ffca20a2aa61bbeae",
+    "observedAt": "2026-10-07T22:52:18.179Z",
+    "status": "changes_required",
+    "buybackSourceGate": "passed",
+    "reviewers": [
+      "Codex independent_buyback_7d34",
+      "Codex independent_recovery_7d34",
+      "Codex independent_runtime_7d34",
+      "Codex root"
+    ],
+    "findings": [
+      {
+        "id": "IR1",
+        "priority": "P2",
+        "status": "production_resolved_local_fork_regression",
+        "file": "server/launch-policy-registry.ts",
+        "line": 47,
+        "requiredBeforeJointOpening": false,
+        "title": "V1 production routing closed; explicit local-fork V1 remains accepted",
+        "detail": "Production trusts only the V2 deployment manifest, so configured V1 and the default pending manifest cannot register new V1 launches. The74aac0d cleanup removed a7ed565's V1-null window guard; explicitly configured local31337 forks again accept V1 at block1,81459143 and999999999. This is an operator-configured loopback fork discrepancy, not a mainnet routing bypass.",
+        "remediation": "If retaining the promised V1 rejection in local forks, exclude the never-activated V1 from the existing fork exception. Future Engine replacement needs an explicit reviewed historical-routing design; current code has no usable Engine toBlock import.",
+        "requiredForClaimedForkParity": true
+      },
+      {
+        "id": "IR2",
+        "priority": "P2",
+        "status": "resolved",
+        "file": "server/opening-price.ts",
+        "line": 114,
+        "requiredBeforeJointOpening": false,
+        "title": "Advisory reference becomes a recovery-only hard gate",
+        "detail": "Recovery retains canonical snapshot-block identity but reference divergence returns advisory data. service logs recovery_reference_divergence above500bps without blocking an already verified creation. The former20% hard exception is removed.",
+        "remediation": "No remaining change required for this item; unsigned recovered USD metadata remains unauthenticated price evidence."
+      },
+      {
+        "id": "IR3",
+        "priority": "P2",
+        "status": "partially_resolved_same_block_post_state",
+        "file": "server/launch-verification.ts",
+        "line": 165,
+        "requiredBeforeJointOpening": true,
+        "title": "Successful end-of-block owner read can still reject a correct creation backup",
+        "detail": "Archive failure now returns null and safely tries >=5% beneficiaries from the exact canonical calldata; no current-owner fallback remains. Address-bound Robinhood/Base initializer implementations enforce this candidate premise. But when the historical read succeeds after a later ownership transfer in the same receipt block, the helper attempts only that post-state owner. A pureSDK fixture accepts the original owner or null candidates and rejects the same backup with the successful post-state owner.",
+        "remediation": "Do not treat block-end owner as conclusive transaction-position evidence. Preserve transaction-bound >=5% candidates when a historical owner result does not reconstruct the exact create parameters; retain independent trusted fee routing and full calldata/receipt checks. Add a successful-read/same-block-transfer regression."
+      },
+      {
+        "id": "IR4",
+        "priority": "P2",
+        "status": "resolved",
+        "file": "server/service.ts",
+        "line": 713,
+        "requiredBeforeJointOpening": false,
+        "title": "Slow state reads outrun token metadata fallback",
+        "detail": "Default token state deadline is8000ms. Independent real-timer service fixture returns stored metadata,state:null at8003ms; late RPC rejection is handled and late success cannot overwrite the fallback. Fast state reads preserve their result.",
+        "remediation": "No remaining change required; this verifies service timing with synthetic metadata/state, not a public-RPC or real-browser outage."
+      },
+      {
+        "id": "IR5",
+        "priority": "P3",
+        "status": "resolved",
+        "file": "server/http-security.ts",
+        "line": 27,
+        "requiredBeforeJointOpening": false,
+        "title": "Body cancellation sends500 instead of structured408",
+        "detail": "Shared readBoundedBody handles cancellation whether pending reads resolve or reject. Real localworkerd ordinary bodies return408JSON at10.658-10.664s and recovery at20.651-20.653s. Same-source class slots release; simultaneous page reads remain available. Node size413/exact-bound/timer cleanup pass.",
+        "remediation": "No remaining change required for this item."
+      }
+    ],
+    "requiredBeforeJointOpening": [
+      "IR3"
+    ],
+    "remainingLocalForkParity": [
+      "IR1"
+    ],
+    "recoveryProbeEvidence": {
+      "path": ".cache/independent-74aac0d-recovery-probes.json",
+      "sha256": "a34cc73ba49a09283a22426033c034b2af2e9e01630e607420b388188f2c1bed",
+      "report": {
+        "schemaVersion": 1,
+        "recordedAt": "2026-10-07T22:49:02.958Z",
+        "reviewedCommit": "74aac0d13f2e52e4aa07b9e62b0b0c587b2e3964",
+        "comparisonCommit": "a7ed565",
+        "reviewer": "independent_recovery_7d34",
+        "evidenceKind": "source_review_pure_fixtures_and_address_specific_sourcify_runtime",
+        "limitations": {
+          "productionRpcUsed": false,
+          "realChainAttackDemonstrated": false,
+          "signingUsed": false,
+          "fundsUsed": false,
+          "largeForkRerun": false,
+          "applicationSourceModified": false,
+          "targetedRegressionTestsNotRunByThisAgentThisTurn": true,
+          "fixtureScriptsDeliveredViaStdin": true,
+          "fullServiceRegisterInvokedByTheseProbes": false
+        },
+        "findings": [
+          {
+            "id": "IR1",
+            "part": "production_v1_routing",
+            "classification": "acceptable_resolved_at_74aac0d",
+            "detail": "Production default registry and raw configured V1 reject receipt block999999999. V2 manifest is pending and grants no Engine route."
+          },
+          {
+            "id": "IR1",
+            "part": "fork_v1_routing",
+            "classification": "confirmed_local_policy_regression",
+            "file": "server/launch-policy-registry.ts",
+            "line": 47,
+            "requiredByExistingReviewScope": true,
+            "observations": [
+              {
+                "mode": "fork",
+                "receiptBlock": "1",
+                "engine": "V1",
+                "result": "accepted"
+              },
+              {
+                "mode": "fork",
+                "receiptBlock": "81459143",
+                "engine": "V1",
+                "result": "accepted"
+              },
+              {
+                "mode": "fork",
+                "receiptBlock": "999999999",
+                "engine": "V1",
+                "result": "accepted"
+              }
+            ],
+            "detail": "74aac0d removes the a7ed565 explicit V1 null trust window guard from the raw configured fork route."
+          },
+          {
+            "id": "IR1",
+            "part": "retirement_window_and_history",
+            "classification": "confirmed_capability_removal_conditional_future_release_impact",
+            "file": "server/launch-policy-registry.ts",
+            "line": 44,
+            "observations": [
+              {
+                "suppliedManifestToBlock": "95000000",
+                "receiptBlock": "94999999",
+                "result": "accepted"
+              },
+              {
+                "suppliedManifestToBlock": "95000000",
+                "receiptBlock": "95000000",
+                "result": "accepted"
+              },
+              {
+                "suppliedManifestToBlock": "95000000",
+                "receiptBlock": "999999999",
+                "result": "accepted"
+              },
+              {
+                "historicalEngine": "A",
+                "historicalReceiptBlock": "94000000",
+                "currentManifest": "A from90000000",
+                "result": "accepted"
+              },
+              {
+                "historicalEngine": "A",
+                "historicalReceiptBlock": "94000000",
+                "currentManifest": "B from95000000",
+                "result": "rejected"
+              }
+            ],
+            "detail": "The comment requires a future toBlock, but EngineManifest has no toBlock and manifest-derived policy ignores it. Replacing the single manifest drops the previous Engine history. No actual V2 activation or future Engine upgrade is claimed."
+          },
+          {
+            "id": "IR2",
+            "classification": "acceptable_resolved_in_source_at_a7ed565_and_74aac0d",
+            "files": [
+              "server/opening-price.ts:103-117",
+              "server/service.ts:543-545"
+            ],
+            "detail": "Reference divergence returns data and console.warn for operators; the recovery-only20% exception has been removed. Canonical block identity remains a hard check. Caller unsigned USD metadata is still not authenticated price evidence."
+          },
+          {
+            "id": "IR3",
+            "part": "historical_read_failure",
+            "classification": "acceptable_resolved_for_unavailable_state",
+            "files": [
+              "server/service.ts:513-516",
+              "server/launch-verification.ts:165-166"
+            ],
+            "observations": [
+              {
+                "ownerArgument": "original old owner",
+                "result": "accepted"
+              },
+              {
+                "ownerArgument": null,
+                "result": "accepted"
+              }
+            ],
+            "detail": "The fallback no longer reads current owner; >=5% candidates come from transaction-bound immutable beneficiaries, and their runtime enforcement premise is now supported by address-specific verified implementation evidence."
+          },
+          {
+            "id": "IR3",
+            "part": "same_block_post_state",
+            "classification": "confirmed_sdk_fixture_false_rejection",
+            "file": "server/launch-verification.ts",
+            "line": 165,
+            "requiredByExistingReviewScope": true,
+            "observations": [
+              {
+                "historicalOwnerReadStatus": "success",
+                "receiptBlock": "10",
+                "ownerReturned": "0x5555555555555555555555555555555555555555",
+                "originalCreationOwner": "0x3333333333333333333333333333333333333333",
+                "result": "rejected",
+                "error": "The local recovery preview does not match the full canonical creation parameters."
+              }
+            ],
+            "detail": "A successful receipt-block owner read returns end-of-block state. Later same-block transfer can change it after creation. Since non-null owner uses only one candidate, a correct backup is rejected. server/service.ts and server/launch-verification.ts are identical between a7ed565 and74aac0d."
+          }
+        ],
+        "ownerCandidateImplementationProof": {
+          "summaryPath": ".cache/independent-74aac0d-recovery-source/summary.json",
+          "summarySha256": "5025a8cea8f35c8f756ad60dffc257dbecc80fbae1c67da0c6f009b88f4237a9",
+          "robinhoodInitializer": "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544",
+          "runtimeHash": "0xc41a91106002f15bf70ae266824317f3f3ac638ac72ca5253bae395fa47ee631",
+          "runtimeHashMatchesHistoricalReadProof": true,
+          "immutableReferenceCount": 27,
+          "patchedRecompiledRuntimeExactlyMatchesRecordedOnchain": true,
+          "controlPath": [
+            {
+              "file": "src/initializers/DopplerHookInitializer.sol",
+              "line": 215,
+              "check": "initialize only callable by bound immutable Airlock"
+            },
+            {
+              "file": "src/initializers/DopplerHookInitializer.sol",
+              "line": 247,
+              "check": "nonempty immutable beneficiaries passed with airlock.owner() and MIN_PROTOCOL_OWNER_SHARES"
+            },
+            {
+              "file": "src/base/FeesManager.sol",
+              "line": 133,
+              "check": "forwards the actual beneficiaries, protocol owner and minimum to storeBeneficiaries"
+            },
+            {
+              "file": "src/types/BeneficiaryData.sol",
+              "line": 23,
+              "check": "MIN_PROTOCOL_OWNER_SHARES = WAD / 20"
+            },
+            {
+              "file": "src/types/BeneficiaryData.sol",
+              "line": 67,
+              "check": "on matching protocol owner address, require shares >= minimum"
+            },
+            {
+              "file": "src/types/BeneficiaryData.sol",
+              "line": 83,
+              "check": "require protocol owner found in actual beneficiaries"
+            }
+          ],
+          "robinhoodAirlock": {
+            "label": "robinhood-airlock",
+            "chainId": 4663,
+            "address": "0xeb7c034704ef8dcd2d32324c1545f62fb4ad0862",
+            "url": "https://sourcify.dev/server/v2/contract/4663/0xeb7c034704ef8dcd2d32324c1545f62fb4ad0862?fields=all",
+            "runtimeMatch": "match",
+            "creationMatch": "match",
+            "verifiedAt": "2026-09-30T18:03:48Z",
+            "compilationName": "Airlock",
+            "onchainRuntimeHash": "0x86b37100cbe9841771c452a592985b4e921254b127a380246073b84ec953f7f8",
+            "immutablesPatchedRuntimeExactlyMatchesOnchain": true,
+            "beneficiaryOwnerCheck": null,
+            "initializerOwnerCall": null,
+            "productionRpcUsed": false,
+            "runtimeHashMatchesHistoricalReadProof": true,
+            "sourceContentEqualsBundledInitializerAirlock": false
+          },
+          "baseInitializer": {
+            "label": "base-initializer",
+            "chainId": 8453,
+            "address": "0xbdf938149ac6a781f94faa0ed45e6a0e984c6544",
+            "url": "https://sourcify.dev/server/v2/contract/8453/0xbdf938149ac6a781f94faa0ed45e6a0e984c6544?fields=all",
+            "runtimeMatch": "match",
+            "creationMatch": null,
+            "verifiedAt": "2026-03-24T13:15:19Z",
+            "compilationName": "DopplerHookInitializer",
+            "onchainRuntimeHash": "0x5b476c3e00510cf45a444fa16bc219c9164953064f0a50cd202275227220c80b",
+            "immutablesPatchedRuntimeExactlyMatchesOnchain": true,
+            "initializerSourcePath": "src/initializers/DopplerHookInitializer.sol",
+            "beneficiarySourcePath": "src/types/BeneficiaryData.sol",
+            "beneficiaryOwnerCheck": [
+              "uint96 constant MIN_PROTOCOL_OWNER_SHARES = uint96(WAD / 20);",
+              "    bool foundProtocolOwner;",
+              "                beneficiary.shares >= protocolOwnerShares,",
+              "            foundProtocolOwner = true;",
+              "    require(foundProtocolOwner, InvalidProtocolOwnerBeneficiary());"
+            ],
+            "initializerOwnerCall": [
+              "            _storeBeneficiaries(poolKey, beneficiaries, airlock.owner(), MIN_PROTOCOL_OWNER_SHARES);",
+              "        require(msg.sender == airlock.owner(), SenderNotAirlockOwner());"
+            ],
+            "productionRpcUsed": false
+          },
+          "localRecompilePerformed": false,
+          "officialLatestSourceUsedAsDeploymentProof": false
+        },
+        "overallApplicationReview": "changes_required",
+        "deploymentApproval": false
+      }
+    },
+    "runtimeProbeEvidence": {
+      "path": ".cache/independent-a7-runtime-summary.json",
+      "sha256": "1fbc5ffdb7d6a59db825209c8ffe98c5ee6fc257213306f342808fc975d1a73b",
+      "report": {
+        "reviewedHead": "74aac0d13f2e52e4aa07b9e62b0b0c587b2e3964",
+        "fixCommit": "a7ed56589411edac813e353ffca20a2aa61bbeae",
+        "sourceDiffBetweenFixAndReviewedHead": "none in server/service.ts, server/http-security.ts, worker/index.ts",
+        "targetedTests": {
+          "files": [
+            "tests/go-live-regressions.test.ts",
+            "tests/runtime-worker.test.ts",
+            "tests/runtime-safety.test.ts",
+            "tests/review-regressions.test.ts",
+            "tests/launch-resilience.test.ts",
+            "tests/launch-intent-lock.test.ts"
+          ],
+          "passed": 40,
+          "failed": 0,
+          "durationMs": 14725.448959,
+          "log": ".cache/independent-a7-runtime-targeted-tests.log"
+        },
+        "independentChecks": {
+          "workerd": ".cache/independent-a7-runtime-workerd.json",
+          "tokenDetail": ".cache/independent-a7-runtime-token-detail.json",
+          "helperTimerBoundaries": ".cache/independent-a7-runtime-helper-boundaries.json",
+          "reproHarness": ".cache/independent-a7-runtime-review.ts",
+          "defaultTokenStateDeadlineObservedMs": 8003,
+          "ordinaryBodyDeadlineObservedMs": [
+            10658,
+            10661,
+            10662,
+            10664
+          ],
+          "registerBodyDeadlineObservedMs": [
+            20651,
+            20653
+          ],
+          "allSlowWorkerBodyStatuses": 408,
+          "allSlowWorkerBodyErrors": "Request timed out",
+          "sourceConcurrencyWhileHeld": 429,
+          "sourceConcurrencyAfterTimeouts": 400,
+          "readClassWhileWorkflowAndRecoveryHeld": 404,
+          "unexpectedUpstreams": [],
+          "lateRpcUnhandledRejection": false,
+          "lateStateCanOverwriteFallback": false,
+          "newConfirmedFindings": []
+        },
+        "limits": "Node helper behavior is pure WHATWG-stream testing; slow bodies are actual local Worker/Miniflare requests. Token metadata/state are synthetic service fixtures. These do not prove deployed Cloudflare behavior or a real wallet. Timed-out token state work continues until its own transport settles, as documented; the fallback response remains fixed.",
+        "sourceChangesByReviewer": "none",
+        "trackedEvidenceChangesByReviewer": "none",
+        "productionPublication": "not_run",
+        "status": "passed"
+      }
+    },
+    "retainedForkCompatibility": {
+      "reviewedCommit": "74aac0d13f2e52e4aa07b9e62b0b0c587b2e3964",
+      "observedAt": "2026-10-07T22:52:18.179Z",
+      "rerun": false,
+      "checks": "Exact retained producer/config/six production artifact SHA match; six compiler inputs independently reproduced withSolc0.8.24 and17 source closures match. This records compatibility, not a new fork execution or current price/profitability acceptance."
+    },
+    "sourceArtifactsAndDocuments": "Never-activated V1 compiler artifacts/exporter entries removed; currentV2 build/verify paths intact. SPEC and contractsREADME corrected to name the historical records and reused compiler artifacts actually retained.",
+    "implementationChangesByThisReview": "none",
+    "documentationChangesByThisReview": [
+      "docs/SPEC.md",
+      "contracts/README.md"
+    ],
+    "productionStatus": "not_run",
+    "deploymentAuthority": "not_granted",
+    "nextStep": "Fix the successful-read/same-block owner recovery case and run that focused regression before joint public opening. Resolve or explicitly amend local-fork V1 parity separately; do not claim all five original items are fully resolved."
+  },
+  "independentReviewHistory": [
+    {
+      "reviewedCommit": "7d34c86969f0378d4c632dca6038e8db71a6cf65",
+      "observedAt": "2026-10-07T14:34:26.726Z",
+      "status": "changes_required",
+      "buybackSourceGate": "passed",
+      "reviewers": [
+        "Codex independent_recovery_7d34",
+        "Codex independent_buyback_7d34",
+        "Codex independent_runtime_7d34",
+        "Codex root"
+      ],
+      "findings": [
+        {
+          "id": "IR1",
+          "priority": "P1",
+          "status": "confirmed_source_and_local_policy_probe",
+          "file": "server/launch-policy-registry.ts",
+          "line": 48,
+          "requiredBeforeJointOpening": true,
+          "title": "Legacy V1 routing has no retirement upper bound",
+          "detail": "The registry accepts V1 at any receipt block >=81459143, including the synthetic future block999999999. Ordinary prepare rejects this Engine. The recovery path can therefore list a newly direct-created V1 pool if its other canonical checks pass. A real malicious transaction was not submitted.",
+          "remediation": "Use an evidenced exclusive retirement block in both manifest-derived and raw-config V1 policy entries; retain genuine historical and authorized in-flight recovery. Do not infer retirement from the current time or signing pause."
+        },
+        {
+          "id": "IR2",
+          "priority": "P2",
+          "status": "confirmed_source_and_local_reference_probe",
+          "file": "server/opening-price.ts",
+          "line": 118,
+          "requiredBeforeJointOpening": true,
+          "title": "Advisory reference becomes a recovery-only hard gate",
+          "detail": "The missing-server-preview path rejects independent reference divergence >20%, while ordinary prepare treats price quality as advisory and the saved-preview register path skips this new check. A successful transaction can consequently become unrecoverable only after loss of its saved preview. Local feed100 accepts120 and rejects120.0001/121.",
+          "remediation": "Keep price-quality warnings separate from canonical transaction correctness. Register verified successful receipts; do not present unsigned recovered USD metadata as authenticated price evidence. Retain block identity and transaction/payout/minimum hard checks."
+        },
+        {
+          "id": "IR3",
+          "priority": "P2",
+          "status": "confirmed_source_and_local_sdk_probe",
+          "file": "server/service.ts",
+          "line": 510,
+          "requiredBeforeJointOpening": true,
+          "title": "Current Airlock owner is not historical-owner evidence",
+          "detail": "Any historical owner read failure falls back to the current owner. Local SDK reconstruction accepts the original old-owner backup and rejects the same backup after a synthetic owner rotation and archive read failure. Receipt-block post-state also need not identify the owner at the transaction execution position.",
+          "remediation": "Recover the owner with verifiable historical ownership/transaction-order evidence or a trusted historical checkpoint. If evidence is temporarily unavailable, preserve a retryable recovery state rather than treating current owner as historical or declaring the backup invalid."
+        },
+        {
+          "id": "IR4",
+          "priority": "P2",
+          "status": "confirmed_source_and_timing_harness",
+          "file": "server/service.ts",
+          "line": 715,
+          "requiredBeforeJointOpening": true,
+          "title": "Slow state reads outrun token metadata fallback",
+          "detail": "tokenDetail waits for state() before returning stored metadata. Production RPC timeout25s with two retries can exceed the API client deadline35s. The synthetic36s failure returns metadata at36.004s, after the35.002s client deadline. This is a timing harness, not public-RPC/browser proof.",
+          "remediation": "Bound the state attempt below the client deadline and return stored metadata with state:null promptly. Keep quotes disabled until verified state resumes; add a slow/hanging-RPC regression rather than only immediate rejection."
+        },
+        {
+          "id": "IR5",
+          "priority": "P3",
+          "status": "confirmed_local_workerd_streaming_request",
+          "file": "worker/index.ts",
+          "line": 74,
+          "requiredBeforeJointOpening": false,
+          "title": "Body cancellation sends500 instead of structured408",
+          "detail": "Actual local Miniflare streaming bodies terminate at10/20s with500 text instead of the intended408 JSON. Slots are released: a fifth same-source request gets429 while four streams are held, and requests reach schema validation after timeout. No capacity leak was observed.",
+          "remediation": "Handle body timeout/cancellation errors and return the intended structured408. Retain finally cleanup and the existing10/20s deadlines."
+        }
+      ],
+      "localProbeEvidence": {
+        ".cache/independent-7d34-recovery-probes.json": {
+          "sha256": "11b8d51b14eb303b07bd2872fcad17c292d9b8ab6e36fe403e748e59727293f6",
+          "report": {
+            "schemaVersion": 1,
+            "recordedAt": "2026-10-07T14:30:13.698Z",
+            "inspectedCommit": "7d34c86969f0378d4c632dca6038e8db71a6cf65",
+            "reviewer": "independent_recovery_7d34",
+            "scope": "Recovery registration trust, valuation boundaries, and historical owner/Engine compatibility",
+            "evidenceKind": "pure_local_fixtures",
+            "limitations": {
+              "realChainAttackDemonstrated": false,
+              "productionRpcUsed": false,
+              "signingUsed": false,
+              "fundsUsed": false,
+              "deploymentPerformed": false,
+              "fullServiceRegisterExecutedByTheseProbes": false,
+              "fixturesRepresentRealHistoricalTransactions": false,
+              "sourceOrDocumentationModifiedByReviewer": false,
+              "testsRerunForThisEvidenceWrite": false
+            },
+            "execution": {
+              "command": "node --import tsx --input-type=module",
+              "scriptDelivery": "stdin heredoc through exec_command",
+              "fixtureScriptPath": null,
+              "note": "Both scripts were executed inline and no fixture script file was saved. This artifact records already observed tool output; it does not rerun those scripts."
+            },
+            "probes": [
+              {
+                "id": "recovery_reference_divergence_and_unavailable_reference",
+                "targets": [
+                  "server/opening-price.ts:68-119",
+                  "src/lib/opening-valuation.ts:181-194"
+                ],
+                "setup": {
+                  "client": "Pure stub for getBlock, getCode, readContract",
+                  "quoteAsset": "Robinhood NVDA registry entry",
+                  "independentFeedPriceUsd": "100",
+                  "feedDecimals": 8,
+                  "referenceRoundFresh": true,
+                  "oracleRuntime": "Locally reconstructed contracts/artifacts/MusegodBuybackOracle.json runtime with buyback-deployment.json immutable addresses, ethMaxAge from buyback.config.json, and ethFeedDecimals=8",
+                  "oracleRuntimeHashMatchesCommittedManifest": true,
+                  "snapshotGenerator": "tests/fixtures.ts syntheticOpeningValuation",
+                  "historicalEvidenceValidationInvoked": true,
+                  "note": "The canonical hash/block is returned by the fixture client, not verified from a real blockchain."
+                },
+                "observations": [
+                  {
+                    "quotePriceUsd": "120",
+                    "independentFeedPriceUsd": "100",
+                    "result": "accepted"
+                  },
+                  {
+                    "quotePriceUsd": "120.0001",
+                    "independentFeedPriceUsd": "100",
+                    "result": "rejected",
+                    "error": "The recovered opening price differs from its independent on-chain reference."
+                  },
+                  {
+                    "quotePriceUsd": "121",
+                    "independentFeedPriceUsd": "100",
+                    "result": "rejected",
+                    "error": "The recovered opening price differs from its independent on-chain reference."
+                  },
+                  {
+                    "quotePriceUsd": "999999",
+                    "blockNumber": "1",
+                    "receiptBlock": "100000000",
+                    "oracleCode": null,
+                    "blockHashMatchesFixtureCanonicalBlock": true,
+                    "result": "accepted"
+                  }
+                ],
+                "conclusion": "The code hard-rejects divergence above 20%, but a consistent old canonical-block stub with absent oracle code accepts arbitrary caller-authored price evidence. A canonical block alone does not authenticate the USD price.",
+                "classification": "confirmed_local_behavior",
+                "realChainAttack": "not_demonstrated"
+              },
+              {
+                "id": "rotated_airlock_owner_after_archive_read_failure",
+                "targets": [
+                  "server/service.ts:510-516",
+                  "server/launch-verification.ts:150-165"
+                ],
+                "setup": {
+                  "client": "Pure readContract stub; historical owner read throws, current owner read returns new owner",
+                  "historicalOwner": "0x3333333333333333333333333333333333333333",
+                  "currentOwner": "0x5555555555555555555555555555555555555555",
+                  "creator": "0x1111111111111111111111111111111111111111",
+                  "treasury": "0x2222222222222222222222222222222222222222",
+                  "ownerReadBlock": "81459144",
+                  "plan": "Pure ordinary launch fixture encoded by DopplerSDK against the historical owner and serializePrepared",
+                  "quoteAsset": "Robinhood WETH registry entry",
+                  "sdkTransport": "http://127.0.0.1:1; no requests made by the encoding and assertion probes"
+                },
+                "observations": [
+                  {
+                    "operation": "assertRecoveryPlan(plan, contracts, sdk, historicalOwner)",
+                    "result": "accepted"
+                  },
+                  {
+                    "operation": "airlockOwnerAt(81459144n) with historical read failure",
+                    "result": "returned_current_owner",
+                    "returned": "0x5555555555555555555555555555555555555555"
+                  },
+                  {
+                    "operation": "assertRecoveryPlan(samePlan, contracts, sdk, fallbackCurrentOwner)",
+                    "result": "rejected",
+                    "error": "The local recovery preview does not match the full canonical creation parameters."
+                  }
+                ],
+                "conclusion": "A plan matching the historical owner is rejected when historical state is unavailable and owner has rotated. This demonstrates a recovery false-rejection path, not an owner-forgery attack.",
+                "classification": "confirmed_local_behavior",
+                "realChainAttack": "not_demonstrated"
+              },
+              {
+                "id": "legacy_engine_future_receipt_block",
+                "targets": [
+                  "server/launch-policy-registry.ts:21-65"
+                ],
+                "setup": {
+                  "function": "assertTrustedLaunchPolicy",
+                  "config": {
+                    "mode": "robinhood",
+                    "deploymentChainId": 4663,
+                    "chainId": 4663,
+                    "treasury": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+                    "writesEnabled": false
+                  },
+                  "plan": {
+                    "feePolicy": "creator-70-musegod-swapper-v3",
+                    "feeTreasury": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+                    "feeEngine": "0x2f1fd06e3b6dd81123629d08a74a6279ea03797f"
+                  },
+                  "receiptBlock": "999999999"
+                },
+                "observations": [
+                  {
+                    "result": "accepted"
+                  }
+                ],
+                "conclusion": "The committed V1 Engine is accepted at arbitrarily later receipt blocks; the registry has a creation lower bound but no retirement upper bound. This probe does not establish that a real new V1 launch transaction succeeded.",
+                "classification": "confirmed_local_behavior",
+                "realChainAttack": "not_demonstrated"
+              }
+            ],
+            "additionalObservation": {
+              "id": "raw_operator_engine_without_graph_verification",
+              "target": "server/launch-policy-registry.ts:52-54",
+              "configuredEngine": "0x7777777777777777777777777777777777777777",
+              "treasury": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+              "receiptBlock": "1",
+              "graphVerificationInvoked": false,
+              "result": "accepted_by_assertTrustedLaunchPolicy",
+              "conclusion": "This branch trusts operator configuration itself. Caller control of operator configuration or a real malicious Engine is not demonstrated."
+            },
+            "priorTargetedTests": {
+              "command": "./node_modules/.bin/tsx --test tests/launch-policy-registry.test.ts tests/launch-service.test.ts tests/opening-price.test.ts tests/fee-policy.test.ts",
+              "total": 58,
+              "passed": 58,
+              "failed": 0,
+              "skipped": 0,
+              "limitation": "Passing tests do not authorize deployment or establish real-chain exploit execution."
+            },
+            "overallApplicationReview": "changes_required",
+            "deploymentApproval": false
+          }
+        },
+        ".cache/independent-7d34-token-detail-timeout.json": {
+          "sha256": "46bfbeeb30f66d57924a28c6c4502a2ac2b7de83ad1c1e9209b439df0bff9d10",
+          "report": {
+            "reviewedHead": "7d34c86969f0378d4c632dca6038e8db71a6cf65",
+            "scope": "Read-only source review and a pure LaunchpadService.tokenDetail harness. The stored token is synthetic; state() is mocked to reject after 36 seconds. This is not public RPC or browser proof.",
+            "source": {
+              "service": "server/service.ts:712-716",
+              "rpcTimeoutAndRetries": "server/service.ts:94-97",
+              "clientDeadline": "src/lib/api.ts:23",
+              "metadataLessUI": "src/App.tsx:2644-2655"
+            },
+            "trigger": "A registered token exists in storage and state() remains pending beyond the browser API's 35000ms deadline.",
+            "expected": "The token metadata fallback reaches the client before its 35-second API deadline, with no tradable state.",
+            "observed": {
+              "firstResult": "browser35s-timeout",
+              "firstResultElapsedMs": 35002,
+              "serverTokenName": "Synthetic Meme",
+              "serverState": null,
+              "serverResultElapsedMs": 36004
+            },
+            "inference": "tokenDetail awaits the entire state read before falling back. Mainnet RPC calls have a 25000ms timeout and two retries, so a stalled/retried state read can exceed the 35000ms client timeout. The current immediate-error regression fixture does not cover this ordering.",
+            "productionPublication": "not_run",
+            "sourceChanges": "none"
+          }
+        },
+        ".cache/independent-7d34-worker-body-timeout.json": {
+          "sha256": "bc66e6dd4e18cbc8327653594bfb318d57ef874addf54957101d89fed8efb8ad",
+          "report": {
+            "reviewedHead": "7d34c86969f0378d4c632dca6038e8db71a6cf65",
+            "scope": "Actual bundled Worker in Miniflare/workerd using a synthetic streaming request body that enqueues one byte and never closes. External upstreams were forbidden. This is local Worker evidence, not deployed Cloudflare proof.",
+            "source": {
+              "cancelTimer": "worker/index.ts:74",
+              "bodyRead": "worker/index.ts:75-87",
+              "ingressRelease": "worker/index.ts:55-60"
+            },
+            "trigger": "POST JSON request body enqueues '{' and remains open after the configured body deadline.",
+            "expected": "408 JSON {error: 'Request timed out'} after 10 seconds for ordinary bodies and 20 seconds for recovery bodies.",
+            "observed": [
+              {
+                "path": "/api/launch/prepare",
+                "status": 500,
+                "elapsedMs": 10460,
+                "body": "Error: Stream was cancelled.\n    at async Object.fetch (file:///Volumes/code/opc/musegodfun/node_modules/miniflare/dist/src/workers/core/entry.worker.js:5330:22)"
+              },
+              {
+                "path": "/api/chains/4663/launch/register",
+                "status": 500,
+                "elapsedMs": 20087,
+                "body": "Error: Stream was cancelled.\n    at async Object.fetch (file:///Volumes/code/opc/musegodfun/node_modules/miniflare/dist/src/workers/core/entry.worker.js:5330:22)"
+              }
+            ],
+            "capacityReleaseCheck": {
+              "route": "/api/launch/simulate",
+              "sameSourceStreamingRequests": 4,
+              "fifthRequestWhileHeld": 429,
+              "timedOutRequestStatuses": [
+                500,
+                500,
+                500,
+                500
+              ],
+              "nextSameSourceRequestAfterTimeouts": 400,
+              "nextResponse": "{\"error\":\"Invalid input: expected string, received undefined\"}"
+            },
+            "inference": "The body deadline does terminate the request and releases all admission slots: the fifth request was 429 while four streams were held, and a same-source request reached schema validation after their deadlines. However cancellation propagates as an exception and the intended structured 408 does not reach the local client. The read loop has finally-only cleanup and no timeout-error catch.",
+            "productionPublication": "not_run",
+            "sourceChanges": "none"
+          }
+        }
+      },
+      "priorReportedBrowserFailures": {
+        "modes": [
+          "unknown_send",
+          "approval_unknown",
+          "unknown_fetch",
+          "two_tabs"
+        ],
+        "result": "all_passed_in_current_independent_run",
+        "limitation": "Environment-specific earlier failures were not reproduced; no current source bug is claimed from those reports."
+      },
+      "unsignedMetadataAndOperatorTrust": "Recovery policy trusts operator configuration itself; it does not independently verify an arbitrary configured Engine graph. Unavailable references and caller-selected historical blocks cannot authenticate recovered USD metadata.",
+      "productionStatus": "not_run",
+      "implementationChanges": "none",
+      "nextStep": "ResolveIR1-IR4 within the accepted UX/trust requirements and repeat their focused regressions before joint mainnet canary/public opening."
+    }
+  ]
 }
