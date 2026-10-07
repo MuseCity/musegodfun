@@ -101,10 +101,10 @@ async function independentReference(client: PublicClient<Transport, any>, stock:
 }
 
 /** A recovered preview's price snapshot is unsigned caller JSON. Bind it to a
- * canonical block no later than the creation receipt. The independent feed
- * comparison is advisory, like the review-time warning: the launch already
- * exists on chain, so a divergence is reported for operators, never a reason
- * to leave a verified creation unregistered. */
+ * canonical block no later than the creation receipt, and return the
+ * divergence from the immutable oracle's independent feed at that block, if
+ * one is mapped. The caller reports moderate divergence and rejects only a
+ * divergence no genuine preview could have had. */
 export async function assertRecoveredOpeningValuation(client: Pick<PublicClient<Transport, any>, "getBlock" | "getCode" | "readContract">,
   valuation: OpeningValuation, receiptBlock: bigint, chainId: 8453 | 4663): Promise<{ divergenceBps: number } | null> {
   const blockNumber = BigInt(valuation.blockNumber);

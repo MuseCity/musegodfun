@@ -22,7 +22,10 @@ export const INGRESS_CLASSES: Readonly<Record<IngressClass, { total: number; per
   upload: { total: 4, perSource: 2 },
 };
 export const INGRESS_CONCURRENCY = Object.values(INGRESS_CLASSES).reduce((sum, entry) => sum + entry.total, 0);
-const RECOVERY_PER_MINUTE = 30;
+// The client polls track and register for each unregistered launch every 15
+// seconds (8 a minute per launch); expensive verification is also bounded
+// per transaction by the service.
+export const RECOVERY_PER_MINUTE = 120;
 export function ingressClass(path: string): IngressClass {
   const normalized = path.split("?")[0].replace(/\/+$/, "").toLowerCase().replace(/^\/api\/chains\/(?:8453|4663)(?=\/)/, "/api");
   if (normalized.endsWith("/token-images")) return "upload";

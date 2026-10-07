@@ -880,23 +880,30 @@ test("an Airlock owner change after creation, even later in the same block, cann
   }
 });
 
-test("an independent reference price divergence is reported for operators but never blocks a verified recovery", async (context) => {
-  const f = ordinaryFixture(100), directory = mkdtempSync(join(tmpdir(), "recovery-reference-test-")), store = new Store(directory, 31337);
+test("reference divergence is reported above 5%, and only a divergence beyond 50% blocks recovery", async (context) => {
   const warnings: string[] = [];
   context.mock.method(console, "warn", (message: string) => { warnings.push(message); });
-  try {
-    // The backup priced WETH at $3000; the immutable oracle's feed reads $1000.
-    const record = await recoveryService(f, store, { referencePrice: 1000n * 10n ** 8n }).register(hash, f.plan);
-    assert.equal(record.address, token);
-    const reported = warnings.map((line) => JSON.parse(line)).find((entry) => entry.event === "recovery_reference_divergence");
-    assert(reported && reported.divergenceBps > 500 && reported.transactionHash === hash, JSON.stringify(warnings));
-  } finally { store.close(); rmSync(directory, { recursive: true }); }
-  warnings.length = 0;
-  const g = ordinaryFixture(100), second = mkdtempSync(join(tmpdir(), "recovery-reference-close-test-")), close = new Store(second, 31337);
-  try {
-    await recoveryService(g, close, { referencePrice: 3010n * 10n ** 8n }).register(hash, g.plan);
-    assert.deepEqual(warnings, [], "a reference within the review threshold is silent");
-  } finally { close.close(); rmSync(second, { recursive: true }); }
+  // The backup priced WETH at $3000; the immutable oracle's feed reads the price below (8 decimals).
+  const recover = async (feedUsd: bigint) => {
+    const f = ordinaryFixture(100), directory = mkdtempSync(join(tmpdir(), "recovery-reference-test-")), store = new Store(directory, 31337);
+    warnings.length = 0;
+    try { return { record: await recoveryService(f, store, { referencePrice: feedUsd * 10n ** 8n }).register(hash, f.plan).catch((error: Error) => error), store: store.tokenByTxHash(hash) }; }
+    finally { store.close(); rmSync(directory, { recursive: true }); }
+  };
+  const close = await recover(3010n);
+  assert.equal((close.record as TokenRecord).address, token); assert.deepEqual(warnings, [], "within the review threshold is silent");
+  for (const feedUsd of [2500n, 2000n]) {
+    const reported = await recover(feedUsd);
+    assert.equal((reported.record as TokenRecord).address, token, `${feedUsd}: moderate divergence still registers`);
+    const entry: { event: string; divergenceBps: number; transactionHash: string } | undefined = warnings
+      .map((line) => JSON.parse(line)).find((row: { event: string }) => row.event === "recovery_reference_divergence");
+    assert(entry && entry.divergenceBps > 500 && entry.divergenceBps <= 5000 && entry.transactionHash === hash, JSON.stringify(warnings));
+  }
+  for (const feedUsd of [1999n, 1000n, 30n]) {
+    const rejected = await recover(feedUsd);
+    assert.match((rejected.record as Error).message, /more than 50% away/, `${feedUsd}: a forged opening price is not listed`);
+    assert.equal(rejected.store, null);
+  }
 });
 
 test("recovery stores the normalized draft and only known preview fields", async () => {
@@ -923,12 +930,28 @@ test("concurrent recoveries of one transaction share verification and capacity r
     const busyDirectory = mkdtempSync(join(tmpdir(), "recovery-busy-test-")), busyStore = new Store(busyDirectory, 31337);
     try {
       const busy = recoveryService(f, busyStore);
-      (busy as any).recoveryLoad = { active: 4, started: [] };
+      (busy as any).recoveryLoad = { active: 4, started: [], byTransaction: new Map() };
       await assert.rejects(() => busy.register(hash, f.plan), /capacity is temporarily limited/);
-      (busy as any).recoveryLoad = { active: 0, started: Array.from({ length: 60 }, () => Date.now()) };
+      (busy as any).recoveryLoad = { active: 0, started: Array.from({ length: 60 }, () => Date.now()), byTransaction: new Map() };
       await assert.rejects(() => busy.register(hash, f.plan), /capacity is temporarily limited/);
       assert.equal(busyStore.tokenByTxHash(hash), null);
     } finally { busyStore.close(); rmSync(busyDirectory, { recursive: true }); }
+  } finally { store.close(); rmSync(directory, { recursive: true }); }
+});
+
+test("invalid backups replayed against one creation transaction cannot drain the shared recovery budget", async () => {
+  const f = ordinaryFixture(100), directory = mkdtempSync(join(tmpdir(), "recovery-per-transaction-test-")), store = new Store(directory, 31337);
+  try {
+    const service = recoveryService(f, store);
+    // Each variant passes the cheap transaction and fee-routing checks, then fails re-encoding.
+    for (let i = 0; i < 4; i++) {
+      const variant = structuredClone(f.plan); variant.draft.name = `unproven ${i}`;
+      await assert.rejects(() => service.register(hash, variant), /canonical creation parameters/);
+    }
+    await assert.rejects(() => service.register(hash, f.plan), /capacity is temporarily limited/, "this transaction's attempts are spent for the minute");
+    assert.equal((service as any).recoveryLoad.started.length, 4, "the shared pool keeps 56 of its 60 slots for other transactions");
+    const other = `0x${"ee".repeat(32)}` as Hex;
+    assert.equal((await service.register(other, f.plan)).transactionHash, other, "another transaction still recovers");
   } finally { store.close(); rmSync(directory, { recursive: true }); }
 });
 

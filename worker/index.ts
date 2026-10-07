@@ -3,7 +3,7 @@ import { httpServerHandler } from "cloudflare:node";
 import { createServer } from "node:http";
 import { createApp, knownPage, chainApiRoute, legacyTokenPath } from "../server/app";
 import { redact, runtimeFromEnv } from "../server/config";
-import { securityHeaders, requestBodyLimitForPath, readBoundedBody, bodyReadDeadline } from "../server/http-security";
+import { securityHeaders, requestBodyLimitForPath, readBoundedBody, BODY_READ_DEADLINE_MS } from "../server/http-security";
 import { IngressLimiter, PreviewQueue, RiskChallenge } from "../server/abuse";
 import type { RuntimeEnvironment } from "../server/config";
 
@@ -66,7 +66,7 @@ export class LaunchpadRuntime extends DurableObject<Env> {
     // The adapter may otherwise continue reading it after sending the response.
     if (request.body) {
       const maximumBody = requestBodyLimitForPath(new URL(request.url).pathname);
-      const read = await readBoundedBody(request.body, maximumBody, bodyReadDeadline(maximumBody));
+      const read = await readBoundedBody(request.body, maximumBody, BODY_READ_DEADLINE_MS);
       if ("status" in read)
         return Response.json({ error: read.status === 413 ? "Request body is too large" : "Request timed out" }, { status: read.status });
       const headers = new Headers(request.headers);

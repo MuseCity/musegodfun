@@ -6,11 +6,12 @@ import { join } from "node:path";
 import { once } from "node:events";
 import { createApp } from "../server/app";
 import { runtimeFromEnv } from "../server/config";
+import { PoolIdentityError } from "../server/service";
 import { ROBINHOOD_STOCKS } from "../src/lib/config";
 import { syntheticToken } from "./fixtures";
 import { engineStatusReason } from "../server/buyback-engine";
-import { IngressLimiter, INGRESS_CLASSES, ingressClass } from "../server/abuse";
-import { bodyReadDeadline, readBoundedBody } from "../server/http-security";
+import { IngressLimiter, INGRESS_CLASSES, RECOVERY_PER_MINUTE, ingressClass } from "../server/abuse";
+import { BODY_READ_DEADLINE_MS, readBoundedBody } from "../server/http-security";
 import { BUYBACK_FORWARDER_ALLOWANCE_CAP } from "../src/lib/buyback-engine";
 import type { Address } from "viem";
 
@@ -88,8 +89,9 @@ test("page reads need several sources to fill and recovery is bounded without ch
   const third = recovery.admit("192.0.2.50", "/api/launch/register", 1000);
   assert.equal(third.status, 429); assert.equal(third.challenge, false);
   open.forEach((entry) => entry.release());
-  for (let i = 0; i < 30; i++) { const row = recovery.admit("192.0.2.51", "/api/launch/register", 2000 + i); assert.equal(row.status, undefined); assert.equal(row.challenge, false); row.release(); }
-  const limited = recovery.admit("192.0.2.51", "/api/launch/register", 2100);
+  assert(RECOVERY_PER_MINUTE >= 4 * 8 * 3, "a wallet with a dozen unregistered launches stays within its own background polling");
+  for (let i = 0; i < RECOVERY_PER_MINUTE; i++) { const row = recovery.admit("192.0.2.51", "/api/launch/register", 2000 + i); assert.equal(row.status, undefined); assert.equal(row.challenge, false); row.release(); }
+  const limited = recovery.admit("192.0.2.51", "/api/launch/register", 2000 + RECOVERY_PER_MINUTE);
   assert.equal(limited.status, 429); assert.equal(limited.challenge, false, "recovery is rate-limited without a challenge");
   const later = recovery.admit("192.0.2.51", "/api/launch/register", 63_000); assert.equal(later.status, undefined); later.release();
 });
@@ -128,5 +130,29 @@ test("trickled request bodies end as 408 in either cancellation style, oversized
   assert.deepEqual(await readBoundedBody(rejecting, 10, 20), { status: 408 });
   const broken = { getReader: () => ({ read: async () => { throw new Error("network reset"); }, cancel: async () => {} }) };
   await assert.rejects(() => readBoundedBody(broken, 10, 1000), /network reset/, "a genuine read failure is not disguised as a timeout");
-  assert.equal(bodyReadDeadline(65_536), 10_000); assert.equal(bodyReadDeadline(262_144), 20_000);
+  assert.equal(BODY_READ_DEADLINE_MS, 10_000, "standard and 256KiB recovery bodies share one short deadline");
+});
+
+test("token detail reports a contradicting pool as invalid and shares one state read per token", async () => {
+  await httpFixture(async ({service}, origin) => {
+    const token = syntheticToken({mode:"fork", deploymentChainId:4663, quoteAddress:weth, address:"0x0000000000000000000000000000000000000abe" as Address});
+    await service.store.saveToken(token);
+    service.state = async () => { throw new PoolIdentityError("The pool identity or locked state is invalid"); };
+    const invalid = await (await fetch(`${origin}/api/tokens/${token.address}`)).json();
+    assert.equal(invalid.state, null); assert.equal(invalid.stateInvalid, true); assert.match(invalid.stateError, /pool identity/);
+    service.state = async () => { throw new Error("RPC request timed out"); };
+    assert.equal((await (await fetch(`${origin}/api/tokens/${token.address}`)).json()).stateInvalid, undefined, "an outage is not an integrity failure");
+    let calls = 0, finish!: (value: never) => void;
+    service.state = () => { calls++; return new Promise((resolve) => { finish = resolve as never; }); };
+    const first = await service.tokenDetail(token.address, 20);
+    assert.equal(first?.state, null, "the first viewer times out");
+    const [second, third] = await Promise.all([service.tokenDetail(token.address, 20), service.tokenDetail(token.address, 20)]);
+    assert.equal(second?.state, null); assert.equal(third?.state, null);
+    assert.equal(calls, 1, "abandoned and concurrent requests share the read still in flight");
+    finish({ token, state: { status: 1 } } as never);
+    await new Promise((resolve) => setImmediate(resolve));
+    service.state = async () => { calls++; return { token, state: { status: 2 } } as never; };
+    assert.deepEqual((await service.tokenDetail(token.address, 20))?.state, { status: 2 }, "a settled read is not reused; the next request starts fresh");
+    assert.equal(calls, 2);
+  });
 });

@@ -2583,6 +2583,7 @@ function TokenPage({
       token: TokenRecord;
       state: { poolKey: V4PoolKey } | null;
       stateError?: string;
+      stateInvalid?: true;
     }>(`/tokens/${address}`, detailRevision),
     stockResource = useResource<StockStatus[]>("/stocks"),
     wallet = useWallet();
@@ -2613,16 +2614,15 @@ function TokenPage({
     const timer = setInterval(() => setClock(quoteNow(quote ?? undefined)), 1000);
     return () => clearInterval(timer);
   }, [quote]);
+  // Depend on the asset, not the response object, so a background detail
+  // refresh does not blank and re-read the wallet balance.
+  const balanceAsset = resource.data ? (side === "buy" ? resource.data.token.quoteAddress : resource.data.token.address) : null;
   useEffect(() => {
     let active = true;
     setBalance(null);
-    if (wallet.account && resource.data)
+    if (wallet.account && balanceAsset)
       wallet
-        .balance(
-          side === "buy"
-            ? resource.data.token.quoteAddress
-            : resource.data.token.address,
-        )
+        .balance(balanceAsset)
         .then((x) => {
           if (active) setBalance(x);
         })
@@ -2632,27 +2632,37 @@ function TokenPage({
     return () => {
       active = false;
     };
-  }, [wallet.account, wallet.revision, resource.data, side, hash]);
+  }, [wallet.account, wallet.revision, balanceAsset, hash]);
   // Metadata stays readable while the pool state is unavailable; retry the
-  // state quietly so trading resumes without a manual reload.
+  // state quietly so trading resumes without a manual reload. A pool that
+  // contradicts the listing is not transient and is not retried.
   const stateUnavailable = !!resource.data && !resource.data.state;
+  const stateInvalid = !!resource.data?.stateInvalid;
+  // Keep the last lookup error on screen while a retry is in flight.
+  const [lastLookupError, setLastLookupError] = useState({ address, message: "" });
   useEffect(() => {
-    if (!stateUnavailable && !(resource.error && !resource.data)) return;
+    if (resource.error) setLastLookupError({ address, message: resource.error });
+    else if (resource.data && !resource.loading) setLastLookupError({ address, message: "" });
+  }, [address, resource.error, resource.data, resource.loading]);
+  const lastError = lastLookupError.address === address ? lastLookupError.message : "";
+  useEffect(() => {
+    if (stateInvalid || (!stateUnavailable && !(lastError && !resource.data))) return;
     const timer = setTimeout(() => setDetailRevision((value) => value + 1), 15_000);
     return () => clearTimeout(timer);
-  }, [stateUnavailable, resource.error, resource.data]);
+  }, [stateUnavailable, stateInvalid, lastError, resource.data]);
   const token = resource.data?.token;
   if (!token) {
-    if (!resource.error) return <Loading />;
+    const lookupError = resource.error || lastError;
+    if (!lookupError) return <Loading />;
     // A catalog miss is never proof a launch does not exist: a launch this
     // browser sent may still be awaiting registration from Your transactions.
     const pendingRegistration = !!config && sentLaunchAwaitingRegistration(config, address);
     return pendingRegistration ? (
       <Notice>
         This launch is not registered yet. Finish registration from Your transactions.
-        {" "}({resource.error})
+        {" "}({lookupError})
       </Notice>
-    ) : <Notice kind="error">{resource.error}</Notice>;
+    ) : <Notice kind="error">{lookupError}</Notice>;
   }
   const stock = quoteAsset(token),
     explorer = explorerFor(token),
@@ -2838,12 +2848,15 @@ function TokenPage({
               </p>
             </div>
           )}
-          {stateUnavailable && (
+          {stateInvalid ? (
+            <Notice kind="error">The on-chain pool does not match this listing, so quotes and trades are disabled.</Notice>
+          ) : stateUnavailable && (
             <Notice kind="error">
               On-chain pool state is unavailable, so quotes and trades are paused. Retrying automatically.
               {resource.data?.stateError ? ` ${resource.data.stateError}` : ""}
             </Notice>
           )}
+          {resource.error && <Notice kind="error">Could not refresh this token: {resource.error}</Notice>}
           <label className="trade-input">
             <span>
               You pay <b>{inputSymbol}</b>

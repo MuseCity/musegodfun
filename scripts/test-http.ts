@@ -73,6 +73,7 @@ if (tokens.body.length === 0) {
   const state = await call(`/tokens/${token.address}`);
   assert.equal(state.status, 200);
   assert.equal(state.body.token.poolId.toLowerCase(), token.poolId.toLowerCase());
+  assert(state.body.state && !state.body.stateInvalid, `Live pool state must be read and match the record: ${state.body.stateError ?? ""}`);
   const quote = await call("/quote", { address: token.address, side: "buy", amount: "0.01", slippageBps: 100 });
   assert.equal(quote.status, 200);
   assert(BigInt(quote.body.amountOut) > 0n);

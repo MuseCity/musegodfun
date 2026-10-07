@@ -65,3 +65,22 @@ test("an operator-configured engine is never trusted, even on a local fork, and 
     trustedLaunchPolicies(baseConfig, deployed())));
   assert.deepEqual(trustedLaunchPolicies({ ...baseConfig, treasury: null }), [], "no configured treasury trusts nothing on Base");
 });
+
+test("after V2 activation, treasury-only routing is trusted only for launches created before the activation block", () => {
+  const activated = { ...deployed(), activationVerification: { status: "verified", activatedAtBlock: "95000000" } };
+  for (const config of [robinhood(), robinhood({ treasury: operations })]) {
+    const policies = trustedLaunchPolicies(config, activated);
+    for (const treasury of [config.treasury!, operations]) {
+      assert.doesNotThrow(() => assertTrustedLaunchPolicy({ feePolicy: FEE_POLICY, feeTreasury: treasury }, config, 94_999_999n, policies));
+      assert.throws(() => assertTrustedLaunchPolicy({ feePolicy: FEE_POLICY, feeTreasury: treasury }, config, 95_000_000n, policies), /platform-approved/,
+        "a no-engine launch created after activation would bypass the buyback");
+    }
+    assert.doesNotThrow(() => assertTrustedLaunchPolicy({ feePolicy: ENGINE_FEE_POLICY, feeTreasury: operations, feeEngine: engine }, config, 95_000_000n, policies));
+  }
+  const pending = { ...deployed(), activationVerification: { status: "pending" } };
+  assert.doesNotThrow(() => assertTrustedLaunchPolicy({ feePolicy: FEE_POLICY, feeTreasury: operations }, robinhood(), 10n ** 12n, trustedLaunchPolicies(robinhood(), pending)),
+    "an unverified activation does not cut off treasury-only launches");
+  const baseConfig: RuntimeConfig = { mode: "base", deploymentChainId: 8453, chainId: 8453, treasury: configured, writesEnabled: false, blockReason: null };
+  assert.doesNotThrow(() => assertTrustedLaunchPolicy({ feePolicy: FEE_POLICY, feeTreasury: configured }, baseConfig, 10n ** 12n, trustedLaunchPolicies(baseConfig, activated)),
+    "Base has no engine and keeps treasury routing");
+});

@@ -64,6 +64,8 @@ import type { EngineClaimPreview } from "../src/lib/buyback-engine";
 
 import { runtimeFromEnv, redact } from "./config";
 export { runtimeFromEnv } from "./config";
+/** The on-chain pool contradicts the stored listing; never a transient outage. */
+export class PoolIdentityError extends Error {}
 export class LaunchpadService {
   readonly client;
   readonly sdk;
@@ -83,7 +85,8 @@ export class LaunchpadService {
   private openingCache?: Map<string, { at: number; value: LifiOpeningValuation }>;
   private openingRequests?: Map<string, Promise<LifiOpeningValuation>>;
   private registerRequests?: Map<string, Promise<TokenRecord>>;
-  private recoveryLoad?: { active: number; started: number[] };
+  private stateReads?: Map<string, ReturnType<LaunchpadService["state"]>>;
+  private recoveryLoad?: { active: number; started: number[]; byTransaction: Map<string, number[]> };
   constructor(readonly runtime: ReturnType<typeof runtimeFromEnv>) {
     this.guardCandidate = runtime.launchGuardCandidate;
     this.firstBuyGuardCandidate = runtime.firstBuyGuardCandidate;
@@ -498,12 +501,19 @@ export class LaunchpadService {
   }
   /** Bounds the RPC and SDK work an unauthenticated backup can trigger. A
    * capacity refusal is a retryable 429, never a challenge to a real recovery. */
-  private async withRecoveryVerification<T>(work: () => Promise<T>): Promise<T> {
-    const load = this.recoveryLoad ??= { active: 0, started: [] }, now = Date.now();
+  private async withRecoveryVerification<T>(hash: Hex, work: () => Promise<T>): Promise<T> {
+    const load = this.recoveryLoad ??= { active: 0, started: [], byTransaction: new Map<string, number[]>() }, now = Date.now();
+    const retryAfter = (oldest: number) => Math.max(1, Math.ceil((oldest + 60_000 - now) / 1000));
     load.started = load.started.filter((at) => at > now - 60_000);
+    // One real creation transaction, replayed with endless invalid backups,
+    // must not drain the shared pool for everyone else's recoveries.
+    const attempts = (load.byTransaction.get(hash) ?? []).filter((at) => at > now - 60_000);
+    if (attempts.length >= RECOVERY_VERIFICATIONS_PER_TRANSACTION) throw new BudgetUnavailable(retryAfter(attempts[0]));
     if (load.active >= RECOVERY_VERIFICATION_CONCURRENCY) throw new BudgetUnavailable(2);
-    if (load.started.length >= RECOVERY_VERIFICATIONS_PER_MINUTE)
-      throw new BudgetUnavailable(Math.max(1, Math.ceil((load.started[0] + 60_000 - now) / 1000)));
+    if (load.started.length >= RECOVERY_VERIFICATIONS_PER_MINUTE) throw new BudgetUnavailable(retryAfter(load.started[0]));
+    if (load.byTransaction.size >= 10_000)
+      for (const [key, times] of load.byTransaction) if (!times.some((at) => at > now - 60_000)) load.byTransaction.delete(key);
+    load.byTransaction.set(hash, [...attempts, now]);
     load.active++; load.started.push(now);
     try { return await work(); } finally { load.active--; }
   }
@@ -521,28 +531,30 @@ export class LaunchpadService {
     const plan = savedPlan ?? recoveryPlan;
     if (!plan)
       throw new Error("No matching issuance preview was found. Supply the frozen local backup with the original transaction hash.");
+    // Cheapest rejections first, for saved and recovered previews alike: the
+    // outer transaction must be exactly this preview's before any RPC-backed
+    // or SDK re-encoding work runs.
+    assertLaunchTransaction(plan, tx, this.contracts);
+    if (!receipt.to || !sameAddress(receipt.to, plan.transaction?.to ?? this.contracts.airlock) || !sameAddress(receipt.from, plan.creator))
+      throw new Error("The creation receipt does not match the preview's outer transaction.");
     if (!savedPlan) {
-      // Cheapest rejections first: the outer transaction must be exactly this
-      // backup's, and its fee routing must be platform-approved, before any
-      // RPC-backed or SDK re-encoding work runs.
-      assertLaunchTransaction(plan, tx, this.contracts);
-      if (keccak256(plan.data) !== plan.id || !receipt.to || !sameAddress(receipt.to, plan.transaction?.to ?? this.contracts.airlock) ||
-        !sameAddress(receipt.from, plan.creator))
-        throw new Error("The creation receipt does not match the preview's outer transaction.");
+      // A backup's fee routing must also be platform-approved before that work.
+      if (keccak256(plan.data) !== plan.id) throw new Error("The creation receipt does not match the preview's outer transaction.");
       assertTrustedLaunchPolicy(plan, this.runtime.config, receipt.blockNumber);
-      await this.withRecoveryVerification(async () => {
+      await this.withRecoveryVerification(hash, async () => {
         assertRecoveryPlan(plan, this.contracts, this.sdk);
         const reference = await assertRecoveredOpeningValuation(this.client, plan.openingValuation!, receipt.blockNumber, deploymentChain(this.runtime.config));
         if (reference && reference.divergenceBps > LIFI_OPENING_MAX_DIVERGENCE_BPS)
           console.warn(JSON.stringify({ event: "recovery_reference_divergence", transactionHash: hash, token: plan.tokenAddress, divergenceBps: reference.divergenceBps }));
+        // A real LI.FI midpoint never strays this far from the immutable
+        // oracle's feed; a backup that does would list a forged opening price.
+        if (reference && reference.divergenceBps > RECOVERY_REFERENCE_REJECT_BPS)
+          throw new Error("The recovered opening price is more than 50% away from its independent on-chain reference.");
         if (plan.firstBuy) await verifyLaunchGuard(this.client, plan.firstBuy.guard, deploymentChain(this.runtime.config), plan.firstBuy.lockDays ? "vesting" : undefined);
       });
     }
     if (plan.openingValuation)
       assertHistoricalOpeningValuation(plan.openingValuation, plan.draft.quoteAddress, deploymentChain(this.runtime.config));
-    assertLaunchTransaction(plan, tx, this.contracts);
-    if (!receipt.to || !sameAddress(receipt.to, plan.transaction?.to ?? this.contracts.airlock) || !sameAddress(receipt.from, plan.creator))
-      throw new Error("The creation receipt does not match the preview's outer transaction.");
     if (plan.prepared) {
       const verified = await verifyPreparedCreateExecution({ prepared: restorePrepared(plan.prepared), receipt, publicClient: this.client });
       if (plan.firstBuy) verifyGuardedReceipt(plan, receipt, verified.devBuy?.amountOut);
@@ -688,32 +700,48 @@ export class LaunchpadService {
       this.reconciling = false;
     }
   }
-  async state(address: Address) {
+  async state(address: Address, record?: TokenRecord) {
     await this.assertNetwork();
-    const token = await this.token(address);
+    const token = record ?? await this.token(address);
     const state = await (await this.sdk.getMulticurvePool(address)).getState();
     if (
       state.status !== 2 ||
       !sameAddress(state.numeraire, token.quoteAddress) ||
       computePoolId(state.poolKey) !== token.poolId
     )
-      throw new Error("The pool identity or locked state is invalid");
+      throw new PoolIdentityError("The pool identity or locked state is invalid");
     return { token, state };
+  }
+  /** One pool state read per token at a time. A token page read abandoned at
+   * its deadline keeps running, so later viewers and retries share it rather
+   * than stacking new RPC work during a slowdown. */
+  private sharedState(token: TokenRecord) {
+    const key = token.address.toLowerCase(), reads = this.stateReads ??= new Map();
+    const pending = reads.get(key);
+    if (pending) return pending;
+    const read: ReturnType<LaunchpadService["state"]> = this.state(token.address, token)
+      .finally(() => { if (reads.get(key) === read) reads.delete(key); });
+    reads.set(key, read);
+    return read;
   }
   /** Catalog metadata comes from storage; pool state needs the RPC. A failed
    * or slow state read leaves the record readable but reports no tradable
    * state, well inside the client's request deadline (RPC retries alone can
-   * exceed it). The abandoned read finishes or fails on its own. */
-  async tokenDetail(address: Address, stateDeadlineMs = TOKEN_STATE_DEADLINE_MS): Promise<{ token: TokenRecord; state: Awaited<ReturnType<LaunchpadService["state"]>>["state"] | null; stateError?: string } | null> {
+   * exceed it). A pool that contradicts the record is reported as invalid,
+   * not as a transient outage. */
+  async tokenDetail(address: Address, stateDeadlineMs = TOKEN_STATE_DEADLINE_MS): Promise<{ token: TokenRecord;
+    state: Awaited<ReturnType<LaunchpadService["state"]>>["state"] | null; stateError?: string; stateInvalid?: true } | null> {
     const token = await this.store.token(address);
     if (!token || !listedTokens([token], this.runtime.config.mode, deploymentChain(this.runtime.config)).length) return null;
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      return await Promise.race([this.state(address), new Promise<never>((_, reject) => {
+      const { state } = await Promise.race([this.sharedState(token), new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new Error("The on-chain pool state read timed out.")), stateDeadlineMs);
       })]);
-    } catch (error) { return { token, state: null, stateError: redact(error, this.runtime.environment) }; }
-    finally { clearTimeout(timer); }
+      return { token, state };
+    } catch (error) {
+      return { token, state: null, stateError: redact(error, this.runtime.environment), ...(error instanceof PoolIdentityError ? { stateInvalid: true as const } : {}) };
+    } finally { clearTimeout(timer); }
   }
   async tokens() {
     if (this.tokensCache && Date.now() - this.tokensCache.at < 10_000) return structuredClone(this.tokensCache.value);
@@ -839,6 +867,10 @@ const TOKEN_STATE_DEADLINE_MS = 8_000;
 // SDK parameters. Real recoveries are rare; this leaves ample headroom.
 const RECOVERY_VERIFICATION_CONCURRENCY = 4;
 const RECOVERY_VERIFICATIONS_PER_MINUTE = 60;
+// Recovery reports divergence above the 5% review threshold and rejects it above 50%.
+const RECOVERY_REFERENCE_REJECT_BPS = 5_000;
+// The client retries an unregistered launch every 15 seconds.
+const RECOVERY_VERIFICATIONS_PER_TRANSACTION = 4;
 // A stored recovered preview keeps only known LaunchPlan fields.
 const LAUNCH_PLAN_FIELDS = ["id", "creator", "data", "tokenAddress", "poolId", "draft", "preparedAt", "validityVersion", "finalizedAt",
   "signingExpiresAt", "serverTime", "intentId", "previousPlanId", "requiresReconfirmation", "warnings", "gas", "feePolicy", "feeTreasury",

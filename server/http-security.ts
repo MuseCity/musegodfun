@@ -18,9 +18,9 @@ export function requestBodyLimitForPath(path: string): number {
 }
 export type BoundedBody = { status: 408 | 413 } | { bytes: Uint8Array };
 type BodyReader = { read(): Promise<{ done: boolean; value?: Uint8Array }>; cancel(): Promise<void> };
-// A legitimate body arrives well within these; a trickled one must not hold
-// its ingress slot for long.
-export const bodyReadDeadline = (maximum: number) => maximum > 65_536 ? 20_000 : 10_000;
+// A legitimate body, including a 256KiB recovery backup, arrives well within
+// this; a trickled one must not hold its ingress slot for long.
+export const BODY_READ_DEADLINE_MS = 10_000;
 /** Reads an ingress body under its size bound and deadline. A trickled body
  * is 408 and an oversized one 413, whether the runtime resolves or rejects a
  * read pending at cancellation (workerd rejects it). */
