@@ -866,16 +866,15 @@
       "keeperFuelAccounting": "Gross D5 outlay includes the entire initial keeper fuel; keeper gas paid from that fuel is not double-counted",
       "keeperGasSpentEth": "0.000002032458744"
     },
-    "remaining": [
-      "Publish this fixed cutover and the final operational evidence through the normal master CI workflow; verify both domains after propagation"
-    ],
+    "remaining": [],
     "runtime": {
       "engineOnlyRuntimeCommit": "cda5774e06175934ec86a90bd708fd466b0fd0e0",
       "githubRun": 37769486068,
       "workerVersion": "c4ab5545-4889-46be-a006-78cf566e7344",
       "publicSigning": "both_chains_remain_paused_revision0",
       "feeEngineEnvironment": "0x9caefd217ea5a039bba77ae5b0626733ea093769",
-      "cutoverPublication": "prepared_for_this_commit"
+      "cutoverPublication": "published_and_verified_8d88123",
+      "currentlyPublishedCommit": "8d88123fc922d1f461f0d146d6cd44fe427b6572"
     },
     "manifestSha256": "f9b34985a1c09109388d022e34bbcabbf2977a5fe4d3f75991a2398d19b69973",
     "nativeCanary": {
@@ -1047,7 +1046,111 @@
         "keeperRegressionsPassed": 26
       },
       "independentReviewHandling": "Original reviewer records and pinned sourceHashes are preserved; no independent review of these operational keeper edits is fabricated. Future contract redeployment remains blocked until exact source-gate rebinding."
-    }
+    },
+    "publication": {
+      "observedAt": "2026-10-08T12:27:32.937Z",
+      "status": "verified",
+      "runtimeCommit": "8d88123fc922d1f461f0d146d6cd44fe427b6572",
+      "githubRun": 37776394839,
+      "githubDeployment": 6935389833,
+      "buildId": "build-37776394839-1",
+      "releaseUrl": "https://github.com/MuseCity/musegodfun/releases/tag/build-37776394839-1",
+      "workerVersion": "e07de0c8-a911-4b92-89de-416ddf2e4dcb",
+      "safeRollbackVersion": "c4ab5545-4889-46be-a006-78cf566e7344",
+      "checks": [
+        {
+          "origin": "https://musegod.fun",
+          "chainId": 4663,
+          "feeEngine": "0x9caefd217ea5a039BbA77Ae5b0626733eA093769",
+          "feePolicy": "creator-70-musegod-swapper-v3",
+          "buybackVault": "0x28E6B43525301312084310F31f4C9c9873d7a125",
+          "signingPaused": true,
+          "writesEnabled": false,
+          "controlRevision": 0,
+          "securityProtocol": 1,
+          "sourceCommit": "8d88123fc922d1f461f0d146d6cd44fe427b6572",
+          "workerVersion": null,
+          "fileCount": 204
+        },
+        {
+          "origin": "https://musegod.fun",
+          "chainId": 8453,
+          "feeEngine": null,
+          "feePolicy": "creator-70-musegod-v2",
+          "buybackVault": null,
+          "signingPaused": true,
+          "writesEnabled": false,
+          "controlRevision": 0,
+          "securityProtocol": 1,
+          "sourceCommit": "8d88123fc922d1f461f0d146d6cd44fe427b6572",
+          "workerVersion": null,
+          "fileCount": 204
+        },
+        {
+          "origin": "https://www.musegod.fun",
+          "chainId": 4663,
+          "feeEngine": "0x9caefd217ea5a039BbA77Ae5b0626733eA093769",
+          "feePolicy": "creator-70-musegod-swapper-v3",
+          "buybackVault": "0x28E6B43525301312084310F31f4C9c9873d7a125",
+          "signingPaused": true,
+          "writesEnabled": false,
+          "controlRevision": 0,
+          "securityProtocol": 1,
+          "sourceCommit": "8d88123fc922d1f461f0d146d6cd44fe427b6572",
+          "workerVersion": null,
+          "fileCount": 204
+        },
+        {
+          "origin": "https://www.musegod.fun",
+          "chainId": 8453,
+          "feeEngine": null,
+          "feePolicy": "creator-70-musegod-v2",
+          "buybackVault": null,
+          "signingPaused": true,
+          "writesEnabled": false,
+          "controlRevision": 0,
+          "securityProtocol": 1,
+          "sourceCommit": "8d88123fc922d1f461f0d146d6cd44fe427b6572",
+          "workerVersion": null,
+          "fileCount": 204
+        }
+      ],
+      "engineStatus": [
+        {
+          "origin": "https://musegod.fun",
+          "available": true,
+          "engine": "0x9caefd217ea5a039BbA77Ae5b0626733eA093769",
+          "vault": "0x28E6B43525301312084310F31f4C9c9873d7a125",
+          "vaultBurned": "26652199583658865069102",
+          "sourceAllowance": "7994453195093645",
+          "burnIndexCaughtUp": false,
+          "burnScanFrom": null,
+          "burnScanTo": null
+        },
+        {
+          "origin": "https://www.musegod.fun",
+          "available": true,
+          "engine": "0x9caefd217ea5a039BbA77Ae5b0626733eA093769",
+          "vault": "0x28E6B43525301312084310F31f4C9c9873d7a125",
+          "vaultBurned": "26652199583658865069102",
+          "sourceAllowance": "7994453195093645",
+          "burnIndexCaughtUp": false,
+          "burnScanFrom": null,
+          "burnScanTo": null
+        }
+      ],
+      "nodeTests": 605,
+      "foundryTests": 143,
+      "typecheck": "passed",
+      "assetsPerOrigin": 204,
+      "publicSigning": "Both chains remain paused at revision0",
+      "cutover": "Recorded finalized83278731 and published in the verified runtime"
+    },
+    "publicOpeningOutstanding": [
+      "Public Worker quota/status-history load calibration; incremental history is explicitly incomplete",
+      "Real extension/mobile app-wallet acceptance; no public signing resume",
+      "Profitable automatically selected keeper settlement remains unobserved; no forced expenditure"
+    ]
   },
   "postDeploymentTypeBoundaryCorrection": {
     "scope": "Serialized JSON TypeScript boundary only; no independent review signature is added",
