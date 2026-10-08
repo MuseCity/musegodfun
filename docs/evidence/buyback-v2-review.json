@@ -724,6 +724,16 @@
       "keeperBalanceEth": "0.00005",
       "sourceWeth": "0",
       "vaultWeth": "0"
+    },
+    "workerCapacityFix": {
+      "observedAt": "2026-10-08T11:33:05.938Z",
+      "failure": "Actual production keeper startup API422:Too many subrequests by single Worker invocation",
+      "requestType": "read-only graph, receipt and incremental burn-index queries",
+      "boundedSubrequests": 1000,
+      "accountSubscriptionChanged": false,
+      "signingPermissionChanged": false,
+      "verification": "production_recheck_pending",
+      "officialReference": "https://developers.cloudflare.com/workers/platform/limits/"
     }
   },
   "postDeploymentTypeBoundaryCorrection": {

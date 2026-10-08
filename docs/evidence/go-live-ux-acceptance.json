@@ -34,7 +34,7 @@
       "contracts/test/MusegodBuybackBudgetVault.t.sol": "55a680417538e7a582f693084c04fbbc41994c0a04f550e07b4fca8990ec3c40",
       "contracts/test/MusegodFeeEngine.t.sol": "6aedcbf06755dd876e017b93c92bbe6a5c15cc825a41a311c6ad58990391b515",
       "contracts/test/MusegodWethForwarder.t.sol": "89a78bab49a8ff321abafcd46a1b75f43177f54fe4cc5c16df26f92febba3b92",
-      "docs/SPEC.md": "980dc79bc146e77bceecbc8804c4e8d264ff4ff0ccbe69dd3d0ee9eb9f80c50d",
+      "docs/SPEC.md": "7503eca6e6a14e6f34cf2e0079ad2f97e4e135880bd9cf320d7783206e6f69f1",
       "docs/evidence/buyback-v2-accounting-gas.json": "1b6af03fcff96545ac411060cb667eb603a630b540d962367cc3c0105f4a114b",
       "docs/evidence/buyback-v2-fee-custody.json": "7e0dfade1823a92bbe804d4591d9d95f40eb769b3e9c171f6465cd033776d30b",
       "docs/evidence/buyback-v2-fork.json": "c4ba041bf939b89b56db400b31c0dbb5092fb02bfc8430415e768125ffb46fc9",
@@ -123,7 +123,7 @@
       "tests/runtime-worker.test.ts": "241804dbcf7b071fa89f2adaa09267150e3e82aa2cb232f56fc95a76c1b592ab",
       "tests/token-images.test.ts": "42799de4ba917b86321b6d9541f70601304b840f2637ea299f895d97fdb23c25",
       "worker/index.ts": "18ca52f19ce7e64e42a60e5c2c20a31eab114d251046953a7a85dbcf104fc100",
-      "wrangler.jsonc": "c9bfbdf902048c3a8928b1376b775b06503fa97284b5aa795c2a37df21d91514",
+      "wrangler.jsonc": "28fcad9d63b64b830d1a0beb6315f8cceff65ff6c5ae1afc4cb6823fd1163275",
       "server/launch-policy-registry.ts": "aa377734b2bc288cf1595e659c8a7796da70e38521e4d07b8b7174a4183ff187",
       "tests/go-live-regressions.test.ts": "a663b9d69d08ea89f94844efba915ad8cc1f16469044ff6047c6be30e4ed9223",
       "tests/launch-policy-registry.test.ts": "222e25ff204a424f37e29f2f522a3db331101b6d0a6b80e0e14244504ccec6eb",
@@ -4344,7 +4344,17 @@
       "vaultWeth": "0"
     },
     "reviewEvidence": "docs/evidence/buyback-v2-review.json",
-    "reviewEvidenceSha256": "a65379f7a577878e01f13fa2b30796df17be7c7b4ad0ea674e3b020f64c4a2f3"
+    "reviewEvidenceSha256": "a65379f7a577878e01f13fa2b30796df17be7c7b4ad0ea674e3b020f64c4a2f3",
+    "workerCapacityFix": {
+      "observedAt": "2026-10-08T11:33:05.943Z",
+      "failure": "Actual production keeper startup API422:Too many subrequests by single Worker invocation",
+      "requestType": "read-only graph, receipt and incremental burn-index queries",
+      "boundedSubrequests": 1000,
+      "accountSubscriptionChanged": false,
+      "signingPermissionChanged": false,
+      "verification": "production_recheck_pending",
+      "officialReference": "https://developers.cloudflare.com/workers/platform/limits/"
+    }
   },
   "previousProductionSnapshots": [
     {

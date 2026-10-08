@@ -34,6 +34,8 @@
       ]
     }
   ],
+  // Bounded burn-index pages and canonical activation reads must fit one invocation.
+  "limits": { "subrequests": 1000 },
   "vars": {
     "CHAIN_MODE": "robinhood",
     "LIFI_INTEGRATOR": "musegodfun",
