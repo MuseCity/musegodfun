@@ -1,4 +1,5 @@
 import type { StoreBackend } from "./supabase-store";
+import type { MarketSource } from "../src/lib/market";
 export const SNAPSHOT_TTL = 15 * 60_000;
 export const MAX_STALE = 24 * 60 * 60_000;
 export class MarketUnavailable extends Error {
@@ -18,9 +19,9 @@ export class Snapshots {
     readonly store: StoreBackend,
     readonly now = Date.now,
   ) {}
-  get<T extends { fetchedAt: string }>(
+  get<T extends { fetchedAt: string; source?: MarketSource }>(
     key: string,
-    source: "CoinGecko" | "Blockscout" | "Bankr",
+    source: MarketSource,
     read: () => Promise<T>,
     ttl = SNAPSHOT_TTL,
   ): Promise<T> {
@@ -38,7 +39,7 @@ export class Snapshots {
       ) => ({
         ...data,
         fetchedAt: new Date(at).toISOString(),
-        source,
+        source: data.source ?? source,
         status: stale ? "stale" : "fresh",
         nextRefreshAt: new Date(next).toISOString(),
         warning,

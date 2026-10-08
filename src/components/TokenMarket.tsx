@@ -166,6 +166,11 @@ export default function TokenMarket({
   const stats = summary.data,
     activity = stats?.periods[period],
     change = stats?.periods.h24.change;
+  const chartSnapshot = history.data ?? stats;
+  const chartSource = history.data?.source ?? (kind === "musegod" || token.mode === "robinhood" ? "Bankr" : "CoinGecko");
+  const chartSourceUrl = chartSource === "Bankr"
+    ? kind === "musegod" ? MUSEGOD.sourceUrl : "https://bankr.bot"
+    : chartSource === "GeckoTerminal" ? "https://www.geckoterminal.com" : "https://www.coingecko.com/en/api";
   const items =
     trades.data?.trades.filter((t) => filter === "all" || t.side === filter) ??
     [];
@@ -254,15 +259,15 @@ export default function TokenMarket({
         )}
         <div className="market-attribution">
           <a
-            href={kind === "musegod" ? MUSEGOD.sourceUrl : "https://www.coingecko.com/en/api"}
+            href={chartSourceUrl}
             target="_blank"
             rel="noreferrer"
           >
-            {kind === "musegod" ? "Bankr / Pools" : "CoinGecko"} ↗
+            {kind === "musegod" && chartSource === "Bankr" ? "Bankr / Pools" : chartSource} ↗
           </a>
           <span>
-            {stats
-              ? `Fetched at ${new Date(stats.fetchedAt).toLocaleTimeString("en-US")} · ${kind === "musegod" ? "Refreshes every minute while visible" : "Shared 15-minute snapshot"}`
+            {chartSnapshot
+              ? `Fetched at ${new Date(chartSnapshot.fetchedAt).toLocaleTimeString("en-US")} · ${kind === "musegod" ? "Refreshes every minute while visible" : "Shared 15-minute snapshot"}`
               : "Update time appears after market data loads"}
           </span>
         </div>

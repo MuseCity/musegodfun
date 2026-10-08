@@ -1,0 +1,124 @@
+{
+  "observedAt": "2026-10-08T15:23:13.769Z",
+  "sourceBase": "905800a112b3bc1815ea463e0cf039c6c2128cb0",
+  "sourceHashes": {
+    "server/market.ts": "e3651956295f49070c17b892629f3431d2313d9992c8e6bee12b37608d3668cf",
+    "server/snapshots.ts": "be60c5fd1ad23edea31e606828103b8f06a0e8f9c69b5969245fd8bc5c24c0e9",
+    "src/components/TokenMarket.tsx": "a6b50fdba626175a4f2f2ee3cbea34b4b426e75da0000675a66604df3d42026f",
+    "src/lib/market.ts": "9889d9808e6ad1ff03174e9b9da0307b1f2ba7007177483ee51e7b38a318426f",
+    "tests/robinhood-market.test.ts": "701c82b015a03a39de039177d46ff9fe5d193a53c38fbc8ce9cc8a68c90d0601",
+    "tests/robinhood-worker-market.test.ts": "2d9d8bf54e30734b2e768289141010973423e462256c871f2041e6d48775b93c"
+  },
+  "scope": "Local changed Express API and isolated SQLite cache use the real production catalog token and live public provider responses. Fallback injects only Bankr HTTP 503; GeckoTerminal response is live.",
+  "token": "0xC8ccd7DB491BCd1964925c62887AC94ece19215f",
+  "poolId": "0x09b9e6a2ed5260736d3ee54fa5c2752ecd5e4d85b921770a218d6e5fdbfc1f36",
+  "results": [
+    {
+      "url": "http://127.0.0.1:5194/api/chains/4663/tokens/0xC8ccd7DB491BCd1964925c62887AC94ece19215f/market/candles?interval=1m",
+      "interval": "1m",
+      "httpStatus": 200,
+      "source": "Bankr",
+      "status": "fresh",
+      "candleCount": 20,
+      "volumeUsd": 751.2586321099714,
+      "fetchedAt": "2026-10-08T15:23:08.861Z"
+    },
+    {
+      "url": "http://127.0.0.1:5194/api/chains/4663/tokens/0xC8ccd7DB491BCd1964925c62887AC94ece19215f/market/candles?interval=5m",
+      "interval": "5m",
+      "httpStatus": 200,
+      "source": "Bankr",
+      "status": "fresh",
+      "candleCount": 5,
+      "volumeUsd": 751.2586321099711,
+      "fetchedAt": "2026-10-08T15:23:09.361Z"
+    },
+    {
+      "url": "http://127.0.0.1:5194/api/chains/4663/tokens/0xC8ccd7DB491BCd1964925c62887AC94ece19215f/market/candles?interval=15m",
+      "interval": "15m",
+      "httpStatus": 200,
+      "source": "Bankr",
+      "status": "fresh",
+      "candleCount": 2,
+      "volumeUsd": 751.2586321099711,
+      "fetchedAt": "2026-10-08T15:23:09.813Z"
+    },
+    {
+      "url": "http://127.0.0.1:5194/api/chains/4663/tokens/0xC8ccd7DB491BCd1964925c62887AC94ece19215f/market/candles?interval=1h",
+      "interval": "1h",
+      "httpStatus": 200,
+      "source": "Bankr",
+      "status": "fresh",
+      "candleCount": 2,
+      "volumeUsd": 751.2586321099711,
+      "fetchedAt": "2026-10-08T15:23:10.323Z"
+    },
+    {
+      "url": "http://127.0.0.1:5194/api/chains/4663/tokens/0xC8ccd7DB491BCd1964925c62887AC94ece19215f/market/candles?interval=4h",
+      "interval": "4h",
+      "httpStatus": 200,
+      "source": "Bankr",
+      "status": "fresh",
+      "candleCount": 1,
+      "volumeUsd": 751.2586321099711,
+      "fetchedAt": "2026-10-08T15:23:10.798Z"
+    },
+    {
+      "url": "http://127.0.0.1:5194/api/chains/4663/tokens/0xC8ccd7DB491BCd1964925c62887AC94ece19215f/market/candles?interval=1d",
+      "interval": "1d",
+      "httpStatus": 200,
+      "source": "Bankr",
+      "status": "fresh",
+      "candleCount": 1,
+      "volumeUsd": 751.2586321099711,
+      "fetchedAt": "2026-10-08T15:23:11.329Z"
+    },
+    {
+      "url": "http://127.0.0.1:5195/api/chains/4663/tokens/0xC8ccd7DB491BCd1964925c62887AC94ece19215f/market/candles?interval=1m",
+      "interval": "1m",
+      "httpStatus": 200,
+      "source": "GeckoTerminal",
+      "status": "fresh",
+      "candleCount": 20,
+      "volumeUsd": 751.2586321099714,
+      "fetchedAt": "2026-10-08T15:23:12.597Z"
+    },
+    {
+      "url": "http://127.0.0.1:5195/api/chains/4663/tokens/0xC8ccd7DB491BCd1964925c62887AC94ece19215f/market/candles?interval=1h",
+      "interval": "1h",
+      "httpStatus": 200,
+      "source": "GeckoTerminal",
+      "status": "fresh",
+      "candleCount": 2,
+      "volumeUsd": 751.2586321099711,
+      "fetchedAt": "2026-10-08T15:23:13.763Z"
+    }
+  ],
+  "checks": {
+    "targetedTests": 47,
+    "workerdRuntime": "passed_with_provider_fixtures",
+    "typecheck": "passed",
+    "build": "passed"
+  },
+  "browserScreenshots": [
+    "robinhood-ohlcv-bankr.jpg",
+    "robinhood-ohlcv-gecko.jpg"
+  ],
+  "productionDeployment": "not_run",
+  "walletTransactions": "not_run",
+  "browserChecks": {
+    "bankr": {
+      "interval": "1m",
+      "candles": 20,
+      "sourceLabel": "Bankr",
+      "screenshot": "robinhood-ohlcv-bankr.jpg"
+    },
+    "geckoFallback": {
+      "interval": "1m",
+      "candles": 20,
+      "sourceLabel": "GeckoTerminal",
+      "screenshot": "robinhood-ohlcv-gecko.jpg",
+      "bankrFault": "injected HTTP 503"
+    }
+  }
+}

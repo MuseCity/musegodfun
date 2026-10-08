@@ -1,5 +1,6 @@
+export type MarketSource = "CoinGecko" | "Blockscout" | "Bankr" | "GeckoTerminal";
 export type SnapshotMeta = {
-  source?: "CoinGecko" | "Blockscout" | "Bankr";
+  source?: MarketSource;
   status?: "fresh" | "stale" | "unavailable";
   nextRefreshAt?: string;
   warning?: string;

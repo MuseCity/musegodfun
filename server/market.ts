@@ -1,12 +1,13 @@
 import type { StoreBackend } from "./supabase-store";
 import { MarketUnavailable, Snapshots } from "./snapshots";
 import { z } from "zod";
-import { sameAddress, type TokenRecord } from "../src/lib/config";
+import { quoteAsset, sameAddress, type TokenRecord } from "../src/lib/config";
 import type {
   CandleData,
   ChartInterval,
   HolderData,
   MarketSummary,
+  MarketSource,
   TradeData,
 } from "../src/lib/market";
 
@@ -27,6 +28,27 @@ const optionalPositive = optionalNumber.transform((v) =>
 );
 const address = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
 const hash = z.string().regex(/^0x[0-9a-fA-F]{64}$/);
+const candleRows = z.array(z.tuple([finite.int().safe(), finite, finite, finite, finite, finite])).max(200);
+
+function normalizeCandles(rows: z.infer<typeof candleRows>, now: number): CandleData {
+  const unique = new Map<number, CandleData["candles"][number]>();
+  for (const [time, open, high, low, close, volume] of rows) {
+    if (low > Math.min(open, close) || high < Math.max(open, close) || time > now / 1000 + 60)
+      throw new Error("Invalid candle data");
+    const candle = { time, open, high, low, close, volume }, previous = unique.get(time);
+    if (previous) {
+      // Providers may append a last-trade fragment after the complete candle.
+      // Keep the containing row; summing or last-write wins corrupts volume/OHLC.
+      const contains = (a: typeof candle, b: typeof candle) =>
+        a.close === b.close && a.high >= b.high && a.low <= b.low &&
+        (a.volume > b.volume || (a.volume === b.volume && a.open === b.open && a.high === b.high && a.low === b.low));
+      if (contains(previous, candle)) continue;
+      if (!contains(candle, previous)) throw new Error("Conflicting duplicate candle data");
+    }
+    unique.set(time, candle);
+  }
+  return { fetchedAt: new Date(now).toISOString(), candles: [...unique.values()].sort((a, b) => a.time - b.time) };
+}
 const poolSchema = z.object({
   data: z.object({
     attributes: z.object({
@@ -83,16 +105,12 @@ export function parseMarketSummary(
     ),
   };
 }
-export function parseCandles(raw: unknown, token: TokenRecord): CandleData {
+export function parseCandles(raw: unknown, token: TokenRecord, now = Date.now()): CandleData {
   const data = z
     .object({
       data: z.object({
         attributes: z.object({
-          ohlcv_list: z
-            .array(
-              z.tuple([finite.int(), finite, finite, finite, finite, finite]),
-            )
-            .max(200),
+          ohlcv_list: candleRows,
         }),
       }),
       meta: z.object({
@@ -106,31 +124,19 @@ export function parseCandles(raw: unknown, token: TokenRecord): CandleData {
     !sameAddress(data.meta.quote.address, token.quoteAddress)
   )
     throw new Error("The candle trading pair does not match");
-  const candles = data.data.attributes.ohlcv_list.map(
-    ([time, open, high, low, close, volume]) => ({
-      time,
-      open,
-      high,
-      low,
-      close,
-      volume,
-    }),
-  );
-  if (
-    candles.some(
-      (c) =>
-        c.low > Math.min(c.open, c.close) ||
-        c.high < Math.max(c.open, c.close) ||
-        c.time > Date.now() / 1000 + 60,
-    )
-  )
-    throw new Error("Invalid candle data");
-  return {
-    fetchedAt: new Date().toISOString(),
-    candles: [...new Map(candles.map((c) => [c.time, c])).values()].sort(
-      (a, b) => a.time - b.time,
-    ),
-  };
+  return normalizeCandles(data.data.attributes.ohlcv_list, now);
+}
+export function parseBankrCandles(raw: unknown, token: TokenRecord, now = Date.now()): CandleData {
+  const data = z.object({
+    ohlcv: candleRows,
+    pool: z.object({ address: hash, network: z.literal("robinhood") }),
+    pair: z.object({ baseSymbol: z.string(), quoteSymbol: z.string() }),
+    watermark: z.object({ blockNumber: finite.int().safe(), logIndex: finite.int().safe(), txHash: hash }).nullish(),
+  }).parse(raw);
+  if (!sameAddress(data.pool.address, token.poolId) || data.pair.baseSymbol !== token.symbol ||
+    data.pair.quoteSymbol !== quoteAsset(token).symbol)
+    throw new Error("The Bankr candle trading pair does not match");
+  return { ...normalizeCandles(data.ohlcv, now), source: "Bankr", watermark: data.watermark ?? null };
 }
 export function parseTrades(raw: unknown, token: TokenRecord): TradeData {
   const rows = z
@@ -187,6 +193,7 @@ export function parseTrades(raw: unknown, token: TokenRecord): TradeData {
 }
 export class MarketReader {
   private snapshots?: Snapshots;
+  private geckoCalls: number[] = [];
   constructor(
     private readonly options: {
       store?: StoreBackend;
@@ -200,14 +207,15 @@ export class MarketReader {
     if (options.store)
       this.snapshots = new Snapshots(options.store, options.now);
   }
-  private cached<T extends { fetchedAt: string }>(
+  private cached<T extends { fetchedAt: string; source?: MarketSource }>(
     key: string,
     read: () => Promise<T>,
+    source?: MarketSource,
   ): Promise<T> {
     if (!this.snapshots) throw new Error("Persistent market storage is not configured");
     return this.snapshots.get(
       key,
-      key.endsWith(":holders") ? "Blockscout" : "CoinGecko",
+      source ?? (key.endsWith(":holders") ? "Blockscout" : "CoinGecko"),
       read,
     );
   }
@@ -216,7 +224,7 @@ export class MarketReader {
       throw new Error("Local forks do not display mainnet market or holder data. Local onchain quotes remain available.");
     if (token.mode !== "base")
       throw new MarketUnavailable(
-        "Market and holder data for Robinhood Chain are not configured. Onchain quotes remain available.",
+        "Market statistics, indexed trades and holder data for Robinhood Chain are not configured. Candlestick data and onchain quotes remain available.",
         new Date((this.options.now || Date.now)() + 15 * 60_000).toISOString(),
         source,
       );
@@ -234,12 +242,20 @@ export class MarketReader {
       ))
     )
       throw new Error("The free market data quota for this period has been exhausted");
+    if (new URL(url).hostname === "api.geckoterminal.com") {
+      const now = (this.options.now || Date.now)();
+      this.geckoCalls = this.geckoCalls.filter((at) => now - at < 60_000);
+      if (this.geckoCalls.length >= 30) throw new Error("The GeckoTerminal public API request limit has been reached");
+      this.geckoCalls.push(now);
+    }
     const response = await (this.options.fetch || fetch)(url, {
+      method: "GET",
       headers: {
         accept: "application/json",
         ...(isMarket ? { "x-cg-demo-api-key": this.options.apiKey! } : {}),
       },
       signal: AbortSignal.timeout(15_000),
+      redirect: "manual",
     });
     if (!response.ok)
       throw new Error(
@@ -301,7 +317,9 @@ export class MarketReader {
     );
   }
   candles(token: TokenRecord, interval: ChartInterval) {
-    this.assertLive(token);
+    if (token.mode !== "robinhood") this.assertLive(token);
+    else if (token.deploymentChainId !== undefined && token.deploymentChainId !== 4663)
+      throw new Error("Robinhood candlestick data requires Robinhood Chain mainnet");
     const [frame, aggregate] = (
       {
         "1m": ["minute", 1],
@@ -312,6 +330,29 @@ export class MarketReader {
         "1d": ["day", 1],
       } as const
     )[interval];
+    if (token.mode === "robinhood") {
+      const key = `candles:robinhood:${token.address.toLowerCase()}:${token.poolId.toLowerCase()}:${interval}`;
+      return this.cached(key, async (): Promise<CandleData> => {
+        const now = () => (this.options.now || Date.now)();
+        let empty: CandleData | undefined;
+        try {
+          const data = parseBankrCandles(await this.json(
+            `https://api.bankr.bot/discover/${token.address.toLowerCase()}/ohlcv?aggregate=${aggregate}&limit=200&timeframe=${frame}&chain=robinhood`,
+          ), token, now());
+          if (data.candles.length) return data;
+          empty = data;
+        } catch { /* Try the registered pool directly through GeckoTerminal. */ }
+        try {
+          const data = parseCandles(await this.json(
+            `https://api.geckoterminal.com/api/v2/networks/robinhood/pools/${token.poolId}/ohlcv/${frame}?aggregate=${aggregate}&limit=200&currency=usd&token=${token.address}`,
+          ), token, now());
+          return data.candles.length || !empty ? { ...data, source: "GeckoTerminal" } : empty;
+        } catch (error) {
+          if (empty) return empty;
+          throw error;
+        }
+      }, "Bankr");
+    }
     return this.cached(`${token.address}:${interval}`, async () =>
       parseCandles(
         await this.json(

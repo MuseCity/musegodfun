@@ -170,7 +170,6 @@ test("Robinhood assets cannot fetch or reuse Base market and holder data", () =>
   assert.throws(() => reader.summary(robinhoodToken), unavailable);
   assert.throws(() => reader.summaries([robinhoodToken]), unavailable);
   assert.throws(() => reader.trades(robinhoodToken), unavailable);
-  assert.throws(() => reader.candles(robinhoodToken, "1h"), unavailable);
   assert.throws(() => reader.holders(robinhoodToken), unavailable);
   assert.equal(reads, 0);
 });
