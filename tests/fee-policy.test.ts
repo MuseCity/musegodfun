@@ -188,6 +188,7 @@ test(`already broadcast ${legacyPolicy ?? "unmarked"}${usdSnapshot ? " fixed USD
       tokenByTxHash: async () => null,
       deferLaunch: async () => {},
       saveToken: async (token: TokenRecord) => saved.push(token),
+      upgradeTokenProvenance: async () => {},
       launchStatus: async (...args: unknown[]) => statuses.push(args),
     },
   }) as LaunchpadService;

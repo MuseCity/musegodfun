@@ -71,9 +71,14 @@ try {
     poolId: plan.poolId, transactionHash: hash, blockNumber: "1", createdAt: now, mode: "base",
     feePolicy: plan.feePolicy, feeTreasury: plan.feeTreasury,
   };
-  await store.saveToken(token);
+  await store.saveToken({ ...token, openingValuationUnverified: true });
   await store.saveToken(token);
   assert.equal((await connect(scope).tokens()).length, 1);
+  assert.equal((await connect(scope).tokenByTxHash(hash))?.openingValuationUnverified, true, "A token record is written once");
+  await store.upgradeTokenProvenance(token);
+  assert.equal((await connect(scope).tokenByTxHash(hash))?.openingValuationUnverified, undefined, "A proven opening valuation upgrades it in place");
+  await store.upgradeTokenProvenance({ ...token, openingValuationUnverified: true });
+  assert.equal((await connect(scope).tokenByTxHash(hash))?.openingValuationUnverified, undefined, "Provenance never downgrades");
   await store.launchStatus(hash, "confirmed", blockHash);
   const queue = await connect(scope).pendingLaunches();
   assert.equal(queue.length, 1, "Replacement must leave the active queue");

@@ -13,6 +13,7 @@ import { buildLaunch } from "../src/lib/protocol";
 import { ENGINE_FEE_POLICY, FEE_POLICY } from "../src/lib/fee-policy";
 import { minimumOutput } from "../src/lib/validation";
 import { syntheticOpeningValuation } from "./fixtures";
+import { activatedEngineManifest } from "./engine-manifest-fixture";
 import { OPENING_CAP_USD, openingCapInQuote, type HistoricalOpeningValuation } from "../src/lib/opening-valuation";
 import { assertPlanIntegrity, assertRecoveryPlan, verifiedFirstBuyLock, verifyGuardedReceipt } from "../server/launch-verification";
 import { chainLaunchDependencies, expectedGuardRuntime, identifyGuardVersion, verifyLaunchGuard } from "../server/launch-guard";
@@ -939,8 +940,7 @@ test("a recovered launch is listed as platform-verified only with a valid platfo
 
 test("after a recorded engine cutover, treasury-only launches recover only within the signing window and prepare refuses new ones", async () => {
   const cutoverAt = 1_900_000_000n;
-  const manifest = (hashOf: Hex = blockHash, at = cutoverAt) => ({ chainId: 4663, status: "pending_deployment", constants: { treasury: "0xc4F87C3715374445C4657aa14c47CBB339b59d1A" },
-    contracts: { engine: { address: null } }, engineLaunchCutover: { blockNumber: "5", blockHash: hashOf, timestamp: Number(at) } });
+  const manifest = (hashOf: Hex = blockHash, at = cutoverAt) => activatedEngineManifest(guard, { blockNumber: "5", blockHash: hashOf, timestamp: Number(at) }, "5");
   const recover = async (receiptTime: bigint, cutoverHash?: Hex) => {
     const f = ordinaryFixture(100), directory = mkdtempSync(join(tmpdir(), "recovery-cutover-test-")), store = new Store(directory, 31337);
     try {
@@ -958,6 +958,11 @@ test("after a recorded engine cutover, treasury-only launches recover only withi
   const passed = prepareWith(BigInt(Math.floor(Date.now() / 1000) - 60));
   await assert.rejects(() => passed.prepare(draft, creator, CURVE_POLICY, { amount: "0", slippageBps: 100, lockDays: 0 }), /route fees through the buyback engine/);
   await assert.rejects(() => passed.preflightFirstBuyPayment(quote.address), /route fees through the buyback engine/);
+  const unactivated = Object.assign(Object.create(LaunchpadService.prototype), { runtime: { config }, config: async () => config,
+    assertNetwork: async () => {}, client: { getCode: async () => "0x" },
+    launchManifest: () => ({ ...manifest(blockHash, BigInt(Math.floor(Date.now() / 1000) + 3600)), activationVerification: { status: "pending" } }) }) as LaunchpadService;
+  await assert.rejects(() => unactivated.prepare(draft, creator, CURVE_POLICY, { amount: "0", slippageBps: 100, lockDays: 0 }), /verified, activated buyback deployment/,
+    "a cutover recorded without a verified activation stops previews instead of being ignored");
   // Before the cutover, treasury-only previews continue (this stub then fails at the asset read).
   await assert.rejects(() => prepareWith(BigInt(Math.floor(Date.now() / 1000) + 3600)).prepare(draft, creator, CURVE_POLICY, { amount: "0", slippageBps: 100, lockDays: 0 }),
     (error: Error) => !/buyback engine/.test(error.message));
@@ -1058,6 +1063,10 @@ test("a recovery retried after its token failed to save is still a backup: verif
       const record = await service.register(hash, backup);
       assert.equal(record.openingValuationUnverified, true, `${retryWith}: an unattested opening valuation is not claimed as verified`);
       assert.equal(store.tokenByTxHash(hash)?.openingValuationUnverified, true);
+      // Reconciliation removes a token whose block was reorganized, then registers it again from the stored preview.
+      store.removeToken(hash);
+      assert.equal((await service.register(hash)).openingValuationUnverified, true, `${retryWith}: still unverified after re-registration`);
+      assert.equal(store.tokenByTxHash(hash)?.openingValuationUnverified, true);
     } finally { store.close(); rmSync(directory, { recursive: true }); }
   }
   const f = ordinaryFixture(100), directory = mkdtempSync(join(tmpdir(), "recovery-retry-attested-test-")), store = new Store(directory, 31337);
@@ -1068,6 +1077,32 @@ test("a recovery retried after its token failed to save is still a backup: verif
     assert.equal((await service.register(hash, structuredClone(f.plan))).openingValuationUnverified, undefined,
       "an attestation verified on the first attempt still counts when the retried copy lacks it");
     assert.equal(store.getPlan(f.plan.id)?.attestation, planAttestation(key, 4663, f.plan.id));
+  } finally { store.close(); rmSync(directory, { recursive: true }); }
+});
+
+test("an unattested backup registered first cannot keep a launch unverified once its attestation is proven", async () => {
+  const key = "k".repeat(32), previous = "p".repeat(32);
+  for (const order of ["unattested first", "attested first"] as const) {
+    const f = ordinaryFixture(100), directory = mkdtempSync(join(tmpdir(), "recovery-provenance-order-test-")), store = new Store(directory, 31337);
+    try {
+      const service = recoveryService(f, store, { attestationKey: key });
+      const attested = { ...structuredClone(f.plan), attestation: planAttestation(key, 4663, f.plan.id) };
+      const stripped = structuredClone(f.plan);
+      const [first, second] = order === "unattested first" ? [stripped, attested] : [attested, stripped];
+      await service.register(hash, first);
+      const response = await service.register(hash, second);
+      assert.equal(store.tokenByTxHash(hash)?.openingValuationUnverified, undefined, `${order}: the listed launch is verified`);
+      assert.equal(response.openingValuationUnverified, undefined, `${order}: the response matches what is listed`);
+    } finally { store.close(); rmSync(directory, { recursive: true }); }
+  }
+  // A launch recovered while its attestation key was not retained becomes verified once the key is restored.
+  const f = ordinaryFixture(100), directory = mkdtempSync(join(tmpdir(), "recovery-provenance-rotation-test-")), store = new Store(directory, 31337);
+  try {
+    const backup = { ...structuredClone(f.plan), attestation: planAttestation(previous, 4663, f.plan.id) };
+    assert.equal((await recoveryService(f, store, { attestationKey: key }).register(hash, backup)).openingValuationUnverified, true);
+    const restored = recoveryService(f, store, { attestationKey: key, previousAttestationKeys: [previous] });
+    assert.equal((await restored.register(hash)).openingValuationUnverified, undefined, "the stored backup's attestation now verifies");
+    assert.equal(store.tokenByTxHash(hash)?.openingValuationUnverified, undefined);
   } finally { store.close(); rmSync(directory, { recursive: true }); }
 });
 
@@ -1118,8 +1153,7 @@ test("evidence read across a reorganization is not kept for the receipt block it
 test("a recorded cutover is re-verified until final, so a reorganized cutover block stops being trusted", async (context) => {
   context.mock.timers.enable({ apis: ["Date"], now: Date.now() });
   const cutoverAt = 1_900_000_000n;
-  const manifest = { chainId: 4663, status: "pending_deployment", constants: { treasury: "0xc4F87C3715374445C4657aa14c47CBB339b59d1A" },
-    contracts: { engine: { address: null } }, engineLaunchCutover: { blockNumber: "5", blockHash, timestamp: Number(cutoverAt) } };
+  const manifest = activatedEngineManifest(guard, { blockNumber: "5", blockHash, timestamp: Number(cutoverAt) }, "5");
   const f = ordinaryFixture(100), directory = mkdtempSync(join(tmpdir(), "recovery-cutover-final-test-")), store = new Store(directory, 31337);
   const reads: string[] = [];
   const options: NonNullable<Parameters<typeof recoveryService>[2]> = { reads, manifest, blockTimes: { "5": cutoverAt, "10": cutoverAt + 100n }, finalized: 4n };

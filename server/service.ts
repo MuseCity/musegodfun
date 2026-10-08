@@ -721,10 +721,15 @@ export class LaunchpadService {
       await this.store.savePlan({ ...restored, recovered: true, ...(kept ? { attestation: kept } : {}) });
       await this.store.protectPlan(plan.id); await this.store.trackLaunch(hash, plan.id);
     }
+    // A token is written once, and its provenance may only improve: a launch
+    // first registered from an unattested backup becomes verified once an
+    // attested backup or a retained key proves its opening valuation, in
+    // whichever order concurrent registrations land.
     await this.store.saveToken(token);
+    await this.store.upgradeTokenProvenance(token);
     this.invalidateTokens();
     await this.store.launchStatus(hash, "confirmed", receipt.blockHash);
-    return token;
+    return await this.store.tokenByTxHash(hash) ?? token;
   }
   private reconciling = false;
   private reconcileCursor?: Hex;

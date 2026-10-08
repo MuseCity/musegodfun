@@ -6,6 +6,7 @@ import { ENGINE_FEE_POLICY, FEE_POLICY } from "../src/lib/fee-policy";
 import { assertTrustedLaunchPolicy, engineLaunchCutover, ENGINE_MANIFEST, trustedLaunchPolicies } from "../server/launch-policy-registry";
 import { planAttestation, verifyPlanAttestation } from "../server/plan-attestation";
 import { redact, runtimeFromEnv } from "../server/config";
+import { activatedEngineManifest } from "./engine-manifest-fixture";
 
 const configured = "0x2222222222222222222222222222222222222222" as Address;
 const operations = "0xc4F87C3715374445C4657aa14c47CBB339b59d1A" as Address;
@@ -71,7 +72,7 @@ test("an operator-configured engine is never trusted, even on a local fork, and 
 
 test("after the recorded engine cutover, treasury-only routing is trusted only through the signing window", () => {
   const cutoverAt = 1_900_000_000;
-  const withCutover = { ...deployed(), engineLaunchCutover: { blockNumber: "95000000", blockHash: `0x${"ab".repeat(32)}` as `0x${string}`, timestamp: cutoverAt } };
+  const withCutover = activatedEngineManifest(engine, { blockNumber: "95000000", blockHash: `0x${"ab".repeat(32)}`, timestamp: cutoverAt });
   const lastAccepted = BigInt(cutoverAt + 300 + 60 - 1);
   for (const config of [robinhood(), robinhood({ treasury: operations })]) {
     const policies = trustedLaunchPolicies(config, withCutover);
@@ -92,6 +93,27 @@ test("after the recorded engine cutover, treasury-only routing is trusted only t
   assert.equal(engineLaunchCutover(baseConfig, withCutover), undefined);
   assert.doesNotThrow(() => assertTrustedLaunchPolicy({ feePolicy: FEE_POLICY, feeTreasury: configured }, baseConfig, at(10n ** 12n, 10n ** 12n),
     trustedLaunchPolicies(baseConfig, withCutover)), "Base has no engine and keeps treasury routing");
+});
+
+test("a cutover is honoured only for the verified, activated graph it was recorded for, and otherwise fails closed", () => {
+  const recorded = { blockNumber: "95000000", blockHash: `0x${"ab".repeat(32)}` as `0x${string}`, timestamp: 1_900_000_000 };
+  const valid = activatedEngineManifest(engine, recorded);
+  assert.equal(engineLaunchCutover(robinhood(), valid)?.blockNumber, "95000000");
+  assert.doesNotThrow(() => engineLaunchCutover(robinhood(), ENGINE_MANIFEST), "the committed manifest is consistent");
+  const redeployed = { ...valid, contracts: { ...valid.contracts, vault: { address: unknown, runtimeHash: `0x${"9".repeat(64)}` } } };
+  for (const [label, manifest] of [
+    ["engine not source-verified", { ...valid, status: "deployed_runtime_verified" }],
+    ["activation not verified", { ...valid, activationVerification: { status: "pending" } }],
+    ["graph changed after recording", redeployed],
+    ["cutover bound to another graph", { ...valid, engineLaunchCutover: { ...valid.engineLaunchCutover!, graphFingerprint: `0x${"12".repeat(32)}` } }],
+    ["cutover before activation", activatedEngineManifest(engine, { ...recorded, blockNumber: "93999999" })],
+    ["cutover without an activated graph", { ...ENGINE_MANIFEST, engineLaunchCutover: valid.engineLaunchCutover }],
+  ] as const) {
+    assert.throws(() => engineLaunchCutover(robinhood(), manifest), /verified, activated buyback deployment/, label);
+    assert.throws(() => trustedLaunchPolicies(robinhood(), manifest), /verified, activated/, `${label}: recovery fails closed too`);
+  }
+  const baseConfig: RuntimeConfig = { mode: "base", deploymentChainId: 8453, chainId: 8453, treasury: configured, writesEnabled: false, blockReason: null };
+  assert.equal(engineLaunchCutover(baseConfig, redeployed), undefined, "Base never reads the Robinhood cutover");
 });
 
 test("plan attestations bind key, chain and preview id, and keys are validated and redacted", () => {

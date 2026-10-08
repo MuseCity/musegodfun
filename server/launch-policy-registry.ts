@@ -1,5 +1,7 @@
 import { getAddress, type Address, type Hex } from "viem";
 import engineDeployment from "../contracts/artifacts/buyback-v2-deployment.json";
+import { buybackGraphFingerprint } from "./buyback-activation";
+import type { BuybackDeployment } from "./buyback-engine";
 import { deploymentChain, sameAddress, type RuntimeConfig } from "../src/lib/config";
 import { ENGINE_FEE_POLICY, FEE_POLICY, type FeePolicy } from "../src/lib/fee-policy";
 import { LAUNCH_SIGNING_TTL, type LaunchPlan } from "../src/lib/launch-plan";
@@ -11,11 +13,14 @@ export type TrustedLaunchPolicy = { feePolicy: FeePolicy; treasury: Address; fee
   toTimestamp?: bigint };
 
 /** The fixed point from which Robinhood launches route platform fees through
- * the engine. Recorded in the deployment manifest only when it is chosen;
- * prepare() and recovery both read it, and recovery checks it is canonical. */
-export type EngineLaunchCutover = { blockNumber: string; blockHash: Hex; timestamp: number };
+ * the engine. scripts/record-engine-cutover.ts records it in the deployment
+ * manifest once the engine is verified and activated on chain, bound to that
+ * activated graph; prepare() and recovery both read it, and recovery checks
+ * it is canonical. */
+export type EngineLaunchCutover = { blockNumber: string; blockHash: Hex; timestamp: number; graphFingerprint: Hex };
 type EngineManifest = { chainId: number; status: string; constants: { treasury: string };
   contracts: { engine: { address: string | null; blockNumber?: number | string } };
+  activationVerification?: { status?: string; fingerprint?: string; activatedAtBlock?: string };
   engineLaunchCutover?: EngineLaunchCutover };
 
 // A no-engine preview accepted just before the cutover can still be signed
@@ -68,7 +73,27 @@ export function trustedLaunchPolicies(config: RuntimeConfig, manifest: EngineMan
 
 /** The engine cutover for this deployment chain, if one has been recorded. */
 export function engineLaunchCutover(config: Pick<RuntimeConfig, "mode" | "deploymentChainId">, manifest: EngineManifest = ENGINE_MANIFEST) {
-  return deploymentChain(config) === 4663 && manifest.chainId === 4663 ? manifest.engineLaunchCutover : undefined;
+  return deploymentChain(config) === 4663 && manifest.chainId === 4663 ? assertEngineLaunchCutover(manifest) : undefined;
+}
+
+/** A recorded cutover is honoured only for the verified deployment whose
+ * activation it was recorded after. Anything else (no verified activation, a
+ * redeployed graph, a cutover before activation) fails closed: Robinhood
+ * previews stop and treasury-only recoveries are refused until it is fixed. */
+export function assertEngineLaunchCutover(manifest: EngineManifest): EngineLaunchCutover | undefined {
+  const cutover = manifest.engineLaunchCutover;
+  if (!cutover) return undefined;
+  const activation = manifest.activationVerification;
+  let graph: string | undefined;
+  try { graph = buybackGraphFingerprint(manifest as unknown as BuybackDeployment).toLowerCase(); } catch { graph = undefined; }
+  const block = typeof cutover.blockNumber === "string" && /^(?:0|[1-9]\d{0,19})$/.test(cutover.blockNumber) ? BigInt(cutover.blockNumber) : null;
+  const activatedAt = typeof activation?.activatedAtBlock === "string" && /^(?:0|[1-9]\d{0,19})$/.test(activation.activatedAtBlock) ? BigInt(activation.activatedAtBlock) : null;
+  if (manifest.status !== "deployed_verified" || !manifest.contracts.engine.address || !graph || activation?.status !== "verified" ||
+    activation.fingerprint?.toLowerCase() !== graph || cutover.graphFingerprint?.toLowerCase() !== graph ||
+    block === null || activatedAt === null || block < activatedAt || !/^0x[0-9a-fA-F]{64}$/.test(cutover.blockHash ?? "") ||
+    !Number.isSafeInteger(cutover.timestamp) || cutover.timestamp <= 0)
+    throw new Error("The recorded engine launch cutover does not belong to the verified, activated buyback deployment. Record it again with scripts/record-engine-cutover.ts.");
+  return cutover;
 }
 
 export function assertTrustedLaunchPolicy(plan: Pick<LaunchPlan, "feePolicy" | "feeTreasury" | "feeEngine">, config: RuntimeConfig,

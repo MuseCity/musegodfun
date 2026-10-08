@@ -191,6 +191,13 @@ export class SupabaseStore implements StoreBackend {
       "resolution=ignore-duplicates,return=minimal",
     );
   }
+  async upgradeTokenProvenance(token: TokenRecord) {
+    if (token.openingValuationUnverified || !token.transactionHash) return;
+    await this.request(
+      `musegod_tokens?${this.where()}&address=eq.${encodeURIComponent(token.address.toLowerCase())}&tx_hash=eq.${encodeURIComponent(token.transactionHash.toLowerCase())}&payload->>openingValuationUnverified=eq.true`,
+      "PATCH", { payload: token }, "return=minimal",
+    );
+  }
   async tokens(): Promise<TokenRecord[]> {
     const result: TokenRecord[] = [];
     for (let offset = 0; ; offset += 1000) {

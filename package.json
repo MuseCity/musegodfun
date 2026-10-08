@@ -37,6 +37,7 @@
     "test:buyback-engine-contracts": "forge test --root contracts --match-contract \"Musegod(Buyback|FeeEngine|WethForwarder|AssetFeedOracle).*\"",
     "test:buyback-engine-fork": "tsx scripts/run.ts scripts/test-buyback-engine-fork.ts",
     "verify:buyback-engine": "tsx scripts/deploy-buyback-engine.ts --verify-only",
+    "record:engine-cutover": "tsx scripts/record-engine-cutover.ts",
     "keeper:buyback": "tsx scripts/buyback-keeper.ts",
     "build:buyback-engine": "tsx scripts/build-buyback-artifacts.ts"
   },

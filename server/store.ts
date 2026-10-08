@@ -265,6 +265,14 @@ export class Store {
         JSON.stringify(token),
       );
   }
+  /** Provenance only ever improves: replaces a token record still marked with
+   * an unverified opening valuation by the same launch, now proven. */
+  upgradeTokenProvenance(token: TokenRecord) {
+    if (token.openingValuationUnverified || !token.transactionHash) return;
+    this.db
+      .prepare("UPDATE tokens SET payload=? WHERE address=? AND lower(tx_hash)=lower(?) AND json_extract(payload,'$.openingValuationUnverified') IS NOT NULL")
+      .run(JSON.stringify(token), token.address.toLowerCase(), token.transactionHash);
+  }
   tokens(): TokenRecord[] {
     return (
       this.db
