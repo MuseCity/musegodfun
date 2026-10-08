@@ -170,6 +170,9 @@ export type TokenRecord = {
   feeEngine?: Address;
   // Present only after calldata and the receipt-block schedule were verified.
   tradingFeeBps?: number;
+  // Set only for a launch recovered from a local backup without a valid
+  // platform attestation: its opening valuation is not platform-verified.
+  openingValuationUnverified?: true;
 };
 
 // Currency ordering changes with the deployed meme address; never assume the

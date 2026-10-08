@@ -48,8 +48,8 @@ export function saveFrozenLaunch(config: RuntimeConfig, account: Address, plan: 
  * review-time plan backup alone is not evidence: it exists before any send. */
 export function sentLaunchAwaitingRegistration(config: Pick<RuntimeConfig, "chainId" | "mode" | "deploymentChainId">, tokenAddress: string): boolean {
   try {
-    // A sped-up launch leaves its original row "replaced"; the replacement created the token.
-    return transactions().some((tx) => tx.action === "launch" && !tx.registered && ["pending", "success", "replaced"].includes(tx.status) &&
+    // A sped-up (repriced) launch is saved as its own pending row with the same token.
+    return transactions().some((tx) => tx.action === "launch" && !tx.registered && ["pending", "success"].includes(tx.status) &&
       tx.tokenAddress?.toLowerCase() === tokenAddress.toLowerCase() && transactionMatchesConfig(tx, config));
   } catch { return false; }
 }

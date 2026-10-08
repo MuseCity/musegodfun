@@ -36,10 +36,10 @@ import {
 } from "../src/lib/config";
 import { assertStock, buildLaunch, readStockStatus as readLaunchAssetStatus } from "../src/lib/protocol";
 import { firstBuyLockStatusFromPosition } from "./first-buy-lock-status";
-import { ENGINE_FEE_POLICY, launchFeePolicy } from "../src/lib/fee-policy";
+import { ENGINE_FEE_POLICY, FEE_POLICY, launchFeePolicy } from "../src/lib/fee-policy";
 import { tradingFeeBpsFor } from "../src/lib/trading-fee";
 import { assertOpeningValuation, assertHistoricalOpeningValuation, openingCapInQuote, LIFI_OPENING_MAX_DIVERGENCE_BPS, type LifiOpeningValuation } from "../src/lib/opening-valuation";
-import { assertRecoveredOpeningValuation, readOpeningValuation } from "./opening-price";
+import { assertRecoveredOpeningValuation, readOpeningValuation, RecoveryEvidenceError } from "./opening-price";
 import {
   addressSchema,
   launchSchema,
@@ -58,7 +58,8 @@ import { assertLaunchPlanValidity, LAUNCH_SIGNING_TTL, restorePrepared, serializ
 import { chainLaunchDependencies, verifyLaunchGuard } from "./launch-guard";
 import { assertLaunchTradingFee, assertPlanIntegrity, assertRecoveryPlan, verifiedFirstBuyLock, verifyCreationAccounting, verifyGuardedReceipt } from "./launch-verification";
 import { verifyFeeEngine } from "./buyback-engine";
-import { assertTrustedLaunchPolicy } from "./launch-policy-registry";
+import { assertTrustedLaunchPolicy, engineLaunchCutover, ENGINE_MANIFEST, trustedLaunchPolicies, type EngineLaunchCutover } from "./launch-policy-registry";
+import { planAttestation, verifyPlanAttestation } from "./plan-attestation";
 import { BudgetUnavailable } from "./runtime-policy";
 import type { EngineClaimPreview } from "../src/lib/buyback-engine";
 
@@ -86,7 +87,9 @@ export class LaunchpadService {
   private openingRequests?: Map<string, Promise<LifiOpeningValuation>>;
   private registerRequests?: Map<string, Promise<TokenRecord>>;
   private stateReads?: Map<string, ReturnType<LaunchpadService["state"]>>;
-  private recoveryLoad?: { active: number; started: number[]; byTransaction: Map<string, number[]> };
+  private recoveryLoad?: { active: number; started: number[] };
+  private canonicalCutover?: string;
+  private recoveryChecks?: Map<string, { promise: Promise<void>; settledAt?: number; ttl: number }>;
   constructor(readonly runtime: ReturnType<typeof runtimeFromEnv>) {
     this.guardCandidate = runtime.launchGuardCandidate;
     this.firstBuyGuardCandidate = runtime.firstBuyGuardCandidate;
@@ -301,6 +304,7 @@ export class LaunchpadService {
     await this.assertNetwork();
     if (options?.account) await this.assertCreatorAccount(options.account);
     const config = await this.config();
+    this.assertLaunchPolicyCurrent(launchFeePolicy(config));
     if (launchFeePolicy(config) === ENGINE_FEE_POLICY && !config.feeEngine)
       throw new Error("The configured fee engine could not be verified. Try again after deployment verification.");
     if (!config.launchGuard)
@@ -341,6 +345,7 @@ export class LaunchpadService {
     await this.assertCreatorAccount(creator);
     const launchConfig = await this.config();
     const feePolicy = launchFeePolicy(launchConfig);
+    this.assertLaunchPolicyCurrent(feePolicy);
     if (feePolicy === ENGINE_FEE_POLICY && !launchConfig.feeEngine)
       throw new Error("The configured fee engine could not be verified. Try again after deployment verification.");
     let guard: Address | null = null;
@@ -411,6 +416,8 @@ export class LaunchpadService {
     };
     assertOpeningValuation(openingValuation, stock.address, chainId, finalizedAt);
     assertPlanIntegrity(plan, this.contracts);
+    const attestationKey = this.runtime.secrets?.planAttestationKey;
+    if (attestationKey) plan.attestation = planAttestation(attestationKey, chainId, plan.id);
     await this.store.savePlan(plan);
     return plan;
   }
@@ -499,23 +506,65 @@ export class LaunchpadService {
     requests.set(key, request);
     try { return await request; } finally { requests.delete(key); }
   }
-  /** Bounds the RPC and SDK work an unauthenticated backup can trigger. A
+  /** The committed engine deployment manifest (replaceable in tests). */
+  private launchManifest() { return ENGINE_MANIFEST; }
+  private launchCutover() { return engineLaunchCutover(this.runtime.config, this.launchManifest()); }
+  /** From the recorded cutover, Robinhood launches route fees through the
+   * engine; recovery trusts treasury-only routing only until then plus the
+   * signing window, so issuing one afterwards would strand it. */
+  private assertLaunchPolicyCurrent(feePolicy: string) {
+    const cutover = this.launchCutover();
+    if (cutover && feePolicy !== ENGINE_FEE_POLICY && Date.now() >= cutover.timestamp * 1000)
+      throw new Error("New Robinhood launches now route fees through the buyback engine, which is not available yet. Try again after it is configured.");
+  }
+  private async assertCanonicalCutover(cutover: EngineLaunchCutover) {
+    const key = `${cutover.blockNumber}:${cutover.blockHash.toLowerCase()}:${cutover.timestamp}`;
+    if (this.canonicalCutover === key) return;
+    const block = await this.client.getBlock({ blockNumber: BigInt(cutover.blockNumber) });
+    if (!block.hash || block.hash.toLowerCase() !== cutover.blockHash.toLowerCase() || block.timestamp !== BigInt(cutover.timestamp))
+      throw new Error("The recorded engine launch cutover is not a canonical block, so treasury-only launches cannot be recovered until it is corrected.");
+    this.canonicalCutover = key;
+  }
+  /** Bounds the RPC work recovered backups can trigger across all callers. A
    * capacity refusal is a retryable 429, never a challenge to a real recovery. */
-  private async withRecoveryVerification<T>(hash: Hex, work: () => Promise<T>): Promise<T> {
-    const load = this.recoveryLoad ??= { active: 0, started: [], byTransaction: new Map<string, number[]>() }, now = Date.now();
-    const retryAfter = (oldest: number) => Math.max(1, Math.ceil((oldest + 60_000 - now) / 1000));
+  private async withRecoveryVerification<T>(work: () => Promise<T>): Promise<T> {
+    const load = this.recoveryLoad ??= { active: 0, started: [] }, now = Date.now();
     load.started = load.started.filter((at) => at > now - 60_000);
-    // One real creation transaction, replayed with endless invalid backups,
-    // must not drain the shared pool for everyone else's recoveries.
-    const attempts = (load.byTransaction.get(hash) ?? []).filter((at) => at > now - 60_000);
-    if (attempts.length >= RECOVERY_VERIFICATIONS_PER_TRANSACTION) throw new BudgetUnavailable(retryAfter(attempts[0]));
     if (load.active >= RECOVERY_VERIFICATION_CONCURRENCY) throw new BudgetUnavailable(2);
-    if (load.started.length >= RECOVERY_VERIFICATIONS_PER_MINUTE) throw new BudgetUnavailable(retryAfter(load.started[0]));
-    if (load.byTransaction.size >= 10_000)
-      for (const [key, times] of load.byTransaction) if (!times.some((at) => at > now - 60_000)) load.byTransaction.delete(key);
-    load.byTransaction.set(hash, [...attempts, now]);
+    if (load.started.length >= RECOVERY_VERIFICATIONS_PER_MINUTE)
+      throw new BudgetUnavailable(Math.max(1, Math.ceil((load.started[0] + 60_000 - now) / 1000)));
     load.active++; load.started.push(now);
     try { return await work(); } finally { load.active--; }
+  }
+  /** Chain evidence for a recovered preview that already re-encodes the
+   * transaction exactly. Every input here (opening valuation, guard, token) is
+   * fixed by that transaction's calldata, so any backup reaching this point
+   * shares one in-flight check and its cached result per transaction. Altered
+   * backups fail re-encoding first and never reach it, so they can neither
+   * spend the shared budget nor delay the correct backup. */
+  private recoveryEvidence(hash: Hex, plan: LaunchPlan, receiptBlock: bigint): Promise<void> {
+    const checks = this.recoveryChecks ??= new Map(), now = Date.now();
+    const known = checks.get(hash);
+    if (known && (known.settledAt === undefined || now - known.settledAt < known.ttl)) return known.promise;
+    if (checks.size >= 10_000)
+      for (const [key, entry] of checks) if (entry.settledAt !== undefined && now - entry.settledAt >= entry.ttl) checks.delete(key);
+    const entry: { promise: Promise<void>; settledAt?: number; ttl: number } = { promise: Promise.resolve(), ttl: 0 };
+    const chainId = deploymentChain(this.runtime.config);
+    entry.promise = this.withRecoveryVerification(async () => {
+      const reference = await assertRecoveredOpeningValuation(this.client, plan.openingValuation!, receiptBlock, chainId);
+      // Advisory, like the review-time warning; provenance is decided by attestation.
+      if (reference && reference.divergenceBps > LIFI_OPENING_MAX_DIVERGENCE_BPS)
+        console.warn(JSON.stringify({ event: "recovery_reference_divergence", transactionHash: hash, token: plan.tokenAddress, divergenceBps: reference.divergenceBps }));
+      if (plan.firstBuy) await verifyLaunchGuard(this.client, plan.firstBuy.guard, chainId, plan.firstBuy.lockDays ? "vesting" : undefined);
+    }).then(() => { entry.settledAt = Date.now(); entry.ttl = RECOVERY_RESULT_TTL_MS; }, (error: unknown) => {
+      // Definitive evidence failures are cached; an RPC failure briefly; a
+      // capacity refusal not at all, so the next request competes again.
+      entry.settledAt = Date.now();
+      entry.ttl = error instanceof RecoveryEvidenceError ? RECOVERY_RESULT_TTL_MS : error instanceof BudgetUnavailable ? 0 : RECOVERY_TRANSIENT_RETRY_MS;
+      throw error;
+    });
+    checks.set(hash, entry);
+    return entry.promise;
   }
   private async registerOnce(hash: Hex, recoveryPlan?: LaunchPlan): Promise<TokenRecord> {
     // Receipt verification does not sign or broadcast. Keep it available when
@@ -540,18 +589,21 @@ export class LaunchpadService {
     if (!savedPlan) {
       // A backup's fee routing must also be platform-approved before that work.
       if (keccak256(plan.data) !== plan.id) throw new Error("The creation receipt does not match the preview's outer transaction.");
-      assertTrustedLaunchPolicy(plan, this.runtime.config, receipt.blockNumber);
-      await this.withRecoveryVerification(hash, async () => {
-        assertRecoveryPlan(plan, this.contracts, this.sdk);
-        const reference = await assertRecoveredOpeningValuation(this.client, plan.openingValuation!, receipt.blockNumber, deploymentChain(this.runtime.config));
-        if (reference && reference.divergenceBps > LIFI_OPENING_MAX_DIVERGENCE_BPS)
-          console.warn(JSON.stringify({ event: "recovery_reference_divergence", transactionHash: hash, token: plan.tokenAddress, divergenceBps: reference.divergenceBps }));
-        // A real LI.FI midpoint never strays this far from the immutable
-        // oracle's feed; a backup that does would list a forged opening price.
-        if (reference && reference.divergenceBps > RECOVERY_REFERENCE_REJECT_BPS)
-          throw new Error("The recovered opening price is more than 50% away from its independent on-chain reference.");
-        if (plan.firstBuy) await verifyLaunchGuard(this.client, plan.firstBuy.guard, deploymentChain(this.runtime.config), plan.firstBuy.lockDays ? "vesting" : undefined);
-      });
+      // Treasury-only routing after a recorded engine cutover is judged by the
+      // receipt's canonical block time; nothing else needs that block yet.
+      const cutover = plan.feePolicy === FEE_POLICY ? this.launchCutover() : undefined;
+      let timestamp = 0n;
+      if (cutover) {
+        await this.assertCanonicalCutover(cutover);
+        const receiptBlock = await this.client.getBlock({ blockNumber: receipt.blockNumber });
+        if (receiptBlock.hash !== receipt.blockHash) throw new Error("The receipt block was reorganized. Wait for confirmation again.");
+        timestamp = receiptBlock.timestamp;
+      }
+      assertTrustedLaunchPolicy(plan, this.runtime.config, { blockNumber: receipt.blockNumber, timestamp },
+        trustedLaunchPolicies(this.runtime.config, this.launchManifest()));
+      // CPU only: an altered backup fails here, before any shared RPC budget.
+      assertRecoveryPlan(plan, this.contracts, this.sdk);
+      await this.recoveryEvidence(hash, plan, receipt.blockNumber);
     }
     if (plan.openingValuation)
       assertHistoricalOpeningValuation(plan.openingValuation, plan.draft.quoteAddress, deploymentChain(this.runtime.config));
@@ -607,8 +659,14 @@ export class LaunchpadService {
     // only re-encoded through launchSchema, so persist that normalized form.
     const { openingCap, ...fields } = plan.draft;
     const draft = savedPlan ? plan.draft : { ...launchSchema.parse(fields), ...(openingCap !== undefined ? { openingCap } : {}) };
+    // A saved preview was prepared by this service. A backup proves its
+    // opening valuation only with a platform attestation over its id.
+    const keys = [this.runtime.secrets?.planAttestationKey, ...(this.runtime.secrets?.planAttestationPreviousKeys ?? [])]
+      .filter((key): key is string => !!key);
+    const attested = !!savedPlan || verifyPlanAttestation(keys, deploymentChain(this.runtime.config), plan.id, plan.attestation);
     const token: TokenRecord = {
       ...draft,
+      ...(attested ? {} : { openingValuationUnverified: true as const }),
       tradingFeeBps,
       openingCap: plan.draft.openingCap ?? (plan.openingValuation ? openingCapInQuote(plan.openingValuation) : ""),
       address: plan.tokenAddress,
@@ -867,14 +925,14 @@ const TOKEN_STATE_DEADLINE_MS = 8_000;
 // SDK parameters. Real recoveries are rare; this leaves ample headroom.
 const RECOVERY_VERIFICATION_CONCURRENCY = 4;
 const RECOVERY_VERIFICATIONS_PER_MINUTE = 60;
-// Recovery reports divergence above the 5% review threshold and rejects it above 50%.
-const RECOVERY_REFERENCE_REJECT_BPS = 5_000;
-// The client retries an unregistered launch every 15 seconds.
-const RECOVERY_VERIFICATIONS_PER_TRANSACTION = 4;
+// A transaction's settled chain evidence is reused for this long; an RPC
+// failure only briefly, so a later retry can succeed.
+const RECOVERY_RESULT_TTL_MS = 600_000;
+const RECOVERY_TRANSIENT_RETRY_MS = 15_000;
 // A stored recovered preview keeps only known LaunchPlan fields.
 const LAUNCH_PLAN_FIELDS = ["id", "creator", "data", "tokenAddress", "poolId", "draft", "preparedAt", "validityVersion", "finalizedAt",
   "signingExpiresAt", "serverTime", "intentId", "previousPlanId", "requiresReconfirmation", "warnings", "gas", "feePolicy", "feeTreasury",
-  "feeEngine", "openingValuation", "curvePolicy", "prepared", "transaction", "firstBuy", "approval"] as const satisfies readonly (keyof LaunchPlan)[];
+  "feeEngine", "openingValuation", "curvePolicy", "prepared", "transaction", "firstBuy", "approval", "attestation"] as const satisfies readonly (keyof LaunchPlan)[];
 
 function assertLaunchTransaction(plan: LaunchPlan, tx: { from: Address; to: Address | null; input: Hex; value: bigint }, contracts: ContractRegistry) {
   const target = plan.transaction?.to ?? contracts.airlock;

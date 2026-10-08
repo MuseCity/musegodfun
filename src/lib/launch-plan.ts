@@ -83,6 +83,9 @@ export type LaunchPlan = {
     required: boolean;
     transaction: LaunchTransaction;
   };
+  // Platform HMAC over the deployment chain and id, set when the server is
+  // configured with an attestation key; it travels with the local backup.
+  attestation?: Hex;
 };
 
 /** Fresh at creation, then a fixed signing window. Historical plans retain

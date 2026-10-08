@@ -17,6 +17,7 @@ import { OPENING_CAP_USD, openingCapInQuote, type HistoricalOpeningValuation } f
 import { assertPlanIntegrity, assertRecoveryPlan, verifiedFirstBuyLock, verifyGuardedReceipt } from "../server/launch-verification";
 import { chainLaunchDependencies, expectedGuardRuntime, identifyGuardVersion, verifyLaunchGuard } from "../server/launch-guard";
 import { LaunchpadService } from "../server/service";
+import { planAttestation, verifyPlanAttestation } from "../server/plan-attestation";
 import { Store } from "../server/store";
 import { unpackPlan } from "../server/plan-storage";
 import { SupabaseStore } from "../server/supabase-store";
@@ -741,7 +742,7 @@ test("payment proceeds may increase the paired input without lowering or ratchet
   });
   const config: RuntimeConfig = { mode: "fork", deploymentChainId: 4663, chainId: 31337, treasury, writesEnabled: true,
     blockReason: null, feePolicy: FEE_POLICY, launchGuard: guard, launchLockAvailable: true };
-  const service = Object.assign(Object.create(LaunchpadService.prototype), { runtime: { config }, store, sdk: f.sdk,
+  const service = Object.assign(Object.create(LaunchpadService.prototype), { runtime: { config, secrets: { planAttestationKey: "k".repeat(32) } }, store, sdk: f.sdk,
     config: async () => config, assertNetwork: async () => {},
     openingValuation: async () => syntheticOpeningValuation(quote.address, "3000", { chainId: 4663, quotedAt: time }),
     client: { getCode: async () => "0x", readContract: async ({ functionName }: { functionName: string }) => ({ symbol: quote.symbol, decimals: quote.decimals,
@@ -749,6 +750,7 @@ test("payment proceeds may increase the paired input without lowering or ratchet
   try {
     const reviewedInput = { amount: formatUnits(100n, quote.decimals), slippageBps: 100, lockDays: 0 };
     const beforePayment = await service.prepare(f.plan.draft, creator, CURVE_POLICY, reviewedInput, { intentId: "payment-launch-intent" });
+    assert(verifyPlanAttestation(["k".repeat(32)], 4663, beforePayment.id, beforePayment.attestation), "prepared previews carry the platform attestation");
     const accepted = beforePayment.firstBuy!.acceptedMinAmountOut!;
     assert.equal(accepted, "990");
     const actualInput = { ...reviewedInput, amount: formatUnits(110n, quote.decimals) };
@@ -780,14 +782,16 @@ test("payment proceeds may increase the paired input without lowering or ratchet
 
 const oracleRuntime = readFileSync(new URL("./fixtures/buyback-oracle.runtime.hex", import.meta.url), "utf8").trim() as Hex;
 function recoveryService(f: ReturnType<typeof ordinaryFixture>, store: Store,
-  options: { treasury?: Address | null; owner?: Address; reads?: string[]; valuationHash?: Hex; referencePrice?: bigint } = {}) {
+  options: { treasury?: Address | null; owner?: Address; reads?: string[]; valuationHash?: Hex; referencePrice?: bigint;
+    attestationKey?: string; previousAttestationKeys?: string[]; blockTimes?: Record<string, bigint>; manifest?: unknown } = {}) {
   const nowSeconds = BigInt(Math.floor(Date.now() / 1000));
   const sdk = f.sdk, reads = options.reads ?? [];
   (sdk as any).getMulticurvePool = async () => ({ getState: async () => ({ status: 2, numeraire: quote.address, poolKey: f.poolKey }) });
   const valuation = f.plan.openingValuation!;
   return Object.assign(Object.create(LaunchpadService.prototype), {
     runtime: { config: { mode: "fork", chainId: 31337, deploymentChainId: 4663, writesEnabled: false,
-      treasury: options.treasury === undefined ? treasury : options.treasury } }, store, sdk,
+      treasury: options.treasury === undefined ? treasury : options.treasury },
+      secrets: { planAttestationKey: options.attestationKey, planAttestationPreviousKeys: options.previousAttestationKeys ?? [] } }, store, sdk,
     assertNetwork: async () => {}, client: {
       getTransaction: async () => { reads.push("transaction"); return f.tx; },
       getTransactionReceipt: async () => { reads.push("receipt"); return f.receipt; },
@@ -795,7 +799,7 @@ function recoveryService(f: ReturnType<typeof ordinaryFixture>, store: Store,
       getBlock: async ({ blockNumber }: { blockNumber: bigint }) => {
         reads.push(`block:${blockNumber}`);
         return { hash: blockNumber === BigInt(valuation.blockNumber) ? options.valuationHash ?? valuation.blockHash : blockHash,
-          timestamp: nowSeconds };
+          timestamp: options.blockTimes?.[String(blockNumber)] ?? nowSeconds };
       },
       readContract: async ({ functionName, blockNumber }: { functionName: string; blockNumber?: bigint }) => {
         reads.push(`${functionName}:${blockNumber ?? "latest"}`);
@@ -809,6 +813,7 @@ function recoveryService(f: ReturnType<typeof ordinaryFixture>, store: Store,
       },
       getCode: async () => options.referencePrice !== undefined ? oracleRuntime : undefined,
     },
+    ...(options.manifest ? { launchManifest: () => options.manifest } : {}),
   }) as LaunchpadService;
 }
 
@@ -880,30 +885,75 @@ test("an Airlock owner change after creation, even later in the same block, cann
   }
 });
 
-test("reference divergence is reported above 5%, and only a divergence beyond 50% blocks recovery", async (context) => {
+test("reference divergence is reported for operators above 5% but never blocks a verified recovery", async (context) => {
   const warnings: string[] = [];
   context.mock.method(console, "warn", (message: string) => { warnings.push(message); });
   // The backup priced WETH at $3000; the immutable oracle's feed reads the price below (8 decimals).
   const recover = async (feedUsd: bigint) => {
     const f = ordinaryFixture(100), directory = mkdtempSync(join(tmpdir(), "recovery-reference-test-")), store = new Store(directory, 31337);
     warnings.length = 0;
-    try { return { record: await recoveryService(f, store, { referencePrice: feedUsd * 10n ** 8n }).register(hash, f.plan).catch((error: Error) => error), store: store.tokenByTxHash(hash) }; }
+    try { return await recoveryService(f, store, { referencePrice: feedUsd * 10n ** 8n }).register(hash, f.plan); }
     finally { store.close(); rmSync(directory, { recursive: true }); }
   };
-  const close = await recover(3010n);
-  assert.equal((close.record as TokenRecord).address, token); assert.deepEqual(warnings, [], "within the review threshold is silent");
-  for (const feedUsd of [2500n, 2000n]) {
-    const reported = await recover(feedUsd);
-    assert.equal((reported.record as TokenRecord).address, token, `${feedUsd}: moderate divergence still registers`);
+  assert.equal((await recover(3010n)).address, token); assert.deepEqual(warnings, [], "within the review threshold is silent");
+  for (const feedUsd of [2500n, 1000n, 30n]) {
+    assert.equal((await recover(feedUsd)).address, token, `${feedUsd}: the price comparison is advisory`);
     const entry: { event: string; divergenceBps: number; transactionHash: string } | undefined = warnings
       .map((line) => JSON.parse(line)).find((row: { event: string }) => row.event === "recovery_reference_divergence");
-    assert(entry && entry.divergenceBps > 500 && entry.divergenceBps <= 5000 && entry.transactionHash === hash, JSON.stringify(warnings));
+    assert(entry && entry.divergenceBps > 500 && entry.transactionHash === hash, JSON.stringify(warnings));
   }
-  for (const feedUsd of [1999n, 1000n, 30n]) {
-    const rejected = await recover(feedUsd);
-    assert.match((rejected.record as Error).message, /more than 50% away/, `${feedUsd}: a forged opening price is not listed`);
-    assert.equal(rejected.store, null);
+});
+
+test("a recovered launch is listed as platform-verified only with a valid platform attestation over its preview", async () => {
+  const current = "k".repeat(32), previous = "p".repeat(32);
+  const recover = async (attest: ((id: Hex) => Hex) | undefined, options: { attestationKey?: string; previousAttestationKeys?: string[] } = { attestationKey: current }) => {
+    const f = ordinaryFixture(100), directory = mkdtempSync(join(tmpdir(), "recovery-attestation-test-")), store = new Store(directory, 31337);
+    try {
+      const backup = { ...structuredClone(f.plan), ...(attest ? { attestation: attest(f.plan.id) } : {}) };
+      const record = await recoveryService(f, store, options).register(hash, backup);
+      return { record, stored: store.getPlan(f.plan.id), id: f.plan.id };
+    } finally { store.close(); rmSync(directory, { recursive: true }); }
+  };
+  const signed = await recover((id) => planAttestation(current, 4663, id));
+  assert.equal(signed.record.openingValuationUnverified, undefined); assert.equal(signed.stored?.attestation, planAttestation(current, 4663, signed.id));
+  assert.equal((await recover((id) => planAttestation(previous, 4663, id), { attestationKey: current, previousAttestationKeys: [previous] })).record.openingValuationUnverified,
+    undefined, "a backup signed before a key rotation stays verified");
+  for (const [label, attest, options] of [
+    ["missing", undefined, { attestationKey: current }],
+    ["forged", () => `0x${"ab".repeat(32)}` as Hex, { attestationKey: current }],
+    ["other chain", (id: Hex) => planAttestation(current, 8453, id), { attestationKey: current }],
+    ["service without keys", (id: Hex) => planAttestation(current, 4663, id), {}],
+  ] as const) {
+    const unverified = await recover(attest, options);
+    assert.equal(unverified.record.address, token, `${label}: the verified creation still registers`);
+    assert.equal(unverified.record.openingValuationUnverified, true, `${label}: but its opening valuation is not claimed as verified`);
   }
+});
+
+test("after a recorded engine cutover, treasury-only launches recover only within the signing window and prepare refuses new ones", async () => {
+  const cutoverAt = 1_900_000_000n;
+  const manifest = (hashOf: Hex = blockHash, at = cutoverAt) => ({ chainId: 4663, status: "pending_deployment", constants: { treasury: "0xc4F87C3715374445C4657aa14c47CBB339b59d1A" },
+    contracts: { engine: { address: null } }, engineLaunchCutover: { blockNumber: "5", blockHash: hashOf, timestamp: Number(at) } });
+  const recover = async (receiptTime: bigint, cutoverHash?: Hex) => {
+    const f = ordinaryFixture(100), directory = mkdtempSync(join(tmpdir(), "recovery-cutover-test-")), store = new Store(directory, 31337);
+    try {
+      return await recoveryService(f, store, { manifest: manifest(cutoverHash), blockTimes: { "5": cutoverAt, "10": receiptTime } }).register(hash, f.plan)
+        .catch((error: Error) => error);
+    } finally { store.close(); rmSync(directory, { recursive: true }); }
+  };
+  assert.equal(((await recover(cutoverAt + 359n)) as TokenRecord).address, token, "mined within the signing window after the cutover");
+  assert.match(((await recover(cutoverAt + 360n)) as Error).message, /platform-approved/, "a later treasury-only launch bypasses the engine");
+  assert.match(((await recover(cutoverAt, `0x${"cd".repeat(32)}`)) as Error).message, /not a canonical block/, "the recorded cutover must be canonical");
+  const config: RuntimeConfig = { mode: "fork", deploymentChainId: 4663, chainId: 31337, treasury, writesEnabled: true, blockReason: null, feePolicy: FEE_POLICY };
+  const prepareWith = (at: bigint) => Object.assign(Object.create(LaunchpadService.prototype), { runtime: { config }, config: async () => config,
+    assertNetwork: async () => {}, client: { getCode: async () => "0x" }, launchManifest: () => manifest(blockHash, at) }) as LaunchpadService;
+  const draft = { name: "After cutover", symbol: "LATE", description: "", image: "", quoteAddress: quote.address, tradingFeeBps: 100 };
+  const passed = prepareWith(BigInt(Math.floor(Date.now() / 1000) - 60));
+  await assert.rejects(() => passed.prepare(draft, creator, CURVE_POLICY, { amount: "0", slippageBps: 100, lockDays: 0 }), /route fees through the buyback engine/);
+  await assert.rejects(() => passed.preflightFirstBuyPayment(quote.address), /route fees through the buyback engine/);
+  // Before the cutover, treasury-only previews continue (this stub then fails at the asset read).
+  await assert.rejects(() => prepareWith(BigInt(Math.floor(Date.now() / 1000) + 3600)).prepare(draft, creator, CURVE_POLICY, { amount: "0", slippageBps: 100, lockDays: 0 }),
+    (error: Error) => !/buyback engine/.test(error.message));
 });
 
 test("recovery stores the normalized draft and only known preview fields", async () => {
@@ -930,29 +980,54 @@ test("concurrent recoveries of one transaction share verification and capacity r
     const busyDirectory = mkdtempSync(join(tmpdir(), "recovery-busy-test-")), busyStore = new Store(busyDirectory, 31337);
     try {
       const busy = recoveryService(f, busyStore);
-      (busy as any).recoveryLoad = { active: 4, started: [], byTransaction: new Map() };
+      (busy as any).recoveryLoad = { active: 4, started: [] };
       await assert.rejects(() => busy.register(hash, f.plan), /capacity is temporarily limited/);
-      (busy as any).recoveryLoad = { active: 0, started: Array.from({ length: 60 }, () => Date.now()), byTransaction: new Map() };
+      (busy as any).recoveryLoad = { active: 0, started: Array.from({ length: 60 }, () => Date.now()) };
       await assert.rejects(() => busy.register(hash, f.plan), /capacity is temporarily limited/);
       assert.equal(busyStore.tokenByTxHash(hash), null);
     } finally { busyStore.close(); rmSync(busyDirectory, { recursive: true }); }
   } finally { store.close(); rmSync(directory, { recursive: true }); }
 });
 
-test("invalid backups replayed against one creation transaction cannot drain the shared recovery budget", async () => {
-  const f = ordinaryFixture(100), directory = mkdtempSync(join(tmpdir(), "recovery-per-transaction-test-")), store = new Store(directory, 31337);
+test("altered backups fail before the shared budget and never delay the correct backup for the same transaction", async () => {
+  const f = ordinaryFixture(100), directory = mkdtempSync(join(tmpdir(), "recovery-two-stage-test-")), store = new Store(directory, 31337);
+  const reads: string[] = [];
   try {
-    const service = recoveryService(f, store);
-    // Each variant passes the cheap transaction and fee-routing checks, then fails re-encoding.
-    for (let i = 0; i < 4; i++) {
+    const service = recoveryService(f, store, { reads });
+    for (let i = 0; i < 20; i++) {
       const variant = structuredClone(f.plan); variant.draft.name = `unproven ${i}`;
       await assert.rejects(() => service.register(hash, variant), /canonical creation parameters/);
     }
-    await assert.rejects(() => service.register(hash, f.plan), /capacity is temporarily limited/, "this transaction's attempts are spent for the minute");
-    assert.equal((service as any).recoveryLoad.started.length, 4, "the shared pool keeps 56 of its 60 slots for other transactions");
-    const other = `0x${"ee".repeat(32)}` as Hex;
-    assert.equal((await service.register(other, f.plan)).transactionHash, other, "another transaction still recovers");
+    assert.equal((service as any).recoveryLoad, undefined, "re-encoding failures spend none of the shared RPC budget");
+    assert(!reads.some((read) => read.startsWith("block:")), "and read no chain evidence");
+    assert.equal((await service.register(hash, f.plan)).transactionHash, hash, "the correct backup recovers immediately afterwards");
   } finally { store.close(); rmSync(directory, { recursive: true }); }
+});
+
+test("chain evidence is verified once per transaction for every backup that re-encodes it, and definitive failures are cached", async () => {
+  const f = ordinaryFixture(100), directory = mkdtempSync(join(tmpdir(), "recovery-evidence-cache-test-")), store = new Store(directory, 31337);
+  const reads: string[] = [];
+  const valuationBlock = `block:${f.plan.openingValuation!.blockNumber}`;
+  try {
+    // The valuation block is not canonical: a definitive evidence failure.
+    const service = recoveryService(f, store, { reads, valuationHash: `0x${"cd".repeat(32)}` });
+    // Backups that differ only in fields the calldata does not encode still re-encode the transaction.
+    const variants = Array.from({ length: 5 }, (_, i) => ({ ...structuredClone(f.plan), gas: String(1000 + i) }));
+    for (const variant of variants) await assert.rejects(() => service.register(hash, variant), /anchored to a canonical block/);
+    assert.equal(reads.filter((read) => read === valuationBlock).length, 1, "one evidence check serves every equivalent backup");
+    assert.equal((service as any).recoveryLoad.started.length, 1);
+    await Promise.all(variants.map((variant) => assert.rejects(() => service.register(hash, { ...variant, gas: "concurrent" }), /anchored/)));
+    assert.equal(reads.filter((read) => read === valuationBlock).length, 1);
+  } finally { store.close(); rmSync(directory, { recursive: true }); }
+  // A capacity refusal is not cached: the next request competes again.
+  const g = ordinaryFixture(100), second = mkdtempSync(join(tmpdir(), "recovery-evidence-budget-test-")), other = new Store(second, 31337);
+  try {
+    const busy = recoveryService(g, other);
+    (busy as any).recoveryLoad = { active: 4, started: [] };
+    await assert.rejects(() => busy.register(hash, g.plan), /capacity is temporarily limited/);
+    (busy as any).recoveryLoad = { active: 0, started: [] };
+    assert.equal((await busy.register(hash, g.plan)).transactionHash, hash);
+  } finally { other.close(); rmSync(second, { recursive: true }); }
 });
 
 test("final simulation accepts outputs within the signed minimum instead of exact preview equality", async () => {

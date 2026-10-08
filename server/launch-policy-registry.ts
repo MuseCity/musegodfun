@@ -1,16 +1,26 @@
-import { getAddress, type Address } from "viem";
+import { getAddress, type Address, type Hex } from "viem";
 import engineDeployment from "../contracts/artifacts/buyback-v2-deployment.json";
 import { deploymentChain, sameAddress, type RuntimeConfig } from "../src/lib/config";
 import { ENGINE_FEE_POLICY, FEE_POLICY, type FeePolicy } from "../src/lib/fee-policy";
-import type { LaunchPlan } from "../src/lib/launch-plan";
+import { LAUNCH_SIGNING_TTL, type LaunchPlan } from "../src/lib/launch-plan";
 
 /** One fee routing the platform approved for new launches. `fromBlock` is
  * inclusive and `toBlock` exclusive; both refer to the creation receipt block. */
-export type TrustedLaunchPolicy = { feePolicy: FeePolicy; treasury: Address; feeEngine: Address | null; fromBlock?: bigint; toBlock?: bigint };
+export type TrustedLaunchPolicy = { feePolicy: FeePolicy; treasury: Address; feeEngine: Address | null; fromBlock?: bigint; toBlock?: bigint;
+  // Exclusive bound on the creation receipt's block timestamp, in seconds.
+  toTimestamp?: bigint };
 
+/** The fixed point from which Robinhood launches route platform fees through
+ * the engine. Recorded in the deployment manifest only when it is chosen;
+ * prepare() and recovery both read it, and recovery checks it is canonical. */
+export type EngineLaunchCutover = { blockNumber: string; blockHash: Hex; timestamp: number };
 type EngineManifest = { chainId: number; status: string; constants: { treasury: string };
   contracts: { engine: { address: string | null; blockNumber?: number | string } };
-  activationVerification?: { status?: string; activatedAtBlock?: string } };
+  engineLaunchCutover?: EngineLaunchCutover };
+
+// A no-engine preview accepted just before the cutover can still be signed
+// within its window and mined shortly after; allow modest clock skew too.
+const CUTOVER_GRACE_SECONDS = BigInt(LAUNCH_SIGNING_TTL / 1000) + 60n;
 
 // Treasuries replaced after launches used them. Before changing
 // PLATFORM_TREASURY, append the retired address with its exclusive `toBlock`:
@@ -34,26 +44,20 @@ export function trustedLaunchPolicies(config: RuntimeConfig, manifest: EngineMan
   const add = (policy: TrustedLaunchPolicy) => {
     if (!policies.some((known) => known.feePolicy === policy.feePolicy && sameAddress(known.treasury, policy.treasury) &&
       (known.feeEngine === null ? policy.feeEngine === null : policy.feeEngine !== null && sameAddress(known.feeEngine, policy.feeEngine)) &&
-      known.fromBlock === policy.fromBlock && known.toBlock === policy.toBlock)) policies.push(policy);
+      known.fromBlock === policy.fromBlock && known.toBlock === policy.toBlock && known.toTimestamp === policy.toTimestamp)) policies.push(policy);
   };
-  // Once the Robinhood engine is activated, prepare() issues only engine
-  // launches; a later no-engine launch would bypass the buyback, so treasury-
-  // only routing is trusted only for receipts before the activation block.
-  // (A no-engine launch signed after activation but before the service
-  // switched to engine launches still registers through its saved preview.)
-  const verified = manifest.activationVerification;
-  const activated = chainId === 4663 && manifest.chainId === 4663 && verified?.status === "verified" && verified.activatedAtBlock
-    ? BigInt(verified.activatedAtBlock) : undefined;
-  const beforeActivation = (toBlock?: bigint) => {
-    const limit = toBlock === undefined ? activated : activated === undefined || toBlock < activated ? toBlock : activated;
-    return limit === undefined ? {} : { toBlock: limit };
-  };
-  if (config.treasury) add({ feePolicy: FEE_POLICY, treasury: getAddress(config.treasury), feeEngine: null, ...beforeActivation() });
-  for (const retired of RETIRED_TREASURIES[chainId]) add({ feePolicy: FEE_POLICY, treasury: retired.treasury, feeEngine: null, ...beforeActivation(retired.toBlock) });
+  // From the engine cutover, prepare() issues only engine launches on
+  // Robinhood; a later treasury-only launch would bypass the buyback. Such
+  // routing stays trusted for receipts up to the cutover plus the signing
+  // window, never by a backup's own preparedAt.
+  const cutover = engineLaunchCutover(config, manifest);
+  const bound = cutover ? { toTimestamp: BigInt(cutover.timestamp) + CUTOVER_GRACE_SECONDS } : {};
+  if (config.treasury) add({ feePolicy: FEE_POLICY, treasury: getAddress(config.treasury), feeEngine: null, ...bound });
+  for (const retired of RETIRED_TREASURIES[chainId]) add({ feePolicy: FEE_POLICY, treasury: retired.treasury, feeEngine: null, toBlock: retired.toBlock, ...bound });
   if (chainId !== 4663 || manifest.chainId !== 4663) return policies;
   const treasury = getAddress(manifest.constants.treasury);
   // The operations treasury also received the full platform share without an engine.
-  add({ feePolicy: FEE_POLICY, treasury, feeEngine: null, ...beforeActivation() });
+  add({ feePolicy: FEE_POLICY, treasury, feeEngine: null, ...bound });
   const { address, blockNumber } = manifest.contracts.engine;
   if (manifest.status === "deployed_verified" && address)
     add({ feePolicy: ENGINE_FEE_POLICY, treasury, feeEngine: getAddress(address), ...(blockNumber !== undefined ? { fromBlock: BigInt(blockNumber) } : {}) });
@@ -62,12 +66,18 @@ export function trustedLaunchPolicies(config: RuntimeConfig, manifest: EngineMan
   return policies;
 }
 
+/** The engine cutover for this deployment chain, if one has been recorded. */
+export function engineLaunchCutover(config: Pick<RuntimeConfig, "mode" | "deploymentChainId">, manifest: EngineManifest = ENGINE_MANIFEST) {
+  return deploymentChain(config) === 4663 && manifest.chainId === 4663 ? manifest.engineLaunchCutover : undefined;
+}
+
 export function assertTrustedLaunchPolicy(plan: Pick<LaunchPlan, "feePolicy" | "feeTreasury" | "feeEngine">, config: RuntimeConfig,
-  receiptBlock: bigint, policies = trustedLaunchPolicies(config)) {
+  receipt: { blockNumber: bigint; timestamp: bigint }, policies = trustedLaunchPolicies(config)) {
   const engine = plan.feeEngine ?? null;
   const trusted = !!plan.feeTreasury && policies.some((policy) => policy.feePolicy === plan.feePolicy &&
     sameAddress(policy.treasury, plan.feeTreasury!) &&
     (policy.feeEngine === null ? engine === null : engine !== null && sameAddress(policy.feeEngine, engine)) &&
-    (policy.fromBlock === undefined || receiptBlock >= policy.fromBlock) && (policy.toBlock === undefined || receiptBlock < policy.toBlock));
+    (policy.fromBlock === undefined || receipt.blockNumber >= policy.fromBlock) && (policy.toBlock === undefined || receipt.blockNumber < policy.toBlock) &&
+    (policy.toTimestamp === undefined || receipt.timestamp < policy.toTimestamp));
   if (!trusted) throw new Error("The recovered launch does not pay a platform-approved treasury and fee engine.");
 }

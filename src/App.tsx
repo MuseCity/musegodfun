@@ -2784,6 +2784,10 @@ function TokenPage({
                 <dt>Supply</dt>
                 <dd>1,000,000,000</dd>
               </div>
+              {token.openingValuationUnverified && <div>
+                <dt>Opening valuation</dt>
+                <dd>Not verified by the platform: this launch was recovered from a backup without a platform attestation.</dd>
+              </div>}
               <div>
                 <dt>Created</dt>
                 <dd>{new Date(token.createdAt).toLocaleString("en-US")}</dd>
@@ -2795,6 +2799,7 @@ function TokenPage({
             </FeeBreakdown>
             <details className="launch-curve-details">
               <summary>View launch curve</summary>
+              {token.openingValuationUnverified && <p className="muted">The opening valuation behind this curve is not verified by the platform.</p>}
               <LaunchCurve ticker={stock.symbol} curvePolicy={token.curvePolicy}
                 openingValuation={token.openingValuation} quoteDecimals={stock.decimals}
                 tokenAddress={token.address} quoteAddress={stock.address} />
