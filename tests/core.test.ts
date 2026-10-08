@@ -348,6 +348,8 @@ test("service preparation derives the cap and consumes price validity during sim
     },
     store: { savePlan: async (plan: LaunchPlan) => saved.push(plan) },
   }) as LaunchpadService;
+  // This fixture exercises treasury-only preview behavior before the cutover.
+  Object.assign(service, { launchManifest: () => ({}) });
   const input = { ...draft, quoteAddress: stock.address };
   const plan = await service.prepare(input, creator, CURVE_POLICY);
   assert.equal(quoteRequests.length, 2);

@@ -34,7 +34,6 @@
       ]
     }
   ],
-  "limits": { "subrequests": 1000 },
   "vars": {
     "CHAIN_MODE": "robinhood",
     "LIFI_INTEGRATOR": "musegodfun",

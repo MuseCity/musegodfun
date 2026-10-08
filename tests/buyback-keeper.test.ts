@@ -6,7 +6,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { encodeAbiParameters, getAddress, keccak256, parseAbiParameters, type Address, type Hex } from "viem";
-import { acquireKeeperJournalLock, assertKeeperAccount, assertKeeperDeploymentAccount, assertKeeperGraph, assertKeeperNonceReady, keeperApiOrigin, keeperGasCost, keeperProfitThreshold, keeperSyncHasNewCredit, keeperTaskWait, KEEPER_TASK_RETRY_POLICY, KeeperSigningStopped, KeeperSubmissionBarrier, readKeeperJournal, readKeeperTaskState, reconcileKeeperJournal, recordKeeperTaskOutcome, redactKeeperError, selectKeeperTasks, writeKeeperJournal, writeKeeperTaskState, type KeeperJournal, type KeeperTaskStateFile } from "../scripts/buyback-keeper";
+import { acquireKeeperJournalLock, assertKeeperAccount, assertKeeperDeploymentAccount, assertKeeperGraph, assertKeeperSubmissionRuntime, assertKeeperNonceReady, keeperApiOrigin, keeperGasCost, keeperProfitThreshold, keeperSyncHasNewCredit, keeperTaskWait, KEEPER_TASK_RETRY_POLICY, KeeperSigningStopped, KeeperSubmissionBarrier, readKeeperJournal, readKeeperTaskState, reconcileKeeperJournal, recordKeeperTaskOutcome, redactKeeperError, selectKeeperTasks, writeKeeperJournal, writeKeeperTaskState, type KeeperJournal, type KeeperTaskStateFile } from "../scripts/buyback-keeper";
 import { BUYBACK_WETH, BUYBACK_FORWARDER_ALLOWANCE_CAP, buybackAmountCandidates, type BuybackEngineStatus, type EngineAssetStatus } from "../src/lib/buyback-engine";
 import { MUSEGOD_BUYBACK } from "../src/lib/fee-policy";
 import { ENGINE_FEE_POLICY } from "../src/lib/fee-policy";
@@ -79,6 +79,12 @@ test("keeper binds the independent Automation receiver and operating treasury wi
   const config: RuntimeConfig = { mode: "robinhood", deploymentChainId: 4663, chainId: 4663, treasury: ops, writesEnabled: true, blockReason: null, feePolicy: ENGINE_FEE_POLICY, feeEngine: engine, buybackExecutor: executor, automationReceiver: unknown, automationTreasury: source, wethForwarder: forwarder, buybackVault: vault, assetFeedOracle: assetOracle };
   const current = status({ engine, executor, operationsTreasury: ops, automationReceiver: unknown });
   assert.doesNotThrow(() => assertKeeperGraph(config, current, manifest));
+  const paused = { ...config, writesEnabled: false, signingPaused: true };
+  assert.doesNotThrow(() => assertKeeperSubmissionRuntime(paused, config, current, manifest), "user issuance pause does not disable an explicitly authorized, verified keeper");
+  assert.throws(() => assertKeeperSubmissionRuntime(paused, { ...config, chainId: 31337, mode: "fork" }, current, manifest), /network changed/);
+  assert.throws(() => assertKeeperSubmissionRuntime({ ...paused, feeEngine: null }, config, current, manifest), /reviewed deployment/);
+  assert.throws(() => assertKeeperSubmissionRuntime(paused, config, { ...current, available: false }, manifest), /reviewed deployment/);
+
   assert.doesNotThrow(() => assertKeeperGraph(config, { ...current, sourceAllowance: "0" }, manifest), "Exhausted finite source approval must not stop existing Vault funds");
   for (const receiver of [null, ops, stock]) {
     assert.throws(() => assertKeeperGraph({ ...config, automationReceiver: receiver }, current, manifest), /reviewed deployment/);

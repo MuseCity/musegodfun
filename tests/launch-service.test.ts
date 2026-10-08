@@ -13,6 +13,7 @@ import { buildLaunch } from "../src/lib/protocol";
 import { ENGINE_FEE_POLICY, FEE_POLICY } from "../src/lib/fee-policy";
 import { minimumOutput } from "../src/lib/validation";
 import { syntheticOpeningValuation } from "./fixtures";
+import { ENGINE_MANIFEST } from "../server/launch-policy-registry";
 import { activatedEngineManifest } from "./engine-manifest-fixture";
 import { OPENING_CAP_USD, openingCapInQuote, type HistoricalOpeningValuation } from "../src/lib/opening-valuation";
 import { assertPlanIntegrity, assertRecoveryPlan, verifiedFirstBuyLock, verifyGuardedReceipt } from "../server/launch-verification";
@@ -144,7 +145,7 @@ test("new prepares and payment preflights reject opening-price exclusions before
           treasury, writesEnabled: false, blockReason: "Read-only" };
         let rpc = 0;
         const untouched = () => { throw new Error("Excluded asset must not access SDK or storage"); };
-        const service = Object.assign(Object.create(LaunchpadService.prototype), { runtime: { config },
+        const service = Object.assign(Object.create(LaunchpadService.prototype), { launchManifest: () => ({ ...ENGINE_MANIFEST, engineLaunchCutover: undefined }) }, { runtime: { config },
           assertNetwork: async () => { rpc++; }, sdk: new Proxy({}, { get: untouched }), store: new Proxy({}, { get: untouched }) }) as LaunchpadService;
         const draft = { name: "Excluded route", symbol: "EXCLUDE", description: "", image: "", website: "", twitter: "", telegram: "", quoteAddress: asset.address };
         for (const firstBuy of [{ amount: "0", slippageBps: 100, lockDays: 0 }, { amount: "1", slippageBps: 100, lockDays: 30 }])
@@ -165,7 +166,7 @@ test("opening-price exclusions do not hide existing tokens or block their scoped
         quoteAddress: excluded.asset.address } as TokenRecord;
       assert.deepEqual(listedTokens([tokenRecord], "fork", chainId), [tokenRecord]);
       assert.deepEqual(listedTokens([tokenRecord], "fork", chainId === 8453 ? 4663 : 8453), []);
-      const service = Object.assign(Object.create(LaunchpadService.prototype), {
+      const service = Object.assign(Object.create(LaunchpadService.prototype), { launchManifest: () => ({ ...ENGINE_MANIFEST, engineLaunchCutover: undefined }) }, {
         runtime: { config: { mode: "fork", chainId: 31337, deploymentChainId: chainId } },
         store: { tokens: async () => [tokenRecord], token: async () => tokenRecord },
       }) as LaunchpadService;
@@ -184,7 +185,7 @@ test("removed paired assets remain valid in frozen launch integrity, old-plan va
     const config: RuntimeConfig = { mode: "fork", chainId: 31337, deploymentChainId: 4663,
       treasury, writesEnabled: true, blockReason: null, curvePolicy: CURVE_POLICY, feePolicy: FEE_POLICY,
       launchGuard: guard, launchLockAvailable: true };
-    const service = Object.assign(Object.create(LaunchpadService.prototype), { runtime: { config }, store,
+    const service = Object.assign(Object.create(LaunchpadService.prototype), { launchManifest: () => ({ ...ENGINE_MANIFEST, engineLaunchCutover: undefined }) }, { runtime: { config }, store,
       config: async () => config, assertNetwork: async () => {},
       client: { getTransaction: async () => f.tx, getTransactionReceipt: async () => f.receipt,
         getBlockNumber: async () => 11n, getBlock: async () => ({ hash: blockHash, timestamp: f.start }),
@@ -225,7 +226,7 @@ test("expired frozen payments still decode removed paired assets through the com
 
 test("missing and stale curve handshakes reject before any RPC", async () => {
   let rpc = 0;
-  const service = Object.assign(Object.create(LaunchpadService.prototype), { assertNetwork: async () => { rpc++; } }) as LaunchpadService;
+  const service = Object.assign(Object.create(LaunchpadService.prototype), { launchManifest: () => ({ ...ENGINE_MANIFEST, engineLaunchCutover: undefined }) }, { assertNetwork: async () => { rpc++; } }) as LaunchpadService;
   for (const policy of [undefined, null, "old-v1", CURVE_POLICY + "-old"]) await assert.rejects(() => service.prepare({}, creator, policy), /curve policy has changed/);
   assert.equal(rpc, 0);
 });
@@ -271,7 +272,7 @@ test("registration verifies creation mint and fee events without mutable or hist
       const validData = schedule.data;
       try {
         store.savePlan(f.plan);
-        const service = Object.assign(Object.create(LaunchpadService.prototype), {
+        const service = Object.assign(Object.create(LaunchpadService.prototype), { launchManifest: () => ({ ...ENGINE_MANIFEST, engineLaunchCutover: undefined }) }, {
           runtime: { config: { mode: "fork", chainId: 31337, deploymentChainId: 4663, writesEnabled: false } },
           store, assertNetwork: async () => {},
           client: { getTransaction: async () => f.tx, getTransactionReceipt: async () => f.receipt,
@@ -300,7 +301,7 @@ test("actual creation calldata rejects a three percent declaration with one perc
     try {
       f.plan.draft.tradingFeeBps = 300; store.savePlan(f.plan);
       const untouched = async () => { throw new Error("Mismatched fee must stop before contract reads or pool lookup"); };
-      const service = Object.assign(Object.create(LaunchpadService.prototype), {
+      const service = Object.assign(Object.create(LaunchpadService.prototype), { launchManifest: () => ({ ...ENGINE_MANIFEST, engineLaunchCutover: undefined }) }, {
         runtime: { config: { mode: "fork", chainId: 31337, deploymentChainId: 4663, writesEnabled: false } },
         store, assertNetwork: async () => {},
         client: { getTransaction: async () => f.tx, getTransactionReceipt: async () => f.receipt, getBlockNumber: async () => 11n, readContract: untouched },
@@ -322,7 +323,7 @@ test("historical unprepared transactions recover only the original one percent f
     let feeReads = 0;
     try {
       store.savePlan(f.plan);
-      const service = Object.assign(Object.create(LaunchpadService.prototype), {
+      const service = Object.assign(Object.create(LaunchpadService.prototype), { launchManifest: () => ({ ...ENGINE_MANIFEST, engineLaunchCutover: undefined }) }, {
         runtime: { config: { mode: "fork", chainId: 31337, deploymentChainId: 4663, writesEnabled: false, curvePolicy: "future", treasury: null } },
         store, assertNetwork: async () => {}, validateLaunch: async () => { throw new Error("Recovery must not use current signing gates"); },
         client: { getTransaction: async () => f.tx, getTransactionReceipt: async () => f.receipt,
@@ -399,7 +400,7 @@ test("registration persists only verified locked custody and recovers without cu
       readContract: async (args: { functionName: string }) => args.functionName === "totalSupply" ? SUPPLY
         : args.functionName === "getFeeSchedule" ? [Number(f.start), 10_000, 10_000, 10_000, 0]
         : [creator, false, f.start, f.duration, f.duration, badPosition ? 999n : 1000n, 0n] };
-    const service = Object.assign(Object.create(LaunchpadService.prototype), { runtime: { config: { mode: "fork", chainId: 31337,
+    const service = Object.assign(Object.create(LaunchpadService.prototype), { launchManifest: () => ({ ...ENGINE_MANIFEST, engineLaunchCutover: undefined }) }, { runtime: { config: { mode: "fork", chainId: 31337,
       deploymentChainId: 4663, writesEnabled: false, launchGuard: null, launchLockAvailable: false } }, store, client,
       assertNetwork: async () => {}, sdk: { getMulticurvePool: async () => ({ getState: async () => ({ status: 2, numeraire: quote.address, poolKey: f.poolKey }) }) } }) as LaunchpadService;
     badPosition = true; f.custodyLog.data = encodeAbiParameters([{ type: "uint256" }], [999n]); await assert.rejects(() => service.register(hash), /custody/);
@@ -422,7 +423,7 @@ test("guard receipt recovery survives restart, expiry and disabled signing; reor
     const client = { getTransaction: async () => tx, getTransactionReceipt: async () => { if (unknown) throw new Error("timeout"); return receipt; }, getBlockNumber: async () => 11n,
       getBlock: async () => ({ hash: canonicalHash, timestamp: BigInt(plan.firstBuy!.deadline - 1) }),
       readContract: async (input: { functionName: string }) => input.functionName === "getFeeSchedule" ? [plan.firstBuy!.deadline - 1, 10_000, 10_000, 10_000, 0] : SUPPLY };
-    const service = Object.assign(Object.create(LaunchpadService.prototype), { runtime, store, client, assertNetwork: async () => {},
+    const service = Object.assign(Object.create(LaunchpadService.prototype), { launchManifest: () => ({ ...ENGINE_MANIFEST, engineLaunchCutover: undefined }) }, { runtime, store, client, assertNetwork: async () => {},
       sdk: { getMulticurvePool: async () => ({ getState: async () => ({ status: 2, numeraire: quote.address, poolKey }) }) } }) as LaunchpadService;
     const saved = await service.register(hash);
     assert.equal(saved.curvePolicy, CURVE_POLICY); assert.equal(saved.creator, creator);
@@ -440,7 +441,7 @@ test("broadcast retired-price plans recover original metadata after expiry while
   context.mock.method(globalThis, "fetch", async () => { pricingRequests++; throw new Error("Recovery must not reprice an already broadcast launch"); });
   const config: RuntimeConfig = { mode: "fork", chainId: 31337, deploymentChainId: 4663, treasury,
     writesEnabled: true, blockReason: null, curvePolicy: CURVE_POLICY, feePolicy: FEE_POLICY, launchGuard: guard };
-  const service = Object.assign(Object.create(LaunchpadService.prototype), { runtime: { config }, store,
+  const service = Object.assign(Object.create(LaunchpadService.prototype), { launchManifest: () => ({ ...ENGINE_MANIFEST, engineLaunchCutover: undefined }) }, { runtime: { config }, store,
     config: async () => config, assertNetwork: async () => {},
     client: { getTransaction: async () => old.tx, getTransactionReceipt: async () => old.receipt,
       getBlockNumber: async () => 11n, getBlock: async () => ({ hash: blockHash, timestamp: BigInt(old.plan.firstBuy!.deadline - 1) }),
@@ -487,7 +488,7 @@ test("unconfirmed or orphaned reverted receipts remain pending and can recover a
     store.savePlan(plan); store.trackLaunch(hash, plan.id);
     let head = 10n, canonical = blockHash, status = "reverted";
     let recovered = false;
-    const service = Object.assign(Object.create(LaunchpadService.prototype), { store, assertNetwork: async () => {},
+    const service = Object.assign(Object.create(LaunchpadService.prototype), { launchManifest: () => ({ ...ENGINE_MANIFEST, engineLaunchCutover: undefined }) }, { store, assertNetwork: async () => {},
       client: { getTransactionReceipt: async () => ({ ...receipt, status }), getBlockNumber: async () => head,
         getBlock: async () => ({ hash: canonical }) },
       register: async () => { recovered = true; store.launchStatus(hash, "confirmed", blockHash); } }) as LaunchpadService;
@@ -510,7 +511,7 @@ test("failed guard verification cannot inherit another request's verified addres
   let rejectNetwork!: (error: Error) => void;
   const runtime = { config: { mode: "fork", deploymentChainId: 4663, chainId: 31337,
     writesEnabled: true, launchGuard: null as Address | null, treasury } };
-  const service = Object.assign(Object.create(LaunchpadService.prototype), { runtime, guardCandidate: guard,
+  const service = Object.assign(Object.create(LaunchpadService.prototype), { launchManifest: () => ({ ...ENGINE_MANIFEST, engineLaunchCutover: undefined }) }, { runtime, guardCandidate: guard,
     assertNetwork: () => new Promise<void>((_resolve, reject) => { rejectNetwork = reject; }) }) as LaunchpadService;
   const failedRequest = service.config();
   // A concurrent successful verification used to write this shared field.
@@ -529,7 +530,7 @@ function paymentPreflightFixture(chainId: 8453 | 4663 = 8453) {
   const config: RuntimeConfig = { mode: chainId === 8453 ? "base" : "robinhood", deploymentChainId: chainId,
     chainId, treasury, writesEnabled: false, blockReason: "Read-only" };
   const untouched = () => { throw new Error("Payment preflight must not access SDK preparation or storage"); };
-  const service = Object.assign(Object.create(LaunchpadService.prototype), {
+  const service = Object.assign(Object.create(LaunchpadService.prototype), { launchManifest: () => ({ ...ENGINE_MANIFEST, engineLaunchCutover: undefined }) }, {
     runtime: { config, lifi: { integrator: "service-preflight-test" } }, store: new Proxy({}, { get: untouched }), sdk: new Proxy({}, { get: untouched }),
     config: async () => ({ ...config, launchGuard: state.guard, feePolicy: state.feePolicy, feeEngine: null }),
     rpcRequest: async (method: string) => { assert.equal(method, "web3_clientVersion"); return "anvil synthetic unit-test fixture"; },
@@ -693,7 +694,7 @@ test("refresh preserves intent, salt and accepted floor until explicit confirmat
   });
   const config: RuntimeConfig = { mode: "fork", deploymentChainId: 4663, chainId: 31337, treasury, writesEnabled: true,
     blockReason: null, feePolicy: FEE_POLICY, launchGuard: guard, launchLockAvailable: true };
-  const service = Object.assign(Object.create(LaunchpadService.prototype), { runtime: { config }, store, sdk: f.sdk,
+  const service = Object.assign(Object.create(LaunchpadService.prototype), { launchManifest: () => ({ ...ENGINE_MANIFEST, engineLaunchCutover: undefined }) }, { runtime: { config }, store, sdk: f.sdk,
     config: async () => config, assertNetwork: async () => {},
     openingValuation: async () => syntheticOpeningValuation(quote.address, "3000", { chainId: 4663, quotedAt: time }),
     client: { getCode: async () => "0x", readContract: async ({ functionName }: { functionName: string }) => ({ symbol: quote.symbol, decimals: quote.decimals,
@@ -743,7 +744,7 @@ test("payment proceeds may increase the paired input without lowering or ratchet
   });
   const config: RuntimeConfig = { mode: "fork", deploymentChainId: 4663, chainId: 31337, treasury, writesEnabled: true,
     blockReason: null, feePolicy: FEE_POLICY, launchGuard: guard, launchLockAvailable: true };
-  const service = Object.assign(Object.create(LaunchpadService.prototype), { runtime: { config, secrets: { planAttestationKey: "k".repeat(32) } }, store, sdk: f.sdk,
+  const service = Object.assign(Object.create(LaunchpadService.prototype), { launchManifest: () => ({ ...ENGINE_MANIFEST, engineLaunchCutover: undefined }) }, { runtime: { config, secrets: { planAttestationKey: "k".repeat(32) } }, store, sdk: f.sdk,
     config: async () => config, assertNetwork: async () => {},
     openingValuation: async () => syntheticOpeningValuation(quote.address, "3000", { chainId: 4663, quotedAt: time }),
     client: { getCode: async () => "0x", readContract: async ({ functionName }: { functionName: string }) => ({ symbol: quote.symbol, decimals: quote.decimals,
@@ -792,7 +793,7 @@ function recoveryService(f: ReturnType<typeof ordinaryFixture> | ReturnType<type
   const sdk = f.sdk, reads = options.reads ?? [];
   (sdk as any).getMulticurvePool = async () => ({ getState: async () => ({ status: 2, numeraire: quote.address, poolKey: f.poolKey }) });
   const valuation = f.plan.openingValuation!;
-  return Object.assign(Object.create(LaunchpadService.prototype), {
+  return Object.assign(Object.create(LaunchpadService.prototype), { launchManifest: () => ({ ...ENGINE_MANIFEST, engineLaunchCutover: undefined }) }, {
     runtime: { config: { mode: "fork", chainId: 31337, deploymentChainId: 4663, writesEnabled: false,
       treasury: options.treasury === undefined ? treasury : options.treasury },
       secrets: { planAttestationKey: options.attestationKey, planAttestationPreviousKeys: options.previousAttestationKeys ?? [] } }, store, sdk,
@@ -823,7 +824,7 @@ function recoveryService(f: ReturnType<typeof ordinaryFixture> | ReturnType<type
       },
       getCode: async () => options.referencePrice !== undefined ? oracleRuntime : undefined,
     },
-    ...(options.manifest ? { launchManifest: () => options.manifest } : {}),
+    launchManifest: () => options.manifest ?? { ...ENGINE_MANIFEST, engineLaunchCutover: undefined },
   }) as LaunchpadService;
 }
 
@@ -954,13 +955,13 @@ test("after a recorded engine cutover, treasury-only launches recover only withi
   assert.match(((await recover(cutoverAt + 360n)) as Error).message, /platform-approved/, "a later treasury-only launch bypasses the engine");
   assert.match(((await recover(cutoverAt, `0x${"cd".repeat(32)}`)) as Error).message, /not a canonical block/, "the recorded cutover must be canonical");
   const config: RuntimeConfig = { mode: "fork", deploymentChainId: 4663, chainId: 31337, treasury, writesEnabled: true, blockReason: null, feePolicy: FEE_POLICY };
-  const prepareWith = (at: bigint) => Object.assign(Object.create(LaunchpadService.prototype), { runtime: { config }, config: async () => config,
+  const prepareWith = (at: bigint) => Object.assign(Object.create(LaunchpadService.prototype), { launchManifest: () => ({ ...ENGINE_MANIFEST, engineLaunchCutover: undefined }) }, { runtime: { config }, config: async () => config,
     assertNetwork: async () => {}, client: { getCode: async () => "0x" }, launchManifest: () => manifest(blockHash, at) }) as LaunchpadService;
   const draft = { name: "After cutover", symbol: "LATE", description: "", image: "", quoteAddress: quote.address, tradingFeeBps: 100 };
   const passed = prepareWith(BigInt(Math.floor(Date.now() / 1000) - 60));
   await assert.rejects(() => passed.prepare(draft, creator, CURVE_POLICY, { amount: "0", slippageBps: 100, lockDays: 0 }), /route fees through the buyback engine/);
   await assert.rejects(() => passed.preflightFirstBuyPayment(quote.address), /route fees through the buyback engine/);
-  const malformed = Object.assign(Object.create(LaunchpadService.prototype), { runtime: { config }, config: async () => config,
+  const malformed = Object.assign(Object.create(LaunchpadService.prototype), { launchManifest: () => ({ ...ENGINE_MANIFEST, engineLaunchCutover: undefined }) }, { runtime: { config }, config: async () => config,
     assertNetwork: async () => {}, client: { getCode: async () => "0x" },
     launchManifest: () => { const value = manifest(blockHash, BigInt(Math.floor(Date.now() / 1000) + 3600));
       return { ...value, engineLaunchCutover: { ...value.engineLaunchCutover!, graphFingerprint: "0x" } }; } }) as LaunchpadService;
@@ -1345,7 +1346,7 @@ test("a recorded cutover is re-verified until final, so a reorganized cutover bl
 
 test("final simulation accepts outputs within the signed minimum instead of exact preview equality", async () => {
   const f = fixture(); let output = 995n;
-  const service = Object.assign(Object.create(LaunchpadService.prototype), {
+  const service = Object.assign(Object.create(LaunchpadService.prototype), { launchManifest: () => ({ ...ENGINE_MANIFEST, engineLaunchCutover: undefined }) }, {
     validateLaunch: async () => ({ valid: true }), assertNetwork: async () => {},
     store: { findPlan: async () => f.plan },
     client: { readContract: async () => 100n, estimateGas: async () => 200_000n,
@@ -1360,7 +1361,7 @@ test("validation and simulation previews do not permanently protect abandoned pl
   const f = fixture(), directory = mkdtempSync(join(tmpdir(), "unsigned-plan-lifetime-")), store = new Store(directory,31337);
   const config: RuntimeConfig = {mode:"fork",deploymentChainId:4663,chainId:31337,writesEnabled:true,blockReason:null,
     treasury,launchGuard:guard,curvePolicy:CURVE_POLICY,feePolicy:FEE_POLICY};
-  const service = Object.assign(Object.create(LaunchpadService.prototype), {runtime:{config},store,config:async()=>config}) as LaunchpadService;
+  const service = Object.assign(Object.create(LaunchpadService.prototype), { launchManifest: () => ({ ...ENGINE_MANIFEST, engineLaunchCutover: undefined }) }, {runtime:{config},store,config:async()=>config}) as LaunchpadService;
   try {
     store.savePlan(f.plan);
     await service.validateLaunch(creator,f.plan.data);
@@ -1375,7 +1376,7 @@ test("validation and simulation previews do not permanently protect abandoned pl
 
 test("old confirmed receipts slow down when finality is unavailable without being marked finalized", async () => {
   let finalized = false, retryAt = 0;
-  const service = Object.assign(Object.create(LaunchpadService.prototype), {
+  const service = Object.assign(Object.create(LaunchpadService.prototype), { launchManifest: () => ({ ...ENGINE_MANIFEST, engineLaunchCutover: undefined }) }, {
     assertNetwork: async () => {},
     store: { pendingLaunches: async () => [{ hash, status: "confirmed", blockHash }],
       tokenByTxHash: async () => ({ blockNumber: "10", createdAt: Date.now() - 2 * 86_400_000 }),

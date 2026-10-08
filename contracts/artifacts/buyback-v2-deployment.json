@@ -515,5 +515,12 @@
     "oldForwarderAllowance": "0",
     "newForwarderAllowance": "10000000000000000",
     "observedAllowanceBlock": "83135170"
+  },
+  "engineLaunchCutover": {
+    "blockNumber": "83278731",
+    "blockHash": "0x8353ed26e4cc81d74191cf6d2fcbbd7ed011e5e4b6f89dd198039302ebc3dffb",
+    "timestamp": 1791458885,
+    "graphFingerprint": "0xa8bd28a62cfb751b3aa30bb32f5e3ddc4e51b4035166a3737642c3d42168e607",
+    "activatedAtBlock": "83245176"
   }
 }

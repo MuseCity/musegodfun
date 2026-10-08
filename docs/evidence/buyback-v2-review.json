@@ -382,8 +382,8 @@
     "proofBoundary": "Contract deployment/source verification is real Robinhood mainnet execution. It does not prove native Automation, funded/authorized buyback activation or user wallet canary."
   },
   "authorizedActivationExecution": {
-    "observedAt": "2026-10-08T11:21:09.495Z",
-    "status": "activation_verified_runtime_publication_and_keeper_trial_pending",
+    "observedAt": "2026-10-08T12:21:33.857Z",
+    "status": "mainnet_V2_activated_dedicated_local_keeper_trial_running_public_signing_paused",
     "authority": "User explicitly authorized buyback activation, dedicated local keeper, a total0.0068ETH outlay including observation capacity expansion, source approval and both fixed-governor signatures. Public signing stays paused.",
     "graphFingerprint": "0xa8bd28a62cfb751b3aa30bb32f5e3ddc4e51b4035166a3737642c3d42168e607",
     "sourceApproval": {
@@ -503,7 +503,7 @@
     },
     "keeper": {
       "observedAt": "2026-10-08T11:21:09.495Z",
-      "status": "dedicated_local_wallet_funded_keeper_start_pending",
+      "status": "dedicated_local_keeper_trial_running_start_stop_restart_and_scheduled_cycles_verified",
       "address": "0xd3f11a4DDcED57aC4E41F8CE7fD323959667e278",
       "keyLocation": ".env (ignored, mode 0600; value never output)",
       "funding": {
@@ -531,9 +531,9 @@
           "type": "eip1559"
         }
       },
-      "runtimeHost": "user_selected_this_mac_for_initial_trial",
-      "executeCommand": "npm run keeper:buyback -- --execute --api=https://musegod.fun",
-      "dryRunCommand": "npm run keeper:buyback -- --once --api=https://musegod.fun",
+      "runtimeHost": "user_selected_this_Mac; dedicated_tmux_sessions, no OS boot service",
+      "executeCommand": "npm run keeper:buyback -- --execute --api=http://127.0.0.1:8798",
+      "dryRunCommand": "npm run keeper:buyback -- --once --api=http://127.0.0.1:8798",
       "totalCanaryAndGasBudgetEth": "0.0068",
       "authorizedBudgetWallet": "0xd5C256e6411a6835543F2bCd763341639e3Cf56f",
       "executionGate": "Full actual native-fee activation evidence required before execution. No deployment wallet reuse.",
@@ -543,7 +543,274 @@
         "source": "Explicit user reply 2026-10-08"
       },
       "dedicatedKeyConfigured": true,
-      "deploymentWalletReuse": "not_permitted"
+      "deploymentWalletReuse": "not_permitted",
+      "apiOrigin": "http://127.0.0.1:8798",
+      "apiBinding": "127.0.0.1_only; Robinhood4663/mainnet Supabase; all user-signing flags false; no browser database credentials",
+      "sessions": {
+        "api": "musegod-v2-api",
+        "keeper": "musegod-v2-keeper"
+      },
+      "processId": 15244,
+      "startupAndGracefulStop": {
+        "observedAt": "2026-10-08T12:10:35.560Z",
+        "phase": "first_healthy_loop_before_graceful_restart",
+        "logSha256": "29dd64c361399cc784ad21217b581f172b43f41c8d23f394bb3370d463b0346c",
+        "healthyRounds": [
+          {
+            "mode": "execute",
+            "chainId": 4663,
+            "tasks": 0,
+            "blockNumber": "83302739"
+          },
+          {
+            "mode": "execute",
+            "chainId": 4663,
+            "tasks": 0,
+            "blockNumber": "83303070"
+          }
+        ],
+        "journal": {
+          "chainId": 4663,
+          "caller": "0xd3f11a4DDcED57aC4E41F8CE7fD323959667e278",
+          "nonce": 0,
+          "taskId": "release:0xC8ccd7DB491BCd1964925c62887AC94ece19215f",
+          "to": "0x9caefd217ea5a039BbA77Ae5b0626733eA093769",
+          "dataHash": "0x4a30d3fb7d997f03f2566fc6ebbe89c8638e13ec71a1278e4051d4d3ad269a88",
+          "value": "0",
+          "gasLimit": "146340",
+          "gasPrice": "40080000",
+          "schemaVersion": 1,
+          "hash": "0xdde83849389fba7f2cfe6214116530b1694d5b01dfe24c74df4fb9ffe6a17aab",
+          "signedAt": 1791461181905,
+          "status": "confirmed",
+          "blockNumber": "83301228",
+          "blockHash": "0x25553473d3c57cb31e4e3da187f9416505ca95ffd75551c49ff5ee8097b7b342",
+          "gasSpent": "2032458744000",
+          "resolvedAt": 1791461183345
+        },
+        "liveLock": {
+          "pid": 9541,
+          "acquiredAt": 1791461353854
+        },
+        "gracefulStop": {
+          "observedAt": "2026-10-08T12:12:37.271Z",
+          "signalledPid": 9541,
+          "journalLockReleased": true,
+          "journalPreserved": {
+            "chainId": 4663,
+            "caller": "0xd3f11a4DDcED57aC4E41F8CE7fD323959667e278",
+            "nonce": 0,
+            "taskId": "release:0xC8ccd7DB491BCd1964925c62887AC94ece19215f",
+            "to": "0x9caefd217ea5a039BbA77Ae5b0626733eA093769",
+            "dataHash": "0x4a30d3fb7d997f03f2566fc6ebbe89c8638e13ec71a1278e4051d4d3ad269a88",
+            "value": "0",
+            "gasLimit": "146340",
+            "gasPrice": "40080000",
+            "schemaVersion": 1,
+            "hash": "0xdde83849389fba7f2cfe6214116530b1694d5b01dfe24c74df4fb9ffe6a17aab",
+            "signedAt": 1791461181905,
+            "status": "confirmed",
+            "blockNumber": "83301228",
+            "blockHash": "0x25553473d3c57cb31e4e3da187f9416505ca95ffd75551c49ff5ee8097b7b342",
+            "gasSpent": "2032458744000",
+            "resolvedAt": 1791461183345
+          },
+          "healthyRounds": [
+            {
+              "mode": "execute",
+              "chainId": 4663,
+              "tasks": 0,
+              "blockNumber": "83302739"
+            },
+            {
+              "mode": "execute",
+              "chainId": 4663,
+              "tasks": 0,
+              "blockNumber": "83303070"
+            },
+            {
+              "mode": "execute",
+              "chainId": 4663,
+              "tasks": 0,
+              "blockNumber": "83304301"
+            }
+          ]
+        }
+      },
+      "restart": {
+        "observedAt": "2026-10-08T12:21:33.857Z",
+        "liveLock": {
+          "pid": 15244,
+          "acquiredAt": 1791461669849
+        },
+        "healthyRounds": [
+          {
+            "mode": "execute",
+            "chainId": 4663,
+            "tasks": 0,
+            "blockNumber": "83305826"
+          },
+          {
+            "mode": "execute",
+            "chainId": 4663,
+            "tasks": 0,
+            "blockNumber": "83306142"
+          },
+          {
+            "mode": "execute",
+            "chainId": 4663,
+            "tasks": 0,
+            "blockNumber": "83307319"
+          },
+          {
+            "mode": "execute",
+            "chainId": 4663,
+            "tasks": 0,
+            "blockNumber": "83307600"
+          },
+          {
+            "mode": "execute",
+            "chainId": 4663,
+            "tasks": 0,
+            "blockNumber": "83308975"
+          },
+          {
+            "mode": "execute",
+            "chainId": 4663,
+            "tasks": 0,
+            "blockNumber": "83309329"
+          }
+        ],
+        "journalReconciled": {
+          "chainId": 4663,
+          "caller": "0xd3f11a4DDcED57aC4E41F8CE7fD323959667e278",
+          "nonce": 0,
+          "taskId": "release:0xC8ccd7DB491BCd1964925c62887AC94ece19215f",
+          "to": "0x9caefd217ea5a039BbA77Ae5b0626733eA093769",
+          "dataHash": "0x4a30d3fb7d997f03f2566fc6ebbe89c8638e13ec71a1278e4051d4d3ad269a88",
+          "value": "0",
+          "gasLimit": "146340",
+          "gasPrice": "40080000",
+          "schemaVersion": 1,
+          "hash": "0xdde83849389fba7f2cfe6214116530b1694d5b01dfe24c74df4fb9ffe6a17aab",
+          "signedAt": 1791461181905,
+          "status": "confirmed",
+          "blockNumber": "83301228",
+          "blockHash": "0x25553473d3c57cb31e4e3da187f9416505ca95ffd75551c49ff5ee8097b7b342",
+          "gasSpent": "2032458744000",
+          "resolvedAt": 1791461183345
+        },
+        "logSha256": "f1deed994656fd88017bff31f75f128f9604695a567c7625d037277cbbc43917"
+      },
+      "manualRecovery": {
+        "observedAt": "2026-10-08T12:06:21.928Z",
+        "authority": "Explicit user approval of one manual same-nonce recovery on2026-10-08; maximum gas0.000006ETH from existing dedicated fuel",
+        "oldHash": "0x6eee70960248dc121c11cdcdaf5d73824e02b22f81e5ee2a5531154efd50c240",
+        "newHash": "0xdde83849389fba7f2cfe6214116530b1694d5b01dfe24c74df4fb9ffe6a17aab",
+        "nonce": 0,
+        "to": "0x9caefd217ea5a039BbA77Ae5b0626733eA093769",
+        "dataHash": "0x4a30d3fb7d997f03f2566fc6ebbe89c8638e13ec71a1278e4051d4d3ad269a88",
+        "value": "0",
+        "worstGasEth": "0.0000058653072",
+        "originalJournalArchive": ".cache/buyback-keeper/4663-0xd3f11a4ddced57ac4e41f8ce7fd323959667e278.json.nonce0-original-unresolved.json",
+        "automaticRebroadcast": false,
+        "status": "confirmed",
+        "journal": {
+          "chainId": 4663,
+          "caller": "0xd3f11a4DDcED57aC4E41F8CE7fD323959667e278",
+          "nonce": 0,
+          "taskId": "release:0xC8ccd7DB491BCd1964925c62887AC94ece19215f",
+          "to": "0x9caefd217ea5a039BbA77Ae5b0626733eA093769",
+          "dataHash": "0x4a30d3fb7d997f03f2566fc6ebbe89c8638e13ec71a1278e4051d4d3ad269a88",
+          "value": "0",
+          "gasLimit": "146340",
+          "gasPrice": "40080000",
+          "schemaVersion": 1,
+          "hash": "0xdde83849389fba7f2cfe6214116530b1694d5b01dfe24c74df4fb9ffe6a17aab",
+          "signedAt": 1791461181905,
+          "status": "confirmed",
+          "blockNumber": "83301228",
+          "blockHash": "0x25553473d3c57cb31e4e3da187f9416505ca95ffd75551c49ff5ee8097b7b342",
+          "gasSpent": "2032458744000",
+          "resolvedAt": 1791461183345
+        },
+        "receipt": {
+          "blockHash": "0x25553473d3c57cb31e4e3da187f9416505ca95ffd75551c49ff5ee8097b7b342",
+          "blockNumber": "83301228",
+          "contractAddress": null,
+          "cumulativeGasUsed": "274813",
+          "effectiveGasPrice": "20012000",
+          "from": "0xd3f11a4ddced57ac4e41f8ce7fd323959667e278",
+          "gasUsed": "101562",
+          "gasUsedForL1": "0x0",
+          "l1BlockNumber": "0x18efaf2",
+          "logs": [
+            {
+              "address": "0xc8ccd7db491bcd1964925c62887ac94ece19215f",
+              "topics": [
+                "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+                "0x0000000000000000000000009caefd217ea5a039bba77ae5b0626733ea093769",
+                "0x000000000000000000000000ada3348d6fc8ecf7cc2dbca931d038b4b2913e3a"
+              ],
+              "data": "0x0000000000000000000000000000000000000000000001d06a4118745eb44941",
+              "blockNumber": "83301228",
+              "transactionHash": "0xdde83849389fba7f2cfe6214116530b1694d5b01dfe24c74df4fb9ffe6a17aab",
+              "transactionIndex": 3,
+              "blockHash": "0x25553473d3c57cb31e4e3da187f9416505ca95ffd75551c49ff5ee8097b7b342",
+              "blockTimestamp": "1791461182",
+              "logIndex": 2,
+              "removed": false
+            },
+            {
+              "address": "0x9caefd217ea5a039bba77ae5b0626733ea093769",
+              "topics": [
+                "0x0a9e507a0fc8a366988f1c34fe67046970bc97b0e4ccab55b4857622eee82701",
+                "0x000000000000000000000000c8ccd7db491bcd1964925c62887ac94ece19215f",
+                "0x000000000000000000000000ada3348d6fc8ecf7cc2dbca931d038b4b2913e3a"
+              ],
+              "data": "0x0000000000000000000000000000000000000000000001d06a4118745eb44941",
+              "blockNumber": "83301228",
+              "transactionHash": "0xdde83849389fba7f2cfe6214116530b1694d5b01dfe24c74df4fb9ffe6a17aab",
+              "transactionIndex": 3,
+              "blockHash": "0x25553473d3c57cb31e4e3da187f9416505ca95ffd75551c49ff5ee8097b7b342",
+              "blockTimestamp": "1791461182",
+              "logIndex": 3,
+              "removed": false
+            }
+          ],
+          "logsBloom": "0x00000000000000000000000000000000000000004000000000000000000000000000000000800000000000000000000000000004000000000000000000000000000000000000000000000008000040010000000008000000400000000000000000010000000000000000000000000000000000000000000000000018000000000000000000200000000000000000000000000000040000000000000000000000000000000000000000000000000000040000000000000000000000000000001000000002000004200000000000020000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000010000000",
+          "status": "success",
+          "to": "0x9caefd217ea5a039bba77ae5b0626733ea093769",
+          "transactionHash": "0xdde83849389fba7f2cfe6214116530b1694d5b01dfe24c74df4fb9ffe6a17aab",
+          "transactionIndex": 3,
+          "type": "eip1559"
+        },
+        "oldNonceDisposition": "Same nonce consumed by exact approved replacement; original unknown metadata retained, no cancellation claimed",
+        "receiptAudit": "Receipt saved by read-only reconciliation after temporary helper BigInt serialization error; no rebroadcast"
+      },
+      "latestJournal": {
+        "chainId": 4663,
+        "caller": "0xd3f11a4DDcED57aC4E41F8CE7fD323959667e278",
+        "nonce": 0,
+        "taskId": "release:0xC8ccd7DB491BCd1964925c62887AC94ece19215f",
+        "to": "0x9caefd217ea5a039BbA77Ae5b0626733eA093769",
+        "dataHash": "0x4a30d3fb7d997f03f2566fc6ebbe89c8638e13ec71a1278e4051d4d3ad269a88",
+        "value": "0",
+        "gasLimit": "146340",
+        "gasPrice": "40080000",
+        "schemaVersion": 1,
+        "hash": "0xdde83849389fba7f2cfe6214116530b1694d5b01dfe24c74df4fb9ffe6a17aab",
+        "signedAt": 1791461181905,
+        "status": "confirmed",
+        "blockNumber": "83301228",
+        "blockHash": "0x25553473d3c57cb31e4e3da187f9416505ca95ffd75551c49ff5ee8097b7b342",
+        "gasSpent": "2032458744000",
+        "resolvedAt": 1791461183345
+      },
+      "gasFunding": "Only the approved initial0.00005ETH; no additional fuel transfer",
+      "newAutomatedProfitableSettlement": "not_observed; current rounds have no eligible tasks and no forced expenditure",
+      "runtimePermissionBoundary": "Explicit operator --execute and full canonical V2 activation/graph proof control the dedicated permissionless keeper. User issuance pause remains unchanged.",
+      "broadcast": "No automatic retry; original unknown nonce0 record retained; user explicitly approved exact same-nonce recovery; successful replacement consumed that nonce"
     },
     "canaryBudget": {
       "approvedTotalOutlayEth": "0.0068",
@@ -595,19 +862,22 @@
         }
       ],
       "remainingGrossBudgetEth": "0.000491566155082",
-      "refundedPrincipalDoesNotExpandBudget": true
+      "refundedPrincipalDoesNotExpandBudget": true,
+      "keeperFuelAccounting": "Gross D5 outlay includes the entire initial keeper fuel; keeper gas paid from that fuel is not double-counted",
+      "keeperGasSpentEth": "0.000002032458744"
     },
     "remaining": [
-      "Publish verified V2 engine runtime while preserving both public signing pauses",
-      "Dedicated keeper startup, restart and real scheduled-cycle verification",
-      "Record and deploy fixed engine launch cutover after engine-only runtime is finalized"
+      "Publish this fixed cutover and the final operational evidence through the normal master CI workflow; verify both domains after propagation"
     ],
     "runtime": {
-      "currentlyPublishedCommit": "f93f47f584e9e8cb49ca50459d4e2f642fd8f76f",
-      "publicSigning": "both_chains_remain_paused",
-      "feeEngineEnvironment": "V2 address set in wrangler.jsonc; publication pending"
+      "engineOnlyRuntimeCommit": "cda5774e06175934ec86a90bd708fd466b0fd0e0",
+      "githubRun": 37769486068,
+      "workerVersion": "c4ab5545-4889-46be-a006-78cf566e7344",
+      "publicSigning": "both_chains_remain_paused_revision0",
+      "feeEngineEnvironment": "0x9caefd217ea5a039bba77ae5b0626733ea093769",
+      "cutoverPublication": "prepared_for_this_commit"
     },
-    "manifestSha256": "7a96c63c3cf2eeabe31cadd1eabac6c79e963556612914d7eb6843c3f48f4c7d",
+    "manifestSha256": "f9b34985a1c09109388d022e34bbcabbf2977a5fe4d3f75991a2398d19b69973",
     "nativeCanary": {
       "evidencePath": "docs/evidence/buyback-v2-native-execution.json",
       "evidenceSha256": "c22f730b2864c2f2b23b7d95213124aa93a416071302a0b25c685e220eba9217",
@@ -673,7 +943,7 @@
         "refundHandling": "No additional refund or inflow expands the gross spending ceiling; exact attribution is separate from canonical fee/native/settlement proof.",
         "keeperFuel": "not_sent"
       },
-      "receiptGate": "Full activation proof verified, including actual fixed-governor external native acceptance, canonical fee/native/forwarding/settlement receipts and exact runtime graph",
+      "receiptGate": "Full graph activation, actual governor native acceptance and canonical receipts verified; immutable native evidence bytes preserved",
       "testVolumeNotOrganic": true,
       "evidenceUri": "https://raw.githubusercontent.com/MuseCity/musegodfun/f93f47f584e9e8cb49ca50459d4e2f642fd8f76f/docs/evidence/buyback-v2-native-execution.json"
     },
@@ -726,14 +996,57 @@
       "vaultWeth": "0"
     },
     "workerCapacityFix": {
-      "observedAt": "2026-10-08T11:33:05.938Z",
-      "failure": "Actual production keeper startup API422:Too many subrequests by single Worker invocation",
-      "requestType": "read-only graph, receipt and incremental burn-index queries",
-      "boundedSubrequests": 1000,
-      "accountSubscriptionChanged": false,
-      "signingPermissionChanged": false,
-      "verification": "production_recheck_pending",
-      "officialReference": "https://developers.cloudflare.com/workers/platform/limits/"
+      "observedAt": "2026-10-08T12:21:33.857Z",
+      "actualFailure": "Public Worker API hit Free-plan50-external-subrequest ceiling; initial local35s read also timed out during bounded historical catch-up",
+      "rejectedCandidates": [
+        {
+          "commit": "1c31616",
+          "run": 37770801628,
+          "reason": "Added JSONC comment was incompatible with strict release JSON reader; no activation"
+        },
+        {
+          "commit": "92867d3",
+          "run": 37771071774,
+          "reason": "Cloudflare Free rejects custom1000-subrequest limits; no activation"
+        }
+      ],
+      "resolution": "Unsupported limit removed. Local keeper uses existing loopback Node API/mainnet RPC, with120s local read-only deadline; public/quote35s retained. No account subscription change.",
+      "publicCapacityAcceptance": "not_complete; public history/status quota and load calibration remain before public opening",
+      "officialLimits": "https://developers.cloudflare.com/workers/platform/limits/"
+    },
+    "engineLaunchCutover": {
+      "blockNumber": "83278731",
+      "blockHash": "0x8353ed26e4cc81d74191cf6d2fcbbd7ed011e5e4b6f89dd198039302ebc3dffb",
+      "timestamp": 1791458885,
+      "graphFingerprint": "0xa8bd28a62cfb751b3aa30bb32f5e3ddc4e51b4035166a3737642c3d42168e607",
+      "activatedAtBlock": "83245176",
+      "readinessBoundary": {
+        "engineRuntimeCommit": "cda5774e06175934ec86a90bd708fd466b0fd0e0",
+        "buildId": "build-37769486068-1",
+        "githubRun": 37769486068,
+        "deploymentId": 6934176545,
+        "workerVersion": "c4ab5545-4889-46be-a006-78cf566e7344",
+        "notBefore": 1791458685,
+        "notBeforeUtc": "2026-10-08T11:24:45Z",
+        "boundary": "Conservative first successful dual-origin readiness timestamp, after actual engine-only deployment; public signing remains paused."
+      },
+      "canonicalFinalized": true
+    },
+    "postDeploymentKeeperChanges": {
+      "source": "scripts/buyback-keeper.ts",
+      "currentSha256": "09fcf4f60bfd573d38d89e928e8f03fdbc3c116f704756cffa006b06d93307b0",
+      "changes": [
+        "Loopback read-only deadline120s; public/quote35s unchanged",
+        "Explicitly authorized keeper submission requires verified graph and unchanged network independently of user issuance pause",
+        "Canary-tested EIP1559 max fee2x reported, priority10000wei; max cost used for batch profitability, fuel and task budget"
+      ],
+      "validation": {
+        "nodePassed": 605,
+        "nodeFailed": 0,
+        "typecheck": "passed",
+        "keeperRegressionsPassed": 26
+      },
+      "independentReviewHandling": "Original reviewer records and pinned sourceHashes are preserved; no independent review of these operational keeper edits is fabricated. Future contract redeployment remains blocked until exact source-gate rebinding."
     }
   },
   "postDeploymentTypeBoundaryCorrection": {

@@ -15,6 +15,7 @@ export function activatedEngineManifest(engine: Address, cutover?: { blockNumber
   }])) as Record<(typeof NODES)[number], { address: Address; runtimeHash: Hex; blockNumber?: string }>;
   const manifest = { ...ENGINE_MANIFEST, status: "deployed_verified", contracts };
   const fingerprint = buybackGraphFingerprint(manifest as unknown as BuybackDeployment);
-  return { ...manifest, activationVerification: { status: "verified", fingerprint, activatedAtBlock },
+  // A new synthetic activation must not inherit the committed mainnet cutover.
+  return { ...manifest, engineLaunchCutover: undefined, activationVerification: { status: "verified", fingerprint, activatedAtBlock },
     ...(cutover ? { engineLaunchCutover: { ...cutover, graphFingerprint: fingerprint, activatedAtBlock } } : {}) };
 }

@@ -17,7 +17,7 @@ const at = (blockNumber: bigint, timestamp = 0n) => ({ blockNumber, timestamp })
 const robinhood = (overrides: Partial<RuntimeConfig> = {}): RuntimeConfig =>
   ({ mode: "robinhood", deploymentChainId: 4663, chainId: 4663, treasury: configured, writesEnabled: false, blockReason: "paused", ...overrides });
 const deployed = (status = "deployed_verified") =>
-  ({ ...ENGINE_MANIFEST, status, contracts: { engine: { address: engine, blockNumber: "90000000" } } });
+  ({ ...ENGINE_MANIFEST, engineLaunchCutover: undefined, status, contracts: { engine: { address: engine, blockNumber: "90000000" } } });
 
 test("recovery trusts the configured treasury and committed Robinhood deployment routing only", () => {
   const config = robinhood();
@@ -86,7 +86,7 @@ test("after the recorded engine cutover, treasury-only routing is trusted only t
       at(95_000_200n, lastAccepted + 1n), policies));
   }
   assert.equal(engineLaunchCutover(robinhood(), withCutover)?.timestamp, cutoverAt);
-  assert.equal(engineLaunchCutover(robinhood(), ENGINE_MANIFEST), undefined, "no cutover is recorded before V2 activation");
+  assert.equal(engineLaunchCutover(robinhood(), { ...ENGINE_MANIFEST, engineLaunchCutover: undefined }), undefined, "an unrecorded fixture has no cutover");
   assert.doesNotThrow(() => assertTrustedLaunchPolicy({ feePolicy: FEE_POLICY, feeTreasury: operations }, robinhood(), at(10n ** 12n, 10n ** 12n),
     trustedLaunchPolicies(robinhood(), deployed())), "without a cutover, treasury-only routing has no time bound");
   const baseConfig: RuntimeConfig = { mode: "base", deploymentChainId: 8453, chainId: 8453, treasury: configured, writesEnabled: false, blockReason: null };

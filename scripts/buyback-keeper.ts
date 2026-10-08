@@ -314,6 +314,14 @@ export function assertKeeperGraph(config: RuntimeConfig, status: BuybackEngineSt
     !((config.chainId === 4663 && config.mode === "robinhood") || (config.chainId === 31337 && config.mode === "fork" && config.deploymentChainId === 4663)))
     throw new Error("The keeper API graph does not match the reviewed deployment manifest");
 }
+export function assertKeeperSubmissionRuntime(current: RuntimeConfig, expected: Pick<RuntimeConfig, "chainId" | "mode">,
+  status: BuybackEngineStatus, manifest: BuybackDeployment = deployment) {
+  // --execute authorizes the dedicated permissionless keeper. User issuance
+  // pause stays independent; a missing or unverified engine still stops signing.
+  assertKeeperGraph(current, status, manifest);
+  if (current.chainId !== expected.chainId || current.mode !== expected.mode)
+    throw new Error("The platform network changed before keeper signing");
+}
 export function assertKeeperAccount(caller: Address, config: RuntimeConfig) {
   if ([config.treasury, config.automationReceiver, config.automationTreasury].some((address) => address && sameAddress(address, caller)))
     throw new Error("The dedicated keeper must not use the operations treasury, Splits Automation or source treasury account");
@@ -335,7 +343,10 @@ export function redactKeeperError(error: unknown, secrets: (string | undefined)[
 }
 const oracleAbi = parseAbi(["function quoteWethToMuse(uint256 amount) view returns(uint256)"]);
 async function readApi<T>(origin: string, path: string, body?: unknown): Promise<T> {
-  const response = await fetch(`${origin}/api${path}`, { redirect: "manual", signal: AbortSignal.timeout(35_000),
+  // A local status round may catch up bounded historical pages without Worker limits.
+  // Quotes and all public requests keep the existing deadline; broadcast is separate.
+  const localRead = body === undefined && ["localhost", "127.0.0.1", "[::1]"].includes(new URL(origin).hostname);
+  const response = await fetch(`${origin}/api${path}`, { redirect: "manual", signal: AbortSignal.timeout(localRead ? 120_000 : 35_000),
     ...(body === undefined ? {} : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }) });
   if (!response.ok) throw new Error(`The keeper API request failed (${response.status})`);
   const text = await response.text();
@@ -447,7 +458,7 @@ export async function runKeeper(args = process.argv.slice(2)) {
                     client.estimateContractGas({ address: graph.vault, abi: buybackVaultAbi, functionName: "execute", args, account: caller }),
                     client.getGasPrice(),
                   ]);
-                  const gasMuse = await client.readContract({ address: graph.oracle, abi: oracleAbi, functionName: "quoteWethToMuse", args: [keeperGasCost(gas, gasPrice)] });
+                  const gasMuse = await client.readContract({ address: graph.oracle, abi: oracleAbi, functionName: "quoteWethToMuse", args: [keeperGasCost(gas, gasPrice * 2n)] });
                   const minimumProfit = keeperProfitThreshold(gasMuse);
                   if (simulation.result[1] < minimumProfit) continue;
                   await client.simulateContract({ address: graph.vault, abi: buybackVaultAbi, functionName: "execute", args: [amount, minimumProfit, BigInt(deadline)], account: caller });
@@ -460,7 +471,10 @@ export async function runKeeper(args = process.argv.slice(2)) {
             }
             let tx = engineTransaction(action, config);
             await client.call({ account: caller, ...tx });
-            const [gas, gasPrice] = await Promise.all([client.estimateGas({ account: caller, ...tx }), client.getGasPrice()]);
+            const [gas, reportedGasPrice] = await Promise.all([client.estimateGas({ account: caller, ...tx }), client.getGasPrice()]);
+            // Same bounded EIP-1559 envelope exercised by the mainnet canary.
+            // Use its worst-case fee for profit, funding and per-task gas guards.
+            const gasPrice = reportedGasPrice * 2n;
             if (action.kind === "execute") {
               const finalGasMuse = await client.readContract({ address: graph.oracle, abi: oracleAbi, functionName: "quoteWethToMuse", args: [keeperGasCost(gas, gasPrice)] });
               const finalMinimum = keeperProfitThreshold(finalGasMuse);
@@ -472,9 +486,7 @@ export async function runKeeper(args = process.argv.slice(2)) {
             }
             if (!wallet) { console.log(JSON.stringify({ task: task.id, state: "simulated", gas: String(gas), estimatedGasWei: String(keeperGasCost(gas, gasPrice)) })); continue; }
             const current = await readApi<RuntimeConfig>(origin, "/config");
-            assertKeeperGraph(current, status);
-            if (!current.writesEnabled || current.chainId !== config.chainId || current.mode !== config.mode)
-              throw new Error("Platform execution is disabled or its network changed");
+            assertKeeperSubmissionRuntime(current, config, status);
             assertKeeperAccount(caller, current);
             engineTransaction(action, current); // Recheck every expiry immediately before signing.
             const gasLimit = (gas * 125n + 99n) / 100n;
@@ -497,7 +509,7 @@ export async function runKeeper(args = process.argv.slice(2)) {
               sign: () => {
                 if (stopping) throw new KeeperSigningStopped("The keeper stopped before signing.");
                 engineTransaction(action, current);
-                return wallet.signTransaction({ ...tx, gas: gasLimit, gasPrice, nonce: latestNonce, type: "legacy" });
+                return wallet.signTransaction({ ...tx, gas: gasLimit, maxFeePerGas: gasPrice, maxPriorityFeePerGas: 10_000n, nonce: latestNonce, type: "eip1559" });
               },
               persist,
               broadcast: async (signedTransaction) => {
