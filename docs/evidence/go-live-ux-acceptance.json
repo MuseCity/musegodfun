@@ -1722,7 +1722,7 @@
     "Legacypaused runtime doesnotconsume newdatabase controls. Its falsebindings must remain until a reviewednative-control runtime is deployed. No automaticresume, WorkerHMAC secret upload, enginecutover, mainnet wallet or scheduler proof supplied by theseoperations."
   ],
   "production": {
-    "status": "mainnet_V2_activated_dedicated_local_keeper_trial_running_public_signing_paused",
+    "status": "mainnet_V2_active_local_keeper_trial_running_robinhood_public_issuance_enabled_base_paused",
     "applicationOrSchemaDeployment": "V2 runtime and fixed finalized cutover published and verified_8d88123",
     "v2ContractDeploymentAndPublicSourceVerification": "deployed_exact_match",
     "legacyApprovalRevocation": "confirmed",
@@ -1733,14 +1733,14 @@
     "mainnetCanaryWithRealDesktopMobileWallets": "not_run",
     "productionConcurrentCapacityAndCostCalibration": "not_run",
     "productionEdgeWafTurnstileWorkersDevAndMonitorSetup": "not_run",
-    "automaticPublicationAndBothDomainByteVerification": "CI37776394839 passed;204assets per origin; both chains paused",
-    "publicSigningResume": "not_run",
+    "automaticPublicationAndBothDomainByteVerification": "CI37783451630 passed;204assets each; Robinhood open after verified CAS resume",
+    "publicSigningResume": "verified_Robinhood_revision1_unpaused; Base_revision0_paused",
     "baseSigning": "remains disabled in source",
-    "authority": "User explicitly authorized buyback activation, dedicated local keeper, a total0.0068ETH outlay including observation capacity expansion, source approval and both fixed-governor signatures. Public signing stays paused.",
+    "authority": "User explicitly requested 启用公开发币 after the prior V2 activation/funding authority. This operation opens only Robinhood; no additional financial execution or subscription.",
     "executionChecklist": {
       "path": "docs/SPEC.md",
       "line": 294,
-      "completedPortion": "Mainnet V2 activation, finite approvals, genuine native fees-to-DEAD, local keeper/recovery and finalized cutover; public opening remains withheld"
+      "completedPortion": "Mainnet V2 activation/native settlement/local keeper and finalized cutover, followed by explicitly authorized public Robinhood resume and unsigned live API acceptance; real extension/mobile issuance remains unexecuted"
     },
     "contractRunbook": "contracts/README.md#deployment-and-activation-runbook",
     "compatiblePausedRollbackBaseline": "b2fed90b-bb15-4309-b2ea-7e865c3aa028_protocol1_paused",
@@ -1844,7 +1844,8 @@
       "assetsPerOrigin": 204,
       "publicSigning": "Both chains remain paused at revision0",
       "cutover": "Recorded finalized83278731 and published in the verified runtime"
-    }
+    },
+    "publicIssuanceExecution": "See authorizedPublicIssuanceExecution for exact release/control/unsigned API evidence and remaining real-wallet/load-test limits."
   },
   "rollback": {
     "source": "docs/SPEC.md and contracts/README.md",
@@ -4903,8 +4904,8 @@
     }
   ],
   "authorizedPublicIssuanceExecution": {
-    "observedAt": "2026-10-08T13:18:28.337767+00:00",
-    "status": "prepared_not_deployed_persistent_pause_retained",
+    "observedAt": "2026-10-08T13:29:57.597043+00:00",
+    "status": "robinhood_public_issuance_enabled_base_paused_verified",
     "authority": "User explicitly requested 启用公开发币. Robinhood4663 only; no additional mainnet spending or subscription change.",
     "baseCommit": "7bb52c6c400ac525f6e9f51604a2596f690a2f7a",
     "sourceHashes": {
@@ -4916,7 +4917,7 @@
       "tests/buyback-index.test.ts": "ff3dfee89e3b73b85938c9ecffbfe0eaaefacf7e52038d239c97d8b2b9a88cd7",
       "tests/launch-service.test.ts": "0031313f2dc95bc4a283526cd51a18bbf3ebd0c94f23d3ff999d9811caee0f7d",
       "wrangler.jsonc": "f0b475823ac76083d5ada20ee9b5978fced3aa0eac0c67a33ab6235988db819e",
-      "docs/SPEC.md": "c0649f6950f356119ef14a827986eef99a92bfa23f5aa78a37937338b32e6a6a"
+      "docs/SPEC.md": "92c517b20f0ee9c56e037e9a2cab81562583fa12002ff633a1f1012076a4de4a"
     },
     "changes": [
       "Bounded20-action HTTP read batches plus parallel complete immutable verification",
@@ -4950,7 +4951,10 @@
         "targetedTestsPassed": 53,
         "operationalDependency": "Dedicated keeper must explicitly use the running local Node API for shared index progress; current tmux command does so. Default public API does not scan.",
         "proofBoundary": "Static review and targeted tests are not whole-route production quota or real-wallet proof."
-      }
+      },
+      "foundryTestsPassedInCI": 143,
+      "realProductionUnsignedChecks": 34,
+      "concurrentOrdinaryReadsPassed": 8
     },
     "beforeControls": {
       "4663": {
@@ -4971,9 +4975,712 @@
       "General ingress throughput/body-timeout load calibration not complete",
       "Keeper index may remain partial and exposes its actual checkpoint/caughtUp flag"
     ],
-    "capitalChange": "none; no new signing/broadcast/funding",
-    "deployment": "not_run",
-    "runtimeControlResume": "not_run",
-    "rollback": "Read current4663 revision, CAS pause immediately; deploy only a compatible version preserving runtime controls/recovery. Base stays paused. Original independent contract-review source pins are unchanged."
+    "capitalChange": "none; no new signing/broadcast/funding; existing0.0068ETH gross ceiling unchanged",
+    "deployment": {
+      "schemaVersion": 1,
+      "commit": "761f802b2f720b353099fdfef3b4eeebe188cfa7",
+      "buildId": "build-37783451630-1",
+      "worker": "musegod-fun",
+      "workerVersionId": "548a8dfe-73bd-4d10-bf8e-09ff85d40511",
+      "previousWorkerVersionId": "48d8e459-5d02-49a2-b395-a45855f2734c",
+      "minimumSecurityProtocol": 1,
+      "files": {
+        "build-info.json": "e7a3cf48f3edaab70591c44a6259bdb95ca42383347825952a2b03ce9ffed64e",
+        "frontend.tar.gz": "65933b98ad18c1db76f15934dce6ad60bbee5abfb2af4a870e77e4ec49eb58ca"
+      },
+      "githubRun": 37783451630,
+      "ciConclusion": "success",
+      "releaseUrl": "https://github.com/MuseCity/musegodfun/releases/tag/build-37783451630-1",
+      "mainByteVerification": {
+        "verified": true,
+        "repository": "https://github.com/MuseCity/musegodfun",
+        "release": "build-37783451630-1",
+        "origin": "https://musegod.fun",
+        "commit": "761f802b2f720b353099fdfef3b4eeebe188cfa7",
+        "buildId": "build-37783451630-1",
+        "workerVersionId": "548a8dfe-73bd-4d10-bf8e-09ff85d40511",
+        "filesVerified": 204,
+        "routesVerified": [
+          "/",
+          "/create"
+        ],
+        "bytesVerified": 2486109,
+        "manifestSha256": "e7a3cf48f3edaab70591c44a6259bdb95ca42383347825952a2b03ce9ffed64e",
+        "archiveSha256": "65933b98ad18c1db76f15934dce6ad60bbee5abfb2af4a870e77e4ec49eb58ca"
+      },
+      "wwwByteVerification": {
+        "verified": true,
+        "repository": "https://github.com/MuseCity/musegodfun",
+        "release": "build-37783451630-1",
+        "origin": "https://www.musegod.fun",
+        "commit": "761f802b2f720b353099fdfef3b4eeebe188cfa7",
+        "buildId": "build-37783451630-1",
+        "workerVersionId": "548a8dfe-73bd-4d10-bf8e-09ff85d40511",
+        "filesVerified": 204,
+        "routesVerified": [
+          "/",
+          "/create"
+        ],
+        "bytesVerified": 2486109,
+        "manifestSha256": "e7a3cf48f3edaab70591c44a6259bdb95ca42383347825952a2b03ce9ffed64e",
+        "archiveSha256": "65933b98ad18c1db76f15934dce6ad60bbee5abfb2af4a870e77e4ec49eb58ca"
+      }
+    },
+    "runtimeControlResume": {
+      "paused": false,
+      "reason": "User authorized public Robinhood issuance; verified V2 activation and production release 761f802, Base remains paused",
+      "revision": 1,
+      "updatedAt": 1791465964828
+    },
+    "rollback": "Read current4663 revision, CAS pause immediately; deploy only a compatible version preserving runtime controls/recovery. Base stays paused. Original independent contract-review source pins are unchanged.",
+    "runtimeCommit": "761f802b2f720b353099fdfef3b4eeebe188cfa7",
+    "preResumeProductionChecks": {
+      "observedAt": "2026-10-08T13:25:10.628Z",
+      "opened": false,
+      "expectedCommit": "761f802b2f720b353099fdfef3b4eeebe188cfa7",
+      "checks": [
+        {
+          "origin": "https://musegod.fun",
+          "path": "/build-info.json",
+          "status": 200,
+          "ms": 1340
+        },
+        {
+          "origin": "https://musegod.fun",
+          "path": "/api/chains/4663/config",
+          "status": 200,
+          "ms": 1442
+        },
+        {
+          "origin": "https://musegod.fun",
+          "path": "/api/chains/4663/readyz",
+          "status": 200,
+          "ms": 974
+        },
+        {
+          "origin": "https://musegod.fun",
+          "chainId": 4663,
+          "config": {
+            "mode": "robinhood",
+            "deploymentChainId": 4663,
+            "chainId": 4663,
+            "treasury": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+            "writesEnabled": false,
+            "curvePolicy": "multicurve-97-3-v1",
+            "launchGuard": "0x531417dD153A72AA780DE27E502618a1F74AA409",
+            "launchLockAvailable": true,
+            "feeEngine": "0x9caefd217ea5a039BbA77Ae5b0626733eA093769",
+            "feePolicy": "creator-70-musegod-swapper-v3",
+            "buybackExecutor": "0x787b6a964C3e86A005B8Fda87991e088178A8455",
+            "blockReason": "Awaiting runtime activation",
+            "controlRevision": 0,
+            "signingPaused": true,
+            "securityProtocol": 1,
+            "automationReceiver": "0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a",
+            "automationTreasury": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+            "wethForwarder": "0x808d538f13ce0356E80C7a5ac2798D09206aB8f4",
+            "assetFeedOracle": "0xb39f7f1D9699FD93569838E0e726bF4F07905e29",
+            "buybackVault": "0x28E6B43525301312084310F31f4C9c9873d7a125"
+          },
+          "ready": {
+            "status": "ready",
+            "chainId": 4663,
+            "writesEnabled": false,
+            "signingPaused": true,
+            "controlRevision": 0,
+            "blockReason": "Awaiting runtime activation",
+            "healthClass": "expected_pause"
+          },
+          "files": 204
+        },
+        {
+          "origin": "https://musegod.fun",
+          "path": "/api/chains/8453/config",
+          "status": 200,
+          "ms": 577
+        },
+        {
+          "origin": "https://musegod.fun",
+          "path": "/api/chains/8453/readyz",
+          "status": 200,
+          "ms": 1065
+        },
+        {
+          "origin": "https://musegod.fun",
+          "chainId": 8453,
+          "config": {
+            "mode": "base",
+            "deploymentChainId": 8453,
+            "chainId": 8453,
+            "treasury": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+            "writesEnabled": false,
+            "curvePolicy": "multicurve-97-3-v1",
+            "launchGuard": "0x376DcBb32DF3B033547f3d9024b2e4E88b973BF7",
+            "launchLockAvailable": true,
+            "feeEngine": null,
+            "feePolicy": "creator-70-musegod-v2",
+            "buybackExecutor": null,
+            "blockReason": "Awaiting runtime activation",
+            "controlRevision": 0,
+            "signingPaused": true,
+            "securityProtocol": 1,
+            "automationReceiver": null,
+            "automationTreasury": null,
+            "wethForwarder": null,
+            "assetFeedOracle": null,
+            "buybackVault": null
+          },
+          "ready": {
+            "status": "ready",
+            "chainId": 8453,
+            "writesEnabled": false,
+            "signingPaused": true,
+            "controlRevision": 0,
+            "blockReason": "Awaiting runtime activation",
+            "healthClass": "expected_pause"
+          },
+          "files": 204
+        },
+        {
+          "origin": "https://musegod.fun",
+          "path": "/api/chains/4663/buyback/engine",
+          "status": 200,
+          "ms": 2451
+        },
+        {
+          "origin": "https://musegod.fun",
+          "engineStatus": {
+            "available": true,
+            "vaultBurned": "26652199583658865069102",
+            "burnScanFrom": "83100359",
+            "burnScanTo": "83115928",
+            "burnIndexCaughtUp": false,
+            "burns": []
+          }
+        },
+        {
+          "origin": "https://www.musegod.fun",
+          "path": "/build-info.json",
+          "status": 200,
+          "ms": 1648
+        },
+        {
+          "origin": "https://www.musegod.fun",
+          "path": "/api/chains/4663/config",
+          "status": 200,
+          "ms": 1429
+        },
+        {
+          "origin": "https://www.musegod.fun",
+          "path": "/api/chains/4663/readyz",
+          "status": 200,
+          "ms": 2300
+        },
+        {
+          "origin": "https://www.musegod.fun",
+          "chainId": 4663,
+          "config": {
+            "mode": "robinhood",
+            "deploymentChainId": 4663,
+            "chainId": 4663,
+            "treasury": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+            "writesEnabled": false,
+            "curvePolicy": "multicurve-97-3-v1",
+            "launchGuard": "0x531417dD153A72AA780DE27E502618a1F74AA409",
+            "launchLockAvailable": true,
+            "feeEngine": "0x9caefd217ea5a039BbA77Ae5b0626733eA093769",
+            "feePolicy": "creator-70-musegod-swapper-v3",
+            "buybackExecutor": "0x787b6a964C3e86A005B8Fda87991e088178A8455",
+            "blockReason": "Awaiting runtime activation",
+            "controlRevision": 0,
+            "signingPaused": true,
+            "securityProtocol": 1,
+            "automationReceiver": "0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a",
+            "automationTreasury": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+            "wethForwarder": "0x808d538f13ce0356E80C7a5ac2798D09206aB8f4",
+            "assetFeedOracle": "0xb39f7f1D9699FD93569838E0e726bF4F07905e29",
+            "buybackVault": "0x28E6B43525301312084310F31f4C9c9873d7a125"
+          },
+          "ready": {
+            "status": "ready",
+            "chainId": 4663,
+            "writesEnabled": false,
+            "signingPaused": true,
+            "controlRevision": 0,
+            "blockReason": "Awaiting runtime activation",
+            "healthClass": "expected_pause"
+          },
+          "files": 204
+        },
+        {
+          "origin": "https://www.musegod.fun",
+          "path": "/api/chains/8453/config",
+          "status": 200,
+          "ms": 479
+        },
+        {
+          "origin": "https://www.musegod.fun",
+          "path": "/api/chains/8453/readyz",
+          "status": 200,
+          "ms": 479
+        },
+        {
+          "origin": "https://www.musegod.fun",
+          "chainId": 8453,
+          "config": {
+            "mode": "base",
+            "deploymentChainId": 8453,
+            "chainId": 8453,
+            "treasury": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+            "writesEnabled": false,
+            "curvePolicy": "multicurve-97-3-v1",
+            "launchGuard": "0x376DcBb32DF3B033547f3d9024b2e4E88b973BF7",
+            "launchLockAvailable": true,
+            "feeEngine": null,
+            "feePolicy": "creator-70-musegod-v2",
+            "buybackExecutor": null,
+            "blockReason": "Awaiting runtime activation",
+            "controlRevision": 0,
+            "signingPaused": true,
+            "securityProtocol": 1,
+            "automationReceiver": null,
+            "automationTreasury": null,
+            "wethForwarder": null,
+            "assetFeedOracle": null,
+            "buybackVault": null
+          },
+          "ready": {
+            "status": "ready",
+            "chainId": 8453,
+            "writesEnabled": false,
+            "signingPaused": true,
+            "controlRevision": 0,
+            "blockReason": "Awaiting runtime activation",
+            "healthClass": "expected_pause"
+          },
+          "files": 204
+        },
+        {
+          "origin": "https://www.musegod.fun",
+          "path": "/api/chains/4663/buyback/engine",
+          "status": 200,
+          "ms": 991
+        },
+        {
+          "origin": "https://www.musegod.fun",
+          "engineStatus": {
+            "available": true,
+            "vaultBurned": "26652199583658865069102",
+            "burnScanFrom": "83100359",
+            "burnScanTo": "83115928",
+            "burnIndexCaughtUp": false,
+            "burns": []
+          }
+        }
+      ],
+      "transactionSigned": false,
+      "transactionBroadcast": false
+    },
+    "postResumeProductionChecks": {
+      "observedAt": "2026-10-08T13:26:54.690Z",
+      "opened": true,
+      "expectedCommit": "761f802b2f720b353099fdfef3b4eeebe188cfa7",
+      "checks": [
+        {
+          "origin": "https://musegod.fun",
+          "path": "/build-info.json",
+          "status": 200,
+          "ms": 1089
+        },
+        {
+          "origin": "https://musegod.fun",
+          "path": "/api/chains/4663/config",
+          "status": 200,
+          "ms": 1510
+        },
+        {
+          "origin": "https://musegod.fun",
+          "path": "/api/chains/4663/readyz",
+          "status": 200,
+          "ms": 934
+        },
+        {
+          "origin": "https://musegod.fun",
+          "chainId": 4663,
+          "config": {
+            "mode": "robinhood",
+            "deploymentChainId": 4663,
+            "chainId": 4663,
+            "treasury": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+            "writesEnabled": true,
+            "curvePolicy": "multicurve-97-3-v1",
+            "launchGuard": "0x531417dD153A72AA780DE27E502618a1F74AA409",
+            "launchLockAvailable": true,
+            "feeEngine": "0x9caefd217ea5a039BbA77Ae5b0626733eA093769",
+            "feePolicy": "creator-70-musegod-swapper-v3",
+            "buybackExecutor": "0x787b6a964C3e86A005B8Fda87991e088178A8455",
+            "blockReason": null,
+            "controlRevision": 1,
+            "signingPaused": false,
+            "securityProtocol": 1,
+            "automationReceiver": "0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a",
+            "automationTreasury": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+            "wethForwarder": "0x808d538f13ce0356E80C7a5ac2798D09206aB8f4",
+            "assetFeedOracle": "0xb39f7f1D9699FD93569838E0e726bF4F07905e29",
+            "buybackVault": "0x28E6B43525301312084310F31f4C9c9873d7a125"
+          },
+          "ready": {
+            "status": "ready",
+            "chainId": 4663,
+            "writesEnabled": true,
+            "signingPaused": false,
+            "controlRevision": 1,
+            "blockReason": null,
+            "healthClass": "operational"
+          },
+          "files": 204
+        },
+        {
+          "origin": "https://musegod.fun",
+          "path": "/api/chains/8453/config",
+          "status": 200,
+          "ms": 1169
+        },
+        {
+          "origin": "https://musegod.fun",
+          "path": "/api/chains/8453/readyz",
+          "status": 200,
+          "ms": 1044
+        },
+        {
+          "origin": "https://musegod.fun",
+          "chainId": 8453,
+          "config": {
+            "mode": "base",
+            "deploymentChainId": 8453,
+            "chainId": 8453,
+            "treasury": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+            "writesEnabled": false,
+            "curvePolicy": "multicurve-97-3-v1",
+            "launchGuard": "0x376DcBb32DF3B033547f3d9024b2e4E88b973BF7",
+            "launchLockAvailable": true,
+            "feeEngine": null,
+            "feePolicy": "creator-70-musegod-v2",
+            "buybackExecutor": null,
+            "blockReason": "Awaiting runtime activation",
+            "controlRevision": 0,
+            "signingPaused": true,
+            "securityProtocol": 1,
+            "automationReceiver": null,
+            "automationTreasury": null,
+            "wethForwarder": null,
+            "assetFeedOracle": null,
+            "buybackVault": null
+          },
+          "ready": {
+            "status": "ready",
+            "chainId": 8453,
+            "writesEnabled": false,
+            "signingPaused": true,
+            "controlRevision": 0,
+            "blockReason": "Awaiting runtime activation",
+            "healthClass": "expected_pause"
+          },
+          "files": 204
+        },
+        {
+          "origin": "https://musegod.fun",
+          "path": "/api/chains/4663/buyback/engine",
+          "status": 200,
+          "ms": 2471
+        },
+        {
+          "origin": "https://musegod.fun",
+          "engineStatus": {
+            "available": true,
+            "vaultBurned": "26652199583658865069102",
+            "burnScanFrom": "83100359",
+            "burnScanTo": "83116428",
+            "burnIndexCaughtUp": false,
+            "burns": []
+          }
+        },
+        {
+          "origin": "https://www.musegod.fun",
+          "path": "/build-info.json",
+          "status": 200,
+          "ms": 1437
+        },
+        {
+          "origin": "https://www.musegod.fun",
+          "path": "/api/chains/4663/config",
+          "status": 200,
+          "ms": 752
+        },
+        {
+          "origin": "https://www.musegod.fun",
+          "path": "/api/chains/4663/readyz",
+          "status": 200,
+          "ms": 1312
+        },
+        {
+          "origin": "https://www.musegod.fun",
+          "chainId": 4663,
+          "config": {
+            "mode": "robinhood",
+            "deploymentChainId": 4663,
+            "chainId": 4663,
+            "treasury": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+            "writesEnabled": true,
+            "curvePolicy": "multicurve-97-3-v1",
+            "launchGuard": "0x531417dD153A72AA780DE27E502618a1F74AA409",
+            "launchLockAvailable": true,
+            "feeEngine": "0x9caefd217ea5a039BbA77Ae5b0626733eA093769",
+            "feePolicy": "creator-70-musegod-swapper-v3",
+            "buybackExecutor": "0x787b6a964C3e86A005B8Fda87991e088178A8455",
+            "blockReason": null,
+            "controlRevision": 1,
+            "signingPaused": false,
+            "securityProtocol": 1,
+            "automationReceiver": "0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a",
+            "automationTreasury": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+            "wethForwarder": "0x808d538f13ce0356E80C7a5ac2798D09206aB8f4",
+            "assetFeedOracle": "0xb39f7f1D9699FD93569838E0e726bF4F07905e29",
+            "buybackVault": "0x28E6B43525301312084310F31f4C9c9873d7a125"
+          },
+          "ready": {
+            "status": "ready",
+            "chainId": 4663,
+            "writesEnabled": true,
+            "signingPaused": false,
+            "controlRevision": 1,
+            "blockReason": null,
+            "healthClass": "operational"
+          },
+          "files": 204
+        },
+        {
+          "origin": "https://www.musegod.fun",
+          "path": "/api/chains/8453/config",
+          "status": 200,
+          "ms": 470
+        },
+        {
+          "origin": "https://www.musegod.fun",
+          "path": "/api/chains/8453/readyz",
+          "status": 200,
+          "ms": 1013
+        },
+        {
+          "origin": "https://www.musegod.fun",
+          "chainId": 8453,
+          "config": {
+            "mode": "base",
+            "deploymentChainId": 8453,
+            "chainId": 8453,
+            "treasury": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+            "writesEnabled": false,
+            "curvePolicy": "multicurve-97-3-v1",
+            "launchGuard": "0x376DcBb32DF3B033547f3d9024b2e4E88b973BF7",
+            "launchLockAvailable": true,
+            "feeEngine": null,
+            "feePolicy": "creator-70-musegod-v2",
+            "buybackExecutor": null,
+            "blockReason": "Awaiting runtime activation",
+            "controlRevision": 0,
+            "signingPaused": true,
+            "securityProtocol": 1,
+            "automationReceiver": null,
+            "automationTreasury": null,
+            "wethForwarder": null,
+            "assetFeedOracle": null,
+            "buybackVault": null
+          },
+          "ready": {
+            "status": "ready",
+            "chainId": 8453,
+            "writesEnabled": false,
+            "signingPaused": true,
+            "controlRevision": 0,
+            "blockReason": "Awaiting runtime activation",
+            "healthClass": "expected_pause"
+          },
+          "files": 204
+        },
+        {
+          "origin": "https://www.musegod.fun",
+          "path": "/api/chains/4663/buyback/engine",
+          "status": 200,
+          "ms": 459
+        },
+        {
+          "origin": "https://www.musegod.fun",
+          "engineStatus": {
+            "available": true,
+            "vaultBurned": "26652199583658865069102",
+            "burnScanFrom": "83100359",
+            "burnScanTo": "83116428",
+            "burnIndexCaughtUp": false,
+            "burns": []
+          }
+        },
+        {
+          "origin": "https://musegod.fun",
+          "path": "/api/chains/4663/stocks",
+          "status": 200,
+          "ms": 2343
+        },
+        {
+          "origin": "https://musegod.fun",
+          "path": "/api/chains/4663/launch/prepare",
+          "status": 200,
+          "ms": 4694
+        },
+        {
+          "origin": "https://musegod.fun",
+          "path": "/api/chains/4663/launch/simulate",
+          "status": 200,
+          "ms": 2162
+        },
+        {
+          "origin": "https://musegod.fun",
+          "path": "/api/chains/4663/launch/validate",
+          "status": 200,
+          "ms": 1249
+        },
+        {
+          "origin": "https://www.musegod.fun",
+          "path": "/api/chains/4663/launch/validate",
+          "status": 200,
+          "ms": 1755
+        },
+        {
+          "origin": "https://musegod.fun",
+          "path": "/api/chains/4663/first-buy/quote",
+          "status": 200,
+          "ms": 1031
+        },
+        {
+          "unsignedLaunch": {
+            "planId": "0x0427057aa9f6cd31abf6eeeeec6605505f76b58bf4e5af0387a1b0b788e46d67",
+            "intentId": "74587f7c-5b8d-4e0c-ac57-81daa3297a38",
+            "validityVersion": 2,
+            "signingWindowMs": 300000,
+            "attested": true,
+            "feeEngine": "0x9caefd217ea5a039BbA77Ae5b0626733eA093769",
+            "gas": "6821263",
+            "signed": false,
+            "broadcast": false
+          },
+          "wrapQuote": {
+            "protocol": "wrap",
+            "id": "wrap-1791466008494",
+            "transactionId": "0xa1548b79599a5ef2fd6de226ea5131c228954c4bf788eb3e4386a2728abe3e8d",
+            "integrator": "musegodfun",
+            "tool": "WETH",
+            "chainId": 4663,
+            "account": "0xd5C256e6411a6835543F2bCd763341639e3Cf56f",
+            "fromToken": {
+              "chainId": 4663,
+              "address": "0x0000000000000000000000000000000000000000",
+              "symbol": "ETH",
+              "decimals": 18
+            },
+            "toToken": {
+              "chainId": 4663,
+              "address": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+              "symbol": "WETH",
+              "decimals": 18
+            },
+            "amountIn": "1000000000000",
+            "expectedOut": "1000000000000",
+            "minimumOut": "1000000000000",
+            "slippageBps": 100,
+            "quotedAt": 1791466008494,
+            "expiresAt": 1791466068494,
+            "serverTime": 1791466008494,
+            "router": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+            "facet": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+            "facetRuntimeHash": "0x5706be52f64875fee65a2cec0d80e47a23d8793cbe85d214b48445e2d05f5353",
+            "blockNumber": "83348142",
+            "blockHash": "0x50111e77d12fa5bbafc15d3b725ae27e07dd792cd3e055559cf1ace1d08167f0",
+            "transaction": {
+              "to": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+              "data": "0xd0e30db0",
+              "value": "1000000000000"
+            },
+            "approval": null,
+            "feeAmount": "0",
+            "feeUsd": "0",
+            "gasFeeUsd": null,
+            "amountInUsd": null
+          }
+        },
+        {
+          "origin": "https://musegod.fun",
+          "path": "/api/chains/4663/config",
+          "status": 200,
+          "ms": 771
+        },
+        {
+          "origin": "https://www.musegod.fun",
+          "path": "/api/chains/4663/tokens",
+          "status": 200,
+          "ms": 910
+        },
+        {
+          "origin": "https://musegod.fun",
+          "path": "/api/chains/4663/stocks",
+          "status": 200,
+          "ms": 964
+        },
+        {
+          "origin": "https://www.musegod.fun",
+          "path": "/api/chains/4663/tokens",
+          "status": 200,
+          "ms": 1131
+        },
+        {
+          "origin": "https://www.musegod.fun",
+          "path": "/api/chains/4663/tokens/0xC8ccd7DB491BCd1964925c62887AC94ece19215f",
+          "status": 200,
+          "ms": 1346
+        },
+        {
+          "origin": "https://musegod.fun",
+          "path": "/api/chains/4663/config",
+          "status": 200,
+          "ms": 1370
+        },
+        {
+          "origin": "https://musegod.fun",
+          "path": "/api/chains/4663/stocks",
+          "status": 200,
+          "ms": 2126
+        },
+        {
+          "origin": "https://www.musegod.fun",
+          "path": "/api/chains/4663/tokens/0xC8ccd7DB491BCd1964925c62887AC94ece19215f",
+          "status": 200,
+          "ms": 6063
+        },
+        {
+          "concurrentOrdinaryReadRequests": 8,
+          "passed": 8
+        }
+      ],
+      "transactionSigned": false,
+      "transactionBroadcast": false
+    },
+    "browser": {
+      "origin": "https://musegod.fun/create",
+      "observedSource": "761f802",
+      "assetIdentity": "verified",
+      "reviewAndContinue": "enabled",
+      "readOnlyBanner": "absent_after_load",
+      "walletConnected": false,
+      "screenshotSha256": "da4aa235de2ffe9f9915ba2b825879f079596d3bb5bda81d2394f20c2a4d924e",
+      "boundary": "Visible live Chrome UI only; no wallet connection/signature/transaction"
+    }
   }
 }
