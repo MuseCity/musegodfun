@@ -958,11 +958,12 @@ test("after a recorded engine cutover, treasury-only launches recover only withi
   const passed = prepareWith(BigInt(Math.floor(Date.now() / 1000) - 60));
   await assert.rejects(() => passed.prepare(draft, creator, CURVE_POLICY, { amount: "0", slippageBps: 100, lockDays: 0 }), /route fees through the buyback engine/);
   await assert.rejects(() => passed.preflightFirstBuyPayment(quote.address), /route fees through the buyback engine/);
-  const unactivated = Object.assign(Object.create(LaunchpadService.prototype), { runtime: { config }, config: async () => config,
+  const malformed = Object.assign(Object.create(LaunchpadService.prototype), { runtime: { config }, config: async () => config,
     assertNetwork: async () => {}, client: { getCode: async () => "0x" },
-    launchManifest: () => ({ ...manifest(blockHash, BigInt(Math.floor(Date.now() / 1000) + 3600)), activationVerification: { status: "pending" } }) }) as LaunchpadService;
-  await assert.rejects(() => unactivated.prepare(draft, creator, CURVE_POLICY, { amount: "0", slippageBps: 100, lockDays: 0 }), /verified, activated buyback deployment/,
-    "a cutover recorded without a verified activation stops previews instead of being ignored");
+    launchManifest: () => { const value = manifest(blockHash, BigInt(Math.floor(Date.now() / 1000) + 3600));
+      return { ...value, engineLaunchCutover: { ...value.engineLaunchCutover!, graphFingerprint: "0x" } }; } }) as LaunchpadService;
+  await assert.rejects(() => malformed.prepare(draft, creator, CURVE_POLICY, { amount: "0", slippageBps: 100, lockDays: 0 }), /cutover is malformed/,
+    "a malformed cutover stops treasury-only previews instead of being ignored");
   // Before the cutover, treasury-only previews continue (this stub then fails at the asset read).
   await assert.rejects(() => prepareWith(BigInt(Math.floor(Date.now() / 1000) + 3600)).prepare(draft, creator, CURVE_POLICY, { amount: "0", slippageBps: 100, lockDays: 0 }),
     (error: Error) => !/buyback engine/.test(error.message));

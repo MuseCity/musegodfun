@@ -514,8 +514,9 @@ export class LaunchpadService {
    * engine; recovery trusts treasury-only routing only until then plus the
    * signing window, so issuing one afterwards would strand it. */
   private assertLaunchPolicyCurrent(feePolicy: string) {
+    if (feePolicy === ENGINE_FEE_POLICY) return;
     const cutover = this.launchCutover();
-    if (cutover && feePolicy !== ENGINE_FEE_POLICY && Date.now() >= cutover.timestamp * 1000)
+    if (cutover && Date.now() >= cutover.timestamp * 1000)
       throw new Error("New Robinhood launches now route fees through the buyback engine, which is not available yet. Try again after it is configured.");
   }
   private async assertCanonicalCutover(cutover: EngineLaunchCutover) {

@@ -13,10 +13,11 @@ export type TrustedLaunchPolicy = { feePolicy: FeePolicy; treasury: Address; fee
   toTimestamp?: bigint };
 
 /** The fixed point from which Robinhood launches route platform fees through
- * the engine. scripts/record-engine-cutover.ts records it in the deployment
- * manifest once the engine is verified and activated on chain, bound to that
- * activated graph; prepare() and recovery both read it, and recovery checks
- * it is canonical. */
+ * the engine. scripts/record-engine-cutover.ts records it, with the graph
+ * whose activation it follows, once that activation is proven on chain and
+ * the engine-only runtime is live; prepare() and recovery both read it, and
+ * recovery checks it is canonical. Once recorded it is a fixed fact: later
+ * graph changes or re-verification never move or drop it. */
 export type EngineLaunchCutover = { blockNumber: string; blockHash: Hex; timestamp: number; graphFingerprint: Hex };
 type EngineManifest = { chainId: number; status: string; constants: { treasury: string };
   contracts: { engine: { address: string | null; blockNumber?: number | string } };
@@ -54,15 +55,17 @@ export function trustedLaunchPolicies(config: RuntimeConfig, manifest: EngineMan
   // From the engine cutover, prepare() issues only engine launches on
   // Robinhood; a later treasury-only launch would bypass the buyback. Such
   // routing stays trusted for receipts up to the cutover plus the signing
-  // window, never by a backup's own preparedAt.
-  const cutover = engineLaunchCutover(config, manifest);
+  // window, never by a backup's own preparedAt. A malformed cutover record
+  // trusts no treasury-only routing at all; engine routing is unaffected.
+  let cutover: EngineLaunchCutover | undefined, treasuryOnly = true;
+  try { cutover = engineLaunchCutover(config, manifest); } catch { treasuryOnly = false; }
   const bound = cutover ? { toTimestamp: BigInt(cutover.timestamp) + CUTOVER_GRACE_SECONDS } : {};
-  if (config.treasury) add({ feePolicy: FEE_POLICY, treasury: getAddress(config.treasury), feeEngine: null, ...bound });
-  for (const retired of RETIRED_TREASURIES[chainId]) add({ feePolicy: FEE_POLICY, treasury: retired.treasury, feeEngine: null, toBlock: retired.toBlock, ...bound });
+  if (config.treasury && treasuryOnly) add({ feePolicy: FEE_POLICY, treasury: getAddress(config.treasury), feeEngine: null, ...bound });
+  if (treasuryOnly) for (const retired of RETIRED_TREASURIES[chainId]) add({ feePolicy: FEE_POLICY, treasury: retired.treasury, feeEngine: null, toBlock: retired.toBlock, ...bound });
   if (chainId !== 4663 || manifest.chainId !== 4663) return policies;
   const treasury = getAddress(manifest.constants.treasury);
   // The operations treasury also received the full platform share without an engine.
-  add({ feePolicy: FEE_POLICY, treasury, feeEngine: null, ...bound });
+  if (treasuryOnly) add({ feePolicy: FEE_POLICY, treasury, feeEngine: null, ...bound });
   const { address, blockNumber } = manifest.contracts.engine;
   if (manifest.status === "deployed_verified" && address)
     add({ feePolicy: ENGINE_FEE_POLICY, treasury, feeEngine: getAddress(address), ...(blockNumber !== undefined ? { fromBlock: BigInt(blockNumber) } : {}) });
@@ -76,24 +79,34 @@ export function engineLaunchCutover(config: Pick<RuntimeConfig, "mode" | "deploy
   return deploymentChain(config) === 4663 && manifest.chainId === 4663 ? assertEngineLaunchCutover(manifest) : undefined;
 }
 
-/** A recorded cutover is honoured only for the verified deployment whose
- * activation it was recorded after. Anything else (no verified activation, a
- * redeployed graph, a cutover before activation) fails closed: Robinhood
- * previews stop and treasury-only recoveries are refused until it is fixed. */
+const BLOCK_NUMBER = /^(?:0|[1-9]\d{0,19})$/, HASH = /^0x[0-9a-fA-F]{64}$/;
+
+/** The recorded cutover, checked for shape only. A malformed record throws:
+ * callers then refuse treasury-only previews and recoveries, never engine ones. */
 export function assertEngineLaunchCutover(manifest: EngineManifest): EngineLaunchCutover | undefined {
   const cutover = manifest.engineLaunchCutover;
   if (!cutover) return undefined;
+  if (typeof cutover.blockNumber !== "string" || !BLOCK_NUMBER.test(cutover.blockNumber) || !HASH.test(cutover.blockHash ?? "") ||
+    !Number.isSafeInteger(cutover.timestamp) || cutover.timestamp <= 0 || !HASH.test(cutover.graphFingerprint ?? ""))
+    throw new Error("The recorded engine launch cutover is malformed, so treasury-only launches are refused until it is corrected.");
+  return cutover;
+}
+
+/** The operational prerequisite for recording a cutover, also checked on the
+ * committed manifest: the engine is deployed and source-verified, its
+ * activation is verified for exactly this graph, and the cutover is bound to
+ * that graph at or after the activation block. */
+export function assertCutoverReadiness(manifest: EngineManifest) {
+  const cutover = assertEngineLaunchCutover(manifest);
+  if (!cutover) return;
   const activation = manifest.activationVerification;
   let graph: string | undefined;
   try { graph = buybackGraphFingerprint(manifest as unknown as BuybackDeployment).toLowerCase(); } catch { graph = undefined; }
-  const block = typeof cutover.blockNumber === "string" && /^(?:0|[1-9]\d{0,19})$/.test(cutover.blockNumber) ? BigInt(cutover.blockNumber) : null;
-  const activatedAt = typeof activation?.activatedAtBlock === "string" && /^(?:0|[1-9]\d{0,19})$/.test(activation.activatedAtBlock) ? BigInt(activation.activatedAtBlock) : null;
   if (manifest.status !== "deployed_verified" || !manifest.contracts.engine.address || !graph || activation?.status !== "verified" ||
-    activation.fingerprint?.toLowerCase() !== graph || cutover.graphFingerprint?.toLowerCase() !== graph ||
-    block === null || activatedAt === null || block < activatedAt || !/^0x[0-9a-fA-F]{64}$/.test(cutover.blockHash ?? "") ||
-    !Number.isSafeInteger(cutover.timestamp) || cutover.timestamp <= 0)
-    throw new Error("The recorded engine launch cutover does not belong to the verified, activated buyback deployment. Record it again with scripts/record-engine-cutover.ts.");
-  return cutover;
+    activation.fingerprint?.toLowerCase() !== graph || cutover.graphFingerprint.toLowerCase() !== graph ||
+    typeof activation.activatedAtBlock !== "string" || !BLOCK_NUMBER.test(activation.activatedAtBlock) ||
+    BigInt(cutover.blockNumber) < BigInt(activation.activatedAtBlock))
+    throw new Error("The engine launch cutover must follow a verified activation of this exact buyback graph.");
 }
 
 export function assertTrustedLaunchPolicy(plan: Pick<LaunchPlan, "feePolicy" | "feeTreasury" | "feeEngine">, config: RuntimeConfig,
