@@ -221,5 +221,81 @@
       "V2Deployment": "not_run",
       "compatibleProtocol1Baseline": "pending"
     }
+  },
+  "authorizedProductionExecution": {
+    "observedAt": "2026-10-08T06:31:40.996Z",
+    "authority": "Explicit user instruction to merge into master, deploy V2 contracts and the new application, then push. Persistent signing pause retained; no treasury allowance, business-asset transfer, keeper start or signing resume.",
+    "merge": {
+      "from": "codex/robinhood-go-live-ux",
+      "sourceCommit": "750e2420b20d15f8d4becd2ab5077411c58a41ae",
+      "target": "master",
+      "mode": "fast_forward"
+    },
+    "contracts": {
+      "status": "deployed_verified",
+      "chainId": 4663,
+      "manifest": "contracts/artifacts/buyback-v2-deployment.json",
+      "manifestSha256": "5cceef099a9d3987211ce38c7855b49c8a6675d837024fb9480b80ecd1034ba8",
+      "graphFingerprint": "0xa8bd28a62cfb751b3aa30bb32f5e3ddc4e51b4035166a3737642c3d42168e607",
+      "verificationBlock": "83104954",
+      "newlyDeployed": {
+        "assetOracle": {
+          "address": "0xb39f7f1d9699fd93569838e0e726bf4f07905e29",
+          "transactionHash": "0x4b2826532be8b36650e162b6dc454e765ea72a9c538e8883d9f4dbc49d2e3d0f",
+          "blockNumber": "83099996",
+          "sourceMatch": "exact_creation_and_runtime"
+        },
+        "vault": {
+          "address": "0x28e6b43525301312084310f31f4c9c9873d7a125",
+          "transactionHash": "0x11573b5c7b82920e01853756020ebb6c8a8a7d95c456987cb9d2f7191c7ef533",
+          "blockNumber": "83100137",
+          "sourceMatch": "exact_creation_and_runtime"
+        },
+        "forwarder": {
+          "address": "0x808d538f13ce0356e80c7a5ac2798d09206ab8f4",
+          "transactionHash": "0x20338200c43f56c0eddc23998372e9f1349b556da21009d4fcd29360affef551",
+          "blockNumber": "83100208",
+          "sourceMatch": "exact_creation_and_runtime"
+        },
+        "engine": {
+          "address": "0x9caefd217ea5a039bba77ae5b0626733ea093769",
+          "transactionHash": "0x35d320a08ab54bdb6b34ebbb97bfa84c6557880b380fe02749b2ea73edbc2ae2",
+          "blockNumber": "83100359",
+          "sourceMatch": "exact_creation_and_runtime"
+        }
+      },
+      "gasCostWei": "208998306434000",
+      "activation": "pending",
+      "allowance": "not_granted",
+      "mainnetFeeSettlement": "not_run",
+      "keeper": "not_started",
+      "engineLaunchCutover": "not_recorded"
+    },
+    "validation": {
+      "node": {
+        "passed": 603,
+        "failed": 0,
+        "skipped": 0,
+        "logSha256": "506d757ac20de4e882e95cf6b665bf62cf22be30d4cd54ad2f5da2460a4a2afa"
+      },
+      "foundry": {
+        "passed": 143,
+        "failed": 0,
+        "logSha256": "57a3164d7c5bd4e8376330c55de3902b640b6f9e1d848801af5f79e84cf98c2d"
+      },
+      "immutableReviewGate": {
+        "files": 41,
+        "unchanged": true
+      }
+    },
+    "application": {
+      "status": "compatible_paused_baseline_pending",
+      "signing": "both_chains_paused_revision_0",
+      "normalPublication": "existing_automatic_master_push_workflow",
+      "feeEngineEnvironment": "unset_until_graph_activation_verified",
+      "planAttestationSecret": "to_be_uploaded_additively_with_paused_baseline",
+      "rollback": "Never return to legacy pre-protocol runtime; after baseline, use recorded paused protocol-1 version."
+    },
+    "proofBoundary": "Contract deployment/source verification is real Robinhood mainnet execution. It does not prove native Automation, funded/authorized buyback activation or user wallet canary."
   }
 }

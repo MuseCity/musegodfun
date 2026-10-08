@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "chainId": 4663,
-  "status": "pending_deployment",
+  "status": "deployed_verified",
   "configHash": "dbc667ccfae630298336172414fd7ba1c17e47307b58bb229f730f327faa6621",
   "constants": {
     "treasury": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
@@ -57,23 +57,128 @@
       }
     },
     "assetOracle": {
-      "address": null,
-      "runtimeHash": null
+      "address": "0xb39f7f1d9699fd93569838e0e726bf4f07905e29",
+      "runtimeHash": "0xad68b27be12696cd00370a897cbbbafc40e0c79685abe776ae39400a8e7965c3",
+      "compilerInputSha256": "19511040cb3e0f882152c2ff2bb74115b69516b1339aea9cf88263c7c2c66c80",
+      "creationHash": "0x4b2826532be8b36650e162b6dc454e765ea72a9c538e8883d9f4dbc49d2e3d0f",
+      "blockNumber": "83099996",
+      "sourceVerification": {
+        "matchId": "55718894",
+        "creationMatch": "exact_match",
+        "runtimeMatch": "exact_match",
+        "verifiedAt": "2026-10-08T06:22:49Z",
+        "match": "exact_match",
+        "chainId": "4663",
+        "address": "0xb39f7f1D9699FD93569838E0e726bF4F07905e29"
+      }
     },
     "vault": {
-      "address": null,
-      "runtimeHash": null
+      "address": "0x28e6b43525301312084310f31f4c9c9873d7a125",
+      "runtimeHash": "0xaf705b0bdee20536193efc5157193751076209ae14c52971bcdf6624c2ef04c8",
+      "compilerInputSha256": "fc2782084b52a6315b765e5821482fd66dee3856ab05c49dadbb619447ef26e1",
+      "creationHash": "0x11573b5c7b82920e01853756020ebb6c8a8a7d95c456987cb9d2f7191c7ef533",
+      "blockNumber": "83100137",
+      "sourceVerification": {
+        "matchId": "55718895",
+        "creationMatch": "exact_match",
+        "runtimeMatch": "exact_match",
+        "verifiedAt": "2026-10-08T06:22:53Z",
+        "match": "exact_match",
+        "chainId": "4663",
+        "address": "0x28E6B43525301312084310F31f4C9c9873d7a125"
+      }
     },
     "engine": {
-      "address": null,
-      "runtimeHash": null
+      "address": "0x9caefd217ea5a039bba77ae5b0626733ea093769",
+      "runtimeHash": "0x79685f602f8f0c832e58652f0b29ac13a1d094dff3c2444f21c15635f8b3fa38",
+      "compilerInputSha256": "d04b46da2f7cbee0d007c764165730fe0e15658d763e7c9f92f9c95b46dbce19",
+      "creationHash": "0x35d320a08ab54bdb6b34ebbb97bfa84c6557880b380fe02749b2ea73edbc2ae2",
+      "blockNumber": "83100359",
+      "sourceVerification": {
+        "matchId": "55718890",
+        "creationMatch": "exact_match",
+        "runtimeMatch": "exact_match",
+        "verifiedAt": "2026-10-08T06:22:43Z",
+        "match": "exact_match",
+        "chainId": "4663",
+        "address": "0x9caefd217ea5a039BbA77Ae5b0626733eA093769"
+      }
     },
     "forwarder": {
-      "address": null,
-      "runtimeHash": null
+      "address": "0x808d538f13ce0356e80c7a5ac2798d09206ab8f4",
+      "runtimeHash": "0x2fcd1fff0dd1dbe6c81d770d759a64e66c68766e244b0a0cf3ea106bc968e2d0",
+      "compilerInputSha256": "21061ff16dd65816e58cea8a65f82c93b9298d39035cef360a87432eb1bebeea",
+      "creationHash": "0x20338200c43f56c0eddc23998372e9f1349b556da21009d4fcd29360affef551",
+      "blockNumber": "83100208",
+      "sourceVerification": {
+        "matchId": "55718892",
+        "creationMatch": "exact_match",
+        "runtimeMatch": "exact_match",
+        "verifiedAt": "2026-10-08T06:22:46Z",
+        "match": "exact_match",
+        "chainId": "4663",
+        "address": "0x808d538f13ce0356E80C7a5ac2798D09206aB8f4"
+      }
     }
   },
-  "transactions": [],
+  "transactions": [
+    {
+      "stage": "assetOracle",
+      "status": "confirmed",
+      "hash": "0x4b2826532be8b36650e162b6dc454e765ea72a9c538e8883d9f4dbc49d2e3d0f",
+      "deployer": "0xd5C256e6411a6835543F2bCd763341639e3Cf56f",
+      "nonce": 7,
+      "to": null,
+      "dataHash": "0x601eb02316bbbdfe3011169f06affa6b2772ab7cec21a3bc13a23826b5b99675",
+      "gasLimit": "4890178",
+      "gasPrice": "40000000",
+      "blockNumber": "83099996",
+      "gasUsed": "3692536",
+      "gasCost": "74035346800000"
+    },
+    {
+      "stage": "vault",
+      "status": "confirmed",
+      "hash": "0x11573b5c7b82920e01853756020ebb6c8a8a7d95c456987cb9d2f7191c7ef533",
+      "deployer": "0xd5C256e6411a6835543F2bCd763341639e3Cf56f",
+      "nonce": 8,
+      "to": null,
+      "dataHash": "0x85e239e4814f234ae769fdbdfcd051b3d2190e9282a9444a8f58fa13736e1b54",
+      "gasLimit": "2856086",
+      "gasPrice": "40012000",
+      "blockNumber": "83100137",
+      "gasUsed": "2140175",
+      "gasCost": "42803500000000"
+    },
+    {
+      "stage": "forwarder",
+      "status": "confirmed",
+      "hash": "0x20338200c43f56c0eddc23998372e9f1349b556da21009d4fcd29360affef551",
+      "deployer": "0xd5C256e6411a6835543F2bCd763341639e3Cf56f",
+      "nonce": 9,
+      "to": null,
+      "dataHash": "0x3d883c3df0ce8547593325114f9bea832ee00f333f3de39f21f755c9dd1bb1ec",
+      "gasLimit": "1129860",
+      "gasPrice": "40112000",
+      "blockNumber": "83100208",
+      "gasUsed": "822877",
+      "gasCost": "16482226310000"
+    },
+    {
+      "stage": "engine",
+      "status": "confirmed",
+      "hash": "0x35d320a08ab54bdb6b34ebbb97bfa84c6557880b380fe02749b2ea73edbc2ae2",
+      "deployer": "0xd5C256e6411a6835543F2bCd763341639e3Cf56f",
+      "nonce": 10,
+      "to": null,
+      "dataHash": "0xc50af6c5a4ef181f0a845cb419b9be708f061ae6ee5cc31e73919249a2fc35f6",
+      "gasLimit": "4967214",
+      "gasPrice": "40000000",
+      "blockNumber": "83100359",
+      "gasUsed": "3751226",
+      "gasCost": "75677233324000"
+    }
+  ],
   "automation": {
     "status": "configured",
     "account": "0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a",
@@ -302,5 +407,51 @@
     "blockNumber": "82386879",
     "blockHash": "0xc821c721ad5b64f4216edda496191571edd8fcd54d23004f9df605cbe7d99cf4",
     "layer": "block_pinned_mainnet_read_only; initial feed labels only, not V2 deployment evidence"
+  },
+  "preflight": {
+    "blockNumber": "83104408",
+    "blockHash": "0xd3a96d56ebe9729f6bf0e0e9bd3231862b54fb79a21732bea2392c2184a85e34",
+    "dependencies": [
+      {
+        "name": "router",
+        "address": "0x6131B5fae19EA4f9D964eAc0408E4408b66337b5",
+        "runtimeHash": "0xdc6eb20a6d4701d8f0f04f9a3342d254eb2698bbad281d8578d6efba21865867"
+      },
+      {
+        "name": "routerExecutor",
+        "address": "0x8F10B468b06c6FD214B65F87778827F7D113f996",
+        "runtimeHash": "0xfc8bfd5c118d0c06e9ff71b223fc3ba9612ac167edbf7e7e6e22bec156a5e70d"
+      },
+      {
+        "name": "swapperFactory",
+        "address": "0xa244bbe019cf1BA177EE5A532250be2663Fb55cA",
+        "runtimeHash": "0x121d043c12b5fe2d383149359a48d7e231e414779dd65b101b7de0eda365ae48"
+      },
+      {
+        "name": "swapperImpl",
+        "address": "0x7fcdD45101E35fd626A539BA565d26A72d95fDa7",
+        "runtimeHash": "0x72eedc6b3f5b16277e779b6ec2dc033a6ede029e51539c4a95cb15dd325c26b3"
+      }
+    ],
+    "feedCount": 37,
+    "unsupportedAssets": 159,
+    "automationReceiver": "deployed_contract_observed",
+    "automationNativeExecution": "not_run",
+    "initialMainnetFeeExecution": "not_run"
+  },
+  "verifiedAt": "2026-10-08T06:30:51.557Z",
+  "verificationBlock": "83104954",
+  "graphFingerprint": "0xa8bd28a62cfb751b3aa30bb32f5e3ddc4e51b4035166a3737642c3d42168e607",
+  "activationVerification": {
+    "status": "pending",
+    "reason": "Runtime/source verification does not activate the graph. Supply canonical funding/settlement receipts and governor-signed control and native scheduler attestations."
+  },
+  "forwarderSetup": {
+    "source": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+    "spender": "0x808d538f13ce0356e80c7a5ac2798d09206ab8f4",
+    "token": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+    "recipient": "0x28e6b43525301312084310f31f4c9c9873d7a125",
+    "approval": "not_granted_by_deployment",
+    "nativeExecution": "not_run"
   }
 }

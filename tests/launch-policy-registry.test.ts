@@ -35,8 +35,8 @@ test("recovery trusts the configured treasury and committed Robinhood deployment
 });
 
 test("no engine is trusted before the V2 deployment, and the never-activated earlier engine never is", () => {
-  assert.equal(ENGINE_MANIFEST.status, "pending_deployment");
-  assert(!trustedLaunchPolicies(robinhood()).some((policy) => policy.feePolicy === ENGINE_FEE_POLICY));
+  const pending = deployed("pending_deployment");
+  assert(!trustedLaunchPolicies(robinhood(), pending).some((policy) => policy.feePolicy === ENGINE_FEE_POLICY));
   const plan = { feePolicy: ENGINE_FEE_POLICY, feeTreasury: operations, feeEngine: neverActivated };
   for (const config of [robinhood(), robinhood({ treasury: operations, feeEngine: neverActivated }), robinhood({ treasury: null, signingPaused: true })])
     for (const block of [81_459_143n, 10n ** 12n]) assert.throws(() => assertTrustedLaunchPolicy(plan, config, at(block)), /platform-approved/);
@@ -60,7 +60,7 @@ test("an operator-configured engine is never trusted, even on a local fork, and 
       const plan = { feePolicy: ENGINE_FEE_POLICY, feeTreasury: configured, feeEngine: configuredEngine };
       for (const block of [1n, 10n ** 12n]) assert.throws(() => assertTrustedLaunchPolicy(plan, config, at(block)), /platform-approved/,
         `${config.mode} ${configuredEngine}: engines come only from the committed manifest`);
-      assert(!trustedLaunchPolicies(config).some((policy) => policy.feePolicy === ENGINE_FEE_POLICY));
+      assert(!trustedLaunchPolicies(config).some((policy) => policy.feeEngine?.toLowerCase() === configuredEngine.toLowerCase()));
     }
   const baseConfig: RuntimeConfig = { mode: "base", deploymentChainId: 8453, chainId: 8453, treasury: configured, writesEnabled: false, blockReason: null };
   assert.doesNotThrow(() => assertTrustedLaunchPolicy({ feePolicy: FEE_POLICY, feeTreasury: configured }, baseConfig, at(1n)));
