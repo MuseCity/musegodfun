@@ -18,5 +18,16 @@ export const recoveryKey = (chainId: number, hash: string) => `${chainId}:${hash
 /** Whether the background loop should check this record now. */
 export function recoveryDue(key: string, now = Date.now()) { return (waiting.get(key)?.nextAt ?? 0) <= now; }
 export function recordRecoveryFailure(key: string, error: unknown, now = Date.now()) { waiting.set(key, nextRecoveryAttempt(waiting.get(key), error, now)); }
-/** A success, or a manual retry the user started, clears the record's backoff. */
 export function clearRecoveryBackoff(key: string) { waiting.delete(key); }
+/** Runs one check of a record, background or manual, and settles its backoff:
+ * a check that completes clears it, even when the transaction is still
+ * pending; a failed one extends it. */
+export async function settleRecovery(key: string, check: () => Promise<void>) {
+  try { await check(); } catch (error) { recordRecoveryFailure(key, error); throw error; }
+  clearRecoveryBackoff(key);
+}
+/** A best-effort request made alongside a record's check. Its failures are
+ * ignored, except a wait the server asked for, which applies to the record. */
+export async function bestEffort(request: () => Promise<unknown>) {
+  try { await request(); } catch (error) { if (error instanceof ApiError && error.retryAfter) throw error; }
+}

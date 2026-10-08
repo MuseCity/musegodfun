@@ -783,7 +783,8 @@ test("payment proceeds may increase the paired input without lowering or ratchet
 const oracleRuntime = readFileSync(new URL("./fixtures/buyback-oracle.runtime.hex", import.meta.url), "utf8").trim() as Hex;
 function recoveryService(f: ReturnType<typeof ordinaryFixture>, store: Store,
   options: { treasury?: Address | null; owner?: Address; reads?: string[]; valuationHash?: Hex; referencePrice?: bigint;
-    attestationKey?: string; previousAttestationKeys?: string[]; blockTimes?: Record<string, bigint>; manifest?: unknown } = {}) {
+    attestationKey?: string; previousAttestationKeys?: string[]; blockTimes?: Record<string, bigint>; manifest?: unknown;
+    blockHashes?: Record<string, Hex>; finalized?: bigint } = {}) {
   const nowSeconds = BigInt(Math.floor(Date.now() / 1000));
   const sdk = f.sdk, reads = options.reads ?? [];
   (sdk as any).getMulticurvePool = async () => ({ getState: async () => ({ status: 2, numeraire: quote.address, poolKey: f.poolKey }) });
@@ -796,9 +797,15 @@ function recoveryService(f: ReturnType<typeof ordinaryFixture>, store: Store,
       getTransaction: async () => { reads.push("transaction"); return f.tx; },
       getTransactionReceipt: async () => { reads.push("receipt"); return f.receipt; },
       getBlockNumber: async () => 11n,
-      getBlock: async ({ blockNumber }: { blockNumber: bigint }) => {
+      getBlock: async ({ blockNumber, blockTag }: { blockNumber?: bigint; blockTag?: string }) => {
+        if (blockTag === "finalized") {
+          reads.push("block:finalized");
+          if (options.finalized === undefined) throw new Error("finalized tag unsupported");
+          return { number: options.finalized, hash: blockHash, timestamp: nowSeconds };
+        }
         reads.push(`block:${blockNumber}`);
-        return { hash: blockNumber === BigInt(valuation.blockNumber) ? options.valuationHash ?? valuation.blockHash : blockHash,
+        return { hash: options.blockHashes?.[String(blockNumber)] ??
+          (blockNumber === BigInt(valuation.blockNumber) ? options.valuationHash ?? valuation.blockHash : blockHash),
           timestamp: options.blockTimes?.[String(blockNumber)] ?? nowSeconds };
       },
       readContract: async ({ functionName, blockNumber }: { functionName: string; blockNumber?: bigint }) => {
@@ -1028,6 +1035,114 @@ test("chain evidence is verified once per transaction for every backup that re-e
     (busy as any).recoveryLoad = { active: 0, started: [] };
     assert.equal((await busy.register(hash, g.plan)).transactionHash, hash);
   } finally { other.close(); rmSync(second, { recursive: true }); }
+});
+
+test("a recovery retried after its token failed to save is still a backup: verified again, attested only by HMAC, never signable", async () => {
+  const key = "k".repeat(32), other = "0x5555555555555555555555555555555555555555" as Address;
+  const failFirstTokenSave = (store: Store) => {
+    const save = store.saveToken.bind(store);
+    let failed = false;
+    store.saveToken = (record: TokenRecord) => { if (!failed) { failed = true; throw new Error("token store unavailable"); } return save(record); };
+  };
+  for (const retryWith of ["no backup", "the same backup"] as const) {
+    const f = ordinaryFixture(100), directory = mkdtempSync(join(tmpdir(), "recovery-retry-provenance-test-")), store = new Store(directory, 31337);
+    try {
+      failFirstTokenSave(store);
+      const service = recoveryService(f, store, { attestationKey: key });
+      await assert.rejects(() => service.register(hash, f.plan), /token store unavailable/);
+      assert.equal(store.getPlan(f.plan.id)?.recovered, true, "the stored preview remembers it came from a backup");
+      await assert.rejects(() => service.validateLaunch(creator, f.plan.data), /restored from a backup/);
+      const backup = retryWith === "the same backup" ? f.plan : undefined;
+      await assert.rejects(() => recoveryService(f, store, { attestationKey: key, treasury: other }).register(hash, backup), /platform-approved/,
+        `${retryWith}: the retry runs recovery verification again`);
+      const record = await service.register(hash, backup);
+      assert.equal(record.openingValuationUnverified, true, `${retryWith}: an unattested opening valuation is not claimed as verified`);
+      assert.equal(store.tokenByTxHash(hash)?.openingValuationUnverified, true);
+    } finally { store.close(); rmSync(directory, { recursive: true }); }
+  }
+  const f = ordinaryFixture(100), directory = mkdtempSync(join(tmpdir(), "recovery-retry-attested-test-")), store = new Store(directory, 31337);
+  try {
+    failFirstTokenSave(store);
+    const service = recoveryService(f, store, { attestationKey: key });
+    await assert.rejects(() => service.register(hash, { ...structuredClone(f.plan), attestation: planAttestation(key, 4663, f.plan.id) }), /token store unavailable/);
+    assert.equal((await service.register(hash, structuredClone(f.plan))).openingValuationUnverified, undefined,
+      "an attestation verified on the first attempt still counts when the retried copy lacks it");
+    assert.equal(store.getPlan(f.plan.id)?.attestation, planAttestation(key, 4663, f.plan.id));
+  } finally { store.close(); rmSync(directory, { recursive: true }); }
+});
+
+test("recovery evidence is keyed by the receipt block, and a rejection is kept long only once that block is final", async (context) => {
+  context.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+  const f = ordinaryFixture(100), directory = mkdtempSync(join(tmpdir(), "recovery-evidence-block-test-")), store = new Store(directory, 31337);
+  const reads: string[] = [], valuationBlock = `block:${f.plan.openingValuation!.blockNumber}`;
+  const options: NonNullable<Parameters<typeof recoveryService>[2]> = { reads, valuationHash: `0x${"cd".repeat(32)}`, finalized: 9n };
+  const checks = () => reads.filter((read) => read === valuationBlock).length;
+  try {
+    const service = recoveryService(f, store, options);
+    await assert.rejects(() => service.register(hash, f.plan), /anchored to a canonical block/);
+    await assert.rejects(() => service.register(hash, f.plan), /anchored/);
+    assert.equal(checks(), 1, "a rejection is shared briefly");
+    context.mock.timers.tick(15_000);
+    await assert.rejects(() => service.register(hash, f.plan), /anchored/);
+    assert.equal(checks(), 2, "before the receipt block is final, a rejection (perhaps from a lagging node) is checked again");
+    options.finalized = 10n;
+    context.mock.timers.tick(15_000);
+    await assert.rejects(() => service.register(hash, f.plan), /anchored/);
+    context.mock.timers.tick(300_000);
+    await assert.rejects(() => service.register(hash, f.plan), /anchored/);
+    assert.equal(checks(), 3, "a rejection at a finalized receipt block cannot change and is kept");
+    // A reorganization re-mines the transaction in another block, where the evidence holds.
+    const reorganized = `0x${"ee".repeat(32)}` as Hex;
+    f.receipt = { ...f.receipt, blockHash: reorganized };
+    options.blockHashes = { "10": reorganized }; options.valuationHash = undefined; options.finalized = 9n;
+    assert.equal((await service.register(hash, f.plan)).address, token, "the new receipt block is a new key, checked afresh");
+    assert.equal(checks(), 4);
+  } finally { store.close(); rmSync(directory, { recursive: true }); }
+});
+
+test("evidence read across a reorganization is not kept for the receipt block it did not see", async (context) => {
+  context.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+  const f = ordinaryFixture(100), directory = mkdtempSync(join(tmpdir(), "recovery-evidence-reorg-test-")), store = new Store(directory, 31337);
+  const reads: string[] = [], valuationBlock = `block:${f.plan.openingValuation!.blockNumber}`;
+  try {
+    // The receipt names block 10 as 0xbb…, but by the time evidence is read the chain reports another block 10.
+    const service = recoveryService(f, store, { reads, blockHashes: { "10": `0x${"ee".repeat(32)}` } });
+    await assert.rejects(() => service.register(hash, f.plan), /reorganized/);
+    (service as any).client.getBlock = (recoveryService(f, store, { reads }) as any).client.getBlock;
+    context.mock.timers.tick(15_000);
+    assert.equal((await service.register(hash, f.plan)).address, token);
+    assert.equal(reads.filter((read) => read === valuationBlock).length, 2, "no verdict was kept for the receipt block those reads did not see");
+  } finally { store.close(); rmSync(directory, { recursive: true }); }
+});
+
+test("a recorded cutover is re-verified until final, so a reorganized cutover block stops being trusted", async (context) => {
+  context.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+  const cutoverAt = 1_900_000_000n;
+  const manifest = { chainId: 4663, status: "pending_deployment", constants: { treasury: "0xc4F87C3715374445C4657aa14c47CBB339b59d1A" },
+    contracts: { engine: { address: null } }, engineLaunchCutover: { blockNumber: "5", blockHash, timestamp: Number(cutoverAt) } };
+  const f = ordinaryFixture(100), directory = mkdtempSync(join(tmpdir(), "recovery-cutover-final-test-")), store = new Store(directory, 31337);
+  const reads: string[] = [];
+  const options: NonNullable<Parameters<typeof recoveryService>[2]> = { reads, manifest, blockTimes: { "5": cutoverAt, "10": cutoverAt + 100n }, finalized: 4n };
+  const cutoverReads = () => reads.filter((read) => read === "block:5").length;
+  try {
+    const service = recoveryService(f, store, options);
+    assert.equal((await service.register(hash, f.plan)).address, token);
+    assert.equal((await service.register(hash, f.plan)).address, token);
+    assert.equal(cutoverReads(), 1, "a canonical cutover that is not final yet is reused only briefly");
+    context.mock.timers.tick(15_000);
+    options.blockHashes = { "5": `0x${"cd".repeat(32)}` };
+    await assert.rejects(() => service.register(hash, f.plan), /not a canonical block/, "a reorganized cutover is noticed");
+    options.blockHashes = undefined; options.finalized = 5n;
+    assert.equal((await service.register(hash, f.plan)).address, token);
+    const settled = cutoverReads();
+    context.mock.timers.tick(3_600_000);
+    assert.equal((await service.register(hash, f.plan)).address, token);
+    assert.equal(cutoverReads(), settled, "a finalized cutover is not read again");
+    // An RPC without the finalized tag keeps re-verifying it.
+    const unsupported = recoveryService(f, store, { ...options, finalized: undefined, reads });
+    for (let i = 0; i < 2; i++) { await unsupported.register(hash, f.plan); context.mock.timers.tick(15_000); }
+    assert.equal(cutoverReads(), settled + 2);
+  } finally { store.close(); rmSync(directory, { recursive: true }); }
 });
 
 test("final simulation accepts outputs within the signed minimum instead of exact preview equality", async () => {

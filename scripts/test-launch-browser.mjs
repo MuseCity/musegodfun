@@ -20,8 +20,8 @@ const contracts = ROBINHOOD_CONTRACTS;
 const blockHash = '0x' + 'bb'.repeat(32), out = 543327925691014316198420n;
 const wrapRuntime = '0x60006000'; // Local identity fixture, never a deployed-runtime claim.
 const delayedImage = 'https://example.com/delayed-config.png';
-const plainModes = new Set(['plain', 'idle_plain', 'unknown_send', 'unknown_fetch', 'launch_timeout', 'launch_marker_race', 'token_detail_pending', 'token_detail_error', 'token_detail_state_unavailable', 'token_detail_unregistered_backup', 'token_detail_invalid_pool', 'token_detail_unverified_opening']);
-const quoteClockModes = new Set(['wrap_near_expiry', 'idle_review', 'hidden_review', 'idle_plain']);
+const plainModes = new Set(['plain', 'idle_plain', 'unknown_send', 'unknown_fetch', 'launch_timeout', 'launch_marker_race', 'token_detail_pending', 'token_detail_error', 'token_detail_state_unavailable', 'token_detail_unregistered_backup', 'token_detail_invalid_pool', 'token_detail_unverified_opening', 'history_track_backoff']);
+const quoteClockModes = new Set(['wrap_near_expiry', 'idle_review', 'hidden_review', 'idle_plain', 'history_track_backoff']);
 const tokenLookupModes = new Set(['token_detail_pending', 'token_detail_error', 'token_detail_state_unavailable', 'token_detail_unregistered_backup', 'token_detail_invalid_pool', 'token_detail_unverified_opening']);
 const timeoutModes = new Set(['approval_timeout', 'payment_timeout', 'launch_timeout', 'approval_timeout_reject']);
 const recoveryRaceModes = new Set(['payment_marker_race', 'launch_marker_race', 'payment_status_race', 'payment_submit_race', 'payment_submit_record_race']);
@@ -73,7 +73,8 @@ async function casePage(mode, viewport = { width: 1440, height: 1000 }) {
     prepareRequests: [], validationRequests: [], paymentVerifications: 0, businessConfirmations: 0, wrapped: false, head: 32n,
     approvalCanonical: mode !== 'approval_pending', configurationReleased: mode !== 'delayed_config', releaseConfiguration: [],
     unresolvedRequests: new Map(), holdVerification: ['payment_submit_race', 'payment_submit_record_race'].includes(mode), releaseVerification: null,
-    holdRegistration: false, releaseRegistration: null, priceRequests: 0, paymentQuoteRequests: [], releaseDetail: null, detailRequested: false };
+    holdRegistration: false, releaseRegistration: null, priceRequests: 0, paymentQuoteRequests: [], releaseDetail: null, detailRequested: false,
+    trackRequests: 0, trackedHash: null, trackedReceipt: false };
   if (mode === 'delayed_config') await context.route(delayedImage, route => route.fulfill({ contentType: 'image/png',
     body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jS1sAAAAASUVORK5CYII=', 'base64') }));
   await context.addInitScript(({ creator, treasury, mode }) => {
@@ -178,7 +179,12 @@ async function casePage(mode, viewport = { width: 1440, height: 1000 }) {
       return state.expired || plan.requiresReconfirmation ? reply({ error: 'The opening valuation expired or price is below the accepted minimum.' },400) : reply({ valid: true, feePolicy: FEE_POLICY, curvePolicy: CURVE_POLICY, planId:plan.id, intentId:plan.intentId, validityVersion:2, signingExpiresAt:plan.signingExpiresAt }); }
     if (path === '/api/launch/simulate') { const plan = state.byData.get(payload.data); assert(plan, 'Simulation must reference a prepared fixture plan');
       return mode === 'simulation_failure' ? reply({ error: 'Transaction simulation failed. The transaction was not submitted.' },400) : reply({ valid: true, gas: '5000000', amountOut: plan.firstBuy?.expectedAmountOut || null, simulatedAt: Date.now() }); }
-    if (path === '/api/launch/track') return reply({ status:'pending' },202);
+    if (path === '/api/launch/track') {
+      if (mode !== 'history_track_backoff') return reply({ status:'pending' },202);
+      state.trackRequests++;
+      return route.fulfill({ status:429, contentType:'application/json', headers:{ 'retry-after':'60' },
+        body:JSON.stringify({ error:'Service capacity is temporarily limited.', code:'CAPACITY_LIMITED' }) });
+    }
     if (path === '/api/launch/register') { if (!state.receipts) return reply({ error:'receipt pending' },400); state.successful=true;
       const sent=state.sends.find(row=>row.hash===payload.hash), plan=sent && state.byData.get(sent.data); assert(plan, 'Registration must reference a submitted launch');
       if (state.holdRegistration) await new Promise(resolve => { state.releaseRegistration = resolve; });
@@ -206,6 +212,8 @@ async function casePage(mode, viewport = { width: 1440, height: 1000 }) {
           result=toHex(data.startsWith('0xdd62ed3e') ? state.allowance : balance,{size:32}); }
         else if (item.method === 'eth_getTransactionCount') result=toHex(state.sends.length);
         else if (item.method === 'eth_getCode') result=wrapping && item.params[0].toLowerCase() === quote.address.toLowerCase() ? wrapRuntime : '0x';
+        else if (item.method === 'eth_getTransactionReceipt' && state.trackedHash && item.params[0] === state.trackedHash)
+          result=state.trackedReceipt ? { transactionHash:state.trackedHash, transactionIndex:'0x0', blockHash, blockNumber:'0x10', from:creator, to:contracts.airlock, cumulativeGasUsed:'0xea60', gasUsed:'0xea60', contractAddress:null, logs:[], logsBloom:'0x'+'00'.repeat(256), status:'0x1', effectiveGasPrice:'0x1', type:'0x2' } : null;
         else if (item.method === 'eth_getTransactionReceipt') { const sent=state.sends.find(x=>x.hash===item.params[0]); result=!sent || (!sent.approval&&!state.receipts) ? null : { transactionHash:sent.hash, transactionIndex:'0x0', blockHash, blockNumber:'0x10', from:creator, to:sent.to, cumulativeGasUsed:'0xea60', gasUsed:'0xea60', contractAddress:null, logs:sent.wrap ? depositLogs(sent) : [], logsBloom:'0x'+'00'.repeat(256), status:'0x1', effectiveGasPrice:'0x1', type:'0x2' }; }
         else if (item.method === 'eth_getTransactionByHash') { const sent=state.sends.find(x=>x.hash===item.params[0]); result=sent ? { hash:sent.hash, from:creator, to:sent.to, input:sent.data, value:sent.value ?? '0x0', nonce:toHex(state.sends.indexOf(sent)), gas:'0xea60', gasPrice:'0x1', blockHash, blockNumber:'0x10', transactionIndex:'0x0', type:'0x0', v:'0x1b', r:'0x1', s:'0x1' } : null; }
         else throw new Error('Unexpected fixture RPC '+item.method);
@@ -335,6 +343,34 @@ async function tokenLookup(page, state) {
     await page.getByRole('heading',{name:state.plan.draft.name,exact:true}).waitFor();
   }
   assert.equal(state.sends.length,0); state.singleTokenLookup = true;
+}
+async function historyTrackBackoff(page, state) {
+  // A launch sent earlier from this browser is still unconfirmed, and the
+  // server answers its queueing request with Retry-After: 60.
+  state.trackedHash = '0x' + 'ab'.repeat(32);
+  await page.evaluate(({ hash, creator, planId }) => {
+    localStorage.setItem('musegod.transactions.v1', JSON.stringify([{ hash, chainId:31337, deploymentChainId:4663, account:creator,
+      action:'launch', status:'pending', at:Date.now(), planId }]));
+    window.dispatchEvent(new Event('musegod:transactions'));
+  }, { hash: state.trackedHash, creator, planId: state.plan.id });
+  await page.clock.runFor(15_000);
+  await waitForFixture(() => state.trackRequests === 1, 'first background queueing request');
+  await page.clock.runFor(44_000);
+  assert.equal(state.trackRequests, 1, 'Retry-After 60 holds the record past the 15 second polls');
+  await page.clock.runFor(32_000);
+  await waitForFixture(() => state.trackRequests === 2, 'queueing retried once the server wait passed');
+  // A manual check that finds the launch still confirming clears the wait.
+  state.trackedReceipt = true; state.head = 16n;
+  await page.getByRole('button',{name:'Back to edit',exact:true}).first().click();
+  await page.getByText(/Wallet transaction history/).click();
+  const check = page.locator('.transaction-history').getByRole('button', { name: 'Check again', exact: true });
+  await check.click();
+  await page.waitForFunction(() => [...document.querySelectorAll('.transaction-history button')]
+    .some(button => button.textContent.trim() === 'Check again' && !button.disabled));
+  assert.equal(await page.locator('.transaction-history [role=alert]').count(), 0, 'The manual check completed as still pending');
+  await page.clock.runFor(15_000);
+  await waitForFixture(() => state.trackRequests === 3, 'background polling resumed on the next poll after a manual check');
+  assert.equal(state.sends.length, 0); state.historyBackoff = true;
 }
 async function quietPlainReview(page, state) {
   await page.clock.runFor(301_000);
@@ -514,7 +550,7 @@ async function timeoutCase(page, state) {
   state.lateHashIntentPreserved = true;
 }
 try {
-  for (const mode of (process.env.BROWSER_CASES?.split(',') || ['success','plain','duplicate','stale_page','reject_approval','expiry','account_change','network_change','simulation_failure','two_tabs','unknown_send','approval_unknown','approval_pending','wrap_flow','wrap_price_change','delayed_config','unknown_fetch','approval_timeout','payment_timeout','launch_timeout','approval_timeout_reject','payment_marker_race','launch_marker_race','payment_status_race','payment_submit_race','payment_submit_record_race','wrap_late_launch_recovery','wrap_near_expiry','idle_review','hidden_review','idle_plain','token_detail_pending','token_detail_error','token_detail_state_unavailable','token_detail_unregistered_backup','token_detail_invalid_pool','token_detail_unverified_opening'])) {
+  for (const mode of (process.env.BROWSER_CASES?.split(',') || ['success','plain','duplicate','stale_page','reject_approval','expiry','account_change','network_change','simulation_failure','two_tabs','unknown_send','approval_unknown','approval_pending','wrap_flow','wrap_price_change','delayed_config','unknown_fetch','approval_timeout','payment_timeout','launch_timeout','approval_timeout_reject','payment_marker_race','launch_marker_race','payment_status_race','payment_submit_race','payment_submit_record_race','wrap_late_launch_recovery','wrap_near_expiry','idle_review','hidden_review','idle_plain','token_detail_pending','token_detail_error','token_detail_state_unavailable','token_detail_unregistered_backup','token_detail_invalid_pool','token_detail_unverified_opening','history_track_backoff'])) {
     const {context,page,state,pageErrors}=await casePage(mode);
     const plain = plainModes.has(mode);
     if (mode === 'success') {
@@ -522,6 +558,7 @@ try {
       report.screenshots.push('.cache/launch-scoped-browser-desktop-review.png');
     }
     if (tokenLookupModes.has(mode)) await tokenLookup(page,state);
+    else if (mode === 'history_track_backoff') await historyTrackBackoff(page,state);
     else if (mode === 'stale_page') {
       await page.getByText(/curve policy has changed/).waitFor(); assert.equal(state.plans,0); assert.equal(state.sends.length,0);
     }
@@ -546,7 +583,7 @@ try {
       state.businessConfirmations++;
       await page.getByRole('button',{name:plain?/Confirm launch · Sign in wallet/:/Confirm launch and first buy/,exact:true}).click();
     }
-    if (tokenLookupModes.has(mode)) { /* Read-only detail lookup, no signing. */ }
+    if (tokenLookupModes.has(mode) || mode === 'history_track_backoff') { /* Read-only lookups, no signing. */ }
     else if (mode === 'wrap_late_launch_recovery') await lateFundedLaunchRecovery(page, state);
     else if (recoveryRaceModes.has(mode)) await recoveryRaceCase(context, page, state);
     else if (timeoutModes.has(mode)) await timeoutCase(page, state);
@@ -725,6 +762,7 @@ try {
       ...(mode === 'wrap_late_launch_recovery' ? { lateFundedPaymentConsumed: state.lateFundedPaymentConsumed } : {}),
       ...(state.quietBackground ? { idleOrHiddenPollingStopped:true, continuedWithOneConfirmation:true } : {}),
       ...(state.singleTokenLookup ? { partialCatalogDidNotHideToken:true } : {}),
+      ...(state.historyBackoff ? { trackRetryAfterHonoured:true, manualPendingCheckClearedBackoff:true } : {}),
       status:'passed'}); console.log('PASS browser: '+mode); await context.close();
   }
   const { context,page,state,pageErrors }=await casePage('success',{width:390,height:844});

@@ -88,7 +88,7 @@ export class LaunchpadService {
   private registerRequests?: Map<string, Promise<TokenRecord>>;
   private stateReads?: Map<string, ReturnType<LaunchpadService["state"]>>;
   private recoveryLoad?: { active: number; started: number[] };
-  private canonicalCutover?: string;
+  private cutoverCheck?: { key: string; until: number };
   private recoveryChecks?: Map<string, { promise: Promise<void>; settledAt?: number; ttl: number }>;
   constructor(readonly runtime: ReturnType<typeof runtimeFromEnv>) {
     this.guardCandidate = runtime.launchGuardCandidate;
@@ -329,7 +329,7 @@ export class LaunchpadService {
     const buy = firstBuySchema.parse(firstBuy);
     const options = prepareOptionsSchema.parse(rawOptions ?? {});
     const previous = options.previousPlanId ? await this.store.getPlan(options.previousPlanId) : null;
-    if (options.previousPlanId && (!previous || !sameAddress(previous.creator, creator) || !options.intentId || previous.intentId !== options.intentId ||
+    if (options.previousPlanId && (!previous || previous.recovered || !sameAddress(previous.creator, creator) || !options.intentId || previous.intentId !== options.intentId ||
       !previous.prepared || !sameAddress(previous.draft.quoteAddress, draft.quoteAddress) ||
       previous.draft.tradingFeeBps !== draft.tradingFeeBps ||
       (previous.firstBuy?.lockDays ?? 0) !== (buy?.lockDays ?? 0) ||
@@ -423,6 +423,7 @@ export class LaunchpadService {
   }
   async validateLaunch(creator: Address, data: Hex, signing = false) {
     const plan = await this.store.findPlan(creator, data);
+    if (plan?.recovered) throw new Error("This preview was restored from a backup and cannot be signed. Run a new preview.");
     if (!plan || plan.curvePolicy !== CURVE_POLICY)
       throw new Error("The issuance curve policy has changed. Run a new preview.");
     if (plan.feePolicy !== launchFeePolicy(this.runtime.config))
@@ -519,11 +520,19 @@ export class LaunchpadService {
   }
   private async assertCanonicalCutover(cutover: EngineLaunchCutover) {
     const key = `${cutover.blockNumber}:${cutover.blockHash.toLowerCase()}:${cutover.timestamp}`;
-    if (this.canonicalCutover === key) return;
+    if (this.cutoverCheck?.key === key && Date.now() < this.cutoverCheck.until) return;
     const block = await this.client.getBlock({ blockNumber: BigInt(cutover.blockNumber) });
     if (!block.hash || block.hash.toLowerCase() !== cutover.blockHash.toLowerCase() || block.timestamp !== BigInt(cutover.timestamp))
       throw new Error("The recorded engine launch cutover is not a canonical block, so treasury-only launches cannot be recovered until it is corrected.");
-    this.canonicalCutover = key;
+    // Remembered for good only once finalized; until then it is checked again
+    // shortly, so a reorganized cutover block cannot keep being trusted.
+    this.cutoverCheck = { key, until: await this.finalizedThrough(BigInt(cutover.blockNumber)) ? Infinity : Date.now() + RECOVERY_TRANSIENT_RETRY_MS };
+  }
+  /** Whether the chain's finalized head has reached this block. An RPC
+   * without the finalized tag never reports a block as final. */
+  private async finalizedThrough(blockNumber: bigint) {
+    const finalized = (await this.client.getBlock({ blockTag: "finalized" }).catch(() => null))?.number;
+    return finalized !== null && finalized !== undefined && finalized >= blockNumber;
   }
   /** Bounds the RPC work recovered backups can trigger across all callers. A
    * capacity refusal is a retryable 429, never a challenge to a real recovery. */
@@ -539,31 +548,42 @@ export class LaunchpadService {
   /** Chain evidence for a recovered preview that already re-encodes the
    * transaction exactly. Every input here (opening valuation, guard, token) is
    * fixed by that transaction's calldata, so any backup reaching this point
-   * shares one in-flight check and its cached result per transaction. Altered
-   * backups fail re-encoding first and never reach it, so they can neither
-   * spend the shared budget nor delay the correct backup. */
-  private recoveryEvidence(hash: Hex, plan: LaunchPlan, receiptBlock: bigint): Promise<void> {
+   * shares one in-flight check and its cached result per transaction and
+   * receipt block. Altered backups fail re-encoding first and never reach it,
+   * so they can neither spend the shared budget nor delay the correct backup. */
+  private recoveryEvidence(hash: Hex, plan: LaunchPlan, receipt: { blockNumber: bigint; blockHash: Hex }): Promise<void> {
     const checks = this.recoveryChecks ??= new Map(), now = Date.now();
-    const known = checks.get(hash);
+    // Evidence is judged at the receipt block. A transaction re-mined in
+    // another block after a reorganization is a different key, checked afresh.
+    const key = `${hash}:${receipt.blockHash.toLowerCase()}`;
+    const known = checks.get(key);
     if (known && (known.settledAt === undefined || now - known.settledAt < known.ttl)) return known.promise;
     if (checks.size >= 10_000)
       for (const [key, entry] of checks) if (entry.settledAt !== undefined && now - entry.settledAt >= entry.ttl) checks.delete(key);
     const entry: { promise: Promise<void>; settledAt?: number; ttl: number } = { promise: Promise.resolve(), ttl: 0 };
     const chainId = deploymentChain(this.runtime.config);
     entry.promise = this.withRecoveryVerification(async () => {
-      const reference = await assertRecoveredOpeningValuation(this.client, plan.openingValuation!, receiptBlock, chainId);
+      const reference = await assertRecoveredOpeningValuation(this.client, plan.openingValuation!, receipt.blockNumber, chainId);
       // Advisory, like the review-time warning; provenance is decided by attestation.
       if (reference && reference.divergenceBps > LIFI_OPENING_MAX_DIVERGENCE_BPS)
         console.warn(JSON.stringify({ event: "recovery_reference_divergence", transactionHash: hash, token: plan.tokenAddress, divergenceBps: reference.divergenceBps }));
       if (plan.firstBuy) await verifyLaunchGuard(this.client, plan.firstBuy.guard, chainId, plan.firstBuy.lockDays ? "vesting" : undefined);
-    }).then(() => { entry.settledAt = Date.now(); entry.ttl = RECOVERY_RESULT_TTL_MS; }, (error: unknown) => {
-      // Definitive evidence failures are cached; an RPC failure briefly; a
-      // capacity refusal not at all, so the next request competes again.
+      // The reads above are by block number; keep their verdict only for the
+      // receipt block they actually saw.
+      const block = await this.client.getBlock({ blockNumber: receipt.blockNumber });
+      if (!block.hash || block.hash.toLowerCase() !== receipt.blockHash.toLowerCase())
+        throw new Error("The receipt block was reorganized. Wait for confirmation again.");
+    }).then(() => { entry.settledAt = Date.now(); entry.ttl = RECOVERY_RESULT_TTL_MS; }, async (error: unknown) => {
+      // A definitive evidence failure is kept long only once its receipt block
+      // is finalized, when no reorganization or lagging RPC node can change
+      // it; before that, and for an RPC failure, only briefly. A capacity
+      // refusal is not kept at all, so the next request competes again.
+      const final = error instanceof RecoveryEvidenceError && await this.finalizedThrough(receipt.blockNumber);
       entry.settledAt = Date.now();
-      entry.ttl = error instanceof RecoveryEvidenceError ? RECOVERY_RESULT_TTL_MS : error instanceof BudgetUnavailable ? 0 : RECOVERY_TRANSIENT_RETRY_MS;
+      entry.ttl = final ? RECOVERY_RESULT_TTL_MS : error instanceof BudgetUnavailable ? 0 : RECOVERY_TRANSIENT_RETRY_MS;
       throw error;
     });
-    checks.set(hash, entry);
+    checks.set(key, entry);
     return entry.promise;
   }
   private async registerOnce(hash: Hex, recoveryPlan?: LaunchPlan): Promise<TokenRecord> {
@@ -576,8 +596,12 @@ export class LaunchpadService {
     if (head < receipt.blockNumber + 1n)
       throw new Error("Wait for at least two block confirmations before registering.");
     const tx = await this.client.getTransaction({ hash });
-    const savedPlan = await this.store.findPlan(receipt.from, tx.input);
-    const plan = savedPlan ?? recoveryPlan;
+    // Only a preview prepare() saved is this service's own. One stored by an
+    // earlier recovery is still a caller backup: a retry verifies it again and
+    // it proves its opening valuation only by attestation.
+    const stored = await this.store.findPlan(receipt.from, tx.input);
+    const savedPlan = stored && !stored.recovered ? stored : null;
+    const plan = savedPlan ?? recoveryPlan ?? stored;
     if (!plan)
       throw new Error("No matching issuance preview was found. Supply the frozen local backup with the original transaction hash.");
     // Cheapest rejections first, for saved and recovered previews alike: the
@@ -603,7 +627,7 @@ export class LaunchpadService {
         trustedLaunchPolicies(this.runtime.config, this.launchManifest()));
       // CPU only: an altered backup fails here, before any shared RPC budget.
       assertRecoveryPlan(plan, this.contracts, this.sdk);
-      await this.recoveryEvidence(hash, plan, receipt.blockNumber);
+      await this.recoveryEvidence(hash, plan, receipt);
     }
     if (plan.openingValuation)
       assertHistoricalOpeningValuation(plan.openingValuation, plan.draft.quoteAddress, deploymentChain(this.runtime.config));
@@ -663,7 +687,11 @@ export class LaunchpadService {
     // opening valuation only with a platform attestation over its id.
     const keys = [this.runtime.secrets?.planAttestationKey, ...(this.runtime.secrets?.planAttestationPreviousKeys ?? [])]
       .filter((key): key is string => !!key);
-    const attested = !!savedPlan || verifyPlanAttestation(keys, deploymentChain(this.runtime.config), plan.id, plan.attestation);
+    // Both previews encode this transaction, so they share its id; an
+    // attestation kept from an earlier recovery attempt still counts.
+    const attestation = savedPlan ? undefined : [plan.attestation, stored?.attestation]
+      .find((value) => verifyPlanAttestation(keys, deploymentChain(this.runtime.config), plan.id, value));
+    const attested = !!savedPlan || attestation !== undefined;
     const token: TokenRecord = {
       ...draft,
       ...(attested ? {} : { openingValuationUnverified: true as const }),
@@ -685,9 +713,13 @@ export class LaunchpadService {
       firstBuyLock,
     };
     if (!savedPlan) {
-      const stored = Object.fromEntries(LAUNCH_PLAN_FIELDS.filter((field) => plan[field] !== undefined)
+      const restored = Object.fromEntries(LAUNCH_PLAN_FIELDS.filter((field) => plan[field] !== undefined)
         .map((field) => [field, field === "draft" ? draft : plan[field]])) as LaunchPlan;
-      await this.store.savePlan(stored); await this.store.protectPlan(plan.id); await this.store.trackLaunch(hash, plan.id);
+      // Keep the attestation that verified, else the backup's own: a retained
+      // previous key added later can still verify it.
+      const kept = attestation ?? plan.attestation;
+      await this.store.savePlan({ ...restored, recovered: true, ...(kept ? { attestation: kept } : {}) });
+      await this.store.protectPlan(plan.id); await this.store.trackLaunch(hash, plan.id);
     }
     await this.store.saveToken(token);
     this.invalidateTokens();
@@ -925,8 +957,9 @@ const TOKEN_STATE_DEADLINE_MS = 8_000;
 // SDK parameters. Real recoveries are rare; this leaves ample headroom.
 const RECOVERY_VERIFICATION_CONCURRENCY = 4;
 const RECOVERY_VERIFICATIONS_PER_MINUTE = 60;
-// A transaction's settled chain evidence is reused for this long; an RPC
-// failure only briefly, so a later retry can succeed.
+// A transaction's settled chain evidence at one receipt block is reused for
+// this long; a failure that could still change only briefly, so a later retry
+// can succeed.
 const RECOVERY_RESULT_TTL_MS = 600_000;
 const RECOVERY_TRANSIENT_RETRY_MS = 15_000;
 // A stored recovered preview keeps only known LaunchPlan fields.

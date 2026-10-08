@@ -27,7 +27,7 @@ import type { FirstBuyPaymentVerification } from "../lib/first-buy-payment";
 import type { FirstBuyLockStatus } from "../lib/launch-plan";
 import type { LaunchPlan } from "../lib/launch-plan";
 import { launchIntentStorageKey } from "../lib/launch-intent";
-import { clearRecoveryBackoff, recordRecoveryFailure, recoveryDue, recoveryKey } from "../lib/recovery-backoff";
+import { bestEffort, recoveryDue, recoveryKey, settleRecovery } from "../lib/recovery-backoff";
 const labels = {
   pending: "Pending",
   success: "Confirmed",
@@ -242,12 +242,14 @@ export default function TransactionHistory({
           if (!active) break;
           const key = recoveryKey(row.chainId, row.hash);
           if (!recoveryDue(key)) continue;
-          if (row.action === "launch" && row.planId)
-            await chainApi(rowNetwork(row).deploymentChainId, "/launch/track", {
-              hash: row.hash,
-              planId: row.planId,
-            }).catch(() => {});
-          await check(row).then(() => clearRecoveryBackoff(key), (error) => recordRecoveryFailure(key, error));
+          await settleRecovery(key, async () => {
+            if (row.action === "launch" && row.planId)
+              await bestEffort(() => chainApi(rowNetwork(row).deploymentChainId, "/launch/track", {
+                hash: row.hash,
+                planId: row.planId,
+              }));
+            await check(row);
+          }).catch(() => {});
         }
       } finally {
         running = false;
@@ -287,9 +289,8 @@ export default function TransactionHistory({
         row.hash.toLowerCase() === value.toLowerCase() && sameAddress(row.account, tx.from));
       if (existing) {
         // Preserve the frozen payment, launch plan and replacement fingerprint.
-        // A manual check ignores the background backoff and resets it on success.
-        await check(existing);
-        clearRecoveryBackoff(recoveryKey(existing.chainId, existing.hash));
+        // A manual check ignores the background backoff and settles it.
+        await settleRecovery(recoveryKey(existing.chainId, existing.hash), () => check(existing));
         setHash("");
         return;
       }
@@ -364,7 +365,7 @@ export default function TransactionHistory({
                 setBusy(true);
                 setError("");
                 try {
-                  await check(row);
+                  await settleRecovery(recoveryKey(row.chainId, row.hash), () => check(row));
                 } catch (e) {
                   setError(errorMessage(e));
                 } finally {
