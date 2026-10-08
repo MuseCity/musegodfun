@@ -1,15 +1,15 @@
 {
   "schemaVersion": 1,
-  "status": "compatible_paused_baseline_pending",
-  "observedAt": "2026-10-08T06:31:40.996Z",
+  "status": "compatible_paused_baseline_verified_automatic_release_pending",
+  "observedAt": "2026-10-08T06:36:57.249Z",
   "scope": "Reviewed UX and recovery code merged into master. Four V2 contracts actually deployed and exactly source-verified. Explicitly authorized paused application publication in progress; no activation, treasury allowance, business-asset transfer, keeper start or signing resume.",
   "source": {
     "repository": "MuseCity/musegodfun",
     "workspace": "/Volumes/code/opc/musegodfun",
     "branch": "master",
-    "baseCommit": "750e2420b20d15f8d4becd2ab5077411c58a41ae",
+    "baseCommit": "1df07daf4b841ab68c787749d717bd8bfe6398b8",
     "dirty": true,
-    "committed": "750e2420b20d15f8d4becd2ab5077411c58a41ae",
+    "committed": "1df07daf4b841ab68c787749d717bd8bfe6398b8",
     "pushed": false,
     "sha256Algorithm": "SHA-256 of exact bytes",
     "changedFileHashes": {
@@ -34,11 +34,11 @@
       "contracts/test/MusegodBuybackBudgetVault.t.sol": "55a680417538e7a582f693084c04fbbc41994c0a04f550e07b4fca8990ec3c40",
       "contracts/test/MusegodFeeEngine.t.sol": "6aedcbf06755dd876e017b93c92bbe6a5c15cc825a41a311c6ad58990391b515",
       "contracts/test/MusegodWethForwarder.t.sol": "89a78bab49a8ff321abafcd46a1b75f43177f54fe4cc5c16df26f92febba3b92",
-      "docs/SPEC.md": "b984c14a465ab71d68a0198389496ac5d30cf61547433cf94dcef1748a1ce805",
+      "docs/SPEC.md": "f1891e7cfbe1ed27f6934522cf5b430b467864c288d4a452e683600705807365",
       "docs/evidence/buyback-v2-accounting-gas.json": "1b6af03fcff96545ac411060cb667eb603a630b540d962367cc3c0105f4a114b",
       "docs/evidence/buyback-v2-fee-custody.json": "7e0dfade1823a92bbe804d4591d9d95f40eb769b3e9c171f6465cd033776d30b",
       "docs/evidence/buyback-v2-fork.json": "c4ba041bf939b89b56db400b31c0dbb5092fb02bfc8430415e768125ffb46fc9",
-      "docs/evidence/buyback-v2-review.json": "70f0cea6050052133a94fb5bff38cdcf0088ff4285b1f8f9ff9413f71ad6c805",
+      "docs/evidence/buyback-v2-review.json": "668b1c31931961cec50f27f4498e6401ce05c4bc5e1c3d2001113984af625cb4",
       "docs/evidence/buyback-v2-vault-fixture.json": "12aa29afcca5cd7212001663ef2550714cd6e49724985ec6e0c15d9cda326068",
       "package.json": "63ad2ee86347616abb8d37ee15b69ca347ed062d7772211d1b0435f1f2196058",
       "scripts/build-buyback-artifacts.ts": "57ef7b3889f1e9a55b6cf9138d0a891b1e8e81e75dac82357c6cf02cbd60f397",
@@ -141,7 +141,7 @@
       "docs/evidence/database.json": "b6d84003d49a36c6ad7ccef41a77a8f529a32085997dcdce9ac5e73ed759407c",
       "tests/fixtures/robinhood-bundler.runtime.hex": "0e7298487be7f76367a068a8bf58b42e5c5a540e64ab5b594385c8e7c06c637b"
     },
-    "sortedChangedFilesDigest": "efbb9043624a8dc51595d238823b1b330c2eeb2e6e0e70409e208d379e300cf4",
+    "sortedChangedFilesDigest": "2a9ec74c9583a4a51032b8f7ed61c1e25f6ff460ca72ae307673968ca27d58cf",
     "digestEncoding": "Sorted relative path + NUL + lowercase SHA256 + newline. This evidence file itself is excluded to avoid a self-hash cycle.",
     "hashScope": "Exact-byte pre-commit operational snapshot, 127 files excluding this evidence file; implementation review records remain dated.",
     "uncommittedChanges": "Authorized deployment manifest, release configuration, manifest-independent tests and operational evidence.",
@@ -3837,7 +3837,7 @@
     }
   },
   "authorizedProductionExecution": {
-    "observedAt": "2026-10-08T06:31:40.996Z",
+    "observedAt": "2026-10-08T06:36:57.249Z",
     "authority": "Explicit user instruction to merge into master, deploy V2 contracts and the new application, then push. Persistent signing pause retained; no treasury allowance, business-asset transfer, keeper start or signing resume.",
     "merge": {
       "from": "codex/robinhood-go-live-ux",
@@ -3903,15 +3903,98 @@
       }
     },
     "application": {
-      "status": "compatible_paused_baseline_pending",
+      "status": "compatible_paused_baseline_verified_automatic_release_pending",
       "signing": "both_chains_paused_revision_0",
       "normalPublication": "existing_automatic_master_push_workflow",
       "feeEngineEnvironment": "unset_until_graph_activation_verified",
-      "planAttestationSecret": "to_be_uploaded_additively_with_paused_baseline",
-      "rollback": "Never return to legacy pre-protocol runtime; after baseline, use recorded paused protocol-1 version."
+      "planAttestationSecret": "uploaded_additively; secret value never recorded",
+      "rollback": "Use this paused protocol-1 baseline; never use legacy c06320d1 as a rollback after the migration.",
+      "observedAt": "2026-10-08T06:36:22.199Z",
+      "baselineWorkerVersion": "b2fed90b-bb15-4309-b2ea-7e865c3aa028",
+      "baselineSourceCommit": "1df07daf4b841ab68c787749d717bd8bfe6398b8",
+      "previousLegacyPausedVersion": "c06320d1-6c78-4199-bbc5-96c2a81bc9d8",
+      "buildLayer": "authorized_one_time_local_clean_source_protocol1_baseline; final immutable CI publication pending",
+      "secretNames": [
+        "ALCHEMY_API_KEY",
+        "LIFI_API_KEY",
+        "PINATA_JWT",
+        "PLAN_ATTESTATION_KEY",
+        "SUPABASE_SECRET_KEY"
+      ],
+      "durableObjectNamespacePreserved": true,
+      "publicChecks": [
+        {
+          "origin": "https://musegod.fun",
+          "workerVersion": "b2fed90b-bb15-4309-b2ea-7e865c3aa028",
+          "sourceCommit": "1df07daf4b841ab68c787749d717bd8bfe6398b8",
+          "buildManifestSha256": "f76f84307ab814e1b076a62e019afc6aca4f50613b020179e4d2fcd2c784b97e",
+          "assetsMatched": 204,
+          "runtimes": [
+            {
+              "chainId": 4663,
+              "securityProtocol": 1,
+              "signingPaused": true,
+              "controlRevision": 0,
+              "writesEnabled": false,
+              "launchGuard": "0x531417dD153A72AA780DE27E502618a1F74AA409",
+              "feePolicy": "creator-70-musegod-v2",
+              "feeEngine": null
+            },
+            {
+              "chainId": 8453,
+              "securityProtocol": 1,
+              "signingPaused": true,
+              "controlRevision": 0,
+              "writesEnabled": false,
+              "launchGuard": "0x376DcBb32DF3B033547f3d9024b2e4E88b973BF7",
+              "feePolicy": "creator-70-musegod-v2",
+              "feeEngine": null
+            }
+          ],
+          "smoke": {
+            "auxiliaryPrices": "available",
+            "unknownReferences": 0,
+            "tradeQuote": "not_run"
+          }
+        },
+        {
+          "origin": "https://www.musegod.fun",
+          "workerVersion": "b2fed90b-bb15-4309-b2ea-7e865c3aa028",
+          "sourceCommit": "1df07daf4b841ab68c787749d717bd8bfe6398b8",
+          "buildManifestSha256": "f76f84307ab814e1b076a62e019afc6aca4f50613b020179e4d2fcd2c784b97e",
+          "assetsMatched": 204,
+          "runtimes": [
+            {
+              "chainId": 4663,
+              "securityProtocol": 1,
+              "signingPaused": true,
+              "controlRevision": 0,
+              "writesEnabled": false,
+              "launchGuard": "0x531417dD153A72AA780DE27E502618a1F74AA409",
+              "feePolicy": "creator-70-musegod-v2",
+              "feeEngine": null
+            },
+            {
+              "chainId": 8453,
+              "securityProtocol": 1,
+              "signingPaused": true,
+              "controlRevision": 0,
+              "writesEnabled": false,
+              "launchGuard": "0x376DcBb32DF3B033547f3d9024b2e4E88b973BF7",
+              "feePolicy": "creator-70-musegod-v2",
+              "feeEngine": null
+            }
+          ],
+          "smoke": {
+            "auxiliaryPrices": "available",
+            "unknownReferences": 0,
+            "tradeQuote": "not_run"
+          }
+        }
+      ]
     },
     "proofBoundary": "Contract deployment/source verification is real Robinhood mainnet execution. It does not prove native Automation, funded/authorized buyback activation or user wallet canary.",
     "reviewEvidence": "docs/evidence/buyback-v2-review.json",
-    "reviewEvidenceSha256": "70f0cea6050052133a94fb5bff38cdcf0088ff4285b1f8f9ff9413f71ad6c805"
+    "reviewEvidenceSha256": "668b1c31931961cec50f27f4498e6401ce05c4bc5e1c3d2001113984af625cb4"
   }
 }

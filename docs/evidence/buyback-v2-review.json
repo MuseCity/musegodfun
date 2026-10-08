@@ -223,7 +223,7 @@
     }
   },
   "authorizedProductionExecution": {
-    "observedAt": "2026-10-08T06:31:40.996Z",
+    "observedAt": "2026-10-08T06:36:57.249Z",
     "authority": "Explicit user instruction to merge into master, deploy V2 contracts and the new application, then push. Persistent signing pause retained; no treasury allowance, business-asset transfer, keeper start or signing resume.",
     "merge": {
       "from": "codex/robinhood-go-live-ux",
@@ -289,12 +289,95 @@
       }
     },
     "application": {
-      "status": "compatible_paused_baseline_pending",
+      "status": "compatible_paused_baseline_verified_automatic_release_pending",
       "signing": "both_chains_paused_revision_0",
       "normalPublication": "existing_automatic_master_push_workflow",
       "feeEngineEnvironment": "unset_until_graph_activation_verified",
-      "planAttestationSecret": "to_be_uploaded_additively_with_paused_baseline",
-      "rollback": "Never return to legacy pre-protocol runtime; after baseline, use recorded paused protocol-1 version."
+      "planAttestationSecret": "uploaded_additively; secret value never recorded",
+      "rollback": "Use this paused protocol-1 baseline; never use legacy c06320d1 as a rollback after the migration.",
+      "observedAt": "2026-10-08T06:36:22.199Z",
+      "baselineWorkerVersion": "b2fed90b-bb15-4309-b2ea-7e865c3aa028",
+      "baselineSourceCommit": "1df07daf4b841ab68c787749d717bd8bfe6398b8",
+      "previousLegacyPausedVersion": "c06320d1-6c78-4199-bbc5-96c2a81bc9d8",
+      "buildLayer": "authorized_one_time_local_clean_source_protocol1_baseline; final immutable CI publication pending",
+      "secretNames": [
+        "ALCHEMY_API_KEY",
+        "LIFI_API_KEY",
+        "PINATA_JWT",
+        "PLAN_ATTESTATION_KEY",
+        "SUPABASE_SECRET_KEY"
+      ],
+      "durableObjectNamespacePreserved": true,
+      "publicChecks": [
+        {
+          "origin": "https://musegod.fun",
+          "workerVersion": "b2fed90b-bb15-4309-b2ea-7e865c3aa028",
+          "sourceCommit": "1df07daf4b841ab68c787749d717bd8bfe6398b8",
+          "buildManifestSha256": "f76f84307ab814e1b076a62e019afc6aca4f50613b020179e4d2fcd2c784b97e",
+          "assetsMatched": 204,
+          "runtimes": [
+            {
+              "chainId": 4663,
+              "securityProtocol": 1,
+              "signingPaused": true,
+              "controlRevision": 0,
+              "writesEnabled": false,
+              "launchGuard": "0x531417dD153A72AA780DE27E502618a1F74AA409",
+              "feePolicy": "creator-70-musegod-v2",
+              "feeEngine": null
+            },
+            {
+              "chainId": 8453,
+              "securityProtocol": 1,
+              "signingPaused": true,
+              "controlRevision": 0,
+              "writesEnabled": false,
+              "launchGuard": "0x376DcBb32DF3B033547f3d9024b2e4E88b973BF7",
+              "feePolicy": "creator-70-musegod-v2",
+              "feeEngine": null
+            }
+          ],
+          "smoke": {
+            "auxiliaryPrices": "available",
+            "unknownReferences": 0,
+            "tradeQuote": "not_run"
+          }
+        },
+        {
+          "origin": "https://www.musegod.fun",
+          "workerVersion": "b2fed90b-bb15-4309-b2ea-7e865c3aa028",
+          "sourceCommit": "1df07daf4b841ab68c787749d717bd8bfe6398b8",
+          "buildManifestSha256": "f76f84307ab814e1b076a62e019afc6aca4f50613b020179e4d2fcd2c784b97e",
+          "assetsMatched": 204,
+          "runtimes": [
+            {
+              "chainId": 4663,
+              "securityProtocol": 1,
+              "signingPaused": true,
+              "controlRevision": 0,
+              "writesEnabled": false,
+              "launchGuard": "0x531417dD153A72AA780DE27E502618a1F74AA409",
+              "feePolicy": "creator-70-musegod-v2",
+              "feeEngine": null
+            },
+            {
+              "chainId": 8453,
+              "securityProtocol": 1,
+              "signingPaused": true,
+              "controlRevision": 0,
+              "writesEnabled": false,
+              "launchGuard": "0x376DcBb32DF3B033547f3d9024b2e4E88b973BF7",
+              "feePolicy": "creator-70-musegod-v2",
+              "feeEngine": null
+            }
+          ],
+          "smoke": {
+            "auxiliaryPrices": "available",
+            "unknownReferences": 0,
+            "tradeQuote": "not_run"
+          }
+        }
+      ]
     },
     "proofBoundary": "Contract deployment/source verification is real Robinhood mainnet execution. It does not prove native Automation, funded/authorized buyback activation or user wallet canary."
   }
