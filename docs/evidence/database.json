@@ -1,5 +1,5 @@
 {
-  "observedAt": "2026-10-05T00:23:57.442Z",
+  "observedAt": "2026-10-08T05:10:08.498Z",
   "backend": "Supabase",
   "project": "vrhzgmulcyqqzkkforsl",
   "scope": "isolated verification rows only",
@@ -20,9 +20,34 @@
     "buyback batch scope isolation and 24-hour cleanup retention",
     "version-2 backup preserves buyback batches",
     "version-1 backup without buyback batches restores successfully",
-    "restore cannot overwrite a scope containing only buyback batches"
+    "restore cannot overwrite a scope containing only buyback batches",
+    "insert-if-absent preserves a saved plan",
+    "provenance upgrade succeeds without downgrade",
+    "runtime controls table is available to the service-role API"
   ],
-  "status": "latest_full_validation_blocked_runtime_schema",
+  "status": "passed_after_authorized_runtime_safety_migration",
+  "historicalFullVerification": {
+    "observedAt": "2026-10-05T00:23:57.442Z",
+    "checks": [
+      "health",
+      "atomic concurrent quota",
+      "quota survives reconnect",
+      "snapshot readback",
+      "consistent backup / empty target restore",
+      "restore preserves quota",
+      "nonempty restore rejected",
+      "launch plan and pending hash survive reconnect",
+      "fee policy and original treasury survive reconnect and backup restore",
+      "idempotent token registration and replacement status",
+      "backup restores token and canonical receipt identity",
+      "orphan token removal",
+      "buyback batch amounts and receipt history survive reconnect and upsert",
+      "buyback batch scope isolation and 24-hour cleanup retention",
+      "version-2 backup preserves buyback batches",
+      "version-1 backup without buyback batches restores successfully",
+      "restore cannot overwrite a scope containing only buyback batches"
+    ]
+  },
   "followup4248": {
     "reviewedCommit": "4248af9d8f37c9330c5799553dd62ea7d3d8714a",
     "observedAt": "2026-10-08T04:07:57.030Z",
@@ -122,68 +147,552 @@
     "historicalChecks": "The top-level observedAt and checks remain the2026-10-05 historical full verification; they are not a fresh pass of the runtime-safety migration.",
     "nextStep": "Apply the existing20261007094402_runtime_safety_controls.sql migration under separate production authorization, then rerun the full verification. This review did not apply migrations or change business rows."
   },
-  "migrationPreparation": {
-    "reviewedCommit": "0a2b36754d41e645860e22976ee97da4719ef687",
-    "observedAt": "2026-10-08T04:44:50.454Z",
-    "path": "supabase/migrations/20261007094402_runtime_safety_controls.sql",
-    "sha256": "5da5b3a18bba1e8878aca48afc4da5794f781fd407dc02b419d3c5f770988258",
-    "requested": true,
-    "status": "prepared_awaiting_explicit_legacy_signing_pause_authority",
-    "preflight": {
-      "projectConfirmed": true,
-      "controlsTable": null,
-      "tokens": 0,
-      "planRows": 22,
-      "baseWritesEnabled": false,
-      "robinhoodWritesEnabled": true,
-      "originsRead": [
-        "https://musegod.fun",
-        "https://www.musegod.fun"
-      ],
-      "schemaApplied": false,
-      "signingFlagsChanged": false
-    },
-    "backups": {
-      "base": {
-        "path": ".cache/pre-runtime-migration-20261008-base.json",
-        "sha256": "c1e36ec1c75430df617c3c5fee5e863c6446119eaa064211da99913a3688723e",
-        "mode": "0600",
-        "version": 2,
-        "plans": 6,
+  "migrationPreparationHistory": [
+    {
+      "reviewedCommit": "0a2b36754d41e645860e22976ee97da4719ef687",
+      "observedAt": "2026-10-08T04:44:50.454Z",
+      "path": "supabase/migrations/20261007094402_runtime_safety_controls.sql",
+      "sha256": "5da5b3a18bba1e8878aca48afc4da5794f781fd407dc02b419d3c5f770988258",
+      "requested": true,
+      "status": "prepared_awaiting_explicit_legacy_signing_pause_authority",
+      "preflight": {
+        "projectConfirmed": true,
+        "controlsTable": null,
         "tokens": 0,
-        "pending": 0,
-        "contentsCommitted": false
+        "planRows": 22,
+        "baseWritesEnabled": false,
+        "robinhoodWritesEnabled": true,
+        "originsRead": [
+          "https://musegod.fun",
+          "https://www.musegod.fun"
+        ],
+        "schemaApplied": false,
+        "signingFlagsChanged": false
       },
-      "robinhood": {
-        "path": ".cache/pre-runtime-migration-20261008-robinhood.json",
-        "sha256": "156f882e35e44116f424f81c4e6f9ce2bc1e1fb8ec83ebac8a2ae6a4875134cc",
-        "mode": "0600",
-        "version": 2,
-        "plans": 16,
-        "tokens": 0,
-        "pending": 0,
-        "contentsCommitted": false
+      "backups": {
+        "base": {
+          "path": ".cache/pre-runtime-migration-20261008-base.json",
+          "sha256": "c1e36ec1c75430df617c3c5fee5e863c6446119eaa064211da99913a3688723e",
+          "mode": "0600",
+          "version": 2,
+          "plans": 6,
+          "tokens": 0,
+          "pending": 0,
+          "contentsCommitted": false
+        },
+        "robinhood": {
+          "path": ".cache/pre-runtime-migration-20261008-robinhood.json",
+          "sha256": "156f882e35e44116f424f81c4e6f9ce2bc1e1fb8ec83ebac8a2ae6a4875134cc",
+          "mode": "0600",
+          "version": 2,
+          "plans": 16,
+          "tokens": 0,
+          "pending": 0,
+          "contentsCommitted": false
+        }
+      },
+      "independentMigrationReview": {
+        "reviewer": "Codex independent_buyback_7d34",
+        "status": "passed_isolated_PostgreSQL",
+        "targetedTests": 35,
+        "checks": [
+          "Populated old records/old-column INSERT defaults retained",
+          "Version2 pre-migration backup restores and newfields get defaults",
+          "Existing independent pause/revision not reset by restore",
+          "Protected/referenced plans andPinata/buyback snapshots retained by cleanup",
+          "Four newtables RLS and service-only grants; all checkedRPC SECURITY INVOKER with noanon/authenticated EXECUTE",
+          "CREATE OR REPLACE cleanup/restore preserves existingACL"
+        ]
+      },
+      "dependency": {
+        "source": "docs/SPEC.md:294",
+        "required": "First enforce and verify the currently deployed runtime signing pause on both public chains. The new database rows cannot control legacy runtime signing.",
+        "approvalQuestionAsked": true,
+        "approvalReceived": false
+      },
+      "rollback": "Keep the additive migration/safety records after application; preserve these private application backups. Use a reviewed compatible paused runtime for release rollback."
+    }
+  ],
+  "runtimeSafetyExecution": {
+    "observedAt": "2026-10-08T05:23:26.782Z",
+    "status": "completed_verified_kept_paused",
+    "authority": "Explicit user approval of legacy production signing pause followed by the existing runtime-safety migration; no signing resume, V2 deployment or mainnet transaction authority.",
+    "sourceEvidenceParent": "ae0923de7948542665e0d87baaf9a49584bbf3e3",
+    "cloudflare": {
+      "worker": "musegod-fun",
+      "operation": "settings-only pause of existing production version",
+      "previousVersion": "f6264df1-1676-4e4f-8956-4a626b99d862",
+      "pausedVersion": "c06320d1-6c78-4199-bbc5-96c2a81bc9d8",
+      "pausedDeployment": "7dc69cdd-7640-417d-b77a-920c6061769b",
+      "trafficPercentage": 100,
+      "sourceCommit": "36a792393197ce42393785f7c0752dcbc0a796bf",
+      "scriptEtag": "dcb3a022b7d54d81608a5a7ede3465846481fabc842b60396722275caadc3432",
+      "codeBytesChanged": false,
+      "frontendBuildInfoSha256": "87ddb5d65c5020a70f8cd624932261e68b242b84d37d61d736c826fae760a4c6",
+      "frontendBytesChanged": false,
+      "flags": {
+        "ENABLE_MAINNET_TRANSACTIONS": "false",
+        "ENABLE_BASE_TRANSACTIONS": "false",
+        "ENABLE_ROBINHOOD_TRANSACTIONS": "false"
+      },
+      "otherBindingsInheritedAndReadbackMatched": true,
+      "secretValuesRecorded": false,
+      "namespaceAndRoutesUnchanged": true,
+      "settingsInheritance": "This API accepted only latest; latest was checked equal to the captured active version before update. The rejected explicit-version request made no change.",
+      "protocol1CompatibleBaseline": false,
+      "publicReadback": {
+        "observedAt": "2026-10-08T05:15:52.961Z",
+        "allPaused": true,
+        "observations": [
+          {
+            "origin": "https://musegod.fun",
+            "rows": [
+              {
+                "chain": 4663,
+                "mode": "robinhood",
+                "chainId": 4663,
+                "writesEnabled": false,
+                "launchGuard": "0x531417dD153A72AA780DE27E502618a1F74AA409",
+                "treasury": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+                "bodyHash": "46aa3d5f791568a1563bc50d4a9a063fe7c7533e1925efd553fc3c71071ed4c6"
+              },
+              {
+                "chain": 8453,
+                "mode": "base",
+                "chainId": 8453,
+                "writesEnabled": false,
+                "launchGuard": "0x376DcBb32DF3B033547f3d9024b2e4E88b973BF7",
+                "treasury": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+                "bodyHash": "026013c1bf3d1297dfded8893b9f50821ed2ea14fe87c4ac28a449d360588077"
+              }
+            ],
+            "workerVersion": "c06320d1-6c78-4199-bbc5-96c2a81bc9d8",
+            "sourceCommit": "36a792393197ce42393785f7c0752dcbc0a796bf",
+            "buildInfoSha256": "87ddb5d65c5020a70f8cd624932261e68b242b84d37d61d736c826fae760a4c6"
+          },
+          {
+            "origin": "https://www.musegod.fun",
+            "rows": [
+              {
+                "chain": 4663,
+                "mode": "robinhood",
+                "chainId": 4663,
+                "writesEnabled": false,
+                "launchGuard": "0x531417dD153A72AA780DE27E502618a1F74AA409",
+                "treasury": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+                "bodyHash": "46aa3d5f791568a1563bc50d4a9a063fe7c7533e1925efd553fc3c71071ed4c6"
+              },
+              {
+                "chain": 8453,
+                "mode": "base",
+                "chainId": 8453,
+                "writesEnabled": false,
+                "launchGuard": "0x376DcBb32DF3B033547f3d9024b2e4E88b973BF7",
+                "treasury": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+                "bodyHash": "026013c1bf3d1297dfded8893b9f50821ed2ea14fe87c4ac28a449d360588077"
+              }
+            ],
+            "workerVersion": "c06320d1-6c78-4199-bbc5-96c2a81bc9d8",
+            "sourceCommit": "36a792393197ce42393785f7c0752dcbc0a796bf",
+            "buildInfoSha256": "87ddb5d65c5020a70f8cd624932261e68b242b84d37d61d736c826fae760a4c6"
+          }
+        ]
+      },
+      "readonlyChecks": {
+        "observedAt": "2026-10-08T05:11:09.903Z",
+        "checks": [
+          {
+            "origin": "https://musegod.fun",
+            "readyStatus": 200,
+            "ready": {
+              "status": "ready",
+              "chainId": 4663,
+              "writesEnabled": false
+            },
+            "tokens": [
+              {
+                "chain": 8453,
+                "status": 200,
+                "registeredTokens": 0
+              },
+              {
+                "chain": 4663,
+                "status": 200,
+                "registeredTokens": 0
+              }
+            ]
+          },
+          {
+            "origin": "https://www.musegod.fun",
+            "readyStatus": 200,
+            "ready": {
+              "status": "ready",
+              "chainId": 4663,
+              "writesEnabled": false
+            },
+            "tokens": [
+              {
+                "chain": 8453,
+                "status": 200,
+                "registeredTokens": 0
+              },
+              {
+                "chain": 4663,
+                "status": 200,
+                "registeredTokens": 0
+              }
+            ]
+          }
+        ]
+      },
+      "limits": "Stops new application wallet requests, including new claim signatures; cannot revoke an already-open wallet request or on-chain transaction. Already-broadcast recovery/read paths retain existing code. Signing pause is not a database write freeze."
+    },
+    "migration": {
+      "path": "supabase/migrations/20261007094402_runtime_safety_controls.sql",
+      "sha256": "5da5b3a18bba1e8878aca48afc4da5794f781fd407dc02b419d3c5f770988258",
+      "sourceVersion": "20261007094402",
+      "databaseHistoryVersion": "20261008050432",
+      "databaseHistoryName": "runtime_safety_controls",
+      "appliedVia": "Supabase apply_migration against confirmed configured project",
+      "sourceSqlChanged": false,
+      "defaultControls": [
+        {
+          "scope": "base",
+          "paused": true,
+          "reason": "Awaiting runtime activation",
+          "revision": 0,
+          "updated_at": 0
+        },
+        {
+          "scope": "robinhood",
+          "paused": true,
+          "reason": "Awaiting runtime activation",
+          "revision": 0,
+          "updated_at": 0
+        }
+      ],
+      "postcheck": {
+        "rpcAcl": [
+          {
+            "present": true,
+            "proconfig": [
+              "search_path=\"\""
+            ],
+            "signature": "public.musegod_backup(text)",
+            "anon_execute": false,
+            "public_execute": false,
+            "service_execute": true,
+            "security_invoker": true,
+            "authenticated_execute": false
+          },
+          {
+            "present": true,
+            "proconfig": [
+              "search_path=\"\""
+            ],
+            "signature": "public.musegod_block_runtime_budget(text,bigint)",
+            "anon_execute": false,
+            "public_execute": false,
+            "service_execute": true,
+            "security_invoker": true,
+            "authenticated_execute": false
+          },
+          {
+            "present": true,
+            "proconfig": [
+              "search_path=\"\""
+            ],
+            "signature": "public.musegod_cleanup(text,bigint)",
+            "anon_execute": false,
+            "public_execute": false,
+            "service_execute": true,
+            "security_invoker": true,
+            "authenticated_execute": false
+          },
+          {
+            "present": true,
+            "proconfig": [
+              "search_path=\"\""
+            ],
+            "signature": "public.musegod_defer_launch(text,text,bigint)",
+            "anon_execute": false,
+            "public_execute": false,
+            "service_execute": true,
+            "security_invoker": true,
+            "authenticated_execute": false
+          },
+          {
+            "present": true,
+            "proconfig": [
+              "search_path=\"\""
+            ],
+            "signature": "public.musegod_find_plan(text,text,text)",
+            "anon_execute": false,
+            "public_execute": false,
+            "service_execute": true,
+            "security_invoker": true,
+            "authenticated_execute": false
+          },
+          {
+            "present": true,
+            "proconfig": [
+              "search_path=\"\""
+            ],
+            "signature": "public.musegod_mark_launch(text,text,text,text)",
+            "anon_execute": false,
+            "public_execute": false,
+            "service_execute": true,
+            "security_invoker": true,
+            "authenticated_execute": false
+          },
+          {
+            "present": true,
+            "proconfig": [
+              "search_path=\"\""
+            ],
+            "signature": "public.musegod_reserve_market_call(text,bigint,integer,integer)",
+            "anon_execute": false,
+            "public_execute": false,
+            "service_execute": true,
+            "security_invoker": true,
+            "authenticated_execute": false
+          },
+          {
+            "present": true,
+            "proconfig": [
+              "search_path=\"\""
+            ],
+            "signature": "public.musegod_reserve_prepare_slot(uuid,bigint)",
+            "anon_execute": false,
+            "public_execute": false,
+            "service_execute": true,
+            "security_invoker": true,
+            "authenticated_execute": false
+          },
+          {
+            "present": true,
+            "proconfig": [
+              "search_path=\"\""
+            ],
+            "signature": "public.musegod_reserve_runtime_budget(text,bigint,boolean)",
+            "anon_execute": false,
+            "public_execute": false,
+            "service_execute": true,
+            "security_invoker": true,
+            "authenticated_execute": false
+          },
+          {
+            "present": true,
+            "proconfig": [
+              "search_path=\"\""
+            ],
+            "signature": "public.musegod_restore(text,jsonb)",
+            "anon_execute": false,
+            "public_execute": false,
+            "service_execute": true,
+            "security_invoker": true,
+            "authenticated_execute": false
+          },
+          {
+            "present": true,
+            "proconfig": [
+              "search_path=\"\""
+            ],
+            "signature": "public.musegod_update_runtime_control(text,boolean,text,bigint)",
+            "anon_execute": false,
+            "public_execute": false,
+            "service_execute": true,
+            "security_invoker": true,
+            "authenticated_execute": false
+          }
+        ],
+        "columns": [
+          {
+            "type": "integer",
+            "table": "musegod_pending_launches",
+            "column": "attempts",
+            "default": "0",
+            "nullable": "NO"
+          },
+          {
+            "type": "boolean",
+            "table": "musegod_pending_launches",
+            "column": "finalized",
+            "default": "false",
+            "nullable": "NO"
+          },
+          {
+            "type": "bigint",
+            "table": "musegod_pending_launches",
+            "column": "retry_at",
+            "default": "0",
+            "nullable": "NO"
+          },
+          {
+            "type": "bigint",
+            "table": "musegod_plans",
+            "column": "protected_at",
+            "default": null,
+            "nullable": "YES"
+          }
+        ],
+        "indexes": [
+          "musegod_pending_active_queue",
+          "musegod_tokens_page"
+        ],
+        "controls": [
+          {
+            "scope": "base",
+            "paused": true,
+            "reason": "Awaiting runtime activation",
+            "revision": 0,
+            "updated_at": 0
+          },
+          {
+            "scope": "robinhood",
+            "paused": true,
+            "reason": "Awaiting runtime activation",
+            "revision": 0,
+            "updated_at": 0
+          }
+        ],
+        "newTables": [
+          {
+            "rls": true,
+            "name": "musegod_prepare_slots",
+            "present": true,
+            "service_crud": true,
+            "anon_privilege": false,
+            "anon_column_privilege": false,
+            "authenticated_privilege": false,
+            "authenticated_column_privilege": false
+          },
+          {
+            "rls": true,
+            "name": "musegod_runtime_budget",
+            "present": true,
+            "service_crud": true,
+            "anon_privilege": false,
+            "anon_column_privilege": false,
+            "authenticated_privilege": false,
+            "authenticated_column_privilege": false
+          },
+          {
+            "rls": true,
+            "name": "musegod_runtime_circuit",
+            "present": true,
+            "service_crud": true,
+            "anon_privilege": false,
+            "anon_column_privilege": false,
+            "authenticated_privilege": false,
+            "authenticated_column_privilege": false
+          },
+          {
+            "rls": true,
+            "name": "musegod_runtime_controls",
+            "present": true,
+            "service_crud": true,
+            "anon_privilege": false,
+            "anon_column_privilege": false,
+            "authenticated_privilege": false,
+            "authenticated_column_privilege": false
+          }
+        ],
+        "businessCounts": [
+          {
+            "plans": 6,
+            "scope": "base",
+            "tokens": 0,
+            "pending": 0,
+            "protected_plans": 0
+          },
+          {
+            "plans": 16,
+            "scope": "robinhood",
+            "tokens": 0,
+            "pending": 0,
+            "protected_plans": 0
+          }
+        ]
+      },
+      "backups": {
+        "base": {
+          "preMigrationPath": ".cache/pre-runtime-migration-20261008-base.json",
+          "preMigrationSha256": "c1e36ec1c75430df617c3c5fee5e863c6446119eaa064211da99913a3688723e",
+          "postMigrationPath": ".cache/post-runtime-migration-base.json",
+          "postMigrationSha256": "a7818f82a5ecf107aac7c7490bf2a7e707855f7a5ff3d7074d570f105de432fe",
+          "mode": "0600",
+          "contentsCommitted": false,
+          "planCount": 6,
+          "allSixCollectionsPreservedAfterDefaultFieldNormalization": {
+            "plans": true,
+            "tokens": true,
+            "pending_launches": true,
+            "buyback_batches": true,
+            "snapshots": true,
+            "quota": true
+          }
+        },
+        "robinhood": {
+          "preMigrationPath": ".cache/pre-runtime-migration-20261008-robinhood.json",
+          "preMigrationSha256": "156f882e35e44116f424f81c4e6f9ce2bc1e1fb8ec83ebac8a2ae6a4875134cc",
+          "postMigrationPath": ".cache/post-runtime-migration-robinhood.json",
+          "postMigrationSha256": "b7fac2b9998459831b7e33a1772903baa85e9eb0d1263ab255adf1a34ef520ea",
+          "mode": "0600",
+          "contentsCommitted": false,
+          "planCount": 16,
+          "allSixCollectionsPreservedAfterDefaultFieldNormalization": {
+            "plans": true,
+            "tokens": true,
+            "pending_launches": true,
+            "buyback_batches": true,
+            "snapshots": true,
+            "quota": true
+          }
+        }
+      },
+      "fullVerification": {
+        "command": "npm run verify:database",
+        "status": "passed",
+        "exitCode": 0,
+        "log": ".cache/runtime-migration-full-database-retry.log",
+        "logSha256": "2cac3752b0dcaa9ab2a99e6f95122405a148599f60c414c6cfc6c0341be523bc",
+        "initialAttempt": "Transient local fetch failure; the next run completed including finally cleanup.",
+        "newOperations": [
+          "savePlanIfAbsent preserves existing plans",
+          "upgradeTokenProvenance updates in place and never downgrades"
+        ],
+        "fixtureRowsAfterCleanup": {
+          "plans": 0,
+          "quota": 0,
+          "tokens": 0,
+          "pending": 0,
+          "snapshots": 0,
+          "buyback_batches": 0
+        }
+      },
+      "rollback": "Keep the additive schema and both paused control records. Do not restore the former flags-on production version. The paused legacy version is not a protocol-1 compatible rollout baseline; establish the separately reviewed compatible paused baseline before application promotion.",
+      "securityAdvisor": {
+        "checkedAt": "2026-10-08T05:29:31.573Z",
+        "errors": 0,
+        "warnings": 0,
+        "info": {
+          "name": "rls_enabled_no_policy",
+          "count": 16,
+          "classification": "Expected for server-only tables: no client policies and no anon/authenticated grants. Actual service-role API verification passed.",
+          "reference": "https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy"
+        }
       }
     },
-    "independentMigrationReview": {
-      "reviewer": "Codex independent_buyback_7d34",
-      "status": "passed_isolated_PostgreSQL",
-      "targetedTests": 35,
-      "checks": [
-        "Populated old records/old-column INSERT defaults retained",
-        "Version2 pre-migration backup restores and newfields get defaults",
-        "Existing independent pause/revision not reset by restore",
-        "Protected/referenced plans andPinata/buyback snapshots retained by cleanup",
-        "Four newtables RLS and service-only grants; all checkedRPC SECURITY INVOKER with noanon/authenticated EXECUTE",
-        "CREATE OR REPLACE cleanup/restore preserves existingACL"
-      ]
-    },
-    "dependency": {
-      "source": "docs/SPEC.md:294",
-      "required": "First enforce and verify the currently deployed runtime signing pause on both public chains. The new database rows cannot control legacy runtime signing.",
-      "approvalQuestionAsked": true,
-      "approvalReceived": false
-    },
-    "rollback": "Keep the additive migration/safety records after application; preserve these private application backups. Use a reviewed compatible paused runtime for release rollback."
+    "notRun": [
+      "V2 application deployment",
+      "V2 contract deployment/activation",
+      "Worker attestation-secret upload",
+      "engine cutover recording",
+      "mainnet wallet signing/funding/approvals",
+      "keeper startup",
+      "public signing resume"
+    ],
+    "nextStep": "The approved pause/migration task is complete. Continue the separately scoped protocol-compatible paused runtime and V2/canary acceptance process; signing remains paused."
   }
 }

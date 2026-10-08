@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "passed",
   "scope": "Internal independent source review and isolated execution evidence only. This is a source-integrity gate for a subsequently explicitly authorized deployment; it grants no deployment, publication, signing, funding, treasury approval or production activation authority.",
-  "observedAt": "2026-10-08T04:44:50.454Z",
+  "observedAt": "2026-10-08T05:23:26.782Z",
   "baseCommit": "0a2b36754d41e645860e22976ee97da4719ef687",
   "branch": "codex/robinhood-go-live-ux",
   "uncommittedSource": false,
@@ -139,7 +139,7 @@
     "Treasury-only receipts inside the engine-only deploy gap can recover once a marker exists if canonical receipt time is beforecutover+360s. This deliberately bounded compatibility window does not prove the preview preceded deploy.",
     "Markerless recovered plans imported from unshipped038/b182 databases can still be mistaken for prepared. Productionmaster saves plans only inprepare; fresh current recovery always persists recovered:true. Do not silently import the intermediate-version database as prepared provenance.",
     "BothIR424 defects closed. Backoff revision/check/write/clear protection is in-memory and retains perrecord revisions until module reload; no persisted/cross-tab waiting policy or new user limit. Nonempty foreignguard code keeps address-wide10min rejection; empty/read/dependency failures keep15s verdicts only.",
-    "ConfiguredSupabase two newoperations andcleanup passed in the previousisolatedfixture review. Fullverify remainsblocked by absent runtimecontrols. Migration was requested and private pre-migration backups preserved; SPEC requires legacypublic signingpause first, and currentRobinhoodwritesEnabled=true. Additionalpause authority ispending. No productionconfiguration/schema change performed."
+    "On2026-10-08 the explicitly authorized pause/database task completed: production legacy36a7923 flags are allfalse, the unchanged9744-byte migration was applied and fullconfiguredSupabase verification passed. Default control rows remainpaused revision0 and all originalscope backup contents match after added-default normalization. This is not a V2 app/contract deployment or protocol-1 compatible rollback baseline."
   ],
   "production": {
     "deploymentAuthority": "not_granted",
@@ -149,7 +149,11 @@
     "nativeAutomation": "not_run",
     "keeperSigning": "not_run",
     "jointPublicActivation": "not_run",
-    "executionChecklist": "docs/SPEC.md#concrete-production-execution-checklist-not_run"
+    "executionChecklist": "docs/SPEC.md#concrete-production-execution-checklist-not_run",
+    "runtimeSafetyMigration": "applied_verified",
+    "legacyPublicSigningPause": "verified_both_domains_both_chains",
+    "fullConfiguredSupabaseVerification": "passed",
+    "publicSigningResume": "not_run"
   },
   "reviewedCommit": "0a2b36754d41e645860e22976ee97da4719ef687",
   "applicationRelease": {
@@ -157,11 +161,15 @@
     "scope": "IR424-BACKOFF_RACE andIR424-GUARD_CACHE closed by current source and independent diff review. Contract source gate unchanged. Production still needs authorized legacy pause, existing runtime migration/fullconfiguredSupabase verification, compatible paused baseline and original mainnet acceptance.",
     "requiredFindingIds": [],
     "environmentPrerequisites": [
-      "Explicit authorization and verified legacyruntime signingpause",
-      "Existingruntime-safety migration/fullconfiguredSupabase verification",
-      "Original compatiblepausedbaseline/production canary andjointopening proof"
+      "Separately authorized and verified protocol-1 paused runtime baseline",
+      "Original V2 contracts/source/native Automation/human-wallet canary and joint-opening proof"
     ],
-    "evidence": "docs/evidence/go-live-ux-acceptance.json#independentReview"
+    "evidence": "docs/evidence/go-live-ux-acceptance.json#independentReview",
+    "completedPrerequisites": [
+      "Legacy production signing paused on both chains",
+      "Existing runtime-safety migration applied",
+      "Full configuredSupabase verification passed including fixture cleanup"
+    ]
   },
   "isolatedForkRunner": {
     "observedAt": "2026-10-07T14:31:46.825Z",
@@ -194,5 +202,24 @@
     "rerun": false,
     "checks": "All41 deployment source hashes unchanged; retainedfork producer/config/artifacts unchanged. The sixSolc0.8.24/17source reproductions remain the earlier independent evidence; no new compiler/fork/mainnet run required or claimed by this application-only fix."
   },
-  "reviewBaseCommit": "74dc8226742e3cacf2be565b2f7750fcc9206445"
+  "reviewBaseCommit": "74dc8226742e3cacf2be565b2f7750fcc9206445",
+  "operationalSetup": {
+    "status": "completed_verified_kept_paused",
+    "observedAt": "2026-10-08T05:23:26.782Z",
+    "evidence": "docs/evidence/database.json#runtimeSafetyExecution",
+    "evidenceSha256": "b6d84003d49a36c6ad7ccef41a77a8f529a32085997dcdce9ac5e73ed759407c",
+    "summary": {
+      "legacyProductionCode": "36a792393197ce42393785f7c0752dcbc0a796bf",
+      "pausedWorkerVersion": "c06320d1-6c78-4199-bbc5-96c2a81bc9d8",
+      "codeAndFrontendUnchanged": true,
+      "bothDomainsAndChainsPaused": true,
+      "migrationSource": "supabase/migrations/20261007094402_runtime_safety_controls.sql",
+      "migrationLedger": "20261008050432",
+      "fullDatabaseVerification": "passed_exit_0_including_cleanup",
+      "bothControlsPausedRevision": 0,
+      "originalBackupCollectionsPreserved": true,
+      "V2Deployment": "not_run",
+      "compatibleProtocol1Baseline": "pending"
+    }
+  }
 }
