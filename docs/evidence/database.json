@@ -21,5 +21,105 @@
     "version-2 backup preserves buyback batches",
     "version-1 backup without buyback batches restores successfully",
     "restore cannot overwrite a scope containing only buyback batches"
-  ]
+  ],
+  "status": "latest_full_validation_blocked_runtime_schema",
+  "followup4248": {
+    "reviewedCommit": "4248af9d8f37c9330c5799553dd62ea7d3d8714a",
+    "observedAt": "2026-10-08T04:07:57.030Z",
+    "localRealPostgrest": {
+      "observedAt": "2026-10-08T03:55:17.541Z",
+      "reviewedCommit": "4248af9d8f37c9330c5799553dd62ea7d3d8714a",
+      "status": "passed",
+      "command": "npm run verify:database",
+      "environment": "Disposable PostgreSQL 17 and real PostgREST v12.2.0; production Supabase not accessed",
+      "postgresImage": "postgres@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73",
+      "postgrestImage": "sha256:2cf1efd2c9c2e7606610c113cc73e936d8ce9ba089271cb9cbf11aa564bc30c7",
+      "network": "Dedicated disposable Docker network; HTTP only loopback; fetch transport maps synthetic .supabase.co URL to local real PostgREST and rejects all other outbound calls",
+      "migrations": {
+        "20261005000537_musegod_store.sql": "76f3b9bffab9f4fc694036582eed9792457caa2ffaa802bfec4fa04fced4cf83",
+        "20261007094402_runtime_safety_controls.sql": "5da5b3a18bba1e8878aca48afc4da5794f781fd407dc02b419d3c5f770988258"
+      },
+      "newChecks": [
+        "savePlanIfAbsent insert and existing-plan preservation",
+        "upgradeTokenProvenance PATCH conditional update and never downgrade"
+      ],
+      "cleanupQueryResult": "sum \n-----\n   0\n(1 row)",
+      "scriptReport": {
+        "observedAt": "2026-10-08T03:55:17.421Z",
+        "backend": "Supabase",
+        "project": "localreview",
+        "scope": "isolated verification rows only",
+        "checks": [
+          "health",
+          "atomic concurrent quota",
+          "quota survives reconnect",
+          "snapshot readback",
+          "consistent backup / empty target restore",
+          "restore preserves quota",
+          "nonempty restore rejected",
+          "launch plan and pending hash survive reconnect",
+          "fee policy and original treasury survive reconnect and backup restore",
+          "idempotent token registration and replacement status",
+          "backup restores token and canonical receipt identity",
+          "orphan token removal",
+          "buyback batch amounts and receipt history survive reconnect and upsert",
+          "buyback batch scope isolation and 24-hour cleanup retention",
+          "version-2 backup preserves buyback batches",
+          "version-1 backup without buyback batches restores successfully",
+          "restore cannot overwrite a scope containing only buyback batches"
+        ]
+      },
+      "productionDatabase": false
+    },
+    "configuredSupabaseNewOperations": {
+      "observedAt": "2026-10-08T04:03:28.334Z",
+      "reviewedCommit": "4248af9d8f37c9330c5799553dd62ea7d3d8714a",
+      "status": "passed",
+      "environment": "Configured remote Supabase; disposable random verify scope only",
+      "checks": [
+        "savePlanIfAbsent atomic insert with eight concurrent duplicate backups",
+        "unverified token stays write-once before provenance upgrade",
+        "conditional upgradeTokenProvenance PATCH succeeds",
+        "provenance never downgrades",
+        "fixture rows deleted and zero-row readback for both tables"
+      ],
+      "schemaMigration": false,
+      "productionBusinessRowsModified": false,
+      "credentialsRecorded": false,
+      "fullVerifyDatabase": "blocked_before_fixture_write_by_missing_musegod_runtime_controls_PGRST205"
+    },
+    "configuredSupabaseFullVerify": {
+      "observedAt": "2026-10-08T03:59:55.472Z",
+      "status": "failed_readonly_health",
+      "checks": [
+        {
+          "table": "musegod_quota",
+          "httpStatus": 200,
+          "errorCode": null
+        },
+        {
+          "table": "musegod_buyback_batches",
+          "httpStatus": 200,
+          "errorCode": null
+        },
+        {
+          "table": "musegod_runtime_controls",
+          "httpStatus": 404,
+          "errorCode": "PGRST205"
+        }
+      ],
+      "testRowsCreated": false,
+      "migrationsApplied": false,
+      "credentialsRecorded": false
+    },
+    "fullCommand": {
+      "command": "npm run verify:database",
+      "exitCode": 1,
+      "stage": "health_before_fixture_write",
+      "reason": "musegod_runtime_controls absent from PostgREST schema cache (PGRST205)",
+      "logSha256": "9aba3bc27ef65b3bad5da457f7a9d9cbd5399f3776a6ae898bc6514c432f0e0b"
+    },
+    "historicalChecks": "The top-level observedAt and checks remain the2026-10-05 historical full verification; they are not a fresh pass of the runtime-safety migration.",
+    "nextStep": "Apply the existing20261007094402_runtime_safety_controls.sql migration under separate production authorization, then rerun the full verification. This review did not apply migrations or change business rows."
+  }
 }

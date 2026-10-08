@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
   "status": "independent_review_changes_required_production_not_run",
-  "observedAt": "2026-10-08T01:27:34.585Z",
-  "scope": "Independent review of038de6d two-stage recovery, per-record backoff, HMAC provenance and fixed-cutover migration. Local tests pass; supplemental probes confirm four required application fixes and one minor manual-backoff gap. V2 contract/compiler source gate passes; no application opening or production execution authority.",
+  "observedAt": "2026-10-08T04:07:57.030Z",
+  "scope": "Independent review ofb18294f..4248af9. Previous five findings closed for fresh current flows; two new recovery availability/backoff defects confirmed. NewSupabase operations independently verified in isolated scopes; full runtime database check blocked by missing schema. Unchanged41-file V2 source-integrity gate passes; joint opening and mainnet actions not authorized.",
   "source": {
     "repository": "MuseCity/musegodfun",
     "workspace": "/Volumes/code/opc/musegodfun",
     "branch": "codex/robinhood-go-live-ux",
-    "baseCommit": "038de6d0515f274955a686d36a2a54cbdc51ec52",
+    "baseCommit": "4248af9d8f37c9330c5799553dd62ea7d3d8714a",
     "dirty": true,
-    "committed": "038de6d0515f274955a686d36a2a54cbdc51ec52",
-    "pushed": "verified_tracking_ref_at_review",
+    "committed": "4248af9d8f37c9330c5799553dd62ea7d3d8714a",
+    "pushed": "verified_remote_branch_at_review",
     "sha256Algorithm": "SHA-256 of exact bytes",
     "changedFileHashes": {
       ".env.example": "79dcfd660db7b49c99e5d7e78571bb1621cf42ca92e084fae74288f68ccb3365",
@@ -34,13 +34,13 @@
       "contracts/test/MusegodBuybackBudgetVault.t.sol": "55a680417538e7a582f693084c04fbbc41994c0a04f550e07b4fca8990ec3c40",
       "contracts/test/MusegodFeeEngine.t.sol": "6aedcbf06755dd876e017b93c92bbe6a5c15cc825a41a311c6ad58990391b515",
       "contracts/test/MusegodWethForwarder.t.sol": "89a78bab49a8ff321abafcd46a1b75f43177f54fe4cc5c16df26f92febba3b92",
-      "docs/SPEC.md": "acb0ce3f06e2e203339b80cbfeaff644e57c27322f1b7a723d5d45f871584a03",
+      "docs/SPEC.md": "416e323f849b8220baab669170bbbc99f292f7acf88f70593f9aec8b77dac02f",
       "docs/evidence/buyback-v2-accounting-gas.json": "1b6af03fcff96545ac411060cb667eb603a630b540d962367cc3c0105f4a114b",
-      "docs/evidence/buyback-v2-fee-custody.json": "093afab872fc9af4ae4c9df745a580d1de8a577898be5e0a601d834ec9da1d19",
-      "docs/evidence/buyback-v2-fork.json": "0a65269d2c5bc4cf84496e1f7474232439e1d0d383478e2eb48cc8c6036e84a8",
-      "docs/evidence/buyback-v2-review.json": "30553da34492c97a7bcac564d159eb03bbc99710fc50e55264db13046083392d",
+      "docs/evidence/buyback-v2-fee-custody.json": "7e0dfade1823a92bbe804d4591d9d95f40eb769b3e9c171f6465cd033776d30b",
+      "docs/evidence/buyback-v2-fork.json": "c4ba041bf939b89b56db400b31c0dbb5092fb02bfc8430415e768125ffb46fc9",
+      "docs/evidence/buyback-v2-review.json": "8be8f566e471b109ad024ff640cf74c4d5c266469356841aecb78bdd240d3b4c",
       "docs/evidence/buyback-v2-vault-fixture.json": "12aa29afcca5cd7212001663ef2550714cd6e49724985ec6e0c15d9cda326068",
-      "package.json": "c32b4a7baca01d8f1dbef292097af6a05fef0d79f4d3d036001ddc113c6a8524",
+      "package.json": "63ad2ee86347616abb8d37ee15b69ca347ed062d7772211d1b0435f1f2196058",
       "scripts/build-buyback-artifacts.ts": "57ef7b3889f1e9a55b6cf9138d0a891b1e8e81e75dac82357c6cf02cbd60f397",
       "scripts/buyback-keeper.ts": "7fb73f63b999571883321679d099be116c45b31c0791e1402cf9a77c7de1fb0f",
       "scripts/deploy-buyback-engine.ts": "e8dc77f9d96046c104866fd7762928d91362b922d6efaaa46b742823b60f9c3f",
@@ -49,7 +49,7 @@
       "scripts/runtime-control.ts": "c4c60756afc4cec57a9a01aa894a377a7bc4b7cfa91d29017f935c3e977d1eea",
       "scripts/test-buyback-engine-fork.ts": "8716049a1c82ed30b924831efa33129f54176c8a291634079b4474fe22047322",
       "scripts/test-buyback-vault-fork.ts": "854efc4775023b185c1d4043d0b24c0146e23bd1c0270a6638aa048bdebfd116",
-      "scripts/test-launch-browser.mjs": "0957f373c7f5386c4874d2ca830b4f86672c67c12f734cd84d963e15af3ba31b",
+      "scripts/test-launch-browser.mjs": "b1dd62624751a3f52906835605133a654530e741a48ae9e1dae676c1f6ca0a22",
       "scripts/test-launch-fork-browser.mjs": "856691f62a49822797d40bf7d8712cd8d4e38414754426900b875a7262053ecc",
       "scripts/test-runtime-http.ts": "b55345da123f120a840ab597a6900a6f8ef1d31f14af668dbb7d41a34f330e3c",
       "server/abuse.ts": "48f59d2338685f486197fdb2f56a0e5841ac35f10ae42fcc13b28d6fadc300bb",
@@ -61,12 +61,12 @@
       "server/http-security.ts": "b6e20fce1389ea42f1f7886ff4c28f5401593cdc5572ac69e1b65d8b3e15de17",
       "server/launch-verification.ts": "ef089a79b15ac6cf887dd206c047d1e5a7b72c85e470852c26b25b7e225b2ab8",
       "server/lifi.ts": "d5de5f8b9ca7b42915dea81f4ad8d8c04ca26e792b91a270040c40d1ca086643",
-      "server/opening-price.ts": "3ba3a9aa6cf6cfd6a7bc21bfe5fefec49d3f22d5817e215b9f39ffebacc53111",
+      "server/opening-price.ts": "37bf69b5896d686abb1ccee0a41068f6adc74c400ff626dd24bdd7d96e27d5e6",
       "server/plan-storage.ts": "973e04d63bc68c6577e91ad587c8a85666d0ddd2707a55d8b8cea31f0c14ed14",
       "server/runtime-policy.ts": "7dcf1cbf8f222113ad867d55190f99c62e54d91c06742be1c338b97a84ced37b",
-      "server/service.ts": "021071bcf121ce2d8f1be26255ab0a7b9fb7dc00e4baf00a0b88e25660ca54a1",
-      "server/store.ts": "d6fec05ab3ba6322bf533b928af11cacc95c26f56689869b70e412bd4000ab97",
-      "server/supabase-store.ts": "59b359df7db12acde0e818809344d2ddab1e2efd656c895c5999685c19b63a64",
+      "server/service.ts": "35d4f050191d95e43019986d959f0be1b1089ed5cd97bb978da6259ecd138328",
+      "server/store.ts": "0abd222a4c68c7975bd22f0e507c6dae60adfb1dea1144394b5fdff7b3c86943",
+      "server/supabase-store.ts": "29767e529ee127ec6a6741f129f3d2f92f2775d5e7e592668f0728f7ea5d64a1",
       "server/token-images.ts": "c0654b1eceba6a47aa61408dde6c3b0f22f13ed22d05f8d85806bede1ded1589",
       "src/App.tsx": "84d9f41665eea42e3346a87bff9155c3f5f73e0f0c746021baac0f89bbea940f",
       "src/components/BuybackEngine.tsx": "714b0526bc6191d08090dccdc852d771011e5f6c3956dd4987fdfaddbcbe968c",
@@ -75,7 +75,7 @@
       "src/components/LockRecovery.tsx": "75e175fd6d41be02e7a0ee3b05f3708cea2deeafee6d8ee4f9f8a9bd9bd7e7d1",
       "src/components/MusegodPage.tsx": "21a65a7b28c45d0663da213c66d260abf015a92263a399b2bd5f545955776593",
       "src/components/TokenCard.tsx": "f56608687d4527af4dab388daf0069e335884ff3d39a50816462e67cf28c297b",
-      "src/components/TransactionHistory.tsx": "48d8b584fd5c3a6c64edc0ff13e69a1f7028b9604a789f088bd7ffe2eaef4e7e",
+      "src/components/TransactionHistory.tsx": "c432f009c223e0fb7026b8a58bf0c548f19557a96e0d08c64ffb056b5376257d",
       "src/components/TurnstileGate.tsx": "9c4d2b7220c0f1ac0c57550b51edf282e0207284636010c85f2d6f74c448dcf0",
       "src/lib/api.ts": "8b3487834ea86e59111a611480bf830a5400c3ba406834605c653c7b9d264712",
       "src/lib/buyback-engine.ts": "f91665f30d2720db9ff839b2e465b362718b7217cbb0f8fce8dd8ff856c37dc8",
@@ -85,7 +85,7 @@
       "src/lib/first-buy-wallet.ts": "109dfefad5e1b910f7d5cb20e5b5b4693f0e9377a0d3f7cd627ff959da0a6d48",
       "src/lib/launch-draft.ts": "9edc737a33556d253d08a88cec43efa4cf507000c2ee31eca325b320dbce1482",
       "src/lib/launch-intent.ts": "cfcfbb8f3d48650cf9de25690452cb5f1b8baa6b20ce18e3268dd6395fc0e2af",
-      "src/lib/launch-plan.ts": "42e50c478467e4ac2210ed10eee71f24a9111ab5677ae87178bdbd2e61cd3813",
+      "src/lib/launch-plan.ts": "481834f461a92cf1677206c6937f639dce54462baf6af8f8feb498e0729b00a7",
       "src/lib/launch-wallet.ts": "48cd624a9877c9498e11f61a84b518e5beae41968e15831425e80b941f77ac9e",
       "src/lib/musegod.ts": "bc58fba772097db078d050819ca0a49b5a12919e34468ab396189c57d8b33ab7",
       "src/lib/opening-valuation.ts": "ba49731b0293e07b06f3af3c2e774bee9c80551189d075c56e59c9d9da141ffb",
@@ -104,12 +104,12 @@
       "tests/buyback-keeper.test.ts": "d09eed0d77c5141f3d78f8035ab05c69fc1f170b805e7ba53b3bab40b04fffcd",
       "tests/core.test.ts": "24b7d861dfa260784e6f0b22150fa8cb996c9fba5116b7042c73308a0f1f27d8",
       "tests/dualchain-runtime.test.ts": "3c76b0262a8cc4d10e7f843b9c578c520e11343513144c95b798827ee2d414f8",
-      "tests/fee-policy.test.ts": "9ce920623dc1e3ec8ccb2f576d6a7cd895951a1bb81d03ca33cabb7d6c26d4c5",
+      "tests/fee-policy.test.ts": "988c9e5d1fdae5729c9e273481784910397d6b44ec29870dfeb93bff0f145aae",
       "tests/first-buy-payment.test.ts": "5d3f9fc72ad5c7602e799c98a9fda71a464a8b88ddcc6e9b1f3de0b0458ea1c4",
       "tests/first-buy-wallet.test.ts": "6251dd588ed2aa74738ec1590ee6fdf483350431b46b23b1a5dff0eafb7272f4",
       "tests/launch-intent-lock.test.ts": "8cc84111021d58c7fcee087d112d833ee3a02f45b0edbb667454afe6d0d7387e",
       "tests/launch-resilience.test.ts": "0a4060c20a9383338ada838d9153963f2909d755bb6f5ebfafdd964f994e52dd",
-      "tests/launch-service.test.ts": "b6be36b9315e4c74d4a707f1ca095f5fda86d526b69922987d5eb742ada18741",
+      "tests/launch-service.test.ts": "28c8f1cdf9c420367ac6fd74b0fea8e8ab33e84d101e9a0f401d7462fb8b6ab9",
       "tests/launch-wallet.test.ts": "ed52109387a8cc8a7f7e2ed1dcb40284fdeb8aa5a3afba95c5a35dc8fc752c27",
       "tests/opening-price.test.ts": "f61898fcc54b6bdfb6af6f2095ed8112cf6a85001a928be42a52632a741c0113",
       "tests/quote-clock.test.ts": "bad3a656eedee89aefc84497f78ec2cdb5c101ed03760791edb21b717cfd0d70",
@@ -124,21 +124,28 @@
       "tests/token-images.test.ts": "42799de4ba917b86321b6d9541f70601304b840f2637ea299f895d97fdb23c25",
       "worker/index.ts": "18ca52f19ce7e64e42a60e5c2c20a31eab114d251046953a7a85dbcf104fc100",
       "wrangler.jsonc": "80251d212e9987743616fa739147b0dbe298b4a26a8fb568f73486df0424df89",
-      "server/launch-policy-registry.ts": "9bbb2704b0efdac152cf7470344f4deaa17d069bcc9e5f8f7130501614aefc70",
+      "server/launch-policy-registry.ts": "aa377734b2bc288cf1595e659c8a7796da70e38521e4d07b8b7174a4183ff187",
       "tests/go-live-regressions.test.ts": "a663b9d69d08ea89f94844efba915ad8cc1f16469044ff6047c6be30e4ed9223",
-      "tests/launch-policy-registry.test.ts": "15b6a2fc8e001e0de799b0768e8c0ed578a4f32f54120849ec9fdf1266e8c097",
+      "tests/launch-policy-registry.test.ts": "794d9f23198f6743e0131c163ae8404d4c69e6f167c40c46e1ecdab9bff4ab69",
       "contracts/export-artifact.mjs": "b4a5209adedf22c93ef38c4244c598fb68a165d49eb9d53de7f3238d9935fc4d",
       "tests/fixtures/buyback-oracle.runtime.hex": "102435abaae9a0fdb8f37c40d105e17d1e4dd2f7c53aa698f03eaf101d35ca55",
       "server/plan-attestation.ts": "19372c08578d1b2c825aa3eabb03e4dd7d8301e524d597f0b44143b372918d93",
-      "src/lib/recovery-backoff.ts": "2a51637f0a26e396d39655e95700c4b50aabf647ea9a108f1ab0862e814316f2",
-      "tests/client-recovery-backoff.test.ts": "46a783852676e110544dde18683933b2cddf86d045f1a4cfbac3d31770161ed6"
+      "src/lib/recovery-backoff.ts": "ef3139338c1f28af52a25d4c00adea9779a01a8f2b35e9f53de1b5e2a3de93ec",
+      "tests/client-recovery-backoff.test.ts": "948bd10d84b136fda30eb44434caf87127fbbbbb3081b11170957ab18e7b5029",
+      "scripts/record-engine-cutover.ts": "7f917fa999a0591241979bb51875896268956f1413eb753154e5d37b2e172a6f",
+      "scripts/verify-database.ts": "0d80a5b98965542ea0e4bab44ea5efa85316e4686ec36cb02ac5210109d23892",
+      "server/launch-guard.ts": "066dc20267770511ef63a250774ebdc02e6eefed5077891e2ee169e4d8bbc6ac",
+      "tests/engine-manifest-fixture.ts": "0c5bf0071010c2aeb1ddfa488867b16f251f9ebe15cf7b43cfdb856cb9ec5d82",
+      "tests/fixtures/engine-cutover-manifest.json": "b4ef1d2c2a0b5fd6367a0d05c5b5dea8f7c568d7908fa0f4a5ea3f242f6e8d48",
+      "tests/record-engine-cutover.test.ts": "5031fb3d7b1b318e52d4eae0626a1e89fa957b7b5741678021249ffb133c5ef6",
+      "docs/evidence/database.json": "ed4dc8849960ef51b61bef1664c36501097a0696fb817610b95a41b7f85de752"
     },
-    "sortedChangedFilesDigest": "d2d637eb13176e4e656350e05efbb2799234a87df8c32418b9e74aff53438cb1",
+    "sortedChangedFilesDigest": "9709f6c3d610006fda5a1586c7053ebdab7f5b0711561845e467c9d9d2986c0c",
     "digestEncoding": "Sorted relative path + NUL + lowercase SHA256 + newline. This evidence file itself is excluded to avoid a self-hash cycle.",
-    "hashScope": "Current exact-byte snapshot at038de6d of119 application, test, documentation and retained-evidence files. source.synchronization is a separate historical record of the1f97712 rebase, not the current verification result.",
-    "uncommittedChanges": "Only four review/evidence files are changed for the authorized evidence commit; application and contract implementation unchanged by the reviewer.",
-    "reviewedCommit": "038de6d0515f274955a686d36a2a54cbdc51ec52",
-    "fixCommit": "038de6d0515f274955a686d36a2a54cbdc51ec52",
+    "hashScope": "Current exact-byte snapshot at4248af9 plus reviewer SPEC/evidence corrections: 126 files; evidence file itself excluded. Historical source.synchronization is not the current result.",
+    "uncommittedChanges": "Only existing review/evidence records and two SPEC boundary sentences changed for this evidence commit; application/contracts/manifest unchanged.",
+    "reviewedCommit": "4248af9d8f37c9330c5799553dd62ea7d3d8714a",
+    "fixCommit": "4248af9d8f37c9330c5799553dd62ea7d3d8714a",
     "removedFiles": [
       "contracts/artifacts/MusegodFeeEngine.compiler-input.json",
       "contracts/artifacts/MusegodFeeEngine.json",
@@ -187,7 +194,8 @@
         "production": "not_run"
       }
     },
-    "sortedChangedFilesDigestAlgorithm": "SHA-256 of paths sorted by JavaScript default string sort (all current paths are ASCII), concatenating each path + NUL + lowercase SHA-256 + LF; includes a final LF."
+    "sortedChangedFilesDigestAlgorithm": "SHA-256 of paths sorted by JavaScript default string sort (all current paths are ASCII), concatenating each path + NUL + lowercase SHA-256 + LF; includes a final LF.",
+    "reviewBaseCommit": "b18294ff6d6a6c98c80b93004e6b73bcb38e9598"
   },
   "approvedBounds": {
     "launchValidityVersion": 2,
@@ -931,11 +939,11 @@
     {
       "command": "npm test",
       "status": "passed",
-      "tests": 569,
+      "tests": 585,
       "failed": 0,
       "skipped": 0,
-      "log": ".cache/independent-038-node.log",
-      "logSha256": "f7fe9c0a4119a9307f1ccc66dd5e7c62778e2fe6b4243620a689474ea58b9daa"
+      "log": ".cache/independent-424-node.log",
+      "logSha256": "4b51d76797d37e51b5c9ab7f686e6138370f055a871855ff3b0622bca65c61a5"
     },
     {
       "command": "forge test --root contracts",
@@ -943,51 +951,75 @@
       "tests": 143,
       "failed": 0,
       "skipped": 0,
-      "log": ".cache/independent-038-forge.log",
-      "logSha256": "801e435aabd88e1c4c589739f94e0f10c0cf6b032f1453acb21f875a33dfeb59"
+      "log": ".cache/independent-424-forge.log",
+      "logSha256": "f88d2ca2a1298b5beef9d61bed61e5092a9ad94ecf4f2950e2ad6c6c37614e79"
     },
     {
       "command": "npm run build",
       "status": "passed",
       "includes": [
-        "tsc --noEmit",
-        "tsc --noEmit -p tsconfig.worker.json",
+        "Node typecheck",
+        "Worker typecheck",
         "vite build"
       ],
-      "log": ".cache/independent-038-build.log",
-      "logSha256": "973cdbecb5dbf75e85ddf59560aee7d104f3d22a31bb2a3c7d7aad815588839d"
+      "log": ".cache/independent-424-build.log",
+      "logSha256": "137bac561c94f85dad995e4d3cdb8715948b621ab3819a5b5e97859f47b1d6e3"
     },
     {
-      "command": "WRANGLER_SEND_METRICS=false wrangler versions upload --dry-run",
+      "command": "wrangler versions upload --dry-run",
       "status": "passed",
       "uploaded": false,
       "deployed": false,
-      "log": ".cache/independent-038-worker-build.log",
-      "logSha256": "46463066838e5454e4598e0714a9e4bb63abab4f0c26767c28598324de9d2992"
+      "log": ".cache/independent-424-worker-build.log",
+      "logSha256": "5280b4a0f04457304315d51cb693d28fffe03a37d9ea161bac64e99241bf6793"
     },
     {
       "command": "npm run test:launch-browser",
       "status": "passed",
-      "checks": 38,
-      "desktopChecks": 37,
+      "checks": 39,
+      "desktopChecks": 38,
       "mobileLayoutChecks": 1,
-      "log": ".cache/independent-038-browser.log",
-      "logSha256": "e95df5d826172da5558c080c92f4d829565ce336e38326963a5b290a06a9f126"
+      "log": ".cache/independent-424-browser.log",
+      "logSha256": "bcced483d093e4a0a697b331827e790aaf2105e7eca198c5f24e3d8756ac6df1"
     },
     {
-      "command": "Independent sixSolc0.8.24 artifact reproductions and17-source closure",
+      "command": "Independent sixSolc0.8.24 compiler outputs /17-source closure /41hash gate",
+      "status": "passed"
+    },
+    {
+      "command": "Actual localworkerd HMAC primitive with fixture key",
       "status": "passed",
-      "reviewer": "Codex independent_buyback_7d34"
+      "report": ".cache/4248-completeness-workerd-attestation.json"
     },
     {
-      "command": "Supplemental recovery/provenance/cutover/client fixtures",
+      "command": "npm run verify:database via loopback to real disposablePostgreSQL/PostgREST",
+      "status": "passed",
+      "productionDatabase": false,
+      "log": ".cache/independent-424-database.log",
+      "logSha256": "8d0cb7094958ded94d4a270dfac5d7626e6c56ef705b6b8c80b031456a03ca6e"
+    },
+    {
+      "command": "ConfiguredSupabase isolated savePlanIfAbsent andupgradeTokenProvenance probes",
+      "status": "passed",
+      "businessRowsModified": false,
+      "fixtureRowsRemoved": true,
+      "log": ".cache/independent-424-live-operations.log",
+      "logSha256": "41b07defa1c27b0793f3775c379df6355a150ae90b2d6e4e185bcbe7583af9f0"
+    },
+    {
+      "command": "npm run verify:database on configuredSupabase",
+      "status": "blocked_initial_health",
+      "exitCode": 1,
+      "errorCode": "PGRST205",
+      "missingTable": "musegod_runtime_controls",
+      "fixtureRowsCreated": false,
+      "log": ".cache/independent-424-live-database.log",
+      "logSha256": "9aba3bc27ef65b3bad5da457f7a9d9cbd5399f3776a6ae898bc6514c432f0e0b"
+    },
+    {
+      "command": "Independent actualclient/realSQLite/realviem recovery probes",
       "status": "changes_required",
-      "limitation": "Synthetic chain/RPC and localSQLite fault injection, not an observed production attack/reorg/outage."
-    },
-    {
-      "command": "Repository HMAC helper in localworkerd with synthetic key",
-      "status": "passed",
-      "report": ".cache/independent-038-native-attestation.json"
+      "limitation": "Synthetic chain state and local control-flow probes, not observed production attack/reorg/wallet behavior."
     },
     {
       "command": "git diff --check",
@@ -997,7 +1029,7 @@
   "localFrontendArtifact": {
     "schemaVersion": 1,
     "repository": "https://github.com/MuseCity/musegodfun",
-    "commit": "038de6d0515f274955a686d36a2a54cbdc51ec52",
+    "commit": "4248af9d8f37c9330c5799553dd62ea7d3d8714a",
     "source": "local",
     "dirty": false,
     "buildId": null,
@@ -1202,17 +1234,17 @@
       "/asset-logos/XOM.png": "0f08fc3d81158008223aca2110184b728b2bc5d48eb142bd0e58f8794279d1b4",
       "/asset-logos/ZM.png": "696cfa2df37de7a09c767a59d45aef19834775a14f64b984cc86850dcc654972",
       "/asset-logos/ZS.png": "a7e0def27fa522abfa9e943e4c98c7fca6b0c84b3652a6621bd8c224d0c79f30",
-      "/assets/ccip-D_4mJBRW.js": "cc14a9e65ee945f855f371fad7b0ccb98dbcc82c89c9f31f86507353acb7916d",
+      "/assets/ccip-DCdIyN0q.js": "f8898d961cac2c2ff12f3d555dc49fa160e46db1d16c3f1de71696c7ddc4cf4a",
       "/assets/index-1v82cpLg.css": "0166ca7a1535bf7a906ee039b9894e744660529711c3a69523baa07a01b6a0a7",
-      "/assets/index-DAKzPb8r.js": "44f05eed4f75717acf2e73acc7840788e642fd97a75d9ee267ef3c82a24c3aa7",
-      "/assets/PriceChart-BM1Pn-LU.js": "579cea9aedb61bdd3e213a959180a0b3fb0905b7c51e1ef823713671401a70ca",
+      "/assets/index-DM7g8rkJ.js": "4787db833a8d21be376f28f1259fbbfe3e52084f35c64e03e0e4f24af9619bf6",
+      "/assets/PriceChart-1jwUzCCJ.js": "4539e8f34d96a1b306c0814dd7bbfa843f2c45ce5f04583c12d73a955f5aa721",
       "/favicon.svg": "6a5152525b72e3ce020b60073afcfb312bd691c724af34de1fa6ab75467dde6b",
-      "/index.html": "925fa026c93a1b6cf920b8cb1bf78293c54aa9ca91739be466c78078438c6359"
+      "/index.html": "5ed5de5c163af070e2d7ea6e721e11d351039592a672f953fc1a67fb153d11b5"
     }
   },
   "browser": {
     "scope": "Local Chromium UI with injected mock wallet/API/RPC and reference-price fixtures, scoped to Robinhood fork and No lock. Cross-tab checks use separate browser pages sharing one origin and storage. No real-wallet, conversion or chain settlement proof.",
-    "observedAt": "2026-10-08T01:04:30.290Z",
+    "observedAt": "2026-10-08T03:52:50.094Z",
     "origin": "http://127.0.0.1:5191",
     "checks": [
       {
@@ -1533,6 +1565,15 @@
         "status": "passed"
       },
       {
+        "mode": "history_track_backoff",
+        "viewport": "desktop",
+        "walletCalls": 0,
+        "plans": 1,
+        "trackRetryAfterHonoured": true,
+        "manualPendingCheckClearedBackoff": true,
+        "status": "passed"
+      },
+      {
         "mode": "success",
         "viewport": "mobile 390x844",
         "walletCalls": 2,
@@ -1545,20 +1586,21 @@
       ".cache/launch-scoped-browser-mobile-review.png"
     ],
     "productionPublication": "not_run",
-    "recordSha256": "b85667f9c6f834c97ab2409e52fb395baa928e803d37d4c45b74aaa2d1b17f3b",
+    "recordSha256": "90ecd3965ca3ee0a5f6f0dbf72419177b27b09ef6dbd69478fed122bdad20ec0",
     "actualSigning": "not_run",
     "chainSettlement": "not_run",
     "sourceHashes": {
       "src/App.tsx": "84d9f41665eea42e3346a87bff9155c3f5f73e0f0c746021baac0f89bbea940f",
       "src/lib/wallet.tsx": "cf29e233db542d6d083d7d813d154c7389d9a1cab8ede097cde35db4e6a0f722",
-      "src/lib/first-buy-payment.ts": "a085e28b65cc77910df0c5521ff82fdc0bec113ea3c5c1a42d24229d9e434883",
-      "scripts/test-launch-browser.mjs": "0957f373c7f5386c4874d2ca830b4f86672c67c12f734cd84d963e15af3ba31b"
+      "src/components/TransactionHistory.tsx": "c432f009c223e0fb7026b8a58bf0c548f19557a96e0d08c64ffb056b5376257d",
+      "src/lib/recovery-backoff.ts": "ef3139338c1f28af52a25d4c00adea9779a01a8f2b35e9f53de1b5e2a3de93ec",
+      "scripts/test-launch-browser.mjs": "b1dd62624751a3f52906835605133a654530e741a48ae9e1dae676c1f6ca0a22"
     },
-    "serverCoverageLimitation": "BrowserAPI/RPC are injected. These38 passes do not cover the real register persistence/reorg cache or prove production wallet behavior."
+    "serverCoverageLimitation": "Wallet/API/RPC injected; does not cover actual server persistence, concurrent settlement or production wallet/chain behavior."
   },
   "isolatedBuybackEvidence": {
     "docs/evidence/buyback-v2-fork.json": {
-      "sha256": "0a65269d2c5bc4cf84496e1f7474232439e1d0d383478e2eb48cc8c6036e84a8",
+      "sha256": "c4ba041bf939b89b56db400b31c0dbb5092fb02bfc8430415e768125ffb46fc9",
       "scope": "Isolated Robinhood fork, actual deployed Doppler, Splits and AMMs; no mainnet writes",
       "observedAt": "2026-10-07T14:25:00.557Z",
       "upstreamChainId": 4663,
@@ -1584,14 +1626,14 @@
         "scope": "Actual repository-default binary on loopback Robinhood fork. All upstream traffic passes the test harness read-only proxy; this metadata is not production execution proof."
       },
       "retainedCompatibility": {
-        "reviewedCommit": "038de6d0515f274955a686d36a2a54cbdc51ec52",
-        "observedAt": "2026-10-08T01:27:34.585Z",
+        "reviewedCommit": "4248af9d8f37c9330c5799553dd62ea7d3d8714a",
+        "observedAt": "2026-10-08T04:07:57.030Z",
         "rerun": false,
-        "checks": "Retainedfork82540890 producer/config/six artifact hashes match. SixSolc0.8.24 outputs and17 Solidity closures were independently revalidated. This is compatibility of retained execution evidence, not a new fork or current market/native scheduler proof."
+        "checks": "SixSolc0.8.24 artifacts independently reproduced with17 source closures;41 deployment source hashes unchanged sinceb18294f. Retainedfork82540890 producer/config/artifact identity matches. Original observation time preserved; no fresh fork, mainnet, scheduler or economic execution."
       }
     },
     "docs/evidence/buyback-v2-fee-custody.json": {
-      "sha256": "093afab872fc9af4ae4c9df745a580d1de8a577898be5e0a601d834ec9da1d19",
+      "sha256": "7e0dfade1823a92bbe804d4591d9d95f40eb769b3e9c171f6465cd033776d30b",
       "scope": "Fresh isolated actual Doppler claim/release custody receipts from the reviewed V2 source",
       "observedAt": "2026-10-07T14:34:26.726Z",
       "upstreamChainId": 4663,
@@ -1613,10 +1655,10 @@
         "scope": "Actual repository-default binary on loopback Robinhood fork. All upstream traffic passes the test harness read-only proxy; this metadata is not production execution proof."
       },
       "retainedCompatibility": {
-        "reviewedCommit": "038de6d0515f274955a686d36a2a54cbdc51ec52",
-        "observedAt": "2026-10-08T01:27:34.585Z",
+        "reviewedCommit": "4248af9d8f37c9330c5799553dd62ea7d3d8714a",
+        "observedAt": "2026-10-08T04:07:57.030Z",
         "rerun": false,
-        "checks": "Retainedfork82540890 producer/config/six artifact hashes match. SixSolc0.8.24 outputs and17 Solidity closures were independently revalidated. This is compatibility of retained execution evidence, not a new fork or current market/native scheduler proof."
+        "checks": "SixSolc0.8.24 artifacts independently reproduced with17 source closures;41 deployment source hashes unchanged sinceb18294f. Retainedfork82540890 producer/config/artifact identity matches. Original observation time preserved; no fresh fork, mainnet, scheduler or economic execution."
       }
     },
     "docs/evidence/buyback-v2-vault-fixture.json": {
@@ -1633,9 +1675,9 @@
       "gasProfitabilityProven": false
     },
     "docs/evidence/buyback-v2-review.json": {
-      "sha256": "30553da34492c97a7bcac564d159eb03bbc99710fc50e55264db13046083392d",
+      "sha256": "8be8f566e471b109ad024ff640cf74c4d5c266469356841aecb78bdd240d3b4c",
       "scope": "Internal independent source review and isolated execution evidence only. This is a source-integrity gate for a subsequently explicitly authorized deployment; it grants no deployment, publication, signing, funding, treasury approval or production activation authority.",
-      "observedAt": "2026-10-08T01:27:34.585Z",
+      "observedAt": "2026-10-08T04:07:57.030Z",
       "status": "passed_source_integrity_only"
     },
     "docs/evidence/buyback-v2-accounting-gas.json": {
@@ -1646,7 +1688,6 @@
     }
   },
   "proofBoundaries": [
-    "Browser38 (37 desktop and one mobile layout check) uses production application/wallet code with injected wallet/API/RPC/price fixtures. Mobile390x844 is responsive logic, not a real mobile wallet signature. Long idle/hidden and legacy wrap1 near-expiry scenarios preserve a single business confirmation and original floors.",
     "Actual Node HTTP backup/body/parallel-NAT regressions cover the route-to-service boundary. The real SDK maximal complete backup exceeds64KiB and is transmitted unchanged under recovery-only256KiB. Canonical chain verification remains in separate service tests and isolated forks.",
     "Retained independent Robinhood fork82540890, observedAt2026-10-07T14:25:00.557Z, uses the repository-default binary, actual dependency code and local31337. fullWethFeeBurnFlowPassed=true; settlement safety/unpriced/source-forwarding pass. It was not rerun for74aac0d and is not mainnet or native scheduler execution.",
     "Retained fee-custody raw receipts come from the same2026-10-07 isolated fork producer, matching initializer/Rehype-to-Engine transfers and claim/release log order. They were not rerun for74aac0d and do not prove a native external scheduler ran.",
@@ -1663,12 +1704,14 @@
     "Historical owner/Engine policy probes are synthetic read-only fixtures, not proof of a real malicious transaction or current historical ownership rotation.",
     "No new largefork was run for74aac0d: retained fork82540890 keeps its original observedAt and actual execution limits. Only producer/config/artifact compatibility was revalidated.",
     "Future replacement of the single V2 manifest needs reviewed Engine trust windows and historical recovery retention. Current code does not implement Engine toBlock import; this is a future-release limitation, not an existing V2 deployment or fund-authority change.",
-    "CurrentChromium38 uses injected wallet/API/RPC, including unverified-opening display and invalid-pool behavior. It does not prove real-service provenance, DB partial-write recovery or real desktop/mobile wallets.",
-    "The new HMAC covers deploymentchain plus calldata digest, including embedded full opening evidence/curve/fee routing; it proves platform preparation, not objective LI.FI price accuracy. Existing savedPlan storage mixes recovered and prepared data and currently defeats that provenance on retries/restore.",
-    "Supplemental SQLite fixtures distinguish incorrect duplicate API return from existing rows: ignore-duplicates preserves an existing unverified row; partial token-save failure or removal followed by re-registration can insert an incorrectly verified row. Supabase persistence implication is static-code evidence only, with no remote database write/read.",
-    "Long-lived recovery/cutover caches have mutable canonical-state gaps. Currentreceipt identity is still checked; tests did not observe a real production reorg.",
     "Local attestation key presence/length were checked without content, entropy or realWorker binding verification. Nativeworkerd crypto used only a synthetic fixture key.",
-    "Retainedfork82540890 remains dated2026-10-07T14:25:00.557Z. This turn checks source/artifact/config compatibility only; neither it nor older stable-time/accounting fixtures are new market/profitability or scheduler proof."
+    "Retainedfork82540890 remains dated2026-10-07T14:25:00.557Z. This turn checks source/artifact/config compatibility only; neither it nor older stable-time/accounting fixtures are new market/profitability or scheduler proof.",
+    "CurrentChromium39 uses production frontend code with injected wallet/API/RPC; mobile is a layout check, never a real wallet signature. The four externally reported container failures pass here. It does not test overlapping background/manual settlement.",
+    "Fresh recovery provenance persists recovered:true, only validHMAC overwrites, and verified provenance upgrades monotonically. Markerless intermediate-version imported plans are a conditional migration limitation, not the productionmaster prepare-only baseline.",
+    "Remined receipts recheck chain evidence under a newreceiptHash. Nonfinal anchor mismatch is checked before budget and retried after15s. A current-state guard no-data/mismatch verdict still caches10min across receipt identities; the localviem fixture confirms recovery denial afterRPC convergence.",
+    "Concurrent old client completions can erase a newer server wait or recreate a wait after newer manual success; actual historyCAS still protects status. No observed production incident or real browser concurrency proof claimed.",
+    "Real localPostgreSQL/PostgREST runs the full current verification script through a loopback transport bridge. Separate configuredSupabase probes verify both new operations and zero remaining fixture rows; fullconfiguredSupabase health fails because runtimecontrols is absent, before it writes fixtures. Existing migration was not applied.",
+    "Cutover readiness/finality/JSON checks pass for serial operations and honest finalizedRPC. Treasury-only receipt compatibility ends exclusively atcutover+360s; gap receipts can become recoverable. Concurrent manifest writers lacklock/CAS; record andverify-only must be serialized."
   ],
   "production": {
     "status": "not_run",
@@ -1685,13 +1728,14 @@
     "automaticPublicationAndBothDomainByteVerification": "not_run",
     "publicSigningResume": "not_run",
     "baseSigning": "remains disabled in source",
-    "authority": "Only source fixes, isolated checks and a local Git commit are authorized in this follow-up. No push, production configuration/migration/publication, keeper start/signing, treasury approval or mainnet business-asset movement occurred.",
+    "authority": "Source/evidence review and local commit; configuredSupabase verification uses disposable randomscope only and deletes fixtures. No push, production migration/configuration/publication, mainnet signing, keeperstart or treasuryapproval.",
     "executionChecklist": {
       "path": "docs/SPEC.md",
       "line": 289
     },
     "contractRunbook": "contracts/README.md#deployment-and-activation-runbook",
-    "compatiblePausedRollbackBaseline": "not_run"
+    "compatiblePausedRollbackBaseline": "not_run",
+    "databaseVerification": "Two newSupabase operations passed in disposable fixture scope; fullruntime schema validation blockedPGRST205. No migration/businessrow update."
   },
   "rollback": {
     "source": "docs/SPEC.md and contracts/README.md",
@@ -1794,7 +1838,7 @@
       {
         "id": "F5",
         "finding": "all-read concurrency4",
-        "result": "Normal reads allow16/source and64/runtime; prepare remains four shared scheduled slots. Twelve parallel reads on one source are tested. These are capacity defaults, not creator/hour limits or production throughput proof.",
+        "result": "Independent request classes: reads44 total/12source, longflows16/4, recovery8/2 with30per-source/min, uploads4/2; prepare4 scheduled. Capacity calibration remainsnot_run, no creator/hour limit.",
         "specLine": 275,
         "status": "implemented_with_stated_protocol_limits"
       },
@@ -1808,7 +1852,7 @@
       {
         "id": "F7",
         "finding": "repeated known revert",
-        "result": "Persistent per-task exponential2min-to1h backoff; max3 confirmed reverts/rolling hour and0.001ETH failed-gas budget/24h with pre-sign reservation. Other healthy tasks proceed. Unknown outcome still stops all new keeper signing; raw broadcasts are never retried.",
+        "result": "Persistent per-task2min-to1h backoff/max3reverts rollinghour, .001ETH actualfailedGas rolling24h stop threshold and separate .002ETH buffered singleattempt ceiling; per-taskfailedGas strictly<.003ETH, not a globalkeeper budget. Unknown outcome stops newkeeper signing; no rawbroadcast retry.",
         "specLine": 277,
         "status": "implemented_with_stated_protocol_limits"
       },
@@ -2123,79 +2167,46 @@
     "limitation": "Historical snapshot from the previous remediation; not current acceptance for7d34c86."
   },
   "independentReview": {
-    "reviewedCommit": "038de6d0515f274955a686d36a2a54cbdc51ec52",
-    "observedAt": "2026-10-08T01:27:34.585Z",
+    "reviewedCommit": "4248af9d8f37c9330c5799553dd62ea7d3d8714a",
+    "reviewBaseCommit": "b18294ff6d6a6c98c80b93004e6b73bcb38e9598",
+    "observedAt": "2026-10-08T04:07:57.030Z",
     "status": "changes_required",
-    "buybackSourceGate": "passed",
+    "buybackSourceGate": "passed_41_hashes_unchanged",
     "reviewers": [
-      "Codex independent_buyback_7d34",
       "Codex independent_recovery_7d34",
-      "Codex attestation_038",
       "Codex independent_runtime_7d34",
+      "Codex independent_buyback_7d34",
       "Codex root"
     ],
     "findings": [
       {
-        "id": "IR038-PROVENANCE",
-        "priority": "P1",
-        "status": "confirmed_api_and_fault_injected_sqlite_persistence",
-        "file": "server/service.ts",
-        "line": 666,
-        "requiredBeforeJointOpening": true,
-        "title": "Stored recovery plans are incorrectly promoted to platform-generated provenance",
-        "detail": "Recovery writes its caller-supplied but canonical-reencoded plan into the normal saved-plan store. Later registration treats any savedPlan as attested. Ordinary duplicate registrations return the wrong verified flag but INSERT/ignore-duplicates preserves the existing unverified token. ActualSQLite fixture shows persistent mislabeling when savePlan succeeds and saveToken temporarily fails, or when the token is removed before re-registration: retry inserts a verified token without a valid HMAC.",
-        "remediation": "Persist server-controlled prepared/recovered/unknown provenance outside caller-controlled plan fields. Trust genuinely prepared records or a valid HMAC, not merely savedPlan existence. Do not migrate all historical/imported records to prepared; preserve unverified status across partial writes, reorgs and database restore."
-      },
-      {
-        "id": "IR038-CACHE",
+        "id": "IR424-BACKOFF_RACE",
         "priority": "P2",
-        "status": "confirmed_full_register_with_synthetic_chain_reorg",
-        "file": "server/service.ts",
-        "line": 547,
+        "status": "confirmed_local_actual_client_callbacks_and_history_cas",
         "requiredBeforeJointOpening": true,
-        "title": "Transaction-hash-only evidence caches survive receipt identity and canonical-state changes",
-        "detail": "Successful and RecoveryEvidenceError results live600000ms under transaction hash alone. Fixture passes evidence then fails poolRPC before storage; the same transaction is re-mined with a new receipt block/hash and an orphaned price snapshot. Cached service registers without rechecking the snapshot while a fresh instance rejects it. Negative block-hash mismatch also remains cached after chain/RPC convergence. Current receipt canonical verification still runs; this does not bypass every transaction check.",
-        "remediation": "Bind cached chain evidence to receipt block number/hash and revalidate canonical identity unless anchored to sufficiently finalized state. Treat mutable block-hash mismatches as retryable rather than long-lived deterministic input errors. Keep bad JSON outside the shared budget and do not add per-transaction attempt ceilings."
+        "file": "src/lib/recovery-backoff.ts",
+        "line": 33,
+        "title": "Older concurrent checks overwrite newer per-record recovery waits",
+        "detail": "Background and manual checks of one record can overlap. Actual UI callback/checkHistoryTransaction fixture pauses the older one-confirmation block read; the newer manual check sees two confirmations and receives register Retry-After60. When the old check returns pending normally, settleRecovery clears that newer wait and the next15s background tick may request again. History CAS correctly retains success; only the backoff state is stale. Conversely an old failure arriving after a successful manual check reinstates a15s wait.",
+        "remediation": "Give each record check an attempt/version identity or safely serialize its settlement. Only the current attempt may clear or extend the wait. Preserve a newer server-requested deadline while keeping manual recovery and independent intents available.",
+        "productionOccurrenceObserved": false
       },
       {
-        "id": "IR038-CUTOVER",
+        "id": "IR424-GUARD_CACHE",
         "priority": "P2",
-        "status": "confirmed_service_prototype_reorg_probe",
+        "status": "confirmed_real_viem_zero_data_local_service_fixture",
+        "requiredBeforeJointOpening": true,
         "file": "server/service.ts",
-        "line": 520,
-        "requiredBeforeJointOpening": true,
-        "title": "Cutover canonicality is memoized indefinitely without finality or revalidation",
-        "detail": "After one successful read, identical cutover fields bypass all later block reads. A pure probe changes the canonical hash and the second call still succeeds with totalreads1. The fixed timestamp and exclusive360s grace boundary are otherwise implemented. The current manifest has no cutover; this is a required safeguard before enabling it.",
-        "remediation": "Recheck canonical cutover identity or restrict long-lived caching to a verified finalized checkpoint. Enforce or explicitly validate the operational prerequisite that the Engine is configured/activated before setting the marker; CLI preserves the field but neither validates it nor binds it in the activation fingerprint."
-      },
-      {
-        "id": "IR038-RETRY_AFTER",
-        "priority": "P2",
-        "status": "confirmed_actual_client_control_flow_probe",
-        "file": "src/components/TransactionHistory.tsx",
-        "line": 245,
-        "requiredBeforeJointOpening": true,
-        "title": "Track errors discard the server-requested long recovery wait",
-        "detail": "launch/track catches and discards its ApiError. Probe receivesRetry-After60 fromtrack, then receipt lookup fails, so per-record backoff is only15000ms. Other intents continue and due records are skipped correctly, but the server wait is not preserved.",
-        "remediation": "Propagate or record the track Retry-After when determining that record's next background attempt without preventing a valid backup from recovering after unrelated track failures. Preserve manual retry and avoid making one record stop other intents."
-      },
-      {
-        "id": "IR038-MANUAL_BACKOFF",
-        "priority": "P3",
-        "status": "confirmed_nonterminal_manual_check_probe",
-        "file": "src/components/TransactionHistory.tsx",
-        "line": 363,
-        "requiredBeforeJointOpening": false,
-        "title": "Check again succeeds without clearing an existing background backoff",
-        "detail": "Manual checking bypasses due as intended. A real client control-flow fixture with one-confirmation receipt returnspending normally yet keeps the prior ten-minute due time; Resume lookup clears it. Settled/registered rows leave the background queue, so this is not a claim that manual recovery is blocked.",
-        "remediation": "Make successful manual Check again clear the record's backoff consistently, including a normal nonterminal result."
+        "line": 609,
+        "title": "A nonfinal or inconsistent Guard read poisons shared recovery for ten minutes",
+        "detail": "verifyLaunchGuard reads current, unfinalized state. An actual viem custom transport returning eth_call0x produces LaunchGuardMismatch, immediately cached both by guard/version and recovery verdict for600000ms before receipt canonical recheck. The fixture then supplies the pinned runtime and official dependencies: direct guard verification succeeds, cached service still rejects the same receipt and the guard-level cache rejects a different receipt without another guard read; a fresh service registers. This requires transient nonfinal/inconsistent RPC state; no real production incident or fake-guard bypass was demonstrated.",
+        "remediation": "Distinguish a confirmed immutable mismatch from absent/no-data/current-state observations that can change. Cache the latter briefly and revalidate after convergence or receipt-state change; retain long-lived rejection for genuinely verified wrong guards so bad inputs cannot repeatedly consume the shared budget.",
+        "productionOccurrenceObserved": false
       }
     ],
     "requiredBeforeJointOpening": [
-      "IR038-PROVENANCE",
-      "IR038-CACHE",
-      "IR038-CUTOVER",
-      "IR038-RETRY_AFTER"
+      "IR424-BACKOFF_RACE",
+      "IR424-GUARD_CACHE"
     ],
     "closedEarlierFindings": [
       {
@@ -2205,150 +2216,293 @@
       {
         "id": "IR3",
         "status": "resolved_by_d04d3aa_transaction_bound_owner_candidates"
+      },
+      {
+        "id": "IR038-PROVENANCE",
+        "priority": "P1",
+        "status": "resolved_for_fresh_current_flows",
+        "fixRange": "9851a47..4248af9",
+        "evidence": "RealSQLite partial-write/retry/HMAC upgrade probes and configuredSupabase new operations"
+      },
+      {
+        "id": "IR038-CACHE",
+        "priority": "P2",
+        "status": "resolved_for_fresh_current_flows",
+        "fixRange": "9851a47..4248af9",
+        "evidence": "Actual service remine and nonfinal anchor convergence probes"
+      },
+      {
+        "id": "IR038-CUTOVER",
+        "priority": "P2",
+        "status": "resolved_for_fresh_current_flows",
+        "fixRange": "9851a47..4248af9",
+        "evidence": "CLI chain activation replay, finalized canonical cache and JSONfixture/typecheck; serial writer boundary retained"
+      },
+      {
+        "id": "IR038-RETRY_AFTER",
+        "priority": "P2",
+        "status": "resolved_for_fresh_current_flows",
+        "fixRange": "9851a47..4248af9",
+        "evidence": "Actual currentclient callback/control-flow probes; same-key overlap remainsIR424-BACKOFF_RACE"
+      },
+      {
+        "id": "IR038-MANUAL_BACKOFF",
+        "priority": "P3",
+        "status": "resolved_for_fresh_current_flows",
+        "fixRange": "9851a47..4248af9",
+        "evidence": "Actual currentclient callback/control-flow probes; same-key overlap remainsIR424-BACKOFF_RACE"
       }
     ],
     "passedCurrentParts": [
-      "Twenty altered drafts fail CPU reencoding before sharedbudget/cache; validbackup remains immediately recoverable",
-      "Per-transaction attempt ceiling removed; RPC failureTTL15s and capacityrefusalTTL0",
-      "HMAC binds fullcalldata; nativeworkerd primitive/current+previous/crosschain/missingkey cases checked",
-      "Fixed cutover timestamp +360s exclusive receipt grace; Base unaffected",
-      "Per-task keeperfailedGas.001ETH and attempt.002ETH unchanged; scope/strict<.003ETH clarified",
-      "Unverified opening UI is advisory and adds no wallet signature or business confirmation"
+      "Fresh recovered previews remain recovered and are reverified; cannot be signed",
+      "CPU reencoding/Create receipt/newer-than-receipt anchor rejection occurs before recovery budget",
+      "Wrong claimed anchors share a prebudget read; nonfinal verdicts retry briefly",
+      "Chain evidence cache binds transaction and receipt hash",
+      "Valid attestation survives forged/stripped concurrent registration and key gap; tokenprovenance may only improve",
+      "TrackRetryAfter holds the whole record, other intents proceed, manualpending clears wait, failedmanual onlyaddsserverwait, newhash uses same settlepath",
+      "Cutover recording replays activation and checks finalized/not-before; JSON fixture typechecks; malformedmarker isolates treasuryrouting",
+      "Six artifacts reproduced and17 closures unchanged;41source gate hashes exact"
     ],
     "localProbeEvidence": {
-      ".cache/independent-038-recovery-probes.json": {
-        "sha256": "32eff93223244c1842bac909097f377c9cf361844881fb6fb2025f6d03841e4c",
+      ".cache/independent-4248-recovery-probes.json": {
+        "sha256": "a610fd135068e83bc58b5ab6067d13c2cb11f26d7029170d1e845ee012b6c78d",
         "report": {
           "schemaVersion": 1,
-          "inspectedCommit": "038de6d0515f274955a686d36a2a54cbdc51ec52",
-          "evidenceKind": "pure_local_service_and_sdk_fixtures",
+          "inspectedCommit": "4248af9d8f37c9330c5799553dd62ea7d3d8714a",
+          "baseCommit": "b18294f",
+          "evidenceKind": "pure_local_real_service_real_sdk_sqlite_and_viem_custom_rpc_fixtures",
           "actualChainAttackDemonstrated": false,
           "productionRpcUsed": false,
           "signingUsed": false,
           "fundsUsed": false,
           "sourceModified": false,
-          "store": "in-memory stub; this probe focuses on real register/cache control flow",
           "results": [
             {
-              "id": "cpu_rejection_before_budget_and_bad_cache",
+              "id": "cpu_bad_json_budget_cache_isolation",
+              "closed": true,
               "rejectedVariants": 20,
-              "sharedBudgetInitializedByBadVariants": false,
-              "evidenceCacheInitializedByBadVariants": false,
-              "badVariantEvidenceBlockReads": 0,
-              "correctBackupRegisters": true
+              "badVariantsConsumeEvidenceBudget": false,
+              "badVariantsCreateEvidenceCache": false,
+              "badVariantsReadEvidenceBlocks": false,
+              "validRetryRegisters": true
             },
             {
-              "id": "positive_cache_survives_receipt_reorg",
-              "firstFailureAfterEvidence": "temporary pool RPC",
-              "savedPreviewAbsentBeforeRetry": true,
-              "evidenceSuccessTtlMs": 600000,
-              "remintedReceiptBlock": "12",
-              "currentReceiptCanonical": true,
-              "oldValuationBlockHashNowNoncanonical": true,
-              "cachedServiceRetry": "registered",
-              "valuationBlockRecheckedOnRetry": false,
-              "freshServiceRetry": "rejected_noncanonical_valuation",
-              "currentReceiptMismatchStillRejected": true
+              "id": "positive_evidence_cache_receipt_remine",
+              "closed": true,
+              "cacheEntries": 2,
+              "initialReceipt": "10:bb",
+              "remintedReceipt": "12:dd",
+              "anchorCacheStillHot": true,
+              "obsoleteAnchorRechecked": true,
+              "cachedRetry": "reject_noncanonical_quote",
+              "tokenPersisted": false
             },
             {
-              "id": "negative_cache_survives_chain_or_rpc_convergence",
-              "firstFailure": "noncanonical valuation block",
-              "ttlMs": 600000,
-              "receiptIdentityChanged": true,
-              "quoteBlockNowCanonical": true,
-              "cachedServiceRetry": "still_rejected_without_recheck",
-              "freshServiceRetry": "registered"
-            },
-            {
-              "id": "ordinary_transport_error_short_retry_cache",
+              "id": "nonfinal_anchor_error_short_retry",
+              "closed": true,
               "ttlMs": 15000,
               "immediateRetrySharesFailure": true,
-              "retryAfterArtificialExpiry": "registered"
+              "retryAfterArtificialExpiry": "registered",
+              "sharedBudgetSpentOnlyAfterAnchorMatches": true
+            },
+            {
+              "id": "fresh_sqlite_provenance_and_attestation_upgrade",
+              "closed": true,
+              "callerFalseRecoveredIgnored": true,
+              "recoveredSavedBeforeInjectedTokenFailure": true,
+              "storedRetryRemainsUnverified": true,
+              "validAttestationUpgradesExistingToken": true,
+              "subsequentForgedCopyCannotOverwriteTag": true
+            },
+            {
+              "id": "markerless_intermediate_version_db_import",
+              "classification": "conditional_migration_limitation",
+              "requiresPriorUnshippedRecoveryVersionOrExplicitDbImport": true,
+              "productionMasterOnlyPrepareSavesPlan": true,
+              "normalFreshRecoveryAffected": false,
+              "importedMarkerlessRecoveredPlanAssumedPrepared": true,
+              "existingUnverifiedTokenUpgradedWithoutHmac": true
+            },
+            {
+              "id": "nonfinal_guard_empty_read_ten_minute_negative_cache",
+              "classification": "confirmed_fixture_recovery_availability_boundary",
+              "modeledState": "nonfinal inconsistent/fork RPC first reports absent guard, then pinned runtime and dependencies",
+              "actualViemZeroDataWrappedIntoMismatch": true,
+              "firstFailure": "The launch guard runtime or official dependencies do not match the pinned deployment.",
+              "initialGuardReads": 1,
+              "initialRpcCalls": 7,
+              "ttlMs": 600000,
+              "directVerificationAfterConvergence": "success",
+              "cachedSameReceiptRetry": "still_rejected",
+              "cachedDifferentReceiptRetry": "still_rejected_without_rpc",
+              "freshServiceRetry": "registered",
+              "retryAfterArtificialExpiry": "registered",
+              "productionOccurrenceProven": false
             }
           ]
         }
       },
-      ".cache/038-client-recovery-probes.json": {
-        "sha256": "a86741e449d6ff094f97bedcaf62cdef2648f69287b56905b69b41efee19e439",
+      ".cache/4248-client-recovery-review.json": {
+        "sha256": "bedbf539a4fe5b493b8c4b3f8c084ad5acc24842aade85844d074f61517538be",
         "report": {
-          "reviewedHead": "038de6d0515f274955a686d36a2a54cbdc51ec52",
-          "scope": "Pure source probes and local synthetic Store/recovery fixtures. No server, browser, public RPC, wallet, or environment-secret reads.",
-          "trackWaitDiscarded": {
-            "requestedSeconds": 60,
-            "backgroundDueAfterMs": 15000,
-            "secondIntentChecked": true
+          "reviewedHead": "4248af9d8f37c9330c5799553dd62ea7d3d8714a",
+          "baseHead": "b18294f",
+          "scope": "Pure Node probes executing extracted current UI callbacks and real checkHistoryTransaction with mocked receipt/API dependencies. No browser, server, public RPC, wallet, environment files, source or tracked evidence writes.",
+          "trackWaitAndRecordIsolation": {
+            "trackRetryAfter60BlocksItsReceiptCheck": true,
+            "trackNotRepeatedBeforeWait": true,
+            "otherIntentCheckedWhileFirstWaits": true,
+            "firstResumesAfter60Seconds": true
           },
-          "perRecordBackoff": {
-            "trackSkippedBeforeDue": true,
-            "independentIntentContinues": true
+          "manualSemantics": {
+            "actualOneConfirmationPendingClearsOldWait": true,
+            "manualUnminedFailureDoesNotExtendOldWait": true,
+            "manualServerWait45Honoured": true,
+            "completedManualCheckClearsWait": true,
+            "actualCanonicalRevertMarksFailedAndClearsWait": true,
+            "actualCompletedLaunchRegistersAndClearsWait": true
           },
-          "manualCheckAgain": {
-            "bypassesBackgroundDue": true,
-            "successClearsBackoff": false,
-            "actualOneConfirmationCheckReturnsPending": true,
-            "pendingUpdates": [
-              {
-                "status": "pending"
-              }
-            ],
-            "oldBackoffStillActiveAtMs": 599999,
-            "settledRowsFilteredOutByBackground": true
+          "newHashLookup": {
+            "newRowSavedBeforeFailedCheck": true,
+            "newRowServerWaitHonoured": true,
+            "hashRetainedOnFailure": true,
+            "errorVisible": true
+          },
+          "concurrentOldSuccessErasesNewServerWait": {
+            "newerManualRequestedWaitSeconds": 60,
+            "dueBeforeOldCheckFinishedAtMs": 59999,
+            "dueBeforeOldCheckFinished": false,
+            "dueAfterOldCheckFinishedAtMs": 0,
+            "dueAfterOldCheckFinished": true,
+            "actualHistoryStatusAfterNewManual": "success",
+            "actualHistoryStatusAfterOldBackground": "success",
+            "historyStatusGuardWorksButBackoffHasNoGuard": true,
+            "source": "src/lib/recovery-backoff.ts:33-38; src/components/TransactionHistory.tsx:245-252,364-368"
+          },
+          "concurrentOldFailureReinstatesWait": {
+            "dueAfterNewManualSuccess": true,
+            "dueAfterOldFailure": false,
+            "laterBackgroundWaitMs": 15000
           }
         }
       },
-      ".cache/independent-038-cutover-cache.json": {
-        "sha256": "23d0cba5e4678022abcb0868f373bbae7fa15a0617eff6bbf3b077c9f9c1a59e",
+      ".cache/4248-completeness-workerd-attestation.json": {
+        "sha256": "1dd2009fc660f234a3336183e01858a4905554819a059272f7f8bc6e39f2389d",
         "report": {
-          "reviewedCommit": "038de6d0515f274955a686d36a2a54cbdc51ec52",
-          "scope": "Pure local service prototype/client fixture, not an observed production reorg",
-          "reads": 1,
-          "acceptedAfterCanonicalHashChanged": true,
-          "cutoverFieldsChanged": false,
-          "productionRpcUsed": false
+          "reviewedHead": "4248af9d8f37c9330c5799553dd62ea7d3d8714a",
+          "scope": "Actual local workerd pure execution of current plan-attestation module with public fixture key; no runtime secrets or signing/production requests.",
+          "status": 200,
+          "tag": "0x0ebaca25d815ce4aaa756dec9b5f7a581653a7d846f15a90e865bd7b1c3bf337",
+          "verified": true,
+          "wrongChain": false,
+          "malformed": false
         }
       },
-      ".cache/independent-038-native-attestation.json": {
-        "sha256": "15498c6ad0bb4b38e60a0d96913fa87e921786117177c95e1031fc4e663029ff",
+      ".cache/independent-424-database.json": {
+        "sha256": "4556da6ab102d92d837aac0625afe9a07e7d3739b8e765f53c1c8a7d411d48db",
         "report": {
-          "reviewedCommit": "038de6d0515f274955a686d36a2a54cbdc51ec52",
-          "scope": "Actual localworkerd executing the repository plan-attestation helper, synthetic key and calldata id; no production binding access",
+          "observedAt": "2026-10-08T03:55:17.541Z",
+          "reviewedCommit": "4248af9d8f37c9330c5799553dd62ea7d3d8714a",
           "status": "passed",
-          "nodeAndWorkerdHmacMatch": true,
-          "wrongChainRejected": true,
-          "realSecretUsed": false,
-          "externalRequests": 0
+          "command": "npm run verify:database",
+          "environment": "Disposable PostgreSQL 17 and real PostgREST v12.2.0; production Supabase not accessed",
+          "postgresImage": "postgres@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73",
+          "postgrestImage": "sha256:2cf1efd2c9c2e7606610c113cc73e936d8ce9ba089271cb9cbf11aa564bc30c7",
+          "network": "Dedicated disposable Docker network; HTTP only loopback; fetch transport maps synthetic .supabase.co URL to local real PostgREST and rejects all other outbound calls",
+          "migrations": {
+            "20261005000537_musegod_store.sql": "76f3b9bffab9f4fc694036582eed9792457caa2ffaa802bfec4fa04fced4cf83",
+            "20261007094402_runtime_safety_controls.sql": "5da5b3a18bba1e8878aca48afc4da5794f781fd407dc02b419d3c5f770988258"
+          },
+          "newChecks": [
+            "savePlanIfAbsent insert and existing-plan preservation",
+            "upgradeTokenProvenance PATCH conditional update and never downgrade"
+          ],
+          "cleanupQueryResult": "sum \n-----\n   0\n(1 row)",
+          "scriptReport": {
+            "observedAt": "2026-10-08T03:55:17.421Z",
+            "backend": "Supabase",
+            "project": "localreview",
+            "scope": "isolated verification rows only",
+            "checks": [
+              "health",
+              "atomic concurrent quota",
+              "quota survives reconnect",
+              "snapshot readback",
+              "consistent backup / empty target restore",
+              "restore preserves quota",
+              "nonempty restore rejected",
+              "launch plan and pending hash survive reconnect",
+              "fee policy and original treasury survive reconnect and backup restore",
+              "idempotent token registration and replacement status",
+              "backup restores token and canonical receipt identity",
+              "orphan token removal",
+              "buyback batch amounts and receipt history survive reconnect and upsert",
+              "buyback batch scope isolation and 24-hour cleanup retention",
+              "version-2 backup preserves buyback batches",
+              "version-1 backup without buyback batches restores successfully",
+              "restore cannot overwrite a scope containing only buyback batches"
+            ]
+          },
+          "productionDatabase": false
+        }
+      },
+      ".cache/independent-424-live-operations.json": {
+        "sha256": "161fb99f5bde52f75089ea9ee483ed6f4f934365714e3b4086bdc3cc305e2bd7",
+        "report": {
+          "observedAt": "2026-10-08T04:03:28.334Z",
+          "reviewedCommit": "4248af9d8f37c9330c5799553dd62ea7d3d8714a",
+          "status": "passed",
+          "environment": "Configured remote Supabase; disposable random verify scope only",
+          "checks": [
+            "savePlanIfAbsent atomic insert with eight concurrent duplicate backups",
+            "unverified token stays write-once before provenance upgrade",
+            "conditional upgradeTokenProvenance PATCH succeeds",
+            "provenance never downgrades",
+            "fixture rows deleted and zero-row readback for both tables"
+          ],
+          "schemaMigration": false,
+          "productionBusinessRowsModified": false,
+          "credentialsRecorded": false,
+          "fullVerifyDatabase": "blocked_before_fixture_write_by_missing_musegod_runtime_controls_PGRST205"
+        }
+      },
+      ".cache/independent-424-live-database-health.json": {
+        "sha256": "7d0314b6432d41e3219c46b00537deb49c0d65eaa3551d1390b6a74290cef6f0",
+        "report": {
+          "observedAt": "2026-10-08T03:59:55.472Z",
+          "status": "failed_readonly_health",
+          "checks": [
+            {
+              "table": "musegod_quota",
+              "httpStatus": 200,
+              "errorCode": null
+            },
+            {
+              "table": "musegod_buyback_batches",
+              "httpStatus": 200,
+              "errorCode": null
+            },
+            {
+              "table": "musegod_runtime_controls",
+              "httpStatus": 404,
+              "errorCode": "PGRST205"
+            }
+          ],
+          "testRowsCreated": false,
+          "migrationsApplied": false,
+          "credentialsRecorded": false
         }
       }
     },
-    "attestationPersistence": {
-      "path": ".cache/independent-038-attestation-persistence.jsonl",
-      "sha256": "a9b836fc244dfe2180dad599eddd5de5fbb0928b67969f35cc03b204f4972a87",
-      "results": [
-        {
-          "case": "SQLite actual persistent payload",
-          "firstReturnUnverified": true,
-          "firstPersistedUnverified": true,
-          "secondReturnUnverified": false,
-          "secondPersistedUnverified": true,
-          "afterDeletionReturnUnverified": false,
-          "afterDeletionPersistedUnverified": false
-        },
-        {
-          "case": "savePlan succeeded and saveToken failed",
-          "firstFailed": true,
-          "planPersisted": true,
-          "tokenAbsent": true,
-          "retriedReturnUnverified": false,
-          "retriedPersistedUnverified": false
-        }
-      ],
-      "reportPath": ".cache/independent-038-attestation-report.md",
-      "reportSha256": "739b1500b95c8619ad6e093feba7e665bcce7cd9f4f0fa939f0a8099ae65262a",
-      "supabaseScope": "Static ignore-duplicates/savePlan analysis only; no production database access"
+    "database": {
+      "newConfiguredSupabaseOperations": "passed_isolated_random_scope_with_cleanup",
+      "fullConfiguredSupabase": "blocked_PGRST205_missing_runtime_controls",
+      "localFullScript": "passed_real_PostgreSQL_PostgREST",
+      "migrationApplied": false,
+      "businessRowsModified": false
     },
     "keyConfiguration": {
-      "localConfigured": true,
-      "localLengthValid": true,
+      "localPreviouslyConfirmed": true,
       "keyContentRecorded": false,
       "entropyChecked": false,
       "workerBinding": "not_checked",
@@ -2356,16 +2510,17 @@
     },
     "cutoverConfiguration": {
       "currentManifestMarker": "unset",
-      "deployment": "pending",
       "reviewerConfiguredMarker": false,
-      "activationReadinessEnforcedByRegistry": false,
-      "canonicalCacheSafeguard": "changes_required"
+      "recordReadiness": "chain_activation_finality_not_before_checked",
+      "canonicalCache": "15s_until_finalized_then_immutable_history",
+      "fileWriterConcurrency": "requires_serial_operations_no_lock_or_CAS",
+      "compatibility": "canonical_receipt_time_before_cutover_plus360s; includesgapreceipts"
     },
     "retainedForkCompatibility": {
-      "reviewedCommit": "038de6d0515f274955a686d36a2a54cbdc51ec52",
-      "observedAt": "2026-10-08T01:27:34.585Z",
+      "reviewedCommit": "4248af9d8f37c9330c5799553dd62ea7d3d8714a",
+      "observedAt": "2026-10-08T04:07:57.030Z",
       "rerun": false,
-      "checks": "Retainedfork82540890 producer/config/six artifact hashes match. SixSolc0.8.24 outputs and17 Solidity closures were independently revalidated. This is compatibility of retained execution evidence, not a new fork or current market/native scheduler proof."
+      "checks": "SixSolc0.8.24 artifacts independently reproduced with17 source closures;41 deployment source hashes unchanged sinceb18294f. Retainedfork82540890 producer/config/artifact identity matches. Original observation time preserved; no fresh fork, mainnet, scheduler or economic execution."
     },
     "bodyDeadline": {
       "ordinaryMs": 10000,
@@ -2373,10 +2528,16 @@
       "changedByThisReview": false,
       "capacityCalibration": "not_run"
     },
-    "implementationChangesByThisReview": "none",
+    "implementationChangesByThisReview": "Application/contracts/manifest unchanged. Existing SPEC clarifies gap compatibility and serial manifest writers; existing evidence updated.",
     "productionStatus": "not_run",
     "deploymentAuthority": "not_granted",
-    "nextStep": "Fix provenance persistence and canonical cache contexts, preserve track Retry-After, then re-run their focused regressions before joint opening. Complete the manual-backoff consistency fix and operational cutover readiness check without adding transaction attempt caps or price-divergence hard gates."
+    "completenessCritic": {
+      "reviewer": "Codex independent_runtime_7d34",
+      "newMajorFindingBeyondReportedRecoveryIssues": false,
+      "workerdHmac": ".cache/4248-completeness-workerd-attestation.json",
+      "proofBoundary": "Local probe evidence does not establish production keys/wallets/chain or deployment readiness"
+    },
+    "nextStep": "Fix currentattempt backoff settlement and mutable guard-negative cache, rerun their regressions, then complete the existingruntime safety schema migration under separate production authority and full DB verification. Retain userUX policy; do not add price hardgates or transaction attempt caps."
   },
   "independentReviewHistory": [
     {
@@ -3077,6 +3238,262 @@
       "productionStatus": "not_run",
       "deploymentAuthority": "not_granted",
       "nextStep": "Fix the successful-read/same-block owner recovery case and run that focused regression before joint public opening. Resolve or explicitly amend local-fork V1 parity separately; do not claim all five original items are fully resolved."
+    },
+    {
+      "reviewedCommit": "038de6d0515f274955a686d36a2a54cbdc51ec52",
+      "observedAt": "2026-10-08T01:27:34.585Z",
+      "status": "changes_required",
+      "buybackSourceGate": "passed",
+      "reviewers": [
+        "Codex independent_buyback_7d34",
+        "Codex independent_recovery_7d34",
+        "Codex attestation_038",
+        "Codex independent_runtime_7d34",
+        "Codex root"
+      ],
+      "findings": [
+        {
+          "id": "IR038-PROVENANCE",
+          "priority": "P1",
+          "status": "confirmed_api_and_fault_injected_sqlite_persistence",
+          "file": "server/service.ts",
+          "line": 666,
+          "requiredBeforeJointOpening": true,
+          "title": "Stored recovery plans are incorrectly promoted to platform-generated provenance",
+          "detail": "Recovery writes its caller-supplied but canonical-reencoded plan into the normal saved-plan store. Later registration treats any savedPlan as attested. Ordinary duplicate registrations return the wrong verified flag but INSERT/ignore-duplicates preserves the existing unverified token. ActualSQLite fixture shows persistent mislabeling when savePlan succeeds and saveToken temporarily fails, or when the token is removed before re-registration: retry inserts a verified token without a valid HMAC.",
+          "remediation": "Persist server-controlled prepared/recovered/unknown provenance outside caller-controlled plan fields. Trust genuinely prepared records or a valid HMAC, not merely savedPlan existence. Do not migrate all historical/imported records to prepared; preserve unverified status across partial writes, reorgs and database restore."
+        },
+        {
+          "id": "IR038-CACHE",
+          "priority": "P2",
+          "status": "confirmed_full_register_with_synthetic_chain_reorg",
+          "file": "server/service.ts",
+          "line": 547,
+          "requiredBeforeJointOpening": true,
+          "title": "Transaction-hash-only evidence caches survive receipt identity and canonical-state changes",
+          "detail": "Successful and RecoveryEvidenceError results live600000ms under transaction hash alone. Fixture passes evidence then fails poolRPC before storage; the same transaction is re-mined with a new receipt block/hash and an orphaned price snapshot. Cached service registers without rechecking the snapshot while a fresh instance rejects it. Negative block-hash mismatch also remains cached after chain/RPC convergence. Current receipt canonical verification still runs; this does not bypass every transaction check.",
+          "remediation": "Bind cached chain evidence to receipt block number/hash and revalidate canonical identity unless anchored to sufficiently finalized state. Treat mutable block-hash mismatches as retryable rather than long-lived deterministic input errors. Keep bad JSON outside the shared budget and do not add per-transaction attempt ceilings."
+        },
+        {
+          "id": "IR038-CUTOVER",
+          "priority": "P2",
+          "status": "confirmed_service_prototype_reorg_probe",
+          "file": "server/service.ts",
+          "line": 520,
+          "requiredBeforeJointOpening": true,
+          "title": "Cutover canonicality is memoized indefinitely without finality or revalidation",
+          "detail": "After one successful read, identical cutover fields bypass all later block reads. A pure probe changes the canonical hash and the second call still succeeds with totalreads1. The fixed timestamp and exclusive360s grace boundary are otherwise implemented. The current manifest has no cutover; this is a required safeguard before enabling it.",
+          "remediation": "Recheck canonical cutover identity or restrict long-lived caching to a verified finalized checkpoint. Enforce or explicitly validate the operational prerequisite that the Engine is configured/activated before setting the marker; CLI preserves the field but neither validates it nor binds it in the activation fingerprint."
+        },
+        {
+          "id": "IR038-RETRY_AFTER",
+          "priority": "P2",
+          "status": "confirmed_actual_client_control_flow_probe",
+          "file": "src/components/TransactionHistory.tsx",
+          "line": 245,
+          "requiredBeforeJointOpening": true,
+          "title": "Track errors discard the server-requested long recovery wait",
+          "detail": "launch/track catches and discards its ApiError. Probe receivesRetry-After60 fromtrack, then receipt lookup fails, so per-record backoff is only15000ms. Other intents continue and due records are skipped correctly, but the server wait is not preserved.",
+          "remediation": "Propagate or record the track Retry-After when determining that record's next background attempt without preventing a valid backup from recovering after unrelated track failures. Preserve manual retry and avoid making one record stop other intents."
+        },
+        {
+          "id": "IR038-MANUAL_BACKOFF",
+          "priority": "P3",
+          "status": "confirmed_nonterminal_manual_check_probe",
+          "file": "src/components/TransactionHistory.tsx",
+          "line": 363,
+          "requiredBeforeJointOpening": false,
+          "title": "Check again succeeds without clearing an existing background backoff",
+          "detail": "Manual checking bypasses due as intended. A real client control-flow fixture with one-confirmation receipt returnspending normally yet keeps the prior ten-minute due time; Resume lookup clears it. Settled/registered rows leave the background queue, so this is not a claim that manual recovery is blocked.",
+          "remediation": "Make successful manual Check again clear the record's backoff consistently, including a normal nonterminal result."
+        }
+      ],
+      "requiredBeforeJointOpening": [
+        "IR038-PROVENANCE",
+        "IR038-CACHE",
+        "IR038-CUTOVER",
+        "IR038-RETRY_AFTER"
+      ],
+      "closedEarlierFindings": [
+        {
+          "id": "IR1",
+          "status": "resolved_by_d04d3aa_all_modes_manifest_only"
+        },
+        {
+          "id": "IR3",
+          "status": "resolved_by_d04d3aa_transaction_bound_owner_candidates"
+        }
+      ],
+      "passedCurrentParts": [
+        "Twenty altered drafts fail CPU reencoding before sharedbudget/cache; validbackup remains immediately recoverable",
+        "Per-transaction attempt ceiling removed; RPC failureTTL15s and capacityrefusalTTL0",
+        "HMAC binds fullcalldata; nativeworkerd primitive/current+previous/crosschain/missingkey cases checked",
+        "Fixed cutover timestamp +360s exclusive receipt grace; Base unaffected",
+        "Per-task keeperfailedGas.001ETH and attempt.002ETH unchanged; scope/strict<.003ETH clarified",
+        "Unverified opening UI is advisory and adds no wallet signature or business confirmation"
+      ],
+      "localProbeEvidence": {
+        ".cache/independent-038-recovery-probes.json": {
+          "sha256": "32eff93223244c1842bac909097f377c9cf361844881fb6fb2025f6d03841e4c",
+          "report": {
+            "schemaVersion": 1,
+            "inspectedCommit": "038de6d0515f274955a686d36a2a54cbdc51ec52",
+            "evidenceKind": "pure_local_service_and_sdk_fixtures",
+            "actualChainAttackDemonstrated": false,
+            "productionRpcUsed": false,
+            "signingUsed": false,
+            "fundsUsed": false,
+            "sourceModified": false,
+            "store": "in-memory stub; this probe focuses on real register/cache control flow",
+            "results": [
+              {
+                "id": "cpu_rejection_before_budget_and_bad_cache",
+                "rejectedVariants": 20,
+                "sharedBudgetInitializedByBadVariants": false,
+                "evidenceCacheInitializedByBadVariants": false,
+                "badVariantEvidenceBlockReads": 0,
+                "correctBackupRegisters": true
+              },
+              {
+                "id": "positive_cache_survives_receipt_reorg",
+                "firstFailureAfterEvidence": "temporary pool RPC",
+                "savedPreviewAbsentBeforeRetry": true,
+                "evidenceSuccessTtlMs": 600000,
+                "remintedReceiptBlock": "12",
+                "currentReceiptCanonical": true,
+                "oldValuationBlockHashNowNoncanonical": true,
+                "cachedServiceRetry": "registered",
+                "valuationBlockRecheckedOnRetry": false,
+                "freshServiceRetry": "rejected_noncanonical_valuation",
+                "currentReceiptMismatchStillRejected": true
+              },
+              {
+                "id": "negative_cache_survives_chain_or_rpc_convergence",
+                "firstFailure": "noncanonical valuation block",
+                "ttlMs": 600000,
+                "receiptIdentityChanged": true,
+                "quoteBlockNowCanonical": true,
+                "cachedServiceRetry": "still_rejected_without_recheck",
+                "freshServiceRetry": "registered"
+              },
+              {
+                "id": "ordinary_transport_error_short_retry_cache",
+                "ttlMs": 15000,
+                "immediateRetrySharesFailure": true,
+                "retryAfterArtificialExpiry": "registered"
+              }
+            ]
+          }
+        },
+        ".cache/038-client-recovery-probes.json": {
+          "sha256": "a86741e449d6ff094f97bedcaf62cdef2648f69287b56905b69b41efee19e439",
+          "report": {
+            "reviewedHead": "038de6d0515f274955a686d36a2a54cbdc51ec52",
+            "scope": "Pure source probes and local synthetic Store/recovery fixtures. No server, browser, public RPC, wallet, or environment-secret reads.",
+            "trackWaitDiscarded": {
+              "requestedSeconds": 60,
+              "backgroundDueAfterMs": 15000,
+              "secondIntentChecked": true
+            },
+            "perRecordBackoff": {
+              "trackSkippedBeforeDue": true,
+              "independentIntentContinues": true
+            },
+            "manualCheckAgain": {
+              "bypassesBackgroundDue": true,
+              "successClearsBackoff": false,
+              "actualOneConfirmationCheckReturnsPending": true,
+              "pendingUpdates": [
+                {
+                  "status": "pending"
+                }
+              ],
+              "oldBackoffStillActiveAtMs": 599999,
+              "settledRowsFilteredOutByBackground": true
+            }
+          }
+        },
+        ".cache/independent-038-cutover-cache.json": {
+          "sha256": "23d0cba5e4678022abcb0868f373bbae7fa15a0617eff6bbf3b077c9f9c1a59e",
+          "report": {
+            "reviewedCommit": "038de6d0515f274955a686d36a2a54cbdc51ec52",
+            "scope": "Pure local service prototype/client fixture, not an observed production reorg",
+            "reads": 1,
+            "acceptedAfterCanonicalHashChanged": true,
+            "cutoverFieldsChanged": false,
+            "productionRpcUsed": false
+          }
+        },
+        ".cache/independent-038-native-attestation.json": {
+          "sha256": "15498c6ad0bb4b38e60a0d96913fa87e921786117177c95e1031fc4e663029ff",
+          "report": {
+            "reviewedCommit": "038de6d0515f274955a686d36a2a54cbdc51ec52",
+            "scope": "Actual localworkerd executing the repository plan-attestation helper, synthetic key and calldata id; no production binding access",
+            "status": "passed",
+            "nodeAndWorkerdHmacMatch": true,
+            "wrongChainRejected": true,
+            "realSecretUsed": false,
+            "externalRequests": 0
+          }
+        }
+      },
+      "attestationPersistence": {
+        "path": ".cache/independent-038-attestation-persistence.jsonl",
+        "sha256": "a9b836fc244dfe2180dad599eddd5de5fbb0928b67969f35cc03b204f4972a87",
+        "results": [
+          {
+            "case": "SQLite actual persistent payload",
+            "firstReturnUnverified": true,
+            "firstPersistedUnverified": true,
+            "secondReturnUnverified": false,
+            "secondPersistedUnverified": true,
+            "afterDeletionReturnUnverified": false,
+            "afterDeletionPersistedUnverified": false
+          },
+          {
+            "case": "savePlan succeeded and saveToken failed",
+            "firstFailed": true,
+            "planPersisted": true,
+            "tokenAbsent": true,
+            "retriedReturnUnverified": false,
+            "retriedPersistedUnverified": false
+          }
+        ],
+        "reportPath": ".cache/independent-038-attestation-report.md",
+        "reportSha256": "739b1500b95c8619ad6e093feba7e665bcce7cd9f4f0fa939f0a8099ae65262a",
+        "supabaseScope": "Static ignore-duplicates/savePlan analysis only; no production database access"
+      },
+      "keyConfiguration": {
+        "localConfigured": true,
+        "localLengthValid": true,
+        "keyContentRecorded": false,
+        "entropyChecked": false,
+        "workerBinding": "not_checked",
+        "secretUpload": "not_run"
+      },
+      "cutoverConfiguration": {
+        "currentManifestMarker": "unset",
+        "deployment": "pending",
+        "reviewerConfiguredMarker": false,
+        "activationReadinessEnforcedByRegistry": false,
+        "canonicalCacheSafeguard": "changes_required"
+      },
+      "retainedForkCompatibility": {
+        "reviewedCommit": "038de6d0515f274955a686d36a2a54cbdc51ec52",
+        "observedAt": "2026-10-08T01:27:34.585Z",
+        "rerun": false,
+        "checks": "Retainedfork82540890 producer/config/six artifact hashes match. SixSolc0.8.24 outputs and17 Solidity closures were independently revalidated. This is compatibility of retained execution evidence, not a new fork or current market/native scheduler proof."
+      },
+      "bodyDeadline": {
+        "ordinaryMs": 10000,
+        "recoveryMs": 10000,
+        "changedByThisReview": false,
+        "capacityCalibration": "not_run"
+      },
+      "implementationChangesByThisReview": "none",
+      "productionStatus": "not_run",
+      "deploymentAuthority": "not_granted",
+      "nextStep": "Fix provenance persistence and canonical cache contexts, preserve track Retry-After, then re-run their focused regressions before joint opening. Complete the manual-backoff consistency fix and operational cutover readiness check without adding transaction attempt caps or price-divergence hard gates."
     }
   ]
 }

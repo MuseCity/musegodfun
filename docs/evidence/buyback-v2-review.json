@@ -2,30 +2,26 @@
   "schemaVersion": 1,
   "status": "passed",
   "scope": "Internal independent source review and isolated execution evidence only. This is a source-integrity gate for a subsequently explicitly authorized deployment; it grants no deployment, publication, signing, funding, treasury approval or production activation authority.",
-  "observedAt": "2026-10-08T01:27:34.585Z",
-  "baseCommit": "038de6d0515f274955a686d36a2a54cbdc51ec52",
+  "observedAt": "2026-10-08T04:07:57.030Z",
+  "baseCommit": "4248af9d8f37c9330c5799553dd62ea7d3d8714a",
   "branch": "codex/robinhood-go-live-ux",
   "uncommittedSource": false,
   "reviewers": [
     {
-      "identity": "Codex independent_buyback_7d34",
-      "role": "Read-only cutover/keeper deployment lifecycle and six-artifact17-source compiler closure"
-    },
-    {
       "identity": "Codex independent_recovery_7d34",
-      "role": "Read-only two-stage recovery budget/cache and full-register reorg fixtures"
-    },
-    {
-      "identity": "Codex attestation_038",
-      "role": "Read-only HMAC binding/provenance and realSQLite partial-write persistence fixtures"
+      "role": "Read-only realSDK/SQLite provenance, receipt-remine and realviem guard-cache probes"
     },
     {
       "identity": "Codex independent_runtime_7d34",
-      "role": "Read-only Retry-After/backoff/manual checks and unverified UI review"
+      "role": "Read-only actual client backoff/control-flow probes and final completeness critic; localworkerd HMAC"
+    },
+    {
+      "identity": "Codex independent_buyback_7d34",
+      "role": "Read-only cutover CLI/finality/JSON review; six compiler outputs and17-source closure"
     },
     {
       "identity": "Codex root",
-      "role": "FullNode/Forge/build/browser checks, localworkerd HMAC, cutover canonical-cache probe and evidence integration"
+      "role": "Independent probe replay, fullNode/Forge/build/browser/Worker checks, localPostgREST and configuredSupabase isolated fixture verification; evidence integration"
     }
   ],
   "blockingFindings": [],
@@ -63,12 +59,12 @@
     {
       "area": "isolated validation",
       "result": "passed",
-      "detail": "FullNode569/569 and Foundry143/143 pass; typecheck/build/Worker dry-run pass. Chromium38 cases pass with injected wallet/API/RPC. Recovery/provenance/reorg/client supplemental fixtures find application blockers outside this scoped deployment gate. Retainedfork82540890 retains allfour flow flags, original observation time andupstreamWrites0; no new largefork, mainnet, scheduler or profitability proof."
+      "detail": "FullNode585/585, Foundry143/143, typecheck/build and Worker dry-run pass. Chromium39 (38desktop/one mobile layout) passes with injected APIs/wallet/RPC. Supplemental client/recovery probes confirm two application issues outside this scoped deployment gate. New database operations pass locally with realPostgreSQL/PostgREST and on configuredSupabase disposable rows with cleanup. Full configuredSupabase CLI fails initial health due to missing runtime control table; no migration applied. Retainedfork observation unchanged."
     },
     {
       "area": "configuration crypto dependency",
       "result": "passed_scoped_primitive",
-      "detail": "PLAN_ATTESTATION_KEY minimum32/current+previous verification/private runtime propagation/redaction checked. Repository helper executed in actual localworkerd with a synthetic key matches NodeHMAC and rejects cross-chain proof. server/plan-attestation.ts added to fixed source hashes. Application savedPlan-origin flaw remainsIR038-PROVENANCE."
+      "detail": "The primitive remains unchanged and locally executes in actualworkerd with a public fixture key: valid proof accepts, wrongchain/malformed reject. Fresh recovered:true provenance, verified-only overwrite, insert-if-absent and monotonic token upgrade checked with realSQLite and separate configuredSupabase operations. HMAC attests platform preparation, not independent economic price truth; no production secret upload."
     }
   ],
   "sourceHashes": {
@@ -115,8 +111,8 @@
     "server/plan-attestation.ts": "19372c08578d1b2c825aa3eabb03e4dd7d8301e524d597f0b44143b372918d93"
   },
   "evidenceHashes": {
-    "docs/evidence/buyback-v2-fork.json": "0a65269d2c5bc4cf84496e1f7474232439e1d0d383478e2eb48cc8c6036e84a8",
-    "docs/evidence/buyback-v2-fee-custody.json": "093afab872fc9af4ae4c9df745a580d1de8a577898be5e0a601d834ec9da1d19",
+    "docs/evidence/buyback-v2-fork.json": "c4ba041bf939b89b56db400b31c0dbb5092fb02bfc8430415e768125ffb46fc9",
+    "docs/evidence/buyback-v2-fee-custody.json": "7e0dfade1823a92bbe804d4591d9d95f40eb769b3e9c171f6465cd033776d30b",
     "docs/evidence/buyback-v2-vault-fixture.json": "12aa29afcca5cd7212001663ef2550714cd6e49724985ec6e0c15d9cda326068",
     "docs/evidence/buyback-v2-accounting-gas.json": "1b6af03fcff96545ac411060cb667eb603a630b540d962367cc3c0105f4a114b"
   },
@@ -137,10 +133,13 @@
     "Stable-time Vault and accounting-gas reports remain historical evidence; they were not rerun or relabeled as current compiler/mainnet execution.",
     "Keeper0.001ETH/24h budget counts actual failed gas; separate buffered single-attempt worst-cost ceiling0.002ETH is an operator-selected control, not calibrated profitability or user authorization.",
     "74aac0d removes unused V1 Engine/Forwarder artifact/input files and their legacy exporter entry. CurrentV2 paths remain valid; historical manifests/receipts/evidence and reused Oracle/Executor artifacts remain.",
-    "Earlier same-block owner and forkV1 issues are closed by d04d3aa. Current038 application has provenance promotion, receipt/canonical-state caching and clientRetry-After gaps; source-gate approval does not approve joint opening.",
-    "EngineLaunchCutover is currently unset. Its canonicality is permanently memoized and activation readiness is an operational prerequisite, not code-enforced by the registry or deploymentCLI. Required safeguards remain before marker activation.",
     "Local.env attestation key was confirmed present and length-valid without printing it. Real key entropy and deployedWorker binding were not verified; actual secret upload and cutover configuration are not_run.",
-    "The10s ordinary/register body deadline introduced by1f97712 is retained at the user's direction pending capacity/slow-network testing; no deadline or budget was changed by this review."
+    "The10s ordinary/register body deadline introduced by1f97712 is retained at the user's direction pending capacity/slow-network testing; no deadline or budget was changed by this review.",
+    "The fiveIR038 application findings are closed for fresh current flows. CurrentIR424-BACKOFF_RACE andIR424-GUARD_CACHE are recovery availability defects; source-integrity approval does not approve joint opening.",
+    "Cutover is unset. Readiness is replayed by the record CLI, canonicality refreshed every15s until finalized, then trusted as a fixed history marker. CLI writers must run serially; atomic replacement does not prevent stale concurrent snapshots from dropping/moving the marker.",
+    "Treasury-only receipts inside the engine-only deploy gap can recover once a marker exists if canonical receipt time is beforecutover+360s. This deliberately bounded compatibility window does not prove the preview preceded deploy.",
+    "Markerless recovered plans imported from unshipped038/b182 databases can still be mistaken for prepared. Productionmaster saves plans only inprepare; fresh current recovery always persists recovered:true. Do not silently import the intermediate-version database as prepared provenance.",
+    "The two new operations passed on configuredSupabase isolated fixture rows and cleanup readback. Fullverify:database is blocked by missingmusegod_runtime_controls/PGRST205; deployment still needs the existing runtime-safety migration. No migration or business row change was performed."
   ],
   "production": {
     "deploymentAuthority": "not_granted",
@@ -152,15 +151,16 @@
     "jointPublicActivation": "not_run",
     "executionChecklist": "docs/SPEC.md#concrete-production-execution-checklist-not_run"
   },
-  "reviewedCommit": "038de6d0515f274955a686d36a2a54cbdc51ec52",
+  "reviewedCommit": "4248af9d8f37c9330c5799553dd62ea7d3d8714a",
   "applicationRelease": {
     "status": "changes_required",
-    "scope": "Passed status is the scoped V2 deployment source-integrity gate, now also binding the new direct crypto dependency of server/config. It is not approval of the full application recovery/provenance/cutover protocol.",
+    "scope": "Passed status covers the unchanged41-file V2 deployment source-integrity gate only. Current application review closes the previous five findings but confirms two availability/backoff defects; full configuredSupabase validation is blocked by the unapplied runtime-safety schema.",
     "requiredFindingIds": [
-      "IR038-PROVENANCE",
-      "IR038-CACHE",
-      "IR038-CUTOVER",
-      "IR038-RETRY_AFTER"
+      "IR424-BACKOFF_RACE",
+      "IR424-GUARD_CACHE"
+    ],
+    "environmentPrerequisites": [
+      "existing runtime-safety database migration and full verification"
     ],
     "evidence": "docs/evidence/go-live-ux-acceptance.json#independentReview"
   },
@@ -188,11 +188,12 @@
     },
     "runnerDisclosure": "The7d34c86 commit message and user handoff identify standardAnvil1.5.1; the submitted JSON did not record binary/version. Retained reports for82540890 were actually rerun on2026-10-07 with the inspected repository-default binary. They were not rerun for038de6d."
   },
-  "fixCommit": "038de6d0515f274955a686d36a2a54cbdc51ec52",
+  "fixCommit": "4248af9d8f37c9330c5799553dd62ea7d3d8714a",
   "retainedForkCompatibility": {
-    "reviewedCommit": "038de6d0515f274955a686d36a2a54cbdc51ec52",
-    "observedAt": "2026-10-08T01:27:34.585Z",
+    "reviewedCommit": "4248af9d8f37c9330c5799553dd62ea7d3d8714a",
+    "observedAt": "2026-10-08T04:07:57.030Z",
     "rerun": false,
-    "checks": "Retainedfork82540890 producer/config/six artifact hashes match. SixSolc0.8.24 outputs and17 Solidity closures were independently revalidated. This is compatibility of retained execution evidence, not a new fork or current market/native scheduler proof."
-  }
+    "checks": "SixSolc0.8.24 artifacts independently reproduced with17 source closures;41 deployment source hashes unchanged sinceb18294f. Retainedfork82540890 producer/config/artifact identity matches. Original observation time preserved; no fresh fork, mainnet, scheduler or economic execution."
+  },
+  "reviewBaseCommit": "b18294ff6d6a6c98c80b93004e6b73bcb38e9598"
 }
