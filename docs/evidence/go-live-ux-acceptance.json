@@ -143,7 +143,7 @@
       "tests/fixtures/governor-control-manifest.json": "3b6a8d91d158c5167969be406d4749f9fc39b509c9fb7f7ac8c2fe99eb47229a",
       "docs/evidence/buyback-v2-native-execution.json": "c22f730b2864c2f2b23b7d95213124aa93a416071302a0b25c685e220eba9217"
     },
-    "sortedChangedFilesDigest": "a035d530adfc4ce09b05bc82352369d080839f9f2f56a927ee69aec8cdd887a5",
+    "sortedChangedFilesDigest": "26181bdfc2a66e535d60c04b05f811ae090de7be26dc881314b4288898500a1b",
     "digestEncoding": "Sorted relative path + NUL + lowercase SHA256 + newline. This evidence file itself is excluded to avoid a self-hash cycle.",
     "hashScope": "Pre-commit current operational snapshot, self-excluded; retained independent review hashes remain explicitly historical",
     "uncommittedChanges": "Post-publication evidence only; runtime/contract/keeper source unchanged from verified8d88123",
