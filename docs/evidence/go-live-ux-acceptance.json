@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
   "status": "independent_review_changes_required_production_not_run",
-  "observedAt": "2026-10-07T22:52:18.179Z",
-  "scope": "Independent revalidation ofa7ed565 and its74aac0d V1 cleanup. IR2/IR4/IR5 resolved; productionIR1 closed with a local-fork parity regression. IR3 archive failure fixed but successful same-block post-state owner reads still reject. V2 source gate passes; production remainsnot_run.",
+  "observedAt": "2026-10-08T01:27:34.585Z",
+  "scope": "Independent review of038de6d two-stage recovery, per-record backoff, HMAC provenance and fixed-cutover migration. Local tests pass; supplemental probes confirm four required application fixes and one minor manual-backoff gap. V2 contract/compiler source gate passes; no application opening or production execution authority.",
   "source": {
     "repository": "MuseCity/musegodfun",
     "workspace": "/Volumes/code/opc/musegodfun",
     "branch": "codex/robinhood-go-live-ux",
-    "baseCommit": "74aac0d13f2e52e4aa07b9e62b0b0c587b2e3964",
+    "baseCommit": "038de6d0515f274955a686d36a2a54cbdc51ec52",
     "dirty": true,
-    "committed": "74aac0d13f2e52e4aa07b9e62b0b0c587b2e3964",
+    "committed": "038de6d0515f274955a686d36a2a54cbdc51ec52",
     "pushed": "verified_tracking_ref_at_review",
     "sha256Algorithm": "SHA-256 of exact bytes",
     "changedFileHashes": {
-      ".env.example": "f308c632990a2bbde8f1a80b6bcd448ba4902f23f16a8b63fccd0fd6029a480c",
+      ".env.example": "79dcfd660db7b49c99e5d7e78571bb1621cf42ca92e084fae74288f68ccb3365",
       ".github/workflows/deploy.yml": "2f6b45e85b005bb5e452a8e86ec22bea4f63d92ffe8090b786a1b0e3585a9170",
-      "README.md": "74fe903aa3c4652e2823216690cf02988f2fe7ebdb2ac250643579b820b9f02d",
+      "README.md": "6f47239458a85ee09ad58a6c95f0b6812196391b1d7bd6cbe6e75e99bf6d5d3d",
       "contracts/README.md": "16813180739836e43f911a926b41e224e4a6863a268efd5a152c65ce42651736",
       "contracts/artifacts/buyback-v2-deployment.json": "f210db7851f7cdc4016825f3cc05c34efafcfd2f3ee9d73f94a374338481c562",
       "contracts/artifacts/buyback-v2/MusegodAssetFeedOracle.compiler-input.json": "19511040cb3e0f882152c2ff2bb74115b69516b1339aea9cf88263c7c2c66c80",
@@ -34,58 +34,58 @@
       "contracts/test/MusegodBuybackBudgetVault.t.sol": "55a680417538e7a582f693084c04fbbc41994c0a04f550e07b4fca8990ec3c40",
       "contracts/test/MusegodFeeEngine.t.sol": "6aedcbf06755dd876e017b93c92bbe6a5c15cc825a41a311c6ad58990391b515",
       "contracts/test/MusegodWethForwarder.t.sol": "89a78bab49a8ff321abafcd46a1b75f43177f54fe4cc5c16df26f92febba3b92",
-      "docs/SPEC.md": "5ae05e9bb74d9bcf23cfca4455bd2327a81a95095ea73e7ffc38e20c868ccb0b",
+      "docs/SPEC.md": "acb0ce3f06e2e203339b80cbfeaff644e57c27322f1b7a723d5d45f871584a03",
       "docs/evidence/buyback-v2-accounting-gas.json": "1b6af03fcff96545ac411060cb667eb603a630b540d962367cc3c0105f4a114b",
-      "docs/evidence/buyback-v2-fee-custody.json": "33e84818e3bf264f636230b17422915666755af581b24f01057edb536045e111",
-      "docs/evidence/buyback-v2-fork.json": "c32855ec2279ef7780e7853582e16c1b83d81626f26e91e8df101ed61f31de9b",
-      "docs/evidence/buyback-v2-review.json": "2b61191bcfff400c0c47e8f980316a8ee44a1cd9c0cb870a0b9c4037a44cfcf4",
+      "docs/evidence/buyback-v2-fee-custody.json": "093afab872fc9af4ae4c9df745a580d1de8a577898be5e0a601d834ec9da1d19",
+      "docs/evidence/buyback-v2-fork.json": "0a65269d2c5bc4cf84496e1f7474232439e1d0d383478e2eb48cc8c6036e84a8",
+      "docs/evidence/buyback-v2-review.json": "30553da34492c97a7bcac564d159eb03bbc99710fc50e55264db13046083392d",
       "docs/evidence/buyback-v2-vault-fixture.json": "12aa29afcca5cd7212001663ef2550714cd6e49724985ec6e0c15d9cda326068",
       "package.json": "c32b4a7baca01d8f1dbef292097af6a05fef0d79f4d3d036001ddc113c6a8524",
       "scripts/build-buyback-artifacts.ts": "57ef7b3889f1e9a55b6cf9138d0a891b1e8e81e75dac82357c6cf02cbd60f397",
-      "scripts/buyback-keeper.ts": "fd07716590939647fe782171215e0ceef669b8f71a20ced2e1e9b325a81189bc",
+      "scripts/buyback-keeper.ts": "7fb73f63b999571883321679d099be116c45b31c0791e1402cf9a77c7de1fb0f",
       "scripts/deploy-buyback-engine.ts": "e8dc77f9d96046c104866fd7762928d91362b922d6efaaa46b742823b60f9c3f",
       "scripts/release-policy.ts": "88b435398da9e3f920c34b3d24d72858d7fcdb718e52241f4eb1be6d8610d891",
       "scripts/release.ts": "84f314ef2b6352dc7e43071669ffabfe01272b226e32ffd276e5f09f7ca19687",
       "scripts/runtime-control.ts": "c4c60756afc4cec57a9a01aa894a377a7bc4b7cfa91d29017f935c3e977d1eea",
       "scripts/test-buyback-engine-fork.ts": "8716049a1c82ed30b924831efa33129f54176c8a291634079b4474fe22047322",
       "scripts/test-buyback-vault-fork.ts": "854efc4775023b185c1d4043d0b24c0146e23bd1c0270a6638aa048bdebfd116",
-      "scripts/test-launch-browser.mjs": "e068932e35cf1680ff903bb12daa838fef53e12fa4f6cee21c3fc4088b63e899",
+      "scripts/test-launch-browser.mjs": "0957f373c7f5386c4874d2ca830b4f86672c67c12f734cd84d963e15af3ba31b",
       "scripts/test-launch-fork-browser.mjs": "856691f62a49822797d40bf7d8712cd8d4e38414754426900b875a7262053ecc",
       "scripts/test-runtime-http.ts": "b55345da123f120a840ab597a6900a6f8ef1d31f14af668dbb7d41a34f330e3c",
-      "server/abuse.ts": "d64a0e5f37415c192621b6c2f03490e11a3455ab80fca9e48f1d6037e90c3df4",
+      "server/abuse.ts": "48f59d2338685f486197fdb2f56a0e5841ac35f10ae42fcc13b28d6fadc300bb",
       "server/app.ts": "b3691a5f44f4c165d37c01fff0d39e1bf1f35769d005c73ff395f7db2301991d",
       "server/buyback-activation.ts": "ce8d853ad86a457e17d5675b45f0f58d0780f6a69e70b7720188a11d24ccbaa3",
       "server/buyback-engine.ts": "c0f2bdf79332914960b6ef1468d4d2e5850ddbe5d63136ec8f5c9512d01dcf2c",
-      "server/config.ts": "86929f737c939e7e868c1c8f0d698a260663f4816532ce742b6440037864b4bd",
+      "server/config.ts": "5749770a27c7de6b4e78e86f4510ef5592f99b49fd15e2f3d12b178f593b4e1a",
       "server/first-buy-lock-status.ts": "3290c7f4e1bf372cb949cac002be524c5021353a109debedd3f8a1cfd5078f7c",
-      "server/http-security.ts": "f9efb56b5d867281480adceca526a3206648c046d7ac8d00c715b02ca799ce4a",
-      "server/launch-verification.ts": "bb1cc6713cc4b1d4edfd946c58178359415f854c63cd82054b5b3c6624063883",
+      "server/http-security.ts": "b6e20fce1389ea42f1f7886ff4c28f5401593cdc5572ac69e1b65d8b3e15de17",
+      "server/launch-verification.ts": "ef089a79b15ac6cf887dd206c047d1e5a7b72c85e470852c26b25b7e225b2ab8",
       "server/lifi.ts": "d5de5f8b9ca7b42915dea81f4ad8d8c04ca26e792b91a270040c40d1ca086643",
-      "server/opening-price.ts": "1bd42c9e07dd391ba4974742a0b837fa31fe10c1fdcef3e0ce1f38b04ad67653",
+      "server/opening-price.ts": "3ba3a9aa6cf6cfd6a7bc21bfe5fefec49d3f22d5817e215b9f39ffebacc53111",
       "server/plan-storage.ts": "973e04d63bc68c6577e91ad587c8a85666d0ddd2707a55d8b8cea31f0c14ed14",
       "server/runtime-policy.ts": "7dcf1cbf8f222113ad867d55190f99c62e54d91c06742be1c338b97a84ced37b",
-      "server/service.ts": "53d87bd02c4b69a4a8477af52e885db4a5185d1bb126c1f2f832e7e25b57244c",
+      "server/service.ts": "021071bcf121ce2d8f1be26255ab0a7b9fb7dc00e4baf00a0b88e25660ca54a1",
       "server/store.ts": "d6fec05ab3ba6322bf533b928af11cacc95c26f56689869b70e412bd4000ab97",
       "server/supabase-store.ts": "59b359df7db12acde0e818809344d2ddab1e2efd656c895c5999685c19b63a64",
       "server/token-images.ts": "c0654b1eceba6a47aa61408dde6c3b0f22f13ed22d05f8d85806bede1ded1589",
-      "src/App.tsx": "c547b0402dca349df22b0aeb4d368272eca408fbf2598a407697c29a5f71358a",
+      "src/App.tsx": "84d9f41665eea42e3346a87bff9155c3f5f73e0f0c746021baac0f89bbea940f",
       "src/components/BuybackEngine.tsx": "714b0526bc6191d08090dccdc852d771011e5f6c3956dd4987fdfaddbcbe968c",
       "src/components/FeeBreakdown.tsx": "24c044c029e9961c54e6cdafc933e0a5e1d8dd30d7f7eb1f8cae31a7ea8b3141",
       "src/components/FirstBuyLock.tsx": "5bcef6bc766d58ee8e872717807613d6c91e9c94d75ab0bb6e4901fc40f0c290",
       "src/components/LockRecovery.tsx": "75e175fd6d41be02e7a0ee3b05f3708cea2deeafee6d8ee4f9f8a9bd9bd7e7d1",
       "src/components/MusegodPage.tsx": "21a65a7b28c45d0663da213c66d260abf015a92263a399b2bd5f545955776593",
       "src/components/TokenCard.tsx": "f56608687d4527af4dab388daf0069e335884ff3d39a50816462e67cf28c297b",
-      "src/components/TransactionHistory.tsx": "e7cb4a43fc92eb6ebe6da5e868581887910280ed72d32bf8b2664c12901c942d",
+      "src/components/TransactionHistory.tsx": "48d8b584fd5c3a6c64edc0ff13e69a1f7028b9604a789f088bd7ffe2eaef4e7e",
       "src/components/TurnstileGate.tsx": "9c4d2b7220c0f1ac0c57550b51edf282e0207284636010c85f2d6f74c448dcf0",
-      "src/lib/api.ts": "b37c850993de94799d651252e3cf6ffe81dcd5e28f04047b6e8bbcb0c2cd55e8",
+      "src/lib/api.ts": "8b3487834ea86e59111a611480bf830a5400c3ba406834605c653c7b9d264712",
       "src/lib/buyback-engine.ts": "f91665f30d2720db9ff839b2e465b362718b7217cbb0f8fce8dd8ff856c37dc8",
-      "src/lib/config.ts": "9fd766fdc903802eb2a1ccba1c6ef3a46645042ca036fd24e2ccbe518d9c4b1d",
+      "src/lib/config.ts": "c2ed0d9649c8afc3556fa6a889dbcf881ac8f725aba14b1464216143c5bed503",
       "src/lib/first-buy-payment.ts": "a085e28b65cc77910df0c5521ff82fdc0bec113ea3c5c1a42d24229d9e434883",
       "src/lib/first-buy-recovery.ts": "d953a4461bc5f1b10ff2775e4fc92b82cae4d50471c239e0c64e52ea6d2823b5",
       "src/lib/first-buy-wallet.ts": "109dfefad5e1b910f7d5cb20e5b5b4693f0e9377a0d3f7cd627ff959da0a6d48",
       "src/lib/launch-draft.ts": "9edc737a33556d253d08a88cec43efa4cf507000c2ee31eca325b320dbce1482",
-      "src/lib/launch-intent.ts": "e1bbe2b0a05a462ceae0bb35ccfca6d8b8e9aa7257269cf2598a8481232cd802",
-      "src/lib/launch-plan.ts": "044b789a3c6a960f0d03a80ada49fd9e480c56be3d04a5c0fcfe23ce4fe7af9f",
+      "src/lib/launch-intent.ts": "cfcfbb8f3d48650cf9de25690452cb5f1b8baa6b20ce18e3268dd6395fc0e2af",
+      "src/lib/launch-plan.ts": "42e50c478467e4ac2210ed10eee71f24a9111ab5677ae87178bdbd2e61cd3813",
       "src/lib/launch-wallet.ts": "48cd624a9877c9498e11f61a84b518e5beae41968e15831425e80b941f77ac9e",
       "src/lib/musegod.ts": "bc58fba772097db078d050819ca0a49b5a12919e34468ab396189c57d8b33ab7",
       "src/lib/opening-valuation.ts": "ba49731b0293e07b06f3af3c2e774bee9c80551189d075c56e59c9d9da141ffb",
@@ -109,7 +109,7 @@
       "tests/first-buy-wallet.test.ts": "6251dd588ed2aa74738ec1590ee6fdf483350431b46b23b1a5dff0eafb7272f4",
       "tests/launch-intent-lock.test.ts": "8cc84111021d58c7fcee087d112d833ee3a02f45b0edbb667454afe6d0d7387e",
       "tests/launch-resilience.test.ts": "0a4060c20a9383338ada838d9153963f2909d755bb6f5ebfafdd964f994e52dd",
-      "tests/launch-service.test.ts": "755d99a7936abf5077bc2b88cad398a96615111231f3106d5f58b77d3aee3df4",
+      "tests/launch-service.test.ts": "b6be36b9315e4c74d4a707f1ca095f5fda86d526b69922987d5eb742ada18741",
       "tests/launch-wallet.test.ts": "ed52109387a8cc8a7f7e2ed1dcb40284fdeb8aa5a3afba95c5a35dc8fc752c27",
       "tests/opening-price.test.ts": "f61898fcc54b6bdfb6af6f2095ed8112cf6a85001a928be42a52632a741c0113",
       "tests/quote-clock.test.ts": "bad3a656eedee89aefc84497f78ec2cdb5c101ed03760791edb21b717cfd0d70",
@@ -122,20 +122,23 @@
       "tests/runtime-safety.test.ts": "1d84d27946cd0b43a2215e93fd4cd6ce3611278a8b8f9ebdb45cbe595db4cdc8",
       "tests/runtime-worker.test.ts": "241804dbcf7b071fa89f2adaa09267150e3e82aa2cb232f56fc95a76c1b592ab",
       "tests/token-images.test.ts": "42799de4ba917b86321b6d9541f70601304b840f2637ea299f895d97fdb23c25",
-      "worker/index.ts": "1e7ea49c1efec978780b6865957541a9b74e8e57d5b955e7aeef3ed01d5a4616",
+      "worker/index.ts": "18ca52f19ce7e64e42a60e5c2c20a31eab114d251046953a7a85dbcf104fc100",
       "wrangler.jsonc": "80251d212e9987743616fa739147b0dbe298b4a26a8fb568f73486df0424df89",
-      "server/launch-policy-registry.ts": "dd22c1a557af9825880694038cce6d4c0ab227fb87e2fbfcd4f98b07fa03ad99",
-      "tests/go-live-regressions.test.ts": "0b6caaccc8c7a623d49df8bc9ba9731b6498010697732f2447c5618e258defd3",
-      "tests/launch-policy-registry.test.ts": "9f4438b1ea2ce0b3d08b9163ec4db415388cb4319c2bff07d08014d066afc8b8",
+      "server/launch-policy-registry.ts": "9bbb2704b0efdac152cf7470344f4deaa17d069bcc9e5f8f7130501614aefc70",
+      "tests/go-live-regressions.test.ts": "a663b9d69d08ea89f94844efba915ad8cc1f16469044ff6047c6be30e4ed9223",
+      "tests/launch-policy-registry.test.ts": "15b6a2fc8e001e0de799b0768e8c0ed578a4f32f54120849ec9fdf1266e8c097",
       "contracts/export-artifact.mjs": "b4a5209adedf22c93ef38c4244c598fb68a165d49eb9d53de7f3238d9935fc4d",
-      "tests/fixtures/buyback-oracle.runtime.hex": "102435abaae9a0fdb8f37c40d105e17d1e4dd2f7c53aa698f03eaf101d35ca55"
+      "tests/fixtures/buyback-oracle.runtime.hex": "102435abaae9a0fdb8f37c40d105e17d1e4dd2f7c53aa698f03eaf101d35ca55",
+      "server/plan-attestation.ts": "19372c08578d1b2c825aa3eabb03e4dd7d8301e524d597f0b44143b372918d93",
+      "src/lib/recovery-backoff.ts": "2a51637f0a26e396d39655e95700c4b50aabf647ea9a108f1ab0862e814316f2",
+      "tests/client-recovery-backoff.test.ts": "46a783852676e110544dde18683933b2cddf86d045f1a4cfbac3d31770161ed6"
     },
-    "sortedChangedFilesDigest": "a47a4d475b11e5cf5cd66cad8dee910c90208b07a979f2cbd1dc1183eb603aac",
+    "sortedChangedFilesDigest": "d2d637eb13176e4e656350e05efbb2799234a87df8c32418b9e74aff53438cb1",
     "digestEncoding": "Sorted relative path + NUL + lowercase SHA256 + newline. This evidence file itself is excluded to avoid a self-hash cycle.",
-    "hashScope": "Historical file snapshot from the 74aac0d independent review, including its documentation/evidence updates; this evidence file is excluded. Current rebased file hashes are recorded in source.synchronization and do not relabel the historical review results.",
-    "uncommittedChanges": "Only the six documentation/evidence files authorized for this review commit; no application/contract implementation modifications.",
-    "reviewedCommit": "74aac0d13f2e52e4aa07b9e62b0b0c587b2e3964",
-    "fixCommit": "a7ed56589411edac813e353ffca20a2aa61bbeae",
+    "hashScope": "Current exact-byte snapshot at038de6d of119 application, test, documentation and retained-evidence files. source.synchronization is a separate historical record of the1f97712 rebase, not the current verification result.",
+    "uncommittedChanges": "Only four review/evidence files are changed for the authorized evidence commit; application and contract implementation unchanged by the reviewer.",
+    "reviewedCommit": "038de6d0515f274955a686d36a2a54cbdc51ec52",
+    "fixCommit": "038de6d0515f274955a686d36a2a54cbdc51ec52",
     "removedFiles": [
       "contracts/artifacts/MusegodFeeEngine.compiler-input.json",
       "contracts/artifacts/MusegodFeeEngine.json",
@@ -183,7 +186,8 @@
         "fullAcceptanceRerun": false,
         "production": "not_run"
       }
-    }
+    },
+    "sortedChangedFilesDigestAlgorithm": "SHA-256 of paths sorted by JavaScript default string sort (all current paths are ASCII), concatenating each path + NUL + lowercase SHA-256 + LF; includes a final LF."
   },
   "approvedBounds": {
     "launchValidityVersion": 2,
@@ -927,11 +931,11 @@
     {
       "command": "npm test",
       "status": "passed",
-      "tests": 560,
+      "tests": 569,
       "failed": 0,
       "skipped": 0,
-      "log": ".cache/independent-74aac0d-node.log",
-      "logSha256": "aff05da090ee1c0f7e06a8fcc360190bde7e36f4bfd8253ef8bcf7378acdbe1a"
+      "log": ".cache/independent-038-node.log",
+      "logSha256": "f7fe9c0a4119a9307f1ccc66dd5e7c62778e2fe6b4243620a689474ea58b9daa"
     },
     {
       "command": "forge test --root contracts",
@@ -939,8 +943,8 @@
       "tests": 143,
       "failed": 0,
       "skipped": 0,
-      "log": ".cache/independent-74aac0d-forge.log",
-      "logSha256": "44288e167a7c7ef992bc1fc0bb5ee79f2072835ffb36bb0df182771a6c339a49"
+      "log": ".cache/independent-038-forge.log",
+      "logSha256": "801e435aabd88e1c4c589739f94e0f10c0cf6b032f1453acb21f875a33dfeb59"
     },
     {
       "command": "npm run build",
@@ -950,33 +954,40 @@
         "tsc --noEmit -p tsconfig.worker.json",
         "vite build"
       ],
-      "log": ".cache/independent-74aac0d-build.log",
-      "logSha256": "96e74cd79146fe418d306a71569ce6e14997ab32724bac05f0c8a40d5e7aec5f"
-    },
-    {
-      "command": "Independent six-artifactSolc0.8.24 reproduction and17-source closure",
-      "status": "passed",
-      "reviewer": "Codex independent_buyback_7d34"
+      "log": ".cache/independent-038-build.log",
+      "logSha256": "973cdbecb5dbf75e85ddf59560aee7d104f3d22a31bb2a3c7d7aad815588839d"
     },
     {
       "command": "WRANGLER_SEND_METRICS=false wrangler versions upload --dry-run",
       "status": "passed",
       "uploaded": false,
       "deployed": false,
-      "log": ".cache/independent-74aac0d-worker-build.log",
-      "logSha256": "5d8c894aa8f57327aabcca5416f27eef184101b193947a67dddef2266f691fc6"
+      "log": ".cache/independent-038-worker-build.log",
+      "logSha256": "46463066838e5454e4598e0714a9e4bb63abab4f0c26767c28598324de9d2992"
     },
     {
-      "command": "Independent recovery owner/policy probes with address-specific verified implementation",
-      "status": "changes_required",
-      "report": ".cache/independent-74aac0d-recovery-probes.json",
-      "reportSha256": "a34cc73ba49a09283a22426033c034b2af2e9e01630e607420b388188f2c1bed"
-    },
-    {
-      "command": "Independent runtime40 targeted tests + realworkerd10/20s and real8s fallback",
+      "command": "npm run test:launch-browser",
       "status": "passed",
-      "report": ".cache/independent-a7-runtime-summary.json",
-      "reportSha256": "1fbc5ffdb7d6a59db825209c8ffe98c5ee6fc257213306f342808fc975d1a73b"
+      "checks": 38,
+      "desktopChecks": 37,
+      "mobileLayoutChecks": 1,
+      "log": ".cache/independent-038-browser.log",
+      "logSha256": "e95df5d826172da5558c080c92f4d829565ce336e38326963a5b290a06a9f126"
+    },
+    {
+      "command": "Independent sixSolc0.8.24 artifact reproductions and17-source closure",
+      "status": "passed",
+      "reviewer": "Codex independent_buyback_7d34"
+    },
+    {
+      "command": "Supplemental recovery/provenance/cutover/client fixtures",
+      "status": "changes_required",
+      "limitation": "Synthetic chain/RPC and localSQLite fault injection, not an observed production attack/reorg/outage."
+    },
+    {
+      "command": "Repository HMAC helper in localworkerd with synthetic key",
+      "status": "passed",
+      "report": ".cache/independent-038-native-attestation.json"
     },
     {
       "command": "git diff --check",
@@ -986,9 +997,9 @@
   "localFrontendArtifact": {
     "schemaVersion": 1,
     "repository": "https://github.com/MuseCity/musegodfun",
-    "commit": "74aac0d13f2e52e4aa07b9e62b0b0c587b2e3964",
+    "commit": "038de6d0515f274955a686d36a2a54cbdc51ec52",
     "source": "local",
-    "dirty": true,
+    "dirty": false,
     "buildId": null,
     "runUrl": null,
     "releaseUrl": null,
@@ -1191,17 +1202,17 @@
       "/asset-logos/XOM.png": "0f08fc3d81158008223aca2110184b728b2bc5d48eb142bd0e58f8794279d1b4",
       "/asset-logos/ZM.png": "696cfa2df37de7a09c767a59d45aef19834775a14f64b984cc86850dcc654972",
       "/asset-logos/ZS.png": "a7e0def27fa522abfa9e943e4c98c7fca6b0c84b3652a6621bd8c224d0c79f30",
-      "/assets/ccip-qsm2Mjlr.js": "e678ecab64a0d0972f673197c0ccfdd9f2acdd4b6f91a88fea9da6f5eb6e9f24",
+      "/assets/ccip-D_4mJBRW.js": "cc14a9e65ee945f855f371fad7b0ccb98dbcc82c89c9f31f86507353acb7916d",
       "/assets/index-1v82cpLg.css": "0166ca7a1535bf7a906ee039b9894e744660529711c3a69523baa07a01b6a0a7",
-      "/assets/index-B1Wd0R1r.js": "9ba6d617267ba8539d7ba9a0df3de22d116ea02397a62459d02a56fb3937c014",
-      "/assets/PriceChart-8IqO4_V-.js": "3bdb9ce006acbeb5c9e806100effbee9da039576551fe13cc9ba4c38552766fc",
+      "/assets/index-DAKzPb8r.js": "44f05eed4f75717acf2e73acc7840788e642fd97a75d9ee267ef3c82a24c3aa7",
+      "/assets/PriceChart-BM1Pn-LU.js": "579cea9aedb61bdd3e213a959180a0b3fb0905b7c51e1ef823713671401a70ca",
       "/favicon.svg": "6a5152525b72e3ce020b60073afcfb312bd691c724af34de1fa6ab75467dde6b",
-      "/index.html": "e854a838289e6281506e458919f9fcace3187fae0dc1a9f8a2177b6a94d8123e"
+      "/index.html": "925fa026c93a1b6cf920b8cb1bf78293c54aa9ca91739be466c78078438c6359"
     }
   },
   "browser": {
     "scope": "Local Chromium UI with injected mock wallet/API/RPC and reference-price fixtures, scoped to Robinhood fork and No lock. Cross-tab checks use separate browser pages sharing one origin and storage. No real-wallet, conversion or chain settlement proof.",
-    "observedAt": "2026-10-07T14:25:00.069Z",
+    "observedAt": "2026-10-08T01:04:30.290Z",
     "origin": "http://127.0.0.1:5191",
     "checks": [
       {
@@ -1506,6 +1517,22 @@
         "status": "passed"
       },
       {
+        "mode": "token_detail_invalid_pool",
+        "viewport": "desktop",
+        "walletCalls": 0,
+        "plans": 1,
+        "partialCatalogDidNotHideToken": true,
+        "status": "passed"
+      },
+      {
+        "mode": "token_detail_unverified_opening",
+        "viewport": "desktop",
+        "walletCalls": 0,
+        "plans": 1,
+        "partialCatalogDidNotHideToken": true,
+        "status": "passed"
+      },
+      {
         "mode": "success",
         "viewport": "mobile 390x844",
         "walletCalls": 2,
@@ -1518,25 +1545,20 @@
       ".cache/launch-scoped-browser-mobile-review.png"
     ],
     "productionPublication": "not_run",
-    "recordSha256": "8a28360980636efe27e90b4e35126a9a4130c179ddb3b9eb93f60e5b85f002f8",
+    "recordSha256": "b85667f9c6f834c97ab2409e52fb395baa928e803d37d4c45b74aaa2d1b17f3b",
     "actualSigning": "not_run",
     "chainSettlement": "not_run",
     "sourceHashes": {
-      "src/App.tsx": "c547b0402dca349df22b0aeb4d368272eca408fbf2598a407697c29a5f71358a",
+      "src/App.tsx": "84d9f41665eea42e3346a87bff9155c3f5f73e0f0c746021baac0f89bbea940f",
       "src/lib/wallet.tsx": "cf29e233db542d6d083d7d813d154c7389d9a1cab8ede097cde35db4e6a0f722",
       "src/lib/first-buy-payment.ts": "a085e28b65cc77910df0c5521ff82fdc0bec113ea3c5c1a42d24229d9e434883",
-      "scripts/test-launch-browser.mjs": "e068932e35cf1680ff903bb12daa838fef53e12fa4f6cee21c3fc4088b63e899"
+      "scripts/test-launch-browser.mjs": "0957f373c7f5386c4874d2ca830b4f86672c67c12f734cd84d963e15af3ba31b"
     },
-    "carriedForward": {
-      "fromReviewedCommit": "7d34c86969f0378d4c632dca6038e8db71a6cf65",
-      "compatibilityCheckedAt": "2026-10-07T22:52:18.179Z",
-      "rerun": false,
-      "reason": "Frontend and browser-harness source hashes are unchanged. Its36 injected wallet/API/RPC checks do not exercise the new server fixes; current service/workerd evidence is separate."
-    }
+    "serverCoverageLimitation": "BrowserAPI/RPC are injected. These38 passes do not cover the real register persistence/reorg cache or prove production wallet behavior."
   },
   "isolatedBuybackEvidence": {
     "docs/evidence/buyback-v2-fork.json": {
-      "sha256": "c32855ec2279ef7780e7853582e16c1b83d81626f26e91e8df101ed61f31de9b",
+      "sha256": "0a65269d2c5bc4cf84496e1f7474232439e1d0d383478e2eb48cc8c6036e84a8",
       "scope": "Isolated Robinhood fork, actual deployed Doppler, Splits and AMMs; no mainnet writes",
       "observedAt": "2026-10-07T14:25:00.557Z",
       "upstreamChainId": 4663,
@@ -1562,14 +1584,14 @@
         "scope": "Actual repository-default binary on loopback Robinhood fork. All upstream traffic passes the test harness read-only proxy; this metadata is not production execution proof."
       },
       "retainedCompatibility": {
-        "reviewedCommit": "74aac0d13f2e52e4aa07b9e62b0b0c587b2e3964",
-        "observedAt": "2026-10-07T22:52:18.179Z",
+        "reviewedCommit": "038de6d0515f274955a686d36a2a54cbdc51ec52",
+        "observedAt": "2026-10-08T01:27:34.585Z",
         "rerun": false,
-        "checks": "Exact retained producer/config/six production artifact SHA match; six compiler inputs independently reproduced withSolc0.8.24 and17 source closures match. This records compatibility, not a new fork execution or current price/profitability acceptance."
+        "checks": "Retainedfork82540890 producer/config/six artifact hashes match. SixSolc0.8.24 outputs and17 Solidity closures were independently revalidated. This is compatibility of retained execution evidence, not a new fork or current market/native scheduler proof."
       }
     },
     "docs/evidence/buyback-v2-fee-custody.json": {
-      "sha256": "33e84818e3bf264f636230b17422915666755af581b24f01057edb536045e111",
+      "sha256": "093afab872fc9af4ae4c9df745a580d1de8a577898be5e0a601d834ec9da1d19",
       "scope": "Fresh isolated actual Doppler claim/release custody receipts from the reviewed V2 source",
       "observedAt": "2026-10-07T14:34:26.726Z",
       "upstreamChainId": 4663,
@@ -1591,10 +1613,10 @@
         "scope": "Actual repository-default binary on loopback Robinhood fork. All upstream traffic passes the test harness read-only proxy; this metadata is not production execution proof."
       },
       "retainedCompatibility": {
-        "reviewedCommit": "74aac0d13f2e52e4aa07b9e62b0b0c587b2e3964",
-        "observedAt": "2026-10-07T22:52:18.179Z",
+        "reviewedCommit": "038de6d0515f274955a686d36a2a54cbdc51ec52",
+        "observedAt": "2026-10-08T01:27:34.585Z",
         "rerun": false,
-        "checks": "Exact retained producer/config/six production artifact SHA match; six compiler inputs independently reproduced withSolc0.8.24 and17 source closures match. This records compatibility, not a new fork execution or current price/profitability acceptance."
+        "checks": "Retainedfork82540890 producer/config/six artifact hashes match. SixSolc0.8.24 outputs and17 Solidity closures were independently revalidated. This is compatibility of retained execution evidence, not a new fork or current market/native scheduler proof."
       }
     },
     "docs/evidence/buyback-v2-vault-fixture.json": {
@@ -1611,9 +1633,9 @@
       "gasProfitabilityProven": false
     },
     "docs/evidence/buyback-v2-review.json": {
-      "sha256": "2b61191bcfff400c0c47e8f980316a8ee44a1cd9c0cb870a0b9c4037a44cfcf4",
+      "sha256": "30553da34492c97a7bcac564d159eb03bbc99710fc50e55264db13046083392d",
       "scope": "Internal independent source review and isolated execution evidence only. This is a source-integrity gate for a subsequently explicitly authorized deployment; it grants no deployment, publication, signing, funding, treasury approval or production activation authority.",
-      "observedAt": "2026-10-07T22:52:18.179Z",
+      "observedAt": "2026-10-08T01:27:34.585Z",
       "status": "passed_source_integrity_only"
     },
     "docs/evidence/buyback-v2-accounting-gas.json": {
@@ -1624,7 +1646,7 @@
     }
   },
   "proofBoundaries": [
-    "Browser36 (35 desktop and one mobile layout check) uses production application/wallet code with injected wallet/API/RPC/price fixtures. Mobile390x844 is responsive logic, not a real mobile wallet signature. Long idle/hidden and legacy wrap1 near-expiry scenarios preserve a single business confirmation and original floors.",
+    "Browser38 (37 desktop and one mobile layout check) uses production application/wallet code with injected wallet/API/RPC/price fixtures. Mobile390x844 is responsive logic, not a real mobile wallet signature. Long idle/hidden and legacy wrap1 near-expiry scenarios preserve a single business confirmation and original floors.",
     "Actual Node HTTP backup/body/parallel-NAT regressions cover the route-to-service boundary. The real SDK maximal complete backup exceeds64KiB and is transmitted unchanged under recovery-only256KiB. Canonical chain verification remains in separate service tests and isolated forks.",
     "Retained independent Robinhood fork82540890, observedAt2026-10-07T14:25:00.557Z, uses the repository-default binary, actual dependency code and local31337. fullWethFeeBurnFlowPassed=true; settlement safety/unpriced/source-forwarding pass. It was not rerun for74aac0d and is not mainnet or native scheduler execution.",
     "Retained fee-custody raw receipts come from the same2026-10-07 isolated fork producer, matching initializer/Rehype-to-Engine transfers and claim/release log order. They were not rerun for74aac0d and do not prove a native external scheduler ran.",
@@ -1639,11 +1661,14 @@
     "Passing immediate RPC-error browser fixtures does not prove slow/hanging-RPC degradation. The historical7d34c86 timing probe exposed a metadata deadline issue; a7ed565 added the8000ms fallback, independently revalidated at74aac0d. IR4 is resolved.",
     "Caller-authored recovered opening valuations plus a canonical block are not authenticated USD-price evidence. Reference availability/divergence remains separate from successful transaction correctness.",
     "Historical owner/Engine policy probes are synthetic read-only fixtures, not proof of a real malicious transaction or current historical ownership rotation.",
-    "The36 prior Chromium checks are carried forward only because their four source hashes are unchanged; no browser rerun or new real-wallet evidence is claimed at74aac0d.",
-    "The current runtimefix was independently exercised in localworkerd with ordinary and recovery streaming requests, and a synthetic token service with the real8000ms deadline. This does not establish deployedCloudflare or publicRPC behavior.",
-    ">=5% recovery candidates are supported by address-specific initializer source/runtime evidence, not just ABI error names. A successful end-of-block owner read still differs from transaction-position ownership after a same-block transfer.",
     "No new largefork was run for74aac0d: retained fork82540890 keeps its original observedAt and actual execution limits. Only producer/config/artifact compatibility was revalidated.",
-    "Future replacement of the single V2 manifest needs reviewed Engine trust windows and historical recovery retention. Current code does not implement Engine toBlock import; this is a future-release limitation, not an existing V2 deployment or fund-authority change."
+    "Future replacement of the single V2 manifest needs reviewed Engine trust windows and historical recovery retention. Current code does not implement Engine toBlock import; this is a future-release limitation, not an existing V2 deployment or fund-authority change.",
+    "CurrentChromium38 uses injected wallet/API/RPC, including unverified-opening display and invalid-pool behavior. It does not prove real-service provenance, DB partial-write recovery or real desktop/mobile wallets.",
+    "The new HMAC covers deploymentchain plus calldata digest, including embedded full opening evidence/curve/fee routing; it proves platform preparation, not objective LI.FI price accuracy. Existing savedPlan storage mixes recovered and prepared data and currently defeats that provenance on retries/restore.",
+    "Supplemental SQLite fixtures distinguish incorrect duplicate API return from existing rows: ignore-duplicates preserves an existing unverified row; partial token-save failure or removal followed by re-registration can insert an incorrectly verified row. Supabase persistence implication is static-code evidence only, with no remote database write/read.",
+    "Long-lived recovery/cutover caches have mutable canonical-state gaps. Currentreceipt identity is still checked; tests did not observe a real production reorg.",
+    "Local attestation key presence/length were checked without content, entropy or realWorker binding verification. Nativeworkerd crypto used only a synthetic fixture key.",
+    "Retainedfork82540890 remains dated2026-10-07T14:25:00.557Z. This turn checks source/artifact/config compatibility only; neither it nor older stable-time/accounting fixtures are new market/profitability or scheduler proof."
   ],
   "production": {
     "status": "not_run",
@@ -2098,383 +2123,260 @@
     "limitation": "Historical snapshot from the previous remediation; not current acceptance for7d34c86."
   },
   "independentReview": {
-    "reviewedCommit": "74aac0d13f2e52e4aa07b9e62b0b0c587b2e3964",
-    "fixCommit": "a7ed56589411edac813e353ffca20a2aa61bbeae",
-    "observedAt": "2026-10-07T22:52:18.179Z",
+    "reviewedCommit": "038de6d0515f274955a686d36a2a54cbdc51ec52",
+    "observedAt": "2026-10-08T01:27:34.585Z",
     "status": "changes_required",
     "buybackSourceGate": "passed",
     "reviewers": [
       "Codex independent_buyback_7d34",
       "Codex independent_recovery_7d34",
+      "Codex attestation_038",
       "Codex independent_runtime_7d34",
       "Codex root"
     ],
     "findings": [
       {
-        "id": "IR1",
-        "priority": "P2",
-        "status": "production_resolved_local_fork_regression",
-        "file": "server/launch-policy-registry.ts",
-        "line": 47,
-        "requiredBeforeJointOpening": false,
-        "title": "V1 production routing closed; explicit local-fork V1 remains accepted",
-        "detail": "Production trusts only the V2 deployment manifest, so configured V1 and the default pending manifest cannot register new V1 launches. The74aac0d cleanup removed a7ed565's V1-null window guard; explicitly configured local31337 forks again accept V1 at block1,81459143 and999999999. This is an operator-configured loopback fork discrepancy, not a mainnet routing bypass.",
-        "remediation": "If retaining the promised V1 rejection in local forks, exclude the never-activated V1 from the existing fork exception. Future Engine replacement needs an explicit reviewed historical-routing design; current code has no usable Engine toBlock import.",
-        "requiredForClaimedForkParity": true
-      },
-      {
-        "id": "IR2",
-        "priority": "P2",
-        "status": "resolved",
-        "file": "server/opening-price.ts",
-        "line": 114,
-        "requiredBeforeJointOpening": false,
-        "title": "Advisory reference becomes a recovery-only hard gate",
-        "detail": "Recovery retains canonical snapshot-block identity but reference divergence returns advisory data. service logs recovery_reference_divergence above500bps without blocking an already verified creation. The former20% hard exception is removed.",
-        "remediation": "No remaining change required for this item; unsigned recovered USD metadata remains unauthenticated price evidence."
-      },
-      {
-        "id": "IR3",
-        "priority": "P2",
-        "status": "partially_resolved_same_block_post_state",
-        "file": "server/launch-verification.ts",
-        "line": 165,
-        "requiredBeforeJointOpening": true,
-        "title": "Successful end-of-block owner read can still reject a correct creation backup",
-        "detail": "Archive failure now returns null and safely tries >=5% beneficiaries from the exact canonical calldata; no current-owner fallback remains. Address-bound Robinhood/Base initializer implementations enforce this candidate premise. But when the historical read succeeds after a later ownership transfer in the same receipt block, the helper attempts only that post-state owner. A pureSDK fixture accepts the original owner or null candidates and rejects the same backup with the successful post-state owner.",
-        "remediation": "Do not treat block-end owner as conclusive transaction-position evidence. Preserve transaction-bound >=5% candidates when a historical owner result does not reconstruct the exact create parameters; retain independent trusted fee routing and full calldata/receipt checks. Add a successful-read/same-block-transfer regression."
-      },
-      {
-        "id": "IR4",
-        "priority": "P2",
-        "status": "resolved",
+        "id": "IR038-PROVENANCE",
+        "priority": "P1",
+        "status": "confirmed_api_and_fault_injected_sqlite_persistence",
         "file": "server/service.ts",
-        "line": 713,
-        "requiredBeforeJointOpening": false,
-        "title": "Slow state reads outrun token metadata fallback",
-        "detail": "Default token state deadline is8000ms. Independent real-timer service fixture returns stored metadata,state:null at8003ms; late RPC rejection is handled and late success cannot overwrite the fallback. Fast state reads preserve their result.",
-        "remediation": "No remaining change required; this verifies service timing with synthetic metadata/state, not a public-RPC or real-browser outage."
+        "line": 666,
+        "requiredBeforeJointOpening": true,
+        "title": "Stored recovery plans are incorrectly promoted to platform-generated provenance",
+        "detail": "Recovery writes its caller-supplied but canonical-reencoded plan into the normal saved-plan store. Later registration treats any savedPlan as attested. Ordinary duplicate registrations return the wrong verified flag but INSERT/ignore-duplicates preserves the existing unverified token. ActualSQLite fixture shows persistent mislabeling when savePlan succeeds and saveToken temporarily fails, or when the token is removed before re-registration: retry inserts a verified token without a valid HMAC.",
+        "remediation": "Persist server-controlled prepared/recovered/unknown provenance outside caller-controlled plan fields. Trust genuinely prepared records or a valid HMAC, not merely savedPlan existence. Do not migrate all historical/imported records to prepared; preserve unverified status across partial writes, reorgs and database restore."
       },
       {
-        "id": "IR5",
+        "id": "IR038-CACHE",
+        "priority": "P2",
+        "status": "confirmed_full_register_with_synthetic_chain_reorg",
+        "file": "server/service.ts",
+        "line": 547,
+        "requiredBeforeJointOpening": true,
+        "title": "Transaction-hash-only evidence caches survive receipt identity and canonical-state changes",
+        "detail": "Successful and RecoveryEvidenceError results live600000ms under transaction hash alone. Fixture passes evidence then fails poolRPC before storage; the same transaction is re-mined with a new receipt block/hash and an orphaned price snapshot. Cached service registers without rechecking the snapshot while a fresh instance rejects it. Negative block-hash mismatch also remains cached after chain/RPC convergence. Current receipt canonical verification still runs; this does not bypass every transaction check.",
+        "remediation": "Bind cached chain evidence to receipt block number/hash and revalidate canonical identity unless anchored to sufficiently finalized state. Treat mutable block-hash mismatches as retryable rather than long-lived deterministic input errors. Keep bad JSON outside the shared budget and do not add per-transaction attempt ceilings."
+      },
+      {
+        "id": "IR038-CUTOVER",
+        "priority": "P2",
+        "status": "confirmed_service_prototype_reorg_probe",
+        "file": "server/service.ts",
+        "line": 520,
+        "requiredBeforeJointOpening": true,
+        "title": "Cutover canonicality is memoized indefinitely without finality or revalidation",
+        "detail": "After one successful read, identical cutover fields bypass all later block reads. A pure probe changes the canonical hash and the second call still succeeds with totalreads1. The fixed timestamp and exclusive360s grace boundary are otherwise implemented. The current manifest has no cutover; this is a required safeguard before enabling it.",
+        "remediation": "Recheck canonical cutover identity or restrict long-lived caching to a verified finalized checkpoint. Enforce or explicitly validate the operational prerequisite that the Engine is configured/activated before setting the marker; CLI preserves the field but neither validates it nor binds it in the activation fingerprint."
+      },
+      {
+        "id": "IR038-RETRY_AFTER",
+        "priority": "P2",
+        "status": "confirmed_actual_client_control_flow_probe",
+        "file": "src/components/TransactionHistory.tsx",
+        "line": 245,
+        "requiredBeforeJointOpening": true,
+        "title": "Track errors discard the server-requested long recovery wait",
+        "detail": "launch/track catches and discards its ApiError. Probe receivesRetry-After60 fromtrack, then receipt lookup fails, so per-record backoff is only15000ms. Other intents continue and due records are skipped correctly, but the server wait is not preserved.",
+        "remediation": "Propagate or record the track Retry-After when determining that record's next background attempt without preventing a valid backup from recovering after unrelated track failures. Preserve manual retry and avoid making one record stop other intents."
+      },
+      {
+        "id": "IR038-MANUAL_BACKOFF",
         "priority": "P3",
-        "status": "resolved",
-        "file": "server/http-security.ts",
-        "line": 27,
+        "status": "confirmed_nonterminal_manual_check_probe",
+        "file": "src/components/TransactionHistory.tsx",
+        "line": 363,
         "requiredBeforeJointOpening": false,
-        "title": "Body cancellation sends500 instead of structured408",
-        "detail": "Shared readBoundedBody handles cancellation whether pending reads resolve or reject. Real localworkerd ordinary bodies return408JSON at10.658-10.664s and recovery at20.651-20.653s. Same-source class slots release; simultaneous page reads remain available. Node size413/exact-bound/timer cleanup pass.",
-        "remediation": "No remaining change required for this item."
+        "title": "Check again succeeds without clearing an existing background backoff",
+        "detail": "Manual checking bypasses due as intended. A real client control-flow fixture with one-confirmation receipt returnspending normally yet keeps the prior ten-minute due time; Resume lookup clears it. Settled/registered rows leave the background queue, so this is not a claim that manual recovery is blocked.",
+        "remediation": "Make successful manual Check again clear the record's backoff consistently, including a normal nonterminal result."
       }
     ],
     "requiredBeforeJointOpening": [
-      "IR3"
+      "IR038-PROVENANCE",
+      "IR038-CACHE",
+      "IR038-CUTOVER",
+      "IR038-RETRY_AFTER"
     ],
-    "remainingLocalForkParity": [
-      "IR1"
+    "closedEarlierFindings": [
+      {
+        "id": "IR1",
+        "status": "resolved_by_d04d3aa_all_modes_manifest_only"
+      },
+      {
+        "id": "IR3",
+        "status": "resolved_by_d04d3aa_transaction_bound_owner_candidates"
+      }
     ],
-    "recoveryProbeEvidence": {
-      "path": ".cache/independent-74aac0d-recovery-probes.json",
-      "sha256": "a34cc73ba49a09283a22426033c034b2af2e9e01630e607420b388188f2c1bed",
-      "report": {
-        "schemaVersion": 1,
-        "recordedAt": "2026-10-07T22:49:02.958Z",
-        "reviewedCommit": "74aac0d13f2e52e4aa07b9e62b0b0c587b2e3964",
-        "comparisonCommit": "a7ed565",
-        "reviewer": "independent_recovery_7d34",
-        "evidenceKind": "source_review_pure_fixtures_and_address_specific_sourcify_runtime",
-        "limitations": {
+    "passedCurrentParts": [
+      "Twenty altered drafts fail CPU reencoding before sharedbudget/cache; validbackup remains immediately recoverable",
+      "Per-transaction attempt ceiling removed; RPC failureTTL15s and capacityrefusalTTL0",
+      "HMAC binds fullcalldata; nativeworkerd primitive/current+previous/crosschain/missingkey cases checked",
+      "Fixed cutover timestamp +360s exclusive receipt grace; Base unaffected",
+      "Per-task keeperfailedGas.001ETH and attempt.002ETH unchanged; scope/strict<.003ETH clarified",
+      "Unverified opening UI is advisory and adds no wallet signature or business confirmation"
+    ],
+    "localProbeEvidence": {
+      ".cache/independent-038-recovery-probes.json": {
+        "sha256": "32eff93223244c1842bac909097f377c9cf361844881fb6fb2025f6d03841e4c",
+        "report": {
+          "schemaVersion": 1,
+          "inspectedCommit": "038de6d0515f274955a686d36a2a54cbdc51ec52",
+          "evidenceKind": "pure_local_service_and_sdk_fixtures",
+          "actualChainAttackDemonstrated": false,
           "productionRpcUsed": false,
-          "realChainAttackDemonstrated": false,
           "signingUsed": false,
           "fundsUsed": false,
-          "largeForkRerun": false,
-          "applicationSourceModified": false,
-          "targetedRegressionTestsNotRunByThisAgentThisTurn": true,
-          "fixtureScriptsDeliveredViaStdin": true,
-          "fullServiceRegisterInvokedByTheseProbes": false
-        },
-        "findings": [
-          {
-            "id": "IR1",
-            "part": "production_v1_routing",
-            "classification": "acceptable_resolved_at_74aac0d",
-            "detail": "Production default registry and raw configured V1 reject receipt block999999999. V2 manifest is pending and grants no Engine route."
-          },
-          {
-            "id": "IR1",
-            "part": "fork_v1_routing",
-            "classification": "confirmed_local_policy_regression",
-            "file": "server/launch-policy-registry.ts",
-            "line": 47,
-            "requiredByExistingReviewScope": true,
-            "observations": [
-              {
-                "mode": "fork",
-                "receiptBlock": "1",
-                "engine": "V1",
-                "result": "accepted"
-              },
-              {
-                "mode": "fork",
-                "receiptBlock": "81459143",
-                "engine": "V1",
-                "result": "accepted"
-              },
-              {
-                "mode": "fork",
-                "receiptBlock": "999999999",
-                "engine": "V1",
-                "result": "accepted"
-              }
-            ],
-            "detail": "74aac0d removes the a7ed565 explicit V1 null trust window guard from the raw configured fork route."
-          },
-          {
-            "id": "IR1",
-            "part": "retirement_window_and_history",
-            "classification": "confirmed_capability_removal_conditional_future_release_impact",
-            "file": "server/launch-policy-registry.ts",
-            "line": 44,
-            "observations": [
-              {
-                "suppliedManifestToBlock": "95000000",
-                "receiptBlock": "94999999",
-                "result": "accepted"
-              },
-              {
-                "suppliedManifestToBlock": "95000000",
-                "receiptBlock": "95000000",
-                "result": "accepted"
-              },
-              {
-                "suppliedManifestToBlock": "95000000",
-                "receiptBlock": "999999999",
-                "result": "accepted"
-              },
-              {
-                "historicalEngine": "A",
-                "historicalReceiptBlock": "94000000",
-                "currentManifest": "A from90000000",
-                "result": "accepted"
-              },
-              {
-                "historicalEngine": "A",
-                "historicalReceiptBlock": "94000000",
-                "currentManifest": "B from95000000",
-                "result": "rejected"
-              }
-            ],
-            "detail": "The comment requires a future toBlock, but EngineManifest has no toBlock and manifest-derived policy ignores it. Replacing the single manifest drops the previous Engine history. No actual V2 activation or future Engine upgrade is claimed."
-          },
-          {
-            "id": "IR2",
-            "classification": "acceptable_resolved_in_source_at_a7ed565_and_74aac0d",
-            "files": [
-              "server/opening-price.ts:103-117",
-              "server/service.ts:543-545"
-            ],
-            "detail": "Reference divergence returns data and console.warn for operators; the recovery-only20% exception has been removed. Canonical block identity remains a hard check. Caller unsigned USD metadata is still not authenticated price evidence."
-          },
-          {
-            "id": "IR3",
-            "part": "historical_read_failure",
-            "classification": "acceptable_resolved_for_unavailable_state",
-            "files": [
-              "server/service.ts:513-516",
-              "server/launch-verification.ts:165-166"
-            ],
-            "observations": [
-              {
-                "ownerArgument": "original old owner",
-                "result": "accepted"
-              },
-              {
-                "ownerArgument": null,
-                "result": "accepted"
-              }
-            ],
-            "detail": "The fallback no longer reads current owner; >=5% candidates come from transaction-bound immutable beneficiaries, and their runtime enforcement premise is now supported by address-specific verified implementation evidence."
-          },
-          {
-            "id": "IR3",
-            "part": "same_block_post_state",
-            "classification": "confirmed_sdk_fixture_false_rejection",
-            "file": "server/launch-verification.ts",
-            "line": 165,
-            "requiredByExistingReviewScope": true,
-            "observations": [
-              {
-                "historicalOwnerReadStatus": "success",
-                "receiptBlock": "10",
-                "ownerReturned": "0x5555555555555555555555555555555555555555",
-                "originalCreationOwner": "0x3333333333333333333333333333333333333333",
-                "result": "rejected",
-                "error": "The local recovery preview does not match the full canonical creation parameters."
-              }
-            ],
-            "detail": "A successful receipt-block owner read returns end-of-block state. Later same-block transfer can change it after creation. Since non-null owner uses only one candidate, a correct backup is rejected. server/service.ts and server/launch-verification.ts are identical between a7ed565 and74aac0d."
-          }
-        ],
-        "ownerCandidateImplementationProof": {
-          "summaryPath": ".cache/independent-74aac0d-recovery-source/summary.json",
-          "summarySha256": "5025a8cea8f35c8f756ad60dffc257dbecc80fbae1c67da0c6f009b88f4237a9",
-          "robinhoodInitializer": "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544",
-          "runtimeHash": "0xc41a91106002f15bf70ae266824317f3f3ac638ac72ca5253bae395fa47ee631",
-          "runtimeHashMatchesHistoricalReadProof": true,
-          "immutableReferenceCount": 27,
-          "patchedRecompiledRuntimeExactlyMatchesRecordedOnchain": true,
-          "controlPath": [
+          "sourceModified": false,
+          "store": "in-memory stub; this probe focuses on real register/cache control flow",
+          "results": [
             {
-              "file": "src/initializers/DopplerHookInitializer.sol",
-              "line": 215,
-              "check": "initialize only callable by bound immutable Airlock"
+              "id": "cpu_rejection_before_budget_and_bad_cache",
+              "rejectedVariants": 20,
+              "sharedBudgetInitializedByBadVariants": false,
+              "evidenceCacheInitializedByBadVariants": false,
+              "badVariantEvidenceBlockReads": 0,
+              "correctBackupRegisters": true
             },
             {
-              "file": "src/initializers/DopplerHookInitializer.sol",
-              "line": 247,
-              "check": "nonempty immutable beneficiaries passed with airlock.owner() and MIN_PROTOCOL_OWNER_SHARES"
+              "id": "positive_cache_survives_receipt_reorg",
+              "firstFailureAfterEvidence": "temporary pool RPC",
+              "savedPreviewAbsentBeforeRetry": true,
+              "evidenceSuccessTtlMs": 600000,
+              "remintedReceiptBlock": "12",
+              "currentReceiptCanonical": true,
+              "oldValuationBlockHashNowNoncanonical": true,
+              "cachedServiceRetry": "registered",
+              "valuationBlockRecheckedOnRetry": false,
+              "freshServiceRetry": "rejected_noncanonical_valuation",
+              "currentReceiptMismatchStillRejected": true
             },
             {
-              "file": "src/base/FeesManager.sol",
-              "line": 133,
-              "check": "forwards the actual beneficiaries, protocol owner and minimum to storeBeneficiaries"
+              "id": "negative_cache_survives_chain_or_rpc_convergence",
+              "firstFailure": "noncanonical valuation block",
+              "ttlMs": 600000,
+              "receiptIdentityChanged": true,
+              "quoteBlockNowCanonical": true,
+              "cachedServiceRetry": "still_rejected_without_recheck",
+              "freshServiceRetry": "registered"
             },
             {
-              "file": "src/types/BeneficiaryData.sol",
-              "line": 23,
-              "check": "MIN_PROTOCOL_OWNER_SHARES = WAD / 20"
-            },
-            {
-              "file": "src/types/BeneficiaryData.sol",
-              "line": 67,
-              "check": "on matching protocol owner address, require shares >= minimum"
-            },
-            {
-              "file": "src/types/BeneficiaryData.sol",
-              "line": 83,
-              "check": "require protocol owner found in actual beneficiaries"
+              "id": "ordinary_transport_error_short_retry_cache",
+              "ttlMs": 15000,
+              "immediateRetrySharesFailure": true,
+              "retryAfterArtificialExpiry": "registered"
             }
-          ],
-          "robinhoodAirlock": {
-            "label": "robinhood-airlock",
-            "chainId": 4663,
-            "address": "0xeb7c034704ef8dcd2d32324c1545f62fb4ad0862",
-            "url": "https://sourcify.dev/server/v2/contract/4663/0xeb7c034704ef8dcd2d32324c1545f62fb4ad0862?fields=all",
-            "runtimeMatch": "match",
-            "creationMatch": "match",
-            "verifiedAt": "2026-09-30T18:03:48Z",
-            "compilationName": "Airlock",
-            "onchainRuntimeHash": "0x86b37100cbe9841771c452a592985b4e921254b127a380246073b84ec953f7f8",
-            "immutablesPatchedRuntimeExactlyMatchesOnchain": true,
-            "beneficiaryOwnerCheck": null,
-            "initializerOwnerCall": null,
-            "productionRpcUsed": false,
-            "runtimeHashMatchesHistoricalReadProof": true,
-            "sourceContentEqualsBundledInitializerAirlock": false
+          ]
+        }
+      },
+      ".cache/038-client-recovery-probes.json": {
+        "sha256": "a86741e449d6ff094f97bedcaf62cdef2648f69287b56905b69b41efee19e439",
+        "report": {
+          "reviewedHead": "038de6d0515f274955a686d36a2a54cbdc51ec52",
+          "scope": "Pure source probes and local synthetic Store/recovery fixtures. No server, browser, public RPC, wallet, or environment-secret reads.",
+          "trackWaitDiscarded": {
+            "requestedSeconds": 60,
+            "backgroundDueAfterMs": 15000,
+            "secondIntentChecked": true
           },
-          "baseInitializer": {
-            "label": "base-initializer",
-            "chainId": 8453,
-            "address": "0xbdf938149ac6a781f94faa0ed45e6a0e984c6544",
-            "url": "https://sourcify.dev/server/v2/contract/8453/0xbdf938149ac6a781f94faa0ed45e6a0e984c6544?fields=all",
-            "runtimeMatch": "match",
-            "creationMatch": null,
-            "verifiedAt": "2026-03-24T13:15:19Z",
-            "compilationName": "DopplerHookInitializer",
-            "onchainRuntimeHash": "0x5b476c3e00510cf45a444fa16bc219c9164953064f0a50cd202275227220c80b",
-            "immutablesPatchedRuntimeExactlyMatchesOnchain": true,
-            "initializerSourcePath": "src/initializers/DopplerHookInitializer.sol",
-            "beneficiarySourcePath": "src/types/BeneficiaryData.sol",
-            "beneficiaryOwnerCheck": [
-              "uint96 constant MIN_PROTOCOL_OWNER_SHARES = uint96(WAD / 20);",
-              "    bool foundProtocolOwner;",
-              "                beneficiary.shares >= protocolOwnerShares,",
-              "            foundProtocolOwner = true;",
-              "    require(foundProtocolOwner, InvalidProtocolOwnerBeneficiary());"
-            ],
-            "initializerOwnerCall": [
-              "            _storeBeneficiaries(poolKey, beneficiaries, airlock.owner(), MIN_PROTOCOL_OWNER_SHARES);",
-              "        require(msg.sender == airlock.owner(), SenderNotAirlockOwner());"
-            ],
-            "productionRpcUsed": false
+          "perRecordBackoff": {
+            "trackSkippedBeforeDue": true,
+            "independentIntentContinues": true
           },
-          "localRecompilePerformed": false,
-          "officialLatestSourceUsedAsDeploymentProof": false
-        },
-        "overallApplicationReview": "changes_required",
-        "deploymentApproval": false
+          "manualCheckAgain": {
+            "bypassesBackgroundDue": true,
+            "successClearsBackoff": false,
+            "actualOneConfirmationCheckReturnsPending": true,
+            "pendingUpdates": [
+              {
+                "status": "pending"
+              }
+            ],
+            "oldBackoffStillActiveAtMs": 599999,
+            "settledRowsFilteredOutByBackground": true
+          }
+        }
+      },
+      ".cache/independent-038-cutover-cache.json": {
+        "sha256": "23d0cba5e4678022abcb0868f373bbae7fa15a0617eff6bbf3b077c9f9c1a59e",
+        "report": {
+          "reviewedCommit": "038de6d0515f274955a686d36a2a54cbdc51ec52",
+          "scope": "Pure local service prototype/client fixture, not an observed production reorg",
+          "reads": 1,
+          "acceptedAfterCanonicalHashChanged": true,
+          "cutoverFieldsChanged": false,
+          "productionRpcUsed": false
+        }
+      },
+      ".cache/independent-038-native-attestation.json": {
+        "sha256": "15498c6ad0bb4b38e60a0d96913fa87e921786117177c95e1031fc4e663029ff",
+        "report": {
+          "reviewedCommit": "038de6d0515f274955a686d36a2a54cbdc51ec52",
+          "scope": "Actual localworkerd executing the repository plan-attestation helper, synthetic key and calldata id; no production binding access",
+          "status": "passed",
+          "nodeAndWorkerdHmacMatch": true,
+          "wrongChainRejected": true,
+          "realSecretUsed": false,
+          "externalRequests": 0
+        }
       }
     },
-    "runtimeProbeEvidence": {
-      "path": ".cache/independent-a7-runtime-summary.json",
-      "sha256": "1fbc5ffdb7d6a59db825209c8ffe98c5ee6fc257213306f342808fc975d1a73b",
-      "report": {
-        "reviewedHead": "74aac0d13f2e52e4aa07b9e62b0b0c587b2e3964",
-        "fixCommit": "a7ed56589411edac813e353ffca20a2aa61bbeae",
-        "sourceDiffBetweenFixAndReviewedHead": "none in server/service.ts, server/http-security.ts, worker/index.ts",
-        "targetedTests": {
-          "files": [
-            "tests/go-live-regressions.test.ts",
-            "tests/runtime-worker.test.ts",
-            "tests/runtime-safety.test.ts",
-            "tests/review-regressions.test.ts",
-            "tests/launch-resilience.test.ts",
-            "tests/launch-intent-lock.test.ts"
-          ],
-          "passed": 40,
-          "failed": 0,
-          "durationMs": 14725.448959,
-          "log": ".cache/independent-a7-runtime-targeted-tests.log"
+    "attestationPersistence": {
+      "path": ".cache/independent-038-attestation-persistence.jsonl",
+      "sha256": "a9b836fc244dfe2180dad599eddd5de5fbb0928b67969f35cc03b204f4972a87",
+      "results": [
+        {
+          "case": "SQLite actual persistent payload",
+          "firstReturnUnverified": true,
+          "firstPersistedUnverified": true,
+          "secondReturnUnverified": false,
+          "secondPersistedUnverified": true,
+          "afterDeletionReturnUnverified": false,
+          "afterDeletionPersistedUnverified": false
         },
-        "independentChecks": {
-          "workerd": ".cache/independent-a7-runtime-workerd.json",
-          "tokenDetail": ".cache/independent-a7-runtime-token-detail.json",
-          "helperTimerBoundaries": ".cache/independent-a7-runtime-helper-boundaries.json",
-          "reproHarness": ".cache/independent-a7-runtime-review.ts",
-          "defaultTokenStateDeadlineObservedMs": 8003,
-          "ordinaryBodyDeadlineObservedMs": [
-            10658,
-            10661,
-            10662,
-            10664
-          ],
-          "registerBodyDeadlineObservedMs": [
-            20651,
-            20653
-          ],
-          "allSlowWorkerBodyStatuses": 408,
-          "allSlowWorkerBodyErrors": "Request timed out",
-          "sourceConcurrencyWhileHeld": 429,
-          "sourceConcurrencyAfterTimeouts": 400,
-          "readClassWhileWorkflowAndRecoveryHeld": 404,
-          "unexpectedUpstreams": [],
-          "lateRpcUnhandledRejection": false,
-          "lateStateCanOverwriteFallback": false,
-          "newConfirmedFindings": []
-        },
-        "limits": "Node helper behavior is pure WHATWG-stream testing; slow bodies are actual local Worker/Miniflare requests. Token metadata/state are synthetic service fixtures. These do not prove deployed Cloudflare behavior or a real wallet. Timed-out token state work continues until its own transport settles, as documented; the fallback response remains fixed.",
-        "sourceChangesByReviewer": "none",
-        "trackedEvidenceChangesByReviewer": "none",
-        "productionPublication": "not_run",
-        "status": "passed"
-      }
+        {
+          "case": "savePlan succeeded and saveToken failed",
+          "firstFailed": true,
+          "planPersisted": true,
+          "tokenAbsent": true,
+          "retriedReturnUnverified": false,
+          "retriedPersistedUnverified": false
+        }
+      ],
+      "reportPath": ".cache/independent-038-attestation-report.md",
+      "reportSha256": "739b1500b95c8619ad6e093feba7e665bcce7cd9f4f0fa939f0a8099ae65262a",
+      "supabaseScope": "Static ignore-duplicates/savePlan analysis only; no production database access"
+    },
+    "keyConfiguration": {
+      "localConfigured": true,
+      "localLengthValid": true,
+      "keyContentRecorded": false,
+      "entropyChecked": false,
+      "workerBinding": "not_checked",
+      "secretUpload": "not_run"
+    },
+    "cutoverConfiguration": {
+      "currentManifestMarker": "unset",
+      "deployment": "pending",
+      "reviewerConfiguredMarker": false,
+      "activationReadinessEnforcedByRegistry": false,
+      "canonicalCacheSafeguard": "changes_required"
     },
     "retainedForkCompatibility": {
-      "reviewedCommit": "74aac0d13f2e52e4aa07b9e62b0b0c587b2e3964",
-      "observedAt": "2026-10-07T22:52:18.179Z",
+      "reviewedCommit": "038de6d0515f274955a686d36a2a54cbdc51ec52",
+      "observedAt": "2026-10-08T01:27:34.585Z",
       "rerun": false,
-      "checks": "Exact retained producer/config/six production artifact SHA match; six compiler inputs independently reproduced withSolc0.8.24 and17 source closures match. This records compatibility, not a new fork execution or current price/profitability acceptance."
+      "checks": "Retainedfork82540890 producer/config/six artifact hashes match. SixSolc0.8.24 outputs and17 Solidity closures were independently revalidated. This is compatibility of retained execution evidence, not a new fork or current market/native scheduler proof."
     },
-    "sourceArtifactsAndDocuments": "Never-activated V1 compiler artifacts/exporter entries removed; currentV2 build/verify paths intact. SPEC and contractsREADME corrected to name the historical records and reused compiler artifacts actually retained.",
+    "bodyDeadline": {
+      "ordinaryMs": 10000,
+      "recoveryMs": 10000,
+      "changedByThisReview": false,
+      "capacityCalibration": "not_run"
+    },
     "implementationChangesByThisReview": "none",
-    "documentationChangesByThisReview": [
-      "docs/SPEC.md",
-      "contracts/README.md"
-    ],
     "productionStatus": "not_run",
     "deploymentAuthority": "not_granted",
-    "nextStep": "Fix the successful-read/same-block owner recovery case and run that focused regression before joint public opening. Resolve or explicitly amend local-fork V1 parity separately; do not claim all five original items are fully resolved."
+    "nextStep": "Fix provenance persistence and canonical cache contexts, preserve track Retry-After, then re-run their focused regressions before joint opening. Complete the manual-backoff consistency fix and operational cutover readiness check without adding transaction attempt caps or price-divergence hard gates."
   },
   "independentReviewHistory": [
     {
@@ -2796,6 +2698,385 @@
       "productionStatus": "not_run",
       "implementationChanges": "none",
       "nextStep": "ResolveIR1-IR4 within the accepted UX/trust requirements and repeat their focused regressions before joint mainnet canary/public opening."
+    },
+    {
+      "reviewedCommit": "74aac0d13f2e52e4aa07b9e62b0b0c587b2e3964",
+      "fixCommit": "a7ed56589411edac813e353ffca20a2aa61bbeae",
+      "observedAt": "2026-10-07T22:52:18.179Z",
+      "status": "changes_required",
+      "buybackSourceGate": "passed",
+      "reviewers": [
+        "Codex independent_buyback_7d34",
+        "Codex independent_recovery_7d34",
+        "Codex independent_runtime_7d34",
+        "Codex root"
+      ],
+      "findings": [
+        {
+          "id": "IR1",
+          "priority": "P2",
+          "status": "production_resolved_local_fork_regression",
+          "file": "server/launch-policy-registry.ts",
+          "line": 47,
+          "requiredBeforeJointOpening": false,
+          "title": "V1 production routing closed; explicit local-fork V1 remains accepted",
+          "detail": "Production trusts only the V2 deployment manifest, so configured V1 and the default pending manifest cannot register new V1 launches. The74aac0d cleanup removed a7ed565's V1-null window guard; explicitly configured local31337 forks again accept V1 at block1,81459143 and999999999. This is an operator-configured loopback fork discrepancy, not a mainnet routing bypass.",
+          "remediation": "If retaining the promised V1 rejection in local forks, exclude the never-activated V1 from the existing fork exception. Future Engine replacement needs an explicit reviewed historical-routing design; current code has no usable Engine toBlock import.",
+          "requiredForClaimedForkParity": true
+        },
+        {
+          "id": "IR2",
+          "priority": "P2",
+          "status": "resolved",
+          "file": "server/opening-price.ts",
+          "line": 114,
+          "requiredBeforeJointOpening": false,
+          "title": "Advisory reference becomes a recovery-only hard gate",
+          "detail": "Recovery retains canonical snapshot-block identity but reference divergence returns advisory data. service logs recovery_reference_divergence above500bps without blocking an already verified creation. The former20% hard exception is removed.",
+          "remediation": "No remaining change required for this item; unsigned recovered USD metadata remains unauthenticated price evidence."
+        },
+        {
+          "id": "IR3",
+          "priority": "P2",
+          "status": "partially_resolved_same_block_post_state",
+          "file": "server/launch-verification.ts",
+          "line": 165,
+          "requiredBeforeJointOpening": true,
+          "title": "Successful end-of-block owner read can still reject a correct creation backup",
+          "detail": "Archive failure now returns null and safely tries >=5% beneficiaries from the exact canonical calldata; no current-owner fallback remains. Address-bound Robinhood/Base initializer implementations enforce this candidate premise. But when the historical read succeeds after a later ownership transfer in the same receipt block, the helper attempts only that post-state owner. A pureSDK fixture accepts the original owner or null candidates and rejects the same backup with the successful post-state owner.",
+          "remediation": "Do not treat block-end owner as conclusive transaction-position evidence. Preserve transaction-bound >=5% candidates when a historical owner result does not reconstruct the exact create parameters; retain independent trusted fee routing and full calldata/receipt checks. Add a successful-read/same-block-transfer regression."
+        },
+        {
+          "id": "IR4",
+          "priority": "P2",
+          "status": "resolved",
+          "file": "server/service.ts",
+          "line": 713,
+          "requiredBeforeJointOpening": false,
+          "title": "Slow state reads outrun token metadata fallback",
+          "detail": "Default token state deadline is8000ms. Independent real-timer service fixture returns stored metadata,state:null at8003ms; late RPC rejection is handled and late success cannot overwrite the fallback. Fast state reads preserve their result.",
+          "remediation": "No remaining change required; this verifies service timing with synthetic metadata/state, not a public-RPC or real-browser outage."
+        },
+        {
+          "id": "IR5",
+          "priority": "P3",
+          "status": "resolved",
+          "file": "server/http-security.ts",
+          "line": 27,
+          "requiredBeforeJointOpening": false,
+          "title": "Body cancellation sends500 instead of structured408",
+          "detail": "Shared readBoundedBody handles cancellation whether pending reads resolve or reject. Real localworkerd ordinary bodies return408JSON at10.658-10.664s and recovery at20.651-20.653s. Same-source class slots release; simultaneous page reads remain available. Node size413/exact-bound/timer cleanup pass.",
+          "remediation": "No remaining change required for this item."
+        }
+      ],
+      "requiredBeforeJointOpening": [
+        "IR3"
+      ],
+      "remainingLocalForkParity": [
+        "IR1"
+      ],
+      "recoveryProbeEvidence": {
+        "path": ".cache/independent-74aac0d-recovery-probes.json",
+        "sha256": "a34cc73ba49a09283a22426033c034b2af2e9e01630e607420b388188f2c1bed",
+        "report": {
+          "schemaVersion": 1,
+          "recordedAt": "2026-10-07T22:49:02.958Z",
+          "reviewedCommit": "74aac0d13f2e52e4aa07b9e62b0b0c587b2e3964",
+          "comparisonCommit": "a7ed565",
+          "reviewer": "independent_recovery_7d34",
+          "evidenceKind": "source_review_pure_fixtures_and_address_specific_sourcify_runtime",
+          "limitations": {
+            "productionRpcUsed": false,
+            "realChainAttackDemonstrated": false,
+            "signingUsed": false,
+            "fundsUsed": false,
+            "largeForkRerun": false,
+            "applicationSourceModified": false,
+            "targetedRegressionTestsNotRunByThisAgentThisTurn": true,
+            "fixtureScriptsDeliveredViaStdin": true,
+            "fullServiceRegisterInvokedByTheseProbes": false
+          },
+          "findings": [
+            {
+              "id": "IR1",
+              "part": "production_v1_routing",
+              "classification": "acceptable_resolved_at_74aac0d",
+              "detail": "Production default registry and raw configured V1 reject receipt block999999999. V2 manifest is pending and grants no Engine route."
+            },
+            {
+              "id": "IR1",
+              "part": "fork_v1_routing",
+              "classification": "confirmed_local_policy_regression",
+              "file": "server/launch-policy-registry.ts",
+              "line": 47,
+              "requiredByExistingReviewScope": true,
+              "observations": [
+                {
+                  "mode": "fork",
+                  "receiptBlock": "1",
+                  "engine": "V1",
+                  "result": "accepted"
+                },
+                {
+                  "mode": "fork",
+                  "receiptBlock": "81459143",
+                  "engine": "V1",
+                  "result": "accepted"
+                },
+                {
+                  "mode": "fork",
+                  "receiptBlock": "999999999",
+                  "engine": "V1",
+                  "result": "accepted"
+                }
+              ],
+              "detail": "74aac0d removes the a7ed565 explicit V1 null trust window guard from the raw configured fork route."
+            },
+            {
+              "id": "IR1",
+              "part": "retirement_window_and_history",
+              "classification": "confirmed_capability_removal_conditional_future_release_impact",
+              "file": "server/launch-policy-registry.ts",
+              "line": 44,
+              "observations": [
+                {
+                  "suppliedManifestToBlock": "95000000",
+                  "receiptBlock": "94999999",
+                  "result": "accepted"
+                },
+                {
+                  "suppliedManifestToBlock": "95000000",
+                  "receiptBlock": "95000000",
+                  "result": "accepted"
+                },
+                {
+                  "suppliedManifestToBlock": "95000000",
+                  "receiptBlock": "999999999",
+                  "result": "accepted"
+                },
+                {
+                  "historicalEngine": "A",
+                  "historicalReceiptBlock": "94000000",
+                  "currentManifest": "A from90000000",
+                  "result": "accepted"
+                },
+                {
+                  "historicalEngine": "A",
+                  "historicalReceiptBlock": "94000000",
+                  "currentManifest": "B from95000000",
+                  "result": "rejected"
+                }
+              ],
+              "detail": "The comment requires a future toBlock, but EngineManifest has no toBlock and manifest-derived policy ignores it. Replacing the single manifest drops the previous Engine history. No actual V2 activation or future Engine upgrade is claimed."
+            },
+            {
+              "id": "IR2",
+              "classification": "acceptable_resolved_in_source_at_a7ed565_and_74aac0d",
+              "files": [
+                "server/opening-price.ts:103-117",
+                "server/service.ts:543-545"
+              ],
+              "detail": "Reference divergence returns data and console.warn for operators; the recovery-only20% exception has been removed. Canonical block identity remains a hard check. Caller unsigned USD metadata is still not authenticated price evidence."
+            },
+            {
+              "id": "IR3",
+              "part": "historical_read_failure",
+              "classification": "acceptable_resolved_for_unavailable_state",
+              "files": [
+                "server/service.ts:513-516",
+                "server/launch-verification.ts:165-166"
+              ],
+              "observations": [
+                {
+                  "ownerArgument": "original old owner",
+                  "result": "accepted"
+                },
+                {
+                  "ownerArgument": null,
+                  "result": "accepted"
+                }
+              ],
+              "detail": "The fallback no longer reads current owner; >=5% candidates come from transaction-bound immutable beneficiaries, and their runtime enforcement premise is now supported by address-specific verified implementation evidence."
+            },
+            {
+              "id": "IR3",
+              "part": "same_block_post_state",
+              "classification": "confirmed_sdk_fixture_false_rejection",
+              "file": "server/launch-verification.ts",
+              "line": 165,
+              "requiredByExistingReviewScope": true,
+              "observations": [
+                {
+                  "historicalOwnerReadStatus": "success",
+                  "receiptBlock": "10",
+                  "ownerReturned": "0x5555555555555555555555555555555555555555",
+                  "originalCreationOwner": "0x3333333333333333333333333333333333333333",
+                  "result": "rejected",
+                  "error": "The local recovery preview does not match the full canonical creation parameters."
+                }
+              ],
+              "detail": "A successful receipt-block owner read returns end-of-block state. Later same-block transfer can change it after creation. Since non-null owner uses only one candidate, a correct backup is rejected. server/service.ts and server/launch-verification.ts are identical between a7ed565 and74aac0d."
+            }
+          ],
+          "ownerCandidateImplementationProof": {
+            "summaryPath": ".cache/independent-74aac0d-recovery-source/summary.json",
+            "summarySha256": "5025a8cea8f35c8f756ad60dffc257dbecc80fbae1c67da0c6f009b88f4237a9",
+            "robinhoodInitializer": "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544",
+            "runtimeHash": "0xc41a91106002f15bf70ae266824317f3f3ac638ac72ca5253bae395fa47ee631",
+            "runtimeHashMatchesHistoricalReadProof": true,
+            "immutableReferenceCount": 27,
+            "patchedRecompiledRuntimeExactlyMatchesRecordedOnchain": true,
+            "controlPath": [
+              {
+                "file": "src/initializers/DopplerHookInitializer.sol",
+                "line": 215,
+                "check": "initialize only callable by bound immutable Airlock"
+              },
+              {
+                "file": "src/initializers/DopplerHookInitializer.sol",
+                "line": 247,
+                "check": "nonempty immutable beneficiaries passed with airlock.owner() and MIN_PROTOCOL_OWNER_SHARES"
+              },
+              {
+                "file": "src/base/FeesManager.sol",
+                "line": 133,
+                "check": "forwards the actual beneficiaries, protocol owner and minimum to storeBeneficiaries"
+              },
+              {
+                "file": "src/types/BeneficiaryData.sol",
+                "line": 23,
+                "check": "MIN_PROTOCOL_OWNER_SHARES = WAD / 20"
+              },
+              {
+                "file": "src/types/BeneficiaryData.sol",
+                "line": 67,
+                "check": "on matching protocol owner address, require shares >= minimum"
+              },
+              {
+                "file": "src/types/BeneficiaryData.sol",
+                "line": 83,
+                "check": "require protocol owner found in actual beneficiaries"
+              }
+            ],
+            "robinhoodAirlock": {
+              "label": "robinhood-airlock",
+              "chainId": 4663,
+              "address": "0xeb7c034704ef8dcd2d32324c1545f62fb4ad0862",
+              "url": "https://sourcify.dev/server/v2/contract/4663/0xeb7c034704ef8dcd2d32324c1545f62fb4ad0862?fields=all",
+              "runtimeMatch": "match",
+              "creationMatch": "match",
+              "verifiedAt": "2026-09-30T18:03:48Z",
+              "compilationName": "Airlock",
+              "onchainRuntimeHash": "0x86b37100cbe9841771c452a592985b4e921254b127a380246073b84ec953f7f8",
+              "immutablesPatchedRuntimeExactlyMatchesOnchain": true,
+              "beneficiaryOwnerCheck": null,
+              "initializerOwnerCall": null,
+              "productionRpcUsed": false,
+              "runtimeHashMatchesHistoricalReadProof": true,
+              "sourceContentEqualsBundledInitializerAirlock": false
+            },
+            "baseInitializer": {
+              "label": "base-initializer",
+              "chainId": 8453,
+              "address": "0xbdf938149ac6a781f94faa0ed45e6a0e984c6544",
+              "url": "https://sourcify.dev/server/v2/contract/8453/0xbdf938149ac6a781f94faa0ed45e6a0e984c6544?fields=all",
+              "runtimeMatch": "match",
+              "creationMatch": null,
+              "verifiedAt": "2026-03-24T13:15:19Z",
+              "compilationName": "DopplerHookInitializer",
+              "onchainRuntimeHash": "0x5b476c3e00510cf45a444fa16bc219c9164953064f0a50cd202275227220c80b",
+              "immutablesPatchedRuntimeExactlyMatchesOnchain": true,
+              "initializerSourcePath": "src/initializers/DopplerHookInitializer.sol",
+              "beneficiarySourcePath": "src/types/BeneficiaryData.sol",
+              "beneficiaryOwnerCheck": [
+                "uint96 constant MIN_PROTOCOL_OWNER_SHARES = uint96(WAD / 20);",
+                "    bool foundProtocolOwner;",
+                "                beneficiary.shares >= protocolOwnerShares,",
+                "            foundProtocolOwner = true;",
+                "    require(foundProtocolOwner, InvalidProtocolOwnerBeneficiary());"
+              ],
+              "initializerOwnerCall": [
+                "            _storeBeneficiaries(poolKey, beneficiaries, airlock.owner(), MIN_PROTOCOL_OWNER_SHARES);",
+                "        require(msg.sender == airlock.owner(), SenderNotAirlockOwner());"
+              ],
+              "productionRpcUsed": false
+            },
+            "localRecompilePerformed": false,
+            "officialLatestSourceUsedAsDeploymentProof": false
+          },
+          "overallApplicationReview": "changes_required",
+          "deploymentApproval": false
+        }
+      },
+      "runtimeProbeEvidence": {
+        "path": ".cache/independent-a7-runtime-summary.json",
+        "sha256": "1fbc5ffdb7d6a59db825209c8ffe98c5ee6fc257213306f342808fc975d1a73b",
+        "report": {
+          "reviewedHead": "74aac0d13f2e52e4aa07b9e62b0b0c587b2e3964",
+          "fixCommit": "a7ed56589411edac813e353ffca20a2aa61bbeae",
+          "sourceDiffBetweenFixAndReviewedHead": "none in server/service.ts, server/http-security.ts, worker/index.ts",
+          "targetedTests": {
+            "files": [
+              "tests/go-live-regressions.test.ts",
+              "tests/runtime-worker.test.ts",
+              "tests/runtime-safety.test.ts",
+              "tests/review-regressions.test.ts",
+              "tests/launch-resilience.test.ts",
+              "tests/launch-intent-lock.test.ts"
+            ],
+            "passed": 40,
+            "failed": 0,
+            "durationMs": 14725.448959,
+            "log": ".cache/independent-a7-runtime-targeted-tests.log"
+          },
+          "independentChecks": {
+            "workerd": ".cache/independent-a7-runtime-workerd.json",
+            "tokenDetail": ".cache/independent-a7-runtime-token-detail.json",
+            "helperTimerBoundaries": ".cache/independent-a7-runtime-helper-boundaries.json",
+            "reproHarness": ".cache/independent-a7-runtime-review.ts",
+            "defaultTokenStateDeadlineObservedMs": 8003,
+            "ordinaryBodyDeadlineObservedMs": [
+              10658,
+              10661,
+              10662,
+              10664
+            ],
+            "registerBodyDeadlineObservedMs": [
+              20651,
+              20653
+            ],
+            "allSlowWorkerBodyStatuses": 408,
+            "allSlowWorkerBodyErrors": "Request timed out",
+            "sourceConcurrencyWhileHeld": 429,
+            "sourceConcurrencyAfterTimeouts": 400,
+            "readClassWhileWorkflowAndRecoveryHeld": 404,
+            "unexpectedUpstreams": [],
+            "lateRpcUnhandledRejection": false,
+            "lateStateCanOverwriteFallback": false,
+            "newConfirmedFindings": []
+          },
+          "limits": "Node helper behavior is pure WHATWG-stream testing; slow bodies are actual local Worker/Miniflare requests. Token metadata/state are synthetic service fixtures. These do not prove deployed Cloudflare behavior or a real wallet. Timed-out token state work continues until its own transport settles, as documented; the fallback response remains fixed.",
+          "sourceChangesByReviewer": "none",
+          "trackedEvidenceChangesByReviewer": "none",
+          "productionPublication": "not_run",
+          "status": "passed"
+        }
+      },
+      "retainedForkCompatibility": {
+        "reviewedCommit": "74aac0d13f2e52e4aa07b9e62b0b0c587b2e3964",
+        "observedAt": "2026-10-07T22:52:18.179Z",
+        "rerun": false,
+        "checks": "Exact retained producer/config/six production artifact SHA match; six compiler inputs independently reproduced withSolc0.8.24 and17 source closures match. This records compatibility, not a new fork execution or current price/profitability acceptance."
+      },
+      "sourceArtifactsAndDocuments": "Never-activated V1 compiler artifacts/exporter entries removed; currentV2 build/verify paths intact. SPEC and contractsREADME corrected to name the historical records and reused compiler artifacts actually retained.",
+      "implementationChangesByThisReview": "none",
+      "documentationChangesByThisReview": [
+        "docs/SPEC.md",
+        "contracts/README.md"
+      ],
+      "productionStatus": "not_run",
+      "deploymentAuthority": "not_granted",
+      "nextStep": "Fix the successful-read/same-block owner recovery case and run that focused regression before joint public opening. Resolve or explicitly amend local-fork V1 parity separately; do not claim all five original items are fully resolved."
     }
   ]
 }
