@@ -187,9 +187,9 @@
     "allocationBps": 10000,
     "recipient": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
     "ruleSignature": "Saved native policy observed in official authenticated UI; no separate cryptographic rule-signature proof claimed",
-    "nativeExecution": "not_run",
-    "forwarder": "0x3b6d01e627fe6e06c831e0f9f57ac976a88309ff",
-    "wethAllowance": "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+    "nativeExecution": "verified_governor_signed_external_attestation_with_canonical_token_receipts",
+    "forwarder": "0x808d538f13ce0356e80c7a5ac2798d09206ab8f4",
+    "wethAllowance": "7994453195093645",
     "automaticTriggerUsd": 5,
     "automationThreshold": "1 of 2",
     "robinhoodEnabled": true,
@@ -228,10 +228,17 @@
         "userOperationSuccess": true,
         "accountRuntimeHash": "0xaaa52c8cc8a0e3fd27ce756cc6b4e70c51423e9b597b11f32d3e49f8b1fc890d"
       }
-    ]
+    ],
+    "historicalV1ForwarderSetup": {
+      "forwarder": "0x3b6d01e627fe6e06c831e0f9f57ac976a88309ff",
+      "wethAllowance": "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+      "nativeExecution": "not_run"
+    },
+    "allowanceObservedAt": "2026-10-08T11:20:22.972Z",
+    "allowanceObservedBlock": "83274198"
   },
   "historicalDeployment": "contracts/artifacts/buyback-deployment.json",
-  "mainnetFeeExecution": "not_run",
+  "mainnetFeeExecution": "verified_genuine_COST_fees_native_scheduled_conversion_atomic_sweep_forwarding_and_Vault_DEAD_settlement",
   "governance": {
     "governor": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
     "delaySeconds": 604800,
@@ -250,6 +257,9 @@
     "maxPriceDeviationBps": 200
   },
   "activation": {
+    "schemaVersion": 1,
+    "chainId": 4663,
+    "graphFingerprint": "0xa8bd28a62cfb751b3aa30bb32f5e3ddc4e51b4035166a3737642c3d42168e607",
     "oldForwarderRevocation": {
       "chainId": 4663,
       "graphFingerprint": "0xa8bd28a62cfb751b3aa30bb32f5e3ddc4e51b4035166a3737642c3d42168e607",
@@ -268,13 +278,29 @@
       "spender": "0x808d538f13ce0356E80C7a5ac2798D09206aB8f4",
       "amount": "10000000000000000"
     },
-    "nativeAutomationAcceptance": "not_run",
-    "sourceReview": "not_run",
-    "isolatedFork": "not_run",
     "legacySwapperCutover": {
       "blockNumber": "83135170",
       "blockHash": "0x7dbb4763f1f76238e59f12e65e061483958b5bf4284fa9f1a80882f6cfa9139c",
       "wethBalance": "0"
+    },
+    "nativeAutomationAcceptance": {
+      "chainId": 4663,
+      "graphFingerprint": "0xa8bd28a62cfb751b3aa30bb32f5e3ddc4e51b4035166a3737642c3d42168e607",
+      "ruleId": "splits-native:4663:0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a",
+      "schedulerRunId": "8368bd13-3f16-4cb8-b046-9f0270e1294d",
+      "evidenceUri": "https://raw.githubusercontent.com/MuseCity/musegodfun/f93f47f584e9e8cb49ca50459d4e2f642fd8f76f/docs/evidence/buyback-v2-native-execution.json",
+      "evidenceSha256": "0xc22f730b2864c2f2b23b7d95213124aa93a416071302a0b25c685e220eba9217",
+      "unpricedToken": "0x4EA005168D7F09a7A0Ba9D1DEf21a479950E44C2",
+      "inputAmount": "5442959362370745",
+      "wethAmount": "2005546804906355",
+      "feeCollectionTransactionHash": "0x0565e9381d47a82bba68990121d84faee4a750121555e60e8b0effd300b72104",
+      "feeTransactionHash": "0xf0ba8b33d12bb4ab493c825f0bc3f1390698aca5a9dbf16a9daad63080fa841b",
+      "conversionTransactionHash": "0x6003a4536cef6977c478f1736c4ec5e8518be422907e043bd13a689db48abdfa",
+      "sweepTransactionHash": "0x6003a4536cef6977c478f1736c4ec5e8518be422907e043bd13a689db48abdfa",
+      "forwardTransactionHash": "0x7dda4112da3f93f716cc4632946ff598016af473c14d591bf1a4ab35e1d03cfe",
+      "settlementTransactionHash": "0x0d0294bdb415520ae054dc0fea1c866b0d9d8807d4c8ace3a00ee97d16c61882",
+      "signer": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+      "signature": "0x75ab407e5328802c97278358ee249793df39137c14c52d0d74311b8383f57ff54bf5e09462bb8bba1aa2e4b977fb67fc56d29a0422bdc8476c3e95487b115c591b"
     }
   },
   "assetFeedDescriptions": {
@@ -437,8 +463,8 @@
     "layer": "block_pinned_mainnet_read_only; initial feed labels only, not V2 deployment evidence"
   },
   "preflight": {
-    "blockNumber": "83104408",
-    "blockHash": "0xd3a96d56ebe9729f6bf0e0e9bd3231862b54fb79a21732bea2392c2184a85e34",
+    "blockNumber": "83270064",
+    "blockHash": "0x73820f8c68bc5b90dccbde1e43a914c10f32470d9bad7e4125837168ad9b3a47",
     "dependencies": [
       {
         "name": "router",
@@ -465,14 +491,17 @@
     "unsupportedAssets": 159,
     "automationReceiver": "deployed_contract_observed",
     "automationNativeExecution": "not_run",
-    "initialMainnetFeeExecution": "not_run"
+    "initialMainnetFeeExecution": "not_run",
+    "layer": "Read-only dependency preflight; activation and actual execution evidence are separate in activationVerification and activation.nativeAutomationAcceptance"
   },
-  "verifiedAt": "2026-10-08T06:30:51.557Z",
-  "verificationBlock": "83104954",
+  "verifiedAt": "2026-10-08T11:14:08.580Z",
+  "verificationBlock": "83270355",
   "graphFingerprint": "0xa8bd28a62cfb751b3aa30bb32f5e3ddc4e51b4035166a3737642c3d42168e607",
   "activationVerification": {
-    "status": "pending",
-    "reason": "Runtime/source verification does not activate the graph. Supply canonical funding/settlement receipts and governor-signed control and native scheduler attestations."
+    "status": "verified",
+    "fingerprint": "0xa8bd28a62cfb751b3aa30bb32f5e3ddc4e51b4035166a3737642c3d42168e607",
+    "activatedAtBlock": "83245176",
+    "nativeSchedulerEvidence": "governor_signed_external_attestation_with_canonical_token_receipts"
   },
   "forwarderSetup": {
     "source": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",

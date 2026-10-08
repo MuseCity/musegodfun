@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
-  "status": "actual_native_fee_to_dead_flow_confirmed_governor_native_acceptance_pending",
-  "observedAt": "2026-10-08T10:51:30.591Z",
-  "scope": "Deployed V2 and paused dual-origin application; real mainnet fee collection/native conversion/sweep/finite forwarding/dead-address settlement now observed. Final governor native acceptance, dedicated keeper and runtime/cutover completion remain pending. No public signing resume.",
+  "status": "activation_verified_runtime_publication_and_keeper_trial_pending",
+  "observedAt": "2026-10-08T11:21:09.495Z",
+  "scope": "Mainnet V2 activation proof complete with actual native fees-to-DEAD execution and governor acceptance. Dedicated keeper funded. V2 runtime publication, keeper trial and finalized cutover completion remain pending; both public chains stay paused.",
   "source": {
     "repository": "MuseCity/musegodfun",
     "workspace": "/Volumes/code/opc/musegodfun",
     "branch": "master",
-    "baseCommit": "ace4b9b68ba248f4b9a7cfb59feff787e138f8bd",
+    "baseCommit": "f93f47f584e9e8cb49ca50459d4e2f642fd8f76f",
     "dirty": true,
     "committed": "1df07daf4b841ab68c787749d717bd8bfe6398b8",
     "pushed": false,
@@ -17,7 +17,7 @@
       ".github/workflows/deploy.yml": "2f6b45e85b005bb5e452a8e86ec22bea4f63d92ffe8090b786a1b0e3585a9170",
       "README.md": "fd03767d04728ae9d7a5332ae93f5a215eb6028516770136b616fdb411e18135",
       "contracts/README.md": "16813180739836e43f911a926b41e224e4a6863a268efd5a152c65ce42651736",
-      "contracts/artifacts/buyback-v2-deployment.json": "36ba9d3966dedfbe67b378163f67334ac58f621eed18e1cfce050606b6b09de1",
+      "contracts/artifacts/buyback-v2-deployment.json": "7a96c63c3cf2eeabe31cadd1eabac6c79e963556612914d7eb6843c3f48f4c7d",
       "contracts/artifacts/buyback-v2/MusegodAssetFeedOracle.compiler-input.json": "19511040cb3e0f882152c2ff2bb74115b69516b1339aea9cf88263c7c2c66c80",
       "contracts/artifacts/buyback-v2/MusegodAssetFeedOracle.json": "677ac2d82a59de249d0d04c65253ebf8fd65792318ca0675bf1d55d39cd998a1",
       "contracts/artifacts/buyback-v2/MusegodBuybackBudgetVault.compiler-input.json": "fc2782084b52a6315b765e5821482fd66dee3856ab05c49dadbb619447ef26e1",
@@ -34,11 +34,11 @@
       "contracts/test/MusegodBuybackBudgetVault.t.sol": "55a680417538e7a582f693084c04fbbc41994c0a04f550e07b4fca8990ec3c40",
       "contracts/test/MusegodFeeEngine.t.sol": "6aedcbf06755dd876e017b93c92bbe6a5c15cc825a41a311c6ad58990391b515",
       "contracts/test/MusegodWethForwarder.t.sol": "89a78bab49a8ff321abafcd46a1b75f43177f54fe4cc5c16df26f92febba3b92",
-      "docs/SPEC.md": "8bae7f51fd6d0bef6c6cb495aa1c932e7a9a560c10fd6f97f40c5e7b1feadc1b",
+      "docs/SPEC.md": "980dc79bc146e77bceecbc8804c4e8d264ff4ff0ccbe69dd3d0ee9eb9f80c50d",
       "docs/evidence/buyback-v2-accounting-gas.json": "1b6af03fcff96545ac411060cb667eb603a630b540d962367cc3c0105f4a114b",
       "docs/evidence/buyback-v2-fee-custody.json": "7e0dfade1823a92bbe804d4591d9d95f40eb769b3e9c171f6465cd033776d30b",
       "docs/evidence/buyback-v2-fork.json": "c4ba041bf939b89b56db400b31c0dbb5092fb02bfc8430415e768125ffb46fc9",
-      "docs/evidence/buyback-v2-review.json": "30153ed89c3baa2817a260da3e2ced9db6392d4f54fd406641b54f87d3eed515",
+      "docs/evidence/buyback-v2-review.json": "a65379f7a577878e01f13fa2b30796df17be7c7b4ad0ea674e3b020f64c4a2f3",
       "docs/evidence/buyback-v2-vault-fixture.json": "12aa29afcca5cd7212001663ef2550714cd6e49724985ec6e0c15d9cda326068",
       "package.json": "63ad2ee86347616abb8d37ee15b69ca347ed062d7772211d1b0435f1f2196058",
       "scripts/build-buyback-artifacts.ts": "57ef7b3889f1e9a55b6cf9138d0a891b1e8e81e75dac82357c6cf02cbd60f397",
@@ -123,7 +123,7 @@
       "tests/runtime-worker.test.ts": "241804dbcf7b071fa89f2adaa09267150e3e82aa2cb232f56fc95a76c1b592ab",
       "tests/token-images.test.ts": "42799de4ba917b86321b6d9541f70601304b840f2637ea299f895d97fdb23c25",
       "worker/index.ts": "18ca52f19ce7e64e42a60e5c2c20a31eab114d251046953a7a85dbcf104fc100",
-      "wrangler.jsonc": "9957686626d80f9da08cec7f88d6771929ad00d9e873dc9676530b9aa554cfc5",
+      "wrangler.jsonc": "c9bfbdf902048c3a8928b1376b775b06503fa97284b5aa795c2a37df21d91514",
       "server/launch-policy-registry.ts": "aa377734b2bc288cf1595e659c8a7796da70e38521e4d07b8b7174a4183ff187",
       "tests/go-live-regressions.test.ts": "a663b9d69d08ea89f94844efba915ad8cc1f16469044ff6047c6be30e4ed9223",
       "tests/launch-policy-registry.test.ts": "222e25ff204a424f37e29f2f522a3db331101b6d0a6b80e0e14244504ccec6eb",
@@ -143,10 +143,10 @@
       "tests/fixtures/governor-control-manifest.json": "3b6a8d91d158c5167969be406d4749f9fc39b509c9fb7f7ac8c2fe99eb47229a",
       "docs/evidence/buyback-v2-native-execution.json": "c22f730b2864c2f2b23b7d95213124aa93a416071302a0b25c685e220eba9217"
     },
-    "sortedChangedFilesDigest": "3cc0bd334ae900e83f450a97ba606b436e5c03c773e911c006993cd82d64d601",
+    "sortedChangedFilesDigest": "52018b581727fd801d0913452005a83226817222f14114c3561e47a63d578ef8",
     "digestEncoding": "Sorted relative path + NUL + lowercase SHA256 + newline. This evidence file itself is excluded to avoid a self-hash cycle.",
-    "hashScope": "Pre-commit current operational snapshot, self-excluded; the original independent review hashes remain explicitly historical.",
-    "uncommittedChanges": "Actual native execution evidence, verified governor JSON type boundary and regression tests; no contract source, price protection, spending limit or public signing permission changed.",
+    "hashScope": "Pre-commit operational snapshot, self-excluded; original independent review hashes remain historical.",
+    "uncommittedChanges": "Verified native governor acceptance in deployed manifest, V2 application engine binding and dated operational evidence. No contract source or public signing permission change.",
     "reviewedCommit": "0a2b36754d41e645860e22976ee97da4719ef687",
     "fixCommit": "0a2b36754d41e645860e22976ee97da4719ef687",
     "removedFiles": [
@@ -1722,28 +1722,28 @@
     "Legacypaused runtime doesnotconsume newdatabase controls. Its falsebindings must remain until a reviewednative-control runtime is deployed. No automaticresume, WorkerHMAC secret upload, enginecutover, mainnet wallet or scheduler proof supplied by theseoperations."
   ],
   "production": {
-    "status": "partial_setup_completed_public_signing_paused",
-    "applicationOrSchemaDeployment": "existing_database_migration_applied_only; V2_application_not_deployed",
-    "v2ContractDeploymentAndPublicSourceVerification": "not_run",
-    "legacyApprovalRevocation": "not_run",
-    "finiteNewApproval": "not_run",
-    "nativeScheduledFeeToDeadFlow": "not_run",
-    "governorSignedActivationProof": "not_run",
-    "keeperSigningOrStart": "not_run",
+    "status": "V2_mainnet_activation_verified_engine_runtime_publication_pending_both_chains_paused",
+    "applicationOrSchemaDeployment": "V2_paused_application_published_f93f47f; engine_configuration_pending",
+    "v2ContractDeploymentAndPublicSourceVerification": "deployed_exact_match",
+    "legacyApprovalRevocation": "confirmed",
+    "finiteNewApproval": "confirmed_initial0.01WETH",
+    "nativeScheduledFeeToDeadFlow": "verified",
+    "governorSignedActivationProof": "verified",
+    "keeperSigningOrStart": "dedicated_wallet_funded_start_pending",
     "mainnetCanaryWithRealDesktopMobileWallets": "not_run",
     "productionConcurrentCapacityAndCostCalibration": "not_run",
     "productionEdgeWafTurnstileWorkersDevAndMonitorSetup": "not_run",
-    "automaticPublicationAndBothDomainByteVerification": "not_run",
+    "automaticPublicationAndBothDomainByteVerification": "f93f47f_CI37766491493_passed_204assets_each",
     "publicSigningResume": "not_run",
     "baseSigning": "remains disabled in source",
-    "authority": "Explicit user approval of legacy production signing pause followed by the existing runtime-safety migration; no signing resume, V2 deployment or mainnet transaction authority. Onlyexisting legacyflags and the exactrequestedmigration were changed. No push or V2application/contracts/keeper/funding/publicresume.",
+    "authority": "Explicit user authorization for master merge/push, application and V2 deployment, activation and bounded0.0068ETH canary plus dedicated local keeper. No public signing resume.",
     "executionChecklist": {
       "path": "docs/SPEC.md",
       "line": 294,
-      "completedPortion": "Legacypublicpause andexistingruntime migration only; compatiblebaseline andlatersteps pending"
+      "completedPortion": "V2_mainnet_fee_native_Vault_receipts_and_governor_activation; keeper_and_engine_runtime_cutover_pending"
     },
     "contractRunbook": "contracts/README.md#deployment-and-activation-runbook",
-    "compatiblePausedRollbackBaseline": "not_run_current_paused_legacy_version_is_not_protocol1",
+    "compatiblePausedRollbackBaseline": "b2fed90b-bb15-4309-b2ea-7e865c3aa028_protocol1_paused",
     "databaseVerification": "FullconfiguredSupabase verification passed with cleanup; defaultcontrols paused revision0, olddata preserved",
     "legacyPublicSigningPause": "verified_both_domains_and_chains"
   },
@@ -4000,13 +4000,13 @@
     "reviewEvidenceSha256": "668b1c31931961cec50f27f4498e6401ce05c4bc5e1c3d2001113984af625cb4"
   },
   "authorizedActivationExecution": {
-    "observedAt": "2026-10-08T10:51:30.591Z",
-    "status": "actual_native_fee_to_dead_flow_confirmed_governor_native_acceptance_pending",
-    "authority": "User explicitly requested activating buyback, then personally submitted and confirmed the prepared finite source-approval batch. No public signing resume.",
+    "observedAt": "2026-10-08T11:21:09.495Z",
+    "status": "activation_verified_runtime_publication_and_keeper_trial_pending",
+    "authority": "User explicitly authorized buyback activation, dedicated local keeper, a total0.0068ETH outlay including observation capacity expansion, source approval and both fixed-governor signatures. Public signing stays paused.",
     "graphFingerprint": "0xa8bd28a62cfb751b3aa30bb32f5e3ddc4e51b4035166a3737642c3d42168e607",
     "sourceApproval": {
       "observedAt": "2026-10-08T07:22:19.658Z",
-      "status": "source_allowance_cutover_confirmed_activation_still_pending",
+      "status": "source_allowance_cutover_confirmed",
       "transactionHash": "0x789995fb997cc832908c4209567e2ff902121534b4e6b7d1e04a3d5a787494d8",
       "userOpHash": "0x0104acb0a309e02ea8c46ddbc8921bdb0787079e652b8b068011082ec45ca95f",
       "blockNumber": "83129329",
@@ -4062,7 +4062,9 @@
       },
       "latestAllowances": {
         "old": "0",
-        "new": "10000000000000000"
+        "new": "7994453195093645",
+        "observedAt": "2026-10-08T11:20:22.972Z",
+        "blockNumber": "83274198"
       },
       "grantIsInitialCanaryOnly": true,
       "proposalUrl": "https://app.splits.org/accounts/0xb3C11Aa2148521A3ef6d446672b720A63a2D8349/transactions/76bc6c14-fdc6-4a04-870a-4eb8dbb3cd0e/",
@@ -4085,12 +4087,14 @@
       "priceProtectionBps": 200,
       "registeredTokens": 0,
       "engineFeeReceiptEvidence": "not_observed_yet; no full-history scan claimed",
-      "tradeOrFeesTransactionsSigned": 0
+      "tradeOrFeesTransactionsSigned": 0,
+      "historicalPreCanarySnapshot": true,
+      "currentReceiptEvidence": "See nativeCanary and immutable native execution evidence; initial zero-fee reads remain historical."
     },
     "automation": {
       "account": "0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a",
-      "ruleReadback": "Authenticated official UI: 100% WETH to the existing source Treasury, $5 automatic trigger; account currently has no tokens.",
-      "nativeScheduledExecution": "not_run",
+      "ruleReadback": "Authenticated official UI:100%WETH to existing source Treasury, automatic$5 threshold; actualCOST conversion and atomic sweep completed without an agent or requested human Trigger.",
+      "nativeScheduledExecution": "verified_with_fixed_governor_external_attestation_and_canonical_token_receipts",
       "donationsDoNotSubstituteForFeesClaimed": true
     },
     "governorControl": {
@@ -4116,29 +4120,52 @@
       "privateKeyRequested": false
     },
     "keeper": {
-      "observedAt": "2026-10-08T07:59:13.656Z",
-      "status": "dedicated_local_wallet_created_unfunded_keeper_not_started",
+      "observedAt": "2026-10-08T11:21:09.495Z",
+      "status": "dedicated_local_wallet_funded_keeper_start_pending",
       "address": "0xd3f11a4DDcED57aC4E41F8CE7fD323959667e278",
       "keyLocation": ".env (ignored, mode 0600; value never output)",
-      "funding": "not_sent",
+      "funding": {
+        "transactionHash": "0x301842eebf6bc2e5beb6be15c09e34e8782d497364978e211eaa867e9b43a7cd",
+        "blockNumber": "83270275",
+        "blockHash": "0x3153cc9e30781640cb4127281e8bfc017bfa81f2fd0107d50b53b939171f2683",
+        "valueEth": "0.00005",
+        "gasEth": "0.000000420168",
+        "canonicalReceipt": {
+          "blockHash": "0x3153cc9e30781640cb4127281e8bfc017bfa81f2fd0107d50b53b939171f2683",
+          "blockNumber": "83270275",
+          "contractAddress": null,
+          "cumulativeGasUsed": "11139247",
+          "effectiveGasPrice": "20008000",
+          "from": "0xd5c256e6411a6835543f2bcd763341639e3cf56f",
+          "gasUsed": "21000",
+          "gasUsedForL1": "0x0",
+          "l1BlockNumber": "0x18ef9ec",
+          "logs": [],
+          "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "status": "success",
+          "to": "0xd3f11a4ddced57ac4e41f8ce7fd323959667e278",
+          "transactionHash": "0x301842eebf6bc2e5beb6be15c09e34e8782d497364978e211eaa867e9b43a7cd",
+          "transactionIndex": 96,
+          "type": "eip1559"
+        }
+      },
       "runtimeHost": "user_selected_this_mac_for_initial_trial",
       "executeCommand": "npm run keeper:buyback -- --execute --api=https://musegod.fun",
       "dryRunCommand": "npm run keeper:buyback -- --once --api=https://musegod.fun",
-      "totalCanaryAndGasBudgetEth": "0.002",
+      "totalCanaryAndGasBudgetEth": "0.0068",
       "authorizedBudgetWallet": "0xd5C256e6411a6835543F2bCd763341639e3Cf56f",
       "executionGate": "Full actual native-fee activation evidence required before execution. No deployment wallet reuse.",
-      "dedicatedKeyConfigured": true,
-      "trial": {
-        "mode": "dry_run",
-        "state": "waiting",
-        "reason": "Public engine is not configured until actual activation proof passes",
-        "logSha256": "c96ca41bb5ac2429b7bb1c89a526e985df2e8ad7785243597136724fdd3eddde"
+      "budgetIncreaseAuthorization": {
+        "totalEth": "0.0068",
+        "scope": "principal, gas, observation capacity1000 to1801 and initial dedicated keeper fuel",
+        "source": "Explicit user reply 2026-10-08"
       },
+      "dedicatedKeyConfigured": true,
       "deploymentWalletReuse": "not_permitted"
     },
     "canaryBudget": {
       "approvedTotalOutlayEth": "0.0068",
-      "conservativeReceiptGasAndValueOutlayEth": "0.006258013676918",
+      "conservativeReceiptGasAndValueOutlayEth": "0.006308433844918",
       "returnedPrincipalEth": "0.001179804524431155",
       "conservativeNetEthOutflowBeforeKeeperFuel": "0.005078209152486845",
       "initialWalletEth": "0.009478709575468",
@@ -4146,7 +4173,31 @@
       "walletDebitWithinConservativeLedger": true,
       "additionalEthRefundOrInflow": "0.000003857314930604",
       "refundHandling": "No additional refund or inflow expands the gross spending ceiling; exact attribution is separate from canonical fee/native/settlement proof.",
-      "keeperFuel": "not_sent",
+      "keeperFuel": {
+        "transactionHash": "0x301842eebf6bc2e5beb6be15c09e34e8782d497364978e211eaa867e9b43a7cd",
+        "blockNumber": "83270275",
+        "blockHash": "0x3153cc9e30781640cb4127281e8bfc017bfa81f2fd0107d50b53b939171f2683",
+        "valueEth": "0.00005",
+        "gasEth": "0.000000420168",
+        "canonicalReceipt": {
+          "blockHash": "0x3153cc9e30781640cb4127281e8bfc017bfa81f2fd0107d50b53b939171f2683",
+          "blockNumber": "83270275",
+          "contractAddress": null,
+          "cumulativeGasUsed": "11139247",
+          "effectiveGasPrice": "20008000",
+          "from": "0xd5c256e6411a6835543f2bcd763341639e3cf56f",
+          "gasUsed": "21000",
+          "gasUsedForL1": "0x0",
+          "l1BlockNumber": "0x18ef9ec",
+          "logs": [],
+          "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "status": "success",
+          "to": "0xd3f11a4ddced57ac4e41f8ce7fd323959667e278",
+          "transactionHash": "0x301842eebf6bc2e5beb6be15c09e34e8782d497364978e211eaa867e9b43a7cd",
+          "transactionIndex": 96,
+          "type": "eip1559"
+        }
+      },
       "authorizationHistory": [
         {
           "totalEth": "0.002",
@@ -4160,20 +4211,21 @@
           "totalEth": "0.0068",
           "scope": "explicit user approval of the measured execution list including observation capacity1000 to1801"
         }
-      ]
+      ],
+      "remainingGrossBudgetEth": "0.000491566155082",
+      "refundedPrincipalDoesNotExpandBudget": true
     },
     "remaining": [
-      "Human fixed-governor signature of the immutable native evidence and exact canonical receipts",
-      "Full activation replay and application FEE_ENGINE_ADDRESS configuration with both public chains paused",
-      "Fund the dedicated local keeper within0.0068ETH total outlay; startup, restart and scheduled-cycle verification",
-      "Record and deploy fixed engine launch cutover after the engine-only runtime is finalized"
+      "Publish verified V2 engine runtime while preserving both public signing pauses",
+      "Dedicated keeper startup, restart and real scheduled-cycle verification",
+      "Record and deploy fixed engine launch cutover after engine-only runtime is finalized"
     ],
     "runtime": {
-      "currentlyPublishedCommit": "2a06f8e4c640906623f063b137c2019b9940558b",
+      "currentlyPublishedCommit": "f93f47f584e9e8cb49ca50459d4e2f642fd8f76f",
       "publicSigning": "both_chains_remain_paused",
-      "feeEngineEnvironment": "unset_until_full_activation_proof_passes"
+      "feeEngineEnvironment": "V2 address set in wrangler.jsonc; publication pending"
     },
-    "manifestSha256": "e3f3e4b33a7f5572ccf9612f7622812778c8a09ac62c7412784698cb61cb7745",
+    "manifestSha256": "7a96c63c3cf2eeabe31cadd1eabac6c79e963556612914d7eb6843c3f48f4c7d",
     "nativeCanary": {
       "evidencePath": "docs/evidence/buyback-v2-native-execution.json",
       "evidenceSha256": "c22f730b2864c2f2b23b7d95213124aa93a416071302a0b25c685e220eba9217",
@@ -4239,10 +4291,90 @@
         "refundHandling": "No additional refund or inflow expands the gross spending ceiling; exact attribution is separate from canonical fee/native/settlement proof.",
         "keeperFuel": "not_sent"
       },
-      "receiptGate": "All canonical64-confirmation activation checks passed; only the final governor native acceptance signature is missing",
-      "testVolumeNotOrganic": true
+      "receiptGate": "Full activation proof verified, including actual fixed-governor external native acceptance, canonical fee/native/forwarding/settlement receipts and exact runtime graph",
+      "testVolumeNotOrganic": true,
+      "evidenceUri": "https://raw.githubusercontent.com/MuseCity/musegodfun/f93f47f584e9e8cb49ca50459d4e2f642fd8f76f/docs/evidence/buyback-v2-native-execution.json"
+    },
+    "activationVerification": {
+      "status": "verified",
+      "fingerprint": "0xa8bd28a62cfb751b3aa30bb32f5e3ddc4e51b4035166a3737642c3d42168e607",
+      "activatedAtBlock": "83245176",
+      "nativeSchedulerEvidence": "governor_signed_external_attestation_with_canonical_token_receipts"
+    },
+    "nativeAcceptance": {
+      "status": "verified",
+      "proof": {
+        "chainId": 4663,
+        "graphFingerprint": "0xa8bd28a62cfb751b3aa30bb32f5e3ddc4e51b4035166a3737642c3d42168e607",
+        "ruleId": "splits-native:4663:0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a",
+        "schedulerRunId": "8368bd13-3f16-4cb8-b046-9f0270e1294d",
+        "evidenceUri": "https://raw.githubusercontent.com/MuseCity/musegodfun/f93f47f584e9e8cb49ca50459d4e2f642fd8f76f/docs/evidence/buyback-v2-native-execution.json",
+        "evidenceSha256": "0xc22f730b2864c2f2b23b7d95213124aa93a416071302a0b25c685e220eba9217",
+        "unpricedToken": "0x4EA005168D7F09a7A0Ba9D1DEf21a479950E44C2",
+        "inputAmount": "5442959362370745",
+        "wethAmount": "2005546804906355",
+        "feeCollectionTransactionHash": "0x0565e9381d47a82bba68990121d84faee4a750121555e60e8b0effd300b72104",
+        "feeTransactionHash": "0xf0ba8b33d12bb4ab493c825f0bc3f1390698aca5a9dbf16a9daad63080fa841b",
+        "conversionTransactionHash": "0x6003a4536cef6977c478f1736c4ec5e8518be422907e043bd13a689db48abdfa",
+        "sweepTransactionHash": "0x6003a4536cef6977c478f1736c4ec5e8518be422907e043bd13a689db48abdfa",
+        "forwardTransactionHash": "0x7dda4112da3f93f716cc4632946ff598016af473c14d591bf1a4ab35e1d03cfe",
+        "settlementTransactionHash": "0x0d0294bdb415520ae054dc0fea1c866b0d9d8807d4c8ace3a00ee97d16c61882",
+        "signer": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+        "signature": "0x75ab407e5328802c97278358ee249793df39137c14c52d0d74311b8383f57ff54bf5e09462bb8bba1aa2e4b977fb67fc56d29a0422bdc8476c3e95487b115c591b"
+      },
+      "evidenceHashPreserved": true,
+      "signatureUiSha256": "aa89c80f9fd7eb4b9653d3686a4cf7f75b0726ef82dd0d0e03afae87b67c819c"
+    },
+    "latestChainState": {
+      "observedAt": "2026-10-08T11:20:22.972Z",
+      "head": {
+        "number": "83274198",
+        "timestamp": 1791458421,
+        "hash": "0x11fb9776fc3f6846bd5184f5cf52f52b219bffe39883e005a0a36c4fa8906945"
+      },
+      "finalized": {
+        "number": "83263682",
+        "timestamp": 1791457343,
+        "hash": "0x568fe319f9f009c45bb3c8ecea9959f1fc14855cd02050f7713eae1fa781255a"
+      },
+      "oldAllowance": "0",
+      "newAllowance": "7994453195093645",
+      "keeperBalanceEth": "0.00005",
+      "sourceWeth": "0",
+      "vaultWeth": "0"
     },
     "reviewEvidence": "docs/evidence/buyback-v2-review.json",
-    "reviewEvidenceSha256": "30153ed89c3baa2817a260da3e2ced9db6392d4f54fd406641b54f87d3eed515"
-  }
+    "reviewEvidenceSha256": "a65379f7a577878e01f13fa2b30796df17be7c7b4ad0ea674e3b020f64c4a2f3"
+  },
+  "previousProductionSnapshots": [
+    {
+      "recordedBeforeV2Activation": {
+        "status": "partial_setup_completed_public_signing_paused",
+        "applicationOrSchemaDeployment": "existing_database_migration_applied_only; V2_application_not_deployed",
+        "v2ContractDeploymentAndPublicSourceVerification": "not_run",
+        "legacyApprovalRevocation": "not_run",
+        "finiteNewApproval": "not_run",
+        "nativeScheduledFeeToDeadFlow": "not_run",
+        "governorSignedActivationProof": "not_run",
+        "keeperSigningOrStart": "not_run",
+        "mainnetCanaryWithRealDesktopMobileWallets": "not_run",
+        "productionConcurrentCapacityAndCostCalibration": "not_run",
+        "productionEdgeWafTurnstileWorkersDevAndMonitorSetup": "not_run",
+        "automaticPublicationAndBothDomainByteVerification": "not_run",
+        "publicSigningResume": "not_run",
+        "baseSigning": "remains disabled in source",
+        "authority": "Explicit user approval of legacy production signing pause followed by the existing runtime-safety migration; no signing resume, V2 deployment or mainnet transaction authority. Onlyexisting legacyflags and the exactrequestedmigration were changed. No push or V2application/contracts/keeper/funding/publicresume.",
+        "executionChecklist": {
+          "path": "docs/SPEC.md",
+          "line": 294,
+          "completedPortion": "Legacypublicpause andexistingruntime migration only; compatiblebaseline andlatersteps pending"
+        },
+        "contractRunbook": "contracts/README.md#deployment-and-activation-runbook",
+        "compatiblePausedRollbackBaseline": "not_run_current_paused_legacy_version_is_not_protocol1",
+        "databaseVerification": "FullconfiguredSupabase verification passed with cleanup; defaultcontrols paused revision0, olddata preserved",
+        "legacyPublicSigningPause": "verified_both_domains_and_chains"
+      },
+      "retainedAt": "2026-10-08T11:21:09.371Z"
+    }
+  ]
 }
