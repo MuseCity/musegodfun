@@ -235,7 +235,7 @@
   "governance": {
     "governor": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
     "delaySeconds": 604800,
-    "controlProof": "not_run"
+    "controlProof": "verified_signature_retained_in_activation_evidence_pending_full_manifest"
   },
   "budget": {
     "rollingSeconds": 300,
@@ -243,11 +243,32 @@
     "maxPriceDeviationBps": 200
   },
   "activation": {
-    "oldForwarderRevocation": "not_run",
-    "newFiniteAllowance": "not_run",
+    "oldForwarderRevocation": {
+      "chainId": 4663,
+      "graphFingerprint": "0xa8bd28a62cfb751b3aa30bb32f5e3ddc4e51b4035166a3737642c3d42168e607",
+      "transactionHash": "0x789995fb997cc832908c4209567e2ff902121534b4e6b7d1e04a3d5a787494d8",
+      "source": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+      "token": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+      "spender": "0x3B6d01e627Fe6e06C831E0f9f57aC976a88309Ff",
+      "amount": "0"
+    },
+    "newFiniteAllowance": {
+      "chainId": 4663,
+      "graphFingerprint": "0xa8bd28a62cfb751b3aa30bb32f5e3ddc4e51b4035166a3737642c3d42168e607",
+      "transactionHash": "0x789995fb997cc832908c4209567e2ff902121534b4e6b7d1e04a3d5a787494d8",
+      "source": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+      "token": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+      "spender": "0x808d538f13ce0356E80C7a5ac2798D09206aB8f4",
+      "amount": "10000000000000000"
+    },
     "nativeAutomationAcceptance": "not_run",
     "sourceReview": "not_run",
-    "isolatedFork": "not_run"
+    "isolatedFork": "not_run",
+    "legacySwapperCutover": {
+      "blockNumber": "83135170",
+      "blockHash": "0x7dbb4763f1f76238e59f12e65e061483958b5bf4284fa9f1a80882f6cfa9139c",
+      "wethBalance": "0"
+    }
   },
   "assetFeedDescriptions": {
     "0x86923f96303d656e4aa86d9d42d1e57ad2023fdc": {
@@ -451,7 +472,12 @@
     "spender": "0x808d538f13ce0356e80c7a5ac2798d09206ab8f4",
     "token": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
     "recipient": "0x28e6b43525301312084310f31f4c9c9873d7a125",
-    "approval": "not_granted_by_deployment",
-    "nativeExecution": "not_run"
+    "approval": "confirmed_initial_canary_0.01_weth",
+    "nativeExecution": "not_run",
+    "approvalTransactionHash": "0x789995fb997cc832908c4209567e2ff902121534b4e6b7d1e04a3d5a787494d8",
+    "approvalUserOpHash": "0x0104acb0a309e02ea8c46ddbc8921bdb0787079e652b8b068011082ec45ca95f",
+    "oldForwarderAllowance": "0",
+    "newForwarderAllowance": "10000000000000000",
+    "observedAllowanceBlock": "83135170"
   }
 }

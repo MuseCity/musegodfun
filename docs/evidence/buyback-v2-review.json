@@ -380,5 +380,172 @@
       ]
     },
     "proofBoundary": "Contract deployment/source verification is real Robinhood mainnet execution. It does not prove native Automation, funded/authorized buyback activation or user wallet canary."
+  },
+  "authorizedActivationExecution": {
+    "observedAt": "2026-10-08T08:27:55.153Z",
+    "status": "source_authorization_confirmed_remaining_activation_proofs_pending",
+    "authority": "User explicitly requested activating buyback, then personally submitted and confirmed the prepared finite source-approval batch. No public signing resume.",
+    "graphFingerprint": "0xa8bd28a62cfb751b3aa30bb32f5e3ddc4e51b4035166a3737642c3d42168e607",
+    "sourceApproval": {
+      "observedAt": "2026-10-08T07:22:19.658Z",
+      "status": "source_allowance_cutover_confirmed_activation_still_pending",
+      "transactionHash": "0x789995fb997cc832908c4209567e2ff902121534b4e6b7d1e04a3d5a787494d8",
+      "userOpHash": "0x0104acb0a309e02ea8c46ddbc8921bdb0787079e652b8b068011082ec45ca95f",
+      "blockNumber": "83129329",
+      "blockHash": "0x1cd344d83878abb017b77e26fd00f104985d28fc0c40542ea2b0a1e87e122b6c",
+      "confirmations": "5905",
+      "canonical": true,
+      "approvals": [
+        {
+          "logIndex": 1,
+          "owner": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+          "spender": "0x3B6d01e627Fe6e06C831E0f9f57aC976a88309Ff",
+          "value": "0"
+        },
+        {
+          "logIndex": 2,
+          "owner": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+          "spender": "0x808d538f13ce0356E80C7a5ac2798D09206aB8f4",
+          "value": "10000000000000000"
+        }
+      ],
+      "userOperation": {
+        "entryPoint": "0x0000000071727de22e5e9d8baf0edac6f37da032",
+        "userOpHash": "0x0104acb0a309e02ea8c46ddbc8921bdb0787079e652b8b068011082ec45ca95f",
+        "sender": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+        "paymaster": "0x0000000000000000000000000000000000000000",
+        "nonce": "71701202822359469605774448259603921763739533989637248083867653721426128535552",
+        "success": true,
+        "actualGasCost": "0",
+        "actualGasUsed": "181157"
+      },
+      "oldForwarderRevocation": {
+        "chainId": 4663,
+        "graphFingerprint": "0xa8bd28a62cfb751b3aa30bb32f5e3ddc4e51b4035166a3737642c3d42168e607",
+        "transactionHash": "0x789995fb997cc832908c4209567e2ff902121534b4e6b7d1e04a3d5a787494d8",
+        "source": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+        "token": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+        "spender": "0x3B6d01e627Fe6e06C831E0f9f57aC976a88309Ff",
+        "amount": "0"
+      },
+      "newFiniteAllowance": {
+        "chainId": 4663,
+        "graphFingerprint": "0xa8bd28a62cfb751b3aa30bb32f5e3ddc4e51b4035166a3737642c3d42168e607",
+        "transactionHash": "0x789995fb997cc832908c4209567e2ff902121534b4e6b7d1e04a3d5a787494d8",
+        "source": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+        "token": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+        "spender": "0x808d538f13ce0356E80C7a5ac2798D09206aB8f4",
+        "amount": "10000000000000000"
+      },
+      "legacySwapperCutover": {
+        "blockNumber": "83135170",
+        "blockHash": "0x7dbb4763f1f76238e59f12e65e061483958b5bf4284fa9f1a80882f6cfa9139c",
+        "wethBalance": "0"
+      },
+      "latestAllowances": {
+        "old": "0",
+        "new": "10000000000000000"
+      },
+      "grantIsInitialCanaryOnly": true,
+      "proposalUrl": "https://app.splits.org/accounts/0xb3C11Aa2148521A3ef6d446672b720A63a2D8349/transactions/76bc6c14-fdc6-4a04-870a-4eb8dbb3cd0e/",
+      "before": {
+        "observedAt": "2026-10-08T06:55:17.031Z",
+        "blockNumber": "83110441",
+        "oldAllowanceRaw": "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+        "newAllowanceRaw": "0"
+      },
+      "important": "Splits explorer link names the UserOperation hash; activation receipt reference uses its canonical outer bundle transaction hash."
+    },
+    "priceCheck": {
+      "observedAt": "2026-10-08T07:38:11.266Z",
+      "blockNumber": "83144382",
+      "checkPrices": [
+        "11307054302939793319134519",
+        "11307626461538526242078865",
+        "11278266285490462423960779"
+      ],
+      "priceProtectionBps": 200,
+      "registeredTokens": 0,
+      "engineFeeReceiptEvidence": "not_observed_yet; no full-history scan claimed",
+      "tradeOrFeesTransactionsSigned": 0
+    },
+    "automation": {
+      "account": "0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a",
+      "ruleReadback": "Authenticated official UI: 100% WETH to the existing source Treasury, $5 automatic trigger; account currently has no tokens.",
+      "nativeScheduledExecution": "not_run",
+      "donationsDoNotSubstituteForFeesClaimed": true
+    },
+    "governorControl": {
+      "observedAt": "2026-10-08T07:46:32.303Z",
+      "status": "verified_fixed_governor_signature_and_canonical_block",
+      "signer": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+      "chainId": 4663,
+      "graphFingerprint": "0xa8bd28a62cfb751b3aa30bb32f5e3ddc4e51b4035166a3737642c3d42168e607",
+      "controlBlock": "83121802",
+      "controlBlockHash": "0x6dd2b5d8e8273b4518b7d5a6e41fb90cff29dee56b1b3702afad195584f1a9f3",
+      "confirmations": "27440",
+      "transactionsSent": 0,
+      "proof": {
+        "chainId": 4663,
+        "graphFingerprint": "0xa8bd28a62cfb751b3aa30bb32f5e3ddc4e51b4035166a3737642c3d42168e607",
+        "blockNumber": "83121802",
+        "blockHash": "0x6dd2b5d8e8273b4518b7d5a6e41fb90cff29dee56b1b3702afad195584f1a9f3",
+        "signer": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+        "signature": "0x98859e946bee4d1a91b50abb99e852c84e94630fb39c5f6e4ef9e50487bb3b52380c0e53b3b1769a69464806b68d20376e3bc884795d6d5aca7066b0f22197c51b"
+      },
+      "manifestInsertion": "pending_complete_native_activation_record",
+      "gasAndFundsMoved": "0",
+      "privateKeyRequested": false
+    },
+    "keeper": {
+      "observedAt": "2026-10-08T07:59:13.656Z",
+      "status": "dedicated_local_wallet_created_unfunded_keeper_not_started",
+      "address": "0xd3f11a4DDcED57aC4E41F8CE7fD323959667e278",
+      "keyLocation": ".env (ignored, mode 0600; value never output)",
+      "funding": "not_sent",
+      "runtimeHost": "user_selected_this_mac_for_initial_trial",
+      "executeCommand": "npm run keeper:buyback -- --execute --api=https://musegod.fun",
+      "dryRunCommand": "npm run keeper:buyback -- --once --api=https://musegod.fun",
+      "totalCanaryAndGasBudgetEth": "0.002",
+      "authorizedBudgetWallet": "0xd5C256e6411a6835543F2bCd763341639e3Cf56f",
+      "executionGate": "Full actual native-fee activation evidence required before execution. No deployment wallet reuse.",
+      "dedicatedKeyConfigured": true,
+      "trial": {
+        "mode": "dry_run",
+        "state": "waiting",
+        "reason": "Public engine is not configured until actual activation proof passes",
+        "logSha256": "c96ca41bb5ac2429b7bb1c89a526e985df2e8ad7785243597136724fdd3eddde"
+      },
+      "deploymentWalletReuse": "not_permitted"
+    },
+    "canaryBudget": {
+      "observedAt": "2026-10-08T08:00:54.967Z",
+      "blockNumber": "83157589",
+      "ethUsdFeed": "0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9",
+      "referenceEthUsd": 2575.4018,
+      "referenceUpdatedAt": "1791444205",
+      "authorizedWallet": "0xd5C256e6411a6835543F2bCd763341639e3Cf56f",
+      "authorizedTotalPrincipalAndGasEth": "0.002",
+      "referenceBudgetUsd": 5.150803600000001,
+      "nativeAutomaticTriggerUsd": 5,
+      "nativeAutomaticTriggerSource": "authenticated Splits Policy UI and https://splits.org/docs/accounts/",
+      "fixedPlatformBuybackShare": 0.8,
+      "theoreticalMinimumPlatformFeeLossUsd": 6.25,
+      "theoreticalMinimumEthBeforeGas": 0.002426805790071281,
+      "interpretation": "Planning lower bound for the normal scheduled run, assuming fully recoverable creator fees and no market loss. Gas, LP protocol share and route costs can only increase it. This is not an executable trade quote; no manual-trigger run is relabeled as periodic scheduler acceptance.",
+      "canaryTransactionsSigned": 0,
+      "keeperFundingSent": 0
+    },
+    "remaining": [
+      "Native Automation fee conversion/sweep and successful Vault settlement; graph-bound signed native acceptance",
+      "Fund dedicated keeper only within the approved total budget, then startup/restart/cycle verification",
+      "Verified graph application configuration and fixed engine launch cutover"
+    ],
+    "runtime": {
+      "currentlyPublishedCommit": "2a06f8e4c640906623f063b137c2019b9940558b",
+      "publicSigning": "both_chains_remain_paused",
+      "feeEngineEnvironment": "unset_until_full_activation_proof_passes"
+    },
+    "manifestSha256": "e3f3e4b33a7f5572ccf9612f7622812778c8a09ac62c7412784698cb61cb7745"
   }
 }
