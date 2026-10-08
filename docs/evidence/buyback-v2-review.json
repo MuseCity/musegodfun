@@ -2,26 +2,26 @@
   "schemaVersion": 1,
   "status": "passed",
   "scope": "Internal independent source review and isolated execution evidence only. This is a source-integrity gate for a subsequently explicitly authorized deployment; it grants no deployment, publication, signing, funding, treasury approval or production activation authority.",
-  "observedAt": "2026-10-08T04:07:57.030Z",
-  "baseCommit": "4248af9d8f37c9330c5799553dd62ea7d3d8714a",
+  "observedAt": "2026-10-08T04:44:50.454Z",
+  "baseCommit": "0a2b36754d41e645860e22976ee97da4719ef687",
   "branch": "codex/robinhood-go-live-ux",
   "uncommittedSource": false,
   "reviewers": [
     {
-      "identity": "Codex independent_recovery_7d34",
-      "role": "Read-only realSDK/SQLite provenance, receipt-remine and realviem guard-cache probes"
+      "identity": "Codex independent_runtime_7d34",
+      "role": "Client fixer; seven failing interleaving/direct-write regressions before fix and final22checks"
     },
     {
-      "identity": "Codex independent_runtime_7d34",
-      "role": "Read-only actual client backoff/control-flow probes and final completeness critic; localworkerd HMAC"
+      "identity": "Codex independent_recovery_7d34",
+      "role": "Guard fixer; read-first runtime classification and full-register temporary failure regressions"
     },
     {
       "identity": "Codex independent_buyback_7d34",
-      "role": "Read-only cutover CLI/finality/JSON review; six compiler outputs and17-source closure"
+      "role": "Independent read-only finaldiff critic,83regressions and realisolatedPostgreSQL migration review"
     },
     {
       "identity": "Codex root",
-      "role": "Independent probe replay, fullNode/Forge/build/browser/Worker checks, localPostgREST and configuredSupabase isolated fixture verification; evidence integration"
+      "role": "FullNode603/build/browser39/Worker dry-run, nativeproductionpreflight/privatebackups and evidence integration"
     }
   ],
   "blockingFindings": [],
@@ -59,7 +59,7 @@
     {
       "area": "isolated validation",
       "result": "passed",
-      "detail": "FullNode585/585, Foundry143/143, typecheck/build and Worker dry-run pass. Chromium39 (38desktop/one mobile layout) passes with injected APIs/wallet/RPC. Supplemental client/recovery probes confirm two application issues outside this scoped deployment gate. New database operations pass locally with realPostgreSQL/PostgREST and on configuredSupabase disposable rows with cleanup. Full configuredSupabase CLI fails initial health due to missing runtime control table; no migration applied. Retainedfork observation unchanged."
+      "detail": "Currentapplication Node603/603, build/typecheck, Worker dry-run andChromium39 pass. Client/guard regressions fail beforefix and pass afterward; independentfinaldiff83/83 andmigration35/35 plus realisolatedPostgreSQL compatibility/ACL checks pass. Solidity unchanged: prior143Forge tests andsixcompiler outputs retained, not rerun. Actual productionmigration/signingpause/fullDBverification remainpending."
     },
     {
       "area": "configuration crypto dependency",
@@ -135,11 +135,11 @@
     "74aac0d removes unused V1 Engine/Forwarder artifact/input files and their legacy exporter entry. CurrentV2 paths remain valid; historical manifests/receipts/evidence and reused Oracle/Executor artifacts remain.",
     "Local.env attestation key was confirmed present and length-valid without printing it. Real key entropy and deployedWorker binding were not verified; actual secret upload and cutover configuration are not_run.",
     "The10s ordinary/register body deadline introduced by1f97712 is retained at the user's direction pending capacity/slow-network testing; no deadline or budget was changed by this review.",
-    "The fiveIR038 application findings are closed for fresh current flows. CurrentIR424-BACKOFF_RACE andIR424-GUARD_CACHE are recovery availability defects; source-integrity approval does not approve joint opening.",
     "Cutover is unset. Readiness is replayed by the record CLI, canonicality refreshed every15s until finalized, then trusted as a fixed history marker. CLI writers must run serially; atomic replacement does not prevent stale concurrent snapshots from dropping/moving the marker.",
     "Treasury-only receipts inside the engine-only deploy gap can recover once a marker exists if canonical receipt time is beforecutover+360s. This deliberately bounded compatibility window does not prove the preview preceded deploy.",
     "Markerless recovered plans imported from unshipped038/b182 databases can still be mistaken for prepared. Productionmaster saves plans only inprepare; fresh current recovery always persists recovered:true. Do not silently import the intermediate-version database as prepared provenance.",
-    "The two new operations passed on configuredSupabase isolated fixture rows and cleanup readback. Fullverify:database is blocked by missingmusegod_runtime_controls/PGRST205; deployment still needs the existing runtime-safety migration. No migration or business row change was performed."
+    "BothIR424 defects closed. Backoff revision/check/write/clear protection is in-memory and retains perrecord revisions until module reload; no persisted/cross-tab waiting policy or new user limit. Nonempty foreignguard code keeps address-wide10min rejection; empty/read/dependency failures keep15s verdicts only.",
+    "ConfiguredSupabase two newoperations andcleanup passed in the previousisolatedfixture review. Fullverify remainsblocked by absent runtimecontrols. Migration was requested and private pre-migration backups preserved; SPEC requires legacypublic signingpause first, and currentRobinhoodwritesEnabled=true. Additionalpause authority ispending. No productionconfiguration/schema change performed."
   ],
   "production": {
     "deploymentAuthority": "not_granted",
@@ -151,16 +151,15 @@
     "jointPublicActivation": "not_run",
     "executionChecklist": "docs/SPEC.md#concrete-production-execution-checklist-not_run"
   },
-  "reviewedCommit": "4248af9d8f37c9330c5799553dd62ea7d3d8714a",
+  "reviewedCommit": "0a2b36754d41e645860e22976ee97da4719ef687",
   "applicationRelease": {
-    "status": "changes_required",
-    "scope": "Passed status covers the unchanged41-file V2 deployment source-integrity gate only. Current application review closes the previous five findings but confirms two availability/backoff defects; full configuredSupabase validation is blocked by the unapplied runtime-safety schema.",
-    "requiredFindingIds": [
-      "IR424-BACKOFF_RACE",
-      "IR424-GUARD_CACHE"
-    ],
+    "status": "source_fixes_passed_operational_prerequisites_pending",
+    "scope": "IR424-BACKOFF_RACE andIR424-GUARD_CACHE closed by current source and independent diff review. Contract source gate unchanged. Production still needs authorized legacy pause, existing runtime migration/fullconfiguredSupabase verification, compatible paused baseline and original mainnet acceptance.",
+    "requiredFindingIds": [],
     "environmentPrerequisites": [
-      "existing runtime-safety database migration and full verification"
+      "Explicit authorization and verified legacyruntime signingpause",
+      "Existingruntime-safety migration/fullconfiguredSupabase verification",
+      "Original compatiblepausedbaseline/production canary andjointopening proof"
     ],
     "evidence": "docs/evidence/go-live-ux-acceptance.json#independentReview"
   },
@@ -188,12 +187,12 @@
     },
     "runnerDisclosure": "The7d34c86 commit message and user handoff identify standardAnvil1.5.1; the submitted JSON did not record binary/version. Retained reports for82540890 were actually rerun on2026-10-07 with the inspected repository-default binary. They were not rerun for038de6d."
   },
-  "fixCommit": "4248af9d8f37c9330c5799553dd62ea7d3d8714a",
+  "fixCommit": "0a2b36754d41e645860e22976ee97da4719ef687",
   "retainedForkCompatibility": {
-    "reviewedCommit": "4248af9d8f37c9330c5799553dd62ea7d3d8714a",
-    "observedAt": "2026-10-08T04:07:57.030Z",
+    "reviewedCommit": "0a2b36754d41e645860e22976ee97da4719ef687",
+    "observedAt": "2026-10-08T04:44:50.454Z",
     "rerun": false,
-    "checks": "SixSolc0.8.24 artifacts independently reproduced with17 source closures;41 deployment source hashes unchanged sinceb18294f. Retainedfork82540890 producer/config/artifact identity matches. Original observation time preserved; no fresh fork, mainnet, scheduler or economic execution."
+    "checks": "All41 deployment source hashes unchanged; retainedfork producer/config/artifacts unchanged. The sixSolc0.8.24/17source reproductions remain the earlier independent evidence; no new compiler/fork/mainnet run required or claimed by this application-only fix."
   },
-  "reviewBaseCommit": "b18294ff6d6a6c98c80b93004e6b73bcb38e9598"
+  "reviewBaseCommit": "74dc8226742e3cacf2be565b2f7750fcc9206445"
 }

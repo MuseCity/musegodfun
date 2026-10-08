@@ -121,5 +121,69 @@
     },
     "historicalChecks": "The top-level observedAt and checks remain the2026-10-05 historical full verification; they are not a fresh pass of the runtime-safety migration.",
     "nextStep": "Apply the existing20261007094402_runtime_safety_controls.sql migration under separate production authorization, then rerun the full verification. This review did not apply migrations or change business rows."
+  },
+  "migrationPreparation": {
+    "reviewedCommit": "0a2b36754d41e645860e22976ee97da4719ef687",
+    "observedAt": "2026-10-08T04:44:50.454Z",
+    "path": "supabase/migrations/20261007094402_runtime_safety_controls.sql",
+    "sha256": "5da5b3a18bba1e8878aca48afc4da5794f781fd407dc02b419d3c5f770988258",
+    "requested": true,
+    "status": "prepared_awaiting_explicit_legacy_signing_pause_authority",
+    "preflight": {
+      "projectConfirmed": true,
+      "controlsTable": null,
+      "tokens": 0,
+      "planRows": 22,
+      "baseWritesEnabled": false,
+      "robinhoodWritesEnabled": true,
+      "originsRead": [
+        "https://musegod.fun",
+        "https://www.musegod.fun"
+      ],
+      "schemaApplied": false,
+      "signingFlagsChanged": false
+    },
+    "backups": {
+      "base": {
+        "path": ".cache/pre-runtime-migration-20261008-base.json",
+        "sha256": "c1e36ec1c75430df617c3c5fee5e863c6446119eaa064211da99913a3688723e",
+        "mode": "0600",
+        "version": 2,
+        "plans": 6,
+        "tokens": 0,
+        "pending": 0,
+        "contentsCommitted": false
+      },
+      "robinhood": {
+        "path": ".cache/pre-runtime-migration-20261008-robinhood.json",
+        "sha256": "156f882e35e44116f424f81c4e6f9ce2bc1e1fb8ec83ebac8a2ae6a4875134cc",
+        "mode": "0600",
+        "version": 2,
+        "plans": 16,
+        "tokens": 0,
+        "pending": 0,
+        "contentsCommitted": false
+      }
+    },
+    "independentMigrationReview": {
+      "reviewer": "Codex independent_buyback_7d34",
+      "status": "passed_isolated_PostgreSQL",
+      "targetedTests": 35,
+      "checks": [
+        "Populated old records/old-column INSERT defaults retained",
+        "Version2 pre-migration backup restores and newfields get defaults",
+        "Existing independent pause/revision not reset by restore",
+        "Protected/referenced plans andPinata/buyback snapshots retained by cleanup",
+        "Four newtables RLS and service-only grants; all checkedRPC SECURITY INVOKER with noanon/authenticated EXECUTE",
+        "CREATE OR REPLACE cleanup/restore preserves existingACL"
+      ]
+    },
+    "dependency": {
+      "source": "docs/SPEC.md:294",
+      "required": "First enforce and verify the currently deployed runtime signing pause on both public chains. The new database rows cannot control legacy runtime signing.",
+      "approvalQuestionAsked": true,
+      "approvalReceived": false
+    },
+    "rollback": "Keep the additive migration/safety records after application; preserve these private application backups. Use a reviewed compatible paused runtime for release rollback."
   }
 }
