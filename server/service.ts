@@ -100,6 +100,9 @@ export class LaunchpadService {
     this.client = createPublicClient({
       chain: { ...base, id: runtime.config.chainId, name: networkName(runtime.config) },
       transport: http(runtime.rpcUrl, {
+        // Multicall combines eth_call only. Batch the remaining read-only RPC
+        // methods too, so a cold verification fits the Worker fetch budget.
+        batch: { batchSize: 20, wait: 0 },
         timeout: runtime.config.mode === "fork" ? 180_000 : 25_000,
         retryCount: 2,
         retryDelay: 500,
@@ -318,7 +321,7 @@ export class LaunchpadService {
     const nativeWrap = options?.fromToken !== undefined && sameAddress(options.fromToken, zeroAddress) && stock.symbol === "WETH";
     if (!nativeWrap) await this.openingValuation(quoteAddress);
   }
-  async prepare(raw: unknown, rawCreator: unknown, expectedCurvePolicy?: unknown, firstBuy?: unknown, rawOptions?: LaunchPrepareOptions): Promise<LaunchPlan> {
+  async prepare(raw: unknown, rawCreator: unknown, expectedCurvePolicy?: unknown, firstBuy?: unknown, rawOptions?: LaunchPrepareOptions, checkedConfig?: RuntimeConfig): Promise<LaunchPlan> {
     // This handshake must run before any RPC, including chain checks.
     if (expectedCurvePolicy !== CURVE_POLICY)
       throw new Error("The issuance curve policy has changed. Reload the launch page and run a new preview.");
@@ -345,7 +348,9 @@ export class LaunchpadService {
     if (buy?.lockDays && amountIn === 0n) throw new Error("A locked first buy requires a positive amount.");
     await this.assertNetwork();
     await this.assertCreatorAccount(creator);
-    const launchConfig = await this.config();
+    // The HTTP route already checked this request's live configuration. Reuse it
+    // for read-only preparation; the actual signing validation reads it afresh.
+    const launchConfig = checkedConfig ?? await this.config();
     const feePolicy = launchFeePolicy(launchConfig);
     this.assertLaunchPolicyCurrent(feePolicy);
     if (feePolicy === ENGINE_FEE_POLICY && !launchConfig.feeEngine)

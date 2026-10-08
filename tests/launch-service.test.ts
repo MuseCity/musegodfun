@@ -24,6 +24,7 @@ import { Store } from "../server/store";
 import { unpackPlan } from "../server/plan-storage";
 import { SupabaseStore } from "../server/supabase-store";
 import { FIRST_BUY_PAYMENT_CONTRACTS, assertFirstBuyPaymentQuote, firstBuyPairedAsset, firstBuyPaymentAbi, firstBuyPaymentAssets, type FirstBuyPaymentQuote } from "../src/lib/first-buy-payment";
+import { multicall3Abi } from "viem";
 
 const creator = "0x1111111111111111111111111111111111111111" as Address;
 const treasury = "0x2222222222222222222222222222222222222222" as Address;
@@ -31,6 +32,54 @@ const guard = "0x3333333333333333333333333333333333333333" as Address;
 const token = "0x4444444444444444444444444444444444444444" as Address;
 const hash = `0x${"aa".repeat(32)}` as Hex, blockHash = `0x${"bb".repeat(32)}` as Hex;
 const quote = ROBINHOOD_STOCKS.find((asset) => asset.symbol === "WETH")!;
+
+test("service RPC batches HTTP identity reads as well as contract reads", async (context) => {
+  const service = new LaunchpadService({
+    config: { mode: "robinhood", chainId: 4663, deploymentChainId: 4663, treasury: null, writesEnabled: false, blockReason: null },
+    rpcUrl: "https://rpc.fixture.test", dataDir: ".unused-test-store", dataScope: "robinhood",
+    launchGuardCandidate: null, firstBuyGuardCandidate: null, lifi: { integrator: "musegodfun" },
+    supabase: { url: "https://fixture.supabase.co", secretKey: "fixture-only" },
+  });
+  let fetches = 0;
+  const sizes: number[] = [];
+  context.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    fetches++;
+    const body = JSON.parse(input instanceof Request ? await input.text() : String(init?.body));
+    assert(Array.isArray(body), "RPC transport sends a JSON-RPC batch");
+    sizes.push(body.length);
+    const responses = body.map((item: { id: number; method: string; params: unknown[] }) => {
+      let result: unknown;
+      if (item.method === "eth_chainId") result = "0x1237";
+      else if (item.method === "eth_blockNumber") result = "0x64";
+      else if (item.method === "eth_getCode") result = "0x6000";
+      else {
+        assert.equal(item.method, "eth_call");
+        const aggregate = decodeFunctionData({ abi: multicall3Abi, data: (item.params[0] as { data: Hex }).data });
+        assert.equal(aggregate.functionName, "aggregate3");
+        result = encodeAbiParameters([{ type: "tuple[]", components: [{ name: "success", type: "bool" }, { name: "returnData", type: "bytes" }] }],
+          [aggregate.args![0].map(() => ({ success: true, returnData: encodeAbiParameters([{ type: "uint256" }], [99n]) }))]);
+      }
+      return { jsonrpc: "2.0", id: item.id, result };
+    });
+    // Real providers may return a batch out of order; every result must still
+    // reach the action identified by its JSON-RPC id.
+    return Response.json(responses.reverse());
+  });
+  const [chain, block, ...codes] = await Promise.all([
+    service.client.getChainId(), service.client.getBlockNumber({ cacheTime: 0 }),
+    ...Array.from({ length: 22 }, (_, index) => service.client.getCode({ address: `0x${(index + 1).toString(16).padStart(40, "0")}` as Address })),
+  ]);
+  assert.equal(chain, 4663); assert.equal(block, 100n);
+  assert(codes.every((code) => code === "0x6000"));
+  assert.equal(fetches, 2, "24 identity actions use two bounded HTTP fetches");
+  assert.deepEqual(sizes, [20, 4]);
+  const balances = await Promise.all(Array.from({ length: 20 }, (_, index) => service.client.readContract({
+    address: quote.address, abi: erc20Abi, functionName: "balanceOf", args: [`0x${(index + 1).toString(16).padStart(40, "0")}` as Address],
+  })));
+  assert(balances.every((balance) => balance === 99n));
+  assert.equal(fetches, 3, "Contract multicall still uses one HTTP fetch");
+});
+
 function fixture(quoteAsset: Stock = quote, tradingFeeBps = 100) {
   const quote = quoteAsset;
   const sdk = new DopplerSDK<4663>({ publicClient: createPublicClient({ transport: http("http://127.0.0.1:1") }), chainId: 4663 });

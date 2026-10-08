@@ -4901,5 +4901,79 @@
       },
       "retainedAt": "2026-10-08T11:21:09.371Z"
     }
-  ]
+  ],
+  "authorizedPublicIssuanceExecution": {
+    "observedAt": "2026-10-08T13:18:28.337767+00:00",
+    "status": "prepared_not_deployed_persistent_pause_retained",
+    "authority": "User explicitly requested 启用公开发币. Robinhood4663 only; no additional mainnet spending or subscription change.",
+    "baseCommit": "7bb52c6c400ac525f6e9f51604a2596f690a2f7a",
+    "sourceHashes": {
+      "server/app.ts": "f9bead90734f79ccc5949f83522a716ec4166ac273f469aa8c9125db58398130",
+      "server/buyback-activation.ts": "36071617f4b35de6ff739fc8d15fe7c882d61dd86e45c97cbc80181190afead0",
+      "server/buyback-engine.ts": "58f77be0b0425ff0105ef973a1fe9094a8ea2731ff64d13eeeda043d7d03b5f0",
+      "server/service.ts": "52e5da09ba27ef86cd6d60b3c53c91d843189e75218ff79979cfedc9fa1da11b",
+      "tests/buyback-activation.test.ts": "e60a09fbe8898db4e45a65e7441795fe44f55e4c8ad4be11b79af529ba7ffac4",
+      "tests/buyback-index.test.ts": "ff3dfee89e3b73b85938c9ecffbfe0eaaefacf7e52038d239c97d8b2b9a88cd7",
+      "tests/launch-service.test.ts": "0031313f2dc95bc4a283526cd51a18bbf3ebd0c94f23d3ff999d9811caee0f7d",
+      "wrangler.jsonc": "f0b475823ac76083d5ada20ee9b5978fced3aa0eac0c67a33ab6235988db819e",
+      "docs/SPEC.md": "c0649f6950f356119ef14a827986eef99a92bfa23f5aa78a37937338b32e6a6a"
+    },
+    "changes": [
+      "Bounded20-action HTTP read batches plus parallel complete immutable verification",
+      "Only fully verified finalized historical activation evidence cached; chain/governor/EIP1271/mutable graph/current old allowance/live pause are fresh",
+      "Worker foreground canonical snapshot only; existing local Node keeper continues identical shared incremental index",
+      "Route and prepare reuse one request configuration; actual signing validation still rereads controls",
+      "Robinhood binding true; global and Base bindings false"
+    ],
+    "validation": {
+      "nodePassed": 614,
+      "nodeFailed": 0,
+      "nodeSkipped": 0,
+      "typecheck": "passed",
+      "build": "passed",
+      "workerUploadDryRun": "passed",
+      "coldConfigFetches": 18,
+      "warmConfigFetches": 6,
+      "coldConfigAndUnsignedOrdinaryPrepareFetches": 34,
+      "ordinaryPrepareSigningWindowMs": 300000,
+      "ordinaryPrepareAttested": true,
+      "measurementBoundary": "Real RPC/SDK/LI.FI/Supabase, unsigned direct service preparation; HTTP quota/lease operations excluded; persistent pause unchanged",
+      "workerSecretNamesConfirmed": [
+        "PLAN_ATTESTATION_KEY",
+        "LIFI_API_KEY",
+        "SUPABASE_SECRET_KEY"
+      ],
+      "independentReadOnlyReview": {
+        "reviewer": "/root/independent_recovery_7d34",
+        "scope": "Current activation-cache, immutable verification, route-internal config reuse, Worker/Node index wiring diff; no runtime changes by reviewer",
+        "result": "no blocking findings",
+        "targetedTestsPassed": 53,
+        "operationalDependency": "Dedicated keeper must explicitly use the running local Node API for shared index progress; current tmux command does so. Default public API does not scan.",
+        "proofBoundary": "Static review and targeted tests are not whole-route production quota or real-wallet proof."
+      }
+    },
+    "beforeControls": {
+      "4663": {
+        "paused": true,
+        "revision": 0,
+        "updatedAt": 0,
+        "reason": "Awaiting runtime activation"
+      },
+      "8453": {
+        "paused": true,
+        "revision": 0,
+        "updatedAt": 0,
+        "reason": "Awaiting runtime activation"
+      }
+    },
+    "remainingProofLimits": [
+      "Actual extension/mobile website-wallet issuance not run",
+      "General ingress throughput/body-timeout load calibration not complete",
+      "Keeper index may remain partial and exposes its actual checkpoint/caughtUp flag"
+    ],
+    "capitalChange": "none; no new signing/broadcast/funding",
+    "deployment": "not_run",
+    "runtimeControlResume": "not_run",
+    "rollback": "Read current4663 revision, CAS pause immediately; deploy only a compatible version preserving runtime controls/recovery. Base stays paused. Original independent contract-review source pins are unchanged."
+  }
 }

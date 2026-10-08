@@ -126,67 +126,75 @@ async function verifyFeeEngineImmutable(client: EngineClient, candidate: Address
   if (code.length !== 7) throw new Error("The fee engine contract graph is incomplete");
   const automationCode = await client.getCode({ address: getAddress(constant.automation!), blockNumber });
   if (!automationCode || automationCode === "0x") throw new Error("The Splits Automation receiver is not a contract account");
+  // Independent immutable reads share transport batches; every identity check remains required.
+  const validations: Promise<unknown>[] = [];
   const expectedEngine = { initializer: constant.initializer, rehype: constant.rehype, oracle: addresses.oracle, assetOracle: addresses.assetOracle, settlementVault: addresses.vault, swapper: addresses.swapper, weth: constant.weth, muse: constant.muse, router: constant.router, automation: constant.automation! } as const;
-  await Promise.all(Object.entries(expectedEngine).map(async ([functionName, expected]) => {
+  validations.push(Promise.all(Object.entries(expectedEngine).map(async ([functionName, expected]) => {
     const actual = await client.readContract({ address: addresses.engine, abi: feeEngineAbi, functionName: functionName as keyof typeof expectedEngine, blockNumber });
     if (!sameAddress(String(actual), expected)) throw new Error("The fee engine immutable dependencies do not match");
-  }));
+  })));
   const expectedExecutor = { swapper: addresses.swapper, weth: constant.weth, musegod: constant.muse, router: constant.swapRouter } as const;
-  await Promise.all(Object.entries(expectedExecutor).map(async ([functionName, expected]) => {
+  validations.push(Promise.all(Object.entries(expectedExecutor).map(async ([functionName, expected]) => {
     const actual = await client.readContract({ address: addresses.executor, abi: buybackExecutorAbi, functionName: functionName as keyof typeof expectedExecutor, blockNumber });
     if (!sameAddress(String(actual), expected)) throw new Error("The buyback executor immutable dependencies do not match");
-  }));
+  })));
   const expectedForwarder = { source: constant.automationTreasury!, weth: constant.weth, swapper: addresses.swapper, vault: addresses.vault } as const;
-  await Promise.all(Object.entries(expectedForwarder).map(async ([functionName, expected]) => {
+  validations.push(Promise.all(Object.entries(expectedForwarder).map(async ([functionName, expected]) => {
     const actual = await client.readContract({ address: addresses.forwarder, abi: wethForwarderAbi, functionName: functionName as keyof typeof expectedForwarder, blockNumber });
     if (!sameAddress(String(actual), expected)) throw new Error("The fixed WETH forwarder dependencies do not match");
-  }));
+  })));
   const expectedVault = { weth: constant.weth, musegod: constant.muse, oracle: addresses.oracle, swapper: addresses.swapper, executor: addresses.executor, pool: constant.museWethPool } as const;
-  await Promise.all(Object.entries(expectedVault).map(async ([name, expected]) => {
+  validations.push(Promise.all(Object.entries(expectedVault).map(async ([name, expected]) => {
     const value = await client.readContract({ address: addresses.vault, abi: buybackVaultAbi, functionName: name as keyof typeof expectedVault, blockNumber });
     if (!sameAddress(value, expected)) throw new Error("The budget vault immutable graph changed");
-  }));
-  const [cap, seconds, deviation, governor, delay, assetWeth, allowanceCap] = await Promise.all([
-    client.readContract({ address: addresses.vault, abi: buybackVaultAbi, functionName: "WINDOW_CAP", blockNumber }),
-    client.readContract({ address: addresses.vault, abi: buybackVaultAbi, functionName: "WINDOW_SECONDS", blockNumber }),
-    client.readContract({ address: addresses.vault, abi: buybackVaultAbi, functionName: "MAX_DEVIATION_BPS", blockNumber }),
-    client.readContract({ address: addresses.assetOracle, abi: assetFeedOracleAbi, functionName: "governor", blockNumber }),
-    client.readContract({ address: addresses.assetOracle, abi: assetFeedOracleAbi, functionName: "FEED_CHANGE_DELAY", blockNumber }),
-    client.readContract({ address: addresses.assetOracle, abi: assetFeedOracleAbi, functionName: "weth", blockNumber }),
-    client.readContract({ address: addresses.forwarder, abi: wethForwarderAbi, functionName: "MAX_ALLOWANCE", blockNumber }),
-  ]);
-  if (cap !== 10n ** 16n || seconds !== 300n || deviation !== 200n || delay !== 604800n || allowanceCap !== BUYBACK_FORWARDER_ALLOWANCE_CAP || !sameAddress(governor, constant.treasury) || !sameAddress(assetWeth, constant.weth))
-    throw new Error("The rolling buyback budget or feed governance does not match the approved policy");
+  })));
+  validations.push((async () => {
+    const [cap, seconds, deviation, governor, delay, assetWeth, allowanceCap] = await Promise.all([
+      client.readContract({ address: addresses.vault, abi: buybackVaultAbi, functionName: "WINDOW_CAP", blockNumber }),
+      client.readContract({ address: addresses.vault, abi: buybackVaultAbi, functionName: "WINDOW_SECONDS", blockNumber }),
+      client.readContract({ address: addresses.vault, abi: buybackVaultAbi, functionName: "MAX_DEVIATION_BPS", blockNumber }),
+      client.readContract({ address: addresses.assetOracle, abi: assetFeedOracleAbi, functionName: "governor", blockNumber }),
+      client.readContract({ address: addresses.assetOracle, abi: assetFeedOracleAbi, functionName: "FEED_CHANGE_DELAY", blockNumber }),
+      client.readContract({ address: addresses.assetOracle, abi: assetFeedOracleAbi, functionName: "weth", blockNumber }),
+      client.readContract({ address: addresses.forwarder, abi: wethForwarderAbi, functionName: "MAX_ALLOWANCE", blockNumber }),
+    ]);
+    if (cap !== 10n ** 16n || seconds !== 300n || deviation !== 200n || delay !== 604800n || allowanceCap !== BUYBACK_FORWARDER_ALLOWANCE_CAP || !sameAddress(governor, constant.treasury) || !sameAddress(assetWeth, constant.weth))
+      throw new Error("The rolling buyback budget or feed governance does not match the approved policy");
+  })());
   const expectedOracle = { weth: constant.weth, musegod: constant.muse, museWethPool: constant.museWethPool, ethUsdFeed: constant.ethUsdFeed } as const;
-  await Promise.all(Object.entries(expectedOracle).map(async ([functionName, expected]) => {
+  validations.push(Promise.all(Object.entries(expectedOracle).map(async ([functionName, expected]) => {
     const actual = await client.readContract({ address: addresses.oracle, abi: oracleAbi, functionName: functionName as keyof typeof expectedOracle, blockNumber });
     if (!sameAddress(String(actual), expected)) throw new Error("The fixed buyback oracle dependencies do not match");
-  }));
-  const [twap, maxAge] = await Promise.all([
-    client.readContract({ address: addresses.oracle, abi: oracleAbi, functionName: "TWAP_SECONDS", blockNumber }),
-    client.readContract({ address: addresses.oracle, abi: oracleAbi, functionName: "ethMaxAge", blockNumber }),
-  ]);
-  if (twap !== buybackConfig.twapSeconds || maxAge !== buybackConfig.ethMaxAge) throw new Error("The buyback oracle periods do not match");
-  const [routerHash, actualRouter, routerExecutor, executorHash] = await Promise.all([
-    client.readContract({ address: addresses.engine, abi: feeEngineAbi, functionName: "routerCodeHash", blockNumber }),
-    client.getCode({ address: getAddress(constant.router), blockNumber }),
-    client.readContract({ address: addresses.engine, abi: feeEngineAbi, functionName: "routerExecutor", blockNumber }),
-    client.readContract({ address: addresses.engine, abi: feeEngineAbi, functionName: "routerExecutorCodeHash", blockNumber }),
-  ]);
-  const actualExecutor = await client.getCode({ address: routerExecutor, blockNumber });
-  if (!sameAddress(routerExecutor, buybackConfig.constants.routerExecutor) ||
-    routerHash !== buybackConfig.expectedRuntimeHashes.router || executorHash !== buybackConfig.expectedRuntimeHashes.routerExecutor ||
-    !actualRouter || keccak256(actualRouter) !== routerHash || !actualExecutor || keccak256(actualExecutor) !== executorHash)
-    throw new Error("The fixed buyback configuration or router runtime has changed");
+  })));
+  validations.push((async () => {
+    const [twap, maxAge] = await Promise.all([
+      client.readContract({ address: addresses.oracle, abi: oracleAbi, functionName: "TWAP_SECONDS", blockNumber }),
+      client.readContract({ address: addresses.oracle, abi: oracleAbi, functionName: "ethMaxAge", blockNumber }),
+    ]);
+    if (twap !== buybackConfig.twapSeconds || maxAge !== buybackConfig.ethMaxAge) throw new Error("The buyback oracle periods do not match");
+  })());
+  validations.push((async () => {
+    const [routerHash, actualRouter, routerExecutor, executorHash] = await Promise.all([
+      client.readContract({ address: addresses.engine, abi: feeEngineAbi, functionName: "routerCodeHash", blockNumber }),
+      client.getCode({ address: getAddress(constant.router), blockNumber }),
+      client.readContract({ address: addresses.engine, abi: feeEngineAbi, functionName: "routerExecutor", blockNumber }),
+      client.readContract({ address: addresses.engine, abi: feeEngineAbi, functionName: "routerExecutorCodeHash", blockNumber }),
+    ]);
+    const actualExecutor = await client.getCode({ address: routerExecutor, blockNumber });
+    if (!sameAddress(routerExecutor, buybackConfig.constants.routerExecutor) ||
+      routerHash !== buybackConfig.expectedRuntimeHashes.router || executorHash !== buybackConfig.expectedRuntimeHashes.routerExecutor ||
+      !actualRouter || keccak256(actualRouter) !== routerHash || !actualExecutor || keccak256(actualExecutor) !== executorHash)
+      throw new Error("The fixed buyback configuration or router runtime has changed");
+  })());
   const allAssets = assetsFor({ mode: "robinhood" });
-  for (let i = 0; i < buybackConfig.feeds.length; i += 12) await Promise.all(buybackConfig.feeds.slice(i, i + 12).map(async (expected) => {
+  validations.push(Promise.all(buybackConfig.feeds.map(async (expected) => {
     const actual = await client.readContract({ address: addresses.oracle, abi: oracleAbi, functionName: "assetFeeds", args: [getAddress(expected.token)], blockNumber });
     const asset = allAssets.find((token) => sameAddress(token.address, expected.token));
     if (!asset || !sameAddress(actual[0], expected.feed) || actual[1] !== expected.maxAge || actual[2] !== asset.decimals || actual[4] !== expected.checkOraclePaused)
       throw new Error("The fixed asset-feed mapping does not match the reviewed buyback configuration");
-  }));
+  })));
   const fixedAssets = [{ token: constant.weth, maxAge: buybackConfig.ethMaxAge, checkOraclePaused: false }, ...buybackConfig.feeds];
-  for (let i = 0; i < fixedAssets.length; i += 8) await Promise.all(fixedAssets.slice(i, i + 8).map(async (expected) => {
+  validations.push(Promise.all(fixedAssets.map(async (expected) => {
     const token = getAddress(expected.token);
     const [[feed, age, decimals, feedDecimals, checkPause], label] = await Promise.all([
       client.readContract({ address: addresses.assetOracle, abi: assetFeedOracleAbi, functionName: "assetFeeds", args: [token], blockNumber }),
@@ -197,7 +205,8 @@ async function verifyFeeEngineImmutable(client: EngineClient, candidate: Address
     if (feed === "0x0000000000000000000000000000000000000000" || age !== expected.maxAge || decimals !== expectedDecimals || feedDecimals !== 8 || checkPause !== expected.checkOraclePaused || !pinnedLabel || pinnedLabel.descriptionHash !== keccak256(new TextEncoder().encode(pinnedLabel.description)) || label !== pinnedLabel.descriptionHash)
       throw new Error(`The fixed fee-asset classification or feed safety settings changed for ${token}`);
 
-  }));
+  })));
+  await Promise.all(validations);
   return { ...addresses, operationsTreasury: getAddress(constant.treasury), automationReceiver: getAddress(constant.automation!), automationTreasury: getAddress(constant.automationTreasury!) };
 }
 
@@ -338,7 +347,7 @@ export function engineStatusReason(input: { sourceDeployed: boolean; sourceAllow
 export class BuybackEngineReader {
   private cached?: { at: number; status: BuybackEngineStatus };
   private inFlight?: Promise<BuybackEngineStatus>;
-  constructor(private readonly client: EngineClient, private readonly config: () => Promise<RuntimeConfig>, private readonly tokens: () => Promise<TokenRecord[]>, private readonly claimPreview: (address: Address, engine: Address) => Promise<EngineClaimPreview>, private readonly indexStore?: BuybackBurnIndexStore) {}
+  constructor(private readonly client: EngineClient, private readonly config: () => Promise<RuntimeConfig>, private readonly tokens: () => Promise<TokenRecord[]>, private readonly claimPreview: (address: Address, engine: Address) => Promise<EngineClaimPreview>, private readonly indexStore?: BuybackBurnIndexStore, private readonly scanIndex = true) {}
   async conversionQuote(token: Address, rawAmount: string, caller: Address): Promise<EngineConversionQuote> {
     const config = await this.config();
     if (!config.feeEngine || config.feePolicy !== ENGINE_FEE_POLICY || !assetsFor(config).some((asset) => sameAddress(asset.address, token)) || sameAddress(token, BUYBACK_WETH))
@@ -439,7 +448,7 @@ export class BuybackEngineReader {
       this.client.readContract({ address: graph.vault, abi: buybackVaultAbi, functionName: "checkPrices", blockNumber: graph.blockNumber }).then(() => true, () => false),
       readFeeFeedProposals(this.client, graph),
     ]);
-    const indexed = await scanBuybackBurnIndex(this.client, this.indexStore, {
+    const indexed = await (this.scanIndex ? scanBuybackBurnIndex : readBuybackBurnIndex)(this.client, this.indexStore, {
       engine: graph.engine, swapper: graph.swapper, head: graph.blockNumber,
       deploymentBlock: manifestDeploymentBlock(deployment),
     }).catch(() => ({ burns: [] as BuybackEngineStatus["burns"], from: null, to: null, caughtUp: false }));
@@ -461,23 +470,44 @@ export type BuybackBurnIndexStore = {
   saveSnapshot(key: string, data: unknown, at: number): void | Promise<void>;
 };
 type BurnIndex = { version: 1; from: string; to: string; hash: Hex | null; burns: BuybackEngineStatus["burns"] };
+type BurnIndexInput = { engine: Address; swapper: Address; head: bigint; deploymentBlock: bigint | null };
+const emptyBurnIndex = () => ({ burns: [] as BuybackEngineStatus["burns"], from: null as string | null, to: null as string | null, caughtUp: false });
+const burnIndexKey = (input: BurnIndexInput) => `buyback:index:4663:${input.engine.toLowerCase()}:${input.swapper.toLowerCase()}`;
+function validBurnCheckpoint(raw: unknown, start: bigint): raw is BurnIndex & { hash: Hex } {
+  if (!raw || typeof raw !== "object") return false;
+  const state = raw as Partial<BurnIndex>;
+  if (state.version !== 1 || state.from !== String(start) || typeof state.to !== "string" || !/^(?:0|[1-9]\d*)$/.test(state.to) ||
+    BigInt(state.to) < start || typeof state.hash !== "string" || !/^0x[\da-fA-F]{64}$/.test(state.hash) || !Array.isArray(state.burns) || state.burns.length > 1000) return false;
+  return state.burns.every((row) => row && typeof row === "object" && /^0x[\da-fA-F]{64}$/.test(row.hash) &&
+    typeof row.blockNumber === "string" && /^(?:0|[1-9]\d*)$/.test(row.blockNumber) && BigInt(row.blockNumber) >= start && BigInt(row.blockNumber) <= BigInt(state.to!) &&
+    typeof row.amount === "string" && /^[1-9]\d*$/.test(row.amount) && (row.source === "engine" || row.source === "swapper"));
+}
 function manifestDeploymentBlock(manifest: BuybackDeployment): bigint | null {
   const raw = manifest.contracts.engine.blockNumber;
   return typeof raw === "string" && /^[0-9]+$/.test(raw) ? BigInt(raw) : null;
 }
+/** Public status reads only the keeper's confirmed, canonical checkpoint. */
+export async function readBuybackBurnIndex(client: Pick<EngineClient, "getBlock">, store: BuybackBurnIndexStore | undefined, input: BurnIndexInput) {
+  if (!store || input.deploymentBlock === null) return emptyBurnIndex();
+  const start = input.deploymentBlock, state = (await store.snapshot(burnIndexKey(input)))?.data;
+  const confirmed = input.head > 64n ? input.head - 64n : 0n;
+  if (!validBurnCheckpoint(state, start) || BigInt(state.to) > confirmed) return emptyBurnIndex();
+  const block = await client.getBlock({ blockNumber: BigInt(state.to) });
+  if (block.hash?.toLowerCase() !== state.hash.toLowerCase()) return emptyBurnIndex();
+  return { burns: state.burns.slice(0, 50).map(({ hash, blockNumber, amount, source }) => ({ hash, blockNumber, amount, source })),
+    from: state.from, to: state.to, caughtUp: BigInt(state.to) === confirmed };
+}
 export async function scanBuybackBurnIndex(client: EngineClient, store: BuybackBurnIndexStore | undefined,
-  input: { engine: Address; swapper: Address; head: bigint; deploymentBlock: bigint | null }) {
-  const empty = { burns: [] as BuybackEngineStatus["burns"], from: null as string | null, to: null as string | null, caughtUp: false };
-  if (!store || input.deploymentBlock === null) return empty;
+  input: BurnIndexInput) {
+  if (!store || input.deploymentBlock === null) return emptyBurnIndex();
   const start = input.deploymentBlock;
   // Only committed checkpoints are exposed. A reorg resets the cursor and rebuilds receipts.
-  const key = `buyback:index:4663:${input.engine.toLowerCase()}:${input.swapper.toLowerCase()}`;
-  const saved = (await store.snapshot(key))?.data as BurnIndex | undefined;
-  let state: BurnIndex = saved?.version === 1 && saved.from === String(start) && /^-?[0-9]+$/.test(saved.to) && Array.isArray(saved.burns)
+  const key = burnIndexKey(input), saved = (await store.snapshot(key))?.data;
+  const confirmed = input.head > 64n ? input.head - 64n : 0n;
+  let state: BurnIndex = validBurnCheckpoint(saved, start) && BigInt(saved.to) <= confirmed
     ? saved : { version: 1, from: String(start), to: String(start - 1n), hash: null, burns: [] };
   if (state.hash && (await client.getBlock({ blockNumber: BigInt(state.to) })).hash !== state.hash)
     state = { version: 1, from: String(start), to: String(start - 1n), hash: null, burns: [] };
-  const confirmed = input.head > 64n ? input.head - 64n : 0n;
   let cursor = BigInt(state.to) + 1n;
   // Ten blocks works with the documented Alchemy free-tier restriction. A bounded
   // round advances persistently instead of rescanning the same range per request.

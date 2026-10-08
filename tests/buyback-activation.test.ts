@@ -1,12 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { encodeAbiParameters, encodeEventTopics, erc20Abi, getAddress, hashMessage, keccak256, parseAbi, parseEventLogs, recoverMessageAddress, toBytes, type Abi, type Address, type Hex, type TransactionReceipt } from "viem";
+import { decodeFunctionData, encodeAbiParameters, encodeEventTopics, erc20Abi, getAddress, hashMessage, keccak256, multicall3Abi, parseAbi, parseEventLogs, recoverMessageAddress, toBytes, toHex, type Abi, type Address, type Hex, type TransactionReceipt } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import pending from "../contracts/artifacts/buyback-v2-deployment.json";
 import { buybackGraphFingerprint, governorControlMessage, nativeAcceptanceMessage, verifyBuybackActivation, type BuybackActivation, type GovernorControlProof, type NativeAcceptanceProof } from "../server/buyback-activation";
 import type { BuybackDeployment } from "../server/buyback-engine";
 import governorJson from "./fixtures/governor-control-manifest.json";
+import { LaunchpadService } from "../server/service";
+import { feeEngineAbi } from "../src/lib/buyback-engine";
 
 // A JSON import infers strings, even for validated address/hex values. Keep the
 // serialized manifest boundary distinct from the validated activation proof.
@@ -218,7 +220,7 @@ test("different graph, signer, edited scheduler claim and unmatched approval amo
   const original = f.control.signature;
   f.control.signature = await stranger.signMessage({ message: governorControlMessage(f.control) });
   await assert.rejects(() => verifyBuybackActivation(f.client, f.manifest, 200n), /immutable governor/); f.control.signature = original;
-  f.proof.newFiniteAllowance.amount = "1"; await assert.rejects(() => verifyBuybackActivation(f.client, f.manifest, 200n), /Approval receipt/); f.proof.newFiniteAllowance.amount = "200000000000000";
+  f.proof.newFiniteAllowance.amount = "200000000000001"; await assert.rejects(() => verifyBuybackActivation(f.client, f.manifest, 200n), /Approval receipt/); f.proof.newFiniteAllowance.amount = "200000000000000";
   f.native.schedulerRunId = "edited-run"; await assert.rejects(() => verifyBuybackActivation(f.client, f.manifest, 200n), /immutable governor/);
 });
 test("native acceptance needs linked input, sweep, forward and DEAD transfers rather than manual WETH funding", async () => {
@@ -245,4 +247,130 @@ test("the zero reserve is measured before forwarding, and same-block funding ord
 test("contract treasury proofs use EIP-1271 without trying to EOA-recover a multisig signature", async () => {
   const f = await fixture(true); await verifyBuybackActivation(f.client, f.manifest, 200n);
   f.set1271(false); await assert.rejects(() => verifyBuybackActivation(f.client, f.manifest, 200n), /Governor contract rejected/);
+});
+
+test("finalized activation history is shared while current governor permission stays live", async (context) => {
+  const f = await fixture(true), getBlock = f.client.getBlock, getReceipt = f.client.getTransactionReceipt, getCode = f.client.getCode;
+  let receipts = 0, blocks = 0, governorReads = 0;
+  context.mock.method(f.client, "getBlock", async (parameters: Parameters<typeof getBlock>[0]) => {
+    blocks++;
+    return "blockTag" in parameters ? { number: 200n, hash: hash("finalized200") } : getBlock(parameters);
+  });
+  context.mock.method(f.client, "getTransactionReceipt", async (parameters: Parameters<typeof getReceipt>[0]) => { receipts++; return getReceipt(parameters); });
+  context.mock.method(f.client, "getCode", async (parameters: Parameters<typeof getCode>[0]) => { governorReads++; assert.equal(parameters.blockNumber, 200n); return getCode(parameters); });
+  const [first, concurrent] = await Promise.all([verifyBuybackActivation(f.client, f.manifest, 200n), verifyBuybackActivation(f.client, f.manifest, 200n)]);
+  assert.deepEqual(first, concurrent);
+  assert.equal(receipts, 8, "Concurrent validation shares one full historical replay");
+  const historicalReads = { receipts, blocks };
+  await verifyBuybackActivation(f.client, f.manifest, 200n);
+  assert.deepEqual({ receipts, blocks }, historicalReads, "A finalized cache hit does not refetch history");
+  assert.equal(governorReads, 3, "Each validation reads current governor code once");
+  f.set1271(false);
+  await assert.rejects(() => verifyBuybackActivation(f.client, f.manifest, 200n), /Governor contract rejected/);
+  await assert.rejects(() => verifyBuybackActivation(f.client, f.manifest, 120n), /confirmed/);
+  f.set1271(true);
+  context.mock.method(f.client, "getChainId", async () => 8453);
+  await assert.rejects(() => verifyBuybackActivation(f.client, f.manifest, 200n), /Robinhood chain/);
+});
+
+test("nonfinalized evidence is reread and a later reorg is rejected", async (context) => {
+  const f = await fixture(), getBlock = f.client.getBlock, getReceipt = f.client.getTransactionReceipt;
+  let receipts = 0;
+  context.mock.method(f.client, "getBlock", async (parameters: Parameters<typeof getBlock>[0]) =>
+    "blockTag" in parameters ? { number: 99n, hash: hash("finalized99") } : getBlock(parameters));
+  context.mock.method(f.client, "getTransactionReceipt", async (parameters: Parameters<typeof getReceipt>[0]) => { receipts++; return getReceipt(parameters); });
+  await verifyBuybackActivation(f.client, f.manifest, 200n);
+  await verifyBuybackActivation(f.client, f.manifest, 200n);
+  assert.equal(receipts, 16, "64 confirmations alone do not make the history cacheable");
+  f.setCanonical(false);
+  await assert.rejects(() => verifyBuybackActivation(f.client, f.manifest, 200n), /canonical/);
+});
+
+test("unsupported finalized reads and failed activation checks are never retained", async (context) => {
+  const f = await fixture(), getBlock = f.client.getBlock, getReceipt = f.client.getTransactionReceipt;
+  let receipts = 0;
+  context.mock.method(f.client, "getBlock", async (parameters: Parameters<typeof getBlock>[0]) => {
+    if ("blockTag" in parameters) throw new Error("Finalized tag temporarily unavailable");
+    return getBlock(parameters);
+  });
+  context.mock.method(f.client, "getTransactionReceipt", async (parameters: Parameters<typeof getReceipt>[0]) => { receipts++; return getReceipt(parameters); });
+  await verifyBuybackActivation(f.client, f.manifest, 200n);
+  await verifyBuybackActivation(f.client, f.manifest, 200n);
+  assert.equal(receipts, 16);
+  f.setReserve(1n);
+  await assert.rejects(() => verifyBuybackActivation(f.client, f.manifest, 200n), /reserve/);
+  f.setReserve(0n);
+  await assert.doesNotReject(() => verifyBuybackActivation(f.client, f.manifest, 200n));
+});
+
+test("a changed proof cannot borrow a finalized activation result", async (context) => {
+  const f = await fixture(), getBlock = f.client.getBlock;
+  context.mock.method(f.client, "getBlock", async (parameters: Parameters<typeof getBlock>[0]) =>
+    "blockTag" in parameters ? { number: 200n, hash: hash("finalized200") } : getBlock(parameters));
+  await verifyBuybackActivation(f.client, f.manifest, 200n);
+  f.proof.newFiniteAllowance.amount = "200000000000001";
+  await assert.rejects(() => verifyBuybackActivation(f.client, f.manifest, 200n), /Approval receipt/);
+  f.proof.newFiniteAllowance.amount = "200000000000000";
+  f.native.schedulerRunId = "altered after cache";
+  await assert.rejects(() => verifyBuybackActivation(f.client, f.manifest, 200n), /immutable governor/);
+});
+
+test("a complete activation replay fits a bounded HTTP batch and cache hits only read live authority", async (context) => {
+  // Synthetic RPC receipts exercise the actual viem HTTP transport and all
+  // activation checks. They are not mainnet execution evidence.
+  const f = await fixture();
+  const service = new LaunchpadService({
+    config: { mode: "robinhood", chainId: 4663, deploymentChainId: 4663, treasury: null, writesEnabled: false, blockReason: null },
+    rpcUrl: "https://rpc.fixture.test", dataDir: ".unused-test-store", dataScope: "robinhood",
+    launchGuardCandidate: null, firstBuyGuardCandidate: null, lifi: { integrator: "musegodfun" },
+    supabase: { url: "https://fixture.supabase.co", secretKey: "fixture-only" },
+  });
+  let fetches = 0;
+  const warmMethods: string[] = [];
+  let warm = false;
+  context.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    fetches++;
+    const requests = JSON.parse(input instanceof Request ? await input.text() : String(init?.body)) as { id: number; method: string; params: unknown[] }[];
+    assert(Array.isArray(requests)); assert(requests.length <= 20);
+    const responses = requests.map((item) => {
+      if (warm) warmMethods.push(item.method);
+      let result: unknown;
+      if (item.method === "eth_chainId") result = "0x1237";
+      else if (item.method === "eth_getCode") result = "0x";
+      else if (item.method === "eth_getBlockByNumber") {
+        const number = item.params[0] === "finalized" ? 200n : BigInt(String(item.params[0]));
+        result = { number: toHex(number), hash: hash(`block${number}`), transactions: [], timestamp: "0x0" };
+      } else if (item.method === "eth_getTransactionReceipt") {
+        const r = f.receipts.get(item.params[0] as Hex)!;
+        assert(r);
+        result = { ...r, from: governor.address, to: f.nodes.engine, type: "0x2", status: r.status === "success" ? "0x1" : "0x0",
+          blockNumber: toHex(r.blockNumber), transactionIndex: toHex(r.transactionIndex), cumulativeGasUsed: "0x0", gasUsed: "0x0", effectiveGasPrice: "0x0",
+          logs: r.logs.map((log) => ({ ...log, transactionHash: r.transactionHash, blockHash: r.blockHash, blockNumber: toHex(r.blockNumber), transactionIndex: toHex(r.transactionIndex), logIndex: toHex(log.logIndex), removed: false })) };
+      } else {
+        assert.equal(item.method, "eth_call");
+        const data = (item.params[0] as { data: Hex }).data;
+        const read = (calldata: Hex) => {
+          const decoded = decodeFunctionData({ abi: [...erc20Abi, ...feeEngineAbi], data: calldata });
+          assert(["balanceOf", "totalAutomationForwarded"].includes(decoded.functionName));
+          const amount = decoded.functionName === "balanceOf" || BigInt(String(item.params[1])) < 23n ? 0n : 100n;
+          return encodeAbiParameters([{ type: "uint256" }], [amount]);
+        };
+        if (data.startsWith("0x82ad56cb")) {
+          const aggregate = decodeFunctionData({ abi: multicall3Abi, data });
+          assert.equal(aggregate.functionName, "aggregate3");
+          result = encodeAbiParameters([{ type: "tuple[]", components: [{ name: "success", type: "bool" }, { name: "returnData", type: "bytes" }] }],
+            [aggregate.args![0].map((call) => ({ success: true, returnData: read(call.callData) }))]);
+        } else result = read(data);
+      }
+      return { jsonrpc: "2.0", id: item.id, result };
+    });
+    return Response.json(responses.reverse());
+  });
+  assert.equal((await verifyBuybackActivation(service.client, f.manifest, 200n)).activatedAtBlock, "27");
+  assert(fetches <= 8, `Cold historical proof needs ${fetches} HTTP fetches, leaving space for other launch checks`);
+  const cold = fetches;
+  warm = true;
+  await verifyBuybackActivation(service.client, f.manifest, 200n);
+  assert.equal(fetches - cold, 1);
+  assert.deepEqual(warmMethods.sort(), ["eth_chainId", "eth_getCode"], "Current authority is read again; finalized history is retained");
 });

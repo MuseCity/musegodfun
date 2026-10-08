@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { encodeAbiParameters, encodeEventTopics, erc20Abi, type Address, type Hex } from "viem";
-import { scanBuybackBurnIndex, type BuybackBurnIndexStore } from "../server/buyback-engine";
+import { readBuybackBurnIndex, scanBuybackBurnIndex, type BuybackBurnIndexStore } from "../server/buyback-engine";
 import { MUSEGOD_BUYBACK } from "../src/lib/fee-policy";
 
 const engine = "0x1111111111111111111111111111111111111111" as Address;
@@ -10,13 +10,15 @@ const hash = (value: bigint) => `0x${value.toString(16).padStart(64, "0")}` as H
 function fixture() {
   let snapshot: { at: number; data: unknown } | null = null;
   let reorg = false, failPage = false, duplicate = false;
+  let savedCount = 0, snapshotCount = 0;
   const ranges: { fromBlock: bigint; toBlock: bigint }[] = [];
+  const checkpoints: bigint[] = [];
   const store: BuybackBurnIndexStore = {
-    snapshot: () => snapshot,
-    saveSnapshot: (key, data, at) => { assert.match(key, /^buyback:index:4663:/); snapshot = { at, data }; },
+    snapshot: (key) => { assert.equal(key, `buyback:index:4663:${engine}:${swapper}`); snapshotCount++; return snapshot; },
+    saveSnapshot: (key, data, at) => { assert.match(key, /^buyback:index:4663:/); savedCount++; snapshot = { at, data }; },
   };
   const client = {
-    getBlock: async ({ blockNumber }: { blockNumber: bigint }) => ({ hash: hash(blockNumber + (reorg ? 10_000n : 0n)) }),
+    getBlock: async ({ blockNumber }: { blockNumber: bigint }) => { checkpoints.push(blockNumber); return { hash: hash(blockNumber + (reorg ? 10_000n : 0n)) }; },
     getLogs: async ({ fromBlock, toBlock, address }: { fromBlock: bigint; toBlock: bigint; address: Address }) => {
       ranges.push({ fromBlock, toBlock });
       if (failPage && fromBlock >= 11n) throw new Error("provider unavailable");
@@ -29,7 +31,8 @@ function fixture() {
       data: encodeAbiParameters([{ type: "uint256" }], [77n]),
     }] }),
   } as unknown as Parameters<typeof scanBuybackBurnIndex>[0];
-  return { client, store, ranges, state: () => snapshot?.data as { to: string; burns: unknown[] },
+  return { client, store, ranges, checkpoints, savedCount: () => savedCount, snapshotCount: () => snapshotCount,
+    setSnapshot: (data: unknown) => { snapshot = { at: 1, data }; }, state: () => snapshot?.data as { to: string; burns: unknown[] },
     setReorg: () => { reorg = true; }, setFailure: (value: boolean) => { failPage = value; }, setDuplicate: () => { duplicate = true; } };
 }
 
@@ -68,4 +71,50 @@ test("missing deployment provenance never manufactures an index start or total",
   const f = fixture();
   const result = await scanBuybackBurnIndex(f.client, f.store, { engine, swapper, deploymentBlock: null, head: 1000n });
   assert.deepEqual(result, { burns: [], from: null, to: null, caughtUp: false }); assert.equal(f.ranges.length, 0);
+});
+
+test("public index reads the keeper checkpoint without logs or writes and retains its actual partial range", async () => {
+  const f = fixture(), input = { engine, swapper, deploymentBlock: 1n, head: 764n };
+  const scanned = await scanBuybackBurnIndex(f.client, f.store, input), saves = f.savedCount();
+  f.ranges.length = 0; f.checkpoints.length = 0;
+  const read = await readBuybackBurnIndex(f.client, f.store, input);
+  assert.deepEqual(read, scanned);
+  assert.equal(read.to, "500"); assert.equal(read.caughtUp, false); assert.equal(read.burns[0].amount, "77");
+  assert.equal(f.ranges.length, 0); assert.equal(f.savedCount(), saves); assert.deepEqual(f.checkpoints, [500n]);
+  await scanBuybackBurnIndex(f.client, f.store, input);
+  const completedSaves = f.savedCount(); f.ranges.length = 0;
+  const complete = await readBuybackBurnIndex(f.client, f.store, input);
+  assert.equal(complete.to, "700"); assert.equal(complete.caughtUp, true);
+  const later = await readBuybackBurnIndex(f.client, f.store, { ...input, head: 800n });
+  assert.equal(later.to, "700"); assert.equal(later.caughtUp, false);
+  assert.equal(f.ranges.length, 0); assert.equal(f.savedCount(), completedSaves);
+});
+
+test("public reads never expose an orphaned or insufficiently confirmed checkpoint and do not rewrite it", async () => {
+  const f = fixture(), input = { engine, swapper, deploymentBlock: 1n, head: 100n };
+  await scanBuybackBurnIndex(f.client, f.store, input);
+  const saved = f.state(), saves = f.savedCount(); f.ranges.length = 0;
+  assert.deepEqual(await readBuybackBurnIndex(f.client, f.store, { ...input, head: 99n }), { burns: [], from: null, to: null, caughtUp: false });
+  f.setReorg();
+  assert.deepEqual(await readBuybackBurnIndex(f.client, f.store, input), { burns: [], from: null, to: null, caughtUp: false });
+  assert.equal(f.state(), saved); assert.equal(f.savedCount(), saves); assert.equal(f.ranges.length, 0);
+});
+
+test("public index rejects missing provenance, malformed records and rows outside the checkpoint", async () => {
+  const f = fixture(), input = { engine, swapper, deploymentBlock: 1n, head: 100n };
+  const expected = { burns: [], from: null, to: null, caughtUp: false };
+  await scanBuybackBurnIndex(f.client, f.store, input);
+  const valid = structuredClone(f.state()) as Record<string, unknown>, saves = f.savedCount();
+  f.ranges.length = 0; f.checkpoints.length = 0;
+  const reads = f.snapshotCount();
+  assert.deepEqual(await readBuybackBurnIndex(f.client, f.store, { ...input, deploymentBlock: null }), expected);
+  assert.deepEqual(await readBuybackBurnIndex(f.client, undefined, input), expected);
+  assert.equal(f.snapshotCount(), reads);
+  for (const state of [undefined, {}, { ...valid, version: 2 }, { ...valid, from: "2" }, { ...valid, to: "bad" },
+    { ...valid, hash: null }, { ...valid, hash: "0x01" }, { ...valid, burns: [{ hash: hash(999n), blockNumber: "37", amount: "77", source: "engine" }] },
+    { ...valid, burns: [{ hash: hash(999n), blockNumber: "3", amount: "0", source: "engine" }] }]) {
+    f.setSnapshot(state);
+    assert.deepEqual(await readBuybackBurnIndex(f.client, f.store, input), expected);
+  }
+  assert.equal(f.checkpoints.length, 0); assert.equal(f.ranges.length, 0); assert.equal(f.savedCount(), saves);
 });

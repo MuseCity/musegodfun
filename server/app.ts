@@ -72,7 +72,7 @@ const musegod = new MusegodReader(service.client, service.runtime.config, () => 
 const musegodMarket = new MusegodMarketReader(service.runtime.config, service.store);
 const buyback = new BuybackReader(service.runtime.config.treasury);
 const buybackBatches = new BuybackBatchService(buyback, service.store, service.client, service.runtime.config);
-const buybackEngine = new BuybackEngineReader(service.client, () => service.config(), () => service.tokens(), (address, engine) => service.engineClaimPreview(address, engine), service.store);
+const buybackEngine = new BuybackEngineReader(service.client, () => service.config(), () => service.tokens(), (address, engine) => service.engineClaimPreview(address, engine), service.store, !shared.ingressManaged);
 const payments = new FirstBuyPaymentReader({ client: service.client, chainId: deploymentChain(runtime.config),
   rpcChainId: runtime.config.mode === "fork" && runtime.config.chainId === 31337 ? 31337 : deploymentChain(runtime.config), ...runtime.lifi, budget: service.store });
 app.set("trust proxy", trustProxy);
@@ -351,7 +351,8 @@ app.post(
 app.post(
   "/api/launch/prepare",
   route(async (req, res) => {
-    assertSigningEnabled(await service.config());
+    const checkedConfig = await service.config();
+    assertSigningEnabled(checkedConfig);
     const canonical=(value:unknown,depth=0):unknown=>{
       if(depth>30)throw new Error("Request nesting is too deep.");
       if(Array.isArray(value))return value.map(item=>canonical(item,depth+1));
@@ -382,7 +383,7 @@ app.post(
           renewalWork=Promise.resolve().then(()=>service.store.reservePrepareSlot(owner)).then(held=>{if(!held)leaseLost=true;}).catch(()=>{leaseLost=true;}).finally(()=>{renewalWork=undefined;});
         },60_000);
         try {
-          const plan=await service.prepare(req.body.draft,req.body.creator,req.body.expectedCurvePolicy,req.body.firstBuy,req.body.options);
+          const plan=await service.prepare(req.body.draft,req.body.creator,req.body.expectedCurvePolicy,req.body.firstBuy,req.body.options,checkedConfig);
           if(leaseLost)throw new BudgetUnavailable(2);
           return plan;
         } finally {clearInterval(renewal);await renewalWork;await service.store.releasePrepareSlot(owner);}
