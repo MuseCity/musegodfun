@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
-  "status": "source_authorization_confirmed_remaining_activation_proofs_pending",
-  "observedAt": "2026-10-08T08:27:55.153Z",
-  "scope": "V2 deployment and paused application publication completed; human-signed source WETH revocation/finite allowance and canonical zero-reserve checkpoint now verified. Full activation still awaits governor/native-fee acceptance and dedicated keeper setup; no signing resume or synthetic activation proof.",
+  "status": "actual_native_fee_to_dead_flow_confirmed_governor_native_acceptance_pending",
+  "observedAt": "2026-10-08T10:51:30.591Z",
+  "scope": "Deployed V2 and paused dual-origin application; real mainnet fee collection/native conversion/sweep/finite forwarding/dead-address settlement now observed. Final governor native acceptance, dedicated keeper and runtime/cutover completion remain pending. No public signing resume.",
   "source": {
     "repository": "MuseCity/musegodfun",
     "workspace": "/Volumes/code/opc/musegodfun",
     "branch": "master",
-    "baseCommit": "2a06f8e4c640906623f063b137c2019b9940558b",
+    "baseCommit": "ace4b9b68ba248f4b9a7cfb59feff787e138f8bd",
     "dirty": true,
     "committed": "1df07daf4b841ab68c787749d717bd8bfe6398b8",
     "pushed": false,
@@ -17,7 +17,7 @@
       ".github/workflows/deploy.yml": "2f6b45e85b005bb5e452a8e86ec22bea4f63d92ffe8090b786a1b0e3585a9170",
       "README.md": "fd03767d04728ae9d7a5332ae93f5a215eb6028516770136b616fdb411e18135",
       "contracts/README.md": "16813180739836e43f911a926b41e224e4a6863a268efd5a152c65ce42651736",
-      "contracts/artifacts/buyback-v2-deployment.json": "e3f3e4b33a7f5572ccf9612f7622812778c8a09ac62c7412784698cb61cb7745",
+      "contracts/artifacts/buyback-v2-deployment.json": "36ba9d3966dedfbe67b378163f67334ac58f621eed18e1cfce050606b6b09de1",
       "contracts/artifacts/buyback-v2/MusegodAssetFeedOracle.compiler-input.json": "19511040cb3e0f882152c2ff2bb74115b69516b1339aea9cf88263c7c2c66c80",
       "contracts/artifacts/buyback-v2/MusegodAssetFeedOracle.json": "677ac2d82a59de249d0d04c65253ebf8fd65792318ca0675bf1d55d39cd998a1",
       "contracts/artifacts/buyback-v2/MusegodBuybackBudgetVault.compiler-input.json": "fc2782084b52a6315b765e5821482fd66dee3856ab05c49dadbb619447ef26e1",
@@ -34,11 +34,11 @@
       "contracts/test/MusegodBuybackBudgetVault.t.sol": "55a680417538e7a582f693084c04fbbc41994c0a04f550e07b4fca8990ec3c40",
       "contracts/test/MusegodFeeEngine.t.sol": "6aedcbf06755dd876e017b93c92bbe6a5c15cc825a41a311c6ad58990391b515",
       "contracts/test/MusegodWethForwarder.t.sol": "89a78bab49a8ff321abafcd46a1b75f43177f54fe4cc5c16df26f92febba3b92",
-      "docs/SPEC.md": "f1891e7cfbe1ed27f6934522cf5b430b467864c288d4a452e683600705807365",
+      "docs/SPEC.md": "8bae7f51fd6d0bef6c6cb495aa1c932e7a9a560c10fd6f97f40c5e7b1feadc1b",
       "docs/evidence/buyback-v2-accounting-gas.json": "1b6af03fcff96545ac411060cb667eb603a630b540d962367cc3c0105f4a114b",
       "docs/evidence/buyback-v2-fee-custody.json": "7e0dfade1823a92bbe804d4591d9d95f40eb769b3e9c171f6465cd033776d30b",
       "docs/evidence/buyback-v2-fork.json": "c4ba041bf939b89b56db400b31c0dbb5092fb02bfc8430415e768125ffb46fc9",
-      "docs/evidence/buyback-v2-review.json": "990aad758a04bb9c7f8af6def8d41b3003dc4588a839b1e37f6cde94deec431b",
+      "docs/evidence/buyback-v2-review.json": "30153ed89c3baa2817a260da3e2ced9db6392d4f54fd406641b54f87d3eed515",
       "docs/evidence/buyback-v2-vault-fixture.json": "12aa29afcca5cd7212001663ef2550714cd6e49724985ec6e0c15d9cda326068",
       "package.json": "63ad2ee86347616abb8d37ee15b69ca347ed062d7772211d1b0435f1f2196058",
       "scripts/build-buyback-artifacts.ts": "57ef7b3889f1e9a55b6cf9138d0a891b1e8e81e75dac82357c6cf02cbd60f397",
@@ -55,7 +55,7 @@
       "server/abuse.ts": "48f59d2338685f486197fdb2f56a0e5841ac35f10ae42fcc13b28d6fadc300bb",
       "server/app.ts": "b3691a5f44f4c165d37c01fff0d39e1bf1f35769d005c73ff395f7db2301991d",
       "server/buyback-activation.ts": "ce8d853ad86a457e17d5675b45f0f58d0780f6a69e70b7720188a11d24ccbaa3",
-      "server/buyback-engine.ts": "c0f2bdf79332914960b6ef1468d4d2e5850ddbe5d63136ec8f5c9512d01dcf2c",
+      "server/buyback-engine.ts": "05d6919e4d1046aa451d24b0ec097d59697ee2472997f02317cb328e55615558",
       "server/config.ts": "5749770a27c7de6b4e78e86f4510ef5592f99b49fd15e2f3d12b178f593b4e1a",
       "server/first-buy-lock-status.ts": "3290c7f4e1bf372cb949cac002be524c5021353a109debedd3f8a1cfd5078f7c",
       "server/http-security.ts": "b6e20fce1389ea42f1f7886ff4c28f5401593cdc5572ac69e1b65d8b3e15de17",
@@ -97,7 +97,7 @@
       "src/lib/wallet.tsx": "cf29e233db542d6d083d7d813d154c7389d9a1cab8ede097cde35db4e6a0f722",
       "src/styles.css": "bbfd0219c727e919c4cf3df6149eaa2d06c538869d61de244e8f0f3f7f295dfd",
       "supabase/migrations/20261007094402_runtime_safety_controls.sql": "5da5b3a18bba1e8878aca48afc4da5794f781fd407dc02b419d3c5f770988258",
-      "tests/buyback-activation.test.ts": "618addc1e0ecb12e6595c73f1c221b2c133af8caf62ec3ec91259c5c22c507a2",
+      "tests/buyback-activation.test.ts": "3186cc70fae7a681d755b6f86607814e2175916e30ebe1b5bf5eeb1c3124d899",
       "tests/buyback-deployment.test.ts": "d6a17c0bd7fcb5baa4860f69a89104528f38738521026490f2bf84f8dd7334c0",
       "tests/buyback-engine.test.ts": "01955311caa3858d3876f963f8799e9c9605bc828c8b6a8e14ddab071954d505",
       "tests/buyback-index.test.ts": "cc5225176be1761a459b03abc01b6099e6734a1d0716131eff411cab9aa65a73",
@@ -139,12 +139,14 @@
       "tests/fixtures/engine-cutover-manifest.json": "b4ef1d2c2a0b5fd6367a0d05c5b5dea8f7c568d7908fa0f4a5ea3f242f6e8d48",
       "tests/record-engine-cutover.test.ts": "5031fb3d7b1b318e52d4eae0626a1e89fa957b7b5741678021249ffb133c5ef6",
       "docs/evidence/database.json": "b6d84003d49a36c6ad7ccef41a77a8f529a32085997dcdce9ac5e73ed759407c",
-      "tests/fixtures/robinhood-bundler.runtime.hex": "0e7298487be7f76367a068a8bf58b42e5c5a540e64ab5b594385c8e7c06c637b"
+      "tests/fixtures/robinhood-bundler.runtime.hex": "0e7298487be7f76367a068a8bf58b42e5c5a540e64ab5b594385c8e7c06c637b",
+      "tests/fixtures/governor-control-manifest.json": "3b6a8d91d158c5167969be406d4749f9fc39b509c9fb7f7ac8c2fe99eb47229a",
+      "docs/evidence/buyback-v2-native-execution.json": "c22f730b2864c2f2b23b7d95213124aa93a416071302a0b25c685e220eba9217"
     },
-    "sortedChangedFilesDigest": "5d6487b05e1f77f9271e236987078728981ed0f5995c1954b56753630851fa8d",
+    "sortedChangedFilesDigest": "3cc0bd334ae900e83f450a97ba606b436e5c03c773e911c006993cd82d64d601",
     "digestEncoding": "Sorted relative path + NUL + lowercase SHA256 + newline. This evidence file itself is excluded to avoid a self-hash cycle.",
-    "hashScope": "Exact-byte pre-commit activation-progress snapshot: 127 files, self-excluded; immutable implementation review unchanged.",
-    "uncommittedChanges": "Actual source-authorization receipt and activation progress evidence only; no application/contract source or runtime rights changed.",
+    "hashScope": "Pre-commit current operational snapshot, self-excluded; the original independent review hashes remain explicitly historical.",
+    "uncommittedChanges": "Actual native execution evidence, verified governor JSON type boundary and regression tests; no contract source, price protection, spending limit or public signing permission changed.",
     "reviewedCommit": "0a2b36754d41e645860e22976ee97da4719ef687",
     "fixCommit": "0a2b36754d41e645860e22976ee97da4719ef687",
     "removedFiles": [
@@ -3998,8 +4000,8 @@
     "reviewEvidenceSha256": "668b1c31931961cec50f27f4498e6401ce05c4bc5e1c3d2001113984af625cb4"
   },
   "authorizedActivationExecution": {
-    "observedAt": "2026-10-08T08:27:55.153Z",
-    "status": "source_authorization_confirmed_remaining_activation_proofs_pending",
+    "observedAt": "2026-10-08T10:51:30.591Z",
+    "status": "actual_native_fee_to_dead_flow_confirmed_governor_native_acceptance_pending",
     "authority": "User explicitly requested activating buyback, then personally submitted and confirmed the prepared finite source-approval batch. No public signing resume.",
     "graphFingerprint": "0xa8bd28a62cfb751b3aa30bb32f5e3ddc4e51b4035166a3737642c3d42168e607",
     "sourceApproval": {
@@ -4109,7 +4111,7 @@
         "signer": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
         "signature": "0x98859e946bee4d1a91b50abb99e852c84e94630fb39c5f6e4ef9e50487bb3b52380c0e53b3b1769a69464806b68d20376e3bc884795d6d5aca7066b0f22197c51b"
       },
-      "manifestInsertion": "pending_complete_native_activation_record",
+      "manifestInsertion": "actual verified public proof object retained; serialized JSON typecheck corrected",
       "gasAndFundsMoved": "0",
       "privateKeyRequested": false
     },
@@ -4135,27 +4137,36 @@
       "deploymentWalletReuse": "not_permitted"
     },
     "canaryBudget": {
-      "observedAt": "2026-10-08T08:00:54.967Z",
-      "blockNumber": "83157589",
-      "ethUsdFeed": "0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9",
-      "referenceEthUsd": 2575.4018,
-      "referenceUpdatedAt": "1791444205",
-      "authorizedWallet": "0xd5C256e6411a6835543F2bCd763341639e3Cf56f",
-      "authorizedTotalPrincipalAndGasEth": "0.002",
-      "referenceBudgetUsd": 5.150803600000001,
-      "nativeAutomaticTriggerUsd": 5,
-      "nativeAutomaticTriggerSource": "authenticated Splits Policy UI and https://splits.org/docs/accounts/",
-      "fixedPlatformBuybackShare": 0.8,
-      "theoreticalMinimumPlatformFeeLossUsd": 6.25,
-      "theoreticalMinimumEthBeforeGas": 0.002426805790071281,
-      "interpretation": "Planning lower bound for the normal scheduled run, assuming fully recoverable creator fees and no market loss. Gas, LP protocol share and route costs can only increase it. This is not an executable trade quote; no manual-trigger run is relabeled as periodic scheduler acceptance.",
-      "canaryTransactionsSigned": 0,
-      "keeperFundingSent": 0
+      "approvedTotalOutlayEth": "0.0068",
+      "conservativeReceiptGasAndValueOutlayEth": "0.006258013676918",
+      "returnedPrincipalEth": "0.001179804524431155",
+      "conservativeNetEthOutflowBeforeKeeperFuel": "0.005078209152486845",
+      "initialWalletEth": "0.009478709575468",
+      "currentWalletEth": "0.004404357737911759",
+      "walletDebitWithinConservativeLedger": true,
+      "additionalEthRefundOrInflow": "0.000003857314930604",
+      "refundHandling": "No additional refund or inflow expands the gross spending ceiling; exact attribution is separate from canonical fee/native/settlement proof.",
+      "keeperFuel": "not_sent",
+      "authorizationHistory": [
+        {
+          "totalEth": "0.002",
+          "scope": "initial principal and gas cap"
+        },
+        {
+          "totalEth": "0.005",
+          "scope": "explicit user increase"
+        },
+        {
+          "totalEth": "0.0068",
+          "scope": "explicit user approval of the measured execution list including observation capacity1000 to1801"
+        }
+      ]
     },
     "remaining": [
-      "Native Automation fee conversion/sweep and successful Vault settlement; graph-bound signed native acceptance",
-      "Fund dedicated keeper only within the approved total budget, then startup/restart/cycle verification",
-      "Verified graph application configuration and fixed engine launch cutover"
+      "Human fixed-governor signature of the immutable native evidence and exact canonical receipts",
+      "Full activation replay and application FEE_ENGINE_ADDRESS configuration with both public chains paused",
+      "Fund the dedicated local keeper within0.0068ETH total outlay; startup, restart and scheduled-cycle verification",
+      "Record and deploy fixed engine launch cutover after the engine-only runtime is finalized"
     ],
     "runtime": {
       "currentlyPublishedCommit": "2a06f8e4c640906623f063b137c2019b9940558b",
@@ -4163,7 +4174,75 @@
       "feeEngineEnvironment": "unset_until_full_activation_proof_passes"
     },
     "manifestSha256": "e3f3e4b33a7f5572ccf9612f7622812778c8a09ac62c7412784698cb61cb7745",
+    "nativeCanary": {
+      "evidencePath": "docs/evidence/buyback-v2-native-execution.json",
+      "evidenceSha256": "c22f730b2864c2f2b23b7d95213124aa93a416071302a0b25c685e220eba9217",
+      "feeCollection": {
+        "hash": "0x0565e9381d47a82bba68990121d84faee4a750121555e60e8b0effd300b72104",
+        "blockNumber": "83234664",
+        "asset": "0x4EA005168D7F09a7A0Ba9D1DEf21a479950E44C2",
+        "pending": "5442959362370745"
+      },
+      "nativeExecution": {
+        "observedAt": "2026-10-08T10:27:38.520Z",
+        "status": "canonical_actual_native_conversion_and_atomic_sweep_verified",
+        "chainId": 4663,
+        "transactionHash": "0x6003a4536cef6977c478f1736c4ec5e8518be422907e043bd13a689db48abdfa",
+        "userOperationHash": "0xa09c11b4ad8bf1b60b2b0f0668d3c771ee05a94cbc103c76629d2dc598df9a22",
+        "blockNumber": "83238947",
+        "blockHash": "0xb9c0e36c6f36c9465901ef2d44d360467258dc2e401af8d61c120fcaeb981e2a",
+        "confirmations": "4323",
+        "inputAsset": "0x4EA005168D7F09a7A0Ba9D1DEf21a479950E44C2",
+        "input": "5442959362370745",
+        "wethOutput": "2005546804906355",
+        "automation": "0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a",
+        "source": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+        "operatorOrigin": "Authenticated official UI completed the native swap without an agent Trigger or a requested manual human Trigger; the governor must attest the scheduled origin.",
+        "schedulerRunId": "8368bd13-3f16-4cb8-b046-9f0270e1294d",
+        "transactionUrl": "https://app.splits.org/accounts/0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a/transactions/8368bd13-3f16-4cb8-b046-9f0270e1294d/",
+        "rule": {
+          "identifierKind": "native_policy_account_and_chain",
+          "id": "splits-native:4663:0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a",
+          "savedOutput": "100% WETH to the existing source treasury",
+          "automaticTriggerUsd": 5,
+          "internalProviderRuleId": "not_exposed_in_UI; no provider UUID invented"
+        },
+        "userOperation": {
+          "userOpHash": "0xa09c11b4ad8bf1b60b2b0f0668d3c771ee05a94cbc103c76629d2dc598df9a22",
+          "sender": "0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a",
+          "paymaster": "0x0000000000000000000000000000000000000000",
+          "nonce": "82673321349619609748509825432104174077147999921970131393041481513116008185856",
+          "success": true,
+          "actualGasCost": "0",
+          "actualGasUsed": "481488"
+        }
+      },
+      "settlement": {
+        "hash": "0x0d0294bdb415520ae054dc0fea1c866b0d9d8807d4c8ace3a00ee97d16c61882",
+        "blockNumber": "83245176",
+        "amount": "2005546804906355",
+        "museToDead": "26652199583658865069102",
+        "profit": "153126878108734129315",
+        "museTotalSupplyBefore": "1000000000000000000000000000",
+        "museTotalSupplyAfter": "1000000000000000000000000000",
+        "interpretation": "Actual Executor to dead-address token transfer; ERC20 totalSupply did not decrease."
+      },
+      "budget": {
+        "approvedTotalOutlayEth": "0.0068",
+        "conservativeReceiptGasAndValueOutlayEth": "0.006258013676918",
+        "returnedPrincipalEth": "0.001179804524431155",
+        "conservativeNetEthOutflowBeforeKeeperFuel": "0.005078209152486845",
+        "initialWalletEth": "0.009478709575468",
+        "currentWalletEth": "0.004404357737911759",
+        "walletDebitWithinConservativeLedger": true,
+        "additionalEthRefundOrInflow": "0.000003857314930604",
+        "refundHandling": "No additional refund or inflow expands the gross spending ceiling; exact attribution is separate from canonical fee/native/settlement proof.",
+        "keeperFuel": "not_sent"
+      },
+      "receiptGate": "All canonical64-confirmation activation checks passed; only the final governor native acceptance signature is missing",
+      "testVolumeNotOrganic": true
+    },
     "reviewEvidence": "docs/evidence/buyback-v2-review.json",
-    "reviewEvidenceSha256": "990aad758a04bb9c7f8af6def8d41b3003dc4588a839b1e37f6cde94deec431b"
+    "reviewEvidenceSha256": "30153ed89c3baa2817a260da3e2ced9db6392d4f54fd406641b54f87d3eed515"
   }
 }

@@ -1,11 +1,27 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { encodeAbiParameters, encodeEventTopics, erc20Abi, getAddress, hashMessage, keccak256, parseAbi, parseEventLogs, toBytes, type Abi, type Address, type Hex, type TransactionReceipt } from "viem";
+import { encodeAbiParameters, encodeEventTopics, erc20Abi, getAddress, hashMessage, keccak256, parseAbi, parseEventLogs, recoverMessageAddress, toBytes, type Abi, type Address, type Hex, type TransactionReceipt } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import pending from "../contracts/artifacts/buyback-v2-deployment.json";
 import { buybackGraphFingerprint, governorControlMessage, nativeAcceptanceMessage, verifyBuybackActivation, type BuybackActivation, type GovernorControlProof, type NativeAcceptanceProof } from "../server/buyback-activation";
 import type { BuybackDeployment } from "../server/buyback-engine";
+import governorJson from "./fixtures/governor-control-manifest.json";
+
+// A JSON import infers strings, even for validated address/hex values. Keep the
+// serialized manifest boundary distinct from the validated activation proof.
+const jsonGovernance: Pick<BuybackDeployment, "governance"> = governorJson;
+test("governor control proof can be retained in a JSON deployment manifest", async () => {
+  assert.deepEqual(jsonGovernance.governance?.controlProof, governorJson.governance.controlProof);
+  const proof = governorJson.governance.controlProof as GovernorControlProof;
+  assert.equal(await recoverMessageAddress({ message: governorControlMessage(proof), signature: proof.signature }), getAddress(proof.signer));
+});
+
+test("JSON-compatible governor input still rejects malformed proof fields", async () => {
+  const f = await fixture();
+  const manifest: BuybackDeployment = { ...f.manifest, governance: { controlProof: { ...f.control, chainId: "4663" } } };
+  await assert.rejects(() => verifyBuybackActivation(f.client, manifest, 200n), /another graph/);
+});
 
 const governor = privateKeyToAccount(`0x${"11".repeat(32)}`);
 const stranger = privateKeyToAccount(`0x${"22".repeat(32)}`);

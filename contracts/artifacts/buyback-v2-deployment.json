@@ -235,7 +235,14 @@
   "governance": {
     "governor": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
     "delaySeconds": 604800,
-    "controlProof": "verified_signature_retained_in_activation_evidence_pending_full_manifest"
+    "controlProof": {
+      "chainId": 4663,
+      "graphFingerprint": "0xa8bd28a62cfb751b3aa30bb32f5e3ddc4e51b4035166a3737642c3d42168e607",
+      "blockNumber": "83121802",
+      "blockHash": "0x6dd2b5d8e8273b4518b7d5a6e41fb90cff29dee56b1b3702afad195584f1a9f3",
+      "signer": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+      "signature": "0x98859e946bee4d1a91b50abb99e852c84e94630fb39c5f6e4ef9e50487bb3b52380c0e53b3b1769a69464806b68d20376e3bc884795d6d5aca7066b0f22197c51b"
+    }
   },
   "budget": {
     "rollingSeconds": 300,

@@ -11,7 +11,7 @@ export type BuybackDeployment = {
   contracts: Record<"oracle" | "swapper" | "engine" | "executor" | "forwarder", { address: string | null; runtimeHash: string | null; blockNumber?: string }> & Partial<Record<"assetOracle" | "vault", { address: string | null; runtimeHash: string | null }>>;
   constants: { weth: string; muse: string; initializer: string; rehype: string; router: string; swapRouter: string; swapperFactory: string; beneficiary: string; museWethPool: string; ethUsdFeed: string; treasury: string; automation: string | null; automationTreasury: string | null };
   activation?: BuybackActivation | Record<string, unknown>;
-  governance?: { controlProof: GovernorControlProof | string; [key: string]: unknown };
+  governance?: { controlProof: GovernorControlProof | Record<string, unknown> | string; [key: string]: unknown };
   assetFeedDescriptions?: Record<string, { description: string; descriptionHash: string }>;
   automation?: { status: string; account: string | null; network: number; outputToken: string; allocationBps: number; recipient: string };
 };
