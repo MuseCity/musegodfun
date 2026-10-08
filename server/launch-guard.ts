@@ -29,6 +29,9 @@ export function expectedGuardRuntime(chainId: 8453 | 4663 = 4663, version: Launc
   return `0x${code}`;
 }
 
+/** The guard at an address is not the pinned runtime, or its official
+ * dependencies differ: not a transient read failure. */
+export class LaunchGuardMismatch extends Error {}
 export function identifyGuardVersion(code: Hex | undefined, chainId: 8453 | 4663): LaunchGuardVersion | null {
   return code?.toLowerCase() === expectedGuardRuntime(chainId, "vesting").toLowerCase() ? "vesting"
     : code?.toLowerCase() === expectedGuardRuntime(chainId, "legacy").toLowerCase() ? "legacy" : null;
@@ -55,7 +58,7 @@ export async function verifyLaunchGuard(
       !bundlerCode || keccak256(bundlerCode) !== bundlerCodeHash ||
       !sameAddress(boundBundler, bundler) || !sameAddress(airlock, contracts.airlock) ||
       !sameAddress(poolManager, contracts.poolManager) || !sameAddress(rehypeBundler, bundler))
-    throw new Error("The launch guard runtime or official dependencies do not match the pinned deployment.");
+    throw new LaunchGuardMismatch("The launch guard runtime or official dependencies do not match the pinned deployment.");
   return { address, blockNumber: String(block), runtimeHash: keccak256(guardCode!), bundler: boundBundler,
     version, supportsLock: version === "vesting" };
 }

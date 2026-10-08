@@ -1106,11 +1106,12 @@ test("an unattested backup registered first cannot keep a launch unverified once
   } finally { store.close(); rmSync(directory, { recursive: true }); }
 });
 
-test("recovery evidence is keyed by the receipt block, and a rejection is kept long only once that block is final", async (context) => {
+test("recovery evidence is keyed by the receipt block, and an anchor rejection is kept long only once the anchor block is final", async (context) => {
   context.mock.timers.enable({ apis: ["Date"], now: Date.now() });
   const f = ordinaryFixture(100), directory = mkdtempSync(join(tmpdir(), "recovery-evidence-block-test-")), store = new Store(directory, 31337);
   const reads: string[] = [], valuationBlock = `block:${f.plan.openingValuation!.blockNumber}`;
-  const options: NonNullable<Parameters<typeof recoveryService>[2]> = { reads, valuationHash: `0x${"cd".repeat(32)}`, finalized: 9n };
+  // The price anchor is block 1 and the receipt block 10.
+  const options: NonNullable<Parameters<typeof recoveryService>[2]> = { reads, valuationHash: `0x${"cd".repeat(32)}`, finalized: 0n };
   const checks = () => reads.filter((read) => read === valuationBlock).length;
   try {
     const service = recoveryService(f, store, options);
@@ -1119,19 +1120,61 @@ test("recovery evidence is keyed by the receipt block, and a rejection is kept l
     assert.equal(checks(), 1, "a rejection is shared briefly");
     context.mock.timers.tick(15_000);
     await assert.rejects(() => service.register(hash, f.plan), /anchored/);
-    assert.equal(checks(), 2, "before the receipt block is final, a rejection (perhaps from a lagging node) is checked again");
-    options.finalized = 10n;
+    assert.equal(checks(), 2, "before the anchor block is final, a rejection (perhaps from a lagging node) is checked again");
+    options.finalized = 1n;
     context.mock.timers.tick(15_000);
     await assert.rejects(() => service.register(hash, f.plan), /anchored/);
     context.mock.timers.tick(300_000);
     await assert.rejects(() => service.register(hash, f.plan), /anchored/);
-    assert.equal(checks(), 3, "a rejection at a finalized receipt block cannot change and is kept");
+    assert.equal(checks(), 3, "a contradicted anchor at a finalized block cannot change and is kept");
     // A reorganization re-mines the transaction in another block, where the evidence holds.
     const reorganized = `0x${"ee".repeat(32)}` as Hex;
     f.receipt = { ...f.receipt, blockHash: reorganized };
-    options.blockHashes = { "10": reorganized }; options.valuationHash = undefined; options.finalized = 9n;
+    options.blockHashes = { "10": reorganized }; options.valuationHash = undefined; options.finalized = 0n;
     assert.equal((await service.register(hash, f.plan)).address, token, "the new receipt block is a new key, checked afresh");
     assert.equal(checks(), 4);
+  } finally { store.close(); rmSync(directory, { recursive: true }); }
+});
+
+test("a transaction that never created the token through the official Airlock, or prices after its receipt, spends no recovery budget", async () => {
+  const f = ordinaryFixture(100), directory = mkdtempSync(join(tmpdir(), "recovery-fake-transaction-test-")), store = new Store(directory, 31337);
+  const reads: string[] = [];
+  try {
+    // Same calldata sent to the Airlock address, but no Create event from it (e.g. a call that created nothing).
+    const fake = { ...f, receipt: { ...f.receipt, logs: f.receipt.logs.filter((log) => log.address.toLowerCase() !== contracts.airlock.toLowerCase()) } };
+    const service = recoveryService(fake, store, { reads });
+    for (let i = 0; i < 20; i++) await assert.rejects(() => service.register(hash, fake.plan), /creation event does not match/);
+    const early = { ...f, receipt: { ...f.receipt, blockNumber: 0n } };
+    const earlyService = recoveryService(early, store, { reads });
+    for (let i = 0; i < 20; i++) await assert.rejects(() => earlyService.register(hash, early.plan), /newer than its creation receipt/);
+    assert.equal((service as any).recoveryLoad, undefined); assert.equal((earlyService as any).recoveryLoad, undefined, "no shared budget is spent");
+    assert(!reads.some((read) => read.startsWith("block:")), "and no chain evidence is read");
+  } finally { store.close(); rmSync(directory, { recursive: true }); }
+});
+
+test("a first-buy guard that is not the pinned runtime is a lasting verdict, so it cannot keep re-spending the budget", async (context) => {
+  context.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+  const f = ordinaryFixture(100), directory = mkdtempSync(join(tmpdir(), "recovery-guard-mismatch-test-")), store = new Store(directory, 31337);
+  try {
+    const service = recoveryService(f, store);
+    const client = (service as any).client;
+    const read = client.readContract;
+    let guardReads = 0;
+    client.getCode = async ({ address }: { address: Address }) => {
+      if (address.toLowerCase() !== guard.toLowerCase()) return undefined;
+      guardReads++; return "0x60006000";
+    };
+    client.readContract = async (call: { functionName: string }) =>
+      ["bundler", "airlock", "poolManager"].includes(call.functionName) ? "0x0000000000000000000000000000000000000001" : read(call);
+    const guarded = { ...f.plan, firstBuy: { guard, lockDays: 0 } } as unknown as LaunchPlan;
+    const verify = () => (service as any).recoveryEvidence(hash, guarded, { blockNumber: 10n, blockHash });
+    await assert.rejects(verify, /launch guard runtime or official dependencies/);
+    context.mock.timers.tick(300_000);
+    await assert.rejects(verify, /launch guard runtime/);
+    assert.equal(guardReads, 1, "kept for ten minutes, not re-checked every 15 seconds");
+    context.mock.timers.tick(300_001);
+    await assert.rejects(verify, /launch guard runtime/);
+    assert.equal(guardReads, 2);
   } finally { store.close(); rmSync(directory, { recursive: true }); }
 });
 

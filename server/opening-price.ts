@@ -105,15 +105,18 @@ async function independentReference(client: PublicClient<Transport, any>, stock:
  * divergence from the immutable oracle's independent feed at that block, if
  * one is mapped. The comparison is advisory: an unsigned valuation's
  * provenance comes from the platform attestation, not from a price bound. */
-/** Chain evidence contradicts a recovered preview; retrying cannot change it. */
-export class RecoveryEvidenceError extends Error {}
+/** Chain evidence contradicts a recovered preview. Retrying cannot change
+ * the verdict once block `finalAt` is finalized, or at all when it is unset. */
+export class RecoveryEvidenceError extends Error {
+  constructor(message: string, readonly finalAt?: bigint) { super(message); }
+}
 export async function assertRecoveredOpeningValuation(client: Pick<PublicClient<Transport, any>, "getBlock" | "getCode" | "readContract">,
   valuation: OpeningValuation, receiptBlock: bigint, chainId: 8453 | 4663): Promise<{ divergenceBps: number } | null> {
   const blockNumber = BigInt(valuation.blockNumber);
   if (blockNumber > receiptBlock) throw new RecoveryEvidenceError("The recovered opening valuation is newer than its creation receipt.");
   const block = await client.getBlock({ blockNumber });
   if (!block.hash || block.hash.toLowerCase() !== valuation.blockHash.toLowerCase())
-    throw new RecoveryEvidenceError("The recovered opening valuation is not anchored to a canonical block.");
+    throw new RecoveryEvidenceError("The recovered opening valuation is not anchored to a canonical block.", blockNumber);
   const checked = await independentReference(client as PublicClient<Transport, any>, stockByAddress(valuation.quoteAddress, chainId),
     blockNumber, valuation.quotePriceUsd, Number(block.timestamp) * 1000);
   return checked.reference ? { divergenceBps: checked.reference.divergenceBps } : null;

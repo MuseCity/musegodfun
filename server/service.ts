@@ -55,7 +55,7 @@ import { Store, type LaunchPlan } from "./store";
 import { CURVE_POLICY } from "../src/lib/launch-curve";
 import { launchGuardAbi } from "../src/lib/launch-guard";
 import { assertLaunchPlanValidity, LAUNCH_SIGNING_TTL, restorePrepared, serializePrepared, type FirstBuyLockStatus, type LaunchPrepareOptions } from "../src/lib/launch-plan";
-import { chainLaunchDependencies, verifyLaunchGuard } from "./launch-guard";
+import { chainLaunchDependencies, LaunchGuardMismatch, verifyLaunchGuard } from "./launch-guard";
 import { assertLaunchTradingFee, assertPlanIntegrity, assertRecoveryPlan, verifiedFirstBuyLock, verifyCreationAccounting, verifyGuardedReceipt } from "./launch-verification";
 import { verifyFeeEngine } from "./buyback-engine";
 import { assertTrustedLaunchPolicy, engineLaunchCutover, ENGINE_MANIFEST, trustedLaunchPolicies, type EngineLaunchCutover } from "./launch-policy-registry";
@@ -574,11 +574,14 @@ export class LaunchpadService {
       if (!block.hash || block.hash.toLowerCase() !== receipt.blockHash.toLowerCase())
         throw new Error("The receipt block was reorganized. Wait for confirmation again.");
     }).then(() => { entry.settledAt = Date.now(); entry.ttl = RECOVERY_RESULT_TTL_MS; }, async (error: unknown) => {
-      // A definitive evidence failure is kept long only once its receipt block
-      // is finalized, when no reorganization or lagging RPC node can change
-      // it; before that, and for an RPC failure, only briefly. A capacity
-      // refusal is not kept at all, so the next request competes again.
-      const final = error instanceof RecoveryEvidenceError && await this.finalizedThrough(receipt.blockNumber);
+      // A verdict that cannot change is kept long: a guard that is not the
+      // pinned runtime, or a price anchor contradicted once its block is
+      // final, when no reorganization or lagging node can change it. One that
+      // still could (a non-final anchor, an RPC failure, a reorganization seen
+      // mid-read) is kept only briefly; a capacity refusal not at all, so the
+      // next request competes again.
+      const final = error instanceof LaunchGuardMismatch || error instanceof RecoveryEvidenceError &&
+        (error.finalAt === undefined || await this.finalizedThrough(error.finalAt));
       entry.settledAt = Date.now();
       entry.ttl = final ? RECOVERY_RESULT_TTL_MS : error instanceof BudgetUnavailable ? 0 : RECOVERY_TRANSIENT_RETRY_MS;
       throw error;
@@ -610,32 +613,9 @@ export class LaunchpadService {
     assertLaunchTransaction(plan, tx, this.contracts);
     if (!receipt.to || !sameAddress(receipt.to, plan.transaction?.to ?? this.contracts.airlock) || !sameAddress(receipt.from, plan.creator))
       throw new Error("The creation receipt does not match the preview's outer transaction.");
-    if (!savedPlan) {
-      // A backup's fee routing must also be platform-approved before that work.
-      if (keccak256(plan.data) !== plan.id) throw new Error("The creation receipt does not match the preview's outer transaction.");
-      // Treasury-only routing after a recorded engine cutover is judged by the
-      // receipt's canonical block time; nothing else needs that block yet.
-      const cutover = plan.feePolicy === FEE_POLICY ? this.launchCutover() : undefined;
-      let timestamp = 0n;
-      if (cutover) {
-        await this.assertCanonicalCutover(cutover);
-        const receiptBlock = await this.client.getBlock({ blockNumber: receipt.blockNumber });
-        if (receiptBlock.hash !== receipt.blockHash) throw new Error("The receipt block was reorganized. Wait for confirmation again.");
-        timestamp = receiptBlock.timestamp;
-      }
-      assertTrustedLaunchPolicy(plan, this.runtime.config, { blockNumber: receipt.blockNumber, timestamp },
-        trustedLaunchPolicies(this.runtime.config, this.launchManifest()));
-      // CPU only: an altered backup fails here, before any shared RPC budget.
-      assertRecoveryPlan(plan, this.contracts, this.sdk);
-      await this.recoveryEvidence(hash, plan, receipt);
-    }
-    if (plan.openingValuation)
-      assertHistoricalOpeningValuation(plan.openingValuation, plan.draft.quoteAddress, deploymentChain(this.runtime.config));
-    if (plan.prepared) {
-      const verified = await verifyPreparedCreateExecution({ prepared: restorePrepared(plan.prepared), receipt, publicClient: this.client });
-      if (plan.firstBuy) verifyGuardedReceipt(plan, receipt, verified.devBuy?.amountOut);
-    } else if (plan.firstBuy) throw new Error("The guarded creation snapshot is missing.");
-    if (savedPlan) await this.store.trackLaunch(hash, plan.id);
+    // The official Airlock's own event, read from the receipt in hand: a
+    // transaction that never created this token through it is refused before
+    // any further RPC or shared recovery budget.
     const events = receipt.logs
       .filter((l) => sameAddress(l.address, this.contracts.airlock))
       .flatMap((l) => {
@@ -658,6 +638,34 @@ export class LaunchpadService {
       !sameAddress(event.initializer, this.contracts.initializer)
     )
       throw new Error("The creation event does not match the preview.");
+    if (!savedPlan) {
+      // A backup's fee routing must also be platform-approved before that work.
+      if (keccak256(plan.data) !== plan.id) throw new Error("The creation receipt does not match the preview's outer transaction.");
+      // Treasury-only routing after a recorded engine cutover is judged by the
+      // receipt's canonical block time; nothing else needs that block yet.
+      const cutover = plan.feePolicy === FEE_POLICY ? this.launchCutover() : undefined;
+      let timestamp = 0n;
+      if (cutover) {
+        await this.assertCanonicalCutover(cutover);
+        const receiptBlock = await this.client.getBlock({ blockNumber: receipt.blockNumber });
+        if (receiptBlock.hash !== receipt.blockHash) throw new Error("The receipt block was reorganized. Wait for confirmation again.");
+        timestamp = receiptBlock.timestamp;
+      }
+      assertTrustedLaunchPolicy(plan, this.runtime.config, { blockNumber: receipt.blockNumber, timestamp },
+        trustedLaunchPolicies(this.runtime.config, this.launchManifest()));
+      // CPU only: an altered backup fails here, before any shared RPC budget.
+      assertRecoveryPlan(plan, this.contracts, this.sdk);
+      if (BigInt(plan.openingValuation!.blockNumber) > receipt.blockNumber)
+        throw new Error("The recovered opening valuation is newer than its creation receipt.");
+      await this.recoveryEvidence(hash, plan, receipt);
+    }
+    if (plan.openingValuation)
+      assertHistoricalOpeningValuation(plan.openingValuation, plan.draft.quoteAddress, deploymentChain(this.runtime.config));
+    if (plan.prepared) {
+      const verified = await verifyPreparedCreateExecution({ prepared: restorePrepared(plan.prepared), receipt, publicClient: this.client });
+      if (plan.firstBuy) verifyGuardedReceipt(plan, receipt, verified.devBuy?.amountOut);
+    } else if (plan.firstBuy) throw new Error("The guarded creation snapshot is missing.");
+    if (savedPlan) await this.store.trackLaunch(hash, plan.id);
     const pool = await this.sdk.getMulticurvePool(plan.tokenAddress);
     const state = await pool.getState();
     if (
