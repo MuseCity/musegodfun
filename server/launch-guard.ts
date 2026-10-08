@@ -1,4 +1,4 @@
-import { BaseError, ContractFunctionRevertedError, ContractFunctionZeroDataError, keccak256, parseAbi, type Address, type Hex, type PublicClient } from "viem";
+import { keccak256, parseAbi, type Address, type Hex, type PublicClient } from "viem";
 import artifact from "../contracts/artifacts/MusegodLaunchGuard.json";
 import legacyArtifact from "../contracts/artifacts/MusegodLaunchGuardLegacy.json";
 import { BASE_BUNDLER_CODE_HASH, contractsFor, ROBINHOOD_BUNDLER, ROBINHOOD_BUNDLER_CODE_HASH, sameAddress } from "../src/lib/config";
@@ -29,8 +29,8 @@ export function expectedGuardRuntime(chainId: 8453 | 4663 = 4663, version: Launc
   return `0x${code}`;
 }
 
-/** The guard at an address is not the pinned runtime, or its official
- * dependencies differ: not a transient read failure. */
+/** Nonempty code at the guard address is not either pinned runtime. Empty
+ * code and dependency/read failures do not prove a fake guard. */
 export class LaunchGuardMismatch extends Error {}
 export function identifyGuardVersion(code: Hex | undefined, chainId: 8453 | 4663): LaunchGuardVersion | null {
   return code?.toLowerCase() === expectedGuardRuntime(chainId, "vesting").toLowerCase() ? "vesting"
@@ -45,26 +45,28 @@ export async function verifyLaunchGuard(
 ) {
   const { bundler, bundlerCodeHash, contracts } = chainLaunchDependencies(chainId);
   const block = await client.getBlockNumber({ cacheTime: 0 });
-  const [guardCode, bundlerCode, boundBundler, airlock, poolManager, rehypeBundler] = await Promise.all([
-    client.getCode({ address, blockNumber: block }),
+  // Inspect the guard itself first: foreign nonempty code is sufficient
+  // proof, even when its getters would revert. Missing code may be an
+  // incomplete RPC view and must remain retryable.
+  const guardCode = await client.getCode({ address, blockNumber: block });
+  if (!guardCode || guardCode === "0x")
+    throw new Error("The launch guard code is temporarily unavailable. Try again shortly.");
+  const version = identifyGuardVersion(guardCode, chainId);
+  if (!version)
+    throw new LaunchGuardMismatch("The launch guard runtime or official dependencies do not match the pinned deployment.");
+  if (requiredVersion && version !== requiredVersion)
+    throw new Error("The pinned launch guard does not support the required version.");
+  const [bundlerCode, boundBundler, airlock, poolManager, rehypeBundler] = await Promise.all([
     client.getCode({ address: bundler, blockNumber: block }),
     client.readContract({ address, abi: launchGuardAbi, functionName: "bundler", blockNumber: block }),
     client.readContract({ address: bundler, abi: dependenciesAbi, functionName: "airlock", blockNumber: block }),
     client.readContract({ address: bundler, abi: dependenciesAbi, functionName: "poolManager", blockNumber: block }),
     client.readContract({ address: contracts.rehype, abi: rehypeAbi, functionName: "bundler", blockNumber: block }),
-  ]).catch((error: unknown) => {
-    // A call that reverts or returns no data is the contract's own answer
-    // (not the pinned guard), unlike a transport failure.
-    if (error instanceof BaseError && error.walk((cause) => cause instanceof ContractFunctionRevertedError || cause instanceof ContractFunctionZeroDataError))
-      throw new LaunchGuardMismatch("The launch guard runtime or official dependencies do not match the pinned deployment.");
-    throw error;
-  });
-  const version = identifyGuardVersion(guardCode, chainId);
-  if (!version || (requiredVersion && version !== requiredVersion) ||
-      !bundlerCode || keccak256(bundlerCode) !== bundlerCodeHash ||
+  ]);
+  if (!bundlerCode || keccak256(bundlerCode) !== bundlerCodeHash ||
       !sameAddress(boundBundler, bundler) || !sameAddress(airlock, contracts.airlock) ||
       !sameAddress(poolManager, contracts.poolManager) || !sameAddress(rehypeBundler, bundler))
-    throw new LaunchGuardMismatch("The launch guard runtime or official dependencies do not match the pinned deployment.");
+    throw new Error("The launch guard official dependencies cannot be verified. Try again shortly.");
   return { address, blockNumber: String(block), runtimeHash: keccak256(guardCode!), bundler: boundBundler,
     version, supportsLock: version === "vesting" };
 }

@@ -140,14 +140,15 @@ test("warning stock results are cached with a short expiry and preserve actual o
 });
 
 test("cached guard checks never cache signing pause or inherit an unverified runtime address", async context => {
-  let now=100_000, codeReads=0, controls=0, paused=false;context.mock.method(Date,"now",()=>now);
+  let now=100_000, codeReads=0, dependencyReads=0, controls=0, paused=false;context.mock.method(Date,"now",()=>now);
   const runtime={config:{mode:"robinhood",chainId:4663,writesEnabled:true,blockReason:null,treasury:account,launchGuard:null}};
   const service=Object.assign(Object.create(LaunchpadService.prototype),{runtime,guardCandidate:account,assertNetwork:async()=>{},
     store:{runtimeControl:async()=>{controls++;return {paused,revision:controls,reason:"current pause"};}},
-    client:{getBlockNumber:async()=>1n,getCode:async()=>{codeReads++;return "0x1234";},readContract:async()=>account}}) as LaunchpadService;
-  const first=await service.config();assert.equal(first.launchGuard,null);assert.equal(first.writesEnabled,true);assert.equal(codeReads,2);
-  paused=true;const stopped=await service.config();assert.equal(stopped.writesEnabled,false);assert.equal(stopped.controlRevision,2);assert.equal(codeReads,2);
-  now+=3_001;await service.config();assert.equal(codeReads,4,"negative identity cache has a bounded retry period");assert.equal(controls,3);
+    client:{getBlockNumber:async()=>1n,getCode:async()=>{codeReads++;return "0x1234";},readContract:async()=>{dependencyReads++;return account;}}}) as LaunchpadService;
+  const first=await service.config();assert.equal(first.launchGuard,null);assert.equal(first.writesEnabled,true);assert.equal(codeReads,1);
+  paused=true;const stopped=await service.config();assert.equal(stopped.writesEnabled,false);assert.equal(stopped.controlRevision,2);assert.equal(codeReads,1);
+  now+=3_001;await service.config();assert.equal(codeReads,2,"negative identity cache has a bounded retry period");assert.equal(controls,3);
+  assert.equal(dependencyReads,0,"foreign guard code is rejected before spending reads on its dependencies");
 });
 
 test("unsigned validated plans expire but actual signing and unknown transaction backups remain protected", async () => {

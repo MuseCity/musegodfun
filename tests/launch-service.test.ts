@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DopplerSDK, airlockAbi, bundlerAbi, computePoolId, rehypeDopplerHookInitializerAbi, verifyPreparedCreateExecution } from "@whetstone-research/doppler-sdk/evm";
 import { createPublicClient, http, encodeFunctionData, encodeEventTopics, encodeAbiParameters, decodeAbiParameters, decodeFunctionData, parseAbi, parseAbiParameters, erc20Abi, formatUnits, keccak256, zeroAddress, ContractFunctionExecutionError, ContractFunctionRevertedError, ContractFunctionZeroDataError, HttpRequestError, type Hex, type Address, type TransactionReceipt } from "viem";
-import { ROBINHOOD_BUNDLER, ROBINHOOD_CONTRACTS as contracts, ROBINHOOD_STOCKS, STOCKS, SUPPLY, assetsFor, launchAssetsFor, listedTokens, stockByAddress, type RuntimeConfig, type Stock, type TokenRecord } from "../src/lib/config";
+import { ROBINHOOD_BUNDLER, ROBINHOOD_BUNDLER_CODE_HASH, ROBINHOOD_CONTRACTS as contracts, ROBINHOOD_STOCKS, STOCKS, SUPPLY, assetsFor, launchAssetsFor, listedTokens, stockByAddress, type RuntimeConfig, type Stock, type TokenRecord } from "../src/lib/config";
 import { CURVE_POLICY } from "../src/lib/launch-curve";
 import { launchGuardAbi } from "../src/lib/launch-guard";
 import { restorePrepared, serializePrepared, type LaunchPlan } from "../src/lib/launch-plan";
@@ -782,7 +782,9 @@ test("payment proceeds may increase the paired input without lowering or ratchet
 });
 
 const oracleRuntime = readFileSync(new URL("./fixtures/buyback-oracle.runtime.hex", import.meta.url), "utf8").trim() as Hex;
-function recoveryService(f: ReturnType<typeof ordinaryFixture>, store: Store,
+const bundlerRuntime = readFileSync(new URL("./fixtures/robinhood-bundler.runtime.hex", import.meta.url), "utf8").trim() as Hex;
+assert.equal(keccak256(bundlerRuntime), ROBINHOOD_BUNDLER_CODE_HASH, "the recovery fixture is the pinned public Robinhood Bundler runtime");
+function recoveryService(f: ReturnType<typeof ordinaryFixture> | ReturnType<typeof fixture>, store: Store,
   options: { treasury?: Address | null; owner?: Address; reads?: string[]; valuationHash?: Hex; referencePrice?: bigint;
     attestationKey?: string; previousAttestationKeys?: string[]; blockTimes?: Record<string, bigint>; manifest?: unknown;
     blockHashes?: Record<string, Hex>; finalized?: bigint } = {}) {
@@ -1186,30 +1188,37 @@ test("a transaction that never created the token through the official Airlock, o
   } finally { store.close(); rmSync(directory, { recursive: true }); }
 });
 
-test("a first-buy guard that is not the pinned runtime is a lasting verdict, so it cannot keep re-spending the budget", async (context) => {
+test("a nonempty fake guard is refused before its reverting bundler read, sharing ten minutes without more budget", async (context) => {
   context.mock.timers.enable({ apis: ["Date"], now: Date.now() });
   const f = ordinaryFixture(100), directory = mkdtempSync(join(tmpdir(), "recovery-guard-mismatch-test-")), store = new Store(directory, 31337);
   try {
     const service = recoveryService(f, store);
     const client = (service as any).client;
     const read = client.readContract;
-    let guardReads = 0;
+    let guardReads = 0, dependencyReads = 0;
     client.getCode = async ({ address }: { address: Address }) => {
       if (address.toLowerCase() !== guard.toLowerCase()) return undefined;
       guardReads++; return "0x60006000";
     };
-    client.readContract = async (call: { functionName: string }) =>
-      ["bundler", "airlock", "poolManager"].includes(call.functionName) ? "0x0000000000000000000000000000000000000001" : read(call);
+    client.readContract = async (call: { functionName: string }) => {
+      if (!["bundler", "airlock", "poolManager"].includes(call.functionName)) return read(call);
+      dependencyReads++;
+      throw new ContractFunctionExecutionError(new ContractFunctionRevertedError({ abi: launchGuardAbi, functionName: "bundler" }),
+        { abi: launchGuardAbi, functionName: "bundler", args: [], contractAddress: guard });
+    };
     const guarded = { ...f.plan, firstBuy: { guard, lockDays: 0 } } as unknown as LaunchPlan;
     const verify = () => (service as any).recoveryEvidence(hash, guarded, { blockNumber: 10n, blockHash });
     await assert.rejects(verify, /launch guard runtime or official dependencies/);
+    assert.equal(dependencyReads, 0, "foreign nonempty code is already proof; its reverting getters are never read");
     context.mock.timers.tick(300_000);
     await assert.rejects(verify, /launch guard runtime/);
     assert.equal(guardReads, 1, "kept for ten minutes, not re-checked every 15 seconds");
     // Other transactions through the same guard share its verdict before the budget.
     const started = (service as any).recoveryLoad.started.length;
-    for (let i = 0; i < 15; i++)
-      await assert.rejects(() => (service as any).recoveryEvidence(`0x${String(i).padStart(64, "f")}`, guarded, { blockNumber: 10n, blockHash }), /launch guard runtime/);
+    for (let i = 0; i < 15; i++) {
+      const other = { ...guarded, firstBuy: { ...guarded.firstBuy!, lockDays: i % 2 ? 30 : 0 } };
+      await assert.rejects(() => (service as any).recoveryEvidence(`0x${String(i).padStart(64, "f")}`, other, { blockNumber: 10n, blockHash }), /launch guard runtime/);
+    }
     assert.equal(guardReads, 1); assert.equal((service as any).recoveryLoad.started.length, started, "no budget is spent on them");
     context.mock.timers.tick(300_001);
     await assert.rejects(verify, /launch guard runtime/);
@@ -1217,19 +1226,76 @@ test("a first-buy guard that is not the pinned runtime is a lasting verdict, so 
   } finally { store.close(); rmSync(directory, { recursive: true }); }
 });
 
-test("a guard read that reverts or returns no data is the guard's own answer; a transport failure is not", async () => {
+test("a pinned guard with unavailable code or dependencies retries full registration after fifteen seconds", async (context) => {
+  context.mock.timers.enable({ apis: ["Date"], now: Date.now() });
   const abi = parseAbi(["function bundler() view returns(address)"]);
   const reverted = new ContractFunctionExecutionError(new ContractFunctionRevertedError({ abi, functionName: "bundler" }),
     { abi, functionName: "bundler", args: [], contractAddress: guard });
   const empty = new ContractFunctionExecutionError(new ContractFunctionZeroDataError({ functionName: "bundler" }),
     { abi, functionName: "bundler", args: [], contractAddress: guard });
   const transport = new HttpRequestError({ url: "https://rpc.example", status: 503 });
-  for (const [label, error, mismatch] of [["revert", reverted, true], ["no data", empty, true], ["transport", transport, false]] as const) {
-    const client = { getBlockNumber: async () => 10n, getCode: async () => "0x60006000" as Hex,
-      readContract: async () => { throw error; } } as unknown as Parameters<typeof verifyLaunchGuard>[0];
-    const failure = await verifyLaunchGuard(client, guard, 4663).catch((caught: unknown) => caught);
-    assert.equal(failure instanceof LaunchGuardMismatch, mismatch, label);
+  for (const label of ["missing guard", "empty guard", "guard code transport", "guard getter revert", "guard getter no data",
+    "missing official code", "foreign official code", "official getter revert", "official getter no data", "wrong official dependency"]) {
+    await context.test(label, async () => {
+      const f = fixture(), directory = mkdtempSync(join(tmpdir(), "recovery-guard-transient-test-")), store = new Store(directory, 31337);
+      try {
+        const service = recoveryService(f, store), client = (service as any).client, read = client.readContract;
+        let fault = true, codeReads = 0;
+        client.getCode = async ({ address }: { address: Address }) => {
+          codeReads++;
+          if (address.toLowerCase() === guard.toLowerCase()) {
+            if (fault && label === "missing guard") return undefined;
+            if (fault && label === "empty guard") return "0x";
+            if (fault && label === "guard code transport") throw transport;
+            return expectedGuardRuntime();
+          }
+          if (address.toLowerCase() === ROBINHOOD_BUNDLER.toLowerCase()) {
+            if (fault && label === "missing official code") return undefined;
+            if (fault && label === "foreign official code") return "0x60006000";
+            return bundlerRuntime;
+          }
+          return undefined;
+        };
+        client.readContract = async (call: { address: Address; functionName: string }) => {
+          const address = call.address.toLowerCase();
+          if (address === guard.toLowerCase()) {
+            if (fault && label === "guard getter revert") throw reverted;
+            if (fault && label === "guard getter no data") throw empty;
+            return ROBINHOOD_BUNDLER;
+          }
+          if (address === ROBINHOOD_BUNDLER.toLowerCase()) {
+            if (fault && label === "official getter revert") throw reverted;
+            if (fault && label === "official getter no data") throw empty;
+            if (fault && label === "wrong official dependency") return zeroAddress;
+            return call.functionName === "airlock" ? contracts.airlock : contracts.poolManager;
+          }
+          if (address === contracts.rehype.toLowerCase()) return ROBINHOOD_BUNDLER;
+          return read(call);
+        };
+        const failed = await service.register(hash, f.plan).catch((error: unknown) => error);
+        assert(failed instanceof Error); assert(!(failed instanceof LaunchGuardMismatch));
+        assert.equal((service as any).guardMismatches.size, 0);
+        assert.equal((service as any).recoveryChecks.get(`${hash}:${blockHash}`).ttl, 15_000);
+        fault = false;
+        const previousReads = codeReads;
+        await assert.rejects(() => service.register(hash, f.plan));
+        assert.equal(codeReads, previousReads, "immediate retry shares the brief failure");
+        context.mock.timers.tick(15_000);
+        assert.equal((await service.register(hash, f.plan)).address, token, "the original frozen backup registers after RPC state converges");
+        assert.equal(store.tokenByTxHash(hash)?.address, token);
+        assert.equal((service as any).recoveryLoad.started.length, 2);
+      } finally { store.close(); rmSync(directory, { recursive: true }); }
+    });
   }
+});
+
+test("a pinned legacy runtime lacking lock support is not a fake guard mismatch", async () => {
+  let dependencyReads = 0;
+  const client = { getBlockNumber: async () => 10n, getCode: async () => expectedGuardRuntime(4663, "legacy"),
+    readContract: async () => { dependencyReads++; throw new Error("getters should not be needed to know the version"); } } as unknown as Parameters<typeof verifyLaunchGuard>[0];
+  const failure = await verifyLaunchGuard(client, guard, 4663, "vesting").catch((error: unknown) => error);
+  assert(failure instanceof Error); assert(!(failure instanceof LaunchGuardMismatch));
+  assert.equal(dependencyReads, 0);
 });
 
 test("evidence read across a reorganization is not kept for the receipt block it did not see", async (context) => {

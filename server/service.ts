@@ -590,7 +590,8 @@ export class LaunchpadService {
    * neither can a guard already found not to be the pinned runtime. */
   private recoveryEvidence(hash: Hex, plan: LaunchPlan, receipt: { blockNumber: bigint; blockHash: Hex }): Promise<void> {
     const guard = plan.firstBuy ? { address: plan.firstBuy.guard, version: plan.firstBuy.lockDays ? "vesting" as const : undefined } : undefined;
-    const guardKey = guard && `${guard.address.toLowerCase()}:${guard.version ?? ""}`;
+    // A nonempty foreign runtime is fake for every requested guard version.
+    const guardKey = guard?.address.toLowerCase();
     const mismatches = this.guardMismatches ??= new Map(), seen = guardKey ? mismatches.get(guardKey) : undefined;
     if (seen !== undefined && Date.now() - seen < RECOVERY_RESULT_TTL_MS)
       return Promise.reject(new LaunchGuardMismatch("The launch guard runtime or official dependencies do not match the pinned deployment."));
