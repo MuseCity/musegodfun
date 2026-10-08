@@ -111,6 +111,7 @@ test("a recorded cutover is a fixed fact; a malformed one refuses treasury-only 
     ["bad block hash", { ...valid.engineLaunchCutover!, blockHash: "0x1234" }],
     ["bad timestamp", { ...valid.engineLaunchCutover!, timestamp: -1 }],
     ["bad block number", { ...valid.engineLaunchCutover!, blockNumber: "0x10" }],
+    ["before the activation it names", { ...valid.engineLaunchCutover!, blockNumber: "93999999" }],
   ] as const) {
     const manifest = { ...valid, engineLaunchCutover: cutover } as unknown as typeof valid;
     assert.throws(() => engineLaunchCutover(robinhood(), manifest), /malformed/, label);
@@ -135,8 +136,24 @@ test("cutover readiness requires a verified activation of the exact graph, no ea
     ["activation not verified", { ...valid, activationVerification: { status: "pending" } }],
     ["graph changed after recording", redeployed],
     ["cutover bound to another graph", { ...valid, engineLaunchCutover: { ...valid.engineLaunchCutover!, graphFingerprint: `0x${"12".repeat(32)}` as `0x${string}` } }],
-    ["cutover before activation", activatedEngineManifest(engine, { ...recorded, blockNumber: "93999999" })],
+    ["cutover names another activation", { ...valid, engineLaunchCutover: { ...valid.engineLaunchCutover!, activatedAtBlock: "93000000" } }],
   ] as const) assert.throws(() => assertCutoverReadiness(manifest), /verified activation of this exact buyback graph/, label);
+});
+
+test("an engine-only Robinhood runtime trusts no treasury-only backups until its cutover is recorded", () => {
+  const engineOnly = robinhood({ feeEngine: engine, feePolicy: ENGINE_FEE_POLICY });
+  const enginePlan = { feePolicy: ENGINE_FEE_POLICY, feeTreasury: operations, feeEngine: engine };
+  const pending = activatedEngineManifest(engine);
+  const policies = trustedLaunchPolicies(engineOnly, pending);
+  for (const treasury of [configured, operations])
+    assert.throws(() => assertTrustedLaunchPolicy({ feePolicy: FEE_POLICY, feeTreasury: treasury }, engineOnly, at(95_000_000n, 1n), policies), /platform-approved/,
+      "a treasury-only launch made after the engine-only deploy cannot be listed in the gap before the cutover");
+  assert.doesNotThrow(() => assertTrustedLaunchPolicy(enginePlan, engineOnly, at(95_000_000n, 1n), policies));
+  const recorded = trustedLaunchPolicies(engineOnly, activatedEngineManifest(engine, { blockNumber: "95000000", blockHash: `0x${"ab".repeat(32)}`, timestamp: 1_900_000_000 }));
+  assert.doesNotThrow(() => assertTrustedLaunchPolicy({ feePolicy: FEE_POLICY, feeTreasury: operations }, engineOnly, at(95_000_010n, 1_900_000_100n), recorded),
+    "once recorded, earlier treasury-only previews recover within the window");
+  assert.doesNotThrow(() => assertTrustedLaunchPolicy({ feePolicy: FEE_POLICY, feeTreasury: operations }, robinhood(), at(95_000_000n, 1n),
+    trustedLaunchPolicies(robinhood(), pending)), "a treasury-only runtime keeps trusting its own routing");
 });
 
 test("plan attestations bind key, chain and preview id, and keys are validated and redacted", () => {

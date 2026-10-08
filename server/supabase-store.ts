@@ -169,6 +169,14 @@ export class SupabaseStore implements StoreBackend {
       "resolution=merge-duplicates,return=minimal",
     );
   }
+  async savePlanIfAbsent(plan: LaunchPlan) {
+    await this.request(
+      "musegod_plans?on_conflict=scope,id",
+      "POST",
+      { scope: this.scope, id: plan.id, creator: plan.creator.toLowerCase(), data: plan.data, prepared_at: plan.preparedAt, payload: packPlan(plan) },
+      "resolution=ignore-duplicates,return=minimal",
+    );
+  }
   async findPlan(creator: string, data: string) {
     const payload = await this.request<LaunchPlan | null>("rpc/musegod_find_plan", "POST", {
       p_scope: this.scope,

@@ -1,0 +1,14 @@
+{
+  "chainId": 4663,
+  "status": "deployed_verified",
+  "constants": { "treasury": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A" },
+  "contracts": { "engine": { "address": "0x3333333333333333333333333333333333333333", "blockNumber": "94000000" } },
+  "activationVerification": { "status": "verified", "fingerprint": "0x1212121212121212121212121212121212121212121212121212121212121212", "activatedAtBlock": "94000000" },
+  "engineLaunchCutover": {
+    "blockNumber": "95000000",
+    "blockHash": "0xabababababababababababababababababababababababababababababababab",
+    "timestamp": 1900000000,
+    "graphFingerprint": "0x1212121212121212121212121212121212121212121212121212121212121212",
+    "activatedAtBlock": "94000000"
+  }
+}

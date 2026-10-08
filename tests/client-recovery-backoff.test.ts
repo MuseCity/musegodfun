@@ -70,3 +70,17 @@ test("a check that completes, even finding the transaction still pending, clears
   assert.equal(recoveryDue(key, Date.now() + 119_000), false, "a failed manual check still respects the server's wait");
   clearRecoveryBackoff(key);
 });
+
+test("a failed manual check never lengthens the background wait, except to honour a wait the server asked for", async () => {
+  const key = recoveryKey(4663, `0x${"AC".repeat(32)}`), now = Date.now();
+  recordRecoveryFailure(key, new Error("not mined yet"), now);
+  const due = now + RECOVERY_POLL_MS;
+  // The transaction is still unmined: a manual check fails without the server asking for a wait.
+  for (let i = 0; i < 3; i++) await assert.rejects(() => settleRecovery(key, async () => { throw new Error("receipt not found"); }, true), /receipt not found/);
+  assert.equal(recoveryDue(key, due), true, "pressing Check again does not push the background poll back");
+  await assert.rejects(() => settleRecovery(key, async () => { throw new ApiError("busy", 429, "CAPACITY_LIMITED", 45); }, true), /busy/);
+  assert.equal(recoveryDue(key, Date.now() + 44_000), false, "the server's own wait is kept");
+  assert.equal(recoveryDue(key, Date.now() + 46_000), true, "without counting another failure");
+  await settleRecovery(key, async () => {}, true);
+  assert.equal(recoveryDue(key, now), true, "a completed manual check clears it");
+});

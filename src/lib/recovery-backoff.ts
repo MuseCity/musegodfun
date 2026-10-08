@@ -19,11 +19,22 @@ export const recoveryKey = (chainId: number, hash: string) => `${chainId}:${hash
 export function recoveryDue(key: string, now = Date.now()) { return (waiting.get(key)?.nextAt ?? 0) <= now; }
 export function recordRecoveryFailure(key: string, error: unknown, now = Date.now()) { waiting.set(key, nextRecoveryAttempt(waiting.get(key), error, now)); }
 export function clearRecoveryBackoff(key: string) { waiting.delete(key); }
-/** Runs one check of a record, background or manual, and settles its backoff:
- * a check that completes clears it, even when the transaction is still
- * pending; a failed one extends it. */
-export async function settleRecovery(key: string, check: () => Promise<void>) {
-  try { await check(); } catch (error) { recordRecoveryFailure(key, error); throw error; }
+/** Holds a record at least until the wait a server asked for, without
+ * counting another failure. */
+export function recordServerWait(key: string, error: unknown, now = Date.now()) {
+  if (!(error instanceof ApiError) || !error.retryAfter) return;
+  const current = waiting.get(key);
+  waiting.set(key, { failures: current?.failures ?? 0, nextAt: Math.max(current?.nextAt ?? 0, now + error.retryAfter * 1000) });
+}
+/** Runs one check of a record and settles its backoff: a check that
+ * completes clears it, even when the transaction is still pending. A failed
+ * background check extends it; a failed manual one (for example while the
+ * transaction is still unmined) adds only a wait the server asked for. */
+export async function settleRecovery(key: string, check: () => Promise<void>, manual = false) {
+  try { await check(); } catch (error) {
+    if (manual) recordServerWait(key, error); else recordRecoveryFailure(key, error);
+    throw error;
+  }
   clearRecoveryBackoff(key);
 }
 /** A best-effort request made alongside a record's check. Its failures are

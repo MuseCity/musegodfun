@@ -2,9 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import type { Address, Hex } from "viem";
 import { cutoverRecord } from "../scripts/record-engine-cutover";
-import { assertCutoverReadiness, engineLaunchCutover, ENGINE_MANIFEST } from "../server/launch-policy-registry";
+import { engineLaunchCutover, ENGINE_MANIFEST } from "../server/launch-policy-registry";
 import type { RuntimeConfig } from "../src/lib/config";
 import { activatedEngineManifest } from "./engine-manifest-fixture";
+import recordedManifest from "./fixtures/engine-cutover-manifest.json";
 
 const engine = "0x3333333333333333333333333333333333333333" as Address;
 const robinhood: RuntimeConfig = { mode: "robinhood", deploymentChainId: 4663, chainId: 4663, treasury: engine, writesEnabled: false, blockReason: "paused" };
@@ -16,7 +17,7 @@ test("the cutover is recorded only at a finalized block after both the verified 
   const verified = { fingerprint: manifest.activationVerification.fingerprint as Hex, activatedAtBlock: "94000000" };
   const block = (number: bigint, timestamp = 1_900_000_000n) => ({ number, hash: blockHash, timestamp });
   const cutover = cutoverRecord(manifest, verified, block(95_000_000n), 95_000_010n, engineOnlyAt);
-  assert.deepEqual(cutover, { blockNumber: "95000000", blockHash, timestamp: 1_900_000_000, graphFingerprint: verified.fingerprint });
+  assert.deepEqual(cutover, { blockNumber: "95000000", blockHash, timestamp: 1_900_000_000, graphFingerprint: verified.fingerprint, activatedAtBlock: "94000000" });
   assert.equal(engineLaunchCutover(robinhood, { ...manifest, engineLaunchCutover: cutover })?.timestamp, 1_900_000_000,
     "the runtime accepts exactly what the recorder writes");
   for (const [label, run, pattern] of [
@@ -31,7 +32,8 @@ test("the cutover is recorded only at a finalized block after both the verified 
   ] as const) assert.throws(run, pattern, label);
 });
 
-test("the committed manifest's cutover, if recorded, follows a verified activation of the committed graph", () => {
-  assert.doesNotThrow(() => assertCutoverReadiness(ENGINE_MANIFEST),
-    "re-verification that left the activation pending, or a redeployed graph, must be resolved before committing");
+test("a manifest with a recorded cutover type-checks as committed JSON, and the committed one is well formed", () => {
+  // The build type-checks this file: a cutover written by the recorder must not break it.
+  assert.equal(engineLaunchCutover(robinhood, recordedManifest)?.activatedAtBlock, "94000000");
+  assert.doesNotThrow(() => engineLaunchCutover(robinhood, ENGINE_MANIFEST), "the committed cutover, if any, names the activation it followed");
 });

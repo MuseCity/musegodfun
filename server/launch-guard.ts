@@ -1,4 +1,4 @@
-import { keccak256, parseAbi, type Address, type Hex, type PublicClient } from "viem";
+import { BaseError, ContractFunctionRevertedError, ContractFunctionZeroDataError, keccak256, parseAbi, type Address, type Hex, type PublicClient } from "viem";
 import artifact from "../contracts/artifacts/MusegodLaunchGuard.json";
 import legacyArtifact from "../contracts/artifacts/MusegodLaunchGuardLegacy.json";
 import { BASE_BUNDLER_CODE_HASH, contractsFor, ROBINHOOD_BUNDLER, ROBINHOOD_BUNDLER_CODE_HASH, sameAddress } from "../src/lib/config";
@@ -52,7 +52,13 @@ export async function verifyLaunchGuard(
     client.readContract({ address: bundler, abi: dependenciesAbi, functionName: "airlock", blockNumber: block }),
     client.readContract({ address: bundler, abi: dependenciesAbi, functionName: "poolManager", blockNumber: block }),
     client.readContract({ address: contracts.rehype, abi: rehypeAbi, functionName: "bundler", blockNumber: block }),
-  ]);
+  ]).catch((error: unknown) => {
+    // A call that reverts or returns no data is the contract's own answer
+    // (not the pinned guard), unlike a transport failure.
+    if (error instanceof BaseError && error.walk((cause) => cause instanceof ContractFunctionRevertedError || cause instanceof ContractFunctionZeroDataError))
+      throw new LaunchGuardMismatch("The launch guard runtime or official dependencies do not match the pinned deployment.");
+    throw error;
+  });
   const version = identifyGuardVersion(guardCode, chainId);
   if (!version || (requiredVersion && version !== requiredVersion) ||
       !bundlerCode || keccak256(bundlerCode) !== bundlerCodeHash ||

@@ -33,7 +33,8 @@ export function cutoverRecord(manifest: Manifest, verified: { fingerprint: Hex; 
   assert(block.number <= finalized, "The cutover block must be finalized");
   assert(block.number >= BigInt(verified.activatedAtBlock), "The cutover cannot precede the engine's activation");
   assert(block.timestamp >= notBefore, "The cutover block precedes the engine-only runtime; wait until the chain finalizes past that deploy");
-  const cutover = { blockNumber: String(block.number), blockHash: block.hash, timestamp: Number(block.timestamp), graphFingerprint: verified.fingerprint };
+  const cutover = { blockNumber: String(block.number), blockHash: block.hash, timestamp: Number(block.timestamp),
+    graphFingerprint: verified.fingerprint, activatedAtBlock: verified.activatedAtBlock };
   assertCutoverReadiness({ ...manifest, engineLaunchCutover: cutover });
   return cutover;
 }

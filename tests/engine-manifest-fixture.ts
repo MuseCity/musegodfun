@@ -16,5 +16,5 @@ export function activatedEngineManifest(engine: Address, cutover?: { blockNumber
   const manifest = { ...ENGINE_MANIFEST, status: "deployed_verified", contracts };
   const fingerprint = buybackGraphFingerprint(manifest as unknown as BuybackDeployment);
   return { ...manifest, activationVerification: { status: "verified", fingerprint, activatedAtBlock },
-    ...(cutover ? { engineLaunchCutover: { ...cutover, graphFingerprint: fingerprint } } : {}) };
+    ...(cutover ? { engineLaunchCutover: { ...cutover, graphFingerprint: fingerprint, activatedAtBlock } } : {}) };
 }

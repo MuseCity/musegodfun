@@ -249,6 +249,12 @@ export class Store {
         JSON.stringify(packPlan(plan)),
       );
   }
+  /** Saves a plan only if none with this id is stored yet. */
+  savePlanIfAbsent(plan: LaunchPlan) {
+    this.db
+      .prepare("INSERT OR IGNORE INTO plans VALUES(?,?,?,?)")
+      .run(plan.id, plan.creator.toLowerCase(), plan.data, JSON.stringify(packPlan(plan)));
+  }
   findPlan(creator: string, data: string) {
     const row = this.db
       .prepare("SELECT payload FROM plans WHERE creator=? AND data=? LIMIT 1")

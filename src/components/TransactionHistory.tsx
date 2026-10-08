@@ -290,7 +290,7 @@ export default function TransactionHistory({
       if (existing) {
         // Preserve the frozen payment, launch plan and replacement fingerprint.
         // A manual check ignores the background backoff and settles it.
-        await settleRecovery(recoveryKey(existing.chainId, existing.hash), () => check(existing));
+        await settleRecovery(recoveryKey(existing.chainId, existing.hash), () => check(existing), true);
         setHash("");
         return;
       }
@@ -308,7 +308,7 @@ export default function TransactionHistory({
         at: Date.now(),
       };
       saveTransaction(row);
-      await check(row);
+      await settleRecovery(recoveryKey(row.chainId, row.hash), () => check(row), true);
       setHash("");
     } catch (e) {
       setError(`The lookup is incomplete. Saved pending statuses are retained. ${errorMessage(e)}`);
@@ -365,7 +365,7 @@ export default function TransactionHistory({
                 setBusy(true);
                 setError("");
                 try {
-                  await settleRecovery(recoveryKey(row.chainId, row.hash), () => check(row));
+                  await settleRecovery(recoveryKey(row.chainId, row.hash), () => check(row), true);
                 } catch (e) {
                   setError(errorMessage(e));
                 } finally {

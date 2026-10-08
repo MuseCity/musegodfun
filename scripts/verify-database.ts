@@ -60,6 +60,9 @@ try {
   const hash = `0x${"3".repeat(64)}` as const;
   const replacedHash = `0x${"4".repeat(64)}` as const;
   const blockHash = `0x${"5".repeat(64)}`;
+  await store.savePlanIfAbsent(plan);
+  await store.savePlanIfAbsent({ ...plan, gas: "1" });
+  assert.deepEqual(await connect(scope).findPlan(plan.creator, plan.data), plan, "An existing plan is never replaced by savePlanIfAbsent");
   await store.savePlan(plan);
   assert.deepEqual(await connect(scope).findPlan(plan.creator, plan.data), plan);
   assert.equal(await store.findPlan(STOCKS[2].address, plan.data), null);

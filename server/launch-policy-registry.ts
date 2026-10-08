@@ -3,7 +3,7 @@ import engineDeployment from "../contracts/artifacts/buyback-v2-deployment.json"
 import { buybackGraphFingerprint } from "./buyback-activation";
 import type { BuybackDeployment } from "./buyback-engine";
 import { deploymentChain, sameAddress, type RuntimeConfig } from "../src/lib/config";
-import { ENGINE_FEE_POLICY, FEE_POLICY, type FeePolicy } from "../src/lib/fee-policy";
+import { ENGINE_FEE_POLICY, FEE_POLICY, launchFeePolicy, type FeePolicy } from "../src/lib/fee-policy";
 import { LAUNCH_SIGNING_TTL, type LaunchPlan } from "../src/lib/launch-plan";
 
 /** One fee routing the platform approved for new launches. `fromBlock` is
@@ -18,11 +18,12 @@ export type TrustedLaunchPolicy = { feePolicy: FeePolicy; treasury: Address; fee
  * the engine-only runtime is live; prepare() and recovery both read it, and
  * recovery checks it is canonical. Once recorded it is a fixed fact: later
  * graph changes or re-verification never move or drop it. */
-export type EngineLaunchCutover = { blockNumber: string; blockHash: Hex; timestamp: number; graphFingerprint: Hex };
+export type EngineLaunchCutover = { blockNumber: string; blockHash: Hex; timestamp: number; graphFingerprint: Hex; activatedAtBlock: string };
+// As read from the committed JSON manifest, before its shape is checked.
 type EngineManifest = { chainId: number; status: string; constants: { treasury: string };
   contracts: { engine: { address: string | null; blockNumber?: number | string } };
   activationVerification?: { status?: string; fingerprint?: string; activatedAtBlock?: string };
-  engineLaunchCutover?: EngineLaunchCutover };
+  engineLaunchCutover?: { blockNumber: string; blockHash: string; timestamp: number; graphFingerprint: string; activatedAtBlock: string } };
 
 // A no-engine preview accepted just before the cutover can still be signed
 // within its window and mined shortly after; allow modest clock skew too.
@@ -59,6 +60,11 @@ export function trustedLaunchPolicies(config: RuntimeConfig, manifest: EngineMan
   // trusts no treasury-only routing at all; engine routing is unaffected.
   let cutover: EngineLaunchCutover | undefined, treasuryOnly = true;
   try { cutover = engineLaunchCutover(config, manifest); } catch { treasuryOnly = false; }
+  // An engine-only runtime (FEE_ENGINE_ADDRESS set) issues no treasury-only
+  // previews. Until its cutover is recorded it trusts none from backups
+  // either, so nothing made in that gap is listed; earlier ones recover once
+  // the recorded cutover bounds them.
+  if (chainId === 4663 && launchFeePolicy(config) === ENGINE_FEE_POLICY && !cutover) treasuryOnly = false;
   const bound = cutover ? { toTimestamp: BigInt(cutover.timestamp) + CUTOVER_GRACE_SECONDS } : {};
   if (config.treasury && treasuryOnly) add({ feePolicy: FEE_POLICY, treasury: getAddress(config.treasury), feeEngine: null, ...bound });
   if (treasuryOnly) for (const retired of RETIRED_TREASURIES[chainId]) add({ feePolicy: FEE_POLICY, treasury: retired.treasury, feeEngine: null, toBlock: retired.toBlock, ...bound });
@@ -81,21 +87,25 @@ export function engineLaunchCutover(config: Pick<RuntimeConfig, "mode" | "deploy
 
 const BLOCK_NUMBER = /^(?:0|[1-9]\d{0,19})$/, HASH = /^0x[0-9a-fA-F]{64}$/;
 
-/** The recorded cutover, checked for shape only. A malformed record throws:
- * callers then refuse treasury-only previews and recoveries, never engine ones. */
+/** The recorded cutover, checked for shape and for following the activation
+ * it names. A malformed record throws: callers then refuse treasury-only
+ * previews and recoveries, never engine ones. */
 export function assertEngineLaunchCutover(manifest: EngineManifest): EngineLaunchCutover | undefined {
   const cutover = manifest.engineLaunchCutover;
   if (!cutover) return undefined;
   if (typeof cutover.blockNumber !== "string" || !BLOCK_NUMBER.test(cutover.blockNumber) || !HASH.test(cutover.blockHash ?? "") ||
-    !Number.isSafeInteger(cutover.timestamp) || cutover.timestamp <= 0 || !HASH.test(cutover.graphFingerprint ?? ""))
+    !Number.isSafeInteger(cutover.timestamp) || cutover.timestamp <= 0 || !HASH.test(cutover.graphFingerprint ?? "") ||
+    typeof cutover.activatedAtBlock !== "string" || !BLOCK_NUMBER.test(cutover.activatedAtBlock) ||
+    BigInt(cutover.blockNumber) < BigInt(cutover.activatedAtBlock))
     throw new Error("The recorded engine launch cutover is malformed, so treasury-only launches are refused until it is corrected.");
-  return cutover;
+  return cutover as EngineLaunchCutover;
 }
 
-/** The operational prerequisite for recording a cutover, also checked on the
- * committed manifest: the engine is deployed and source-verified, its
- * activation is verified for exactly this graph, and the cutover is bound to
- * that graph at or after the activation block. */
+/** The operational prerequisite for recording a cutover now: the engine is
+ * deployed and source-verified, and the cutover names the verified
+ * activation of exactly this graph. It is checked when recording, not later:
+ * the recorded cutover keeps naming the activation it followed through any
+ * later graph change. */
 export function assertCutoverReadiness(manifest: EngineManifest) {
   const cutover = assertEngineLaunchCutover(manifest);
   if (!cutover) return;
@@ -104,8 +114,7 @@ export function assertCutoverReadiness(manifest: EngineManifest) {
   try { graph = buybackGraphFingerprint(manifest as unknown as BuybackDeployment).toLowerCase(); } catch { graph = undefined; }
   if (manifest.status !== "deployed_verified" || !manifest.contracts.engine.address || !graph || activation?.status !== "verified" ||
     activation.fingerprint?.toLowerCase() !== graph || cutover.graphFingerprint.toLowerCase() !== graph ||
-    typeof activation.activatedAtBlock !== "string" || !BLOCK_NUMBER.test(activation.activatedAtBlock) ||
-    BigInt(cutover.blockNumber) < BigInt(activation.activatedAtBlock))
+    activation.activatedAtBlock !== cutover.activatedAtBlock)
     throw new Error("The engine launch cutover must follow a verified activation of this exact buyback graph.");
 }
 
