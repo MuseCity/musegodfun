@@ -678,11 +678,38 @@ dialog.modal[open] { display: flex; flex-direction: column; gap: 16px; }
 .form-column { flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 20px; }
 .preview-column { flex: 1 1 340px; min-width: 0; position: sticky; top: 24px; display: flex; flex-direction: column; gap: 16px; }
 @media (min-width: 1180px) { .preview-column { flex: 0 0 420px; } }
+.wizard-steps { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; list-style: none; }
+.wizard-steps li { display: flex; align-items: center; gap: 8px; }
+.wizard-steps li + li::before { content: ""; width: 24px; height: 1px; background: var(--line-strong); }
+.wizard-step { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 14px 0 5px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--surface-raised); color: var(--ink-muted); font-size: 13px; line-height: 16px; font-weight: 600; }
+.wizard-step:hover { color: var(--ink); border-color: var(--line-strong); }
+.wizard-step[aria-current="step"] { color: var(--ink); border-color: var(--ink); cursor: default; }
+.wizard-step-index { width: 24px; height: 24px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--line-strong); font-family: var(--font-mono); font-size: 12px; }
+.wizard-step[aria-current="step"] .wizard-step-index { background: var(--ink); border-color: var(--ink); color: var(--surface); }
+.wizard-step[data-done] .wizard-step-index { background: var(--halo-strong); border-color: var(--halo-strong); color: var(--on-halo); }
+.wizard-panel { display: flex; flex-direction: column; gap: 20px; animation: wizard-in 0.2s ease-out; }
+.wizard-panel[hidden] { display: none; }
+.wizard-panel .card-title:focus { outline: none; }
+@keyframes wizard-in { from { opacity: 0; transform: translateY(6px); } }
+@media (prefers-reduced-motion: reduce) { .wizard-panel { animation: none; } }
+.wizard-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.wizard-actions .secondary { flex: none; }
+.wizard-actions .primary { flex: 1 1 190px; min-width: 0; }
+#launch-form { scroll-margin-top: 16px; }
 .identity-fields { display: grid; grid-template-columns: 148px minmax(0, 1fr); gap: 16px; align-items: stretch; }
 .identity-inputs { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
-.image-drop { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 148px; border-radius: 14px;
+.image-drop { position: relative; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 148px; border-radius: 14px;
   border: 1px dashed var(--line-strong); background: var(--surface-sunken); color: var(--ink-muted); font-size: 12px; font-weight: 600; }
 .image-drop:hover:not(:disabled) { border-color: var(--ink-muted); color: var(--ink); }
+.image-drop > :not(.image-drop-fill) { position: relative; }
+.image-drop-fill { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.image-drop.has-image { border-style: solid; border-color: var(--line); }
+.image-drop.has-image:disabled { opacity: 1; }
+.image-drop.has-image .spin { color: var(--night-ink); filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.5)); }
+.image-drop.has-image > span { position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%); padding: 4px 10px; border-radius: 999px; white-space: nowrap;
+  background: color-mix(in srgb, var(--night) 72%, transparent); color: var(--night-ink); }
 .social-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr)); gap: 12px; }
 .asset-results { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--ink-muted); }
 .asset-results .text-button { min-height: 24px; font-size: 12px; }
@@ -931,5 +958,6 @@ dialog.modal.launch-review { width: min(640px, calc(100vw - 32px)); }
   .burn-stats > div { padding: 0; border-left: 0; }
   .identity-fields { grid-template-columns: 1fr; }
   .image-drop { min-height: 96px; flex-direction: row; }
+  .image-drop.has-image { width: min(148px, 100%); aspect-ratio: 1; }
   .review-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

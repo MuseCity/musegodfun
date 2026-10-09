@@ -112,14 +112,16 @@ export class WalletConnection {
       p.removeListener?.("chainChanged", chain);
       p.removeListener?.("disconnect", disconnected);
     };
-    this.pending.add(p);
+    // dispose() replaces the set, so a late request only releases the guard it registered in.
+    const pending = this.pending;
+    pending.add(p);
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const request = Promise.all([
         p.request({ method: restore ? "eth_accounts" : "eth_requestAccounts" }),
         p.request({ method: "eth_chainId" }),
       ]);
-      void request.finally(() => this.pending.delete(p)).catch(() => {});
+      void request.finally(() => pending.delete(p)).catch(() => {});
       const [addresses, chainId] = await Promise.race([
         request,
         new Promise<never>((_, reject) => {
@@ -166,6 +168,8 @@ export class WalletConnection {
     this.epoch++;
     this.cleanup();
     this.selected = null;
+    // The epoch discards in-flight results, so their prompts must not block the next owner's restore.
+    this.pending = new WeakSet();
   }
   async validate(
     expected: Address,

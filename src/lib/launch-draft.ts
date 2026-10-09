@@ -1,8 +1,33 @@
 import { deploymentChain, STOCKS, ROBINHOOD_STOCKS, sameAddress, type RuntimeConfig } from "./config";
-import { restoreDraft } from "./validation";
+import { launchSchema, restoreDraft } from "./validation";
 import { firstBuyPaymentAssets } from "./first-buy-payment";
 
 export type FirstBuyDraft = { amount: string; slippageBps: number; payAddress: string; lockDays: 0 | 30 | 90 | 365 };
+export type LaunchStep = 1 | 2;
+// The form step is saved with the draft so a reload resumes where the creator left off.
+export function launchDraftStep(raw: string | null): LaunchStep {
+  try { return JSON.parse(raw || "null")?.step === 2 ? 2 : 1; } catch { return 1; }
+}
+// Connecting a new wallet migrates an anonymous draft under a new intent ID.
+// Reset that copy only when its complete launch input still matches the launch.
+export function resetLaunchedDraftStep(raw: string | null, launchedRaw: string, config: RuntimeConfig): string | null {
+  try {
+    const saved = JSON.parse(raw || "null"), launched = JSON.parse(launchedRaw);
+    if (!saved || Array.isArray(saved) || saved.step !== 2 || typeof launched?.intentId !== "string") return raw;
+    if (saved.intentId !== launched.intentId) {
+      if (!sameAddress(saved.quoteAddress, launched.quoteAddress)) return raw;
+      const input = (value: string) => {
+        const parsed = launchSchema.safeParse(restoreDraft(value, config));
+        if (!parsed.success) return null;
+        const firstBuy = firstBuyDraft(config, value);
+        return JSON.stringify({ ...parsed.data, firstBuy: { ...firstBuy, amount: firstBuy.amount || "0", payAddress: firstBuy.payAddress.toLowerCase() } });
+      };
+      const savedInput = input(raw!);
+      if (savedInput === null || savedInput !== input(launchedRaw)) return raw;
+    }
+    return JSON.stringify({ ...saved, step: 1 });
+  } catch { return raw; }
+}
 export function launchDraftKey(config: RuntimeConfig) {
   return `musegod.launch.draft.${config.chainId}${config.mode === "fork" ? `.${deploymentChain(config)}` : ""}`;
 }

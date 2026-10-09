@@ -305,6 +305,31 @@ test("duplicate connect requests do not open duplicate wallet prompts", async ()
   await pending;
   c.dispose();
 });
+test("a restore started before dispose cannot block the remounted provider's restore", async () => {
+  const f = fake(),
+    resolvers: ((v: unknown) => void)[] = [];
+  f.p.request = ((r: { method: string }) =>
+    r.method === "eth_chainId"
+      ? Promise.resolve("0x2105")
+      : new Promise<unknown>((r) => resolvers.push(r))) as Provider["request"];
+  const c = new WalletConnection(() => {});
+  const first = c.select(f.option, true);
+  // React StrictMode runs the provider effect cleanup and setup again with the same controller.
+  c.dispose();
+  const second = c.select(f.option, true);
+  assert.equal(resolvers.length, 2);
+  resolvers[0]([account]);
+  await first;
+  assert.equal(c.state.connecting, true);
+  // The disposed request settling must not reopen duplicate prompts for the live one.
+  await c.select(f.option);
+  assert.equal(resolvers.length, 2);
+  resolvers[1]([account]);
+  await second;
+  assert.equal(c.state.account, account);
+  assert.equal(c.state.connecting, false);
+  c.dispose();
+});
 test("account event emitted during connection keeps current account and obtains its network", async () => {
   const f = fake(),
     c = new WalletConnection(() => {});

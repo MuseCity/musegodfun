@@ -83,3 +83,75 @@ business rule, transaction flow, data source and test intact.
 - Current production baseline on both origins: source `084c3a1d0693713e85b9ad597a880ec0d84229ee`, immutable release `build-37802179398-1`, Worker `2a1cbe40-0348-4794-9471-caff5f68b264`.
 - Baseline controls: Robinhood enabled at revision 1; Base paused at revision 0; both report security protocol 1. This frontend release does not change those controls.
 - The owner confirmed the publication order: push the reviewed commit to master, then wait for Actions to publish and verify the immutable candidate on both domains.
+
+## Two-step Launch wizard (2026-10-09)
+Reference: ponsfamily.com/launchpad/create (step 1 Identity, step 2 Economics, sticky preview on the right).
+
+### Spec
+- Step 1 "Identity": image, name, symbol, description, image URL, socials. `Continue` (and Enter) checks only these
+  fields (`launchIdentityIssue`); an invalid field shows its inline error and takes focus.
+- Step 2 "Economics": quote asset, first buy, advanced trading fee. `Back` + `Review and continue` (unchanged preflight and
+  review dialog). If preflight finds an invalid identity field, the form returns to step 1 and focuses it.
+- Both panels stay mounted (`hidden`), so draft state, field lookups and recovery behave as before. The payment-recovery
+  card and the launch footer (draft status, Clear draft, notices, Create another token, recovery hash, Recover pending
+  launch) show on both steps.
+- The step is saved with the autosaved draft and restored on reload, wallet/intent switch and Resume; Clear draft and a
+  new launch start at step 1.
+- Uploaded token image fills the whole upload box (`object-fit: cover`) with a "Replace image" label; square on phones;
+  falls back to the letter icon if the image fails to load.
+- No server, Worker, contract, API or transaction-flow change. Playwright acceptance scripts updated to click Continue.
+
+### Acceptance
+- [x] `npm test` 625/625 (new test: step restore + identity-only check); `npm run build` passes (existing chunk warning).
+- [x] Browser (read-only proxy): step 1 form 1816px → 810px at 1024px wide; page 1197px at 1440px. Validation, Enter to
+  continue, Back, step indicator, Clear draft, reload resume, step-2 → step-1 bounce, review dialog open/close;
+  390px and dark mode without horizontal overflow; image fill desktop/mobile and broken-image fallback.
+- [x] Local Playwright UI fixtures (`test:launch-browser`, all API mocked): see Review.
+
+### Review
+- Local Playwright UI suite (`test:launch-browser`, all API/RPC/wallet mocked, local Vite only): 34/38 cases passed
+  with the wizard; the other 4 (`two_tabs`, `unknown_send`, `approval_unknown`, `unknown_fetch`) failed identically
+  on unmodified HEAD and are fixed below.
+
+## Second-tab wallet restore (2026-10-09)
+- Symptom: in the 4 cross-tab cases the second tab stayed on "Connecting…" with "This wallet already has a connection
+  request", so it fell back to the anonymous empty draft and never showed the in-flight launch's recovery UI.
+- Root cause: React StrictMode runs `WalletProvider`'s mount effect twice in development with the same
+  `WalletConnection`. `dispose()` advanced the epoch (discarding the first restore's result) but kept that request in
+  the per-provider `pending` guard, so the remounted restore was rejected as a duplicate prompt.
+- Impact: development/test only. A production build of HEAD passes `two_tabs` (no StrictMode double effects).
+- Fix (`src/lib/wallet-connection.ts`): `dispose()` replaces the `pending` set; each request releases only the set it
+  registered in, so a late disposed request cannot reopen duplicate prompts for the live one.
+- Test: `tests/readonly.test.ts` "a restore started before dispose cannot block the remounted provider's restore"
+  (failed before the fix). `npm test` 626/626; `npm run build` passes; all 4 cases now pass.
+
+## Wizard review follow-up (2026-10-09)
+Independent read-only review: no High/Medium findings. All 4 Low findings verified and fixed:
+- [x] A launched draft reopened on step 2 with the launched token's identity hidden (success never rotates the intent;
+  pre-existing gap the wizard made more visible). `reopenDraftAtIdentity()` resets the saved step to 1 for the shared
+  chain draft, the launched intent and the pre-connection copy before navigating to the token. Browser `success` case
+  now proves the draft was autosaved at step 2 first, then asserts step 1 after launch; it fails with the reset disabled.
+- [x] `LAUNCH_IDENTITY_FIELDS` is now pinned to `launchSchema` by a unit test (every field belongs to one step).
+- [x] Step indicator: `role="list"` and screen-reader text "Step N of 2[, completed]".
+- [x] Payment recovery "Use paired asset directly" / "Keep tokens…" switches to step 2, where the first buy lives.
+- Final: `npm test` 626/626; `npm run build` passes; `git diff --check` clean; `test:launch-browser` 38/38 in one run.
+- Not run: `test:launch-fork-browser` (needs a local Anvil fork); its selectors were updated for the two steps.
+
+## Commit and deployment review (2026-10-09)
+- Owner requested review of the uncommitted changes, then commit and deploy through the existing master-push pipeline.
+- Three independent read-only reviews covered wizard persistence/recovery, wallet connection races, validation, CSS and
+  acceptance selectors. Two low-severity findings were verified and fixed before publication:
+  - Successful launch reset an unrelated anonymous draft to Identity. Reset now applies only to the launched intent or
+    a complete matching migrated copy; independent identity, fee and first-buy settings retain their saved step.
+  - At 320px the Back/Review labels overlapped. The action group wraps when its buttons no longer fit; 390px stays inline.
+- Current-run checks: `npm test` 627/627, both TypeScript targets and Vite build pass; acceptance scripts parse and
+  `git diff --check` passes. The build retains the existing bundle-size warning.
+- Current-run read-only browser: Identity validation focuses the invalid name; Enter advances to Economics; reload
+  restores step 2 and identity; Back restores step 1 and focuses its heading. Button labels fit at 320/360/390px;
+  360/390px have no page overflow. Existing 320px sidebar/navigation overflow predates this diff and is left unchanged.
+- The previous 38-case mocked browser run is recorded above; it was not rerun in this review. No Anvil fork or real
+  wallet signing was performed. Original redesign HTML stays local and untracked.
+- Publication baseline was re-read on both origins: source `7e798acee12e4adf3ab1e29d127b1f50b12f7cd6`, release
+  `build-37880215532-1`, Worker `da7b05d1-a127-4e52-b1d6-468ad51af324`. Robinhood remains enabled at revision 1;
+  Base remains paused at revision 0; security protocol 1. Production verification will compare the new immutable
+  release on both domains and confirm those runtime controls stay unchanged.

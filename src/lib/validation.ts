@@ -77,6 +77,13 @@ export const launchSchema = z
 // Persisted drafts and already broadcast plans may predate fee selection.
 // Full validation fills their original 1% rate before constructing calldata.
 export type LaunchInput = Omit<z.infer<typeof launchSchema>, "tradingFeeBps"> & { tradingFeeBps?: number };
+// Step one of the launch form edits these fields; the pair and fees belong to step two.
+export const LAUNCH_IDENTITY_FIELDS: readonly string[] = ["name", "symbol", "description", "image", "website", "twitter", "telegram"];
+export function launchIdentityIssue(draft: LaunchInput) {
+  const result = launchSchema.safeParse(draft);
+  const issue = result.success ? undefined : result.error.issues.find((i) => LAUNCH_IDENTITY_FIELDS.includes(String(i.path[0])));
+  return issue ? { field: String(issue.path[0]), message: issue.message } : null;
+}
 export function restoreDraft(raw: string | null, config?: Pick<RuntimeConfig, "mode" | "deploymentChainId">): LaunchInput {
   const assets = launchAssetsFor(config);
   const draft: LaunchInput = {

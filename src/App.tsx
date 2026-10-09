@@ -14,6 +14,7 @@ import {
   ArrowDown,
   ArrowDownLeft,
   ArrowDownRight,
+  ArrowLeft,
   ArrowRight,
   ArrowUpRight,
   Check,
@@ -83,6 +84,8 @@ import {
   errorMessage,
   amountSchema,
   launchSchema,
+  launchIdentityIssue,
+  LAUNCH_IDENTITY_FIELDS,
   minimumOutput,
   restoreDraft,
   parseAmount,
@@ -91,7 +94,7 @@ import {
 } from "./lib/validation";
 import { api, chainApi } from "./lib/api";
 import { useNetwork, tokenPath } from "./lib/network";
-import { firstBuyDraft, launchDraftKey, savedLaunchDraft, type FirstBuyDraft } from "./lib/launch-draft";
+import { firstBuyDraft, launchDraftKey, launchDraftStep, resetLaunchedDraftStep, savedLaunchDraft, type FirstBuyDraft, type LaunchStep } from "./lib/launch-draft";
 import FirstBuy from "./components/FirstBuy";
 import FirstBuyLock from "./components/FirstBuyLock";
 import { FIRST_BUY_SLIPPAGE_BPS, firstBuyPaymentAssets, assertFirstBuyPaymentQuote, type FirstBuyPrices, type FirstBuyPaymentQuote, type FirstBuyPaymentVerification } from "./lib/first-buy-payment";
@@ -1105,7 +1108,8 @@ function CreatePage({
         return restoreDraft(null, config ?? undefined);
       }
     }),
-    [firstBuy, setFirstBuy] = useState<FirstBuyDraft>(() => firstBuyDraft(config, initialSavedDraft()));
+    [firstBuy, setFirstBuy] = useState<FirstBuyDraft>(() => firstBuyDraft(config, initialSavedDraft())),
+    [step, setStep] = useState<LaunchStep>(() => launchDraftStep(initialSavedDraft()));
   const [query, setQuery] = useState(""),
     [category, setCategory] = useState<AssetCategory>("all"),
     [showAllAssets, setShowAllAssets] = useState(false),
@@ -1120,6 +1124,7 @@ function CreatePage({
     [busy, setBusy] = useState(false),
     [uploadingImage, setUploadingImage] = useState(false),
     [imageError, setImageError] = useState(""),
+    [brokenImage, setBrokenImage] = useState(""),
     [txHash, setTxHash] = useState<Hex | null>(null),
     [confirmed, setConfirmed] = useState(false),
     [paymentQuote, setPaymentQuote] = useState<FirstBuyPaymentQuote | null>(null),
@@ -1146,8 +1151,8 @@ function CreatePage({
       generation.current++; setIntentId(next); currentPlan.current = null;
       setPlan(null); setPaymentQuote(null); setTxHash(null); setConfirmed(false); setBusy(false); setUploadingImage(false); setReview(false);
       const saved = localStorage.getItem(launchIntentStorageKey(config, wallet.account, next, "draft"));
-      if (saved) { setDraft(restoreDraft(saved, config)); setFirstBuy(firstBuyDraft(config, saved)); }
-      else if (!anonymous && !firstResolution) { setDraft(restoreDraft(null, config)); setFirstBuy(firstBuyDraft(config, null)); }
+      if (saved) { setDraft(restoreDraft(saved, config)); setFirstBuy(firstBuyDraft(config, saved)); setStep(launchDraftStep(saved)); }
+      else if (!anonymous && !firstResolution) { setDraft(restoreDraft(null, config)); setFirstBuy(firstBuyDraft(config, null)); setStep(1); }
     }
   }, [config?.chainId, config?.deploymentChainId, wallet.account, configurationPending]);
   useEffect(() => {
@@ -1273,7 +1278,7 @@ function CreatePage({
     setDraftSaved(false);
     const timer = setTimeout(() => {
       try {
-        const payload = JSON.stringify({ ...draft, firstBuy, intentId });
+        const payload = JSON.stringify({ ...draft, firstBuy, intentId, step });
         localStorage.setItem(launchDraftKey(config), payload);
         localStorage.setItem(launchIntentStorageKey(config, wallet.account, intentId, "draft"), payload);
         setDraftSaved(true);
@@ -1282,7 +1287,7 @@ function CreatePage({
       }
     }, 250);
     return () => clearTimeout(timer);
-  }, [draft, firstBuy, config?.chainId, config?.deploymentChainId, intentId, wallet.account]);
+  }, [draft, firstBuy, step, config?.chainId, config?.deploymentChainId, intentId, wallet.account]);
   useEffect(() => {
     if (!config) return;
     const syncSubmission = () => {
@@ -1403,6 +1408,51 @@ function CreatePage({
       if (request === imageUpload.current) setUploadingImage(false);
     }
   }
+  function showInvalidField(field: string, message: string) {
+    setInvalidField(field);
+    setError(message);
+    if (LAUNCH_IDENTITY_FIELDS.includes(field)) setStep(1);
+    requestAnimationFrame(() => {
+      const input = formRef.current?.elements.namedItem(field);
+      if (input instanceof HTMLElement) input.focus();
+    });
+  }
+  // A launched draft reopens on its identity, not on the pair of a token that already exists. The
+  // pre-connection copy is included because it renders until the wallet is restored.
+  function reopenDraftAtIdentity() {
+    if (!config) return;
+    try {
+      const launched = JSON.stringify({ ...draft, firstBuy, intentId });
+      for (const key of [launchDraftKey(config), launchIntentStorageKey(config, wallet.account, intentId, "draft"),
+        launchIntentStorageKey(config, null, activeLaunchIntent(config, null), "draft")]) {
+        const saved = localStorage.getItem(key);
+        const reopened = resetLaunchedDraftStep(saved, launched, config);
+        if (reopened !== null && reopened !== saved) localStorage.setItem(key, reopened);
+      }
+    } catch { /* The draft keeps its saved step if storage is unavailable. */ }
+  }
+  function goToStep(next: LaunchStep) {
+    setStep(next);
+    requestAnimationFrame(() => {
+      const form = formRef.current;
+      if (form && form.getBoundingClientRect().top < 0)
+        form.scrollIntoView({ block: "start", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+      document.getElementById(next === 1 ? "identity-heading" : "quote-heading")?.focus({ preventScroll: true });
+    });
+  }
+  // Step one only checks the identity fields; the full draft is checked before review.
+  function continueToEconomics() {
+    if (uploadingImage) return;
+    setError("");
+    setMessage("");
+    const issue = launchIdentityIssue(draft);
+    if (issue) {
+      showInvalidField(issue.field, issue.message);
+      return;
+    }
+    setInvalidField("");
+    goToStep(2);
+  }
   function preflight() {
     if (uploadingImage || configurationPending) return;
     setError("");
@@ -1416,14 +1466,7 @@ function CreatePage({
     }
     const result = launchSchema.safeParse(draft);
     if (!result.success) {
-      const issue = result.error.issues[0];
-      const field = String(issue?.path[0] ?? "");
-      setInvalidField(field);
-      setError(errorMessage(result.error));
-      requestAnimationFrame(() => {
-        const input = formRef.current?.elements.namedItem(field);
-        if (input instanceof HTMLElement) input.focus();
-      });
+      showInvalidField(String(result.error.issues[0]?.path[0] ?? ""), errorMessage(result.error));
       return;
     }
     if (!config || !assets.some((asset) => sameAddress(asset.address, draft.quoteAddress))) {
@@ -1773,6 +1816,7 @@ function CreatePage({
       localStorage.removeItem(markerKey);
       if (request !== generation.current) return;
       setSubmissionUnknown(false);
+      reopenDraftAtIdentity();
       navigate(tokenPath(token));
     } catch (e) {
       if (request !== generation.current) return;
@@ -1892,6 +1936,7 @@ function CreatePage({
       localStorage.removeItem(markerKey);
       if (request !== generation.current) return;
       setSubmissionUnknown(false);
+      reopenDraftAtIdentity();
       navigate(tokenPath(token));
     } catch (e) {
       if (request === generation.current) setError(errorMessage(e));
@@ -1913,11 +1958,11 @@ function CreatePage({
   }, [review, busy, txHash, submissionUnknown, paymentAttempt, planExpired, paymentExpired, plan, paymentQuote, backgroundRefreshAllowed]);
   function resumeIntent(next: string) {
     if (!config || busy) return;
-    localStorage.setItem(launchIntentStorageKey(config, wallet.account, intentId, "draft"), JSON.stringify({ ...draft, firstBuy, intentId }));
+    localStorage.setItem(launchIntentStorageKey(config, wallet.account, intentId, "draft"), JSON.stringify({ ...draft, firstBuy, intentId, step }));
     selectLaunchIntent(config, wallet.account, next); generation.current++; imageUpload.current++; currentPlan.current = null;
     const saved = localStorage.getItem(launchIntentStorageKey(config, wallet.account, next, "draft"));
     setUploadingImage(false);
-    setIntentId(next); setDraft(restoreDraft(saved, config)); setFirstBuy(firstBuyDraft(config, saved));
+    setIntentId(next); setDraft(restoreDraft(saved, config)); setFirstBuy(firstBuyDraft(config, saved)); setStep(launchDraftStep(saved));
     setPaymentAttempt(null); setPaymentQuote(null); setPlan(null); setTxHash(null); setConfirmed(false); setSubmissionUnknown(false);
     setError(""); setMessage(saved ? "Your saved launch is restored. Check its submitted transaction before continuing." : "Your previous launch is saved. Start your next token here."); setReview(false);
   }
@@ -1950,12 +1995,13 @@ function CreatePage({
   const creatorCut = `${Number((tradingFeeBps * launchShares.creator / 1_000_000).toFixed(4))}%`;
   const buying = Number(firstBuy.amount || "0") > 0;
   const lockLabel = firstBuy.lockDays === 0 ? "No lock" : firstBuy.lockDays === 365 ? "1 year" : `${firstBuy.lockDays} days`;
+  const uploadedSrc = tokenImageSrc({ image: draft.image }), imageSrc = uploadedSrc !== brokenImage ? uploadedSrc : "";
   return (
     <>
       <div className="page-heading">
         <span className="eyebrow">MAKE IT YOURS</span>
         <h1 className="page-title">Launch your token.</h1>
-        <p className="page-lede">Give it a name and choose a quote asset. Preview your meme, then confirm the launch.</p>
+        <p className="page-lede">Two steps on {chainName}. Give it a name and a face, choose what it trades against, then review before you sign.</p>
       </div>
       {savedLaunchIntents(config, wallet.account).some((saved) => saved.intentId !== intentId) && <details className="card disclosure saved-launches">
         <summary>Saved launches</summary>
@@ -1972,324 +2018,345 @@ function CreatePage({
           noValidate
           onSubmit={(event) => {
             event.preventDefault();
-            preflight();
+            if (step === 1) continueToEconomics();
+            else preflight();
           }}
         >
-          <section
-            className="card identity-panel"
-            aria-labelledby="identity-heading"
-          >
-            <div className="card-head">
-              <div>
-                <h2 id="identity-heading" className="card-title">Give your meme an identity</h2>
-                <p className="card-sub">The name and symbol cannot be changed after launch.</p>
-              </div>
-            </div>
-            <div className="identity-fields">
-              <button
-                type="button"
-                className="image-drop"
-                aria-label={draft.image ? "Replace token image" : "Upload token image"}
-                aria-describedby="token-image-help"
-                aria-busy={uploadingImage}
-                disabled={uploadingImage}
-                onClick={() => imageInput.current?.click()}
-              >
-                {uploadingImage ? <LoaderCircle className="spin" size={28} /> : draft.image || draft.name
-                  ? <TokenIcon name={draft.name || "?"} image={draft.image} size="lg" />
-                  : <ImagePlus size={28} aria-hidden="true" />}
-                <span>{uploadingImage ? "Uploading…" : draft.image ? "Replace image" : "Upload image"}</span>
-              </button>
-              <input ref={imageInput} type="file" accept={TOKEN_IMAGE_ACCEPT} hidden
-                aria-label="Token image file"
-                onChange={(event) => {
-                  const file = event.currentTarget.files?.[0];
-                  event.currentTarget.value = "";
-                  if (file) void uploadImage(file);
-                }} />
-              <div className="identity-inputs">
-                <label className="field">
-                  <span className="field-label"><span>Token name <span className="req">*</span></span><span className="field-counter">{draft.name.length} / 32</span></span>
-                  <input
-                    name="name"
-                    aria-label="Token name"
-                    aria-describedby={
-                      invalidField === "name" ? "launch-error-name" : undefined
-                    }
-                    aria-invalid={invalidField === "name"}
-                    value={draft.name}
-                    maxLength={32}
-                    onChange={(e) => update("name", e.target.value)}
-                    placeholder="For example: Nvidia Cat"
-                    autoComplete="off"
-                  />
-                  <FieldError
-                    name="name"
-                    invalidField={invalidField}
-                    error={error}
-                  />
-                </label>
-                <label className="field">
-                  <span className="field-label"><span>Token symbol <span className="req">*</span></span><span className="field-counter">{draft.symbol.length} / 10</span></span>
-                  <span className="input-prefix">
-                    <span>$</span>
-                    <input
-                      name="symbol"
-                      aria-label="Token symbol"
-                      aria-describedby={
-                        invalidField === "symbol"
-                          ? "launch-error-symbol"
-                          : undefined
-                      }
-                      aria-invalid={invalidField === "symbol"}
-                      value={draft.symbol}
-                      maxLength={10}
-                      onChange={(e) =>
-                        update("symbol", e.target.value.toUpperCase())
-                      }
-                      placeholder="NVCAT"
-                      autoComplete="off"
-                    />
-                  </span>
-                  <FieldError
-                    name="symbol"
-                    invalidField={invalidField}
-                    error={error}
-                  />
-                </label>
-              </div>
-            </div>
-            <p className="hint" id="token-image-help">PNG, JPG, WebP or GIF · Up to 5 MB. GIFs use the first frame.</p>
-            {uploadingImage && <span className="hint" role="status">Uploading token image…</span>}
-            {imageError && <span className="field-error" role="alert">{imageError}</span>}
-            <label className="field">
-              <span className="field-label"><span>Description <span className="optional">Optional</span></span><span className="field-counter">{draft.description.length} / 280</span></span>
-              <textarea
-                name="description"
-                aria-label="Description"
-                value={draft.description}
-                maxLength={280}
-                rows={3}
-                placeholder="Your meme’s story starts here…"
-                onChange={(e) => update("description", e.target.value)}
-              />
-            </label>
-            <label className="field">
-              <span className="field-label"><span>Image URL <span className="optional">Optional · instead of uploading, public HTTPS only</span></span></span>
-              <input
-                name="image"
-                aria-label="Image URL"
-                aria-describedby={
-                  invalidField === "image" ? "launch-error-image" : undefined
-                }
-                aria-invalid={invalidField === "image"}
-                type="url"
-                value={draft.image}
-                maxLength={500}
-                placeholder="https://…/your-meme.png"
-                onChange={(e) => update("image", e.target.value)}
-              />
-              <FieldError
-                name="image"
-                invalidField={invalidField}
-                error={error}
-              />
-            </label>
-            <div className="social-fields">
-              {([["website", "Website", "https://"], ["twitter", "X / Twitter", "https://x.com/…"], ["telegram", "Telegram", "https://t.me/…"]] as const).map(([field, label, placeholder]) =>
-                <label className="field" key={field}>
-                  <span className="field-label"><span>{label} <span className="optional">Optional</span></span></span>
-                  <input
-                    name={field}
-                    aria-label={label}
-                    aria-describedby={invalidField === field ? `launch-error-${field}` : undefined}
-                    aria-invalid={invalidField === field}
-                    type="url"
-                    value={draft[field] ?? ""}
-                    maxLength={500}
-                    placeholder={placeholder}
-                    onChange={(e) => update(field, e.target.value)}
-                  />
-                  <FieldError
-                    name={field}
-                    invalidField={invalidField}
-                    error={error}
-                  />
-                </label>)}
-            </div>
-          </section>
-          <section className="card quote-panel" aria-labelledby="quote-heading">
-            <div className="card-head">
-              <div>
-                <h2 id="quote-heading" className="card-title">Choose a quote asset</h2>
-                <p className="card-sub">Buyers pay with the selected asset and sellers receive it. <b>The pair is permanent</b> and cannot be changed after launch.</p>
-              </div>
-              <span className="pill">{chainName} · {assets.length} assets</span>
-            </div>
-            <div className="quick-filters asset-categories" role="group" aria-label="Quote asset categories">
-              {[{ id: "all", label: "All assets" }, ...ASSET_CATEGORIES].map((group) => {
-                const count = group.id === "all" ? assets.length :
-                  assets.filter((asset) => assetCategory(asset) === group.id).length;
-                return count ? <button type="button" key={group.id} className="filter-chip"
-                  aria-pressed={category === group.id}
-                  onClick={() => { setCategory(group.id as AssetCategory); setShowAllAssets(false); }}>
-                  {group.label}<span className="count">{count}</span>
-                </button> : null;
-              })}
-            </div>
-            <label className="search-input">
-              <Search size={18} aria-hidden="true" />
-              <input
-                value={query}
-                onChange={(e) => { setQuery(e.target.value); setShowAllAssets(false); }}
-                placeholder="Search by name, symbol or contract address"
-                aria-label="Search quote assets"
-              />
-            </label>
-            {stockError && (
-              <Notice kind="error">
-                {stockError}{" "}
-                <button type="button" onClick={refresh}>
-                  Verify again
+          <ol className="wizard-steps" role="list" aria-label="Launch steps">
+            {(["Identity", "Economics"] as const).map((label, index) => {
+              const value: LaunchStep = index === 0 ? 1 : 2;
+              return <li key={label}>
+                <button type="button" className="wizard-step" aria-current={step === value ? "step" : undefined}
+                  data-done={step > value ? "true" : undefined}
+                  onClick={() => { if (value !== step) value === 1 ? goToStep(1) : continueToEconomics(); }}>
+                  <span className="wizard-step-index" aria-hidden="true">{step > value ? <Check size={12} strokeWidth={3} /> : value}</span>
+                  <span className="visually-hidden">Step {value} of 2{step > value ? ", completed" : ""}: </span>
+                  {label}
                 </button>
-              </Notice>
-            )}
-            <div className="asset-results">
-              <span role="status">Showing {visibleAssets.length} of {matching.length} matching assets</span>
-              {category !== "all" || query.trim() ? <button type="button" className="text-button" onClick={() => {
-                setCategory("all"); setQuery(""); setShowAllAssets(false);
-              }}>Clear filters</button> : null}
-            </div>
-            <div className="stock-grid" role="group" aria-label="Quote assets">
-              {visibleAssets.map((s) => (
+              </li>;
+            })}
+          </ol>
+          <div className="wizard-panel" hidden={step !== 1}>
+            <section
+              className="card identity-panel"
+              aria-labelledby="identity-heading"
+            >
+              <div className="card-head">
+                <div>
+                  <h2 id="identity-heading" className="card-title" tabIndex={-1}>Give it a name and a face</h2>
+                  <p className="card-sub">The name and symbol cannot be changed after launch.</p>
+                </div>
+              </div>
+              <div className="identity-fields">
                 <button
                   type="button"
-                  className={`stock-option ${sameAddress(s.address, stock.address) ? "selected" : ""}`}
-                  key={s.address}
-                  aria-pressed={sameAddress(s.address, stock.address)}
-                  onClick={() => update("quoteAddress", s.address)}
+                  className={`image-drop${imageSrc ? " has-image" : ""}`}
+                  aria-label={draft.image ? "Replace token image" : "Upload token image"}
+                  aria-describedby="token-image-help"
+                  aria-busy={uploadingImage}
+                  disabled={uploadingImage}
+                  onClick={() => imageInput.current?.click()}
                 >
-                  <StockIcon stock={s} size="md" />
-                  <span>
-                    <b>{s.ticker}</b>
-                    <small title={s.name}>{s.name}</small>
-                  </span>
-                  {sameAddress(s.address, stock.address) && (
-                    <span className="selected-check" aria-hidden="true">
-                      <Check size={12} strokeWidth={3} />
-                    </span>
-                  )}
+                  {imageSrc && <img key={imageSrc} className="image-drop-fill" src={imageSrc} alt="" referrerPolicy="no-referrer"
+                    onError={() => setBrokenImage(imageSrc)} />}
+                  {uploadingImage ? <LoaderCircle className="spin" size={28} /> : imageSrc ? null : draft.name
+                    ? <TokenIcon name={draft.name} size="lg" />
+                    : <ImagePlus size={28} aria-hidden="true" />}
+                  <span>{uploadingImage ? "Uploading…" : draft.image ? "Replace image" : "Upload image"}</span>
                 </button>
-              ))}
-            </div>
-            {!query.trim() && matching.length > 12 && !showAllAssets && (
-              <div className="load-more"><button type="button" className="secondary" onClick={() => setShowAllAssets(true)}>Show all {matching.length} assets</button></div>
-            )}
-            {matching.length === 0 && (
-              <p className="muted center">No matching asset found</p>
-            )}
-            <div className="selected-quote">
-              <div className="selected-quote-head">
-                <StockIcon stock={stock} size="md" />
-                <div>
-                  <b>{stock.name} · {stock.symbol}</b>
-                  <span>{stock.issuer} · {explorer ? <External href={`${explorer}/token/${stock.address}`}>
-                    {shortAddress(stock.address)}
-                  </External> : <code>{shortAddress(stock.address)}</code>}</span>
-                </div>
-                <span className={`chip sm ${status?.verified ? "up" : stocks ? "down" : "sunken"}`}>
-                  <ShieldCheck size={13} />
-                  {status?.verified ? "Contract identity verified" : stocks ? "Verification failed" : "Verifying…"}
-                </span>
-              </div>
-              <details className="disclosure stock-verification">
-                <summary>
-                  {status?.verified
-                    ? "Asset details · Contract identity verified"
-                    : stocks
-                      ? "Asset details · Verification failed"
-                      : "Verifying the asset contract…"}
-                </summary>
-                <div className="stock-metadata">
-                  <p><b>{stock.symbol}</b> · {stock.issuer} · {chainName} · {stock.standard}</p>
-                  <External href={stock.sourceUrl}>Asset reference</External>
-                  {stock.standard === "B20" && <p>
-                    1 {stock.symbol}{" "}
-                    <StockShares
-                      value={10n ** BigInt(stock.decimals)}
-                      stock={stock}
-                      status={status}
+                <input ref={imageInput} type="file" accept={TOKEN_IMAGE_ACCEPT} hidden
+                  aria-label="Token image file"
+                  onChange={(event) => {
+                    const file = event.currentTarget.files?.[0];
+                    event.currentTarget.value = "";
+                    if (file) void uploadImage(file);
+                  }} />
+                <div className="identity-inputs">
+                  <label className="field">
+                    <span className="field-label"><span>Token name <span className="req">*</span></span><span className="field-counter">{draft.name.length} / 32</span></span>
+                    <input
+                      name="name"
+                      aria-label="Token name"
+                      aria-describedby={
+                        invalidField === "name" ? "launch-error-name" : undefined
+                      }
+                      aria-invalid={invalidField === "name"}
+                      value={draft.name}
+                      maxLength={32}
+                      onChange={(e) => update("name", e.target.value)}
+                      placeholder="For example: Nvidia Cat"
+                      autoComplete="off"
                     />
-                  </p>}
-                  <p>
-                    On-chain supply:{" "}
-                    {status?.verified && status.totalSupply !== null ? (
-                      <span className="mono">
-                        <NumberText
-                          value={status.totalSupply}
-                          decimals={stock.decimals}
-                        />{" "}
-                        {stock.symbol}
-                      </span>
-                    ) : (
-                      "Unavailable"
-                    )}
-                  </p>
-                  {status?.verified && (
-                    <small>
-                      Verified at block #{status.blockNumber} · Trades settle in token amounts.{stock.standard === "B20" ? " Share equivalents are indicative." : ""}
-                    </small>
-                  )}
+                    <FieldError
+                      name="name"
+                      invalidField={invalidField}
+                      error={error}
+                    />
+                  </label>
+                  <label className="field">
+                    <span className="field-label"><span>Token symbol <span className="req">*</span></span><span className="field-counter">{draft.symbol.length} / 10</span></span>
+                    <span className="input-prefix">
+                      <span>$</span>
+                      <input
+                        name="symbol"
+                        aria-label="Token symbol"
+                        aria-describedby={
+                          invalidField === "symbol"
+                            ? "launch-error-symbol"
+                            : undefined
+                        }
+                        aria-invalid={invalidField === "symbol"}
+                        value={draft.symbol}
+                        maxLength={10}
+                        onChange={(e) =>
+                          update("symbol", e.target.value.toUpperCase())
+                        }
+                        placeholder="NVCAT"
+                        autoComplete="off"
+                      />
+                    </span>
+                    <FieldError
+                      name="symbol"
+                      invalidField={invalidField}
+                      error={error}
+                    />
+                  </label>
                 </div>
-              </details>
-            </div>
-            <p className="hint">
-              Buyers pay {stock.symbol}, and you earn fees from trading. Your meme’s price reflects both trading supply and demand and the quote asset’s price.
-            </p>
-            {status?.error && (
-              <Notice kind="error">
-                {status.error}{" "}
-                <button type="button" onClick={refresh}>
-                  Verify again
-                </button>
-              </Notice>
-            )}
-          </section>
-          <FirstBuy value={firstBuy} asset={paymentAsset} assets={paymentAssets} balance={paymentBalance} price={paymentPrice}
-            lockAvailable={!!config.launchLockAvailable} busy={busy || (!!paymentAttempt && !paymentAttempt.actualOutput)}
-            error={invalidField === "firstBuy" ? error : ""} onChange={updateFirstBuy} />
-          <details className="card advanced-panel" open={advancedOpen}
-            onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}>
-            <summary>
-              <span>
-                <b>Advanced options</b>
-                <span className="hint">Trading fee {feePercent(tradingFeeBps)} · you earn {creatorCut} of every trade</span>
-              </span>
-              <span className="text-button">{advancedOpen ? "Done" : "Edit"} <ChevronDown size={14} /></span>
-            </summary>
-            <div className="trading-fee-panel" aria-labelledby="trading-fee-heading">
-              <h3 id="trading-fee-heading" className="field-label">Trading fee</h3>
-              <div className="segmented mono trading-fee-options" role="radiogroup" aria-label="Trading fee" aria-describedby="trading-fee-help">
-                {TRADING_FEE_BPS.map((bps, index) => <button type="button" role="radio" key={bps}
-                  name="tradingFeeBps" value={bps} aria-checked={tradingFeeBps === bps}
-                  tabIndex={tradingFeeBps === bps ? 0 : -1}
-                  disabled={busy || (!!paymentAttempt && !paymentAttempt.actualOutput)}
-                  onClick={() => update("tradingFeeBps", bps)}
-                  onKeyDown={(event) => {
-                    let next: number;
-                    if (event.key === "ArrowRight" || event.key === "ArrowDown") next = (index + 1) % TRADING_FEE_BPS.length;
-                    else if (event.key === "ArrowLeft" || event.key === "ArrowUp") next = (index + TRADING_FEE_BPS.length - 1) % TRADING_FEE_BPS.length;
-                    else if (event.key === "Home") next = 0;
-                    else if (event.key === "End") next = TRADING_FEE_BPS.length - 1;
-                    else return;
-                    event.preventDefault();
-                    update("tradingFeeBps", TRADING_FEE_BPS[next]);
-                    event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>("button")[next]?.focus();
-                  }}>{feePercent(bps)}</button>)}
               </div>
-              <p className="hint" id="trading-fee-help">Trades after launch pay {feePercent(tradingFeeBps)}, plus a 0.05% LP fee. The trading fee is fixed when the pool is created and cannot be changed afterwards. A higher fee increases earnings per trade and costs traders more.</p>
-            </div>
-          </details>
+              <p className="hint" id="token-image-help">PNG, JPG, WebP or GIF · Up to 5 MB. GIFs use the first frame.</p>
+              {uploadingImage && <span className="hint" role="status">Uploading token image…</span>}
+              {imageError && <span className="field-error" role="alert">{imageError}</span>}
+              <label className="field">
+                <span className="field-label"><span>Description <span className="optional">Optional</span></span><span className="field-counter">{draft.description.length} / 280</span></span>
+                <textarea
+                  name="description"
+                  aria-label="Description"
+                  value={draft.description}
+                  maxLength={280}
+                  rows={3}
+                  placeholder="Your meme’s story starts here…"
+                  onChange={(e) => update("description", e.target.value)}
+                />
+              </label>
+              <label className="field">
+                <span className="field-label"><span>Image URL <span className="optional">Optional · instead of uploading, public HTTPS only</span></span></span>
+                <input
+                  name="image"
+                  aria-label="Image URL"
+                  aria-describedby={
+                    invalidField === "image" ? "launch-error-image" : undefined
+                  }
+                  aria-invalid={invalidField === "image"}
+                  type="url"
+                  value={draft.image}
+                  maxLength={500}
+                  placeholder="https://…/your-meme.png"
+                  onChange={(e) => update("image", e.target.value)}
+                />
+                <FieldError
+                  name="image"
+                  invalidField={invalidField}
+                  error={error}
+                />
+              </label>
+              <div className="social-fields">
+                {([["website", "Website", "https://"], ["twitter", "X / Twitter", "https://x.com/…"], ["telegram", "Telegram", "https://t.me/…"]] as const).map(([field, label, placeholder]) =>
+                  <label className="field" key={field}>
+                    <span className="field-label"><span>{label} <span className="optional">Optional</span></span></span>
+                    <input
+                      name={field}
+                      aria-label={label}
+                      aria-describedby={invalidField === field ? `launch-error-${field}` : undefined}
+                      aria-invalid={invalidField === field}
+                      type="url"
+                      value={draft[field] ?? ""}
+                      maxLength={500}
+                      placeholder={placeholder}
+                      onChange={(e) => update(field, e.target.value)}
+                    />
+                    <FieldError
+                      name={field}
+                      invalidField={invalidField}
+                      error={error}
+                    />
+                  </label>)}
+              </div>
+            </section>
+          </div>
+          <div className="wizard-panel" hidden={step !== 2}>
+            <section className="card quote-panel" aria-labelledby="quote-heading">
+              <div className="card-head">
+                <div>
+                  <h2 id="quote-heading" className="card-title" tabIndex={-1}>Choose what it trades against</h2>
+                  <p className="card-sub">Buyers pay with the selected asset and sellers receive it. <b>The pair is permanent</b> and cannot be changed after launch.</p>
+                </div>
+                <span className="pill">{chainName} · {assets.length} assets</span>
+              </div>
+              <div className="quick-filters asset-categories" role="group" aria-label="Quote asset categories">
+                {[{ id: "all", label: "All assets" }, ...ASSET_CATEGORIES].map((group) => {
+                  const count = group.id === "all" ? assets.length :
+                    assets.filter((asset) => assetCategory(asset) === group.id).length;
+                  return count ? <button type="button" key={group.id} className="filter-chip"
+                    aria-pressed={category === group.id}
+                    onClick={() => { setCategory(group.id as AssetCategory); setShowAllAssets(false); }}>
+                    {group.label}<span className="count">{count}</span>
+                  </button> : null;
+                })}
+              </div>
+              <label className="search-input">
+                <Search size={18} aria-hidden="true" />
+                <input
+                  value={query}
+                  onChange={(e) => { setQuery(e.target.value); setShowAllAssets(false); }}
+                  placeholder="Search by name, symbol or contract address"
+                  aria-label="Search quote assets"
+                />
+              </label>
+              {stockError && (
+                <Notice kind="error">
+                  {stockError}{" "}
+                  <button type="button" onClick={refresh}>
+                    Verify again
+                  </button>
+                </Notice>
+              )}
+              <div className="asset-results">
+                <span role="status">Showing {visibleAssets.length} of {matching.length} matching assets</span>
+                {category !== "all" || query.trim() ? <button type="button" className="text-button" onClick={() => {
+                  setCategory("all"); setQuery(""); setShowAllAssets(false);
+                }}>Clear filters</button> : null}
+              </div>
+              <div className="stock-grid" role="group" aria-label="Quote assets">
+                {visibleAssets.map((s) => (
+                  <button
+                    type="button"
+                    className={`stock-option ${sameAddress(s.address, stock.address) ? "selected" : ""}`}
+                    key={s.address}
+                    aria-pressed={sameAddress(s.address, stock.address)}
+                    onClick={() => update("quoteAddress", s.address)}
+                  >
+                    <StockIcon stock={s} size="md" />
+                    <span>
+                      <b>{s.ticker}</b>
+                      <small title={s.name}>{s.name}</small>
+                    </span>
+                    {sameAddress(s.address, stock.address) && (
+                      <span className="selected-check" aria-hidden="true">
+                        <Check size={12} strokeWidth={3} />
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+              {!query.trim() && matching.length > 12 && !showAllAssets && (
+                <div className="load-more"><button type="button" className="secondary" onClick={() => setShowAllAssets(true)}>Show all {matching.length} assets</button></div>
+              )}
+              {matching.length === 0 && (
+                <p className="muted center">No matching asset found</p>
+              )}
+              <div className="selected-quote">
+                <div className="selected-quote-head">
+                  <StockIcon stock={stock} size="md" />
+                  <div>
+                    <b>{stock.name} · {stock.symbol}</b>
+                    <span>{stock.issuer} · {explorer ? <External href={`${explorer}/token/${stock.address}`}>
+                      {shortAddress(stock.address)}
+                    </External> : <code>{shortAddress(stock.address)}</code>}</span>
+                  </div>
+                  <span className={`chip sm ${status?.verified ? "up" : stocks ? "down" : "sunken"}`}>
+                    <ShieldCheck size={13} />
+                    {status?.verified ? "Contract identity verified" : stocks ? "Verification failed" : "Verifying…"}
+                  </span>
+                </div>
+                <details className="disclosure stock-verification">
+                  <summary>
+                    {status?.verified
+                      ? "Asset details · Contract identity verified"
+                      : stocks
+                        ? "Asset details · Verification failed"
+                        : "Verifying the asset contract…"}
+                  </summary>
+                  <div className="stock-metadata">
+                    <p><b>{stock.symbol}</b> · {stock.issuer} · {chainName} · {stock.standard}</p>
+                    <External href={stock.sourceUrl}>Asset reference</External>
+                    {stock.standard === "B20" && <p>
+                      1 {stock.symbol}{" "}
+                      <StockShares
+                        value={10n ** BigInt(stock.decimals)}
+                        stock={stock}
+                        status={status}
+                      />
+                    </p>}
+                    <p>
+                      On-chain supply:{" "}
+                      {status?.verified && status.totalSupply !== null ? (
+                        <span className="mono">
+                          <NumberText
+                            value={status.totalSupply}
+                            decimals={stock.decimals}
+                          />{" "}
+                          {stock.symbol}
+                        </span>
+                      ) : (
+                        "Unavailable"
+                      )}
+                    </p>
+                    {status?.verified && (
+                      <small>
+                        Verified at block #{status.blockNumber} · Trades settle in token amounts.{stock.standard === "B20" ? " Share equivalents are indicative." : ""}
+                      </small>
+                    )}
+                  </div>
+                </details>
+              </div>
+              <p className="hint">
+                Buyers pay {stock.symbol}, and you earn fees from trading. Your meme’s price reflects both trading supply and demand and the quote asset’s price.
+              </p>
+              {status?.error && (
+                <Notice kind="error">
+                  {status.error}{" "}
+                  <button type="button" onClick={refresh}>
+                    Verify again
+                  </button>
+                </Notice>
+              )}
+            </section>
+            <FirstBuy value={firstBuy} asset={paymentAsset} assets={paymentAssets} balance={paymentBalance} price={paymentPrice}
+              lockAvailable={!!config.launchLockAvailable} busy={busy || (!!paymentAttempt && !paymentAttempt.actualOutput)}
+              error={invalidField === "firstBuy" ? error : ""} onChange={updateFirstBuy} />
+            <details className="card advanced-panel" open={advancedOpen}
+              onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}>
+              <summary>
+                <span>
+                  <b>Advanced options</b>
+                  <span className="hint">Trading fee {feePercent(tradingFeeBps)} · you earn {creatorCut} of every trade</span>
+                </span>
+                <span className="text-button">{advancedOpen ? "Done" : "Edit"} <ChevronDown size={14} /></span>
+              </summary>
+              <div className="trading-fee-panel" aria-labelledby="trading-fee-heading">
+                <h3 id="trading-fee-heading" className="field-label">Trading fee</h3>
+                <div className="segmented mono trading-fee-options" role="radiogroup" aria-label="Trading fee" aria-describedby="trading-fee-help">
+                  {TRADING_FEE_BPS.map((bps, index) => <button type="button" role="radio" key={bps}
+                    name="tradingFeeBps" value={bps} aria-checked={tradingFeeBps === bps}
+                    tabIndex={tradingFeeBps === bps ? 0 : -1}
+                    disabled={busy || (!!paymentAttempt && !paymentAttempt.actualOutput)}
+                    onClick={() => update("tradingFeeBps", bps)}
+                    onKeyDown={(event) => {
+                      let next: number;
+                      if (event.key === "ArrowRight" || event.key === "ArrowDown") next = (index + 1) % TRADING_FEE_BPS.length;
+                      else if (event.key === "ArrowLeft" || event.key === "ArrowUp") next = (index + TRADING_FEE_BPS.length - 1) % TRADING_FEE_BPS.length;
+                      else if (event.key === "Home") next = 0;
+                      else if (event.key === "End") next = TRADING_FEE_BPS.length - 1;
+                      else return;
+                      event.preventDefault();
+                      update("tradingFeeBps", TRADING_FEE_BPS[next]);
+                      event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>("button")[next]?.focus();
+                    }}>{feePercent(bps)}</button>)}
+                </div>
+                <p className="hint" id="trading-fee-help">Trades after launch pay {feePercent(tradingFeeBps)}, plus a 0.05% LP fee. The trading fee is fixed when the pool is created and cannot be changed afterwards. A higher fee increases earnings per trade and costs traders more.</p>
+              </div>
+            </details>
+          </div>
           {paymentAttempt && <section className="card payment-recovery" aria-label="First buy payment status">
             <h3 className="card-title">{paymentAttempt.actualOutput ? "Payment received" : "Submitted payment conversion"}</h3>
             {paymentAttempt.actualOutput && <p className="body-copy">{formatUnits(BigInt(paymentAttempt.actualOutput), paymentAttempt.quote.toToken.decimals)} {paymentAttempt.quote.toToken.symbol} verified in your wallet. {paymentPairSupported ? "Preview the launch using this amount." : "This asset is unavailable for new launches. These tokens stay in your wallet."}</p>}
@@ -2305,6 +2372,7 @@ function CreatePage({
                   : { ...firstBuy, payAddress: stock.address, amount: "0", lockDays: 0 });
                 setPlan(null); setPaymentQuote(null); setPaymentAttempt(null);
                 localStorage.removeItem(paymentKey(config, wallet.account, intentId));
+                goToStep(2);
                 setMessage(paymentPairSupported ? "Use the paired asset in your wallet directly. You can adjust the first buy amount."
                   : `${paymentAttempt.quote.toToken.symbol} stays in your wallet. Choose a new first buy for the current paired asset.`);
               }}>{paymentPairSupported ? "Use paired asset directly" : "Keep tokens and start a new first buy"}</button>}
@@ -2331,6 +2399,7 @@ function CreatePage({
                   setQuery("");
                   setPlan(null);
                   setReview(false);
+                  setStep(1);
                   setError("");
                   setInvalidField("");
                   setMessage("Draft cleared. You can start a new launch.");
@@ -2346,18 +2415,32 @@ function CreatePage({
             {(txHash || submissionUnknown) && !confirmed && <Notice>Your previous launch is being checked. Its payment and transaction are saved.</Notice>}
             {(txHash || submissionUnknown || paymentAttempt && !paymentAttempt.actualOutput) && <button type="button" className="secondary full" disabled={busy} onClick={startAnotherLaunch}>Create another token</button>}
             {submissionUnknown && !txHash && <label className="field"><span className="field-label">Transaction hash from your wallet</span><input value={recoveryHash} onChange={(event) => setRecoveryHash(event.target.value)} placeholder="0x…" aria-label="Transaction hash from your wallet" className="mono" /></label>}
-            <button
-              type="submit"
-              form="launch-form"
-              className="primary large full"
-              disabled={busy || !!txHash || submissionUnknown || uploadingImage || configurationPending}
-            >
-              Review and continue
-              <ArrowRight size={17} />
-            </button>
-            <p className="launch-caption">
-              Next, review your launch details. No transaction is sent yet.
-            </p>
+            {step === 1 ? <>
+              <button type="submit" form="launch-form" className="primary large full" disabled={uploadingImage}>
+                Continue
+                <ArrowRight size={17} />
+              </button>
+              <p className="launch-caption">Next, choose what it trades against and an optional first buy.</p>
+            </> : <>
+              <div className="wizard-actions">
+                <button type="button" className="secondary large" onClick={() => goToStep(1)}>
+                  <ArrowLeft size={17} />
+                  Back
+                </button>
+                <button
+                  type="submit"
+                  form="launch-form"
+                  className="primary large"
+                  disabled={busy || !!txHash || submissionUnknown || uploadingImage || configurationPending}
+                >
+                  Review and continue
+                  <ArrowRight size={17} />
+                </button>
+              </div>
+              <p className="launch-caption">
+                Next, review your launch details. No transaction is sent yet.
+              </p>
+            </>}
             {config?.blockReason && (
               <p className="launch-blocked">{config.blockReason}</p>
             )}

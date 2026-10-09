@@ -239,13 +239,16 @@ async function casePage(mode, viewport = { width: 1440, height: 1000 }) {
   if (quoteClockModes.has(mode)) await page.clock.install({time:new Date()});
   await page.goto(origin+'/create?chainId=4663'); await page.getByLabel('Token name',{exact:true}).fill(('Browser '+mode).slice(0, 32));
   await page.getByLabel('Token symbol',{exact:true}).fill('BROWSE');
-  await page.getByLabel('Pay with',{exact:true}).selectOption(wrapping ? zeroAddress : quote.address);
-  await page.getByLabel(`First buy amount in ${wrapping ? 'ETH' : 'WETH'}`,{exact:true}).fill(plainModes.has(mode)?'0':'0.001');
-  if (!plainModes.has(mode)) await page.getByRole('button',{name:'No lock',exact:true}).click();
   if (mode === 'delayed_config') {
     await waitForFixture(() => state.releaseConfiguration.length > 0, 'initial configuration request');
     await page.getByLabel('Image URL', { exact: true }).fill(delayedImage);
     await page.getByLabel('Description', { exact: true }).fill('Draft entered while network checks are loading.');
+  }
+  await page.getByRole('button',{name:'Continue',exact:true}).click();
+  await page.getByLabel('Pay with',{exact:true}).selectOption(wrapping ? zeroAddress : quote.address);
+  await page.getByLabel(`First buy amount in ${wrapping ? 'ETH' : 'WETH'}`,{exact:true}).fill(plainModes.has(mode)?'0':'0.001');
+  if (!plainModes.has(mode)) await page.getByRole('button',{name:'No lock',exact:true}).click();
+  if (mode === 'delayed_config') {
     assert.equal(await page.getByRole('button', { name: 'Review and continue', exact: true }).isDisabled(), true);
     assert.equal(state.plans, 0); assert.equal(state.sends.length, 0);
   }
@@ -267,6 +270,9 @@ async function casePage(mode, viewport = { width: 1440, height: 1000 }) {
     assert.equal(await page.getByRole('button', { name: 'No lock', exact: true }).getAttribute('aria-pressed'), 'true');
     state.delayedConfigDraftPreserved = true;
   }
+  // Precondition for the post-launch check: the draft is autosaved on the economics step.
+  if (mode === 'success') await page.waitForFunction(() => Object.keys(localStorage)
+    .some(key => key.startsWith('musegod.launch.draft.') && JSON.parse(localStorage.getItem(key) || 'null')?.step === 2));
   await page.getByRole('button',{name:'Review and continue',exact:true}).click();
   if (mode === 'stale_page') return { context,page,state,pageErrors };
   await page.getByRole('button',{name:wrapping ? /Wrap ETH and launch/ : plainModes.has(mode)?/Confirm launch · Sign in wallet/:/Confirm launch and first buy/,exact:true}).waitFor();
@@ -502,6 +508,7 @@ async function timeoutCase(page, state) {
   await page.getByLabel('Token name', { exact: true }).fill(name);
   await page.getByLabel('Token symbol', { exact: true }).fill('LATE');
   await page.getByLabel('Description', { exact: true }).fill('Keep this independent draft unchanged.');
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.getByLabel('Pay with', { exact: true }).selectOption(quote.address);
   await page.getByLabel('First buy amount in WETH', { exact: true }).fill('0.002');
   await page.getByRole('button', { name: 'No lock', exact: true }).click();
@@ -624,6 +631,11 @@ try {
     }
     else if (mode==='success'||mode==='plain'||mode==='idle_plain'||mode==='duplicate'||mode==='expiry'||mode==='delayed_config') {
       await page.waitForURL('**/token/**'); assert.equal(state.sends.length,plain?1:2); assert.equal(state.successful,true);
+      if (mode === 'success') {
+        const launchedSteps = await page.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith('musegod.launch.draft.'))
+          .map(key => JSON.parse(localStorage.getItem(key) || 'null')?.step));
+        assert(launchedSteps.length && launchedSteps.every(step => step === 1), 'A launched draft must reopen on the identity step');
+      }
       if (mode === 'idle_plain') {assert.equal(state.plans,2);assert.equal(state.businessConfirmations,1);}
       if (mode === 'delayed_config') {
         assert.equal(state.businessConfirmations, 1);
@@ -671,6 +683,7 @@ try {
       await second.getByRole('button',{name:'Create another token',exact:true}).click();
       await second.getByLabel('Token name',{exact:true}).fill('Independent intent');
       await second.getByLabel('Token symbol',{exact:true}).fill('NEXT');
+      await second.getByRole('button',{name:'Continue',exact:true}).click();
       await second.getByRole('button',{name:'Review and continue',exact:true}).click();
       await second.getByRole('button',{name:'Confirm launch · Sign in wallet',exact:true}).click();
       await second.waitForURL('**/token/**'); assert.equal(state.sends.length,2); assert.equal(state.successful,true);
@@ -716,6 +729,7 @@ try {
       await second.getByRole('button',{name:'Create another token',exact:true}).click();
       await second.getByLabel('Token name',{exact:true}).fill('Independent approval intent');
       await second.getByLabel('Token symbol',{exact:true}).fill('NEXT');
+      await second.getByRole('button',{name:'Continue',exact:true}).click();
       await second.getByRole('button',{name:'Review and continue',exact:true}).click();
       await second.getByRole('button',{name:'Confirm launch · Sign in wallet',exact:true}).click();
       await second.waitForURL('**/token/**'); assert.equal(state.sends.length,2);

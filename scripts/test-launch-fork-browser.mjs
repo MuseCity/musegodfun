@@ -98,9 +98,10 @@ try {
       if (new URL(response.url()).pathname === `${apiPrefix}/launch/prepare` && response.ok()) plan = await response.json();
     });
     await page.goto(origin + `/create?chainId=${context.deploymentChainId}`);
-    await page.getByText('Asset details · Contract identity verified', { exact: true }).waitFor();
     await page.getByLabel('Token name', { exact: true }).fill(mobile ? 'Local mobile curve' : 'Local desktop curve');
     await page.getByLabel('Token symbol', { exact: true }).fill(mobile ? 'MOBL' : 'DESK');
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await page.getByText('Asset details · Contract identity verified', { exact: true }).waitFor();
     await page.getByLabel('Pay with', { exact: true }).selectOption(quote.address);
     await page.getByLabel('First buy amount in WETH', { exact: true }).fill('0.0001');
     await page.getByRole('button', { name: 'No lock', exact: true }).click();

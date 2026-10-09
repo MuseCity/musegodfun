@@ -2,9 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { STOCKS, ROBINHOOD_STOCKS, launchAssetsFor, stockByAddress, sameAddress, type RuntimeConfig } from "../src/lib/config";
-import { firstBuyDraft, launchDraftKey, savedLaunchDraft } from "../src/lib/launch-draft";
+import { firstBuyDraft, launchDraftKey, launchDraftStep, resetLaunchedDraftStep, savedLaunchDraft } from "../src/lib/launch-draft";
 import { firstBuyPaymentAssets } from "../src/lib/first-buy-payment";
-import { restoreDraft } from "../src/lib/validation";
+import { LAUNCH_IDENTITY_FIELDS, launchIdentityIssue, launchSchema, restoreDraft } from "../src/lib/validation";
 import { DEFAULT_TRADING_FEE_BPS, TRADING_FEE_BPS } from "../src/lib/trading-fee";
 const config = (chain: 8453 | 4663, fork = false): RuntimeConfig => ({ mode: fork ? "fork" : chain === 8453 ? "base" : "robinhood",
   chainId: fork ? 31337 : chain, deploymentChainId: chain, treasury: null, writesEnabled: false, blockReason: null });
@@ -144,4 +144,42 @@ test("trading fee drafts persist every rate per network, default old or invalid 
     assert.equal(restoreDraft(savedLaunchDraft(network), network).tradingFeeBps, DEFAULT_TRADING_FEE_BPS);
     assert.equal(restoreDraft("{invalid", network).tradingFeeBps, DEFAULT_TRADING_FEE_BPS);
   }
+});
+test("the two-step launch form resumes only a saved second step and checks identity fields alone", () => {
+  for (const raw of [null, "{invalid", "null", "{}", '{"step":1}', '{"step":"2"}', '{"step":3}'])
+    assert.equal(launchDraftStep(raw), 1);
+  assert.equal(launchDraftStep(JSON.stringify({ name: "Saved", step: 2 })), 2);
+  const draft = { ...restoreDraft(null, config(4663)), name: "Cat", symbol: "CAT" };
+  // An unsupported pair or fee is a step-two problem and must not block step one.
+  assert.equal(launchIdentityIssue({ ...draft, quoteAddress: "0x0000000000000000000000000000000000000001", tradingFeeBps: 7 }), null);
+  assert.deepEqual(launchIdentityIssue({ ...draft, name: " " }), { field: "name", message: "Enter a token name" });
+  assert.equal(launchIdentityIssue({ ...draft, symbol: "1CAT" })?.field, "symbol");
+  assert.equal(launchIdentityIssue({ ...draft, website: "http://example.com" })?.field, "website");
+  assert.equal(launchIdentityIssue({ ...draft, image: "javascript:alert(1)" })?.field, "image");
+  // Every schema field must belong to a step, or an invalid value would stay hidden on the other one.
+  assert.deepEqual([...LAUNCH_IDENTITY_FIELDS, "tradingFeeBps", "quoteAddress"].sort(), Object.keys(launchSchema.shape).sort());
+});
+test("a successful launch resets its scoped, shared and migrated anonymous copies only", () => {
+  const network = config(4663), draft = { ...restoreDraft(null, network), name: "Launched A", symbol: "TOKENA" };
+  const firstBuy = { amount: "0.001", slippageBps: 100, payAddress: draft.quoteAddress, lockDays: 30 };
+  const launched = JSON.stringify({ ...draft, firstBuy, intentId: "wallet-intent-a", step: 2 });
+  for (const copy of [launched, JSON.stringify({ ...draft, firstBuy, intentId: "anonymous-intent-a", step: 2 }),
+    JSON.stringify({ ...draft, name: " Launched A ", symbol: "tokena", firstBuy: { ...firstBuy, payAddress: draft.quoteAddress.toLowerCase() }, intentId: "anonymous-intent-a", step: 2 })]) {
+    const reopened = resetLaunchedDraftStep(copy, launched, network)!;
+    assert.equal(launchDraftStep(reopened), 1);
+    const { step: _beforeStep, ...before } = JSON.parse(copy), { step: _afterStep, ...after } = JSON.parse(reopened);
+    assert.deepEqual(after, before, "reset preserves all saved identity and first-buy fields");
+  }
+  for (const independent of [
+    { ...draft, name: "Unlaunched B", symbol: "TOKENB", firstBuy },
+    { ...draft, firstBuy: { ...firstBuy, amount: "0.002" } },
+    { ...draft, firstBuy: { ...firstBuy, lockDays: 90 } },
+    { ...draft, tradingFeeBps: 300, firstBuy },
+  ]) {
+    const saved = JSON.stringify({ ...independent, intentId: "independent-intent-b", step: 2 });
+    assert.equal(resetLaunchedDraftStep(saved, launched, network), saved, "an independent draft stays byte-for-byte unchanged");
+    assert.equal(launchDraftStep(saved), 2);
+  }
+  for (const raw of [null, "{invalid", "null", "[]"])
+    assert.equal(resetLaunchedDraftStep(raw, launched, network), raw);
 });
