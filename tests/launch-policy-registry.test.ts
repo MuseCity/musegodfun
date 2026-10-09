@@ -7,6 +7,7 @@ import { assertCutoverReadiness, assertTrustedLaunchPolicy, engineLaunchCutover,
 import { planAttestation, verifyPlanAttestation } from "../server/plan-attestation";
 import { redact, runtimeFromEnv } from "../server/config";
 import { activatedEngineManifest } from "./engine-manifest-fixture";
+import { BASE_COLLECTOR_MANIFEST } from "../server/base-collector";
 
 const configured = "0x2222222222222222222222222222222222222222" as Address;
 const operations = "0xc4F87C3715374445C4657aa14c47CBB339b59d1A" as Address;
@@ -18,6 +19,20 @@ const robinhood = (overrides: Partial<RuntimeConfig> = {}): RuntimeConfig =>
   ({ mode: "robinhood", deploymentChainId: 4663, chainId: 4663, treasury: configured, writesEnabled: false, blockReason: "paused", ...overrides });
 const deployed = (status = "deployed_verified") =>
   ({ ...ENGINE_MANIFEST, engineLaunchCutover: undefined, status, contracts: { engine: { address: engine, blockNumber: "90000000" } } });
+
+test("Base frozen backups use canonical cutover time for the same bounded signing grace as Robinhood", () => {
+  const manifest = structuredClone(BASE_COLLECTOR_MANIFEST);
+  manifest.status = "deployed_verified";
+  Object.assign(manifest.collector, { address: engine, blockNumber: "100" });
+  const config: RuntimeConfig = { mode: "base", chainId: 8453, treasury: configured, feeEngine: engine, writesEnabled: false, blockReason: "paused" };
+  const plan = { feePolicy: FEE_POLICY, feeTreasury: configured };
+  const policies = trustedLaunchPolicies(config, ENGINE_MANIFEST, manifest, 1000n);
+  assert.doesNotThrow(() => assertTrustedLaunchPolicy(plan, config, at(101n, 1002n), policies));
+  assert.doesNotThrow(() => assertTrustedLaunchPolicy(plan, config, at(100n, 1000n), policies), "same-block transaction order stays recoverable");
+  assert.throws(() => assertTrustedLaunchPolicy(plan, config, at(101n, 1360n), policies), /platform-approved/);
+  assert.throws(() => assertTrustedLaunchPolicy(plan, config, at(101n, 1002n), trustedLaunchPolicies(config, ENGINE_MANIFEST, manifest)),
+    /platform-approved/, "a backup cannot nominate a cutover timestamp");
+});
 
 test("recovery trusts the configured treasury and committed Robinhood deployment routing only", () => {
   const config = robinhood();

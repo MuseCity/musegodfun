@@ -9,8 +9,9 @@ import { createDualChainApp, chainApiRoute, knownPage, legacyTokenPath } from ".
 import { runtimeFromEnv, type Runtime } from "../server/config";
 import { stockByAddress, STOCKS, ROBINHOOD_STOCKS } from "../src/lib/config";
 import { FirstBuyPaymentReader } from "../server/lifi";
-import { firstBuyPaymentAssets } from "../src/lib/first-buy-payment";
+import { firstBuyPaymentAssets, firstBuyPairedAsset, wrappedEther } from "../src/lib/first-buy-payment";
 import { syntheticToken } from "./fixtures";
+import { BASE_AUTOMATION_FEE_POLICY } from "../src/lib/fee-policy";
 
 const treasury = "0x2222222222222222222222222222222222222222";
 const guard = "0x3333333333333333333333333333333333333333";
@@ -170,12 +171,13 @@ test("payment quote preflight blocks identity and LI.FI pricing failures before 
   const service = services.get(8453)!;
   const asset = STOCKS.find((stock) => stock.ticker === "NVDA")!;
   const numeraire = firstBuyPaymentAssets(8453).find((item) => item.symbol === "USDC")!;
+  const wrapped = firstBuyPairedAsset(8453, wrappedEther(8453));
   const reads: string[] = [];
   let pricingRequests = 0;
   let fault = "guard", quotes = 0;
   const originalQuote = FirstBuyPaymentReader.prototype.quote;
   FirstBuyPaymentReader.prototype.quote = async () => { quotes++; throw new Error("LI.FI quote entered"); };
-  service.config = async () => ({ ...runtime.config, launchGuard: fault === "guard" ? null : guard });
+  service.config = async () => ({ ...runtime.config, feePolicy: BASE_AUTOMATION_FEE_POLICY, feeEngine: guard, launchGuard: fault === "guard" ? null : guard });
   Object.assign(service, { client: {
     getChainId: async () => 8453,
     getBlock: async () => ({ number: 1n, hash: `0x${"ab".repeat(32)}`, timestamp: BigInt(Math.floor(Date.now() / 1000)) - 5n }),
@@ -186,7 +188,8 @@ test("payment quote preflight blocks identity and LI.FI pricing failures before 
     readContract: async ({ address, functionName, blockNumber }: { address: string; functionName: string; blockNumber?: bigint }) => {
       reads.push(functionName);
       if (blockNumber !== undefined) assert.equal(blockNumber, 1n);
-      const target = address.toLowerCase() === asset.address.toLowerCase() ? asset : numeraire;
+      const target = [asset, numeraire, wrapped].find((item) => item.address.toLowerCase() === address.toLowerCase());
+      assert.ok(target, "The preflight fixture recognizes each verified B20/USDC/WETH identity");
       if (functionName === "symbol") return fault === "identity" ? "WRONG" : target.symbol;
       if (functionName === "decimals") return target.decimals;
       if (functionName === "name") return asset.name;
@@ -208,12 +211,16 @@ test("payment quote preflight blocks identity and LI.FI pricing failures before 
     assert.equal(params.get("allowBridges"), "none"); assert.equal(params.get("fee"), "0");
     if (fault === "no_quote") return Response.json({ error: "No same-chain pricing route" }, { status: 404 });
     if (fault === "timeout") throw new DOMException("Synthetic fetch deadline", "TimeoutError");
-    const buy = params.get("fromToken")!.toLowerCase() === numeraire.address.toLowerCase();
-    const from = buy ? numeraire : asset, to = buy ? asset : numeraire;
+    const from = [asset, numeraire, wrapped].find((item) => item.address.toLowerCase() === params.get("fromToken")!.toLowerCase());
+    const to = [asset, numeraire, wrapped].find((item) => item.address.toLowerCase() === params.get("toToken")!.toLowerCase());
+    assert.ok(from && to, "Only the three explicit Base pricing legs are requested");
     const amountIn = BigInt(params.get("fromAmount")!), fee = amountIn * 25n / 10_000n;
+    const buy = from.address === numeraire.address, reference = from.address === wrapped.address;
+    assert.equal(to.address, buy ? asset.address : reference ? numeraire.address : wrapped.address);
     const amountOut = buy ? (amountIn - fee) * 10n ** 8n / (100n * 10n ** 6n)
-      : (amountIn - fee) * 100n * 10n ** 6n / 10n ** 8n;
-    const token = (item: typeof numeraire) => ({ ...item, priceUSD: item.symbol === "USDC" ? "1" : "100" });
+      : reference ? (amountIn - fee) * 2000n * 10n ** 6n / 10n ** 18n
+      : (amountIn - fee) * 100n * 10n ** 18n / (2000n * 10n ** 8n);
+    const token = (item: typeof numeraire) => ({ ...item, priceUSD: item.symbol === "USDC" ? "1" : item.symbol === "WETH" ? "2000" : "100" });
     const action = { fromChainId: 8453, toChainId: 8453, fromToken: token(from), toToken: token(to),
       fromAddress: params.get("fromAddress"), toAddress: params.get("toAddress"), fromAmount: amountIn.toString(), slippage: Number(params.get("slippage")) };
     if (fault === "quote-mismatch") action.toToken.address = treasury;
@@ -243,7 +250,7 @@ test("payment quote preflight blocks identity and LI.FI pricing failures before 
     fault = "";
     const before = pricingRequests;
     assert.match((await (await request()).json()).error, /LI.FI quote entered/);
-    assert.equal(pricingRequests - before, 2, "both current pricing probes precede the executable quote");
+    assert.equal(pricingRequests - before, 3, "the WETH/USD reference and both B20 pricing legs precede the executable quote");
     assert.equal(quotes, 1, "valid LI.FI pricing evidence permits the executable payment quote");
     assert.equal(reads.some((call) => ["latestRoundData", "getOracleParams", "observe"].includes(call)), false);
     assert.equal(runtime.config.writesEnabled, false, "a preview cannot enable signing");

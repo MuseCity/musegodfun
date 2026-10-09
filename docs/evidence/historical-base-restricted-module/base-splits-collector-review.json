@@ -1,0 +1,149 @@
+{
+  "schemaVersion": 1,
+  "kind": "base_splits_collector_adapter_review",
+  "recordedAt": "2026-10-09T08:35:20Z",
+  "status": "native_alternative_not_selected_by_owner",
+  "implementationStatus": "native_adapter_not_implemented",
+  "scope": "仅可审阅适配方案；没有源码、manifest、权限或资金操作。低维护选型不是旧硬保护的豁免。",
+  "relatedEvidence": [
+    "base-splits-review.json",
+    "base-splits-relay-route.json",
+    "base-collector-fork.json"
+  ],
+  "reviewedSource": {
+    "collector": {
+      "path": "contracts/src/MusegodBaseFeeCollector.sol",
+      "sha256": "cd30a9c18d2997fef72aa9c3697c603a53fef96dee44408ba51ba7bd735346a6",
+      "claimFunctionLine": 339,
+      "managerValidationLine": 354,
+      "claimCreditLine": 377,
+      "currentDeploymentStatus": "not_deployed",
+      "currentManifest": "contracts/artifacts/base-collector-deployment.json"
+    },
+    "splitsContractsCommit": "efec4ac4ee2982200131d96dbde16b094f670cd4",
+    "reviewLayer": "current_local_source_and_official_primary_contracts_and_documentation"
+  },
+  "minimumPath": [
+    "Base 新池的已隔离回购费用仍由 Collector 接收；feeEngine 字段继续表示本链 Collector。",
+    "固定领取任务调用公开 claimFees/claimAndForward；Collector 核对实际 fee manager、PoolKey、份额与实际净到账。",
+    "Collector 仅把已记账、获准的 36 个精确 B20 费用转给固定 Base Splits Automation 地址。",
+    "Splits 原生 Automation 对已到账资产执行其受管理的兑换、跨链和 sweep，目标为 canonical Robinhood WETH 与现有 Treasury。",
+    "现有受限 Forwarder 将 Treasury WETH 转入既有 Robinhood Vault；保留有限 allowance 和完整来源账本。",
+    "既有 Vault 依据其价格、利润、gas 和共享额度条件执行回购，并将 MUSEGOD 转入 dead。"
+  ],
+  "adapterChanges": {
+    "reuseClaim": [
+      "复用 claimFees/claimFrom 的固定实际 managers、PoolKey、份额及两币精确 balance delta。",
+      "LP 总收入的 22.8% 与 Hook 净额的 24% 已隔离，不再次扣 20%。",
+      "沿用 feeEngine 本链 Collector 字段、36 精确 B20 allowlist、pendingFees/totalClaimed、manager 指纹和 nonReentrant。"
+    ],
+    "newFunctions": [
+      "forwardFees(asset,amount)：permissionless；只转已记账获准 B20，固定构造 recipient；扣 pending 并验证 Collector 减少及 recipient 净增均为精确 amount；无 allowance/任意 target/calldata/提现。",
+      "claimAndForward(poolId)：公开固定调用；仅转本次领取的 B20 净增；分别记录领取失败；转发失败不得标为已交接。"
+    ],
+    "pending": {
+      "memeSide": "新币侧费用留在 Collector pending；不自动转出。",
+      "rehypeConvertedB20": "Rehype 实际换成 B20 后领取所得，可正常转发。",
+      "donationsAndUnknown": "余额超过已记账 pending 的部分保持 untracked，不计 fee income，不自动转发。即使是获准 B20 的捐赠也不例外。",
+      "smallOrUnpriced": "已转发到 Automation 的资产可能因其触发阈值、价格索引或路线缺失而继续 pending；不得记成已桥接或已回购。"
+    },
+    "pause": "只暂停新转发与项目新任务；领取可以继续留 pending。不能因此撤回已交接钱包余额或停止其 native 任务。",
+    "removeOnlyAfterOwnerApproval": "按已批准的 Base 政策移除项目 QuoteAuthorization/RefundAuthorization、LI.FI/Across 自动执行及资金角色，停用旧新报价/签名/EOA keeper 入口；同步 verifier/manifest/ledger/验收，真实历史恢复保留。现有 artifact 与 fork 不得改标签冒充 native。"
+  },
+  "automationLiveness": {
+    "officialNativeScope": "原生只处理到账余额；external account 是只读观察；自定义外部合约自动调用需自管 module/key。",
+    "permissionlessClaimIsNotAutomatic": true,
+    "minimumProjectTasks": [
+      "领取并转发 Collector 费用。",
+      "调用现有 Treasury Forwarder。",
+      "在既有 Vault 条件满足时执行回购。"
+    ],
+    "leastPrivilege": "保留公开固定调用任务；提交者只支付 gas，无 Collector 收款选择、提现权或 Splits 钱包权限。无需 EOA 全权限 module，也不能称零自管。"
+  },
+  "recipientBoundary": {
+    "sourceAutomation": "0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a",
+    "destinationTreasury": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+    "weth": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+    "forwarder": "0x808d538f13ce0356e80c7a5ac2798d09206ab8f4",
+    "vault": "0x28E6B43525301312084310F31f4C9c9873d7a125",
+    "baseCodeObservation": {
+      "reference": "base-splits-review.json#baseAccountCodeObservation",
+      "blockNumber": "52372599",
+      "blockHash": "0xbd767721cf2bb3ee278d145e2a532069ba88a37dc3c84a8f7ffc49d000f1033f",
+      "automationHasCode": false,
+      "treasuryHasCode": false,
+      "interpretation": "上述实际观察高度中两个既有 Robinhood 地址在 Base 均无代码。相同地址或既有 RH 规则不等于 Base 已部署或可运行。"
+    },
+    "prerequisite": "必须先取得真实 Base account 的 canonical initialization transaction or UserOperation 和代理/implementation/owner/signers/threshold/module 图；确认该地址就是已批准的既有 workspace Automation，然后才部署/恢复固定转发适配层。不得先往未初始化地址放款。",
+    "immutableTransferProtectionEndsAt": "固定 recipient 仅保护 Collector→Base Automation 交接。之后账户 owner/signers/server/modules/可编辑规则可普通执行、转账、批准或升级，不受 Collector 约束。",
+    "nativeSweep": "已观察正式 UI 仅可选 workspace Treasury；直接外部 Vault sweep 未证实。不得用公共 Relay quote 推导 UI 或 native 规则支持。",
+    "treasuryAccounting": "Treasury 混合入账，Forwarder 有限批准也覆盖普通 WETH；必须 Treasury 全量入账/Forwarded FIFO 再接 Vault FIFO，不能余额即费用。"
+  },
+  "hardPoliciesNotInherited": [
+    {
+      "policy": "兑换最少为签名预期 WETH 的 99%；跨链最少为原始 Base WETH 输入的 99%，包含源费用影响。",
+      "nativeDifference": "原生报价/规则的 slippage 语义及可编辑设置不等于这两条合约强制比例。代表公共 Relay 最低输出仅约为其源 ETH 参考输出的 98.549%；尚未观察实际保存原生规则的 slippage。",
+      "decision": "原比例不能宣称保留；若坚持须采用受限执行路径，普通 native swap-and-sweep 无法提供同一保证。"
+    },
+    {
+      "policy": "300 秒内转换按签名预期输出最多 0.01 WETH，跨链按实际源输入最多 0.01 WETH。",
+      "nativeDifference": "转发 B20 原始单位时没有可信 WETH 计值，原生 5 美元触发/1 美元处理是最低运行阈值而非支出上限。钱包可在一次或连续执行中处理更多余额。RH Vault 共享额度不能限制这些源链支出。",
+      "decision": "两条源链额度不保留。限制单次 token 数量或减少 gas 余额也不能冒充等价经济 cap。"
+    },
+    {
+      "policy": "独立项目报价签名者、完整 calldata EIP-712、一次 nonce、epoch 和最多 60 秒有效期。",
+      "nativeDifference": "采用 native server signer/账户 UserOperation 与 provider 规则。账户 nonce 防重放不证明报价公平、完整经济约束或 60 秒时效。",
+      "decision": "旧签名信任边界被原生服务与普通账户权限替换，须单独批准。"
+    },
+    {
+      "policy": "固定 LI.FI Generic/Across V4、固定 fee recipient/25bps、canonical WETH、空 message、无 exclusive relayer、退款只回 Collector。",
+      "nativeDifference": "由 native provider 选择路线，目前官方 cross-network provider 为 Relay。代表路线使用 Base native ETH 和目标 wrap；源批次 proxy refundTo 为 solver，fallback 可到 Base Automation 或 RH Treasury 的 native ETH。",
+      "decision": "旧 route/fee/refund 限制不保留。新的 canonical 资产身份、实际来源/到账/退款必须另证，不复用旧 Across 证明器。"
+    },
+    {
+      "policy": "不可改资金去向、无任意资金调用、精确 allowance 后清零。",
+      "nativeDifference": "fixed Collector transfer 只固定交接地址。SmartVault owner/EntryPoint 可 execute 任意 Call，module 可无 threshold executeFromModule；owner 可升级账户。原生规则可修改，钱包自行批准或转走余额不经过 Collector。",
+      "decision": "原不可变下游资金方向和 allowance 清零不保留；不把智能账户或 module 称为 immutable policy。"
+    },
+    {
+      "policy": "Collector pause/epoch 和七天协议指纹更新能阻止旧授权或改变后新提交。",
+      "nativeDifference": "Collector pause 仅停止新的转发。已交接资金、native 规则、钱包权限和其代理升级不受该 epoch/timelock 约束。",
+      "decision": "需另核 native 停止运行与权限撤销流程；暂停前的在途 source/bridge/refund 继续追踪。不能声称单次 Collector pause 会收回 native 资金。"
+    }
+  ],
+  "retained": [
+    "精确费用隔离、36 launch 资格/定价、meme pending、donation/unknown 不记收入。原 LI.FI 资格不证明所有原生路线可用。",
+    "RH Vault 既有 spot/5m/30m、2% 保护、利润/gas、所有调用者共享 0.01 WETH/300s；只计实际 MUSEGOD→dead。",
+    "完整 Treasury/Vault 来源 FIFO、profit 单列、unknown 不重支、canonical/reorg 恢复。",
+    "Base 暂停；桌面/移动钱包和真实费用 native 全闭环通过后才按最新 revision CAS 开放；人工补款不替代费用验收。"
+  ],
+  "ownerReviewBeforeImplementation": [
+    "逐项明确批准 native server/provider/普通可变钱包 custody，以及原 99%、源 cap、项目60秒授权、不可改下游方向和固定退款的替换；偏好低维护不等于已批准。",
+    "核验并初始化既有 Base Automation 图，确认100% canonical RH WETH→既有 Treasury→有限 Forwarder→Vault，规则/网络与原RH权限不被隐含修改。",
+    "确定三个公开固定任务的运行者、替代 canary 本金/费用/gas 预算、停止条件和在途恢复；过程投放上限不是原合约硬额度。",
+    "批准安全边界之后才实施源码与真实36原生资格检查；部署、规则签名、有限allowance、真实canary另按具体授权执行。"
+  ],
+  "executionBoundary": {
+    "sourceFilesChanged": false,
+    "manifestsChangedByThisReview": false,
+    "rulesSaved": false,
+    "signaturesCreated": false,
+    "transactionsBroadcast": false,
+    "deploymentAuthorized": false,
+    "productionPermissionsChanged": false,
+    "oldOwnerProposal": "superseded_by_base_splits_review; cannot deploy or fund the former standalone quote-signer/gas-keeper proposal",
+    "newBaseCollector": "not_deployed",
+    "nativeBaseAccount": "not_deployed_at_recorded_code_observation",
+    "nativeFullLoop": "not_run",
+    "publicBase": "remain_paused"
+  },
+  "officialSources": [
+    "https://splits.org/docs/accounts#automation-accounts",
+    "https://splits.org/docs/solutions/revenue-automation",
+    "https://splits.org/docs/accounts/modules",
+    "https://github.com/0xSplits/splits-contracts-monorepo/blob/efec4ac4ee2982200131d96dbde16b094f670cd4/packages/smart-vaults/src/utils/ModuleManager.sol",
+    "https://github.com/0xSplits/splits-contracts-monorepo/blob/efec4ac4ee2982200131d96dbde16b094f670cd4/packages/smart-vaults/src/vault/SmartVault.sol"
+  ],
+  "ownerDecision": "option_B_preserve_protections_splits_restricted_module",
+  "livePlan": "base-splits-review.json"
+}

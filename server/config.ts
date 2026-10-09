@@ -2,12 +2,14 @@ import { PLAN_ATTESTATION_MIN_KEY_LENGTH } from "./plan-attestation";
 import { validTreasury } from "../src/lib/validation";
 import type { RuntimeConfig } from "../src/lib/config";
 import { CURVE_POLICY } from "../src/lib/launch-curve";
-import { ENGINE_FEE_POLICY, FEE_POLICY } from "../src/lib/fee-policy";
+import { BASE_AUTOMATION_FEE_POLICY, ENGINE_FEE_POLICY, FEE_POLICY } from "../src/lib/fee-policy";
 import type { Address } from "viem";
 
 export type DeploymentChainId = 8453 | 4663;
 export type RuntimeEnvironment = Readonly<Record<string, string | undefined>>;
 export type Runtime = {
+  // Set only by the private canary entry point; signed owner authorization must bind this exact origin.
+  canaryOrigin?: string;
   environment?: RuntimeEnvironment;
   secrets?: { pinataJwt?: string; coingeckoApiKey?: string; turnstileSecret?: string;
     // Signs new previews; previous keys only verify backups after a rotation.
@@ -65,9 +67,9 @@ export function runtimeFromEnv(requestedChainId?: DeploymentChainId, environment
     ?? environment.PLATFORM_TREASURY;
   const treasury = validTreasury(treasuryValue);
   if (treasuryValue && !treasury) throw new Error("Invalid PLATFORM_TREASURY address");
-  const feeEngineValue = deploymentChainId === 4663 ? environment.FEE_ENGINE_ADDRESS : undefined;
+  const feeEngineValue = deploymentChainId === 4663 ? environment.FEE_ENGINE_ADDRESS : environment.BASE_FEE_COLLECTOR_ADDRESS;
   const feeEngine = validTreasury(feeEngineValue);
-  if (feeEngineValue && !feeEngine) throw new Error("Invalid FEE_ENGINE_ADDRESS address");
+  if (feeEngineValue && !feeEngine) throw new Error("Invalid fee engine address for the selected chain");
   const mainnetFlag = deploymentChainId === 8453 ? environment.ENABLE_BASE_TRANSACTIONS
     : environment.ENABLE_ROBINHOOD_TRANSACTIONS ?? environment.ENABLE_MAINNET_TRANSACTIONS;
   if (mainnetFlag && !["true", "false"].includes(mainnetFlag)) throw new Error("ENABLE_MAINNET_TRANSACTIONS must be true or false");
@@ -91,7 +93,7 @@ export function runtimeFromEnv(requestedChainId?: DeploymentChainId, environment
   return {
     config: { mode, deploymentChainId, chainId: mode === "fork" ? 31337 : deploymentChainId, treasury, writesEnabled, curvePolicy: CURVE_POLICY, launchGuard: null,
       launchLockAvailable: false,
-      feeEngine, feePolicy: feeEngine ? ENGINE_FEE_POLICY : FEE_POLICY, buybackExecutor: null,
+      feeEngine, feePolicy: feeEngine ? deploymentChainId === 8453 ? BASE_AUTOMATION_FEE_POLICY : ENGINE_FEE_POLICY : FEE_POLICY, buybackExecutor: null,
       blockReason: !treasury ? "The platform treasury is not configured. Browsing and drafts are available."
         : !writesEnabled ? "Mainnet is read-only. Connect a wallet to query balances and simulate issuance." : null },
     rpcUrl, dataDir, dataScope, launchGuardCandidate, firstBuyGuardCandidate,

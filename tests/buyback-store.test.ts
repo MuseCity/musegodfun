@@ -99,3 +99,37 @@ test("Supabase readiness rejects a missing buyback migration", async (t) => {
   const store = new SupabaseStore("https://fixture.supabase.co", "local-test-only", "verify-batch-test");
   await assert.rejects(() => store.health(), /Database request failed \(404\)/);
 });
+
+test("batch keyset pages recover every historical source batch with tied timestamps beyond legacy 1000 display rows", () => {
+  const directory = mkdtempSync(join(tmpdir(), "musegod-buyback-pages-")), store = new Store(directory, 31337);
+  try {
+    for (let i = 0; i < 1203; i++) store.saveBuybackBatch({ id: `source-${String(i).padStart(4, "0")}`, updatedAt: Math.floor(i / 3), status: i === 0 ? "unknown" : "bridged", bridgeNonce: String(i) });
+    const all = [];
+    let before: { updatedAt: number; id: string } | undefined;
+    for (;;) {
+      const page = store.buybackBatchPage(71, before); all.push(...page);
+      if (page.length < 71) break;
+      before = page.at(-1)!;
+    }
+    assert.equal(all.length, 1203); assert.equal(new Set(all.map(row => row.id)).size, 1203);
+    assert.equal(all.at(-3)?.status, "unknown", "The oldest unresolved batch is not lost behind a display cap");
+    assert.equal(store.listBuybackBatches().length, 1000);
+    assert.throws(() => store.buybackBatchPage(101), /page size/);
+    assert.throws(() => store.buybackBatchPage(10, { updatedAt: -1, id: "source" }), /cursor/);
+  } finally { store.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("Supabase source-batch keyset pagination uses authoritative timestamps and quotes reserved ID characters", async (t) => {
+  const calls: URL[] = [], id = 'batch,scope.eq.base)"\\&name';
+  t.mock.method(globalThis, "fetch", async (input: string) => {
+    calls.push(new URL(input));
+    return new Response(JSON.stringify([{ payload: { id, updatedAt: 2, status: "unknown", amount: "1000000000000000000000001" }, updated_at: 99 }]));
+  });
+  const store = new SupabaseStore("https://fixture.supabase.co", "fixture", "base");
+  const [row] = await store.buybackBatchPage(37, { updatedAt: 100, id });
+  assert.equal(row.updatedAt, 99); assert.equal(row.amount, "1000000000000000000000001");
+  assert.equal(calls[0].searchParams.get("scope"), "eq.base"); assert.equal(calls[0].searchParams.get("limit"), "37");
+  assert.match(calls[0].searchParams.get("or")!, /id.gt."batch,scope.eq.base\)/);
+  assert.equal(calls[0].searchParams.get("name"), null, "Cursor contents cannot introduce another URL parameter");
+  await assert.rejects(store.buybackBatchPage(101), /page size/); assert.equal(calls.length, 1);
+});

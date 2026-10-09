@@ -4,10 +4,11 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BuildInfo } from "../src/lib/build-info";
-import { assertBuildManifest, assertFrozenBuild, assertLaunchRuntime, assertReleaseCheckout, publishCandidate, ReleaseFailure, requireSingleActiveVersion, runtimeVarsFromBindings, snapshotBuild, type ReleaseLifecycle } from "../scripts/release-policy";
-import { FEE_POLICY, ENGINE_FEE_POLICY } from "../src/lib/fee-policy";
+import { assertBuildManifest, assertCandidateRuntimeBindings, assertFrozenBuild, assertLaunchRuntime, assertReleaseCheckout, publishCandidate, ReleaseFailure, requireSingleActiveVersion, runtimeVarsFromBindings, snapshotBuild, type ReleaseLifecycle } from "../scripts/release-policy";
+import { FEE_POLICY, ENGINE_FEE_POLICY, BASE_AUTOMATION_FEE_POLICY } from "../src/lib/fee-policy";
 import { CURVE_POLICY } from "../src/lib/launch-curve";
-import { checkRuntime, checkFunctionalSmoke } from "../scripts/release";
+import { checkRuntime, checkFunctionalSmoke, baseRollbackCompatible } from "../scripts/release";
+import { BASE_COLLECTOR_MANIFEST, BASE_SPLITS_FACTORY, BASE_SPLITS_FACTORY_HASH, BASE_SPLITS_IMPLEMENTATION, BASE_SPLITS_IMPLEMENTATION_HASH, BASE_SPLITS_PROXY_HASH, type BaseCollectorManifest } from "../server/base-collector";
 
 const commit = "a".repeat(40), newerCommit = "b".repeat(40);
 const previousVersion = "11111111-1111-4111-8111-111111111111", candidateVersion = "22222222-2222-4222-8222-222222222222";
@@ -282,7 +283,9 @@ test("functional release smoke covers prices, verified assets and a read-only ca
   context.mock.method(globalThis,"fetch",async(url:string,init?:RequestInit)=>{
     const path=new URL(url).pathname;
     if(path.endsWith("/first-buy/prices"))return Response.json({assets:prices.map(priceUsd=>({priceUsd}))});
-    if(path.endsWith("/stocks"))return Response.json([{verified:true}]);
+    if(path.endsWith("/stocks"))return Response.json(Array.from({length:path.includes("8453")?36:1},()=>({verified:true})));
+    if(path.endsWith("/buyback/engine"))return Response.json(path.includes("8453")?{kind:"base_splits_native",destinationChainId:4663}:{});
+    if(path.endsWith("/buyback/vault-ledger"))return Response.json({version:1,initialized:false});
     if(path.endsWith("/tokens"))return Response.json({items:[{address:runtimeVars.PLATFORM_TREASURY}],nextCursor:null});
     assert(path.endsWith("/quote"));assert.equal(init?.method,"POST");
     const body=JSON.parse(String(init?.body));assert.equal(body.amount,"1");assert.equal(body.side,"buy");
@@ -291,8 +294,114 @@ test("functional release smoke covers prices, verified assets and a read-only ca
   await checkFunctionalSmoke(releaseOrigin);assert.equal(quoteSeen,true);
   for(const references of [["1",null],[null,null]]) {
     prices=references;
-    assert.equal((await checkFunctionalSmoke(releaseOrigin)).auxiliaryPrices,"degraded",
+    assert((await checkFunctionalSmoke(releaseOrigin)).every(result=>result.auxiliaryPrices==="degraded"),
       "auxiliary references do not disable valid transaction/identity checks");
   }
   prices=["1","NaN"];await assert.rejects(checkFunctionalSmoke(releaseOrigin),/malformed payment price/);
+});
+
+function deployedCollectorManifest(): BaseCollectorManifest {
+  const manifest = structuredClone(BASE_COLLECTOR_MANIFEST);
+  manifest.status = "deployed_verified";
+  Object.assign(manifest.collector, { address: "0x4444444444444444444444444444444444444444", runtimeHash: `0x${"11".repeat(32)}`,
+    transactionHash: `0x${"22".repeat(32)}`, blockNumber: "100" });
+  for (const entry of Object.values(manifest.dependencies)) Object.assign(entry, { runtimeHash: `0x${"33".repeat(32)}`, proxyCheck: "direct" });
+  const automation = "0x7777777777777777777777777777777777777777" as const;
+  manifest.constants.automationReceiver = automation;
+  manifest.automationAccount = { address: automation, runtimeHash: BASE_SPLITS_PROXY_HASH,
+    factory: { address: BASE_SPLITS_FACTORY, runtimeHash: BASE_SPLITS_FACTORY_HASH },
+    creation: { owner: "0x9999999999999999999999999999999999999999", threshold: 1,
+      signers: [{ slot1: `0x${"99".repeat(32)}`, slot2: `0x${"00".repeat(32)}` }], salt: "1" },
+    implementation: { address: BASE_SPLITS_IMPLEMENTATION, runtimeHash: BASE_SPLITS_IMPLEMENTATION_HASH },
+    owner: "0x9999999999999999999999999999999999999999", threshold: 1,
+    signers: [{ index: 7, slot1: `0x${"99".repeat(32)}`, slot2: `0x${"00".repeat(32)}` }],
+    initializationHash: `0x${"aa".repeat(32)}`, blockNumber: "90" };
+  return manifest;
+}
+
+test("first deployed paused baseline requires a fresh pristine check, then rollback carries the same Collector graph", async () => {
+  const candidateManifest = deployedCollectorManifest(), candidateVars = { ENABLE_BASE_TRANSACTIONS: "false", BASE_FEE_COLLECTOR_ADDRESS: candidateManifest.collector.address! };
+  let pristineCalls = 0, pristine = true;
+  const input = { previousVars: { ENABLE_BASE_TRANSACTIONS: "false" }, candidateVars, candidateManifest,
+    previousRecoveryProtocol: false, pristine: async () => { pristineCalls++; return pristine; } };
+  assert.equal(await baseRollbackCompatible(input), true);
+  pristine = false;
+  assert.equal(await baseRollbackCompatible(input), false, "recheck before activation and rollback catches intervening financial activity");
+  assert.equal(pristineCalls, 2);
+  assert.equal(await baseRollbackCompatible({ ...input, previousRecoveryProtocol: true, previousManifest: BASE_COLLECTOR_MANIFEST }), false,
+    "pending manifest and code marker alone cannot recover a deployed Collector");
+  assert.equal(await baseRollbackCompatible({ ...input, candidateVars: { ...candidateVars, ENABLE_BASE_TRANSACTIONS: "true" } }), false);
+  candidateManifest.activation.nativeExecution = {} as NonNullable<BaseCollectorManifest["activation"]["nativeExecution"]>;
+  assert.equal(await baseRollbackCompatible(input), false, "a canary record makes the pristine bootstrap unavailable");
+  delete candidateManifest.activation.nativeExecution;
+  const prior = structuredClone(candidateManifest);
+  const compatible = { ...input, previousVars: candidateVars, previousManifest: prior, previousRecoveryProtocol: true };
+  assert.equal(await baseRollbackCompatible(compatible), true);
+  prior.constants.operationsTreasury = "0x6666666666666666666666666666666666666666";
+  assert.equal(await baseRollbackCompatible(compatible), false, "same address but changed reviewed graph is not a recovery baseline");
+});
+
+test("pre-Collector rollback smoke uses only the existing Robinhood functional endpoints", async context => {
+  const paths: string[] = [];
+  context.mock.method(globalThis, "fetch", async (url: string) => {
+    const path = new URL(url).pathname; paths.push(path);
+    if (path.endsWith("/first-buy/prices")) return Response.json({ assets: [{ priceUsd: null }, { priceUsd: "1" }] });
+    if (path.endsWith("/stocks")) return Response.json([{ verified: true }]);
+    if (path.endsWith("/tokens")) return Response.json({ items: [], nextCursor: null });
+    return new Response(null, { status: 404 });
+  });
+  await checkFunctionalSmoke(releaseOrigin, false);
+  assert(paths.every(path => path.startsWith("/api/chains/4663/") && !path.includes("/buyback/")));
+});
+
+test("uploaded runtime flags must equal the frozen source even while persistent Base control is paused", () => {
+  const vars = { ENABLE_BASE_TRANSACTIONS: "false", BASE_FEE_COLLECTOR_ADDRESS: "0x4444444444444444444444444444444444444444" };
+  const bindings = Object.entries(vars).map(([name, text]) => ({ name, text, type: "plain_text" }));
+  assert.doesNotThrow(() => assertCandidateRuntimeBindings(bindings, vars));
+  const drift = bindings.map(binding => binding.name === "ENABLE_BASE_TRANSACTIONS" ? { ...binding, text: "true" } : binding);
+  assert.throws(() => assertCandidateRuntimeBindings(drift, vars), /activation is blocked/);
+  assert.throws(() => assertCandidateRuntimeBindings(bindings.slice(0, 1), vars), /activation is blocked/);
+});
+
+test("a pending Collector release cannot introduce the Base signing flag or a canary record", async () => {
+  const input = { previousVars: {}, candidateVars: {}, candidateManifest: structuredClone(BASE_COLLECTOR_MANIFEST),
+    previousRecoveryProtocol: false, pristine: async () => true };
+  assert.equal(await baseRollbackCompatible(input), true);
+  assert.equal(await baseRollbackCompatible({ ...input, candidateVars: { ENABLE_BASE_TRANSACTIONS: "true" } }), false);
+  input.candidateManifest.activation.status = "canary_verified";
+  assert.equal(await baseRollbackCompatible(input), false);
+});
+
+test("native Automation activation and destination changes require a matching recovery baseline", async () => {
+  const candidateManifest = deployedCollectorManifest(), candidateVars = { ENABLE_BASE_TRANSACTIONS: "false", BASE_FEE_COLLECTOR_ADDRESS: candidateManifest.collector.address! };
+  candidateManifest.nativeRule.ruleId = "base-native-rule";
+  candidateManifest.nativeRule.configurationSha256 = `0x${"aa".repeat(32)}`;
+  const input = { previousVars: {}, candidateVars, candidateManifest, previousRecoveryProtocol: false, pristine: async () => true };
+  assert.equal(await baseRollbackCompatible(input), false, "an initialized native rule cannot bootstrap against pre-native code");
+  const previousManifest = structuredClone(candidateManifest);
+  const compatible = { ...input, previousVars: candidateVars, previousManifest, previousRecoveryProtocol: true };
+  assert.equal(await baseRollbackCompatible(compatible), true);
+  previousManifest.nativeRule.recipient = "0x6666666666666666666666666666666666666666";
+  assert.equal(await baseRollbackCompatible(compatible), false, "a changed native recipient is not a compatible rollback");
+});
+
+test("release requires the new Base native policy without exposing an unactivated fee adapter for signing", async context => {
+  const responses = runtimeResponses();
+  for (const [path, response] of Object.entries(responses)) {
+    response.writesEnabled = false;
+    if (path.endsWith("/config")) Object.assign(response, { securityProtocol: 1, signingPaused: true, controlRevision: 0, feeEngine: null, feePolicy: FEE_POLICY });
+  }
+  const collector = "0x4444444444444444444444444444444444444444";
+  const base = responses["/api/chains/8453/config"];
+  Object.assign(base, { feePolicy: BASE_AUTOMATION_FEE_POLICY });
+  const vars = { ...runtimeVars, RUNTIME_SECURITY_PROTOCOL: "1", BASE_FEE_COLLECTOR_ADDRESS: collector };
+  context.mock.method(globalThis, "fetch", async (url: string) => Response.json(responses[new URL(url).pathname as keyof typeof responses]));
+  await checkRuntime(releaseOrigin, { vars });
+  Object.assign(base, { feePolicy: "creator-70-musegod-base-collector-v1" });
+  await assert.rejects(checkRuntime(releaseOrigin, { vars }), /Fee engine runtime/);
+  Object.assign(base, { feePolicy: BASE_AUTOMATION_FEE_POLICY, signingPaused: false, writesEnabled: true });
+  responses["/api/chains/8453/readyz"].writesEnabled = true;
+  await assert.rejects(checkRuntime(releaseOrigin, { vars: { ...vars, ENABLE_BASE_TRANSACTIONS: "true" } }), /Fee engine runtime/);
+  Object.assign(base, { feeEngine: collector });
+  await checkRuntime(releaseOrigin, { vars: { ...vars, ENABLE_BASE_TRANSACTIONS: "true" } });
 });

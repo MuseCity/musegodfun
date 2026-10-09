@@ -44,10 +44,19 @@ export class LaunchpadRuntime extends DurableObject<Env> {
     const runtime = runtimeFromEnv(this.chainId, environment as RuntimeEnvironment);
     if (runtime.config.mode === "fork" || !runtime.supabase?.url || !runtime.supabase.secretKey)
       throw new Error("Cloudflare requires a mainnet runtime and server-side Supabase storage");
-    const { app, service } = createApp(undefined, true, runtime, { ingressManaged:true, previews:this.previews, challenge:this.challenge });
+    const { app, service } = createApp(undefined, true, runtime, { ingressManaged:true, previews:this.previews, challenge:this.challenge,
+      chainConfig: chainId => this.env.LAUNCHPAD.get(this.env.LAUNCHPAD.idFromName(chainId === 8453 ? "base-mainnet" : "robinhood-mainnet")).chainConfiguration(),
+    });
+    void this.service?.vaultLedgerRuntime?.close();
     this.service = service;
     this.app = app;
     this.fingerprint = fingerprint;
+  }
+  /** Internal namespace RPC: historical destination recovery uses the current
+   * destination control record, never the source chain's signing state. */
+  async chainConfiguration() {
+    this.refreshRuntime();
+    return this.service.config();
   }
   async fetch(request: Request): Promise<Response> {
     const admission = this.ingress.admit(request.headers.get("x-forwarded-for") || "unknown", new URL(request.url).pathname);

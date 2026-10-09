@@ -1,0 +1,593 @@
+{
+  "schemaVersion": 2,
+  "recordedAt": "2026-10-09T14:17:36.534130+00:00",
+  "status": "local_implementation_accepted_mainnet_not_run",
+  "ownerDecision": "OK, implement Base Splits Treasury plus native Automation",
+  "architecture": "splits-treasury-native-automation",
+  "sourceBaseline": "f7c1264b2995c2c243c7f95419254a3e45d118f2",
+  "worktreeBranch": "codex/add-base-native-automation",
+  "fundPath": [
+    "actual Base manager fees",
+    "fixed immutable fee adapter",
+    "dedicated Base Splits native Automation",
+    "native Relay conversion and cross-network",
+    "canonical RH WETH at existing Treasury",
+    "existing fixed Forwarder",
+    "existing protected Vault",
+    "actual MUSEGOD Transfer to dead"
+  ],
+  "feePolicy": "creator-70-musegod-base-automation-v1",
+  "economics": {
+    "lpGross": {
+      "protocolBps": 500,
+      "creatorBps": 6650,
+      "operationsBps": 570,
+      "buybackBps": 2280
+    },
+    "hookNet": {
+      "creatorBps": 7000,
+      "operationsBps": 600,
+      "buybackBps": 2400
+    },
+    "secondDeduction": false
+  },
+  "sourceAdapter": {
+    "upgradeable": false,
+    "governorAuthority": [
+      "pause",
+      "resume"
+    ],
+    "claim": "permissionless exact manager and fee-share identity; actual balance deltas",
+    "release": "both B20 and launched meme-token genuine credits to one immutable Automation recipient; exact token and recipient balance deltas",
+    "donations": "untracked and excluded from fee income",
+    "arbitraryCallOrAllowance": false,
+    "sourceFork": "base-collector-native-source-fork.json"
+  },
+  "mutableNativeAuthority": "Splits owner/passkeys/server signer can control account calls and native rules; this is not an ownerless Swapper or immutable route policy. Reviewed configuration does not prove scheduler health.",
+  "sourceProtectionsSuperseded": [
+    "LI.FI/Across-only route",
+    "project EIP712 quote signer/nonce/epoch/60s TTL",
+    "Collector-enforced 99% price/minimum destination ratio",
+    "source 0.01 WETH/300s rolling caps",
+    "fixed Collector refund and allowance-clear invariant"
+  ],
+  "destinationProtections": "Existing fixed RH graph, spot/5m/30m checks, 2% divergence, profitability/gas and shared all-callers 0.01 WETH/300s retained.",
+  "custodyAttribution": {
+    "protocol": "splits_native_relay_v1",
+    "histories": "Base Automation all ERC20 flows, RH Treasury all WETH flows, shared Vault all WETH flows/Executed including external callers",
+    "basis": "canonical complete checkpoints, balances/counters, conserved FIFO fragments, per-actual-consumption proportional museToDead, profit separate",
+    "unknown": "No API DONE/404/timeout alone creates funds or releases gas/source spending; unsupported provider execution stays unknown",
+    "storage": "additive SQLite/Supabase full keyset pages, CAS, canonical reorg replay, complete backup restore",
+    "sourceIdentity": "accounting attribution, not onchain source segregation",
+    "automaticEvidenceVersion": 2,
+    "orderParametersVerified": false,
+    "nativeJobCompletion": "Actual positive canonical WETH arrival is an accounting association, not proof of full provider job completion; public activation additionally requires exact human-reviewed native scheduled-run acceptance.",
+    "sourceObservationStatus": "received records canonical arrival; awaiting_buyback/attributed are read projections of the verified FIFO ledger."
+  },
+  "launchQualification": {
+    "exactAssets": 36,
+    "source": "base-jumper-qualification.json",
+    "pricing": "three executable legs USDC->B20->WETH->USDC; per-leg precision/raw units; no provider USD shortcuts;60sTTL;10USDC then100only true no-route;429defer",
+    "nativeProviderRoutes": "base-native-route-qualification.json",
+    "nativeSchedulerExecution": "not_run",
+    "genuineMainnetClosedLoop": "not_run",
+    "nativeQuoteSummary": {
+      "assets": 36,
+      "quoted": 35,
+      "unavailable": 1,
+      "unknown": 0
+    }
+  },
+  "ownerChecklist": "base-owner-proposal.json",
+  "historicalCandidateEvidence": "historical-base-restricted-module/README.md",
+  "localValidation": {
+    "status": "passed",
+    "completedAt": "2026-10-09T14:17:36.534130+00:00",
+    "sourceTreeSha256": "5b9036625d3690b899b0318f048d54e508ef0465ee79c9265179d020b849d0c6",
+    "sourceFiles": [
+      {
+        "path": ".env.example",
+        "sha256": "0be80e063dbfd1e706cbbf3fb250383b997db6bd83ef41af712b4314c9954dcc"
+      },
+      {
+        "path": ".github/workflows/deploy.yml",
+        "sha256": "0d3c3d6b78c37f2867173e3a720b1bceff3dbf42630285f156f367fa929bd568"
+      },
+      {
+        "path": "README.md",
+        "sha256": "7535a6b0246d6667178068dd24cd67345a8d2ecd4851dec7613481c8c0045598"
+      },
+      {
+        "path": "contracts/artifacts/base-collector-deployment.json",
+        "sha256": "ef7cf3722ebb1096dcd830fc95930dc9a88be00c47658628c67e889395a63760"
+      },
+      {
+        "path": "contracts/artifacts/base-collector-preflight.json",
+        "sha256": "db64a450d79a9a7fa125a637855285e8e69b6a43220b42324d7c7eca8911e085"
+      },
+      {
+        "path": "contracts/artifacts/base-collector/MusegodBaseFeeCollector.compiler-input.json",
+        "sha256": "c597501cebc8b08c092fdba4f88ab39bf9f972551b781f53e0cebf150de03bf4"
+      },
+      {
+        "path": "contracts/artifacts/base-collector/MusegodBaseFeeCollector.json",
+        "sha256": "9cc62f15ad3e02f35377dcd8cb66083e1a22f2eb84a9e965cae64168343e199c"
+      },
+      {
+        "path": "contracts/artifacts/base-collector/splits-base-code.json",
+        "sha256": "e1537b56f5cf4f2fc31790e55c0d19cb532e203e8c1ca23114f2a7e176bddcd7"
+      },
+      {
+        "path": "contracts/src/MusegodBaseFeeCollector.sol",
+        "sha256": "42d96811ea1107bb799cb7af16de38af1d86e13dcdb14844a35c0cda942ae122"
+      },
+      {
+        "path": "contracts/test/MusegodBaseFeeCollector.t.sol",
+        "sha256": "a619b80e29f10d5b3ece0b2a2f0b0566bc5f022b57fd3f9128b5eab2f20f79f3"
+      },
+      {
+        "path": "docs/SPEC.md",
+        "sha256": "f3510aac13115d0498e30c1f39a1973b024561dbd31ec20f1e1d503c6f6b958f"
+      },
+      {
+        "path": "package.json",
+        "sha256": "0b00a9d20f788cbc1320d473baa8ba6bca886ecd40d74afa6eff925368af4a36"
+      },
+      {
+        "path": "scripts/base-buyback-keeper.ts",
+        "sha256": "ae7af94521eff927ca8b78c3cba8ea72a69c0ef8f3adb4ec76560359623f6fe4"
+      },
+      {
+        "path": "scripts/base-canary-server.ts",
+        "sha256": "539d13c831f51b34e379395ee8a639a4451c578d3395ec96760519effc92a113"
+      },
+      {
+        "path": "scripts/build-base-collector.ts",
+        "sha256": "faa64148af951a3c3c276b603b3326860135a06d56b420951dd27fdfed8f1e49"
+      },
+      {
+        "path": "scripts/buyback-vault-ledger.ts",
+        "sha256": "fae13956bef8400e73351152b27456a54cd258320fd0703cb32cd31f5e767744"
+      },
+      {
+        "path": "scripts/deploy-base-collector.ts",
+        "sha256": "0eeca25a86558375983017ba99a8dbe106ce69e1acfd553b81aae65a54a738dd"
+      },
+      {
+        "path": "scripts/release-policy.ts",
+        "sha256": "751f874c9936ce803225f04941ebee86eb40916738e2732fa56a1d1a95dfd046"
+      },
+      {
+        "path": "scripts/release.ts",
+        "sha256": "84ec5a43b7d4be1d7bb8a98ce8921a196afe125676ef2f53d22d70750d54f2bd"
+      },
+      {
+        "path": "scripts/robinhood-fork.ts",
+        "sha256": "98d4f4ffc84929cf8b468e426babceda0848d8f93f59f456d58c7b52da1f102d"
+      },
+      {
+        "path": "scripts/test-base-collector-fork.ts",
+        "sha256": "33b511cbb56930b006b9da4921c16044a5700e553f38401a9fd9074b5ab10af4"
+      },
+      {
+        "path": "scripts/verify-base.ts",
+        "sha256": "ab5febca9a9e64d60048a38bb4da26a21075dd59797604ed6311e12f300c29b6"
+      },
+      {
+        "path": "scripts/verify-database.ts",
+        "sha256": "3652d9069efc2e6f0a4622d008408a14ad21cff992a8a92b7dbb628eb6057a3d"
+      },
+      {
+        "path": "server/app.ts",
+        "sha256": "1034b830083d86b67b67ab6e0604fba16b1688209f125076b89e33db58936c90"
+      },
+      {
+        "path": "server/base-buyback.ts",
+        "sha256": "46c2cf59f4cf6b9794720b84439b218ddb7c45e60a53b5ff71f57417bb7b9c9b"
+      },
+      {
+        "path": "server/base-collector.ts",
+        "sha256": "f266efc5bd7d4b5e948eaf6300c9a1b6a675948f6e637f26d6c0c8418efd699b"
+      },
+      {
+        "path": "server/base-native-observer.ts",
+        "sha256": "6b97e2ce26d6f60d926343ca3099e8f58a854ca86ebb54e5182f11a90dd73160"
+      },
+      {
+        "path": "server/base-native-provenance.ts",
+        "sha256": "141edcd0b6cee2a743a6f8116634ecd04d7ba3d81bebe16788bc91dd57fc5712"
+      },
+      {
+        "path": "server/base-native-trace.ts",
+        "sha256": "f302e7b56f7d1432480e46aa6a689db0aeaa6a2d07eb2d74e9e0246f59e05fdc"
+      },
+      {
+        "path": "server/buyback-activation.ts",
+        "sha256": "3a6f8ce37e9943e87aecc55387884d27dbf2a6a48fb6bee68dd6ec604d21cd93"
+      },
+      {
+        "path": "server/buyback-batches.ts",
+        "sha256": "8fccb06092cb9d883e89ed8a36532d26a4f809be4c4a93f502882211870446f1"
+      },
+      {
+        "path": "server/buyback-custody-ledger.ts",
+        "sha256": "e4e03c762f1ad542cfff95acafa94e9bab51fc96360e11ac7a3268ad888699d9"
+      },
+      {
+        "path": "server/buyback-vault-ledger.ts",
+        "sha256": "e9a988f17549fc83ce505467f3adb23a9483ecde0cb0c46b9f17071fa0147cad"
+      },
+      {
+        "path": "server/buyback-vault-runtime.ts",
+        "sha256": "3f6222387293ef8f3300cb49cfbca9b4389125754537d29d3039b456b40f23a9"
+      },
+      {
+        "path": "server/config.ts",
+        "sha256": "6d0275809064fb2870fe309eafbced1fcdf5336483b131c6c84a8a5175739ea2"
+      },
+      {
+        "path": "server/index.ts",
+        "sha256": "600e42da0d5304d586bf7871b29468d48b744b947253854b51d663c963183659"
+      },
+      {
+        "path": "server/launch-policy-registry.ts",
+        "sha256": "d03a4f08e961dad9cc3a3940081ed5c9f5e8905275f00b222f869e84b78e3a27"
+      },
+      {
+        "path": "server/launch-verification.ts",
+        "sha256": "cd1c8f7df9a4eaa5560585701d4ef8f177d47843d87274577c56029fd35c9a2e"
+      },
+      {
+        "path": "server/lifi.ts",
+        "sha256": "38784deb7a193d8eb7b268d562ee614b5985ed8b9046e36c3376262b21217c25"
+      },
+      {
+        "path": "server/opening-price.ts",
+        "sha256": "6431af20897a66d5cb37866f025b2deed4434b1687e8f8382d991cda01c8f4f9"
+      },
+      {
+        "path": "server/service.ts",
+        "sha256": "e2f07dd280cc0740a566a8cc53900ff0a893c297a141b3f0ade1e07418eb3b9f"
+      },
+      {
+        "path": "server/store.ts",
+        "sha256": "5d437be0f800daaf0a4a187a7a9fb06c870fafcf2a5240432cefba5dc0b7cf8c"
+      },
+      {
+        "path": "server/supabase-store.ts",
+        "sha256": "5054ca7122707e43f25f49c3ecd8e8c3656ab4b3a1aa85eac3f465b984b8eb7f"
+      },
+      {
+        "path": "src/App.tsx",
+        "sha256": "1308ffb02d9798c278a5a807ec57408c846e310a82d55d10a048a94e1e4299f6"
+      },
+      {
+        "path": "src/components/BaseBuyback.tsx",
+        "sha256": "7d76ad76727bed359b87afeba67498d2c9d98c3a8b56dbb631deb463eb95faec"
+      },
+      {
+        "path": "src/components/BuybackEngine.tsx",
+        "sha256": "a0fe4605af64dc7b80d185d4110d7c9ee49e0b32c1c869525d6557a16b68f67d"
+      },
+      {
+        "path": "src/components/BuybackPage.tsx",
+        "sha256": "d76592f9673d5cd63879914240ba57c366de20e486130645ae5af97ca5579d54"
+      },
+      {
+        "path": "src/components/FeeBreakdown.tsx",
+        "sha256": "285c2c069ded872a3bdbd4476d2efc1de3082f3739aa184f4f6136d57acb2518"
+      },
+      {
+        "path": "src/lib/base-buyback.ts",
+        "sha256": "a260365a59f3978c7a5bddb0877620be97d5538cb8819734a5602f98c97ce130"
+      },
+      {
+        "path": "src/lib/buyback-custody-ledger.ts",
+        "sha256": "1504708d94bb88aa9e054a855a3f1c1039f6f0fc8c4a10fb0dd584123a91bbec"
+      },
+      {
+        "path": "src/lib/buyback-vault-ledger.ts",
+        "sha256": "df90e07a6844cb9ac8c66510060286cabe5ab8494a2c13faa51650580708c5d4"
+      },
+      {
+        "path": "src/lib/fee-policy.ts",
+        "sha256": "db09887448be798bffb6727292ccefb5003ebeb66e6b06123c380165ab01c3a8"
+      },
+      {
+        "path": "src/lib/lifi-launch-assets.json",
+        "sha256": "5ad7c77b05126ffe45d5397f428feb30c5fe83aea5030b13dfb3f3ee4dc97d09"
+      },
+      {
+        "path": "src/lib/network.tsx",
+        "sha256": "6273d7c5d6c1a6528875ed71292561c63251759fa255a2f2628e6f941bf04e2f"
+      },
+      {
+        "path": "src/lib/opening-valuation.ts",
+        "sha256": "df2169efb90f92c71e0438fbd2aefbc9b2d8fd417a00443b8c8020e4d366d3b2"
+      },
+      {
+        "path": "src/lib/protocol.ts",
+        "sha256": "ee0151c6edeb4976e770cc88afe06c1a6b36283689bf8d7739383c301d266fd6"
+      },
+      {
+        "path": "src/lib/wallet.tsx",
+        "sha256": "9d337dc299006f0864c2bed65c0be923d7a69691735e6e5e6ee843b8a43e985b"
+      },
+      {
+        "path": "supabase/migrations/20261009050807_buyback_vault_ledger.sql",
+        "sha256": "6bc45b408930ed1bbaf3f9df1f18977388e93d1c6d399d5ee6dfda5db489d72f"
+      },
+      {
+        "path": "supabase/migrations/20261009125045_buyback_native_custody_ledger.sql",
+        "sha256": "6960af2a77fd5c67cf5b77a719ff27ce559b8edb23db850054cb3868d98e5637"
+      },
+      {
+        "path": "tests/base-buyback-keeper.test.ts",
+        "sha256": "d859fa11c9c98a603881235f3488f6de5cf77c15309d6c9ba87c1418f47aeea3"
+      },
+      {
+        "path": "tests/base-buyback.test.ts",
+        "sha256": "7eb3dac487d6e5ce5349ac16e0a8d0e88f78646a7bb3dd4f8dd98b0c06d97eb4"
+      },
+      {
+        "path": "tests/base-canary-origin.test.ts",
+        "sha256": "b26ef1b53330320c7aaf1a1a89afda0a2974a396ddc9c50865dfacbecca808e0"
+      },
+      {
+        "path": "tests/base-collector-verification.test.ts",
+        "sha256": "dd9cabc0a68ba6f07e791927ba248dc0c9dbd1b2a74075ab6b89a93c9da7f3fe"
+      },
+      {
+        "path": "tests/base-fee-policy.test.ts",
+        "sha256": "8a8032ea0eb7555dbf673bef225023c6d5b23f3c3419a3ccbfcc58bededddedc"
+      },
+      {
+        "path": "tests/base-integration.test.ts",
+        "sha256": "cf694b1b964fcb3979ba3d4a4a6948b503b92fef70af61ba1417b02c1348515f"
+      },
+      {
+        "path": "tests/base-launch-qualification.test.ts",
+        "sha256": "9c0759f86d853cf5024d0f5ccd7faab6ba397f3090b059e81b76490237f3763a"
+      },
+      {
+        "path": "tests/base-native-observer.test.ts",
+        "sha256": "28785c4c80cacf86005f10870517cee47aec95f9dfd4ece3c3db04786a2fa183"
+      },
+      {
+        "path": "tests/base-native-provenance.test.ts",
+        "sha256": "76189331f4f6fdccec2c3f516a0375ae64eb161c9d1c7235b6aeaabfb0d87934"
+      },
+      {
+        "path": "tests/base-native-trace.test.ts",
+        "sha256": "5785b156dce52be986101365988806576543cb3f52f9c086dea87b9f641d68fd"
+      },
+      {
+        "path": "tests/base-recovery.test.ts",
+        "sha256": "8188fbf5ec0815224eae4e4cd55f58278ee6f03d72b0a852e1389d7bd5de358d"
+      },
+      {
+        "path": "tests/buyback-custody-ledger.test.ts",
+        "sha256": "bc2cb04f7ad62681a7d3a60980daa691daa4d865f0ca866661bf4df51258073f"
+      },
+      {
+        "path": "tests/buyback-store.test.ts",
+        "sha256": "854379a3fdbadb499ab1ddba3f8e684c9050ec613a7a932b80be538d5aed6e36"
+      },
+      {
+        "path": "tests/buyback-vault-ledger-database.test.ts",
+        "sha256": "a52c2f3e6d9e0d979baa6a01efa0dbc0c9dac4401cdeff934a747cf7707b92c4"
+      },
+      {
+        "path": "tests/buyback-vault-ledger.test.ts",
+        "sha256": "a14985b8f41a5a60efeb20841e34b74481c3346b59ee07b22e1de52562219b88"
+      },
+      {
+        "path": "tests/buyback-vault-runtime.test.ts",
+        "sha256": "35d646242b72d664b7df215529ccb79f0aef7fc708a05985a638f117cedcb214"
+      },
+      {
+        "path": "tests/buyback-wallet.test.ts",
+        "sha256": "c6e54f0f70fefb9bc56b33ed228537a9e68dc8ab78d45389c60f43905045f7f7"
+      },
+      {
+        "path": "tests/buyback.test.ts",
+        "sha256": "711a29415cd996925ba59e29a2e8a7c279fc9fda1a3efb1060ff80fa5f7be25a"
+      },
+      {
+        "path": "tests/dualchain-runtime.test.ts",
+        "sha256": "5c283ca04d7068f8a2bd128139f885c49b94cffac236303af416adf26be027a3"
+      },
+      {
+        "path": "tests/fee-policy.test.ts",
+        "sha256": "8f630e65231f577a55ee73bd7b756d668485bc3e6d0d986726fab0e80e75e482"
+      },
+      {
+        "path": "tests/launch-draft.test.ts",
+        "sha256": "413affe985ea6e20ad5dcb0c5814b9e3c96f43e70327de0953474625efe80080"
+      },
+      {
+        "path": "tests/launch-policy-registry.test.ts",
+        "sha256": "7dc9b870f03279cbe67bd9599b7b093c99ea663dacc7f2bed9dbb542ebeb9161"
+      },
+      {
+        "path": "tests/launch-service.test.ts",
+        "sha256": "211a3051992602e7cd9550c8f7111aa9c177bf043de9d09e90d7a486a7511228"
+      },
+      {
+        "path": "tests/network.test.ts",
+        "sha256": "0f5481398df6848f025d6cd363b1e847451b68e30c8d1d936ed739811388a682"
+      },
+      {
+        "path": "tests/opening-price.test.ts",
+        "sha256": "b3e52c742ee26c9c46c8b6a134f089f385e24fa63eae84124f4d1d538110a309"
+      },
+      {
+        "path": "tests/reconcile-budget.test.ts",
+        "sha256": "cbe7cb6358aa1641d6d6d93cb56f4c6ad822845f114f811cf6f65a5ba9c0c359"
+      },
+      {
+        "path": "tests/release-policy.test.ts",
+        "sha256": "af4d89f37222a879a8e45020a3c62c38d832943fadafa72fae090b2dd04a7b89"
+      },
+      {
+        "path": "tests/runtime-worker.test.ts",
+        "sha256": "2b0b093792637a520f5138ee4599b31d6e061f2d4eaa8612e4d383179003f8f9"
+      },
+      {
+        "path": "tests/wallet-robinhood.test.ts",
+        "sha256": "e3b4d1a76f7e3806f3818b3993e5e4ea9aaa342a7872f95b7d9d6c2948cd7601"
+      },
+      {
+        "path": "worker/index.ts",
+        "sha256": "6cefe899201b920e2dd85a2f5f8416aadbfaabd8f8150a46689ae82c35742217"
+      }
+    ],
+    "applicationTests": {
+      "command": "npm test",
+      "passed": 775,
+      "failed": 0,
+      "skipped": 0,
+      "includes": [
+        "actual isolated PostgreSQL migrations/CAS/RLS/revalidation/full backup restore",
+        "real Workerd API/native bindings/persistent pause/historical cross-chain recovery",
+        "observer duplicate/archive/reorg/timestamp/cursor/zero-income claim regressions"
+      ]
+    },
+    "contractTests": {
+      "command": "forge test --root contracts",
+      "passed": 165,
+      "failed": 0,
+      "skipped": 0,
+      "collectorTests": 22
+    },
+    "build": {
+      "command": "npm run build",
+      "status": "passed",
+      "applicationTypecheck": "passed",
+      "workerTypecheck": "passed",
+      "frontendWarning": "Existing main chunk exceeds the Vite 500kB advisory threshold; build succeeded."
+    },
+    "workerDryRun": {
+      "command": "npx wrangler deploy --dry-run --outdir .cache/base-native-worker-dry-run",
+      "status": "passed",
+      "assets": 216,
+      "uploadKiB": 4254.49,
+      "gzipKiB": 875.23,
+      "deployed": false,
+      "completedNativeManifestColdWorkerQuota": "not_run"
+    },
+    "sourceFork": {
+      "evidence": "base-collector-native-source-fork.json",
+      "status": "passed",
+      "blockNumber": "52380997",
+      "scriptSha256": "33b511cbb56930b006b9da4921c16044a5700e553f38401a9fd9074b5ab10af4",
+      "sourceClaimReleaseFlowPassed": true,
+      "mainnetTransactionsSubmitted": false,
+      "nativeScheduler": "not_run",
+      "crossChainFill": "not_run"
+    },
+    "database": {
+      "scope": "Pinned PostgreSQL Docker image, network none, temporary isolated database; no production migration",
+      "status": "passed",
+      "nativeEvents": 1201,
+      "vaultEvents": 1201,
+      "parity": "SQLite/PostgreSQL",
+      "existingContainerPreserved": true,
+      "vaultMigrationSha256": "6bc45b408930ed1bbaf3f9df1f18977388e93d1c6d399d5ee6dfda5db489d72f",
+      "nativeMigrationSha256": "6960af2a77fd5c67cf5b77a719ff27ce559b8edb23db850054cb3868d98e5637"
+    },
+    "cliReadiness": {
+      "baseKeeperDryRun": "not_deployed (expected)",
+      "privateCanaryHelp": "passed",
+      "ledgerHelp": "passed",
+      "signed": false
+    },
+    "diffCheck": "passed",
+    "primaryCheckout": "unchanged; unrelated musegod.fun redesign.html preserved"
+  },
+  "mainnetDeployment": "not_run",
+  "nativeAccountAndRuleCreation": "not_run",
+  "publicBaseActivation": "not_run",
+  "productionMutation": false,
+  "sources": [
+    "https://splits.org/docs/solutions/revenue-automation",
+    "https://splits.org/docs/accounts",
+    "https://docs.relay.link/references/api/get-quote-v2",
+    "https://docs.relay.link/references/api/get-intents-status-v3"
+  ],
+  "productionObservation": {
+    "observedAt": "2026-10-09T14:23:56.082062+00:00",
+    "rows": [
+      {
+        "origin": "https://musegod.fun",
+        "chainId": 8453,
+        "status": "observed",
+        "httpStatus": 200,
+        "writesEnabled": false,
+        "feePolicy": "creator-70-musegod-v2",
+        "feeEngine": null,
+        "runtimeControl": null,
+        "responseSha256": "6bdf23b2939aaf0a1c6bbafda4482fb3b7bc35a389bc89b5e3ab16df288e499d",
+        "controlFields": {
+          "controlRevision": 0,
+          "signingPaused": true
+        }
+      },
+      {
+        "origin": "https://musegod.fun",
+        "chainId": 4663,
+        "status": "observed",
+        "httpStatus": 200,
+        "writesEnabled": true,
+        "feePolicy": "creator-70-musegod-swapper-v3",
+        "feeEngine": "0x9caefd217ea5a039BbA77Ae5b0626733eA093769",
+        "runtimeControl": null,
+        "responseSha256": "5b8e31a288050626ed65d6b18955b315e5708de21241f2a2519ef9a186e8d2b4",
+        "controlFields": {
+          "controlRevision": 1,
+          "signingPaused": false
+        }
+      },
+      {
+        "origin": "https://www.musegod.fun",
+        "chainId": 8453,
+        "status": "observed",
+        "httpStatus": 200,
+        "writesEnabled": false,
+        "feePolicy": "creator-70-musegod-v2",
+        "feeEngine": null,
+        "runtimeControl": null,
+        "responseSha256": "6bdf23b2939aaf0a1c6bbafda4482fb3b7bc35a389bc89b5e3ab16df288e499d",
+        "controlFields": {
+          "controlRevision": 0,
+          "signingPaused": true
+        }
+      },
+      {
+        "origin": "https://www.musegod.fun",
+        "chainId": 4663,
+        "status": "observed",
+        "httpStatus": 200,
+        "writesEnabled": true,
+        "feePolicy": "creator-70-musegod-swapper-v3",
+        "feeEngine": "0x9caefd217ea5a039BbA77Ae5b0626733eA093769",
+        "runtimeControl": null,
+        "responseSha256": "5b8e31a288050626ed65d6b18955b315e5708de21241f2a2519ef9a186e8d2b4",
+        "controlFields": {
+          "controlRevision": 1,
+          "signingPaused": false
+        }
+      }
+    ],
+    "mutation": false
+  },
+  "pendingMainnetAcceptance": [
+    "Actual dedicated Base Automation creation, current authority and exact native rule review",
+    "Unsigned Collector transaction/deployment gas estimate after actual account/nonce are known, then owner-authorized deployment",
+    "Owner-authorized production additive journals/checkpoints/backups before first release",
+    "Actual Base-fee native scheduled run, canonical RH Treasury receipt, shared Vault execution and per-batch actual dead attribution",
+    "Human desktop/mobile issuance, first buy, trades, claims, broadcast recovery, pause/compatible rollback",
+    "Completed-native-manifest cold/warm actual Worker budget and both-origin paused release verification",
+    "Separate public Base flag and latest revision CAS resume"
+  ]
+}

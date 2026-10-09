@@ -58,6 +58,9 @@ import {
   FEE_SHARES,
   MUSEGOD_BUYBACK,
   allocateFeeIncome,
+  BASE_AUTOMATION_FEE_POLICY,
+  BASE_COLLECTOR_FEE_POLICY,
+  isEngineFeePolicy,
   feePolicyFor,
   launchFeePolicy,
 } from "./lib/fee-policy";
@@ -205,7 +208,7 @@ function Link({
   children: ReactNode;
 } & Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "href" | "onClick">) {
   const { chainId } = useNetwork();
-  const target = ["/", "/create", "/rewards"].includes(href) ? `${href}?chainId=${chainId}` : href;
+  const target = ["/", "/create", "/rewards", "/buyback"].includes(href) ? `${href}?chainId=${chainId}` : href;
   return (
     <a
       href={target}
@@ -1057,7 +1060,7 @@ export function Explore({
             <span><span className="mono">{launchAssets.length}</span> tokenized stocks, ETFs and crypto assets on {chainName}. The pair is permanent.</span></li>
           <li><span className="step-no">03 · EARN</span><b>Set a {feePercent(TRADING_FEE_BPS[0])}–{feePercent(TRADING_FEE_BPS.at(-1)!)} fee, keep {feePercent(shares.creator)} of it</b>
             <span>Fees accrue on-chain in the paired asset and your token. Claim the trading fee and LP fee whenever you like; only gas is due.</span></li>
-          <li className="halo"><span className="step-no">04 · BURN</span><b>{feePercent(shares.buyback)} funds MUSEGOD buybacks</b>
+          <li className="halo"><span className="step-no">04 · BURN</span><b>{feePercent(shares.buyback)} allocated to MUSEGOD buybacks</b>
             <span>The platform’s buyback share is reserved for MUSEGOD buybacks; purchased MUSEGOD goes to the dead address. <Link href="/buyback">See the buyback status</Link>.</span></li>
         </ol>
       </section>
@@ -2597,7 +2600,7 @@ function CreatePage({
               </div>
               <div>
                 <dt>Platform income allocation (platform income = 100%)</dt>
-                <dd className="sans">{feePercent(FEE_SHARES.platformBuyback)} to buybacks and {feePercent(FEE_SHARES.platformOperations)} to operations{config.feeEngine ? ", split directly between the public engine and treasury" : ", allocated manually by the treasury wallet"}</dd>
+                <dd className="sans">{feePercent(FEE_SHARES.platformBuyback)} to buybacks and {feePercent(FEE_SHARES.platformOperations)} to operations{config.feeEngine ? config.feePolicy === BASE_AUTOMATION_FEE_POLICY ? ", split directly between the Base fee adapter and treasury; the buyback share uses Splits native Automation" : config.feePolicy === BASE_COLLECTOR_FEE_POLICY ? ", split directly between the historical Base Collector and treasury" : ", split directly between the public engine and treasury" : ", allocated manually by the treasury wallet"}</dd>
               </div>
               <div>
                 <dt>Launch cost</dt>
@@ -3344,11 +3347,12 @@ function FeeCard({
   const policy = feePolicyFor(token.feePolicy);
   const isTreasury = !!wallet.account && !!token.feeTreasury && sameAddress(token.feeTreasury, wallet.account);
   const isCreator = !!wallet.account && !!token.creator && sameAddress(token.creator, wallet.account);
-  const incomeTitle = !policy ? "Beneficiary fees" : isTreasury
+  const splitOnChain = isEngineFeePolicy(token.feePolicy);
+  const incomeTitle = !policy ? "Beneficiary fees" : splitOnChain && isTreasury ? isCreator ? "Creator and operating income" : "Operating income" : isTreasury
     ? isCreator ? (policy.operations > 0 ? "Creator and platform income" : "Creator income and buyback funds")
       : policy.operations > 0 ? "Platform income (buyback and operations)" : "Buyback funds"
     : isCreator ? "Creator income" : "Beneficiary fees";
-  const policyNote = !policy ? "This pool has no identified fee policy. Only claimable on-chain amounts are shown, without estimating their allocation." : isTreasury
+  const policyNote = !policy ? "This pool has no identified fee policy. Only claimable on-chain amounts are shown, without estimating their allocation." : splitOnChain ? "The buyback share was split directly to the fee processor on-chain. This beneficiary claims only its creator or operating allocation; no second 80/20 split applies." : isTreasury
     ? `${isCreator ? `The creator and platform share this address. First allocate the claimed amount ${feePercent(policy.creatorNet)} to the creator and ${feePercent(policy.platformNet)} to the platform.` : "This address claims platform income."}${policy.operations > 0 ? ` Then allocate platform income ${feePercent(policy.platformBuyback)} to buybacks and ${feePercent(policy.platformOperations)} to operations.` : " This pool retains its original policy: all platform income is allocated to the buyback budget."}`
     : "";
   const stock = quoteAsset(token);

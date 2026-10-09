@@ -14,7 +14,8 @@ test("canonical and legacy token URLs choose a network independently of the wall
   assert.equal(pathChain(`/token/base/${token.address}`, "?chainId=4663"), 8453);
   assert.equal(pathChain(`/token/robinhood/${token.address}`, "?chainId=8453"), 4663);
   assert.equal(pathChain(`/token/${token.address}`, "?chainId=8453"), 4663);
-  assert.equal(pathChain("/buyback", "?chainId=8453"), 4663);
+  assert.equal(pathChain("/buyback", "?chainId=8453"), 8453);
+  assert.equal(pathChain("/buyback", ""), 4663);
   assert.equal(tokenPath(token), `/token/base/${token.address}`);
   assert.equal(tokenPath({ ...token, mode: "robinhood" }), `/token/robinhood/${token.address}`);
   assert.equal(tokenPath({ ...token, mode: "fork", deploymentChainId: 4663 }), `/token/robinhood/${token.address}`);

@@ -1,8 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createWalletClient, custom, toHex, type Hash } from "viem";
+import { createWalletClient, custom, toHex, encodeFunctionData, erc20Abi, type Hash } from "viem";
 import { assetsFor, contractsFor, STOCKS, type RuntimeConfig } from "../src/lib/config";
 import { assertSigningEnabled, launchSchema, restoreDraft } from "../src/lib/validation";
+import { RELAY_APPROVAL_PROXY, type BuybackStep } from "../src/lib/buyback";
 import { walletChain, assertBuybackStep } from "../src/lib/wallet";
 import { saveTransaction, transactions, transactionMatchesConfig, type Transaction } from "../src/lib/transactions";
 
@@ -99,5 +100,10 @@ test("Robinhood actions persist while Base and Robinhood forks keep separate rec
 });
 
 test("legacy Base bridge signing does not become available in Robinhood mode", () => {
-  assert.throws(() => assertBuybackStep({} as never, robinhood, account), /configured mainnet treasury wallet/);
+  const step: BuybackStep = { batchId: "historical-base-approval", kind: "approval", chainId: 8453, from: account,
+    stockAddress: STOCKS[0].address, to: STOCKS[0].address, amount: "100", nonce: 7, value: "0", expiresAt: Date.now() + 60_000,
+    data: encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [RELAY_APPROVAL_PROXY, 100n] }) };
+  const controls: Pick<RuntimeConfig, "securityProtocol" | "signingPaused" | "controlRevision"> = { securityProtocol: 1, signingPaused: false, controlRevision: 1 };
+  assert.throws(() => assertBuybackStep(step, { ...robinhood, ...controls }, account), /transaction chain controls/);
+  assert.doesNotThrow(() => assertBuybackStep(step, { ...robinhood, ...controls, mode: "base", chainId: 8453, deploymentChainId: 8453 }, account));
 });

@@ -1,0 +1,149 @@
+{
+  "version": 1,
+  "scope": "Actual Base deployed protocol and Splits factory/implementation on isolated Anvil; local account and source graph only",
+  "status": "passed",
+  "actualExecutionGraphVerification": "passed",
+  "forkBlockNumber": "52375444",
+  "upstreamChainId": 8453,
+  "executionChainId": 8453,
+  "sourceHash": "91b10887636d97509e7b0205b04b708a90fa906a0fa0f9bcb321aadd34715eed",
+  "verifierSourceSha256": "f1b3002350c58117c9055d6b0e054372d3ab3516400fc24e211b9b21fd2a7051",
+  "artifactCreationHash": "0xa87bf0cd5a75bedd5fb90fed74a3ce7f8b4c901bc7de6dbb128e67b628e0b04c",
+  "moduleCreationHash": "0x4c5722e1a407d7dafef379d2b9014de5630f379eaee8d038218af11bfb508d43",
+  "actualExecutionGraph": {
+    "manifest": {
+      "schemaVersion": 1,
+      "chainId": 8453,
+      "status": "deployed_verified",
+      "feePolicy": "creator-70-musegod-base-collector-v1",
+      "collector": {
+        "address": "0x01B95C4Edf7438db75ABFA594fE7A2E1dE08308e",
+        "runtimeHash": "0x479d74729e4f7635261d15282feeb1f695b6e6f0820af46f0e6f0d8a2a08da8d",
+        "transactionHash": "0xa716ee61dabdebf81e7e374f39b91fdbd1dfe5765d246533f3a22525865ba69c",
+        "blockNumber": "52375447"
+      },
+      "constants": {
+        "initializer": "0xbdf938149ac6a781f94faa0ed45e6a0e984c6544",
+        "rehype": "0x5f9eb5f6726fe88d5e39867967f5b833d2fa3215",
+        "weth": "0x4200000000000000000000000000000000000006",
+        "destinationWeth": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+        "destinationVault": "0x28E6B43525301312084310F31f4C9c9873d7a125",
+        "assetsHash": "0xbc40fac93d7093d0f492d70096feaa26880598eb4d674c6d2397ea8171ddf9f9",
+        "governor": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+        "quoteSigner": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+        "gasKeeper": "0x90F79bf6EB2c4f870365E785982E1f101E93b906",
+        "operationsTreasury": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+        "executionAccount": "0xDF0F7a120cbb2AB7173b0317b54a9Edd597C8514",
+        "executionModule": "0x53aAaFF51a552439A2Ddc16bfCF1BA787bF484e8"
+      },
+      "dependencies": {
+        "diamond": {
+          "address": "0x1231DEB6f5749EF6cE6943a275A1D3E7486F4EaE",
+          "runtimeHash": "0x5efa2ebe1ed041ce83c069f1cedc04945f1438680dacf5f88068ef6c7d94110a",
+          "proxyImplementation": null,
+          "proxyCheck": "direct"
+        },
+        "genericFacet": {
+          "address": "0x31a9b1835864706Af10103b31Ea2b79bdb995F5F",
+          "runtimeHash": "0xc207f6fc07b111370c4d536c8c36de974367fd8876c867e390a5535cb120dbd7",
+          "proxyImplementation": null,
+          "proxyCheck": "direct"
+        },
+        "acrossFacet": {
+          "address": "0xAd3f1634a917924cBb54A0F76e43ca035D2B6BCd",
+          "runtimeHash": "0x0d049cb64bfcb713b3fe8fa4727ae763cc1efe1e741ea5c43d41d07add0fb1f8",
+          "proxyImplementation": null,
+          "proxyCheck": "direct"
+        },
+        "feeForwarder": {
+          "address": "0xCE40449B773a3E6E5e769ADb4e567179d4828cbd",
+          "runtimeHash": "0x7ee455a6853068874bfd201f93d6383ed6d88934a922316db5575b057e2ebe74",
+          "proxyImplementation": null,
+          "proxyCheck": "direct"
+        },
+        "spokePool": {
+          "address": "0x09aea4b2242abC8bb4BB78D537A67a245A7bEC64",
+          "runtimeHash": "0x932cddc50793da935ccf915651ad67f6b746e9936fcc5614f0ff492563782c75",
+          "proxyImplementation": {
+            "address": "0xf23C6C04A2B88e8651FE99bbDccbB5C9D306e6B0",
+            "runtimeHash": "0xb36f3bbdffcc931890a4354aa13c9756f032cf6f968d1d1a9604cb3ece9eb480"
+          },
+          "proxyCheck": "erc1967",
+          "depositQuoteTimeBuffer": 3600
+        },
+        "initializer": {
+          "address": "0xbdf938149ac6a781f94faa0ed45e6a0e984c6544",
+          "runtimeHash": "0x5b476c3e00510cf45a444fa16bc219c9164953064f0a50cd202275227220c80b",
+          "proxyImplementation": null,
+          "proxyCheck": "direct"
+        },
+        "rehype": {
+          "address": "0x5f9eb5f6726fe88d5e39867967f5b833d2fa3215",
+          "runtimeHash": "0x01585d74cb29f438874b9c0bcd473cb7ca72a12058cc9114ff25674f7bf6d298",
+          "proxyImplementation": null,
+          "proxyCheck": "direct"
+        },
+        "weth": {
+          "address": "0x4200000000000000000000000000000000000006",
+          "runtimeHash": "0x8a3a1f6a9f9dce633117adee5b458245835a8645a8c8726a26382a4622508b1c",
+          "proxyImplementation": null,
+          "proxyCheck": "direct"
+        }
+      },
+      "activation": {
+        "status": "not_run"
+      },
+      "executionAccount": {
+        "address": "0xDF0F7a120cbb2AB7173b0317b54a9Edd597C8514",
+        "runtimeHash": "0xaaa52c8cc8a0e3fd27ce756cc6b4e70c51423e9b597b11f32d3e49f8b1fc890d",
+        "implementation": {
+          "address": "0x15ec0Fa66A0D96a64d67C58368641fBE9325F3FA",
+          "runtimeHash": "0x8d790f1df78f070d2202718db467e6ee141274c7010372d93dc27d183bc1e446"
+        },
+        "owner": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+        "threshold": 1,
+        "signers": [
+          {
+            "index": 0,
+            "slot1": "0x00000000000000000000000070997970c51812dc3a010c7d01b50e0d17dc79c8",
+            "slot2": "0x0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ],
+        "modules": [
+          "0x53aAaFF51a552439A2Ddc16bfCF1BA787bF484e8"
+        ],
+        "deploymentTransactionHash": "0xe2941b3d9baa7b8151650ca153782ded887c78d0e8f3ff50811531c575a0c7ed",
+        "blockNumber": "52375446"
+      },
+      "executionModule": {
+        "address": "0x53aAaFF51a552439A2Ddc16bfCF1BA787bF484e8",
+        "runtimeHash": "0x7247ce2d45943c8ede40f6b050ce7eecda9283a43d53e4adb51a04a1ac841399",
+        "transactionHash": "0xae4906f03fdefa5e4bd3cfc68249434e2af2b2a1058341ec79d52f612890c499",
+        "blockNumber": "52375448"
+      }
+    },
+    "verified": {
+      "collector": "0x01B95C4Edf7438db75ABFA594fE7A2E1dE08308e",
+      "quoteSigner": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+      "gasKeeper": "0x90F79bf6EB2c4f870365E785982E1f101E93b906",
+      "epoch": "1",
+      "paused": true,
+      "protocolFingerprint": "0x0fa87b19fe9854e4e54640db8061cf64f065962c1f8d4c2db801057a2bb03126",
+      "manifestFingerprint": "0x3a820234f656bb61bdff3d17f9bb068c2ee3cfaa18b0f8393f9083cf98be4b61",
+      "executionAccount": "0xDF0F7a120cbb2AB7173b0317b54a9Edd597C8514",
+      "executionModule": "0x53aAaFF51a552439A2Ddc16bfCF1BA787bF484e8",
+      "initialDeploymentBlock": "52375447"
+    },
+    "confirmations": 67,
+    "scope": "Actual local Base fork graph and canonical initialization/creation receipts; public activation not authorized"
+  },
+  "snapshotRestored": true,
+  "blockedUpstreamWrites": 0,
+  "mainnetTransactionsSubmitted": false,
+  "existingAdAInitialization": "not_run",
+  "crossChainFill": "not_run",
+  "robinhoodSettlement": "not_run",
+  "publicActivation": "not_authorized",
+  "fullFlowSameAttempt": "failed_at_fresh_LIFI_conversion_quote_without_source_spend",
+  "limitations": "This independent graph PASS does not establish source conversion for this attempt, mainnet initialization, delivery, wallet behavior or launch authority."
+}

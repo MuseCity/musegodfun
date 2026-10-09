@@ -3,6 +3,16 @@ import { getAddress, type Address } from "viem";
 // All shares use basis points. The first five fields use gross fees; *Net
 // fields use fees after Doppler; platform* fields use the platform's income.
 export const FEE_POLICIES = {
+  "creator-70-musegod-base-automation-v1": {
+    id: "creator-70-musegod-base-automation-v1",
+    protocol: 500, creator: 6650, platform: 2850, buyback: 2280, operations: 570,
+    creatorNet: 7000, platformNet: 3000, platformBuyback: 8000, platformOperations: 2000,
+  },
+  "creator-70-musegod-base-collector-v1": {
+    id: "creator-70-musegod-base-collector-v1",
+    protocol: 500, creator: 6650, platform: 2850, buyback: 2280, operations: 570,
+    creatorNet: 7000, platformNet: 3000, platformBuyback: 8000, platformOperations: 2000,
+  },
   "musegod-80-v1": {
     id: "musegod-80-v1",
     protocol: 500,
@@ -45,10 +55,15 @@ export type FeePolicyConfig = (typeof FEE_POLICIES)[FeePolicy];
 export const FEE_POLICY = "creator-70-musegod-v2" as const;
 export const FEE_SHARES = FEE_POLICIES[FEE_POLICY];
 export const ENGINE_FEE_POLICY = "creator-70-musegod-swapper-v3" as const;
+export const BASE_AUTOMATION_FEE_POLICY = "creator-70-musegod-base-automation-v1" as const;
+// Retained only to explain and recover already frozen Collector plans.
+export const BASE_COLLECTOR_FEE_POLICY = "creator-70-musegod-base-collector-v1" as const;
+export const isEngineFeePolicy = (policy: string | null | undefined) => policy === ENGINE_FEE_POLICY || policy === BASE_AUTOMATION_FEE_POLICY || policy === BASE_COLLECTOR_FEE_POLICY;
 
-// The engine policy is opt-in after server-side deployment verification. Base
-// and installations without an engine retain the existing treasury policy.
+// Native Base processing is opt-in after graph verification. Old Collector
+// policies remain readable but cannot select a new launch.
 export function launchFeePolicy(config?: { mode?: string; deploymentChainId?: number; feePolicy?: string } | null): FeePolicy {
+  if (config?.feePolicy === BASE_AUTOMATION_FEE_POLICY && (config.mode === "base" || config.deploymentChainId === 8453)) return BASE_AUTOMATION_FEE_POLICY;
   return config?.feePolicy === ENGINE_FEE_POLICY && (config.mode === "robinhood" || config.deploymentChainId === 4663)
     ? ENGINE_FEE_POLICY : FEE_POLICY;
 }
@@ -86,7 +101,7 @@ export function allocateFeeIncome(input: {
   const account = input.account.toLowerCase();
   const isCreator = input.creator?.toLowerCase() === account;
   const isPlatform = input.treasury?.toLowerCase() === account;
-  if (policy.id === ENGINE_FEE_POLICY) {
+  if (isEngineFeePolicy(policy.id)) {
     const isEngine = input.engine?.toLowerCase() === account;
     if (isEngine && (isCreator || isPlatform)) throw new Error("The fee engine must be a distinct beneficiary");
     if (isEngine) return { creator: 0n, platform: input.amount, buyback: input.amount, operations: 0n, remainder: 0n };

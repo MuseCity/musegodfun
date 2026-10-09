@@ -39,7 +39,15 @@
     "verify:buyback-engine": "tsx scripts/deploy-buyback-engine.ts --verify-only",
     "record:engine-cutover": "tsx scripts/record-engine-cutover.ts",
     "keeper:buyback": "tsx scripts/buyback-keeper.ts",
-    "build:buyback-engine": "tsx scripts/build-buyback-artifacts.ts"
+    "build:buyback-engine": "tsx scripts/build-buyback-artifacts.ts",
+    "build:base-collector": "tsx scripts/build-base-collector.ts",
+    "verify:base-collector": "tsx scripts/deploy-base-collector.ts --verify",
+    "preflight:base-collector": "tsx scripts/deploy-base-collector.ts --preflight",
+    "test:base-collector": "forge test --root contracts --match-contract \"MusegodBaseFeeCollector.*\"",
+    "keeper:base-buyback": "tsx scripts/base-buyback-keeper.ts",
+    "ledger:buyback": "tsx scripts/run.ts scripts/buyback-vault-ledger.ts",
+    "test:base-collector-fork": "tsx scripts/run.ts scripts/test-base-collector-fork.ts",
+    "canary:base": "tsx scripts/base-canary-server.ts"
   },
   "dependencies": {
     "@vitejs/plugin-react": "6.1.1",

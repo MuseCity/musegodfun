@@ -17,7 +17,7 @@ import {
   type Address,
   type Hex,
 } from "viem";
-import { base } from "viem/chains";
+import { base, robinhood } from "viem/chains";
 import {
   contractsFor,
   assetsFor,
@@ -36,7 +36,7 @@ import {
 } from "../src/lib/config";
 import { assertStock, buildLaunch, readStockStatus as readLaunchAssetStatus } from "../src/lib/protocol";
 import { firstBuyLockStatusFromPosition } from "./first-buy-lock-status";
-import { ENGINE_FEE_POLICY, FEE_POLICY, launchFeePolicy } from "../src/lib/fee-policy";
+import { ENGINE_FEE_POLICY, FEE_POLICY, isEngineFeePolicy, launchFeePolicy } from "../src/lib/fee-policy";
 import { tradingFeeBpsFor } from "../src/lib/trading-fee";
 import { assertOpeningValuation, assertHistoricalOpeningValuation, openingCapInQuote, LIFI_OPENING_MAX_DIVERGENCE_BPS, type LifiOpeningValuation, type OpeningValuation } from "../src/lib/opening-valuation";
 import { assertRecoveredOpeningValuation, readOpeningValuation, RecoveryEvidenceError } from "./opening-price";
@@ -58,12 +58,14 @@ import { assertLaunchPlanValidity, LAUNCH_SIGNING_TTL, restorePrepared, serializ
 import { chainLaunchDependencies, LaunchGuardMismatch, verifyLaunchGuard } from "./launch-guard";
 import { assertLaunchTradingFee, assertPlanIntegrity, assertRecoveryPlan, verifiedFirstBuyLock, verifyCreationAccounting, verifyGuardedReceipt } from "./launch-verification";
 import { verifyFeeEngine } from "./buyback-engine";
+import { BASE_COLLECTOR_MANIFEST, verifyBaseCollector } from "./base-collector";
+import type { createVaultLedgerRuntime } from "./buyback-vault-runtime";
 import { assertTrustedLaunchPolicy, engineLaunchCutover, ENGINE_MANIFEST, trustedLaunchPolicies, type EngineLaunchCutover } from "./launch-policy-registry";
 import { planAttestation, verifyPlanAttestation } from "./plan-attestation";
 import { BudgetUnavailable } from "./runtime-policy";
 import type { EngineClaimPreview } from "../src/lib/buyback-engine";
 
-import { runtimeFromEnv, redact } from "./config";
+import { runtimeFromEnv, mainnetRpcUrl, redact } from "./config";
 export { runtimeFromEnv } from "./config";
 /** The on-chain pool contradicts the stored listing; never a transient outage. */
 export class PoolIdentityError extends Error {}
@@ -73,9 +75,11 @@ export class LaunchpadService {
   get contracts() { return contractsFor(this.runtime.config); }
   get assets() { return assetsFor(this.runtime.config); }
   readonly store: StoreBackend;
+  vaultLedgerRuntime?: ReturnType<typeof createVaultLedgerRuntime>;
   private readonly guardCandidate: Address | null;
   private readonly firstBuyGuardCandidate: Address | null;
   private readonly feeEngineCandidate: Address | null;
+  private baseDestinationClient?: ReturnType<typeof createPublicClient>;
   private stocksCache?: { at: number; ttl?: number; value: StockStatus[] };
   private stocksPromise?: Promise<StockStatus[]>;
   private guardCache?: Map<string, {at: number; value: Awaited<ReturnType<typeof verifyLaunchGuard>> | null}>;
@@ -236,6 +240,7 @@ export class LaunchpadService {
     let wethForwarder: Address | null = null;
     let assetFeedOracle: Address | null = null;
     let buybackVault: Address | null = null;
+    let baseCollectorReady = this.runtime.config.mode === "fork";
     for (const candidate of [
       { address: this.firstBuyGuardCandidate, requiredVersion: "vesting" as const },
       { address: this.guardCandidate, requiredVersion: undefined },
@@ -266,7 +271,28 @@ export class LaunchpadService {
         }
       } catch { /* Candidate addresses are not exposed until the complete fixed graph is verified. */ }
     }
+    if (this.feeEngineCandidate && deploymentChain(this.runtime.config) === 8453) {
+      try {
+        await this.assertNetwork();
+        const canary = this.runtime.environment?.NODE_ENV !== "production" && this.runtime.dataScope === "verify-base-canary";
+        const destination = this.baseDestinationClient ??= createPublicClient({ chain: robinhood, transport: http(mainnetRpcUrl(4663, this.runtime.environment), {
+          batch: { batchSize: 20, wait: 0 }, timeout: 25_000, retryCount: 1,
+        }), batch: { multicall: true } });
+        const verified = await verifyBaseCollector(this.client, this.feeEngineCandidate, { requireActivation: true, allowCanary: canary,
+          canaryOrigin: this.runtime.canaryOrigin, robinhoodClient: destination });
+        const treasury = BASE_COLLECTOR_MANIFEST.constants.operationsTreasury;
+        if (this.runtime.config.treasury && treasury && sameAddress(this.runtime.config.treasury, treasury)) {
+          feeEngine = verified.collector;
+          baseCollectorReady = !verified.paused;
+          automationReceiver = verified.automationReceiver;
+        }
+      } catch { /* Deployment, owner canary approval and real activation are separate prerequisites. */ }
+    }
     let writesEnabled = this.runtime.config.writesEnabled, blockReason = this.runtime.config.blockReason, controlRevision = 0, signingPaused = false;
+    if (deploymentChain(this.runtime.config) === 8453 && !baseCollectorReady) {
+      writesEnabled = false;
+      blockReason = "Base issuance awaits its verified fee adapter, native Automation, wallet acceptance and real fee buyback activation.";
+    }
     if (this.runtime.config.mode !== "fork") {
       try {
         const control = await this.store.runtimeControl();
@@ -310,7 +336,7 @@ export class LaunchpadService {
     if (options?.account) await this.assertCreatorAccount(options.account);
     const config = await this.config();
     this.assertLaunchPolicyCurrent(launchFeePolicy(config));
-    if (launchFeePolicy(config) === ENGINE_FEE_POLICY && !config.feeEngine)
+    if (isEngineFeePolicy(launchFeePolicy(config)) && !config.feeEngine)
       throw new Error("The configured fee engine could not be verified. Try again after deployment verification.");
     if (!config.launchGuard)
       throw new Error("Atomic first buys are unavailable until the launch guard is configured and verified.");
@@ -353,7 +379,7 @@ export class LaunchpadService {
     const launchConfig = checkedConfig ?? await this.config();
     const feePolicy = launchFeePolicy(launchConfig);
     this.assertLaunchPolicyCurrent(feePolicy);
-    if (feePolicy === ENGINE_FEE_POLICY && !launchConfig.feeEngine)
+    if (isEngineFeePolicy(feePolicy) && !launchConfig.feeEngine)
       throw new Error("The configured fee engine could not be verified. Try again after deployment verification.");
     let guard: Address | null = null;
     if (amountIn > 0n) {
@@ -444,8 +470,8 @@ export class LaunchpadService {
     assertPlanIntegrity(plan, this.contracts);
     const config = await this.config();
     assertSigningEnabled(config);
-    if (plan.firstBuy || plan.feePolicy === ENGINE_FEE_POLICY) {
-      if (plan.feePolicy === ENGINE_FEE_POLICY && (!config.feeEngine || !plan.feeEngine || !sameAddress(config.feeEngine, plan.feeEngine)))
+    if (plan.firstBuy || isEngineFeePolicy(plan.feePolicy)) {
+      if (isEngineFeePolicy(plan.feePolicy) && (!config.feeEngine || !plan.feeEngine || !sameAddress(config.feeEngine, plan.feeEngine)))
         throw new Error("The fee engine configuration changed or could not be verified. Run a new preview.");
       if (plan.firstBuy && (!config.launchGuard || !sameAddress(config.launchGuard, plan.firstBuy.guard)))
         throw new Error("The launch guard configuration changed or could not be verified. Run a new preview.");
@@ -521,7 +547,9 @@ export class LaunchpadService {
    * engine; recovery trusts treasury-only routing only until then plus the
    * signing window, so issuing one afterwards would strand it. */
   private assertLaunchPolicyCurrent(feePolicy: string) {
-    if (feePolicy === ENGINE_FEE_POLICY) return;
+    if (isEngineFeePolicy(feePolicy)) return;
+    if (deploymentChain(this.runtime.config) === 8453 && this.runtime.config.mode !== "fork")
+      throw new Error("New Base launches require the verified native Automation fee adapter.");
     const cutover = this.launchCutover();
     if (cutover && Date.now() >= cutover.timestamp * 1000)
       throw new Error("New Robinhood launches now route fees through the buyback engine, which is not available yet. Try again after it is configured.");
@@ -680,15 +708,26 @@ export class LaunchpadService {
       // Treasury-only routing after a recorded engine cutover is judged by the
       // receipt's canonical block time; nothing else needs that block yet.
       const cutover = plan.feePolicy === FEE_POLICY ? this.launchCutover() : undefined;
-      let timestamp = 0n;
-      if (cutover) {
-        await this.assertCanonicalCutover(cutover);
+      let timestamp = 0n, baseDeploymentTimestamp: bigint | undefined;
+      if (plan.feePolicy === FEE_POLICY && deploymentChain(this.runtime.config) === 8453 && BASE_COLLECTOR_MANIFEST.status === "deployed_verified") {
+        const collector = BASE_COLLECTOR_MANIFEST.collector;
+        if (!collector.transactionHash || !collector.blockNumber || !collector.address) throw new Error("The Base fee cutover deployment is incomplete.");
+        const deploymentReceipt = await this.client.getTransactionReceipt({ hash: collector.transactionHash });
+        const deploymentBlock = await this.client.getBlock({ blockNumber: BigInt(collector.blockNumber) });
+        if (deploymentReceipt.status !== "success" || deploymentReceipt.blockNumber !== BigInt(collector.blockNumber) ||
+          !deploymentReceipt.contractAddress || !sameAddress(deploymentReceipt.contractAddress, collector.address) ||
+          deploymentBlock.hash !== deploymentReceipt.blockHash || deploymentBlock.timestamp <= 0n)
+          throw new Error("The Base fee cutover deployment is not canonical; old preview recovery is withheld.");
+        baseDeploymentTimestamp = deploymentBlock.timestamp;
+      }
+      if (cutover || baseDeploymentTimestamp !== undefined) {
+        if (cutover) await this.assertCanonicalCutover(cutover);
         const receiptBlock = await this.client.getBlock({ blockNumber: receipt.blockNumber });
         if (receiptBlock.hash !== receipt.blockHash) throw new Error("The receipt block was reorganized. Wait for confirmation again.");
         timestamp = receiptBlock.timestamp;
       }
       assertTrustedLaunchPolicy(plan, this.runtime.config, { blockNumber: receipt.blockNumber, timestamp },
-        trustedLaunchPolicies(this.runtime.config, this.launchManifest()));
+        trustedLaunchPolicies(this.runtime.config, this.launchManifest(), BASE_COLLECTOR_MANIFEST, baseDeploymentTimestamp));
       // CPU only: an altered backup fails here, before any shared RPC budget.
       assertRecoveryPlan(plan, this.contracts, this.sdk);
       if (BigInt(plan.openingValuation!.blockNumber) > receipt.blockNumber)
@@ -781,12 +820,17 @@ export class LaunchpadService {
   }
   private reconciling = false;
   private reconcileCursor?: Hex;
-  async reconcile(maxDurationMs = Infinity) {
+  async reconcile(maxDurationMs = 60_000) {
     if (this.reconciling) return;
     this.reconciling = true;
     const deadline = Date.now() + maxDurationMs;
     try {
       await this.assertNetwork();
+      // Give this chain's canonical financial journal a bounded turn before a busy launch
+      // recovery queue. Both consume the same absolute maintenance deadline.
+      if (this.vaultLedgerRuntime && this.runtime.config.mode !== "fork" &&
+        this.runtime.dataScope === (deploymentChain(this.runtime.config) === 8453 ? "base" : "robinhood") && Date.now() < deadline)
+        await this.vaultLedgerRuntime.reconcile(Math.min(30_000, maxDurationMs / 2, Math.max(0, deadline - Date.now()))).catch(() => undefined);
       const rows = await this.store.pendingLaunches();
       const finalized = await this.client.getBlock({ blockTag: "finalized" }).catch(() => null);
       const cursor = rows.findIndex((row) => row.hash === this.reconcileCursor);
@@ -982,7 +1026,7 @@ export class LaunchpadService {
 
   async engineClaimPreview(address: Address, engine: Address): Promise<EngineClaimPreview> {
     const { token, state } = await this.state(address);
-    if (token.feePolicy !== ENGINE_FEE_POLICY || !token.feeEngine || !sameAddress(token.feeEngine, engine))
+    if (!isEngineFeePolicy(token.feePolicy) || !token.feeEngine || !sameAddress(token.feeEngine, engine))
       throw new Error("This pool does not use the selected fee engine");
     const pool = await this.sdk.getMulticurvePool(address);
     const hook = await this.sdk.getRehypeDopplerHookInitializer(this.contracts.rehype);

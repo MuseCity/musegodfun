@@ -1,0 +1,328 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-09T09:43:45.524Z",
+  "status": "option_B_local_checks_passed_mainnet_not_run",
+  "ownerDecision": "还是选 B 吧",
+  "architecture": "splits-restricted-module-v1",
+  "fundCustody": "non-upgradeable Base Collector",
+  "executionPath": [
+    "D3 gas keeper",
+    "restricted contract Module",
+    "Base Splits SmartVault",
+    "Collector"
+  ],
+  "fundPath": [
+    "genuine manager fee income",
+    "Collector B20",
+    "LI.FI Base WETH",
+    "Across V4",
+    "canonical Robinhood WETH directly to existing Vault",
+    "actual MUSEGOD Transfer to dead"
+  ],
+  "originalFinancialProtections": "retained",
+  "additionalEnforcement": "immutable module active executor and complete inner calldata hash checked by Collector",
+  "accountRole": "execution only; no fee principal, token allowance or native gas funding required",
+  "sourceForkEvidence": "base-collector-splits-fork.json",
+  "liveDeploymentManifest": "../../contracts/artifacts/base-collector-deployment.json",
+  "oldOwnerProposal": "replaced_by_current_unsigned_B_proposal",
+  "nativeAlternative": {
+    "selected": false,
+    "status": "not_selected_by_owner",
+    "reason": "cannot retain original source financial protections",
+    "review": {
+      "schemaVersion": 1,
+      "observedAt": "2026-10-09T08:31:00.465Z",
+      "status": "awaiting_owner_security_scope_decision",
+      "ownerPreference": "highest automation and lowest maintenance",
+      "preferredArchitecture": "splits-native-automation",
+      "implementationStatus": "native_policy_not_implemented",
+      "supersedes": "historical_standalone_proposal_replaced_by_B",
+      "sourceBaseline": "f7c1264b2995c2c243c7f95419254a3e45d118f2",
+      "chainScope": {
+        "source": 8453,
+        "destination": 4663,
+        "sourceRpc": "Base RPC",
+        "destinationRpc": "Robinhood RPC",
+        "additionalRobinhoodPrivileges": "not_authorized"
+      },
+      "accounts": {
+        "automation": "0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a",
+        "destinationTreasury": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+        "forwarder": "0x808d538f13ce0356e80c7a5ac2798d09206ab8f4",
+        "vault": "0x28E6B43525301312084310F31f4C9c9873d7a125",
+        "destinationWeth": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+        "governor": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A"
+      },
+      "proposedSteps": [
+        {
+          "step": "claim actual isolated Base fee-manager income",
+          "executor": "project fixed-call automation",
+          "proof": "canonical manager receipt and Collector net balance delta"
+        },
+        {
+          "step": "release admitted B20 to immutable Automation recipient",
+          "executor": "project fixed-call automation",
+          "proof": "canonical Collector release and exact ERC20 transfer; donation/meme not released"
+        },
+        {
+          "step": "swap and bridge to canonical Robinhood WETH",
+          "executor": "Splits native Automation",
+          "crossNetworkProvider": "Relay",
+          "proof": "source account execution and canonical destination output, not quote or UI status alone"
+        },
+        {
+          "step": "sweep WETH to existing Treasury",
+          "executor": "Splits native Automation",
+          "proof": "canonical Treasury transfer delta tied to native job"
+        },
+        {
+          "step": "forward Treasury WETH to Vault",
+          "executor": "existing permissionless constrained Forwarder plus project runner",
+          "proof": "finite WETH allowance, canonical Forwarded and matching source/Vault transfers; account FIFO"
+        },
+        {
+          "step": "buy MUSEGOD and transfer to dead",
+          "executor": "existing protected Vault automation",
+          "proof": "canonical Executed and MUSEGOD Transfer to dead; proportional FIFO, profit separate"
+        }
+      ],
+      "officialBehavior": {
+        "managedStages": [
+          "incoming-token conversion",
+          "cross-network route",
+          "sweep"
+        ],
+        "stagesRequiringProjectCalls": [
+          "permissioned fee claim",
+          "fee release",
+          "Treasury Forwarder",
+          "Vault execution"
+        ],
+        "nativeSignerAuthority": "Treasury passkeys plus Splits server key at 1-of-n; owner and signer authority remain mutable",
+        "trigger": "documentation: check every 10 minutes; one token >=5 USD starts run; process token balances >=1 USD",
+        "triggerIsFinancialLimit": false,
+        "defaultGeneralSwapSlippageBps": 150,
+        "nativeAutomationActualSlippage": "not independently observed or pinned",
+        "customScheduleCallsSupported": false,
+        "automationCreation": "web-only in current official API documentation"
+      },
+      "uiObservation": {
+        "workspace": "musegodfun",
+        "ruleId": "32aa3fce-2df8-4cd3-b820-5a5c57b21570",
+        "existingOutputLabel": "100% WETH",
+        "existingSweepLabel": "Treasury",
+        "observedSweepChoices": [
+          "Treasury"
+        ],
+        "exactCanonicalRobinhoodWethAcceptedInTokenPicker": true,
+        "savedOrTriggered": false,
+        "completion": "cancelled read-only edit and returned to unchanged Automation details"
+      },
+      "protectionChangesRequiringExplicitDecision": [
+        {
+          "original": "LI.FI / Across V4 only",
+          "native": "Relay managed cross-network route"
+        },
+        {
+          "original": "Collector-enforced 99% of original Base WETH reaches fixed Vault",
+          "native": "not proven enforceable; managed output reaches Treasury; representative quoted minimum is below this ratio"
+        },
+        {
+          "original": "source conversion nominal cap and bridge actual cap each 0.01 WETH per 300 seconds",
+          "native": "not enforceable by native Automation trigger settings"
+        },
+        {
+          "original": "independent project EIP-712 signer, nonce/epoch and <=60-second complete calldata binding",
+          "native": "managed service signer and provider authorization; not the same policy"
+        },
+        {
+          "original": "governor cannot change funds destination and fee account has no arbitrary authority",
+          "native": "Splits account owners/signers/server have account authority; rules mutable"
+        },
+        {
+          "original": "refund returns directly to Collector; exact allowance cleared after each execution",
+          "native": "provider/account-specific refunds and allowance behavior need independent evidence; no such invariant verified"
+        }
+      ],
+      "retainedRequirements": [
+        "exact 36 launch identities and executable launch valuation",
+        "gross/net fee economics without a second 20% deduction",
+        "separate actual fee income, donations, unknown transfers and pending meme side",
+        "existing Vault 2% spot/5-minute/30-minute price protection",
+        "existing Vault profitability and gas conditions",
+        "existing Vault all-callers shared 0.01 WETH / 300-second budget",
+        "fixed MUSEGOD dead recipient and actual Transfer-based counts",
+        "complete canonical Treasury and Vault histories with FIFO, reorg and unknown recovery",
+        "single genuine Base end-to-end acceptance before public activation"
+      ],
+      "qualification": {
+        "launchLifiIdentities": 36,
+        "nativeRelayRepresentativeQuote": "base-splits-relay-route.json",
+        "native36AssetRoutes": "not_run",
+        "baseAccountInitialization": "not_run",
+        "nativeSplitsBaseExecution": "not_run",
+        "mainnetCrossChainSettlement": "not_run",
+        "sourceForkProof": "base-collector-fork.json is prior LI.FI candidate, synthetic fork capital, source deposit only"
+      },
+      "currentApprovalBoundary": {
+        "question": "Accept native source-protection/custody changes, or retain original protections with constrained module?",
+        "securityScopeApproval": "pending",
+        "deployment": "not_authorized",
+        "productionPermissionChanges": "not_authorized",
+        "financialUiActions": "owner handoff required",
+        "fundsAndGas": "replacement concrete budget required; previous standalone funding request superseded"
+      },
+      "publication": {
+        "baseSigningPaused": true,
+        "baseRevision": 0,
+        "robinhoodRevision": 1,
+        "changed": false
+      },
+      "sources": [
+        "https://splits.org/docs/solutions/revenue-automation",
+        "https://splits.org/docs/accounts",
+        "https://splits.org/docs/accounts/modules",
+        "https://splits.org/docs/transactions/swaps",
+        "https://github.com/0xSplits/splits-contracts-monorepo/tree/efec4ac4ee2982200131d96dbde16b094f670cd4"
+      ],
+      "baseAccountCodeObservation": {
+        "provider": "Alchemy Base RPC",
+        "chainId": 8453,
+        "blockNumber": "52372599",
+        "blockHash": "0xbd767721cf2bb3ee278d145e2a532069ba88a37dc3c84a8f7ffc49d000f1033f",
+        "accounts": [
+          {
+            "name": "automation",
+            "address": "0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a",
+            "hasCode": false,
+            "runtimeHash": null,
+            "implementation": null,
+            "implementationHash": null
+          },
+          {
+            "name": "treasury",
+            "address": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+            "hasCode": false,
+            "runtimeHash": null,
+            "implementation": null,
+            "implementationHash": null
+          }
+        ],
+        "scope": "read_only; no signatures, deployment, rules or permission changes"
+      },
+      "publicBaseObservation": {
+        "observedAt": "2026-10-09T08:40:13.065Z",
+        "rows": [
+          {
+            "origin": "https://musegod.fun",
+            "chainId": 8453,
+            "writesEnabled": false,
+            "signingPaused": true,
+            "controlRevision": 0,
+            "feePolicy": "creator-70-musegod-v2",
+            "feeEngine": null
+          },
+          {
+            "origin": "https://www.musegod.fun",
+            "chainId": 8453,
+            "writesEnabled": false,
+            "signingPaused": true,
+            "controlRevision": 0,
+            "feePolicy": "creator-70-musegod-v2",
+            "feeEngine": null
+          }
+        ],
+        "mutation": false
+      },
+      "adapterReview": "base-splits-collector-review.json",
+      "ledgerReview": "base-splits-ledger-review.json"
+    }
+  },
+  "deployment": "not_run",
+  "moduleEnable": "not_run",
+  "mainnetCrossChainSettlement": "not_run",
+  "publicBaseActivation": "not_run",
+  "baseSigningPaused": true,
+  "ownerProposal": "base-owner-proposal.json",
+  "localValidation": {
+    "appTests": {
+      "passed": 722,
+      "failed": 0,
+      "skipped": 0
+    },
+    "forge": {
+      "passed": 216,
+      "failed": 0
+    },
+    "nodeAndWorkerTypecheck": "passed",
+    "frontendBuild": "passed",
+    "workerDryRun": {
+      "passed": true,
+      "totalKiB": 4362.7,
+      "gzipKiB": 896.78,
+      "assets": 216,
+      "deployed": false
+    },
+    "readOnlyReview": {
+      "reviewers": 2,
+      "blockingFindings": 0
+    },
+    "actualBaseSourceFork": {
+      "status": "passed",
+      "actualExecutionGraphVerification": "passed",
+      "snapshotRestored": true,
+      "upstreamWrites": 0,
+      "proof": "base-collector-splits-fork.json",
+      "proofSha256": "ef7bb01136c3d848d9e8960aeb99e8585222ac633b53a0c588db354a21252588",
+      "previousIncompleteAttempt": "base-collector-splits-fork-attempt-2.json",
+      "mainnet": false
+    }
+  },
+  "deploymentGasReview": {
+    "proposal": "base-owner-proposal.json",
+    "totalSnapshotReservationWei": "115234588764024",
+    "mainnetDeployment": "not_run"
+  },
+  "productionObservation": {
+    "observedAt": "2026-10-09T10:19:44.535Z",
+    "rows": [
+      {
+        "origin": "https://musegod.fun",
+        "chainId": 8453,
+        "writesEnabled": false,
+        "signingPaused": true,
+        "controlRevision": 0,
+        "feePolicy": "creator-70-musegod-v2",
+        "feeEngine": null
+      },
+      {
+        "origin": "https://musegod.fun",
+        "chainId": 4663,
+        "writesEnabled": true,
+        "signingPaused": false,
+        "controlRevision": 1,
+        "feePolicy": "creator-70-musegod-swapper-v3",
+        "feeEngine": "0x9caefd217ea5a039BbA77Ae5b0626733eA093769"
+      },
+      {
+        "origin": "https://www.musegod.fun",
+        "chainId": 8453,
+        "writesEnabled": false,
+        "signingPaused": true,
+        "controlRevision": 0,
+        "feePolicy": "creator-70-musegod-v2",
+        "feeEngine": null
+      },
+      {
+        "origin": "https://www.musegod.fun",
+        "chainId": 4663,
+        "writesEnabled": true,
+        "signingPaused": false,
+        "controlRevision": 1,
+        "feePolicy": "creator-70-musegod-swapper-v3",
+        "feeEngine": "0x9caefd217ea5a039BbA77Ae5b0626733eA093769"
+      }
+    ],
+    "mutation": false
+  }
+}

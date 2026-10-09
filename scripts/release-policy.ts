@@ -21,6 +21,12 @@ export function runtimeVarsFromBindings(bindings: { name: string; type: string; 
   return actual;
 }
 
+export function assertCandidateRuntimeBindings(bindings: { name: string; type: string; text?: unknown }[], committed: Record<string, string>): void {
+  const sorted = (vars: Record<string, string>) => Object.entries(vars).sort(([a], [b]) => a.localeCompare(b));
+  if (JSON.stringify(sorted(runtimeVarsFromBindings(bindings))) !== JSON.stringify(sorted(committed)))
+    throw new Error("Uploaded Worker runtime variables differ from the frozen committed configuration; activation is blocked.");
+}
+
 export function assertLaunchRuntime(runtime: { curvePolicy?: string; launchGuard?: string | null; launchLockAvailable?: boolean },
   vars: Record<string, string>, required = true, chainId: 8453 | 4663 = 4663): void {
   const firstBuyGuard = chainId === 8453 ? vars.BASE_FIRST_BUY_GUARD_ADDRESS
@@ -80,6 +86,7 @@ export function assertSecurityTransition(previous: Record<string,string>, candid
     baseGuard:vars.BASE_LAUNCH_GUARD_ADDRESS ?? "", robinhoodGuard:vars.ROBINHOOD_LAUNCH_GUARD_ADDRESS ?? vars.LAUNCH_GUARD_ADDRESS ?? "",
     baseFirstBuy:vars.BASE_FIRST_BUY_GUARD_ADDRESS ?? "", robinhoodFirstBuy:vars.ROBINHOOD_FIRST_BUY_GUARD_ADDRESS ?? vars.FIRST_BUY_GUARD_ADDRESS ?? "",
     feeEngine:vars.FEE_ENGINE_ADDRESS ?? "",
+    baseCollector:vars.BASE_FEE_COLLECTOR_ADDRESS ?? "",
   });
   const live=values(previous),next=values(candidate),source=values(previousSource);
   for(const key of Object.keys(live) as (keyof typeof live)[]) {

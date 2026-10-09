@@ -5,7 +5,7 @@ import { createPublicClient, http, encodeFunctionData, keccak256, encodeAbiParam
 import { LaunchpadService } from "../server/service";
 import type { LaunchPlan } from "../server/store";
 import { CONTRACTS, STOCKS, ROBINHOOD_STOCKS, SUPPLY, type TokenRecord } from "../src/lib/config";
-import { allocateFeeIncome, ENGINE_FEE_POLICY, FEE_POLICIES, FEE_POLICY, feePolicyFor, type FeeIncomeAllocation } from "../src/lib/fee-policy";
+import { allocateFeeIncome, isEngineFeePolicy, ENGINE_FEE_POLICY, FEE_POLICIES, FEE_POLICY, feePolicyFor, type FeeIncomeAllocation } from "../src/lib/fee-policy";
 import { LAUNCH_PRICE_TTL } from "../src/lib/opening-valuation";
 import { syntheticOpeningValuation } from "./fixtures";
 import { buildLaunch } from "../src/lib/protocol";
@@ -64,7 +64,7 @@ function freeze(plan: LaunchPlan) {
 
 function validationService(plan: LaunchPlan | null, configuredTreasury: string | null = treasury) {
   return Object.assign(Object.create(LaunchpadService.prototype), {
-    runtime: { config: { mode: "base", chainId: 8453, treasury: configuredTreasury, writesEnabled: true } },
+    runtime: { config: { mode: "fork", deploymentChainId: 8453, chainId: 31337, treasury: configuredTreasury, writesEnabled: true } },
     store: {
       runtimeControl: async () => ({ paused: false, revision: 1, updatedAt: Date.now(), reason: "" }),
       protectPlan: async () => {},
@@ -225,7 +225,7 @@ test("policy versions preserve their distinct gross, net and platform-income bas
 
 test("fee allocation floors each layer without allocating more than actual income", () => {
   for (const feePolicy of Object.keys(FEE_POLICIES) as (keyof typeof FEE_POLICIES)[]) {
-    if (feePolicy === ENGINE_FEE_POLICY) continue; // v3 is split on-chain, covered separately.
+    if (isEngineFeePolicy(feePolicy)) continue; // v3 is split on-chain, covered separately.
     const policy = FEE_POLICIES[feePolicy];
     for (const amount of [0n, 1n, 2n, 9n, 10n, 11n, 99n, 100n, 101n, 123456789n, 900719925474099300000000000000001n]) {
       const creatorOnly: FeeIncomeAllocation = allocateFeeIncome({ feePolicy, amount, account: creator, creator, treasury })!;

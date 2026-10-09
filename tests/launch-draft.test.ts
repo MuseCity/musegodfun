@@ -60,14 +60,19 @@ test("each deployment retains a nonempty new-launch pairing list", () => {
   }
 });
 
-test("new-launch lists contain exactly the LI.FI opening audit's successful assets", () => {
+test("new-launch lists match the active chain qualification evidence while retaining the older audit", () => {
   const audit = JSON.parse(readFileSync(new URL("../docs/evidence/lifi-opening-price/quotes.json", import.meta.url), "utf8")) as {
     opening: { chainId: number; address: string; initial: { status: string }; retry?: { status: string } }[];
   };
   for (const chain of [8453, 4663] as const) {
-    const passed = audit.opening.filter((row) => row.chainId === chain &&
+    const historicalPassed = audit.opening.filter((row) => row.chainId === chain &&
       (row.initial.status === "verified_snapshot" || row.retry?.status === "verified_snapshot"));
-    assert.equal(passed.length, chain === 8453 ? 15 : 115);
+    assert.equal(historicalPassed.length, chain === 8453 ? 15 : 115, "the prior audit remains historical evidence");
+    const baseEvidence = JSON.parse(readFileSync(new URL("../docs/evidence/base-jumper-qualification.json", import.meta.url), "utf8")) as {
+      records: { address: string; status: string }[];
+    };
+    const passed = chain === 8453 ? baseEvidence.records.filter((row) => row.status === "quote_observed") : historicalPassed;
+    assert.equal(passed.length, chain === 8453 ? 36 : 115);
     for (const fork of [false, true]) {
       const assets = launchAssetsFor(config(chain, fork));
       assert.deepEqual(assets.map((asset) => asset.address.toLowerCase()).sort(), passed.map((row) => row.address.toLowerCase()).sort());
@@ -96,15 +101,15 @@ test("changing a restored pair preserves metadata and resets even a still-valid 
 
 test("excluded same-chain drafts reset first buys without deleting metadata or pending payment", (t) => {
   const values = storage(t);
-  for (const [chain, symbol] of [[4663, "SATS"], [4663, "AAOI"], [8453, "ASTSc"]] as const) {
-    const network = config(chain), registry = chain === 8453 ? STOCKS : ROBINHOOD_STOCKS;
+  for (const [chain, symbol] of [[4663, "SATS"], [4663, "AAOI"]] as const) {
+    const network = config(chain), registry = ROBINHOOD_STOCKS;
     const removed = registry.find((asset) => asset.symbol === symbol)!;
     const fallback = launchAssetsFor(network)[0];
     assert.ok(removed, "the historical identity remains in the full registry");
     assert.equal(stockByAddress(removed.address, chain), removed);
     assert.ok(!launchAssetsFor(network).some((asset) => sameAddress(asset.address, removed.address)), `${symbol} is excluded from new Create`);
     const payments = firstBuyPaymentAssets(chain, fallback.address).filter((asset) => ["ETH", "USDG", "USDC", "USDT"].includes(asset.symbol));
-    assert.deepEqual(payments.map((asset) => asset.symbol).sort(), chain === 8453 ? ["ETH", "USDC", "USDT"] : ["ETH", "USDG"]);
+    assert.deepEqual(payments.map((asset) => asset.symbol).sort(), ["ETH", "USDG"]);
     const paymentKey = `musegod.first-buy.payment.${chain}.${chain}.0x1111111111111111111111111111111111111111`;
     for (const payment of payments) {
       const saved = { name: `Saved ${symbol}`, symbol: "SAVED", description: "Keep the original metadata", image: "https://example.com/token.webp",
@@ -122,6 +127,18 @@ test("excluded same-chain drafts reset first buys without deleting metadata or p
       assert.equal(values.get(paymentKey), pending, `${payment.symbol} pending payment stays bound to the original ${symbol} output`);
     }
   }
+});
+
+test("newly qualified Base B20 drafts retain their intended first buy and pending-payment recovery", (t) => {
+  const values = storage(t), network = config(8453), paired = STOCKS.find((stock) => stock.symbol === "ASTSc")!;
+  const usdc = firstBuyPaymentAssets(8453, paired.address).find((asset) => asset.symbol === "USDC")!;
+  const saved = { name: "Saved ASTS pair", symbol: "SAVED", description: "Retain qualified pair", image: "", quoteAddress: paired.address,
+    firstBuy: { amount: "10", slippageBps: 100, payAddress: usdc.address, lockDays: 90 } };
+  const paymentKey = "musegod.first-buy.payment.8453.8453.0x1111111111111111111111111111111111111111";
+  values.set(paymentKey, "original pending payment"); values.set(launchDraftKey(network), JSON.stringify(saved));
+  assert.equal(restoreDraft(savedLaunchDraft(network), network).quoteAddress, paired.address);
+  assert.deepEqual(firstBuyDraft(network), saved.firstBuy);
+  assert.equal(values.get(paymentKey), "original pending payment");
 });
 
 test("trading fee drafts persist every rate per network, default old or invalid fees and reset when cleared", (t) => {

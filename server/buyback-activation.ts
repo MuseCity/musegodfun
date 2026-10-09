@@ -74,6 +74,8 @@ async function signedByGovernor(client: ActivationClient, governor: Address, sig
     if (valid !== "0x1626ba7e") throw new Error("Governor contract rejected the activation signature");
   }
 }
+// Shared EIP-191 / EIP-1271 authority check; every caller supplies a fresh canonical governor-code read.
+export const verifyGovernorSignature = signedByGovernor;
 function events<T>(receipt: TransactionReceipt, address: Address, abi: readonly unknown[]): (T & { logIndex: number })[] {
   const found: (T & { logIndex: number })[] = [];
   for (const log of receipt.logs) if (same(log.address, address)) {

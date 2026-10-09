@@ -23,7 +23,7 @@ import { planAttestation, verifyPlanAttestation } from "../server/plan-attestati
 import { Store } from "../server/store";
 import { unpackPlan } from "../server/plan-storage";
 import { SupabaseStore } from "../server/supabase-store";
-import { FIRST_BUY_PAYMENT_CONTRACTS, assertFirstBuyPaymentQuote, firstBuyPairedAsset, firstBuyPaymentAbi, firstBuyPaymentAssets, type FirstBuyPaymentQuote } from "../src/lib/first-buy-payment";
+import { FIRST_BUY_PAYMENT_CONTRACTS, assertFirstBuyPaymentQuote, firstBuyPairedAsset, firstBuyPaymentAbi, wrappedEther, firstBuyPaymentAssets, type FirstBuyPaymentQuote } from "../src/lib/first-buy-payment";
 import { multicall3Abi } from "viem";
 
 const creator = "0x1111111111111111111111111111111111111111" as Address;
@@ -177,7 +177,7 @@ function registryOnlyAsset(chainId: 8453 | 4663) {
   const registry = assetsFor({ mode: "fork", deploymentChainId: chainId });
   const allowed = launchAssetsFor({ mode: "fork", deploymentChainId: chainId });
   const removed = registry.find((asset) => !allowed.some((candidate) => candidate.address === asset.address));
-  assert(removed, "each chain has an actual issuer identity excluded from new issuance");
+  assert(removed, "Robinhood retains an issuer identity excluded from new issuance");
   return { asset: removed, restore() {} };
 }
 
@@ -185,11 +185,12 @@ test("new prepares and payment preflights reject opening-price exclusions before
   for (const chainId of [8453, 4663] as const) {
     const actualExcluded = assetsFor({ mode: "fork", deploymentChainId: chainId }).filter((asset) =>
       !launchAssetsFor({ mode: "fork", deploymentChainId: chainId }).some((candidate) => candidate.address === asset.address));
-    assert.equal(actualExcluded.length, chainId === 8453 ? 21 : 83);
+    assert.equal(actualExcluded.length, chainId === 8453 ? 0 : 83);
+    if (chainId === 8453) continue;
     const excluded = registryOnlyAsset(chainId);
     try {
       assert.equal(stockByAddress(excluded.asset.address, chainId), excluded.asset);
-      for (const asset of actualExcluded.length ? actualExcluded : [excluded.asset]) for (const mode of [chainId === 8453 ? "base" : "robinhood", "fork"] as const) {
+      for (const asset of actualExcluded.length ? actualExcluded : [excluded.asset]) for (const mode of ["robinhood", "fork"] as const) {
         const config: RuntimeConfig = { mode, deploymentChainId: chainId, chainId: mode === "fork" ? 31337 : chainId,
           treasury, writesEnabled: false, blockReason: "Read-only" };
         let rpc = 0;
@@ -208,13 +209,13 @@ test("new prepares and payment preflights reject opening-price exclusions before
 });
 
 test("opening-price exclusions do not hide existing tokens or block their scoped lookup", async () => {
-  for (const chainId of [8453, 4663] as const) {
+  for (const chainId of [4663] as const) {
     const excluded = registryOnlyAsset(chainId);
     try {
       const tokenRecord = { address: token, mode: "fork", deploymentChainId: chainId, transactionHash: hash,
         quoteAddress: excluded.asset.address } as TokenRecord;
       assert.deepEqual(listedTokens([tokenRecord], "fork", chainId), [tokenRecord]);
-      assert.deepEqual(listedTokens([tokenRecord], "fork", chainId === 8453 ? 4663 : 8453), []);
+      assert.deepEqual(listedTokens([tokenRecord], "fork", 8453), []);
       const service = Object.assign(Object.create(LaunchpadService.prototype), { launchManifest: () => ({ ...ENGINE_MANIFEST, engineLaunchCutover: undefined }) }, {
         runtime: { config: { mode: "fork", chainId: 31337, deploymentChainId: chainId } },
         store: { tokens: async () => [tokenRecord], token: async () => tokenRecord },
@@ -252,7 +253,7 @@ test("removed paired assets remain valid in frozen launch integrity, old-plan va
 });
 
 test("expired frozen payments still decode removed paired assets through the complete historical registry", () => {
-  for (const chainId of [8453, 4663] as const) {
+  for (const chainId of [4663] as const) {
     const excluded = registryOnlyAsset(chainId);
     try {
       const registry = FIRST_BUY_PAYMENT_CONTRACTS[chainId], now = Date.now();
@@ -573,10 +574,11 @@ test("failed guard verification cannot inherit another request's verified addres
 function paymentPreflightFixture(chainId: 8453 | 4663 = 8453) {
   const asset = chainId === 8453 ? STOCKS.find((stock) => stock.ticker === "NVDA")! : quote;
   const numeraire = firstBuyPaymentAssets(chainId).find((item) => item.symbol === (chainId === 8453 ? "USDC" : "USDG"))!;
+  const wrapped = firstBuyPairedAsset(chainId, wrappedEther(chainId));
   const calls: string[] = [];
   const requests: URLSearchParams[] = [], identityBlocks: bigint[] = [];
   const state = { fault: "", rpcChainId: chainId as number, guard: guard as Address | null, feePolicy: FEE_POLICY as string };
-  const config: RuntimeConfig = { mode: chainId === 8453 ? "base" : "robinhood", deploymentChainId: chainId,
+  const config: RuntimeConfig = { mode: chainId === 8453 ? "fork" : "robinhood", deploymentChainId: chainId,
     chainId, treasury, writesEnabled: false, blockReason: "Read-only" };
   const untouched = () => { throw new Error("Payment preflight must not access SDK preparation or storage"); };
   const service = Object.assign(Object.create(LaunchpadService.prototype), { launchManifest: () => ({ ...ENGINE_MANIFEST, engineLaunchCutover: undefined }) }, {
@@ -589,7 +591,7 @@ function paymentPreflightFixture(chainId: 8453 | 4663 = 8453) {
       getCode: async ({ blockNumber }: { blockNumber: bigint }) => { identityBlocks.push(blockNumber); return "0x1234"; },
       readContract: async (input: { address: Address; functionName: string; blockNumber?: bigint }) => {
         calls.push(input.functionName);
-        const target = input.address.toLowerCase() === asset.address.toLowerCase() ? asset : numeraire;
+        const target = [asset, numeraire, wrapped].find(item => item.address.toLowerCase() === input.address.toLowerCase())!;
         if (input.blockNumber !== undefined) identityBlocks.push(input.blockNumber);
         if (input.functionName === "symbol") return state.fault === "identity" ? "WRONG" : target.symbol;
         if (input.functionName === "decimals") return target.decimals;
@@ -612,11 +614,14 @@ function paymentPreflightFixture(chainId: 8453 | 4663 = 8453) {
       return Response.json({ error: "No same-chain route" }, { status: 404 });
     if (state.fault === "timeout") throw new DOMException("Synthetic fetch deadline", "TimeoutError");
     const buy = params.get("fromToken")!.toLowerCase() === numeraire.address.toLowerCase();
-    const from = buy ? numeraire : asset, to = buy ? asset : numeraire;
+    const reference = params.get("fromToken")!.toLowerCase() === wrapped.address.toLowerCase();
+    const from = buy ? numeraire : reference ? wrapped : asset, to = buy ? asset : chainId === 8453 && !reference ? wrapped : numeraire;
     const amountIn = BigInt(params.get("fromAmount")!), fee = amountIn * 25n / 10_000n;
     const amountOut = buy ? (amountIn - fee) * 10n ** BigInt(asset.decimals) / (100n * 10n ** 6n)
+      : reference ? (amountIn - fee) * 2000n * 10n ** 6n / 10n ** 18n
+      : chainId === 8453 ? (amountIn - fee) * 100n * 10n ** 18n / (2000n * 10n ** BigInt(asset.decimals))
       : (amountIn - fee) * 100n * 10n ** 6n / 10n ** BigInt(asset.decimals);
-    const tokenData = (value: typeof numeraire) => ({ ...value, priceUSD: value.symbol === numeraire.symbol ? "1" : "100" });
+    const tokenData = (value: typeof numeraire) => ({ ...value, priceUSD: value.symbol === numeraire.symbol ? "1" : value.symbol === "WETH" ? "2000" : "100" });
     const action = { fromChainId: chainId, toChainId: chainId, fromToken: tokenData(from), toToken: tokenData(to),
       fromAddress: params.get("fromAddress"), toAddress: params.get("toAddress"), fromAmount: amountIn.toString(), slippage: Number(params.get("slippage")) };
     if (state.fault === "mismatch") action.toToken.address = treasury;
@@ -668,19 +673,22 @@ test("payment preflight reads LI.FI swap evidence before conversion without old 
     }
     const f = paymentPreflightFixture(chainId), before = structuredClone(f.config);
     await f.run();
-    assert.equal(f.requests.length, 2); assert.equal(f.requests[0].get("fromAmount"), "100000000");
-    assert.equal(f.requests[0].get("toToken")?.toLowerCase(), f.asset.address.toLowerCase());
-    assert.equal(f.requests[1].get("fromToken")?.toLowerCase(), f.asset.address.toLowerCase());
+    const legCount = chainId === 8453 ? 3 : 2;
+    assert.equal(f.requests.length, legCount);
+    const buyRequest = f.requests.find(request => request.get("toToken")?.toLowerCase() === f.asset.address.toLowerCase())!;
+    const sellRequest = f.requests.find(request => request.get("fromToken")?.toLowerCase() === f.asset.address.toLowerCase())!;
+    assert.equal(buyRequest.get("fromAmount"), chainId === 8453 ? "10000000" : "100000000");
+    assert.equal(sellRequest.get("fromToken")?.toLowerCase(), f.asset.address.toLowerCase());
     assert(f.identityBlocks.length >= 6); assert(f.identityBlocks.every((block) => block === 1n));
     assert.equal(f.calls.some((call) => ["latestRoundData", "getOracleParams", "observe"].includes(call)), false);
     assert.deepEqual(f.config, before, "read-only preview leaves runtime permissions unchanged");
     f.state.fault = "missing";
-    await f.run(); assert.equal(f.requests.length, 2, "fresh opening probes are shared for ten seconds");
+    await f.run(); assert.equal(f.requests.length, legCount, "fresh opening probes are shared for ten seconds");
     (f.service as any).openingCache.clear();
     await assert.rejects(f.run, /LI\.FI pricing or routing is unavailable/, "expired cache must not hide a fresh provider failure");
     const fork = paymentPreflightFixture(chainId);
     fork.config.mode = "fork"; fork.config.chainId = 31337; fork.state.rpcChainId = 31337;
-    await fork.run(); assert.equal(fork.requests.length, 2);
+    await fork.run(); assert.equal(fork.requests.length, legCount);
     assert(fork.requests.every((request) => request.get("fromChain") === String(chainId)), "fork RPC identity does not rewrite deployment-chain quotes");
   }
 });

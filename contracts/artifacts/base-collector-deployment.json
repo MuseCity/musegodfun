@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 2,
+  "chainId": 8453,
+  "architecture": "splits-treasury-native-automation",
+  "status": "not_deployed",
+  "feePolicy": "creator-70-musegod-base-automation-v1",
+  "collector": {
+    "address": null,
+    "runtimeHash": null,
+    "transactionHash": null,
+    "blockNumber": null
+  },
+  "constants": {
+    "initializer": "0xbdf938149ac6a781f94faa0ed45e6a0e984c6544",
+    "rehype": "0x5f9eb5f6726fe88d5e39867967f5b833d2fa3215",
+    "weth": "0x4200000000000000000000000000000000000006",
+    "destinationWeth": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+    "destinationVault": "0x28E6B43525301312084310F31f4C9c9873d7a125",
+    "governor": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+    "operationsTreasury": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+    "automationReceiver": null,
+    "destinationTreasury": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349"
+  },
+  "dependencies": {
+    "initializer": {
+      "address": "0xBDF938149ac6a781F94FAa0ed45E6A0e984c6544",
+      "runtimeHash": "0x5b476c3e00510cf45a444fa16bc219c9164953064f0a50cd202275227220c80b",
+      "proxyImplementation": null,
+      "proxyCheck": "direct"
+    },
+    "rehype": {
+      "address": "0x5F9eB5f6726Fe88D5e39867967F5b833d2fA3215",
+      "runtimeHash": "0x01585d74cb29f438874b9c0bcd473cb7ca72a12058cc9114ff25674f7bf6d298",
+      "proxyImplementation": null,
+      "proxyCheck": "direct"
+    }
+  },
+  "automationAccount": {
+    "address": null,
+    "runtimeHash": null,
+    "implementation": null,
+    "owner": null,
+    "ownerRuntimeHash": null,
+    "threshold": null,
+    "signers": [],
+    "initializationHash": null,
+    "blockNumber": null,
+    "factory": {
+      "address": "0x8E6Af8Ed94E87B4402D0272C5D6b0D47F0483e7C",
+      "runtimeHash": "0x7320f2779f3b27b8dac66bdbfd7063345cee66aca9aa2d56f1b46ba5a9dcab05"
+    },
+    "creation": null
+  },
+  "nativeRule": {
+    "protocol": "splits-native-automation",
+    "bridgeProvider": "relay",
+    "sourceChainId": 8453,
+    "destinationChainId": 4663,
+    "outputToken": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+    "recipient": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+    "allocationBps": 10000,
+    "ruleId": null,
+    "configurationSha256": null
+  },
+  "activation": {
+    "status": "not_run",
+    "nativeExecution": null,
+    "walletAcceptance": null,
+    "pauseRollbackAcceptance": null,
+    "nativeRunAcceptance": null
+  },
+  "canaryAuthorization": null,
+  "finalSettlement": {
+    "forwarder": "0x808d538f13ce0356E80C7a5ac2798d09206aB8f4",
+    "vault": "0x28E6B43525301312084310F31f4C9c9873d7a125",
+    "chainId": 4663,
+    "permissionsChanged": false
+  }
+}

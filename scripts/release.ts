@@ -3,11 +3,18 @@ import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { createPublicClient, erc20Abi, http, parseAbi, parseAbiItem } from "viem";
+import { base } from "viem/chains";
 import { setTimeout as waitForPropagation } from "node:timers/promises";
-import { ENGINE_FEE_POLICY, FEE_POLICY } from "../src/lib/fee-policy";
+import { ENGINE_FEE_POLICY, BASE_AUTOMATION_FEE_POLICY, FEE_POLICY } from "../src/lib/fee-policy";
+import baseCollectorDeployment from "../contracts/artifacts/base-collector-deployment.json";
+import { baseCollectorGraphFingerprint, verifyBaseCollector, type BaseCollectorManifest } from "../server/base-collector";
+import { mainnetRpcUrl } from "../server/config";
+import { STOCKS } from "../src/lib/config";
+import { BASE_BUYBACK_WETH } from "../src/lib/base-buyback";
 import type { BuildInfo } from "../src/lib/build-info";
 import { readBuildIdentity, REPOSITORY } from "./build-info";
-import { assertBuildManifest, assertFrozenBuild, assertLaunchRuntime, assertReleaseCheckout, assertSecurityTransition, rollbackPreservesSafety, publishCandidate, ReleaseFailure, requireSingleActiveVersion, runtimeVarsFromBindings, sha256, snapshotBuild } from "./release-policy";
+import { assertBuildManifest, assertCandidateRuntimeBindings, assertFrozenBuild, assertLaunchRuntime, assertReleaseCheckout, assertSecurityTransition, rollbackPreservesSafety, publishCandidate, ReleaseFailure, requireSingleActiveVersion, runtimeVarsFromBindings, sha256, snapshotBuild } from "./release-policy";
 
 const repositorySlug = "MuseCity/musegodfun", workerName = "musegod-fun";
 const origins = ["https://musegod.fun", "https://www.musegod.fun"];
@@ -143,30 +150,107 @@ export async function checkRuntime(origin: string, config: Pick<WranglerConfig, 
       throw new Error(`Readiness/runtime configuration check failed for ${origin} (${chainId})`);
     assertLaunchRuntime(runtime, config.vars, requireLaunchPolicy, chainId);
     if(controlled) {
-      const engine=chainId===4663 ? config.vars.FEE_ENGINE_ADDRESS || null : null;
-      if(runtime.feePolicy!==(engine?ENGINE_FEE_POLICY:FEE_POLICY) || (runtime.feeEngine?.toLowerCase() ?? null)!==(engine?.toLowerCase() ?? null))throw new Error("Fee engine runtime differs from the committed release");
+      const engine=(chainId===4663 ? config.vars.FEE_ENGINE_ADDRESS : config.vars.BASE_FEE_COLLECTOR_ADDRESS) || null;
+      const policy = engine ? chainId === 8453 ? BASE_AUTOMATION_FEE_POLICY : ENGINE_FEE_POLICY : FEE_POLICY;
+      // A paused deployment may deliberately withhold an unactivated Collector.
+      // Enabled signing always requires the verified candidate to be exposed.
+      if(runtime.feePolicy!==policy || runtime.feeEngine && runtime.feeEngine.toLowerCase() !== engine?.toLowerCase() ||
+        writesEnabled && (runtime.feeEngine?.toLowerCase() ?? null)!==(engine?.toLowerCase() ?? null))throw new Error("Fee engine runtime differs from the committed release");
     }
   }
 }
 
-export async function checkFunctionalSmoke(origin: string) {
-  const prefix="/api/chains/4663", headers={"Cache-Control":"no-cache"};
+export async function checkFunctionalSmoke(origin: string, collectorRecovery = true) {
+  const results = [];
+  for (const chainId of collectorRecovery ? [8453, 4663] as const : [4663] as const) {
+  const prefix=`/api/chains/${chainId}`, headers={"Cache-Control":"no-cache"};
   const prices=await (await request(`${origin}${prefix}/first-buy/prices`,{headers})).json() as {assets?:{priceUsd:string|null}[]};
   if(!Array.isArray(prices.assets) || prices.assets.length<2 || prices.assets.some(asset=>asset.priceUsd!==null &&
     (typeof asset.priceUsd!=="string" || !asset.priceUsd || !Number.isFinite(Number(asset.priceUsd)) || Number(asset.priceUsd)<=0)))
     throw new Error("Functional smoke: malformed payment price response");
   const unknownReferences=prices.assets.filter(asset=>asset.priceUsd===null).length;
   if(unknownReferences)console.log(`Functional smoke: auxiliary price references degraded (${unknownReferences}/${prices.assets.length})`);
-  const stocks=await (await request(`${origin}${prefix}/stocks`,{headers})).json() as {verified?:boolean}[];
+  const stocks=await (await request(`${origin}${prefix}/stocks`,{headers})).json() as {verified?:boolean;address?:string}[];
   if(!Array.isArray(stocks) || !stocks.length || !stocks.some(stock=>stock.verified===true))throw new Error("Functional smoke: no verified paired assets");
+  if (chainId === 8453 && stocks.length !== 36) throw new Error("Functional smoke: Base pairing identity count differs from the admitted 36 assets");
+  if (collectorRecovery) {
+    const engine = await (await request(`${origin}${prefix}/buyback/engine`, {headers})).json() as {kind?:string;destinationChainId?:number};
+    if (chainId === 8453 && (engine.kind !== "base_splits_native" || engine.destinationChainId !== 4663)) throw new Error("Functional smoke: Base fee status is not chain scoped");
+    const ledger = await (await request(`${origin}${prefix}/buyback/vault-ledger`, {headers})).json() as {version?:number;initialized?:boolean};
+    if (ledger.version !== 1 || typeof ledger.initialized !== "boolean") throw new Error("Functional smoke: malformed shared-vault accounting response");
+  }
   const tokens=await (await request(`${origin}${prefix}/tokens?limit=1`,{headers})).json() as any;
   const first=(Array.isArray(tokens)?tokens:tokens.items)?.[0];
   if(first?.address) {
     const quote=await(await request(`${origin}${prefix}/quote`,{method:"POST",headers:{...headers,"content-type":"application/json"},body:JSON.stringify({address:first.address,side:"buy",amount:"1",slippageBps:100})})).json() as {amountOut?:string};
     if(!quote.amountOut || !/^\d+$/.test(quote.amountOut) || BigInt(quote.amountOut)<=0n)throw new Error("Functional smoke: on-chain quote unavailable");
   } else console.log("Functional smoke: launch trade quote not_run (catalog empty); reference response and asset identity passed");
-  return { auxiliaryPrices: unknownReferences ? "degraded" as const : "available" as const, unknownReferences,
-    tradeQuote: first?.address ? "passed" as const : "not_run" as const };
+  results.push({ chainId, auxiliaryPrices: unknownReferences ? "degraded" as const : "available" as const, unknownReferences,
+    tradeQuote: first?.address ? "passed" as const : "not_run" as const });
+  }
+  return results;
+}
+
+/** The first paused baseline requires an unused adapter and native account.
+ * Later rollbacks must understand native recovery and carry the same reviewed graph. */
+export async function baseRollbackCompatible(input: {
+  previousVars: Record<string, string>; candidateVars: Record<string, string>;
+  previousManifest?: BaseCollectorManifest; candidateManifest: BaseCollectorManifest;
+  previousRecoveryProtocol: boolean; pristine(): Promise<boolean>;
+}): Promise<boolean> {
+  const { previousVars: previous, candidateVars: candidate, previousManifest: prior, candidateManifest: next } = input;
+  if (!candidate.BASE_FEE_COLLECTOR_ADDRESS && next.status === "not_deployed")
+    return previous.ENABLE_BASE_TRANSACTIONS !== "true" && candidate.ENABLE_BASE_TRANSACTIONS !== "true" &&
+      !next.canaryAuthorization && !next.activation.nativeExecution && next.activation.status === "not_run" &&
+      !previous.BASE_FEE_COLLECTOR_ADDRESS && (!prior || prior.status === "not_deployed");
+  if (next.status !== "deployed_verified" || next.collector.address?.toLowerCase() !== candidate.BASE_FEE_COLLECTOR_ADDRESS?.toLowerCase()) return false;
+  if (input.previousRecoveryProtocol && prior?.status === "deployed_verified" &&
+    prior.collector.address?.toLowerCase() === previous.BASE_FEE_COLLECTOR_ADDRESS?.toLowerCase()) {
+    try { return baseCollectorGraphFingerprint(prior) === baseCollectorGraphFingerprint(next); }
+    catch { return false; }
+  }
+  if (previous.ENABLE_BASE_TRANSACTIONS === "true" || candidate.ENABLE_BASE_TRANSACTIONS === "true" || previous.BASE_FEE_COLLECTOR_ADDRESS ||
+    prior && prior.status !== "not_deployed" || next.activation.status !== "not_run" || next.canaryAuthorization || next.activation.nativeExecution ||
+    next.nativeRule.ruleId || next.nativeRule.configurationSha256) return false;
+  return input.pristine();
+}
+
+async function pristineBaseCollector(manifest: BaseCollectorManifest): Promise<boolean> {
+  try {
+    const address = manifest.collector.address;
+    if (!address) return false;
+    const client = createPublicClient({ chain: base, transport: http(mainnetRpcUrl(8453), { timeout: 20_000, retryCount: 1,
+      batch: { batchSize: 20, wait: 0 } }), batch: { multicall: true } });
+    const verified = await verifyBaseCollector(client, address, { manifest, requireActivation: false });
+    if (!verified.paused) return false;
+    const head = await client.getBlock();
+    if (!head.hash || head.number === null) return false;
+    // A pre-protocol rollback can bootstrap only a completely unused adapter.
+    // Checking canonical transfers covers arbitrary meme fees and unknown donations.
+    for (let from = verified.initialDeploymentBlock; from <= head.number; from += 10n) {
+      const toBlock = from + 9n < head.number ? from + 9n : head.number;
+      if ((await client.getLogs({ address, fromBlock: from, toBlock })).length) return false;
+      if ((await client.getLogs({ event: parseAbiItem("event Transfer(address indexed from,address indexed to,uint256 value)"),
+        args: { to: address }, fromBlock: from, toBlock, strict: true })).length) return false;
+    }
+    const abi = parseAbi(["function paused() view returns(bool)"]);
+    if (await client.readContract({ address, abi, functionName: "paused", blockNumber: head.number }) !== true ||
+      await client.getBalance({ address, blockNumber: head.number }) !== 0n) return false;
+    // Native execution authority is separate from the adapter pause. An older
+    // build cannot recover native activity, even if the adapter balance is zero.
+    const automation = manifest.automationAccount.address;
+    const initializedAt = manifest.automationAccount.blockNumber;
+    if (!automation || !initializedAt || manifest.nativeRule.ruleId || manifest.nativeRule.configurationSha256) return false;
+    for (let from = BigInt(initializedAt); from <= head.number; from += 10n) {
+      const toBlock = from + 9n < head.number ? from + 9n : head.number;
+      if ((await client.getLogs({ event: parseAbiItem("event Transfer(address indexed from,address indexed to,uint256 value)"),
+        args: { to: automation }, fromBlock: from, toBlock, strict: true })).length) return false;
+    }
+    if (await client.getBalance({ address: automation, blockNumber: head.number }) !== 0n) return false;
+    const balances = await Promise.all([address, automation].flatMap(holder => [...STOCKS.map(stock => stock.address), BASE_BUYBACK_WETH].map(token =>
+      client.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [holder], blockNumber: head.number! }))));
+    return balances.every(value => value === 0n) && (await client.getBlock({ blockNumber: head.number })).hash === head.hash;
+  } catch { return false; }
 }
 
 async function main() {
@@ -200,6 +284,17 @@ async function main() {
   const sourceFile=await github<{encoding:string;content:string}>(`contents/wrangler.jsonc?ref=${previousCommit}`);
   if(sourceFile.encoding!=="base64")throw new Error("Cannot inspect previous security configuration");
   const previousSource=JSON.parse(Buffer.from(sourceFile.content,"base64").toString("utf8")) as WranglerConfig;
+  let previousRecoveryProtocol = false, previousCollectorManifest: BaseCollectorManifest | undefined;
+  for (const path of ["src/lib/base-buyback.ts", "contracts/artifacts/base-collector-deployment.json"]) {
+    try {
+      const file = await github<{encoding:string;content:string}>(`contents/${path}?ref=${previousCommit}`);
+      if (file.encoding !== "base64") continue;
+      const bytes = Buffer.from(file.content, "base64").toString("utf8");
+      if (path.endsWith(".ts")) previousRecoveryProtocol = /export const BASE_RECOVERY_PROTOCOL = 2\b/.test(bytes);
+      else previousCollectorManifest = JSON.parse(bytes) as BaseCollectorManifest;
+    } catch { /* A pre-Collector baseline has neither file. It must pass the pristine check below. */ }
+  }
+  const candidateCollectorManifest = baseCollectorDeployment as unknown as BaseCollectorManifest;
   assertSecurityTransition(previousConfig.vars,config.vars,previousSource.vars);
   const service = await cloudflare<{ default_environment: { script: { migration_tag?: string } } }>(account, `services/${workerName}`);
   const migrationTag = service.default_environment.script.migration_tag;
@@ -238,6 +333,7 @@ async function main() {
         if (uploads.length !== 1 || uploads[0].worker_name !== workerName || !/^[a-f0-9-]{36}$/.test(uploads[0].version_id || ""))
           throw new Error("Wrangler did not report exactly one candidate Worker version");
         const candidate = await cloudflare<WorkerVersion>(account, `scripts/${workerName}/versions/${uploads[0].version_id}`);
+        assertCandidateRuntimeBindings(candidate.resources.bindings, config.vars);
         if (candidate.id !== uploads[0].version_id || candidate.annotations?.["workers/tag"] !== build.identity.commit)
           throw new Error("Candidate version metadata does not match the source commit");
         assertPreservedBindings(previous, candidate);
@@ -305,14 +401,18 @@ async function main() {
           await checkFunctionalSmoke(origin);
         },
       }),
-      rollbackAllowed: async () => rollbackPreservesSafety(previousConfig.vars,config.vars),
+      rollbackAllowed: async () => rollbackPreservesSafety(previousConfig.vars,config.vars) && baseRollbackCompatible({
+        previousVars: previousConfig.vars, candidateVars: config.vars, previousManifest: previousCollectorManifest,
+        candidateManifest: candidateCollectorManifest, previousRecoveryProtocol,
+        pristine: () => pristineBaseCollector(candidateCollectorManifest),
+      }),
       verifyRollback: async (previous) => verifyProductionCandidate(previous, {
         activeVersion,assertFrozen,describe,wait:waitForPropagation,
         verifyOrigin: async(origin)=>{
           const response=await request(`${origin}/`,{headers:{"Cache-Control":"no-cache"}});
           if(response.headers.get("X-Worker-Version")!==previous)throw new Error(`Rollback activated; edge propagation pending: ${origin}`);
           await checkRuntime(origin,previousConfig);
-          await checkFunctionalSmoke(origin);
+          await checkFunctionalSmoke(origin, previousRecoveryProtocol);
           describe(`Rollback origin checked: ${origin}; Worker ${previous}`);
         },
       }),

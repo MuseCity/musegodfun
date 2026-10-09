@@ -24,9 +24,11 @@ export type BuybackBatchStore = {
   saveBuybackBatch(batch: StoredBatch): unknown | Promise<unknown>;
   getBuybackBatch(id: string): any | Promise<any>;
   listBuybackBatches(): any[] | Promise<any[]>;
+  buybackBatchPage?(limit: number, before?: { updatedAt: number; id: string }): any[] | Promise<any[]>;
 };
 type ReadClient = PublicClient<any, any>;
-type Options = { robinhoodClient?: ReadClient; fetch?: typeof fetch; now?: () => number };
+type Options = { robinhoodClient?: ReadClient; fetch?: typeof fetch; now?: () => number;
+  destinationConfig?: () => Promise<RuntimeConfig> };
 const collectAbi = parseAbi(["function collectFees(bytes32 poolId)"]);
 const fundsAbi = parseAbi(["event FundsMovement(address from,address to,address currency,uint256 amount,bytes metadata)"]);
 const hashPattern = /^0x[0-9a-fA-F]{64}$/;
@@ -40,7 +42,7 @@ export class BuybackBatchService {
   private queue: Promise<unknown> = Promise.resolve();
 
   constructor(private readonly reader: BuybackReader, private readonly store: BuybackBatchStore,
-    private readonly base: ReadClient, private readonly config: RuntimeConfig, options: Options = {}) {
+    private readonly base: ReadClient, private readonly config: RuntimeConfig, private readonly options: Options = {}) {
     this.rh = options.robinhoodClient ?? createPublicClient({ chain: robinhood,
       transport: http(mainnetRpcUrl(4663), { retryCount: 0, timeout: 12_000 }) });
     this.fetcher = options.fetch ?? fetch.bind(globalThis); this.now = options.now ?? Date.now;
@@ -48,7 +50,7 @@ export class BuybackBatchService {
   private locked<T>(work: () => Promise<T>): Promise<T> {
     const next = this.queue.then(work, work); this.queue = next.catch(() => {}); return next;
   }
-  private visible(batch: StoredBatch): BuybackBatch {
+  visible(batch: StoredBatch): BuybackBatch {
     const { steps: _steps, proofs: _proofs, orderId: _orderId, metadata: _metadata, nonces: _nonces,
       authorizationNonce: _authorizationNonce, authorizationDigest: _authorizationDigest, ...publicBatch } = batch;
     return publicBatch;
@@ -57,10 +59,23 @@ export class BuybackBatchService {
     if (!hashPattern.test(id)) fail("INVALID_BATCH", "Invalid buyback batch ID");
     const batch = await this.store.getBuybackBatch(id.toLowerCase());
     if (!batch) fail("BATCH_NOT_FOUND", "Buyback batch not found");
+    if (batch.protocol || !batch.quote?.stockAddress || !batch.steps || !batch.hashes)
+      fail("INVALID_BATCH_PROTOCOL", "This recovery endpoint accepts historical Relay batches only.");
     return batch as StoredBatch;
   }
   private async save(batch: StoredBatch) {
     batch.updatedAt = this.now(); await this.store.saveBuybackBatch(batch);
+  }
+  private async allLegacy(): Promise<StoredBatch[]> {
+    if (!this.store.buybackBatchPage) return (await this.store.listBuybackBatches()).filter(b => !b.protocol && b.quote?.stockAddress && b.steps && b.hashes);
+    const result: StoredBatch[] = [];
+    let before: { updatedAt: number; id: string } | undefined;
+    for (;;) {
+      const rows = await this.store.buybackBatchPage(100, before);
+      result.push(...rows.filter(b => !b.protocol && b.quote?.stockAddress && b.steps && b.hashes));
+      if (rows.length < 100) return result;
+      const last = rows.at(-1)!; before = { updatedAt: last.updatedAt, id: last.id };
+    }
   }
   private signing(batch?: StoredBatch) {
     if (this.config.mode !== "base" || this.config.chainId !== 8453 || !this.config.writesEnabled || !this.config.treasury)
@@ -68,11 +83,29 @@ export class BuybackBatchService {
     if (batch && !sameAddress(batch.quote.treasury, this.config.treasury))
       fail("TREASURY_CHANGED", "The batch treasury differs from the current configuration. New signing is blocked; existing transactions can still be verified.");
   }
+  private async destinationSigning(batch: StoredBatch) {
+    const destination = await this.options.destinationConfig?.();
+    if (!destination || destination.mode !== "robinhood" || destination.chainId !== 4663 || !destination.writesEnabled)
+      fail("SIGNING_DISABLED", "Historical destination recovery requires current Robinhood signing permission.");
+    if (this.config.mode !== "base" || this.config.chainId !== 8453 || !this.config.treasury || !sameAddress(batch.quote.treasury, this.config.treasury))
+      fail("TREASURY_CHANGED", "The historical batch source treasury differs from the configured identity.");
+  }
   private async network(client: ReadClient, chainId: number) {
     if (await client.getChainId() !== chainId) fail("WRONG_CHAIN", "The buyback RPC network does not match");
   }
   async list(): Promise<BuybackBatch[]> {
-    return (await this.store.listBuybackBatches()).map((b) => this.visible(b));
+    return (await this.allLegacy()).map((b) => this.visible(b));
+  }
+  /** Immutable review of an already submitted source request. This never
+   * issues a fresh Relay quote, renews a deadline or advances source spending. */
+  async submittedStep(id: string, kind: "approval" | "deposit") {
+    const batch = await this.load(id), originalHash = batch.hashes[kind], step = batch.steps[kind];
+    if (!originalHash || !step || step.nonce === undefined) fail("STEP_NOT_READY", "There is no submitted historical source request to recover.");
+    await this.network(this.base, 8453);
+    const tx = await this.base.getTransaction({hash:originalHash});
+    if (!tx.to || !sameAddress(tx.from, step.from) || !sameAddress(tx.to, step.to) || tx.input.toLowerCase() !== step.data.toLowerCase() ||
+      tx.value !== BigInt(step.value) || tx.nonce !== step.nonce) fail("TRANSACTION_MISMATCH", "The historical source transaction does not match its stored request.");
+    return { ...step, recoveryOnly: true, originalHash };
   }
   async prepare(input: BuybackPrepareInput, authorization?: BuybackAuthorization): Promise<BuybackBatch> {
     return this.locked(async () => {
@@ -94,7 +127,7 @@ export class BuybackBatchService {
         });
         if (!sameAddress(signer, this.config.treasury!)) throw new Error();
       } catch { fail("INVALID_AUTHORIZATION", "The budget authorization does not match the treasury, stock token, amount, or claim receipts"); }
-      const existing = await this.store.listBuybackBatches();
+      const existing = await this.allLegacy();
       const authorizationDigest = hashTypedData(buybackAuthorizationTypedData(input, this.config.treasury!, authorization.nonce, authorization.expiresAt));
       const duplicate = existing.find((b: StoredBatch) => b.authorizationNonce?.toLowerCase() === authorization.nonce.toLowerCase());
       if (duplicate) {
@@ -140,7 +173,9 @@ export class BuybackBatchService {
   async step(id: string, kind: BuybackStepKind): Promise<BuybackStep> {
     return this.locked(async () => {
       if (!kinds.includes(kind)) fail("INVALID_STEP", "Invalid buyback step");
-      const batch = await this.load(id); this.signing(batch);
+      const batch = await this.load(id);
+      if (kind === "burn") await this.destinationSigning(batch);
+      else this.signing(batch);
       if (!batch.authorizationNonce) fail("AUTHORIZATION_REQUIRED", "The treasury wallet has not authorized this batch. Prepare it again.");
       await this.reconcileStored(batch);
       if (batch.nextStep !== kind || batch.hashes[kind]) fail("STEP_NOT_READY", "This step has already been submitted or is not ready to execute");
@@ -215,7 +250,7 @@ export class BuybackBatchService {
       const exact = sameAddress(tx.to, step.to) && tx.input.toLowerCase() === step.data.toLowerCase() && tx.value === BigInt(step.value);
       const selfCancel = sameAddress(tx.to, step.from) && tx.input === "0x" && tx.value === 0n;
       if (!exact && !selfCancel) fail("TRANSACTION_MISMATCH", "Only this batch transaction or a zero-value self-transfer cancellation with the same nonce is accepted");
-      for (const other of await this.store.listBuybackBatches()) {
+      for (const other of await this.allLegacy()) {
         if (other.id !== batch.id && (Object.values(other.hashes).some((h) => String(h).toLowerCase() === hash.toLowerCase()) ||
           other.cancellations?.some((p: ReceiptProof) => p.hash.toLowerCase() === hash.toLowerCase())))
           fail("HASH_ALREADY_USED", "This transaction belongs to another buyback batch");
@@ -313,7 +348,7 @@ export class BuybackBatchService {
         if (!Array.isArray(state.txHashes) || state.txHashes.length !== 1 || !hashPattern.test(state.txHashes[0])) throw new Error();
         batch.destinationHash = state.txHashes[0].toLowerCase();
       }
-      for (const other of await this.store.listBuybackBatches())
+      for (const other of await this.allLegacy())
         if (other.id !== batch.id && other.destinationHash === batch.destinationHash)
           fail("DUPLICATE_DESTINATION", "The destination receipt belongs to another buyback batch");
       const receipt = await this.confirmed(this.rh, batch.destinationHash!);

@@ -774,10 +774,11 @@ async function batchHarness() {
   });
   const base = client(8453), rh = client(4663);
   const config: any = { mode: "base", chainId: 8453, writesEnabled: true, treasury };
+  const destinationConfig: any = { mode: "robinhood", chainId: 4663, writesEnabled: true, treasury };
   const statsReader = { readMUSEGODStats: async () => ({}) } as unknown as BuybackReader;
   const fetcher = mock({ status: "success", originChainId: 8453, destinationChainId: 4663, inTxHashes: [sourceHash], txHashes: [destinationHash] });
-  const makeService = (customReader = statsReader, customFetch = fetcher) => new BuybackBatchService(customReader, store, base, config, { robinhoodClient: rh, fetch: customFetch, now: () => now });
-  return { service: makeService(), makeService, store, rows, receipts, transactions, batch, amount, config, receipt, base, rh,
+  const makeService = (customReader = statsReader, customFetch = fetcher) => new BuybackBatchService(customReader, store, base, config, { robinhoodClient: rh, fetch: customFetch, now: () => now, destinationConfig: async () => destinationConfig });
+  return { service: makeService(), makeService, store, rows, receipts, transactions, batch, amount, config, destinationConfig, receipt, base, rh,
     setNonces: (bp: number, bl: number, rp: number, rl: number) => { basePendingNonce = bp; baseLatestNonce = bl; rhPendingNonce = rp; rhLatestNonce = rl; } };
 }
 
@@ -880,9 +881,21 @@ test("pending and reorganized receipts erase verified accounting without declari
 test("switching signing off or treasury never prevents confirmation of already submitted batches", async () => {
   const h = await batchHarness(); h.config.writesEnabled = false; h.config.treasury = stranger;
   const batch = await h.service.reconcile(requestId); assert.equal(batch.status, "received");
+  h.destinationConfig.writesEnabled = false;
   await assert.rejects(h.service.step(requestId, "burn"), hasCode("SIGNING_DISABLED"));
-  h.config.writesEnabled = true;
+  h.destinationConfig.writesEnabled = true;
   await assert.rejects(h.service.step(requestId, "burn"), hasCode("TREASURY_CHANGED"));
+});
+
+test("historical destination burns follow Robinhood authority independently of a paused Base launch", async () => {
+  const h = await batchHarness(); h.config.writesEnabled = false;
+  const step = await h.service.step(requestId, "burn");
+  assert.equal(step.chainId, 4663); assert.equal(step.from, treasury);
+  assert.equal(step.amount, h.amount.toString());
+  h.destinationConfig.writesEnabled = false;
+  await assert.rejects(h.service.step(requestId, "burn"), hasCode("SIGNING_DISABLED"));
+  h.destinationConfig.writesEnabled = true; h.destinationConfig.chainId = 8453;
+  await assert.rejects(h.service.step(requestId, "burn"), hasCode("SIGNING_DISABLED"));
 });
 
 test("first burn nonce cannot be queued behind unrelated pending work and cannot drift on repeated fetch", async () => {

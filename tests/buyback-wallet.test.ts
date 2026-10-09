@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { encodeFunctionData, erc20Abi, hashTypedData, toHex, type Hash } from "viem";
-import { assertBuybackStep, assertSameBuybackStep, assertBuybackRequest, transactionClient, buybackAuthorizationPayload, submitBuybackPreparation } from "../src/lib/wallet";
+import { assertBuybackStep, assertSameBuybackStep, assertBuybackRequest, transactionClient } from "../src/lib/wallet";
 import { RELAY_APPROVAL_PROXY, RELAY_DEPOSITORY, buybackAuthorizationTypedData, type BuybackStep, type BuybackBatch } from "../src/lib/buyback";
 import { MUSEGOD_BUYBACK } from "../src/lib/fee-policy";
 import { STOCKS, type RuntimeConfig } from "../src/lib/config";
@@ -9,7 +9,8 @@ import { saveTransaction, transactions, updateTransaction, applyBuybackRecovery 
 
 const treasury = "0x1111111111111111111111111111111111111111";
 const other = "0x2222222222222222222222222222222222222222";
-const config: RuntimeConfig = { mode: "base", chainId: 8453, treasury, writesEnabled: true, blockReason: null };
+const config: RuntimeConfig = { mode: "base", chainId: 8453, treasury, writesEnabled: true, blockReason: null, securityProtocol: 1, signingPaused: false, controlRevision: 0 };
+const burnConfig: RuntimeConfig = { ...config, mode: "robinhood", chainId: 4663, treasury: other };
 const amount = 12345n;
 function burn(): BuybackStep {
   return {
@@ -26,16 +27,16 @@ function approval(): BuybackStep {
 
 test("buyback signing remains mainnet opt-in and requires the configured treasury EOA account", () => {
   const step = burn();
-  assert.doesNotThrow(() => assertBuybackStep(step, config, treasury));
-  assert.throws(() => assertBuybackStep(step, { ...config, writesEnabled: false }, treasury));
-  assert.throws(() => assertBuybackStep(step, { ...config, mode: "fork", chainId: 31337 }, treasury));
-  assert.throws(() => assertBuybackStep(step, config, other));
-  assert.throws(() => assertBuybackStep({ ...step, from: other }, config, treasury));
-  assert.throws(() => assertBuybackStep(step, { ...config, treasury: null }, treasury));
-  assert.throws(() => assertBuybackStep({ ...step, expiresAt: 1 }, config, treasury));
-  assert.throws(() => assertBuybackStep({ ...step, value: "1" }, config, treasury));
-  assert.throws(() => assertBuybackStep({ ...step, nonce: undefined }, config, treasury));
-  assert.throws(() => assertBuybackStep({ ...step, nonce: -1 }, config, treasury));
+  assert.doesNotThrow(() => assertBuybackStep(step, burnConfig, treasury, Date.now(), treasury));
+  assert.throws(() => assertBuybackStep(step, { ...burnConfig, writesEnabled: false }, treasury, Date.now(), treasury));
+  assert.throws(() => assertBuybackStep(step, { ...burnConfig, mode: "fork", chainId: 31337 }, treasury, Date.now(), treasury));
+  assert.throws(() => assertBuybackStep(step, burnConfig, other, Date.now(), treasury));
+  assert.throws(() => assertBuybackStep({ ...step, from: other }, burnConfig, treasury, Date.now(), treasury));
+  assert.throws(() => assertBuybackStep(step, { ...burnConfig, treasury: null }, treasury, Date.now(), treasury));
+  assert.throws(() => assertBuybackStep({ ...step, expiresAt: 1 }, burnConfig, treasury, Date.now(), treasury));
+  assert.throws(() => assertBuybackStep({ ...step, value: "1" }, burnConfig, treasury, Date.now(), treasury));
+  assert.throws(() => assertBuybackStep({ ...step, nonce: undefined }, burnConfig, treasury, Date.now(), treasury));
+  assert.throws(() => assertBuybackStep({ ...step, nonce: -1 }, burnConfig, treasury, Date.now(), treasury));
 });
 
 test("Robinhood signing can only transfer the exact batch amount of MUSEGOD to dead", () => {
@@ -45,7 +46,7 @@ test("Robinhood signing can only transfer the exact batch amount of MUSEGOD to d
     { data: encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [other, amount] }) },
     { data: encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [MUSEGOD_BUYBACK.burnAddress, amount] }) },
     { data: `${step.data}00` as const },
-  ]) assert.throws(() => assertBuybackStep({ ...step, ...changed }, config, treasury));
+  ]) assert.throws(() => assertBuybackStep({ ...step, ...changed }, burnConfig, treasury, Date.now(), treasury));
 });
 
 test("Base buyback approvals bind whitelisted stock, exact amount and Relay spender", () => {
@@ -89,48 +90,6 @@ test("buyback provider transport rejects messages and any write differing from t
   assert.equal(transactionClient(4663).transport.url, "/api/chains/4663/rpc");
 });
 
-test("budget authorization serializes the exact app, account, asset, raw amount, claims, nonce and expiry", () => {
-  const input = { stockAddress: STOCKS[0].address, amount: "0.01", claimHashes: [`0x${"a".repeat(64)}` as Hash] };
-  const nonce = `0x${"b".repeat(64)}` as Hash;
-  const expiry = 1_800_000_300_000;
-  const serialized = JSON.parse(buybackAuthorizationPayload(input, treasury, nonce, expiry));
-  assert.equal(serialized.primaryType, "PrepareBuyback");
-  assert.equal(serialized.domain.name, "MuseGod Buyback");
-  assert.equal(Number(serialized.domain.chainId), 8453);
-  assert.equal(serialized.message.app, "musegod.fun");
-  assert.equal(serialized.message.treasury.toLowerCase(), treasury);
-  assert.equal(serialized.message.amountIn, "1000000");
-  assert.equal(serialized.message.expiresAt, String(expiry));
-  const expected = hashTypedData(buybackAuthorizationTypedData(input, treasury, nonce, expiry));
-  assert.equal(hashTypedData(serialized), expected, "Wallet JSON and server typed-data verification must hash identically");
-  for (const changed of [
-    { ...input, amount: "0.02" }, { ...input, stockAddress: STOCKS[1].address },
-    { ...input, claimHashes: [] },
-  ]) assert.notEqual(hashTypedData(buybackAuthorizationTypedData(changed, treasury, nonce, expiry)), expected);
-  assert.notEqual(hashTypedData(buybackAuthorizationTypedData(input, other, nonce, expiry)), expected);
-  assert.notEqual(hashTypedData(buybackAuthorizationTypedData(input, treasury, `0x${"c".repeat(64)}`, expiry)), expected);
-  assert.notEqual(hashTypedData(buybackAuthorizationTypedData(input, treasury, nonce, expiry + 1)), expected);
-});
-
-test("wallet preparation submits the authorization and exact budget in the HTTP route's flat body", async () => {
-  const originalFetch = globalThis.fetch;
-  const input = { stockAddress: STOCKS[0].address, amount: "0.01", claimHashes: [`0x${"a".repeat(64)}` as Hash] };
-  const authorization = { nonce: `0x${"b".repeat(64)}` as Hash, expiresAt: Date.now() + 300_000, signature: `0x${"c".repeat(130)}` as Hash };
-  let calls = 0;
-  globalThis.fetch = async (url, options) => {
-    calls++;
-    assert.equal(url, "/api/chains/8453/buyback/batches");
-    assert.equal(options?.method, "POST");
-    assert.deepEqual(JSON.parse(options?.body as string), { ...input, authorization });
-    return new Response(JSON.stringify({ id: "prepared-batch" }), { status: 200 });
-  };
-  try {
-    const result = await submitBuybackPreparation(input, authorization);
-    assert.equal(result.id, "prepared-batch");
-    assert.equal(calls, 1);
-  } finally { globalThis.fetch = originalFetch; }
-});
-
 test("buyback pending and replacement records retain batch linkage across browser reloads on both chains", () => {
   const oldStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
   const oldWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
@@ -167,4 +126,18 @@ test("buyback pending and replacement records retain batch linkage across browse
     if (oldStorage) Object.defineProperty(globalThis, "localStorage", oldStorage); else Reflect.deleteProperty(globalThis, "localStorage");
     if (oldWindow) Object.defineProperty(globalThis, "window", oldWindow); else Reflect.deleteProperty(globalThis, "window");
   }
+});
+
+test("historical manual Relay burn uses current Robinhood controls and the original Base batch treasury", () => {
+  const step = burn();
+  assert.doesNotThrow(() => assertBuybackStep(step, burnConfig, treasury, Date.now(), treasury));
+  assert.throws(() => assertBuybackStep(step, config, treasury, Date.now(), treasury), /controls/);
+  assert.throws(() => assertBuybackStep(step, { ...burnConfig, writesEnabled: false }, treasury, Date.now(), treasury));
+  assert.throws(() => assertBuybackStep(step, { ...burnConfig, signingPaused: true }, treasury, Date.now(), treasury));
+  assert.throws(() => assertBuybackStep(step, burnConfig, treasury, Date.now(), other), /treasury/);
+  assert.throws(() => assertBuybackStep(step, burnConfig, treasury), /treasury/);
+  assert.throws(() => assertBuybackStep(step, { ...burnConfig, securityProtocol: undefined }, treasury, Date.now(), treasury), /controls/);
+  const sourceStep = approval();
+  assert.throws(() => assertBuybackStep(sourceStep, { ...config, writesEnabled: false }, treasury));
+  assert.throws(() => assertBuybackStep(sourceStep, burnConfig, treasury));
 });

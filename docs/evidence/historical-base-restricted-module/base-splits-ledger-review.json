@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 1,
+  "kind": "base_splits_native_ledger_review",
+  "recordedAt": "2026-10-09T08:41:33.091Z",
+  "status": "native_alternative_not_selected_by_owner",
+  "implementationStatus": "native_provenance_not_implemented",
+  "scope": "Read-only design review. No new native authority, migration, checkpoint or financial task has been created.",
+  "sourceScopes": [
+    {
+      "chainId": 8453,
+      "node": "Collector",
+      "record": "manager-validated actual fee credit and fixed transfer to Automation"
+    },
+    {
+      "chainId": 8453,
+      "node": "Automation",
+      "record": "complete asset-specific inflow/outflow lots, actual swap inputs, source bridge submission and refunds"
+    },
+    {
+      "chainId": 4663,
+      "node": "Treasury",
+      "asset": "canonical WETH",
+      "record": "all canonical inflows/outflows, including non-Forwarder spending"
+    },
+    {
+      "chainId": 4663,
+      "node": "Vault",
+      "asset": "canonical WETH",
+      "record": "all canonical inflows and Executed from all callers"
+    }
+  ],
+  "checkpoints": {
+    "before": "first Base fee transfer into Automation",
+    "requirements": [
+      "Base Automation asset balances and canonical starting block",
+      "RH Treasury WETH balance and canonical starting block",
+      "existing shared Vault WETH balance and canonical starting block"
+    ],
+    "openingBalances": "unknown source until separately supported by complete prior evidence",
+    "writer": "one canonical authority per chain; Base does not sign RH calls or initialize/write the RH ledger"
+  },
+  "sourceProof": [
+    "Collector transfer must match actual recorded manager fee income; donations and untracked balances are not Base fees.",
+    "Automation can mix other income and deposits. Trace actual asset-specific fee lots into each supported source swap/deposit; counterfactual same address is not account identity proof.",
+    "Each Relay job must retain its native task/provider version, original order/request and source parameters or their exact hashes with recoverable data.",
+    "Verify canonical source account transaction/UserOperation and exact consumed assets; match the same provider order to the canonical destination payout in RH canonical WETH.",
+    "API DONE, timeout, 404, UI history or one matching amount cannot independently establish bridge completion or refund.",
+    "Unsupported/ambiguous native route or batch mapping stays unknown; do not fabricate source provenance from a Treasury balance."
+  ],
+  "treasuryFifo": {
+    "cover": "all Treasury WETH deposits and withdrawals, not only Forwarder calls or the recent list",
+    "consumption": "FIFO across Base, RH, donation, profit and unknown lots",
+    "propagation": "only a canonical fixed Forwarder event paired with its actual Treasury-to-Vault WETH transfer propagates provenance",
+    "mixedTransfer": "split a Vault inflow into stable source fragments; every fragment sum must equal the canonical transfer amount",
+    "identity": "transaction hash + transfer log index + stable partIndex",
+    "priorUnknown": "older unknown Treasury lots can be consumed before new Base lots; Base may remain pending after an equal-size forwarding call"
+  },
+  "vaultFifo": {
+    "consumption": "reuse complete Vault FIFO with propagated source fragments and all public third-party Executed events",
+    "attribution": "allocate actual museToDead in proportion to WETH consumption, with exact conservation and separate caller profit",
+    "description": "FIFO accounting attribution; no on-chain segregation and no claim that ERC20 totalSupply decreased",
+    "evidence": "canonical Executed plus matching MUSEGOD Transfer to dead"
+  },
+  "recovery": [
+    "Keyset full histories, canonical block hashes, CAS journal updates, reorg rewind/replay and backups.",
+    "Persist signed transaction hash before broadcast where project-owned calls are signed; unknown never authorizes repeated source spending.",
+    "Native server submissions are observed source tasks: absence of a project broadcast journal is not proof of failure.",
+    "Count a refund as usable only after canonical receipt, actual balance change and unambiguous provider job/asset mapping.",
+    "Keep native ETH refunds distinct from Base/RH canonical WETH and from 8-decimal B20 credits.",
+    "Interpret prior Across jobs by their original protocol/version; do not relabel them as native Relay jobs."
+  ],
+  "currentCodeGap": [
+    "Existing direct Collector-to-Vault Across proof is not a native Relay/Treasury proof.",
+    "Current one-source Vault transfer classification cannot represent a mixed Treasury Forwarder transfer.",
+    "Native Automation source identity, Relay order extraction, Treasury all-outflow journal and stable provenance fragments require implementation after the source-policy decision."
+  ],
+  "relatedEvidence": [
+    "base-splits-review.json",
+    "base-splits-relay-route.json",
+    "base-splits-collector-review.json"
+  ],
+  "productionChanges": false,
+  "ownerDecision": "option_B_preserve_protections_splits_restricted_module",
+  "livePlan": "base-splits-review.json"
+}

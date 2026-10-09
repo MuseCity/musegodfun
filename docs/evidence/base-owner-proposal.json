@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 3,
+  "recordedAt": "2026-10-09T13:14:36.512490+00:00",
+  "status": "unsigned_owner_review_native_mainnet_not_authorized",
+  "architecture": "splits-treasury-native-automation",
+  "sourceBaseline": "f7c1264b2995c2c243c7f95419254a3e45d118f2",
+  "chainId": 8453,
+  "roles": {
+    "governorAndOperations": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+    "deploymentWallet": "0xd5C256e6411a6835543F2bCd763341639e3Cf56f",
+    "gasKeeper": "0xd3f11a4DDcED57aC4E41F8CE7fD323959667e278",
+    "independentQuoteSigner": "retired; native Splits service signs its own conversion and bridge work"
+  },
+  "newBaseAutomation": {
+    "address": null,
+    "ruleId": null,
+    "status": "owner_UI_creation_required",
+    "ownerAndSigners": "must be read from the actual official Base factory initialization and current account; do not assume RH account exists on Base",
+    "factory": "0x8E6Af8Ed94E87B4402D0272C5D6b0D47F0483e7C",
+    "implementation": "0x15ec0Fa66A0D96a64d67C58368641fBE9325F3FA"
+  },
+  "nativeRule": {
+    "sourceChainId": 8453,
+    "destinationChainId": 4663,
+    "outputToken": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+    "allocationBps": 10000,
+    "recipient": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+    "bridgeProvider": "Relay",
+    "requiredReview": "ruleId and configuration SHA256 bound to governor authorization; native provider routes remain mutable"
+  },
+  "collectorConstructor": {
+    "initializer": "0xBDF938149ac6a781F94FAa0ed45E6A0e984c6544",
+    "rehype": "0x5F9eB5f6726Fe88D5e39867967F5b833d2fA3215",
+    "governor": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+    "automationReceiver": null,
+    "initiallyPaused": true,
+    "runtimeBytes": 5883,
+    "creationBytecodeHash": "0x5a7441ae15a5330d2ca3ff1efa51801b8272acd4922c5e6a0f1ad0de6315005c",
+    "compilerInputSha256": "c597501cebc8b08c092fdba4f88ab39bf9f972551b781f53e0cebf150de03bf4",
+    "creationTransaction": "pending actual account initialization, reviewed manifest and fresh deployer nonce; preflight generates unsigned calldata only"
+  },
+  "ownerExecutionChecklist": [
+    {
+      "step": 1,
+      "action": "Create dedicated Base native Automation under the existing Splits Treasury using the human passkey; export the exact 100% canonical Robinhood WETH-to-existing-Treasury rule.",
+      "authorization": "account and native rule UI signatures required; no existing RH rule change"
+    },
+    {
+      "step": 2,
+      "action": "Review factory creation receipt, CREATE2 prediction, owner, implementation, complete current indexed signers/threshold and rule hash. Bind the new address in the existing manifest.",
+      "authorization": "read-only"
+    },
+    {
+      "step": 3,
+      "action": "Run unsigned Collector preflight with the existing D5 deployer; review exact calldata, current nonce, predicted address, Base L2/L1/operator gas and immutable bindings; only then authorize deployment.",
+      "authorization": "deployment transaction and separate gas ceiling required"
+    },
+    {
+      "step": 4,
+      "action": "Authorize additive financial journals and backup restore; initialize Base Automation, existing RH Treasury and existing shared Vault checkpoints before the first release. Keep public controls paused.",
+      "authorization": "database maintenance required; no RH financial permission change"
+    },
+    {
+      "step": 5,
+      "action": "Sign exact private HTTPS origin, graph, D3 keeper, expiry, per-token genuine-fee cumulative release budgets and separate Base/RH gas ceilings; approve isolated Base CAS resume and Collector resume for device-wallet canary.",
+      "authorization": "actual amounts/origin/expiry and gas budgets are pending; no source fee principal top-up"
+    },
+    {
+      "step": 6,
+      "action": "Run genuine fee claim/release, native conversion/Relay, Treasury receipt, existing Forwarder/Vault settlement, specific-batch FIFO/dead reconciliation; keep received canary WETH <=0.01. Test desktop/mobile broadcast recovery and native-authority pause plus compatible rollback. Review and attest the exact Splits native scheduled job/completed run, bound to both transaction hashes and the complete canonical financial acceptance hash; receipts alone do not prove native scheduling or full provider job completion.",
+      "authorization": "small real fee principal and gas execution required; synthetic funding cannot pass"
+    },
+    {
+      "step": 7,
+      "action": "Publish a compatible paused build; verify both origins and exact source/assets/config. Only complete acceptance allows separately authorized Base flag and latest-revision CAS resume.",
+      "authorization": "publication and public activation require explicit authorization"
+    }
+  ],
+  "budgets": {
+    "deploymentGasWei": null,
+    "baseKeeperGasWei": null,
+    "robinhoodKeeperGasWei": null,
+    "releaseBudgets": [],
+    "canaryReceivedWethCeilingRaw": "10000000000000000",
+    "gasSeparate": true,
+    "nativeSourceEconomicCap": "No Collector-enforced WETH rolling cap or price minimum; per-token canary release ceilings only restrict project release and do not constrain mutable native signers"
+  },
+  "existingRobinhood": {
+    "treasury": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+    "forwarder": "0x808d538f13ce0356E80C7a5ac2798d09206aB8f4",
+    "vault": "0x28E6B43525301312084310F31f4C9c9873d7a125",
+    "permissionsChanged": false,
+    "nativeRuleChanged": false,
+    "keeper": "existing dedicated process, no new RH private key or wrapper"
+  },
+  "mainnetExecution": "not_run",
+  "publicBaseActivation": "not_run",
+  "fundingRequested": false,
+  "rollback": "Pause Base new signing and project releases, revoke native account/rule execution authority, then use same-graph recovery-protocol-2 paused release. Preserve journals, assets and in-flight recovery."
+}

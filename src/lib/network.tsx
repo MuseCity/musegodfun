@@ -6,8 +6,9 @@ import type { RuntimeConfig } from "./config";
 export type DeploymentChainId = 8453 | 4663;
 export function pathChain(path = location.pathname, search = location.search): DeploymentChainId | null {
   if (path.startsWith("/token/base/")) return 8453;
-  if (path.startsWith("/token/robinhood/") || path.startsWith("/token/") || path === "/buyback") return 4663;
+  if (path.startsWith("/token/robinhood/") || path.startsWith("/token/")) return 4663;
   const query = new URLSearchParams(search).get("chainId");
+  if (path === "/buyback") return query === "8453" ? 8453 : 4663;
   return query === "8453" ? 8453 : query === "4663" ? 4663 : null;
 }
 export function tokenPath(token: Pick<TokenRecord, "address" | "mode" | "deploymentChainId">) {
@@ -35,7 +36,7 @@ export function NetworkProvider({ children }: { children: ReactNode }) {
     if (![8453, 4663].includes(id)) throw new Error("Unsupported network");
     revision.current++;
     const url = new URL(location.href);
-    if (url.pathname.startsWith("/token/") || url.pathname === "/buyback") url.pathname = "/create";
+    if (url.pathname.startsWith("/token/")) url.pathname = "/create";
     url.searchParams.set("chainId", String(id));
     history.pushState({}, "", `${url.pathname}${url.search}`);
     setChainId(id);

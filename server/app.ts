@@ -2,7 +2,7 @@ import express from "express";
 import { createHash, randomUUID } from "node:crypto";
 import { clientBucket, IngressLimiter, PreviewQueue, RiskChallenge } from "./abuse";
 import { BudgetUnavailable, recoveryBudget, withRecoveryBudget } from "./runtime-policy";
-import { sameAddress, listedTokens } from "../src/lib/config";
+import { sameAddress, listedTokens, type RuntimeConfig } from "../src/lib/config";
 import { firstBuyPaymentInput, FIRST_BUY_SLIPPAGE_BPS } from "../src/lib/first-buy-payment";
 import { securityHeaders, requestBodyLimitForPath } from "./http-security";
 import { TokenImages } from "./token-images";
@@ -20,6 +20,10 @@ import { CHART_INTERVALS } from "../src/lib/market";
 import { BuybackReader, BuybackError } from "./buyback";
 import { BuybackBatchService } from "./buyback-batches";
 import { BuybackEngineReader } from "./buyback-engine";
+import { BaseFeeQuoteReader } from "./base-buyback";
+import { createVaultLedgerRuntime, openVaultLedgerReadOnlyStore, readCanonicalBaseSourceBatches } from "./buyback-vault-runtime";
+import { BASE_BUYBACK_PROTOCOL, BASE_LEGACY_ACROSS_PROTOCOL, BASE_BUYBACK_TREASURY, BASE_BUYBACK_VAULT, type BaseCollectorStatus } from "../src/lib/base-buyback";
+import type { VaultLedgerReport } from "../src/lib/buyback-vault-ledger";
 import type { MUSEGODStats } from "../src/lib/buyback";
 import type { LaunchPlan } from "../src/lib/launch-plan";
 import {
@@ -59,7 +63,8 @@ export function createApp(
   configurePages?: (app: express.Express) => void,
   trustProxy: "loopback" | true = "loopback",
   runtime: Runtime = runtimeFromEnv(),
-  shared: { ingressManaged?: boolean; previews?: PreviewQueue; challenge?: RiskChallenge } = {},
+  shared: { ingressManaged?: boolean; previews?: PreviewQueue; challenge?: RiskChallenge;
+    chainConfig?: (chainId: DeploymentChainId) => Promise<RuntimeConfig> } = {},
 ) {
 const app = express(),
   service = new LaunchpadService(runtime);
@@ -71,8 +76,23 @@ const market = new MarketReader({
 const musegod = new MusegodReader(service.client, service.runtime.config, () => service.assertNetwork());
 const musegodMarket = new MusegodMarketReader(service.runtime.config, service.store);
 const buyback = new BuybackReader(service.runtime.config.treasury);
-const buybackBatches = new BuybackBatchService(buyback, service.store, service.client, service.runtime.config);
+const buybackBatches = new BuybackBatchService(buyback, service.store, service.client, service.runtime.config, {
+  destinationConfig: () => shared.chainConfig?.(4663) ?? Promise.reject(new BuybackError("SIGNING_DISABLED", "The explicit Robinhood recovery runtime is unavailable.")),
+});
 const buybackEngine = new BuybackEngineReader(service.client, () => service.config(), () => service.tokens(), (address, engine) => service.engineClaimPreview(address, engine), service.store, !shared.ingressManaged);
+service.vaultLedgerRuntime = createVaultLedgerRuntime({ runtime, client: service.client, store: service.store });
+const baseFinancialHistory = async () => {
+  if (runtime.dataScope === "base" || runtime.config.mode === "fork") return readCanonicalBaseSourceBatches(service.store);
+  const peer = await openVaultLedgerReadOnlyStore(runtimeFromEnv(8453, runtime.environment ?? {}));
+  try { return await readCanonicalBaseSourceBatches(peer); }
+  finally { await peer.close(); }
+};
+const baseCollector = deploymentChain(runtime.config) === 8453 && runtime.config.feeEngine ? new BaseFeeQuoteReader({
+  client: service.client, collector: runtime.config.feeEngine,
+  batches: baseFinancialHistory,
+  custodyReport: () => service.vaultLedgerRuntime!.sourceStatus(),
+  automationPolicy: () => service.vaultLedgerRuntime!.automationPolicy(),
+}) : null;
 const payments = new FirstBuyPaymentReader({ client: service.client, chainId: deploymentChain(runtime.config),
   rpcChainId: runtime.config.mode === "fork" && runtime.config.chainId === 31337 ? 31337 : deploymentChain(runtime.config), ...runtime.lifi, budget: service.store });
 app.set("trust proxy", trustProxy);
@@ -211,9 +231,25 @@ app.post("/api/first-buy/verify", route(async (req, res) => {
 app.get("/api/first-buy-lock/:address", route(async (req, res) =>
   res.json(await service.firstBuyLock(addressSchema.parse(req.params.address))),
 ));
-app.get("/api/buyback/engine", route(async (_req, res) => res.json(await buybackEngine.read())));
+app.get("/api/buyback/engine", route(async (_req, res) => {
+  if (deploymentChain(runtime.config) === 4663) { res.json(await buybackEngine.read()); return; }
+  const empty: BaseCollectorStatus = { kind: "base_splits_native", protocol: BASE_BUYBACK_PROTOCOL, chainId: 8453,
+    available: false, collector: null, automation: null, destinationChainId: 4663, destinationTreasury: BASE_BUYBACK_TREASURY,
+    destinationVault: BASE_BUYBACK_VAULT, paused: true, nativeAutomationState: "unverified",
+    totalBridgedWeth: "0", totalRefundedWeth: "0", assets: [], assetsComplete: false, batches: [], ledgerComplete: false,
+    error: "Base fee processing awaits its dedicated Splits Automation account, fee adapter and real fee acceptance." };
+  const status = baseCollector ? await baseCollector.status() : empty;
+  const ledger = await service.vaultLedgerRuntime!.read();
+  const page = baseCollector ? [...(status.available ? status.batches : await baseFinancialHistory())].sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id)).slice(0, 100)
+    : await service.store.buybackBatchPage(100);
+  res.json({ ...status, batches: page.filter(row => row.protocol === BASE_BUYBACK_PROTOCOL).map(row => publicBaseBatch(row, ledger)),
+    ledgerComplete: status.ledgerComplete && ledger.attributionReady && ledger.caughtUp, vaultLedger: ledger });
+}));
+app.get("/api/buyback/vault-ledger", route(async (_req, res) => res.json(await service.vaultLedgerRuntime!.read())));
+app.get("/api/buyback/custody", route(async (_req, res) => res.json(await service.vaultLedgerRuntime!.custody())));
 let engineQuoting = false;
 app.post("/api/buyback/engine/quote", route(async (req, res) => {
+  if (deploymentChain(runtime.config) !== 4663) { res.status(410).json({ code: "AUTOMATIC_BASE_FEES", error: "Base fee conversion is managed by Splits native Automation. Public quote signing is unavailable." }); return; }
   const input = z.object({ token: addressSchema, amount: z.string().regex(/^[1-9]\d{0,77}$/), caller: addressSchema }).strict().parse(req.body);
   if (engineQuoting) { res.status(429).json({ error: "Another conversion preview is in progress. Try again shortly." }); return; }
   engineQuoting = true;
@@ -222,9 +258,24 @@ app.post("/api/buyback/engine/quote", route(async (req, res) => {
 }));
 let buybackStats: MUSEGODStats | null = null;
 let buybackStatsPending: Promise<MUSEGODStats> | null = null;
-let buybackQuoting = false;
-function requireBuybackMainnet() {
-  throw new BuybackError("CROSS_CHAIN_DEFERRED", "Base fee bridging is deferred while Robinhood issuance is being validated.");
+function requireHistoricalBase() {
+  if (runtime.config.mode !== "base" || runtime.config.chainId !== 8453)
+    throw new BuybackError("WRONG_CHAIN", "Historical Relay recovery requires the explicit Base API.");
+}
+function publicBaseBatch(value: Record<string, unknown>, ledger?: VaultLedgerReport) {
+  const keys = ["id", "protocol", "sourceChainId", "destinationChainId", "collector", "kind", "status", "createdAt", "updatedAt", "poolId",
+    "inputAsset", "amountIn", "receivedAmount", "refundedAmount", "burnedAmount", "claimHashes", "sourceHash", "sourceBlockNumber", "sourceBlockHash", "destinationHash"] as const;
+  const result = Object.fromEntries(keys.filter(key => value[key] !== undefined).map(key => [key, value[key]]));
+  // Source receipts and RH accounting retain separate write authorities.
+  // Their read projection supplies the complete batch lifecycle without
+  // claiming LI.FI status or a cached source row proves destination receipt.
+  if (ledger?.attributionReady && value.protocol === BASE_BUYBACK_PROTOCOL && value.kind === "native_relay") {
+    const accounting = ledger.batches.find(row => row.batchId === value.id);
+    const lot = ledger.lots.find(row => row.batchId === value.id && row.source === "base");
+    if (accounting && lot) Object.assign(result, { receivedAmount: accounting.receivedWeth, burnedAmount: accounting.attributedMuseToDead,
+      status: accounting.status === "consumed" ? "attributed" : "awaiting_buyback", destinationHash: value.destinationHash ?? lot.id.split(":")[0] });
+  }
+  return result;
 }
 app.get("/api/buyback/stats", route(async (_req, res) => {
   if (service.runtime.config.mode === "fork") throw new BuybackError("FORK_UNAVAILABLE", "Fork assets cannot use mainnet data.");
@@ -237,46 +288,38 @@ app.get("/api/buyback/stats", route(async (_req, res) => {
     .finally(() => { buybackStatsPending = null; });
   res.json(await buybackStatsPending);
 }));
-app.post("/api/buyback/quote", route(async (req, res) => {
-  requireBuybackMainnet();
-  const input = z.object({ stockAddress: addressSchema, amount: z.string().max(40) }).strict().parse(req.body);
-  if (buybackQuoting) {
-    res.status(429).json({ error: "Another buyback quote is being calculated. Try again later." });
-    return;
-  }
-  buybackQuoting = true;
-  try { res.json(await buyback.quote(input)); }
-  finally { buybackQuoting = false; }
-}));
+app.post("/api/buyback/quote", route(async (_req, res) => res.status(410).json({ code: "MANUAL_BUYBACK_RETIRED", error: "New manual fee quotes have been replaced by Splits native Automation." })));
 const buybackKind = z.enum(["approval", "deposit", "burn"]);
-app.get("/api/buyback/batches", route(async (_req, res) => {
-  requireBuybackMainnet();
-  res.json(await buybackBatches.list());
+app.get("/api/buyback/batches", route(async (req, res) => {
+  requireHistoricalBase();
+  const limit = z.coerce.number().int().min(1).max(100).default(100).parse(req.query.limit);
+  const before = req.query.before ? z.object({ updatedAt: z.number().nonnegative(), id: z.string().min(1).max(200) }).strict().parse(JSON.parse(String(req.query.before))) : undefined;
+  const rows = await service.store.buybackBatchPage(limit, before);
+  const ledger = await service.vaultLedgerRuntime!.read();
+  const items = rows.map(row => row.protocol === BASE_BUYBACK_PROTOCOL ? publicBaseBatch(row, ledger)
+    : row.protocol === BASE_LEGACY_ACROSS_PROTOCOL ? publicBaseBatch(row)
+    : !row.protocol && row.quote && row.hashes && row.steps ? buybackBatches.visible(row as any)
+    : { id: row.id, protocol: "historical_unknown", status: "unknown" });
+  const last = rows.at(-1);
+  res.json(req.query.limit !== undefined ? { items, nextCursor: rows.length === limit && last ? { updatedAt: last.updatedAt, id: last.id } : null } : items);
 }));
-app.post("/api/buyback/batches", route(async (req, res) => {
-  requireBuybackMainnet();
-  const input = z.object({
-    stockAddress: addressSchema, amount: z.string().max(40),
-    claimHashes: z.array(hashSchema.transform((value) => value as Hex)).max(20).optional(),
-    authorization: z.object({
-      nonce: hashSchema.transform((value) => value as Hex), expiresAt: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
-      signature: z.string().regex(/^0x[0-9a-fA-F]{130}$/).transform((value) => value as Hex),
-    }).strict(),
-  }).strict().parse(req.body);
-  const { authorization, ...budget } = input;
-  res.json(await buybackBatches.prepare(budget, authorization));
-}));
+app.post("/api/buyback/batches", route(async (_req, res) => res.status(410).json({ code: "RELAY_RETIRED", error: "New manual Relay budgets and authorizations are retired." })));
 app.get("/api/buyback/batches/:id/step", route(async (req, res) => {
-  requireBuybackMainnet();
-  res.json(await buybackBatches.step(hashSchema.parse(req.params.id), buybackKind.parse(req.query.kind)));
+  requireHistoricalBase();
+  const id = hashSchema.parse(req.params.id), kind = buybackKind.parse(req.query.kind);
+  const batch = await service.store.getBuybackBatch(id);
+  if (kind !== "burn" && !(batch?.hashes as Record<string, string> | undefined)?.[kind])
+    throw new BuybackError("RELAY_RETIRED", "Only a submitted historical source transaction may be replaced; new Relay spending is retired.");
+  if (kind !== "burn") { res.json(await buybackBatches.submittedStep(id, kind)); return; }
+  res.json(await buybackBatches.step(id, kind));
 }));
 app.post("/api/buyback/batches/:id/track", route(async (req, res) => {
-  requireBuybackMainnet();
+  requireHistoricalBase();
   const body = z.object({ kind: buybackKind, hash: hashSchema }).strict().parse(req.body);
   res.json(await buybackBatches.track(hashSchema.parse(req.params.id), body.kind, body.hash));
 }));
 app.post("/api/buyback/batches/:id/reconcile", route(async (req, res) => {
-  requireBuybackMainnet();
+  requireHistoricalBase();
   res.json(await buybackBatches.reconcile(hashSchema.parse(req.params.id)));
 }));
 app.get(
@@ -556,7 +599,14 @@ export function createDualChainApp(
   const app = express();
   app.set("trust proxy", trustProxy);
   app.disable("x-powered-by");
-  const chains = new Map(runtimes.map((runtime) => [deploymentChain(runtime.config), createApp(undefined, trustProxy, runtime)]));
+  const chains = new Map<DeploymentChainId, ReturnType<typeof createApp>>();
+  for (const runtime of runtimes) chains.set(deploymentChain(runtime.config), createApp(undefined, trustProxy, runtime, {
+    chainConfig: async chainId => {
+      const target = chains.get(chainId);
+      if (!target) throw new BuybackError("SIGNING_DISABLED", "The explicit recovery network is unavailable.");
+      return target.service.config();
+    },
+  }));
   const legacy = chains.get(4663) ?? (runtimes[0]?.config.mode === "fork" ? chains.get(deploymentChain(runtimes[0].config)) : undefined);
   if (!legacy) throw new Error("A Robinhood runtime is required for legacy API routes");
   app.use((req, res, next) => {

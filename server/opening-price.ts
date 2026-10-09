@@ -1,9 +1,9 @@
 import { erc20Abi, formatUnits, getAddress, isAddress, keccak256, parseAbi, parseUnits, zeroAddress, type Address, type PublicClient, type Transport } from "viem";
 import { ROBINHOOD_STOCKS, STOCKS, sameAddress, stockByAddress, type Stock } from "../src/lib/config";
-import { FirstBuyPaymentReader } from "./lifi";
-import { firstBuyPaymentAssets, type FirstBuyPaymentAsset } from "../src/lib/first-buy-payment";
-import { assertOpeningValuation, deriveLifiOpeningPrice, openingValuationWarnings, LAUNCH_PRICE_TTL, OPENING_CAP_USD, OPENING_POLICY,
-  type LaunchWarning, type LifiOpeningQuote, type LifiOpeningValuation, type OpeningValuation } from "../src/lib/opening-valuation";
+import { FirstBuyPaymentReader, LifiNoRouteError } from "./lifi";
+import { firstBuyPaymentAssets, wrappedEther, type FirstBuyPaymentAsset } from "../src/lib/first-buy-payment";
+import { assertOpeningValuation, deriveLifiOpeningPrice, deriveBaseWethPrice, openingValuationWarnings, LAUNCH_PRICE_TTL, OPENING_CAP_USD, OPENING_POLICY, BASE_OPENING_POLICY, BASE_WETH_REFERENCE_AMOUNT,
+  type LaunchWarning, type BaseOpeningQuote, type LifiOpeningQuote, type LifiOpeningValuation, type OpeningValuation } from "../src/lib/opening-valuation";
 import type { StoreBackend } from "./supabase-store";
 import buybackDeployment from "../contracts/artifacts/buyback-v2-deployment.json";
 
@@ -13,6 +13,21 @@ export type OpeningPriceDependencies = {
   budget?: Pick<StoreBackend, "reserveBudget" | "blockBudget">;
 };
 export const LIFI_OPENING_PROBE_ACCOUNT = getAddress("0x1111111111111111111111111111111111111111");
+// Only the WETH/USDC reference is shared. Per-asset buy/sell probes always run
+// again. Scope by budget, transport, integrator and credential without exposing
+// any of those values in the public evidence.
+const defaultReferenceScope = {};
+type ReferenceEntry = { quotedAt: number; expiresAt: number; value: Promise<BaseOpeningQuote> };
+const baseReferences = new WeakMap<object, WeakMap<typeof fetch, Map<string, ReferenceEntry>>>();
+function referenceCache(deps: OpeningPriceDependencies, integrator: string) {
+  const scope = deps.budget ?? defaultReferenceScope, transport = deps.fetch ?? fetch;
+  let transports = baseReferences.get(scope);
+  if (!transports) { transports = new WeakMap(); baseReferences.set(scope, transports); }
+  let entries = transports.get(transport);
+  if (!entries) { entries = new Map(); transports.set(transport, entries); }
+  const key = JSON.stringify([integrator, deps.apiKey ?? ""]);
+  return { entries, key };
+}
 const SLIPPAGE = 0.01;
 const UINT256_MAX = (1n << 256n) - 1n;
 const RPC_TIMEOUT = 15_000;
@@ -122,8 +137,9 @@ export async function assertRecoveredOpeningValuation(client: Pick<PublicClient<
   return checked.reference ? { divergenceBps: checked.reference.divergenceBps } : null;
 }
 
-/** Two unsigned probes provide a LI.FI USD reference midpoint. The recorded
- * canonical RPC block proves token identity; it is not a quote execution block. */
+/** Unsigned executable probes provide a LI.FI USD reference midpoint. Base
+ * exits into WETH and translates it through an independently refreshed
+ * WETH/USDC quote. The RPC block proves identity, not quote execution. */
 export async function readOpeningValuation(client: PublicClient<Transport, any>, stock: Stock,
   chainId: 8453 | 4663, deps: OpeningPriceDependencies = {}): Promise<LifiOpeningValuation> {
   const asset = (chainId === 4663 ? ROBINHOOD_STOCKS : STOCKS).find((item) => sameAddress(item.address, stock.address));
@@ -159,8 +175,10 @@ export async function readOpeningValuation(client: PublicClient<Transport, any>,
     if ([symbol, decimals, code].some((result) => result.status === "rejected"))
       warnings.push({ code: "asset_status_unavailable", message: `${expected.symbol} live identity reads are incomplete. Pricing uses its pinned address and decimals; review the final simulation.` });
   };
-  await Promise.all([identity(quoteToken), identity(numeraire)]);
-  let probeAmount = 100n * 10n ** BigInt(numeraire.decimals);
+  const sellNumeraire: FirstBuyPaymentAsset = chainId === 8453
+    ? { chainId, address: wrappedEther(chainId), symbol: "WETH", decimals: 18 } : numeraire;
+  await Promise.all([identity(quoteToken), identity(numeraire), ...(chainId === 8453 ? [identity(sellNumeraire)] : [])]);
+  let probeAmount = BigInt(chainId === 8453 ? 10 : 100) * 10n ** BigInt(numeraire.decimals);
   let sizingPrice: string | undefined;
   if (numeraire.address === zeroAddress) {
     const raw = token(await http.pricingRequest("token", new URLSearchParams({ chain: String(chainId), token: zeroAddress })), numeraire);
@@ -168,7 +186,8 @@ export async function readOpeningValuation(client: PublicClient<Transport, any>,
     probeAmount = 100n * 10n ** 36n / parseUnits(sizingPrice, 18);
     if (probeAmount <= 0n || probeAmount > UINT256_MAX) return invalidQuote();
   }
-  const probe = async (from: FirstBuyPaymentAsset, to: FirstBuyPaymentAsset, input: bigint): Promise<LifiOpeningQuote> => {
+  const probe = async (from: FirstBuyPaymentAsset, to: FirstBuyPaymentAsset, input: bigint,
+    reference: FirstBuyPaymentAsset | string = numeraire): Promise<LifiOpeningQuote> => {
     const quotedAt = now();
     const params = new URLSearchParams({ fromChain: String(chainId), toChain: String(chainId),
       fromToken: from.address, toToken: to.address, fromAmount: input.toString(),
@@ -211,23 +230,61 @@ export async function readOpeningValuation(client: PublicClient<Transport, any>,
     }
     if (lifiFee >= input) return invalidQuote();
     return { id: raw.id, tool: raw.tool, amountIn: input.toString(), amountOut: output.toString(), lifiFee: lifiFee.toString(),
-      quotedAt, obtainedAt, expiresAt, numerairePriceUsd: price(sameAddress(from.address, numeraire.address) ? fromToken.priceUSD : toToken.priceUSD) };
+      quotedAt, obtainedAt, expiresAt, numerairePriceUsd: typeof reference === "string" ? reference
+        : price(sameAddress(from.address, reference.address) ? fromToken.priceUSD : toToken.priceUSD) };
   };
-  const buy = await probe(numeraire, quoteToken, probeAmount);
-  const sell = await probe(quoteToken, numeraire, amount(buy.amountOut));
-  const quotedAt = Math.min(buy.quotedAt, sell.quotedAt), expiresAt = Math.min(buy.expiresAt, sell.expiresAt);
-  if (now() >= expiresAt || sell.obtainedAt >= expiresAt) throw new Error("The LI.FI opening-price snapshot expired during its two probes.");
+  const withAssets = (quote: LifiOpeningQuote, fromToken: FirstBuyPaymentAsset, toToken: FirstBuyPaymentAsset): BaseOpeningQuote =>
+    ({ ...quote, fromToken: { ...fromToken }, toToken: { ...toToken } });
+  let wethUsdReference: BaseOpeningQuote | undefined, wethPrice: string | undefined;
+  if (chainId === 8453) {
+    const { entries, key } = referenceCache(deps, http.integrator), requestedAt = now();
+    let cached = entries.get(key);
+    if (!cached || requestedAt < cached.quotedAt || requestedAt >= cached.expiresAt) {
+      const value = probe(sellNumeraire, numeraire, BigInt(BASE_WETH_REFERENCE_AMOUNT), numeraire)
+        .then((quote) => withAssets(quote, sellNumeraire, numeraire));
+      cached = { quotedAt: requestedAt, expiresAt: requestedAt + LAUNCH_PRICE_TTL, value };
+      if (entries.size >= 128) entries.delete(entries.keys().next().value!);
+      entries.set(key, cached);
+    }
+    try { wethUsdReference = structuredClone(await cached.value); }
+    catch (error) { if (entries.get(key) === cached) entries.delete(key); throw error; }
+    if (now() >= wethUsdReference.expiresAt) throw new Error("The LI.FI WETH/USD reference expired. Run a new simulation.");
+    wethPrice = deriveBaseWethPrice(wethUsdReference);
+  }
+  const readPair = async () => {
+    const buy = await probe(numeraire, quoteToken, probeAmount);
+    const sell = await probe(quoteToken, sellNumeraire, amount(buy.amountOut), wethPrice ?? numeraire);
+    return { buy, sell };
+  };
+  let pair: Awaited<ReturnType<typeof readPair>>, fallback = false;
+  try { pair = await readPair(); }
+  catch (error) {
+    // Only a classified route absence can justify a larger amount. Capacity,
+    // auth, invalid quotes and upstream failures must never fan out retries.
+    if (chainId !== 8453 || !(error instanceof LifiNoRouteError)) throw error;
+    probeAmount = 100n * 10n ** BigInt(numeraire.decimals); fallback = true;
+    pair = await readPair();
+  }
+  const { buy, sell } = pair;
+  const quotes = [buy, sell, ...(wethUsdReference ? [wethUsdReference] : [])];
+  const quotedAt = Math.min(...quotes.map((quote) => quote.quotedAt)), expiresAt = Math.min(...quotes.map((quote) => quote.expiresAt));
+  if (now() >= expiresAt || quotes.some((quote) => quote.obtainedAt >= expiresAt))
+    throw new Error("The LI.FI opening-price snapshot expired during retrieval.");
   const derived = deriveLifiOpeningPrice({ quoteDecimals: asset.decimals, numeraireDecimals: numeraire.decimals,
-    numerairePriceUsd: buy.numerairePriceUsd, sellNumerairePriceUsd: sell.numerairePriceUsd,
+    sellNumeraireDecimals: sellNumeraire.decimals, numerairePriceUsd: buy.numerairePriceUsd, sellNumerairePriceUsd: sell.numerairePriceUsd,
     buyAmountIn: buy.amountIn, buyAmountOut: buy.amountOut, buyLifiFee: buy.lifiFee,
     sellAmountIn: sell.amountIn, sellAmountOut: sell.amountOut, sellLifiFee: sell.lifiFee });
   const canonical = await identityRead(() => client.getBlock({ blockNumber: block.number! }));
   if (canonical.hash !== block.hash) throw new Error("The opening-price identity block changed during retrieval.");
-  const snapshot: LifiOpeningValuation = { policy: OPENING_POLICY, marketCapUsd: OPENING_CAP_USD, chainId, quoteAddress: asset.address,
+  const snapshot: LifiOpeningValuation = { policy: chainId === 8453 ? BASE_OPENING_POLICY : OPENING_POLICY, marketCapUsd: OPENING_CAP_USD, chainId, quoteAddress: asset.address,
     quotePriceUsd: derived.aggregateMid, quotedAt, expiresAt, source: "LI.FI", sourceUpdatedAt: quotedAt,
     blockNumber: block.number.toString(), blockHash: block.hash,
     lifi: { numeraire: { ...numeraire, priceUsd: buy.numerairePriceUsd }, probeAmountIn: probeAmount.toString(), buy, sell, ...derived,
-      ...(sizingPrice ? { probeUsd: "100", probeSizingPriceUsd: sizingPrice } : {}) } };
+      ...(sizingPrice ? { probeUsd: "100", probeSizingPriceUsd: sizingPrice } : {}),
+      ...(wethUsdReference ? { evidenceVersion: 2, probeUnits: fallback ? "100" : "10",
+        ...(fallback ? { fallbackReason: "no_route" } : {}),
+        buy: withAssets(buy, numeraire, quoteToken), sell: withAssets(sell, quoteToken, sellNumeraire),
+        sellNumeraire: { ...sellNumeraire, priceUsd: wethPrice! }, wethUsdReference } : {}) } };
   assertOpeningValuation(snapshot, asset.address, chainId, now());
   const reference = await independentReference(client, stock, block.number, snapshot.quotePriceUsd, now());
   snapshot.reference = reference.reference;

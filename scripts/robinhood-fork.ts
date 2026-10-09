@@ -13,7 +13,8 @@ export async function startRobinhoodFork(upstreamUrl: string) {
   return startChainFork(upstreamUrl, 4663);
 }
 
-export async function startChainFork(upstreamUrl: string, deploymentChainId: 8453 | 4663) {
+export async function startChainFork(upstreamUrl: string, deploymentChainId: 8453 | 4663, executionChainId: 31337 | 8453 = 31337) {
+  assert(executionChainId === 31337 || deploymentChainId === 8453, "Only a Base fork may retain Base's execution chain ID");
   assert.equal(new URL(upstreamUrl).protocol, "https:");
   const upstream = createPublicClient({
     chain: deploymentChainId === 8453 ? base : robinhood,
@@ -86,9 +87,9 @@ export async function startChainFork(upstreamUrl: string, deploymentChainId: 845
   }
   try {
     child = spawn(binary, [
-      "--host", "127.0.0.1", "--port", String(forkPort), "--chain-id", "31337",
+      "--host", "127.0.0.1", "--port", String(forkPort), "--chain-id", String(executionChainId),
       "--fork-url", forkSource, "--fork-block-number", String(blockNumber),
-      "--hardfork", "cancun", "--code-size-limit", "98304", "--silent",
+      "--hardfork", "cancun", "--code-size-limit", executionChainId === 8453 ? "24576" : "98304", "--silent",
       ...(deploymentChainId === 8453 ? ["--base"] : []),
     ], { stdio: ["ignore", "pipe", "pipe"] });
     for (const stream of [child.stdout, child.stderr]) stream?.on("data", (part) => {
@@ -100,7 +101,7 @@ export async function startChainFork(upstreamUrl: string, deploymentChainId: 845
       if (child.exitCode !== null || child.signalCode !== null)
         throw new Error(`Isolated Anvil exited: ${childOutput}`);
       try {
-        assert.equal(await rpcCall("eth_chainId"), "0x7a69");
+        assert.equal(await rpcCall("eth_chainId"), `0x${executionChainId.toString(16)}`);
         assert.match(await rpcCall("web3_clientVersion"), /anvil/i);
         const info = await rpcCall("anvil_nodeInfo");
         assert.equal(info.forkConfig?.forkBlockNumber, Number(blockNumber));

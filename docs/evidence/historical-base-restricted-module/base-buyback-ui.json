@@ -1,0 +1,64 @@
+{
+  "scope": "Local Base UI with real config/Collector-status API and synthetic ancillary Robinhood RPC/market responses. No wallet, chain execution or production evidence.",
+  "observedAt": "2026-10-09T07:05:43.489Z",
+  "checks": [
+    {
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "api": "actual_local_base_collector_status",
+      "noCrossChainSigningButtons": true,
+      "noFalseBaseBurnAttribution": true,
+      "noHorizontalOverflow": true,
+      "pageErrors": [],
+      "requests": [
+        "/api/chains/4663/musegod/market/summary",
+        "/api/chains/8453/config",
+        "/api/chains/8453/stocks",
+        "/api/chains/8453/tokens",
+        "/api/chains/4663/musegod/market/summary",
+        "/api/chains/8453/config",
+        "/api/chains/8453/stocks",
+        "/api/chains/8453/tokens",
+        "/api/chains/4663/rpc",
+        "/api/chains/4663/rpc",
+        "/api/chains/4663/rpc",
+        "/api/chains/4663/rpc",
+        "/api/chains/4663/rpc",
+        "/api/chains/8453/buyback/engine",
+        "/api/chains/8453/buyback/engine"
+      ],
+      "screenshot": ".cache/base-buyback-ui-1440.png"
+    },
+    {
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "api": "actual_local_base_collector_status",
+      "noCrossChainSigningButtons": true,
+      "noFalseBaseBurnAttribution": true,
+      "noHorizontalOverflow": true,
+      "pageErrors": [],
+      "requests": [
+        "/api/chains/4663/musegod/market/summary",
+        "/api/chains/8453/config",
+        "/api/chains/8453/stocks",
+        "/api/chains/8453/tokens",
+        "/api/chains/4663/musegod/market/summary",
+        "/api/chains/8453/config",
+        "/api/chains/8453/stocks",
+        "/api/chains/8453/tokens",
+        "/api/chains/4663/rpc",
+        "/api/chains/4663/rpc",
+        "/api/chains/4663/rpc",
+        "/api/chains/4663/rpc",
+        "/api/chains/4663/rpc",
+        "/api/chains/8453/buyback/engine",
+        "/api/chains/8453/buyback/engine"
+      ],
+      "screenshot": ".cache/base-buyback-ui-390.png"
+    }
+  ]
+}

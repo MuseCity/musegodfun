@@ -19,7 +19,6 @@ import {
   encodeFunctionData,
   erc20Abi,
   getAddress,
-  serializeTypedData,
   formatEther,
   formatUnits,
   keccak256,
@@ -33,7 +32,7 @@ import {
 import { base, robinhood } from "viem/chains";
 import { contractsFor, deploymentChain, networkName, sameAddress, stockByAddress, ROBINHOOD_BUNDLER, ROBINHOOD_BUNDLER_CODE_HASH, BASE_BUNDLER_CODE_HASH, type RuntimeConfig } from "./config";
 import { MUSEGOD_BUYBACK } from "./fee-policy";
-import { RELAY_APPROVAL_PROXY, RELAY_DEPOSITORY, buybackAuthorizationTypedData, type BuybackStep, type BuybackPrepareInput, type BuybackAuthorization, type BuybackBatch } from "./buyback";
+import { RELAY_APPROVAL_PROXY, RELAY_DEPOSITORY, type BuybackStep, type BuybackBatch } from "./buyback";
 import { assertSigningEnabled, errorMessage, simulationError } from "./validation";
 import { permit2Abi, swapTransaction } from "./protocol";
 import type { V4PoolKey } from "@whetstone-research/doppler-sdk/evm";
@@ -110,11 +109,13 @@ export function walletChain(config: RuntimeConfig) {
 
 // This extra client-side guard limits the buyback signing capability. Source
 // calldata also requires the server's full Relay route validation for this batch.
-export function assertBuybackStep(step: BuybackStep, config: RuntimeConfig, account: Address, now = Date.now()) {
+export function assertBuybackStep(step: BuybackStep, config: RuntimeConfig, account: Address, now = Date.now(), sourceTreasury?: Address) {
   assertSigningEnabled(config);
-  if (config.mode !== "base" || config.chainId !== 8453 || !config.treasury ||
-    !sameAddress(config.treasury, account) || !sameAddress(step.from, account))
-    throw new Error("Only the configured mainnet treasury wallet can confirm buyback steps");
+  const destination = step.kind === "burn", chainId = destination ? 4663 : 8453;
+  if (config.mode !== (destination ? "robinhood" : "base") || config.chainId !== chainId || deploymentChain(config) !== chainId ||
+    config.securityProtocol !== 1 || config.signingPaused !== false || !Number.isSafeInteger(config.controlRevision) || config.controlRevision! < 0 ||
+    !sameAddress(step.from, account) || (destination ? !sourceTreasury || !sameAddress(sourceTreasury, account) : !config.treasury || !sameAddress(config.treasury, account)))
+    throw new Error("The current transaction chain controls or original batch treasury do not authorize this buyback step");
   if (!/^[a-zA-Z0-9-]{1,80}$/.test(step.batchId) ||
     !["approval", "deposit", "burn"].includes(step.kind) ||
     step.value !== "0" || !Number.isFinite(step.expiresAt) || step.expiresAt <= now ||
@@ -166,18 +167,6 @@ export function assertBuybackRequest(request: { method: string; params?: unknown
     (tx.chainId !== undefined && tx.chainId !== toHex(step.chainId)))
     throw new Error("The wallet request does not match the buyback batch");
 }
-export function buybackAuthorizationPayload(input: BuybackPrepareInput, treasury: Address, nonce: Hex, expiresAt: number) {
-  const typedData = buybackAuthorizationTypedData(input, treasury, nonce, expiresAt);
-  return serializeTypedData({ ...typedData, domain: { ...typedData.domain, chainId: BigInt(typedData.domain.chainId) }, types: {
-    EIP712Domain: [
-      { name: "name", type: "string" }, { name: "version", type: "string" }, { name: "chainId", type: "uint256" },
-    ] as const,
-    ...typedData.types,
-  } });
-}
-export function submitBuybackPreparation(input: BuybackPrepareInput, authorization: BuybackAuthorization) {
-  return chainApi<BuybackBatch>(8453, "/buyback/batches", { ...input, authorization });
-}
 type WalletState = {
   account: Address | null;
   chainId: number | null;
@@ -201,7 +190,6 @@ type WalletState = {
     progress: (message: string) => void,
   ) => Promise<Hash>;
   buyback: (step: BuybackStep, config: RuntimeConfig, onHash?: (hash: Hash) => void) => Promise<Hash>;
-  prepareBuyback: (input: BuybackPrepareInput, config: RuntimeConfig) => Promise<BuybackBatch>;
   engineAction: (action: EngineAction, config: RuntimeConfig, onHash?: (hash: Hash) => void) => Promise<Hash>;
   balance: (token: Address, config?: RuntimeConfig) => Promise<bigint>;
   balanceNative: (config?: RuntimeConfig) => Promise<bigint>;
@@ -998,10 +986,14 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     });
   }
   async function buyback(step: BuybackStep, config: RuntimeConfig, onHash?: (hash: Hash) => void) {
-    const api = <T,>(path: string, body?: unknown) => chainApi<T>(8453, path, body);
-    if (!account) throw new Error("Connect the treasury wallet first");
-    const expected = account;
-    assertBuybackStep(step, config, expected);
+    if (!account) throw new Error("Connect the original batch treasury wallet first");
+    const expected = account, signingChain = step.kind === "burn" ? 4663 : 8453;
+    const batch = await chainApi<BuybackBatch>(8453, `/buyback/batches/${encodeURIComponent(step.batchId)}/reconcile`, {});
+    if (batch.id !== step.batchId || !sameAddress(batch.quote.treasury, expected) || !sameAddress(step.from, batch.quote.treasury))
+      throw new Error("The recovered step does not match its original source treasury");
+    const sourceTreasury = batch.quote.treasury;
+    const signingConfig = await chainApi<RuntimeConfig>(signingChain, "/config");
+    assertBuybackStep(step, signingConfig, expected, Date.now(), sourceTreasury);
     assertTransactionStorage();
     const rows = transactions();
     if (rows.some((t) => t.batchId === step.batchId && t.buybackKind === step.kind &&
@@ -1010,19 +1002,19 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       throw new Error("This buyback step already has a submitted transaction. Recover its status before submitting again.");
     const provider = controller.current?.selected?.provider;
     if (!provider) throw new Error("The wallet is unavailable");
-    const client = transactionClient(step.chainId);
+    const client = transactionClient(step.chainId, signingConfig);
     const validate = async () => {
       const [current, fresh, rpcChainId, code] = await Promise.all([
-        api<RuntimeConfig>("/config"),
-        api<BuybackStep>(`/buyback/batches/${encodeURIComponent(step.batchId)}/step?kind=${step.kind}`),
+        chainApi<RuntimeConfig>(signingChain, "/config"),
+        chainApi<BuybackStep>(8453, `/buyback/batches/${encodeURIComponent(step.batchId)}/step?kind=${step.kind}`),
         client.getChainId(),
         client.getCode({ address: expected }),
       ]);
-      assertBuybackStep(step, current, expected);
-      assertBuybackStep(fresh, current, expected);
+      assertBuybackStep(step, current, expected, Date.now(), sourceTreasury);
+      assertBuybackStep(fresh, current, expected, Date.now(), sourceTreasury);
       assertSameBuybackStep(step, fresh);
-      if (current.mode !== config.mode || current.chainId !== config.chainId ||
-        !sameAddress(current.treasury!, config.treasury!) || rpcChainId !== step.chainId)
+      if (current.mode !== signingConfig.mode || current.chainId !== signingConfig.chainId ||
+        !sameAddress(current.treasury!, signingConfig.treasury!) || rpcChainId !== step.chainId)
         throw new Error("The buyback configuration or RPC network has changed. Preview again.");
       if (code && code !== "0x") throw new Error("Buybacks currently support only treasury EOA wallets");
       await controller.current!.validate(expected, step.chainId, provider);
@@ -1048,55 +1040,14 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       batchId: step.batchId, buybackKind: step.kind, nonce: step.nonce,
     });
     onHash?.(hash);
-    const tracked = api<BuybackBatch>(`/buyback/batches/${encodeURIComponent(step.batchId)}/track`, { kind: step.kind, hash })
+    const tracked = chainApi<BuybackBatch>(8453, `/buyback/batches/${encodeURIComponent(step.batchId)}/track`, { kind: step.kind, hash })
       .then((batch) => {
         applyBuybackRecovery(batch, step.kind, hash);
         updateTransaction(hash, step.chainId, { registered: true }, config.deploymentChainId);
       }).catch(() => {});
     const [confirmedHash] = await Promise.all([confirmation, tracked]);
-    await api(`/buyback/batches/${encodeURIComponent(step.batchId)}/reconcile`, {}).catch(() => {});
+    await chainApi(8453, `/buyback/batches/${encodeURIComponent(step.batchId)}/reconcile`, {}).catch(() => {});
     return confirmedHash;
-  }
-  async function prepareBuyback(input: BuybackPrepareInput, config: RuntimeConfig): Promise<BuybackBatch> {
-    const publicClient = transactionClient(config.chainId, config);
-    const api = <T,>(path: string, body?: unknown) => chainApi<T>(deploymentChain(config), path, body);
-    if (!account) throw new Error("Connect the treasury wallet first");
-    const expected = account;
-    assertSigningEnabled(config);
-    if (config.mode !== "base" || config.chainId !== 8453 || !config.treasury || !sameAddress(expected, config.treasury))
-      throw new Error("Only the configured Base mainnet treasury wallet can authorize a buyback budget");
-    const provider = controller.current?.selected?.provider;
-    if (!provider) throw new Error("The wallet is unavailable");
-    const stock = stockByAddress(input.stockAddress);
-    if (stock.chainId !== 8453)
-      throw new Error("Legacy cross-chain buybacks require a Base stock token");
-    const normalized: BuybackPrepareInput = {
-      stockAddress: stock.address,
-      amount: input.amount,
-      claimHashes: [...(input.claimHashes ?? [])],
-    };
-    const nonce = toHex(crypto.getRandomValues(new Uint8Array(32)));
-    const expiresAt = Date.now() + 300_000;
-    const payload = buybackAuthorizationPayload(normalized, expected, nonce, expiresAt);
-    const validate = async () => {
-      const [current, rpcChainId, code] = await Promise.all([
-        api<RuntimeConfig>("/config"), publicClient.getChainId(), publicClient.getCode({ address: expected }),
-      ]);
-      assertSigningEnabled(current);
-      if (current.mode !== "base" || current.chainId !== 8453 || rpcChainId !== 8453 ||
-        !current.treasury || !sameAddress(current.treasury, expected) ||
-        !sameAddress(current.treasury, config.treasury!) || Date.now() >= expiresAt)
-        throw new Error("The buyback authorization has expired or the platform configuration has changed. Confirm the budget again.");
-      if (code && code !== "0x") throw new Error("Buybacks currently support only treasury EOA wallets");
-      await controller.current!.validate(expected, 8453, provider);
-    };
-    await validate();
-    // Explicit budget confirmation only: the provider receives this one fixed
-    // EIP-712 payload, and no transaction can be submitted by this method.
-    const signature = await provider.request({ method: "eth_signTypedData_v4", params: [expected, payload] });
-    await validate();
-    if (!/^0x[0-9a-fA-F]{130}$/.test(signature)) throw new Error("The wallet returned an invalid budget signature");
-    return submitBuybackPreparation(normalized, { nonce, expiresAt, signature });
   }
   return (
     <Context.Provider
@@ -1113,7 +1064,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         launch: (...args) => exclusive(() => launch(...args)),
         trade: (...args) => exclusive(() => trade(...args)),
         buyback: (...args) => exclusive(() => buyback(...args)),
-        prepareBuyback: (...args) => exclusive(() => prepareBuyback(...args)),
         engineAction: (...args) => exclusive(() => engineAction(...args)),
         payFirstBuy: (...args) => exclusive(() => payFirstBuy(...args)),
         claimFirstBuy: (...args) => exclusive(() => claimFirstBuy(...args)),

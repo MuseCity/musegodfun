@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowUpRight, CircleAlert, Info, RefreshCw, TriangleAlert } from "lucide-react";
 import { formatUnits, type Hex } from "viem";
-import { api } from "../lib/api";
+import { chainApi } from "../lib/api";
 import { BUYBACK_WETH, BUYBACK_WINDOW_CAP, buybackAmountCandidates, buybackVaultAbi, type BuybackEngineStatus, type EngineAction, type EngineConversionQuote } from "../lib/buyback-engine";
 import { explorerFor, sameAddress, shortAddress, type RuntimeConfig } from "../lib/config";
 import { ENGINE_FEE_POLICY, FEE_POLICIES, MUSEGOD_BUYBACK } from "../lib/fee-policy";
@@ -39,7 +39,7 @@ export default function BuybackEngine({ config, onRefresh }: { config: RuntimeCo
     let cancelled = false;
     setStatus(null);
     const load = async () => {
-      try { const next = await api<BuybackEngineStatus>("/buyback/engine"); if (!cancelled) setStatus(next); }
+      try { const next = await chainApi<BuybackEngineStatus>(4663, "/buyback/engine"); if (!cancelled) setStatus(next); }
       catch (failure) { if (!cancelled) setError(errorMessage(failure)); }
     };
     void load();
@@ -74,7 +74,7 @@ export default function BuybackEngine({ config, onRefresh }: { config: RuntimeCo
     const current = generation.current;
     setBusy(true); setError(""); setPreview(null);
     try {
-      const result = await api<EngineConversionQuote>("/buyback/engine/quote", { token, amount, caller: wallet.account });
+      const result = await chainApi<EngineConversionQuote>(4663, "/buyback/engine/quote", { token, amount, caller: wallet.account });
       if (current !== generation.current) return;
       if (result.action.kind !== "convert" || !sameAddress(result.action.token, token) || result.action.amount !== amount || result.expiresAt !== result.action.deadline * 1000)
         throw new Error("The conversion preview does not match the selected fees. Try again.");

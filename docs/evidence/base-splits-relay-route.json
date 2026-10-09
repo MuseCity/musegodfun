@@ -1,0 +1,432 @@
+{
+  "schemaVersion": 1,
+  "kind": "base_splits_relay_route_research",
+  "scope": "Read-only representative public provider quote; not execution authorization or native Splits acceptance.",
+  "recordedAt": "2026-10-09T08:30:58.716Z",
+  "quoteRequestStartedAt": "2026-10-09T08:26:23.269530+00:00",
+  "quoteResponseReceivedAt": "2026-10-09T08:26:24.931333+00:00",
+  "sourceEvidence": {
+    "ignoredCachePath": ".cache/base-splits-relay-nvda-quote.json",
+    "cacheSha256": "0xd62e689477f906ef383efa36c5568aeb0146061218fba2e4547f2787d37048b9",
+    "rawCalldataIncluded": false
+  },
+  "request": {
+    "url": "https://api.relay.link/quote/v2",
+    "method": "POST",
+    "headers": {
+      "Content-Type": "application/json",
+      "User-Agent": "Mozilla/5.0"
+    },
+    "apiKeySupplied": false,
+    "authorizationHeaderSupplied": false,
+    "body": {
+      "user": "0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a",
+      "recipient": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+      "refundTo": "0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a",
+      "originChainId": 8453,
+      "destinationChainId": 4663,
+      "originCurrency": "0xb20000000000000000000078ee7ce2fE4908108C",
+      "destinationCurrency": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+      "amount": "5340463",
+      "tradeType": "EXACT_INPUT",
+      "slippageTolerance": "100",
+      "usePermit": false,
+      "includeProtocolData": true,
+      "enableTrueExactOutput": false
+    },
+    "timeoutMs": 25000
+  },
+  "response": {
+    "httpStatus": 200,
+    "headers": {
+      "Content-Type": "application/json; charset=utf-8",
+      "date": "Fri, 09 Oct 2026 08:26:24 GMT"
+    },
+    "requestId": "0x1791534384a249fbf54ac6c3f78fc390e5c5683977b88e1fa840e11966eab3cd",
+    "operation": "swap",
+    "sender": "0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a",
+    "recipient": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+    "providerReportedSourceBalanceRaw": "0",
+    "timeEstimateSeconds": 1,
+    "isFixedRate": false
+  },
+  "identity": {
+    "baseNvda": {
+      "registry": "src/lib/stocks.json",
+      "ticker": "NVDA",
+      "symbol": "NVDAc",
+      "address": "0xb20000000000000000000078ee7ce2fE4908108C",
+      "decimals": 8,
+      "chainId": 8453
+    },
+    "robinhoodWeth": {
+      "manifest": "contracts/artifacts/buyback-v2-deployment.json",
+      "address": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+      "decimals": 18,
+      "chainId": 4663
+    },
+    "automation": "0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a",
+    "treasury": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+    "addressAndDecimalComparison": "matched_quote_metadata_to_committed_registry_and_manifest",
+    "onchainIdentityReadDuringThisProbe": "not_run"
+  },
+  "quantities": {
+    "input": {
+      "chainId": 8453,
+      "address": "0xb20000000000000000000078ee7ce2fe4908108c",
+      "symbol": "NVDAc",
+      "decimals": 8,
+      "amountRaw": "5340463",
+      "minimumRaw": "5340463",
+      "amountFormatted": "0.05340463",
+      "providerAmountUsdReference": "12.524454"
+    },
+    "originSwapOutput": {
+      "chainId": 8453,
+      "address": "0x0000000000000000000000000000000000000000",
+      "symbol": "ETH",
+      "decimals": 18,
+      "amountRaw": "5011307122466567",
+      "minimumRaw": "4961194051241901",
+      "amountFormatted": "0.005011307122466567",
+      "providerAmountUsdReference": "12.522177"
+    },
+    "destinationInput": {
+      "chainId": 4663,
+      "address": "0x0000000000000000000000000000000000000000",
+      "symbol": "ETH",
+      "decimals": 18,
+      "amountRaw": "4988480300269446",
+      "minimumRaw": "4938595497266752",
+      "amountFormatted": "0.004988480300269446",
+      "providerAmountUsdReference": "12.465137"
+    },
+    "output": {
+      "chainId": 4663,
+      "address": "0x0bd7d308f8e1639fab988df18a8011f41eacad73",
+      "symbol": "WETH",
+      "decimals": 18,
+      "amountRaw": "4988480300269446",
+      "minimumRaw": "4938595497266752",
+      "amountFormatted": "0.004988480300269446",
+      "providerAmountUsdReference": "12.480729",
+      "minimumFormatted": "0.004938595497266752"
+    },
+    "refundCurrencyReference": {
+      "chainId": 8453,
+      "address": "0x0000000000000000000000000000000000000000",
+      "symbol": "ETH",
+      "decimals": 18,
+      "amountRaw": "5011307122466567",
+      "minimumRaw": "4961194051241901",
+      "amountFormatted": "0.005011307122466567",
+      "providerAmountUsdReference": "12.522177"
+    }
+  },
+  "route": {
+    "sourceChainId": 8453,
+    "destinationChainId": 4663,
+    "originRouter": "kyberswap",
+    "bridgeProvider": "Relay",
+    "destinationRouter": "weth",
+    "description": "Base NVDAc -> Base native ETH via KyberSwap -> Relay -> Robinhood native ETH -> canonical Robinhood WETH to existing Splits Treasury"
+  },
+  "slippage": {
+    "requestBps": "100",
+    "providerDetails": {
+      "total": "100",
+      "origin": {
+        "usd": "0.125222",
+        "value": "50113071224666",
+        "percent": "1.00"
+      },
+      "destination": {
+        "usd": "0.123559",
+        "value": "49884803002694",
+        "percent": "0.99"
+      }
+    },
+    "minimumOverExpectedDestinationOutput": "0.9900000000000000922124519515800681164271",
+    "expectedDestinationOutputOverQuotedOriginEthOutput": "0.9954449364927596713190197083338327735687",
+    "minimumDestinationOutputOverQuotedOriginEthOutput": "0.9854904871278321663982478880327679660469",
+    "nativeSplitsDocumentedOtherTokenDefaultBps": 150,
+    "nativeWorkspaceSlippageObserved": "not_run"
+  },
+  "fees": {
+    "gas": {
+      "chainId": 8453,
+      "address": "0x0000000000000000000000000000000000000000",
+      "symbol": "ETH",
+      "decimals": 18,
+      "amountRaw": "158693432738",
+      "minimumRaw": "158693432738",
+      "amountFormatted": "0.000000158693432738",
+      "providerAmountUsdReference": "0.000397"
+    },
+    "relayer": {
+      "chainId": 8453,
+      "address": "0x0000000000000000000000000000000000000000",
+      "symbol": "ETH",
+      "decimals": 18,
+      "amountRaw": "22598553975149",
+      "minimumRaw": "22598553975149",
+      "amountFormatted": "0.000022598553975149",
+      "providerAmountUsdReference": "0.056469"
+    },
+    "relayerGas": {
+      "chainId": 8453,
+      "address": "0x0000000000000000000000000000000000000000",
+      "symbol": "ETH",
+      "decimals": 18,
+      "amountRaw": "6109174575840",
+      "minimumRaw": "6109174575840",
+      "amountFormatted": "0.00000610917457584",
+      "providerAmountUsdReference": "0.015266"
+    },
+    "relayerService": {
+      "chainId": 8453,
+      "address": "0x0000000000000000000000000000000000000000",
+      "symbol": "ETH",
+      "decimals": 18,
+      "amountRaw": "16489379399309",
+      "minimumRaw": "16489379399309",
+      "amountFormatted": "0.000016489379399309",
+      "providerAmountUsdReference": "0.041203"
+    },
+    "app": {
+      "chainId": 8453,
+      "address": "0x0000000000000000000000000000000000000000",
+      "symbol": "ETH",
+      "decimals": 18,
+      "amountRaw": "0",
+      "minimumRaw": "0",
+      "amountFormatted": "0.0",
+      "providerAmountUsdReference": "0"
+    },
+    "subsidized": {
+      "chainId": 8453,
+      "address": "0x0000000000000000000000000000000000000000",
+      "symbol": "ETH",
+      "decimals": 18,
+      "amountRaw": "0",
+      "minimumRaw": "0",
+      "amountFormatted": "0.0",
+      "providerAmountUsdReference": "0"
+    },
+    "accountingNote": "Provider estimates only. relayer is the combined relayerGas and relayerService amount; do not sum all three again. No actual gas or fee paid."
+  },
+  "providerProtocol": {
+    "providerReportedOrderId": "0x2e7286b4ff7ebac2fb2e10ab17edc155234f7d6c142db21901911789e37d9b0e",
+    "hubType": "onchain",
+    "version": "v1",
+    "solverChainId": "base",
+    "solver": "0xf70da97812cb96acdf810712aa562db8dfa3dbef",
+    "paymentDetails": {
+      "chainId": "base",
+      "depository": "0x4cd00e387622c35bddb9b4c962c136462338bc31",
+      "currency": "0x0000000000000000000000000000000000000000",
+      "amount": "5011307122466567"
+    },
+    "outputChainId": "robinhood",
+    "outputPayments": [
+      {
+        "recipient": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+        "currency": "0x0bd7d308f8e1639fab988df18a8011f41eacad73",
+        "minimumAmount": "4938595497266752",
+        "expectedAmount": "4988480300269446"
+      }
+    ],
+    "outputCalls": [],
+    "orderFees": [],
+    "orderSignatureKeccak256": "0xdd7a7eb06a4e02a20ef1d39f507fbc00e3e65ecae1978cc3a50e9cd6df1bec5f",
+    "orderSignatureVerified": "not_run"
+  },
+  "sourceRequests": [
+    {
+      "id": "approve",
+      "kind": "transaction",
+      "requestId": "0x1791534384a249fbf54ac6c3f78fc390e5c5683977b88e1fa840e11966eab3cd",
+      "status": [
+        "incomplete"
+      ],
+      "requests": [
+        {
+          "chainId": 8453,
+          "from": "0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a",
+          "to": "0xb20000000000000000000078ee7ce2fe4908108c",
+          "valueRaw": "0",
+          "selector": "0x095ea7b3",
+          "calldataBytes": 68,
+          "calldataKeccak256": "0xf544059ae78b4ca1ff0a461a712cdb4871602e8ee69580a38d6d415c49e9d01d",
+          "providerGasEstimate": "59736",
+          "check": null,
+          "decoded": {
+            "functionName": "approve",
+            "spender": "0xCcC88a9d1B4ED6b0EABA998850414b24f1c315bE",
+            "allowanceRaw": "5340463"
+          }
+        }
+      ]
+    },
+    {
+      "id": "deposit",
+      "kind": "transaction",
+      "requestId": "0x1791534384a249fbf54ac6c3f78fc390e5c5683977b88e1fa840e11966eab3cd",
+      "status": [
+        "incomplete"
+      ],
+      "requests": [
+        {
+          "chainId": 8453,
+          "from": "0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a",
+          "to": "0xccc88a9d1b4ed6b0eaba998850414b24f1c315be",
+          "valueRaw": "0",
+          "selector": "0xf9e4bab4",
+          "calldataBytes": 7044,
+          "calldataKeccak256": "0x6f972d86272efe13ae246f329680c47cd70345fcf27804ee6a2794ad313f5b71",
+          "providerGasEstimate": null,
+          "check": {
+            "endpoint": "/intents/status/v3?requestId=0x1791534384a249fbf54ac6c3f78fc390e5c5683977b88e1fa840e11966eab3cd",
+            "method": "GET"
+          },
+          "decoded": {
+            "functionName": "transferAndMulticall",
+            "tokens": [
+              "0xb20000000000000000000078ee7ce2fE4908108C"
+            ],
+            "amountsRaw": [
+              "5340463"
+            ],
+            "refundTo": "0xf70da97812CB96acDF810712Aa562db8dfA3dbEF",
+            "nftRecipient": "0xf70da97812CB96acDF810712Aa562db8dfA3dbEF",
+            "metadataBytes": 33,
+            "metadataKeccak256": "0x4c4c11ea70ac596ae52ffc7aff841e5106259f75d1a3df7f6f8b9638c0a1fce2",
+            "calls": [
+              {
+                "target": "0xb20000000000000000000078ee7ce2fE4908108C",
+                "allowFailure": false,
+                "valueRaw": "0",
+                "selector": "0x095ea7b3",
+                "calldataBytes": 68,
+                "calldataKeccak256": "0x25ab019daaaeed3340e28d384ba30d4686d870d10ff3d6edd0cf799676f896b1"
+              },
+              {
+                "target": "0x6131B5fae19EA4f9D964eAc0408E4408b66337b5",
+                "allowFailure": false,
+                "valueRaw": "0",
+                "selector": "0xe21fd0e9",
+                "calldataBytes": 5604,
+                "calldataKeccak256": "0x09311e29cb8451a54b417fe40b1cffab33eced724436c007c1d3bdbd254c0145"
+              },
+              {
+                "target": "0xb92fe925DC43a0ECdE6c8b1a2709c170Ec4fFf4f",
+                "allowFailure": false,
+                "valueRaw": "0",
+                "selector": "0x5d1fe6a2",
+                "calldataBytes": 228,
+                "calldataKeccak256": "0xfd8d2c4a1847f2c8e7f6e1a2f5bd65cc02c0d7a05b215842f62eae763e38f10d"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "timeoutAndRefund": {
+    "httpTimeoutMs": 25000,
+    "httpTimedOut": false,
+    "providerTimeEstimateSeconds": 1,
+    "actualBridgeDuration": "not_run",
+    "providerOrderDeadline": 1792139184,
+    "providerOrderDeadlineUtc": "2026-10-16T08:26:24.000Z",
+    "refunds": [
+      {
+        "chainId": "base",
+        "recipient": "0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a",
+        "currency": "0x0000000000000000000000000000000000000000",
+        "minimumAmount": "0",
+        "deadline": 1792139184,
+        "extraData": "0x000000000000000000000000b92fe925dc43a0ecde6c8b1a2709c170ec4fff4f"
+      },
+      {
+        "chainId": "robinhood",
+        "recipient": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+        "currency": "0x0000000000000000000000000000000000000000",
+        "minimumAmount": "0",
+        "deadline": 1792139184,
+        "extraData": "0x000000000000000000000000b92fe925dc43a0ecde6c8b1a2709c170ec4fff4f"
+      }
+    ],
+    "refundsExecuted": "not_run",
+    "refundAmountsReceived": "not_run",
+    "statusLookupCalled": false,
+    "statusEndpoint": {
+      "endpoint": "/intents/status/v3?requestId=0x1791534384a249fbf54ac6c3f78fc390e5c5683977b88e1fa840e11966eab3cd",
+      "method": "GET"
+    },
+    "interpretation": "An HTTP timeout or provider status alone would not prove transfer failure. This quotation contains zero-minimum ETH fallback refunds to Base Automation or Robinhood Treasury; no receipt, destination arrival or refund execution was observed."
+  },
+  "authentication": {
+    "officialDocumentation": "https://docs.relay.link/references/api/get-quote-v2",
+    "documentedMandatoryApiKeyStartDate": "2026-10-02",
+    "documentedHeader": "x-api-key",
+    "observedHttpStatus": 200,
+    "observedApiKeySupplied": false,
+    "interpretation": "The current documentation and this one unauthenticated response differ. A single HTTP200 does not establish continuing anonymous access, a permanent exception, or the credentials used by Splits native service."
+  },
+  "verification": {
+    "providerQuote": "observed_http_200",
+    "quoteIdentityAndRawQuantities": "checked_against_committed_registry_and_manifest",
+    "sourceCalldataStructure": "decoded_approval_and_approval_proxy_batch_only",
+    "sourceCalldataSimulation": "not_run",
+    "providerSignatureVerification": "not_run",
+    "sourceAccountBalance": "provider_reports_zero_not_independently_read",
+    "baseSplitsAccountDeploymentAndSync": "not_run",
+    "nativeSplitsRuleReadback": "not_run",
+    "nativeSplitsProviderSelection": "not_run",
+    "nativeSplitsScheduledRun": "not_run",
+    "walletConnection": "not_run",
+    "ownerSignature": "not_run",
+    "sourceBroadcast": "not_run",
+    "canonicalSourceReceipt": "not_run",
+    "canonicalDestinationReceipt": "not_run",
+    "treasuryWethArrival": "not_run",
+    "vaultFunding": "not_run",
+    "musegodDeadTransfer": "not_run",
+    "onchainRefundReceipt": "not_run",
+    "runtimePermissionChange": "not_run"
+  },
+  "limitations": [
+    "This request was a public Relay quote for the native provider documented by Splits. It was not a quote obtained from an authenticated Splits Automation rule.",
+    "One NVDAc amount does not establish all 36 B20 native routes, native price indexing, balances, thresholds or scheduling.",
+    "Input quantity 5340463 raw NVDAc was chosen from prior real-fee Base fork evidence; no corresponding mainnet source fee balance is claimed.",
+    "The provider response reports source balance zero. A returned quote is not a funded execution simulation.",
+    "The explicit request used 100bps slippage. It does not prove the saved native Automation policy uses this value.",
+    "Provider USD amounts and price-impact fields are reference displays, not independent price fairness or executable USD parity evidence.",
+    "The destination minimum is 99% of quoted destination expected output, about 98.549% of quoted source Base ETH output. It is not the previous Across minimum of 99% of original Base WETH input.",
+    "This Relay order has a roughly seven-day provider deadline and contains no project-issued 60-second EIP712 authorization.",
+    "Fallback refunds can be native ETH on Base or Robinhood, not the previous fixed Base Collector-only WETH refund path.",
+    "Historical BuybackReader and validateRelayExecution bind MUSEGOD output and old Relay semantics. This WETH quotation must not be authorized through those validators unchanged.",
+    "The native Splits custody, owner, server signer and editable-policy trust boundary is separate from the former immutable Collector policy.",
+    "No quote retrieval grants authority to create rules, enable networks, approve tokens, sign or broadcast transactions.",
+    "The approval-proxy batch refundTo and nftRecipient decode to the provider solver, while request.refundTo and settlement fallback refunds use separate addresses. These distinct layers are recorded explicitly; no fixed origin-only refund safety is claimed."
+  ],
+  "officialSources": [
+    {
+      "url": "https://docs.relay.link/references/api/get-quote-v2",
+      "purpose": "Quote POST request parameters, authentication notice and provider response semantics"
+    },
+    {
+      "url": "https://docs.relay.link/references/api/api_core_concepts/handling-errors",
+      "purpose": "Authentication, route and provider error classification"
+    },
+    {
+      "url": "https://splits.org/docs/transactions/swaps",
+      "purpose": "Native providers include Relay for cross-network swaps; documented default slippage"
+    },
+    {
+      "url": "https://splits.org/docs/accounts#automation-accounts",
+      "purpose": "Native scheduling, thresholds and account control model"
+    }
+  ]
+}

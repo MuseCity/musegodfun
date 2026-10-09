@@ -2,7 +2,7 @@ import { airlockAbi, bundlerAbi, type DopplerSDK, computePoolId, rehypeDopplerHo
 import { decodeEventLog, decodeFunctionData, encodeFunctionData, erc20Abi, keccak256, zeroAddress, type Address, type Hex, type TransactionReceipt } from "viem";
 import { CONTRACTS, ROBINHOOD_BUNDLER, SUPPLY, WAD, sameAddress, type ContractRegistry } from "../src/lib/config";
 import { openingCapInQuote } from "../src/lib/opening-valuation";
-import { ENGINE_FEE_POLICY, FEE_POLICY } from "../src/lib/fee-policy";
+import { FEE_POLICY, isEngineFeePolicy } from "../src/lib/fee-policy";
 import { CURVE_POLICY } from "../src/lib/launch-curve";
 import { launchGuardAbi } from "../src/lib/launch-guard";
 import { LAUNCH_SIGNING_TTL, restorePrepared, type FirstBuyLockRecord, type LaunchPlan } from "../src/lib/launch-plan";
@@ -154,7 +154,7 @@ export function verifiedFirstBuyLock(plan: LaunchPlan, receipt: TransactionRecei
  * read cannot see an owner change elsewhere in the same block. */
 export function assertRecoveryPlan(plan: LaunchPlan, contracts: ContractRegistry, sdk: DopplerSDK<8453 | 4663>) {
   assertPlanIntegrity(plan, contracts);
-  if (!plan.openingValuation || !plan.feeTreasury || (plan.feePolicy !== FEE_POLICY && plan.feePolicy !== ENGINE_FEE_POLICY))
+  if (!plan.openingValuation || !plan.feeTreasury || (plan.feePolicy !== FEE_POLICY && !isEngineFeePolicy(plan.feePolicy)))
     throw new Error("The local recovery preview is incomplete.");
   const prepared = restorePrepared(plan.prepared!);
   const { openingCap, ...draft } = plan.draft;
@@ -168,7 +168,7 @@ export function assertRecoveryPlan(plan: LaunchPlan, contracts: ContractRegistry
   const matches = candidates.some((owner) => {
     try {
       const params = buildLaunch(sdk, draft, plan.creator, plan.feeTreasury!, owner,
-        plan.openingValuation!, prepared.createParams.salt, prepared.chainId, plan.feeEngine, true);
+        plan.openingValuation!, prepared.createParams.salt, prepared.chainId, plan.feeEngine, true, plan.feePolicy);
       return encodeFunctionData({ abi: airlockAbi, functionName: "create", args: [sdk.factory.encodeCreateMulticurveParams(params)] }) === actual;
     } catch { return false; }
   });

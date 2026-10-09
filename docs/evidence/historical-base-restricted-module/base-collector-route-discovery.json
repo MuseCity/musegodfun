@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "scope": "Read-only LI.FI alternative GenericV3 quotes; no transaction or execution proof",
+  "at": "2026-10-09T06:34:12.660Z",
+  "input": {
+    "fromChain": "8453",
+    "toChain": "8453",
+    "fromToken": "0xb20000000000000000000078ee7ce2fE4908108C",
+    "toToken": "0x4200000000000000000000000000000000000006",
+    "fromAmount": "5340463",
+    "fromAddress": "0x8F1CE75FDE9e9f947F7776e7AC9482aCC07084D2",
+    "toAddress": "0x8F1CE75FDE9e9f947F7776e7AC9482aCC07084D2",
+    "slippage": "0.01",
+    "fee": "0",
+    "integrator": "musegodfun",
+    "allowBridges": "none",
+    "allowDestinationCall": "false",
+    "skipSimulation": "true",
+    "order": "CHEAPEST"
+  },
+  "reports": [
+    {
+      "tool": "1inch",
+      "httpStatus": 200,
+      "selectedTool": "1inch",
+      "selector": "0x5fd9ae2e",
+      "toAmount": "4975572562717149",
+      "routePools": false
+    },
+    {
+      "tool": "enso",
+      "httpStatus": 404,
+      "error": "No available quotes for the requested transfer"
+    },
+    {
+      "tool": "openocean",
+      "httpStatus": 404,
+      "error": "No available quotes for the requested transfer"
+    },
+    {
+      "tool": "kyberswap",
+      "httpStatus": 200,
+      "selectedTool": "kyberswap",
+      "selector": "0x5fd9ae2e",
+      "toAmount": "4973365733140968",
+      "routePools": false
+    },
+    {
+      "tool": "sushiswap",
+      "httpStatus": 200,
+      "selectedTool": "sushiswap",
+      "selector": "0x5fd9ae2e",
+      "toAmount": "4958001900727472",
+      "routePools": false
+    },
+    {
+      "tool": "bitget",
+      "httpStatus": 200,
+      "selectedTool": "bitget",
+      "selector": "0x5fd9ae2e",
+      "toAmount": "4973409422261404",
+      "routePools": false
+    },
+    {
+      "tool": "eisen",
+      "httpStatus": 404,
+      "error": "No available quotes for the requested transfer"
+    },
+    {
+      "tool": "gluex",
+      "httpStatus": 404,
+      "error": "No available quotes for the requested transfer"
+    },
+    {
+      "tool": "merkle",
+      "httpStatus": 404,
+      "error": "No available quotes for the requested transfer"
+    },
+    {
+      "tool": "fly",
+      "httpStatus": 404,
+      "error": "No available quotes for the requested transfer"
+    },
+    {
+      "tool": "nordstern",
+      "httpStatus": 404,
+      "error": "No available quotes for the requested transfer"
+    }
+  ]
+}

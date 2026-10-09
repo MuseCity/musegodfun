@@ -1,0 +1,64 @@
+{
+  "version": 1,
+  "scope": "Read-only provider Across quote timestamp checks; no signing or transactions",
+  "reports": [
+    {
+      "amount": "1000000000000000",
+      "http": 200,
+      "at": 1791527937,
+      "quoteTimestamp": 1791527807,
+      "ageAtRequest": 130,
+      "ageAtReceive": 133,
+      "output": "992628930565021"
+    },
+    {
+      "amount": "4990000000000000",
+      "http": 200,
+      "at": 1791527940,
+      "quoteTimestamp": 1791527807,
+      "ageAtRequest": 133,
+      "ageAtReceive": 133,
+      "output": "4971597570166272"
+    },
+    {
+      "amount": "4973312605497604",
+      "http": 200,
+      "at": 1791527940,
+      "quoteTimestamp": 1791527807,
+      "ageAtRequest": 133,
+      "ageAtReceive": 134,
+      "output": "4954956309422958"
+    },
+    {
+      "amount": "4973312605497604",
+      "http": 200,
+      "at": 1791528096,
+      "quoteTimestamp": 1791527807,
+      "ageAtRequest": 289,
+      "ageAtReceive": 291,
+      "output": "4954958513298560"
+    },
+    {
+      "amount": "4973312605497604",
+      "http": 200,
+      "at": 1791528182,
+      "quoteTimestamp": 1791527807,
+      "ageAtRequest": 375,
+      "ageAtReceive": 376,
+      "output": "4954958513298560"
+    }
+  ],
+  "referenceMeaning": "Across quoteTimestamp is the Ethereum LP utilization reference block timestamp; it is not the HTTP quote creation or expiry time.",
+  "authorizationTtlSeconds": 60,
+  "sourceDepositQuoteTimeBufferSeconds": 3600,
+  "getterEvidence": {
+    "chainId": 8453,
+    "spokePool": "0x09aea4b2242abC8bb4BB78D537A67a245A7bEC64",
+    "finalizedBlockNumber": "52368735",
+    "finalizedBlockHash": "0x91151acd9b84b089e3f606758a891dda5d20a57d8afdf2e74143caf43902f98e",
+    "getter": "depositQuoteTimeBuffer()",
+    "value": 3600
+  },
+  "primarySource": "https://docs.across.to/api-reference/suggested-fees/get",
+  "semanticCorrection": "Early implementation incorrectly imposed 60 seconds on the LP reference. Corrected authorization starts at the real HTTP request, remains at most 60 seconds, and expires no later than the original LP reference plus the pinned source protocol buffer. Provider calldata timestamps remain unchanged."
+}

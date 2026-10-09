@@ -64,7 +64,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const)
   process.once(signal, () => {
     clearInterval(upkeep);
     server.close(() => {
-      void Promise.all([...services.values()].map((service) => Promise.resolve(service.store.close()))).finally(() =>
+      void Promise.all([...services.values()].map(async (service) => { await service.vaultLedgerRuntime?.close(); await service.store.close(); })).finally(() =>
         process.exit(0),
       );
     });

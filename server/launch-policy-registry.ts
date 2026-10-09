@@ -1,9 +1,10 @@
 import { getAddress, type Address, type Hex } from "viem";
 import engineDeployment from "../contracts/artifacts/buyback-v2-deployment.json";
 import { buybackGraphFingerprint } from "./buyback-activation";
+import { BASE_COLLECTOR_MANIFEST, type BaseCollectorManifest } from "./base-collector";
 import type { BuybackDeployment } from "./buyback-engine";
 import { deploymentChain, sameAddress, type RuntimeConfig } from "../src/lib/config";
-import { ENGINE_FEE_POLICY, FEE_POLICY, launchFeePolicy, type FeePolicy } from "../src/lib/fee-policy";
+import { ENGINE_FEE_POLICY, BASE_AUTOMATION_FEE_POLICY, FEE_POLICY, launchFeePolicy, type FeePolicy } from "../src/lib/fee-policy";
 import { LAUNCH_SIGNING_TTL, type LaunchPlan } from "../src/lib/launch-plan";
 
 /** One fee routing the platform approved for new launches. `fromBlock` is
@@ -45,7 +46,8 @@ export const ENGINE_MANIFEST: EngineManifest = engineDeployment;
  * caller's preview proves only that it encodes its own transaction; it can
  * never nominate a treasury or engine. Signing state is deliberately ignored
  * so verified historical launches stay recoverable after a pause or upgrade. */
-export function trustedLaunchPolicies(config: RuntimeConfig, manifest: EngineManifest = ENGINE_MANIFEST): TrustedLaunchPolicy[] {
+export function trustedLaunchPolicies(config: RuntimeConfig, manifest: EngineManifest = ENGINE_MANIFEST, baseManifest: BaseCollectorManifest = BASE_COLLECTOR_MANIFEST,
+  canonicalBaseDeploymentTimestamp?: bigint): TrustedLaunchPolicy[] {
   const chainId = deploymentChain(config);
   const policies: TrustedLaunchPolicy[] = [];
   const add = (policy: TrustedLaunchPolicy) => {
@@ -53,6 +55,22 @@ export function trustedLaunchPolicies(config: RuntimeConfig, manifest: EngineMan
       (known.feeEngine === null ? policy.feeEngine === null : policy.feeEngine !== null && sameAddress(known.feeEngine, policy.feeEngine)) &&
       known.fromBlock === policy.fromBlock && known.toBlock === policy.toBlock && known.toTimestamp === policy.toTimestamp)) policies.push(policy);
   };
+  if (chainId === 8453) {
+    const deployed = baseManifest.status === "deployed_verified" && baseManifest.chainId === 8453 && baseManifest.collector.address &&
+      baseManifest.collector.blockNumber != null && baseManifest.constants.operationsTreasury;
+    const fromBlock = deployed ? BigInt(baseManifest.collector.blockNumber!) : undefined;
+    const legacyBound = fromBlock === undefined ? {} : canonicalBaseDeploymentTimestamp !== undefined && canonicalBaseDeploymentTimestamp > 0n
+      ? { toTimestamp: canonicalBaseDeploymentTimestamp + CUTOVER_GRACE_SECONDS } : { toBlock: fromBlock };
+    // A configured candidate never grants listing authority. Once the fixed
+    // Collector exists, later treasury-only receipts cannot bypass its share.
+    if (config.treasury && (!config.feeEngine || fromBlock !== undefined))
+      add({ feePolicy: FEE_POLICY, treasury: getAddress(config.treasury), feeEngine: null, ...legacyBound });
+    for (const retired of RETIRED_TREASURIES[8453])
+      add({ feePolicy: FEE_POLICY, treasury: retired.treasury, feeEngine: null, toBlock: fromBlock !== undefined && fromBlock < retired.toBlock ? fromBlock : retired.toBlock });
+    if (deployed && baseManifest.feePolicy === BASE_AUTOMATION_FEE_POLICY) add({ feePolicy: BASE_AUTOMATION_FEE_POLICY, treasury: getAddress(baseManifest.constants.operationsTreasury!),
+      feeEngine: getAddress(baseManifest.collector.address!), fromBlock });
+    return policies;
+  }
   // From the engine cutover, prepare() issues only engine launches on
   // Robinhood; a later treasury-only launch would bypass the buyback. Such
   // routing stays trusted for receipts up to the cutover plus the signing

@@ -13,6 +13,20 @@ export type FirstBuyPaymentDependencies = { client: PublicClient<Transport, any>
 const API = "https://li.quest/v1";
 const MAX_RESPONSE = 1_000_000;
 const RPC_TIMEOUT = 15_000;
+export class LifiNoRouteError extends Error {
+  constructor() { super("No executable LI.FI route is available for this asset and amount."); this.name = "LifiNoRouteError"; }
+}
+const NO_ROUTE_CODES = new Set(["NO_POSSIBLE_ROUTE", "INSUFFICIENT_LIQUIDITY", "AMOUNT_TOO_LOW", "AMOUNT_TOO_HIGH", "FEES_HIGHER_THAN_AMOUNT"]);
+function genuineNoRoute(status: number, data: unknown): boolean {
+  if (![400, 404, 422].includes(status) || !data || typeof data !== "object") return false;
+  const body = data as Record<string, unknown>;
+  if (body.code !== 1002) return false;
+  const errors = (body.errors as { filteredOut?: unknown; failed?: unknown } | undefined);
+  const tools = body.toolErrors ?? (Array.isArray(body.errors) ? body.errors : errors?.failed);
+  if (tools === undefined) return true;
+  return Array.isArray(tools) && tools.length > 0 && tools.every(item => item && typeof item === "object" &&
+    item.errorType === "NO_QUOTE" && NO_ROUTE_CODES.has(item.code));
+}
 function record(value: unknown): Record<string, any> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("The payment provider returned invalid data.");
   return value as Record<string, any>;
@@ -97,8 +111,8 @@ export class FirstBuyPaymentReader {
         await this.budget?.blockBudget("lifi",this.now()+retryAfter*1000);
         throw new BudgetUnavailable(retryAfter);
       }
-      if (!response.ok || response.status < 200 || response.status >= 300)
-        throw new Error("upstream response rejected");
+      const successful = response.ok && response.status >= 200 && response.status < 300;
+      if (!successful && ![400, 404, 422].includes(response.status)) throw new Error("upstream response rejected");
       const length = response.headers.get("content-length");
       if (length && (!/^\d+$/.test(length) || Number(length) > MAX_RESPONSE)) throw new Error("upstream response too large");
       if (!response.body) throw new Error("empty upstream response");
@@ -116,8 +130,13 @@ export class FirstBuyPaymentReader {
       const bytes = new Uint8Array(total);
       let offset = 0;
       for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
-      return JSON.parse(new TextDecoder().decode(bytes));
-    } catch (error) { if(error instanceof BudgetUnavailable)throw error; throw new Error("LI.FI pricing or routing is unavailable. Try again later."); }
+      const body: unknown = JSON.parse(new TextDecoder().decode(bytes));
+      if (!successful) {
+        if (path === "quote" && genuineNoRoute(response.status, body)) throw new LifiNoRouteError();
+        throw new Error("upstream response rejected");
+      }
+      return body;
+    } catch (error) { if(error instanceof BudgetUnavailable || error instanceof LifiNoRouteError)throw error; throw new Error("LI.FI pricing or routing is unavailable. Try again later."); }
     finally { clearTimeout(timer); }
   }
   // Opening-price probes reuse the same bounded, server-only HTTP boundary.

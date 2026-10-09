@@ -1,0 +1,1883 @@
+{
+  "version": 1,
+  "auditDate": "2026-10-09",
+  "timezone": "Asia/Shanghai",
+  "chainId": 8453,
+  "source": "Historical Jumper browser DOM quote inspection retained from the preceding planning conversation",
+  "sourceUrl": "https://jumper.exchange/",
+  "issuerRegistry": "src/lib/stocks.json",
+  "method": "10 USDC -> each exact B20 address -> Base WETH using exactly the displayed B20 buy output",
+  "result": {
+    "assetCount": 36,
+    "buyQuotesObserved": 36,
+    "sellQuotesObserved": 36,
+    "transactionsExecuted": 0,
+    "walletConnected": false
+  },
+  "limitations": [
+    "Historical browser quote evidence, not a fresh API quote or execution receipt.",
+    "Per-asset exact timestamps, quote IDs, calldata, and guaranteed minimum outputs were not retained and remain null.",
+    "Raw integer quantities are exact decimal scaling of the retained displayed quantities; they are not claimed to be raw API estimate fields.",
+    "A route at this probe size does not establish liquidity depth, fair pricing, execution, or future availability. Each new issuance runs fresh probes."
+  ],
+  "failuresAndRetries": [
+    {
+      "observedAt": "2026-10-09T03:49:21Z",
+      "status": "http_429",
+      "retryAfterSeconds": 472,
+      "symbols": [
+        "TSLAc",
+        "AMDc",
+        "ASTSc",
+        "AVGOc",
+        "BEc",
+        "CAKEc",
+        "DJTc"
+      ],
+      "display": "Some no-route UI messages masked HTTP 429 and were treated as capacity failures."
+    },
+    {
+      "observedAt": "2026-10-09T03:57:15Z",
+      "status": "capacity_reset_and_retest_completed",
+      "finalResult": "All 36 assets had buy and sell quotes."
+    }
+  ],
+  "records": [
+    {
+      "symbol": "NVDAc",
+      "address": "0xb20000000000000000000078ee7ce2fE4908108C",
+      "decimals": 8,
+      "observedAt": null,
+      "status": "quote_observed",
+      "buy": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "USDC",
+          "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "decimals": 6
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "NVDAc",
+          "address": "0xb20000000000000000000078ee7ce2fE4908108C",
+          "decimals": 8
+        },
+        "amountIn": "10000000",
+        "displayAmountIn": "10",
+        "amountOut": "4298050",
+        "displayAmountOut": "0.0429805",
+        "firstProviderDisplayName": "Nordstern Finance",
+        "visibleRouteCount": 9,
+        "minimumOut": null,
+        "quoteId": null
+      },
+      "sell": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "NVDAc",
+          "address": "0xb20000000000000000000078ee7ce2fE4908108C",
+          "decimals": 8
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "WETH",
+          "address": "0x4200000000000000000000000000000000000006",
+          "decimals": 18
+        },
+        "amountIn": "4298050",
+        "displayAmountIn": "0.0429805",
+        "amountOut": "4005745602964670",
+        "displayAmountOut": "0.00400574560296467",
+        "firstProviderDisplayName": "FYND",
+        "visibleRouteCount": 8,
+        "minimumOut": null,
+        "quoteId": null
+      }
+    },
+    {
+      "symbol": "AAPLc",
+      "address": "0xb200000000000000000000C2e324d24d7eEcd1fb",
+      "decimals": 8,
+      "observedAt": null,
+      "status": "quote_observed",
+      "buy": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "USDC",
+          "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "decimals": 6
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "AAPLc",
+          "address": "0xb200000000000000000000C2e324d24d7eEcd1fb",
+          "decimals": 8
+        },
+        "amountIn": "10000000",
+        "displayAmountIn": "10",
+        "amountOut": "2933967",
+        "displayAmountOut": "0.02933967",
+        "firstProviderDisplayName": "Nordstern Finance",
+        "visibleRouteCount": 8,
+        "minimumOut": null,
+        "quoteId": null
+      },
+      "sell": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "AAPLc",
+          "address": "0xb200000000000000000000C2e324d24d7eEcd1fb",
+          "decimals": 8
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "WETH",
+          "address": "0x4200000000000000000000000000000000000006",
+          "decimals": 18
+        },
+        "amountIn": "2933967",
+        "displayAmountIn": "0.02933967",
+        "amountOut": "4007177159447155",
+        "displayAmountOut": "0.004007177159447155",
+        "firstProviderDisplayName": "OKX Dex Aggregator",
+        "visibleRouteCount": 8,
+        "minimumOut": null,
+        "quoteId": null
+      }
+    },
+    {
+      "symbol": "GOOGLc",
+      "address": "0xb2000000000000000000002D0BA3164cc74f58B7",
+      "decimals": 8,
+      "observedAt": null,
+      "status": "quote_observed",
+      "buy": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "USDC",
+          "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "decimals": 6
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "GOOGLc",
+          "address": "0xb2000000000000000000002D0BA3164cc74f58B7",
+          "decimals": 8
+        },
+        "amountIn": "10000000",
+        "displayAmountIn": "10",
+        "amountOut": "2857791",
+        "displayAmountOut": "0.02857791",
+        "firstProviderDisplayName": "Nordstern Finance",
+        "visibleRouteCount": 8,
+        "minimumOut": null,
+        "quoteId": null
+      },
+      "sell": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "GOOGLc",
+          "address": "0xb2000000000000000000002D0BA3164cc74f58B7",
+          "decimals": 8
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "WETH",
+          "address": "0x4200000000000000000000000000000000000006",
+          "decimals": 18
+        },
+        "amountIn": "2857791",
+        "displayAmountIn": "0.02857791",
+        "amountOut": "4010122636524866",
+        "displayAmountOut": "0.004010122636524866",
+        "firstProviderDisplayName": "FYND",
+        "visibleRouteCount": 7,
+        "minimumOut": null,
+        "quoteId": null
+      }
+    },
+    {
+      "symbol": "METAc",
+      "address": "0xb2000000000000000000008bC8786B856E61707C",
+      "decimals": 8,
+      "observedAt": null,
+      "status": "quote_observed",
+      "buy": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "USDC",
+          "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "decimals": 6
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "METAc",
+          "address": "0xb2000000000000000000008bC8786B856E61707C",
+          "decimals": 8
+        },
+        "amountIn": "10000000",
+        "displayAmountIn": "10",
+        "amountOut": "1386422",
+        "displayAmountOut": "0.01386422",
+        "firstProviderDisplayName": "OKX Dex Aggregator",
+        "visibleRouteCount": 8,
+        "minimumOut": null,
+        "quoteId": null
+      },
+      "sell": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "METAc",
+          "address": "0xb2000000000000000000008bC8786B856E61707C",
+          "decimals": 8
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "WETH",
+          "address": "0x4200000000000000000000000000000000000006",
+          "decimals": 18
+        },
+        "amountIn": "1386422",
+        "displayAmountIn": "0.01386422",
+        "amountOut": "4009934176639046",
+        "displayAmountOut": "0.004009934176639046",
+        "firstProviderDisplayName": "FYND",
+        "visibleRouteCount": 7,
+        "minimumOut": null,
+        "quoteId": null
+      }
+    },
+    {
+      "symbol": "AMZNc",
+      "address": "0xb200000000000000000000d9192b6B456483C2E8",
+      "decimals": 8,
+      "observedAt": null,
+      "status": "quote_observed",
+      "buy": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "USDC",
+          "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "decimals": 6
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "AMZNc",
+          "address": "0xb200000000000000000000d9192b6B456483C2E8",
+          "decimals": 8
+        },
+        "amountIn": "10000000",
+        "displayAmountIn": "10",
+        "amountOut": "3908325",
+        "displayAmountOut": "0.03908325",
+        "firstProviderDisplayName": "Nordstern Finance",
+        "visibleRouteCount": 8,
+        "minimumOut": null,
+        "quoteId": null
+      },
+      "sell": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "AMZNc",
+          "address": "0xb200000000000000000000d9192b6B456483C2E8",
+          "decimals": 8
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "WETH",
+          "address": "0x4200000000000000000000000000000000000006",
+          "decimals": 18
+        },
+        "amountIn": "3908325",
+        "displayAmountIn": "0.03908325",
+        "amountOut": "4006363172321491",
+        "displayAmountOut": "0.004006363172321491",
+        "firstProviderDisplayName": "FYND",
+        "visibleRouteCount": 1,
+        "minimumOut": null,
+        "quoteId": null
+      }
+    },
+    {
+      "symbol": "MSFTc",
+      "address": "0xB200000000000000000000Ab99cFa739E253872B",
+      "decimals": 8,
+      "observedAt": null,
+      "status": "quote_observed",
+      "buy": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "USDC",
+          "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "decimals": 6
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "MSFTc",
+          "address": "0xB200000000000000000000Ab99cFa739E253872B",
+          "decimals": 8
+        },
+        "amountIn": "10000000",
+        "displayAmountIn": "10",
+        "amountOut": "1909900",
+        "displayAmountOut": "0.019099",
+        "firstProviderDisplayName": "Nordstern Finance",
+        "visibleRouteCount": 8,
+        "minimumOut": null,
+        "quoteId": null
+      },
+      "sell": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "MSFTc",
+          "address": "0xB200000000000000000000Ab99cFa739E253872B",
+          "decimals": 8
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "WETH",
+          "address": "0x4200000000000000000000000000000000000006",
+          "decimals": 18
+        },
+        "amountIn": "1909900",
+        "displayAmountIn": "0.019099",
+        "amountOut": "4006363974877752",
+        "displayAmountOut": "0.004006363974877752",
+        "firstProviderDisplayName": "FYND",
+        "visibleRouteCount": 1,
+        "minimumOut": null,
+        "quoteId": null
+      }
+    },
+    {
+      "symbol": "MSTRc",
+      "address": "0xb2000000000000000000004884b426556b92883d",
+      "decimals": 8,
+      "observedAt": null,
+      "status": "quote_observed",
+      "buy": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "USDC",
+          "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "decimals": 6
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "MSTRc",
+          "address": "0xb2000000000000000000004884b426556b92883d",
+          "decimals": 8
+        },
+        "amountIn": "10000000",
+        "displayAmountIn": "10",
+        "amountOut": "6497951",
+        "displayAmountOut": "0.06497951",
+        "firstProviderDisplayName": "1inch",
+        "visibleRouteCount": 8,
+        "minimumOut": null,
+        "quoteId": null
+      },
+      "sell": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "MSTRc",
+          "address": "0xb2000000000000000000004884b426556b92883d",
+          "decimals": 8
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "WETH",
+          "address": "0x4200000000000000000000000000000000000006",
+          "decimals": 18
+        },
+        "amountIn": "6497951",
+        "displayAmountIn": "0.06497951",
+        "amountOut": "4010195086823414",
+        "displayAmountOut": "0.004010195086823414",
+        "firstProviderDisplayName": "FYND",
+        "visibleRouteCount": 1,
+        "minimumOut": null,
+        "quoteId": null
+      }
+    },
+    {
+      "symbol": "SNDKc",
+      "address": "0xb200000000000000000000397293Cb8cda9a10c5",
+      "decimals": 8,
+      "observedAt": null,
+      "status": "quote_observed",
+      "buy": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "USDC",
+          "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "decimals": 6
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "SNDKc",
+          "address": "0xb200000000000000000000397293Cb8cda9a10c5",
+          "decimals": 8
+        },
+        "amountIn": "10000000",
+        "displayAmountIn": "10",
+        "amountOut": "612492",
+        "displayAmountOut": "0.00612492",
+        "firstProviderDisplayName": "Nordstern Finance",
+        "visibleRouteCount": 8,
+        "minimumOut": null,
+        "quoteId": null
+      },
+      "sell": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "SNDKc",
+          "address": "0xb200000000000000000000397293Cb8cda9a10c5",
+          "decimals": 8
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "WETH",
+          "address": "0x4200000000000000000000000000000000000006",
+          "decimals": 18
+        },
+        "amountIn": "612492",
+        "displayAmountIn": "0.00612492",
+        "amountOut": "4005905262227746",
+        "displayAmountOut": "0.004005905262227746",
+        "firstProviderDisplayName": "FYND",
+        "visibleRouteCount": 1,
+        "minimumOut": null,
+        "quoteId": null
+      }
+    },
+    {
+      "symbol": "SPCXc",
+      "address": "0xb2000000000000000000007b9fcbd005511aCBd5",
+      "decimals": 8,
+      "observedAt": null,
+      "status": "quote_observed",
+      "buy": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "USDC",
+          "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "decimals": 6
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "SPCXc",
+          "address": "0xb2000000000000000000007b9fcbd005511aCBd5",
+          "decimals": 8
+        },
+        "amountIn": "10000000",
+        "displayAmountIn": "10",
+        "amountOut": "6045114",
+        "displayAmountOut": "0.06045114",
+        "firstProviderDisplayName": "Nordstern Finance",
+        "visibleRouteCount": 8,
+        "minimumOut": null,
+        "quoteId": null
+      },
+      "sell": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "SPCXc",
+          "address": "0xb2000000000000000000007b9fcbd005511aCBd5",
+          "decimals": 8
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "WETH",
+          "address": "0x4200000000000000000000000000000000000006",
+          "decimals": 18
+        },
+        "amountIn": "6045114",
+        "displayAmountIn": "0.06045114",
+        "amountOut": "4010575058149224",
+        "displayAmountOut": "0.004010575058149224",
+        "firstProviderDisplayName": "FYND",
+        "visibleRouteCount": 1,
+        "minimumOut": null,
+        "quoteId": null
+      }
+    },
+    {
+      "symbol": "TSLAc",
+      "address": "0xb2000000000000000000001e800a7f5189430cD0",
+      "decimals": 8,
+      "observedAt": null,
+      "status": "quote_observed",
+      "buy": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "USDC",
+          "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "decimals": 6
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "TSLAc",
+          "address": "0xb2000000000000000000001e800a7f5189430cD0",
+          "decimals": 8
+        },
+        "amountIn": "10000000",
+        "displayAmountIn": "10",
+        "amountOut": "2650273",
+        "displayAmountOut": "0.02650273",
+        "firstProviderDisplayName": "Nordstern Finance",
+        "visibleRouteCount": 7,
+        "minimumOut": null,
+        "quoteId": null
+      },
+      "sell": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "TSLAc",
+          "address": "0xb2000000000000000000001e800a7f5189430cD0",
+          "decimals": 8
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "WETH",
+          "address": "0x4200000000000000000000000000000000000006",
+          "decimals": 18
+        },
+        "amountIn": "2650273",
+        "displayAmountIn": "0.02650273",
+        "amountOut": "4009284001021506",
+        "displayAmountOut": "0.004009284001021506",
+        "firstProviderDisplayName": "FYND",
+        "visibleRouteCount": 1,
+        "minimumOut": null,
+        "quoteId": null
+      }
+    },
+    {
+      "symbol": "AMDc",
+      "address": "0xB2000000000000000000000d8Ce462E99ee7A47B",
+      "decimals": 8,
+      "observedAt": null,
+      "status": "quote_observed",
+      "buy": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "USDC",
+          "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "decimals": 6
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "AMDc",
+          "address": "0xB2000000000000000000000d8Ce462E99ee7A47B",
+          "decimals": 8
+        },
+        "amountIn": "10000000",
+        "displayAmountIn": "10",
+        "amountOut": "1536318",
+        "displayAmountOut": "0.01536318",
+        "firstProviderDisplayName": "FYND",
+        "visibleRouteCount": 1,
+        "minimumOut": null,
+        "quoteId": null
+      },
+      "sell": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "AMDc",
+          "address": "0xB2000000000000000000000d8Ce462E99ee7A47B",
+          "decimals": 8
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "WETH",
+          "address": "0x4200000000000000000000000000000000000006",
+          "decimals": 18
+        },
+        "amountIn": "1536318",
+        "displayAmountIn": "0.01536318",
+        "amountOut": "4005363586377930",
+        "displayAmountOut": "0.00400536358637793",
+        "firstProviderDisplayName": "FYND",
+        "visibleRouteCount": 1,
+        "minimumOut": null,
+        "quoteId": null
+      }
+    },
+    {
+      "symbol": "ASTSc",
+      "address": "0xB200000000000000000000B1a29cF17A1819288a",
+      "decimals": 8,
+      "observedAt": null,
+      "status": "quote_observed",
+      "buy": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "USDC",
+          "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "decimals": 6
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "ASTSc",
+          "address": "0xB200000000000000000000B1a29cF17A1819288a",
+          "decimals": 8
+        },
+        "amountIn": "10000000",
+        "displayAmountIn": "10",
+        "amountOut": "15796467",
+        "displayAmountOut": "0.15796467",
+        "firstProviderDisplayName": "Nordstern Finance",
+        "visibleRouteCount": 6,
+        "minimumOut": null,
+        "quoteId": null
+      },
+      "sell": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "ASTSc",
+          "address": "0xB200000000000000000000B1a29cF17A1819288a",
+          "decimals": 8
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "WETH",
+          "address": "0x4200000000000000000000000000000000000006",
+          "decimals": 18
+        },
+        "amountIn": "15796467",
+        "displayAmountIn": "0.15796467",
+        "amountOut": "4005519173658873",
+        "displayAmountOut": "0.004005519173658873",
+        "firstProviderDisplayName": "Fly",
+        "visibleRouteCount": 6,
+        "minimumOut": null,
+        "quoteId": null
+      }
+    },
+    {
+      "symbol": "AVGOc",
+      "address": "0xB200000000000000000000Fc737aeA6196aB5a4c",
+      "decimals": 8,
+      "observedAt": null,
+      "status": "quote_observed",
+      "buy": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "USDC",
+          "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "decimals": 6
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "AVGOc",
+          "address": "0xB200000000000000000000Fc737aeA6196aB5a4c",
+          "decimals": 8
+        },
+        "amountIn": "10000000",
+        "displayAmountIn": "10",
+        "amountOut": "2692745",
+        "displayAmountOut": "0.02692745",
+        "firstProviderDisplayName": "Fly",
+        "visibleRouteCount": 7,
+        "minimumOut": null,
+        "quoteId": null
+      },
+      "sell": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "AVGOc",
+          "address": "0xB200000000000000000000Fc737aeA6196aB5a4c",
+          "decimals": 8
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "WETH",
+          "address": "0x4200000000000000000000000000000000000006",
+          "decimals": 18
+        },
+        "amountIn": "2692745",
+        "displayAmountIn": "0.02692745",
+        "amountOut": "4005731078625527",
+        "displayAmountOut": "0.004005731078625527",
+        "firstProviderDisplayName": "Fly",
+        "visibleRouteCount": 6,
+        "minimumOut": null,
+        "quoteId": null
+      }
+    },
+    {
+      "symbol": "BEc",
+      "address": "0xb20000000000000000000016f9dfe862feBA122b",
+      "decimals": 8,
+      "observedAt": null,
+      "status": "quote_observed",
+      "buy": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "USDC",
+          "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "decimals": 6
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "BEc",
+          "address": "0xb20000000000000000000016f9dfe862feBA122b",
+          "decimals": 8
+        },
+        "amountIn": "10000000",
+        "displayAmountIn": "10",
+        "amountOut": "3444922",
+        "displayAmountOut": "0.03444922",
+        "firstProviderDisplayName": "Nordstern Finance",
+        "visibleRouteCount": 5,
+        "minimumOut": null,
+        "quoteId": null
+      },
+      "sell": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "BEc",
+          "address": "0xb20000000000000000000016f9dfe862feBA122b",
+          "decimals": 8
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "WETH",
+          "address": "0x4200000000000000000000000000000000000006",
+          "decimals": 18
+        },
+        "amountIn": "3444922",
+        "displayAmountIn": "0.03444922",
+        "amountOut": "4004882738575759",
+        "displayAmountOut": "0.004004882738575759",
+        "firstProviderDisplayName": "Fly",
+        "visibleRouteCount": 4,
+        "minimumOut": null,
+        "quoteId": null
+      }
+    },
+    {
+      "symbol": "CAKEc",
+      "address": "0xb200000000000000000000f215E4C890CFb7176B",
+      "decimals": 8,
+      "observedAt": null,
+      "status": "quote_observed",
+      "buy": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "USDC",
+          "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "decimals": 6
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "CAKEc",
+          "address": "0xb200000000000000000000f215E4C890CFb7176B",
+          "decimals": 8
+        },
+        "amountIn": "10000000",
+        "displayAmountIn": "10",
+        "amountOut": "234784",
+        "displayAmountOut": "0.00234784",
+        "firstProviderDisplayName": "Fly",
+        "visibleRouteCount": 4,
+        "minimumOut": null,
+        "quoteId": null
+      },
+      "sell": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "CAKEc",
+          "address": "0xb200000000000000000000f215E4C890CFb7176B",
+          "decimals": 8
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "WETH",
+          "address": "0x4200000000000000000000000000000000000006",
+          "decimals": 18
+        },
+        "amountIn": "234784",
+        "displayAmountIn": "0.00234784",
+        "amountOut": "4003923384443829",
+        "displayAmountOut": "0.004003923384443829",
+        "firstProviderDisplayName": "Fly",
+        "visibleRouteCount": 5,
+        "minimumOut": null,
+        "quoteId": null
+      }
+    },
+    {
+      "symbol": "DJTc",
+      "address": "0xb200000000000000000000428E3a3eebBb20692B",
+      "decimals": 8,
+      "observedAt": null,
+      "status": "quote_observed",
+      "buy": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "USDC",
+          "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "decimals": 6
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "DJTc",
+          "address": "0xb200000000000000000000428E3a3eebBb20692B",
+          "decimals": 8
+        },
+        "amountIn": "10000000",
+        "displayAmountIn": "10",
+        "amountOut": "104828403",
+        "displayAmountOut": "1.04828403",
+        "firstProviderDisplayName": "Fly",
+        "visibleRouteCount": 6,
+        "minimumOut": null,
+        "quoteId": null
+      },
+      "sell": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "DJTc",
+          "address": "0xb200000000000000000000428E3a3eebBb20692B",
+          "decimals": 8
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "WETH",
+          "address": "0x4200000000000000000000000000000000000006",
+          "decimals": 18
+        },
+        "amountIn": "104828403",
+        "displayAmountIn": "1.04828403",
+        "amountOut": "4004890565772743",
+        "displayAmountOut": "0.004004890565772743",
+        "firstProviderDisplayName": "Fly",
+        "visibleRouteCount": 5,
+        "minimumOut": null,
+        "quoteId": null
+      }
+    },
+    {
+      "symbol": "DUOLc",
+      "address": "0xb200000000000000000000A613D12dEAfBBb1Db7",
+      "decimals": 8,
+      "observedAt": null,
+      "status": "quote_observed",
+      "buy": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "USDC",
+          "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "decimals": 6
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "DUOLc",
+          "address": "0xb200000000000000000000A613D12dEAfBBb1Db7",
+          "decimals": 8
+        },
+        "amountIn": "10000000",
+        "displayAmountIn": "10",
+        "amountOut": "5656984",
+        "displayAmountOut": "0.05656984",
+        "firstProviderDisplayName": "Nordstern Finance",
+        "visibleRouteCount": 7,
+        "minimumOut": null,
+        "quoteId": null
+      },
+      "sell": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "DUOLc",
+          "address": "0xb200000000000000000000A613D12dEAfBBb1Db7",
+          "decimals": 8
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "WETH",
+          "address": "0x4200000000000000000000000000000000000006",
+          "decimals": 18
+        },
+        "amountIn": "5656984",
+        "displayAmountIn": "0.05656984",
+        "amountOut": "3606937324841536",
+        "displayAmountOut": "0.003606937324841536",
+        "firstProviderDisplayName": "FYND",
+        "visibleRouteCount": 1,
+        "minimumOut": null,
+        "quoteId": null
+      }
+    },
+    {
+      "symbol": "GMEc",
+      "address": "0xb2000000000000000000007790ed6E48e06eD935",
+      "decimals": 8,
+      "observedAt": null,
+      "status": "quote_observed",
+      "buy": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "USDC",
+          "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "decimals": 6
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "GMEc",
+          "address": "0xb2000000000000000000007790ed6E48e06eD935",
+          "decimals": 8
+        },
+        "amountIn": "10000000",
+        "displayAmountIn": "10",
+        "amountOut": "37556096",
+        "displayAmountOut": "0.37556096",
+        "firstProviderDisplayName": "Fly",
+        "visibleRouteCount": 5,
+        "minimumOut": null,
+        "quoteId": null
+      },
+      "sell": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "GMEc",
+          "address": "0xb2000000000000000000007790ed6E48e06eD935",
+          "decimals": 8
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "WETH",
+          "address": "0x4200000000000000000000000000000000000006",
+          "decimals": 18
+        },
+        "amountIn": "37556096",
+        "displayAmountIn": "0.37556096",
+        "amountOut": "4004458259603312",
+        "displayAmountOut": "0.004004458259603312",
+        "firstProviderDisplayName": "Fly",
+        "visibleRouteCount": 6,
+        "minimumOut": null,
+        "quoteId": null
+      }
+    },
+    {
+      "symbol": "HIMSc",
+      "address": "0xB20000000000000000000043a599976181Bcf336",
+      "decimals": 8,
+      "observedAt": null,
+      "status": "quote_observed",
+      "buy": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "USDC",
+          "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "decimals": 6
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "HIMSc",
+          "address": "0xB20000000000000000000043a599976181Bcf336",
+          "decimals": 8
+        },
+        "amountIn": "10000000",
+        "displayAmountIn": "10",
+        "amountOut": "34803914",
+        "displayAmountOut": "0.34803914",
+        "firstProviderDisplayName": "FYND",
+        "visibleRouteCount": 1,
+        "minimumOut": null,
+        "quoteId": null
+      },
+      "sell": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "HIMSc",
+          "address": "0xB20000000000000000000043a599976181Bcf336",
+          "decimals": 8
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "WETH",
+          "address": "0x4200000000000000000000000000000000000006",
+          "decimals": 18
+        },
+        "amountIn": "34803914",
+        "displayAmountIn": "0.34803914",
+        "amountOut": "4004342730685979",
+        "displayAmountOut": "0.004004342730685979",
+        "firstProviderDisplayName": "FYND",
+        "visibleRouteCount": 1,
+        "minimumOut": null,
+        "quoteId": null
+      }
+    },
+    {
+      "symbol": "HTZc",
+      "address": "0xb2000000000000000000002601C5C94F435da168",
+      "decimals": 8,
+      "observedAt": null,
+      "status": "quote_observed",
+      "buy": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "USDC",
+          "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "decimals": 6
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "HTZc",
+          "address": "0xb2000000000000000000002601C5C94F435da168",
+          "decimals": 8
+        },
+        "amountIn": "10000000",
+        "displayAmountIn": "10",
+        "amountOut": "52592360",
+        "displayAmountOut": "0.5259236",
+        "firstProviderDisplayName": "Fly",
+        "visibleRouteCount": 5,
+        "minimumOut": null,
+        "quoteId": null
+      },
+      "sell": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "HTZc",
+          "address": "0xb2000000000000000000002601C5C94F435da168",
+          "decimals": 8
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "WETH",
+          "address": "0x4200000000000000000000000000000000000006",
+          "decimals": 18
+        },
+        "amountIn": "52592360",
+        "displayAmountIn": "0.5259236",
+        "amountOut": "3947314835428341",
+        "displayAmountOut": "0.003947314835428341",
+        "firstProviderDisplayName": "Kyberswap",
+        "visibleRouteCount": 5,
+        "minimumOut": null,
+        "quoteId": null
+      }
+    },
+    {
+      "symbol": "LLYc",
+      "address": "0xB200000000000000000000f1a0F91e34892E4718",
+      "decimals": 8,
+      "observedAt": null,
+      "status": "quote_observed",
+      "buy": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "USDC",
+          "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "decimals": 6
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "LLYc",
+          "address": "0xB200000000000000000000f1a0F91e34892E4718",
+          "decimals": 8
+        },
+        "amountIn": "10000000",
+        "displayAmountIn": "10",
+        "amountOut": "798953",
+        "displayAmountOut": "0.00798953",
+        "firstProviderDisplayName": "FYND",
+        "visibleRouteCount": 1,
+        "minimumOut": null,
+        "quoteId": null
+      },
+      "sell": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "LLYc",
+          "address": "0xB200000000000000000000f1a0F91e34892E4718",
+          "decimals": 8
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "WETH",
+          "address": "0x4200000000000000000000000000000000000006",
+          "decimals": 18
+        },
+        "amountIn": "798953",
+        "displayAmountIn": "0.00798953",
+        "amountOut": "3609736694191524",
+        "displayAmountOut": "0.003609736694191524",
+        "firstProviderDisplayName": "FYND",
+        "visibleRouteCount": 1,
+        "minimumOut": null,
+        "quoteId": null
+      }
+    },
+    {
+      "symbol": "MRNAc",
+      "address": "0xB200000000000000000000e215e9B76ecBA02468",
+      "decimals": 8,
+      "observedAt": null,
+      "status": "quote_observed",
+      "buy": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "USDC",
+          "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "decimals": 6
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "MRNAc",
+          "address": "0xB200000000000000000000e215e9B76ecBA02468",
+          "decimals": 8
+        },
+        "amountIn": "10000000",
+        "displayAmountIn": "10",
+        "amountOut": "5171749",
+        "displayAmountOut": "0.05171749",
+        "firstProviderDisplayName": "Nordstern Finance",
+        "visibleRouteCount": 7,
+        "minimumOut": null,
+        "quoteId": null
+      },
+      "sell": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "MRNAc",
+          "address": "0xB200000000000000000000e215e9B76ecBA02468",
+          "decimals": 8
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "WETH",
+          "address": "0x4200000000000000000000000000000000000006",
+          "decimals": 18
+        },
+        "amountIn": "5171749",
+        "displayAmountIn": "0.05171749",
+        "amountOut": "4003585577079195",
+        "displayAmountOut": "0.004003585577079195",
+        "firstProviderDisplayName": "Fly",
+        "visibleRouteCount": 5,
+        "minimumOut": null,
+        "quoteId": null
+      }
+    },
+    {
+      "symbol": "MRVLc",
+      "address": "0xB200000000000000000000eC3c4c7395Cc609813",
+      "decimals": 8,
+      "observedAt": null,
+      "status": "quote_observed",
+      "buy": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "USDC",
+          "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "decimals": 6
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "MRVLc",
+          "address": "0xB200000000000000000000eC3c4c7395Cc609813",
+          "decimals": 8
+        },
+        "amountIn": "10000000",
+        "displayAmountIn": "10",
+        "amountOut": "3393747",
+        "displayAmountOut": "0.03393747",
+        "firstProviderDisplayName": "Nordstern Finance",
+        "visibleRouteCount": 7,
+        "minimumOut": null,
+        "quoteId": null
+      },
+      "sell": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "MRVLc",
+          "address": "0xB200000000000000000000eC3c4c7395Cc609813",
+          "decimals": 8
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "WETH",
+          "address": "0x4200000000000000000000000000000000000006",
+          "decimals": 18
+        },
+        "amountIn": "3393747",
+        "displayAmountIn": "0.03393747",
+        "amountOut": "4002365018203897",
+        "displayAmountOut": "0.004002365018203897",
+        "firstProviderDisplayName": "Fly",
+        "visibleRouteCount": 6,
+        "minimumOut": null,
+        "quoteId": null
+      }
+    },
+    {
+      "symbol": "MUc",
+      "address": "0xb200000000000000000000Fd2f87532B90095211",
+      "decimals": 8,
+      "observedAt": null,
+      "status": "quote_observed",
+      "buy": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "USDC",
+          "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "decimals": 6
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "MUc",
+          "address": "0xb200000000000000000000Fd2f87532B90095211",
+          "decimals": 8
+        },
+        "amountIn": "10000000",
+        "displayAmountIn": "10",
+        "amountOut": "950476",
+        "displayAmountOut": "0.00950476",
+        "firstProviderDisplayName": "Nordstern Finance",
+        "visibleRouteCount": 8,
+        "minimumOut": null,
+        "quoteId": null
+      },
+      "sell": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "MUc",
+          "address": "0xb200000000000000000000Fd2f87532B90095211",
+          "decimals": 8
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "WETH",
+          "address": "0x4200000000000000000000000000000000000006",
+          "decimals": 18
+        },
+        "amountIn": "950476",
+        "displayAmountIn": "0.00950476",
+        "amountOut": "4003060661506027",
+        "displayAmountOut": "0.004003060661506027",
+        "firstProviderDisplayName": "FYND",
+        "visibleRouteCount": 1,
+        "minimumOut": null,
+        "quoteId": null
+      }
+    },
+    {
+      "symbol": "NFLXc",
+      "address": "0xb20000000000000000000058B8c947e44011dFE6",
+      "decimals": 8,
+      "observedAt": null,
+      "status": "quote_observed",
+      "buy": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "USDC",
+          "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "decimals": 6
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "NFLXc",
+          "address": "0xb20000000000000000000058B8c947e44011dFE6",
+          "decimals": 8
+        },
+        "amountIn": "10000000",
+        "displayAmountIn": "10",
+        "amountOut": "13977269",
+        "displayAmountOut": "0.13977269",
+        "firstProviderDisplayName": "Nordstern Finance",
+        "visibleRouteCount": 7,
+        "minimumOut": null,
+        "quoteId": null
+      },
+      "sell": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "NFLXc",
+          "address": "0xb20000000000000000000058B8c947e44011dFE6",
+          "decimals": 8
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "WETH",
+          "address": "0x4200000000000000000000000000000000000006",
+          "decimals": 18
+        },
+        "amountIn": "13977269",
+        "displayAmountIn": "0.13977269",
+        "amountOut": "4004009083527461",
+        "displayAmountOut": "0.004004009083527461",
+        "firstProviderDisplayName": "Fly",
+        "visibleRouteCount": 6,
+        "minimumOut": null,
+        "quoteId": null
+      }
+    },
+    {
+      "symbol": "ORCLc",
+      "address": "0xb200000000000000000000347AFbA223D7B6b63C",
+      "decimals": 8,
+      "observedAt": null,
+      "status": "quote_observed",
+      "buy": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "USDC",
+          "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "decimals": 6
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "ORCLc",
+          "address": "0xb200000000000000000000347AFbA223D7B6b63C",
+          "decimals": 8
+        },
+        "amountIn": "10000000",
+        "displayAmountIn": "10",
+        "amountOut": "7143741",
+        "displayAmountOut": "0.07143741",
+        "firstProviderDisplayName": "Nordstern Finance",
+        "visibleRouteCount": 6,
+        "minimumOut": null,
+        "quoteId": null
+      },
+      "sell": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "ORCLc",
+          "address": "0xb200000000000000000000347AFbA223D7B6b63C",
+          "decimals": 8
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "WETH",
+          "address": "0x4200000000000000000000000000000000000006",
+          "decimals": 18
+        },
+        "amountIn": "7143741",
+        "displayAmountIn": "0.07143741",
+        "amountOut": "4003638819468531",
+        "displayAmountOut": "0.004003638819468531",
+        "firstProviderDisplayName": "FYND",
+        "visibleRouteCount": 1,
+        "minimumOut": null,
+        "quoteId": null
+      }
+    },
+    {
+      "symbol": "PFEc",
+      "address": "0xB20000000000000000000018FE7eC7d6DfeeB528",
+      "decimals": 8,
+      "observedAt": null,
+      "status": "quote_observed",
+      "buy": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "USDC",
+          "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "decimals": 6
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "PFEc",
+          "address": "0xB20000000000000000000018FE7eC7d6DfeeB528",
+          "decimals": 8
+        },
+        "amountIn": "10000000",
+        "displayAmountIn": "10",
+        "amountOut": "16242095",
+        "displayAmountOut": "0.16242095",
+        "firstProviderDisplayName": "Fly",
+        "visibleRouteCount": 5,
+        "minimumOut": null,
+        "quoteId": null
+      },
+      "sell": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "PFEc",
+          "address": "0xB20000000000000000000018FE7eC7d6DfeeB528",
+          "decimals": 8
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "WETH",
+          "address": "0x4200000000000000000000000000000000000006",
+          "decimals": 18
+        },
+        "amountIn": "16242095",
+        "displayAmountIn": "0.16242095",
+        "amountOut": "4003869215723371",
+        "displayAmountOut": "0.004003869215723371",
+        "firstProviderDisplayName": "Fly",
+        "visibleRouteCount": 4,
+        "minimumOut": null,
+        "quoteId": null
+      }
+    },
+    {
+      "symbol": "PLTRc",
+      "address": "0xb2000000000000000000007d16372840dF4dAbbe",
+      "decimals": 8,
+      "observedAt": null,
+      "status": "quote_observed",
+      "buy": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "USDC",
+          "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "decimals": 6
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "PLTRc",
+          "address": "0xb2000000000000000000007d16372840dF4dAbbe",
+          "decimals": 8
+        },
+        "amountIn": "10000000",
+        "displayAmountIn": "10",
+        "amountOut": "5001189",
+        "displayAmountOut": "0.05001189",
+        "firstProviderDisplayName": "FYND",
+        "visibleRouteCount": 1,
+        "minimumOut": null,
+        "quoteId": null
+      },
+      "sell": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "PLTRc",
+          "address": "0xb2000000000000000000007d16372840dF4dAbbe",
+          "decimals": 8
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "WETH",
+          "address": "0x4200000000000000000000000000000000000006",
+          "decimals": 18
+        },
+        "amountIn": "5001189",
+        "displayAmountIn": "0.05001189",
+        "amountOut": "4004777308957629",
+        "displayAmountOut": "0.004004777308957629",
+        "firstProviderDisplayName": "FYND",
+        "visibleRouteCount": 1,
+        "minimumOut": null,
+        "quoteId": null
+      }
+    },
+    {
+      "symbol": "PMc",
+      "address": "0xB2000000000000000000008FC2A8C23cf5937b66",
+      "decimals": 8,
+      "observedAt": null,
+      "status": "quote_observed",
+      "buy": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "USDC",
+          "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "decimals": 6
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "PMc",
+          "address": "0xB2000000000000000000008FC2A8C23cf5937b66",
+          "decimals": 8
+        },
+        "amountIn": "10000000",
+        "displayAmountIn": "10",
+        "amountOut": "2150364",
+        "displayAmountOut": "0.02150364",
+        "firstProviderDisplayName": "Fly",
+        "visibleRouteCount": 5,
+        "minimumOut": null,
+        "quoteId": null
+      },
+      "sell": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "PMc",
+          "address": "0xB2000000000000000000008FC2A8C23cf5937b66",
+          "decimals": 8
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "WETH",
+          "address": "0x4200000000000000000000000000000000000006",
+          "decimals": 18
+        },
+        "amountIn": "2150364",
+        "displayAmountIn": "0.02150364",
+        "amountOut": "1731099448512542",
+        "displayAmountOut": "0.001731099448512542",
+        "firstProviderDisplayName": "OKX Dex Aggregator",
+        "visibleRouteCount": 6,
+        "minimumOut": null,
+        "quoteId": null
+      }
+    },
+    {
+      "symbol": "PTONc",
+      "address": "0xB2000000000000000000009272A491812842Aa84",
+      "decimals": 8,
+      "observedAt": null,
+      "status": "quote_observed",
+      "buy": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "USDC",
+          "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "decimals": 6
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "PTONc",
+          "address": "0xB2000000000000000000009272A491812842Aa84",
+          "decimals": 8
+        },
+        "amountIn": "10000000",
+        "displayAmountIn": "10",
+        "amountOut": "13149414",
+        "displayAmountOut": "0.13149414",
+        "firstProviderDisplayName": "Fly",
+        "visibleRouteCount": 5,
+        "minimumOut": null,
+        "quoteId": null
+      },
+      "sell": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "PTONc",
+          "address": "0xB2000000000000000000009272A491812842Aa84",
+          "decimals": 8
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "WETH",
+          "address": "0x4200000000000000000000000000000000000006",
+          "decimals": 18
+        },
+        "amountIn": "13149414",
+        "displayAmountIn": "0.13149414",
+        "amountOut": "3985744683541888",
+        "displayAmountOut": "0.003985744683541888",
+        "firstProviderDisplayName": "Fly",
+        "visibleRouteCount": 5,
+        "minimumOut": null,
+        "quoteId": null
+      }
+    },
+    {
+      "symbol": "PYPLc",
+      "address": "0xb200000000000000000000450ad3abE5d4846c6E",
+      "decimals": 8,
+      "observedAt": null,
+      "status": "quote_observed",
+      "buy": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "USDC",
+          "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "decimals": 6
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "PYPLc",
+          "address": "0xb200000000000000000000450ad3abE5d4846c6E",
+          "decimals": 8
+        },
+        "amountIn": "10000000",
+        "displayAmountIn": "10",
+        "amountOut": "18261063",
+        "displayAmountOut": "0.18261063",
+        "firstProviderDisplayName": "Nordstern Finance",
+        "visibleRouteCount": 6,
+        "minimumOut": null,
+        "quoteId": null
+      },
+      "sell": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "PYPLc",
+          "address": "0xb200000000000000000000450ad3abE5d4846c6E",
+          "decimals": 8
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "WETH",
+          "address": "0x4200000000000000000000000000000000000006",
+          "decimals": 18
+        },
+        "amountIn": "18261063",
+        "displayAmountIn": "0.18261063",
+        "amountOut": "4007941005085080",
+        "displayAmountOut": "0.00400794100508508",
+        "firstProviderDisplayName": "Fly",
+        "visibleRouteCount": 5,
+        "minimumOut": null,
+        "quoteId": null
+      }
+    },
+    {
+      "symbol": "QUBTc",
+      "address": "0xb200000000000000000000CA425ab42e07C35bC3",
+      "decimals": 8,
+      "observedAt": null,
+      "status": "quote_observed",
+      "buy": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "USDC",
+          "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "decimals": 6
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "QUBTc",
+          "address": "0xb200000000000000000000CA425ab42e07C35bC3",
+          "decimals": 8
+        },
+        "amountIn": "10000000",
+        "displayAmountIn": "10",
+        "amountOut": "111797315",
+        "displayAmountOut": "1.11797315",
+        "firstProviderDisplayName": "Fly",
+        "visibleRouteCount": 6,
+        "minimumOut": null,
+        "quoteId": null
+      },
+      "sell": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "QUBTc",
+          "address": "0xb200000000000000000000CA425ab42e07C35bC3",
+          "decimals": 8
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "WETH",
+          "address": "0x4200000000000000000000000000000000000006",
+          "decimals": 18
+        },
+        "amountIn": "111797315",
+        "displayAmountIn": "1.11797315",
+        "amountOut": "4007128087626231",
+        "displayAmountOut": "0.004007128087626231",
+        "firstProviderDisplayName": "Fly",
+        "visibleRouteCount": 5,
+        "minimumOut": null,
+        "quoteId": null
+      }
+    },
+    {
+      "symbol": "RBLXc",
+      "address": "0xB2000000000000000000005bd7AE89b9E6189Bb5",
+      "decimals": 8,
+      "observedAt": null,
+      "status": "quote_observed",
+      "buy": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "USDC",
+          "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "decimals": 6
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "RBLXc",
+          "address": "0xB2000000000000000000005bd7AE89b9E6189Bb5",
+          "decimals": 8
+        },
+        "amountIn": "10000000",
+        "displayAmountIn": "10",
+        "amountOut": "20766377",
+        "displayAmountOut": "0.20766377",
+        "firstProviderDisplayName": "FYND",
+        "visibleRouteCount": 1,
+        "minimumOut": null,
+        "quoteId": null
+      },
+      "sell": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "RBLXc",
+          "address": "0xB2000000000000000000005bd7AE89b9E6189Bb5",
+          "decimals": 8
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "WETH",
+          "address": "0x4200000000000000000000000000000000000006",
+          "decimals": 18
+        },
+        "amountIn": "20766377",
+        "displayAmountIn": "0.20766377",
+        "amountOut": "3609748427132227",
+        "displayAmountOut": "0.003609748427132227",
+        "firstProviderDisplayName": "FYND",
+        "visibleRouteCount": 1,
+        "minimumOut": null,
+        "quoteId": null
+      }
+    },
+    {
+      "symbol": "RDDTc",
+      "address": "0xb20000000000000000000066242d4067724cB7A1",
+      "decimals": 8,
+      "observedAt": null,
+      "status": "quote_observed",
+      "buy": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "USDC",
+          "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "decimals": 6
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "RDDTc",
+          "address": "0xb20000000000000000000066242d4067724cB7A1",
+          "decimals": 8
+        },
+        "amountIn": "10000000",
+        "displayAmountIn": "10",
+        "amountOut": "6460417",
+        "displayAmountOut": "0.06460417",
+        "firstProviderDisplayName": "Nordstern Finance",
+        "visibleRouteCount": 7,
+        "minimumOut": null,
+        "quoteId": null
+      },
+      "sell": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "RDDTc",
+          "address": "0xb20000000000000000000066242d4067724cB7A1",
+          "decimals": 8
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "WETH",
+          "address": "0x4200000000000000000000000000000000000006",
+          "decimals": 18
+        },
+        "amountIn": "6460417",
+        "displayAmountIn": "0.06460417",
+        "amountOut": "4009668559481035",
+        "displayAmountOut": "0.004009668559481035",
+        "firstProviderDisplayName": "FYND",
+        "visibleRouteCount": 1,
+        "minimumOut": null,
+        "quoteId": null
+      }
+    },
+    {
+      "symbol": "TTWOc",
+      "address": "0xB200000000000000000000f720C26062Bc3067Da",
+      "decimals": 8,
+      "observedAt": null,
+      "status": "quote_observed",
+      "buy": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "USDC",
+          "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "decimals": 6
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "TTWOc",
+          "address": "0xB200000000000000000000f720C26062Bc3067Da",
+          "decimals": 8
+        },
+        "amountIn": "10000000",
+        "displayAmountIn": "10",
+        "amountOut": "4816612",
+        "displayAmountOut": "0.04816612",
+        "firstProviderDisplayName": "Nordstern Finance",
+        "visibleRouteCount": 7,
+        "minimumOut": null,
+        "quoteId": null
+      },
+      "sell": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "TTWOc",
+          "address": "0xB200000000000000000000f720C26062Bc3067Da",
+          "decimals": 8
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "WETH",
+          "address": "0x4200000000000000000000000000000000000006",
+          "decimals": 18
+        },
+        "amountIn": "4816612",
+        "displayAmountIn": "0.04816612",
+        "amountOut": "4017901758333047",
+        "displayAmountOut": "0.004017901758333047",
+        "firstProviderDisplayName": "1inch",
+        "visibleRouteCount": 6,
+        "minimumOut": null,
+        "quoteId": null
+      }
+    },
+    {
+      "symbol": "WENc",
+      "address": "0xB20000000000000000000044E3CD7a0E1028E57a",
+      "decimals": 8,
+      "observedAt": null,
+      "status": "quote_observed",
+      "buy": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "USDC",
+          "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "decimals": 6
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "WENc",
+          "address": "0xB20000000000000000000044E3CD7a0E1028E57a",
+          "decimals": 8
+        },
+        "amountIn": "10000000",
+        "displayAmountIn": "10",
+        "amountOut": "165676250",
+        "displayAmountOut": "1.6567625",
+        "firstProviderDisplayName": "Nordstern Finance",
+        "visibleRouteCount": 6,
+        "minimumOut": null,
+        "quoteId": null
+      },
+      "sell": {
+        "fromToken": {
+          "chainId": 8453,
+          "symbol": "WENc",
+          "address": "0xB20000000000000000000044E3CD7a0E1028E57a",
+          "decimals": 8
+        },
+        "toToken": {
+          "chainId": 8453,
+          "symbol": "WETH",
+          "address": "0x4200000000000000000000000000000000000006",
+          "decimals": 18
+        },
+        "amountIn": "165676250",
+        "displayAmountIn": "1.6567625",
+        "amountOut": "4017857579268620",
+        "displayAmountOut": "0.00401785757926862",
+        "firstProviderDisplayName": "1inch",
+        "visibleRouteCount": 4,
+        "minimumOut": null,
+        "quoteId": null
+      }
+    }
+  ]
+}

@@ -51,11 +51,13 @@ jobs:
         with:
           version: v1.0.0
 
-      - name: Verify contracts and reproducible V2 artifacts
+      - name: Verify contracts and reproducible fee artifacts
         run: |
           forge test --root contracts
           npm run build:buyback-engine
           git diff --exit-code -- contracts/artifacts/buyback-v2
+          npm run build:base-collector
+          git diff --exit-code -- contracts/artifacts/base-collector
 
       - name: Build frontend once
         run: npm run build

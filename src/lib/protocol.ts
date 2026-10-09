@@ -29,7 +29,7 @@ import {
   stockByAddress,
 } from "./config";
 import { launchSchema, minimumOutput, type LaunchInput } from "./validation";
-import { ENGINE_FEE_POLICY, FEE_POLICY, FEE_SHARES, MUSEGOD_BUYBACK } from "./fee-policy";
+import { BASE_AUTOMATION_FEE_POLICY, BASE_COLLECTOR_FEE_POLICY, ENGINE_FEE_POLICY, FEE_POLICY, FEE_SHARES, MUSEGOD_BUYBACK, isEngineFeePolicy } from "./fee-policy";
 import { CURVE_POLICY, buildLaunchCurves, LAUNCH_CURVE_TICK_SPACING } from "./launch-curve";
 import {
   assertOpeningValuation,
@@ -76,9 +76,14 @@ export function beneficiaries(entries: BeneficiaryData[]): BeneficiaryData[] {
     throw new Error("Fee shares must total 100%");
   return result;
 }
-export function tokenMetadata(input: LaunchInput, openingValuation: OpeningValuation, chainId: 8453 | 4663 = 8453, feeEngine?: Address, recovery = false) {
+export function tokenMetadata(input: LaunchInput, openingValuation: OpeningValuation, chainId: 8453 | 4663 = 8453, feeEngine?: Address, recovery = false, historicalFeePolicy?: string) {
   if (recovery) assertHistoricalOpeningValuation(openingValuation, input.quoteAddress, chainId);
   else assertOpeningValuation(openingValuation, input.quoteAddress, chainId);
+  const historicalCollector = recovery && historicalFeePolicy === BASE_COLLECTOR_FEE_POLICY;
+  const feePolicy = !feeEngine ? FEE_POLICY : chainId === 4663 ? ENGINE_FEE_POLICY
+    : historicalCollector ? BASE_COLLECTOR_FEE_POLICY : BASE_AUTOMATION_FEE_POLICY;
+  const execution = !feeEngine ? "treasury_manual_allocation" : chainId === 4663 ? "permissionless_weth_swapper"
+    : historicalCollector ? "signed_lifi_across_weth" : "splits_native_automation_relay";
   return {
     name: input.name,
     symbol: input.symbol,
@@ -97,7 +102,7 @@ export function tokenMetadata(input: LaunchInput, openingValuation: OpeningValua
       openingValuation,
       curvePolicy: CURVE_POLICY,
       tradingFeeBps: tradingFeeBpsFor(input.tradingFeeBps),
-      feePolicy: feeEngine ? ENGINE_FEE_POLICY : FEE_POLICY,
+      feePolicy,
       ...(feeEngine ? { feeEngine } : {}),
       feeDistribution: {
         basis: "total_fees",
@@ -109,7 +114,7 @@ export function tokenMetadata(input: LaunchInput, openingValuation: OpeningValua
         basis: "platform_income",
         buybackBps: FEE_SHARES.platformBuyback,
         operationsBps: FEE_SHARES.platformOperations,
-        execution: feeEngine ? "permissionless_weth_swapper" : "treasury_manual_allocation",
+        execution,
       },
       buyback: MUSEGOD_BUYBACK,
     },
@@ -126,6 +131,7 @@ export function buildLaunch(
   chainId: 8453 | 4663 = 8453,
   feeEngine?: Address,
   recovery = false,
+  historicalFeePolicy?: string,
 ) {
   const contracts = contractsFor({ mode: chainId === 4663 ? "robinhood" : "base" });
   const draft = launchSchema.parse(input),
@@ -133,8 +139,8 @@ export function buildLaunch(
   if (stock.chainId !== chainId) throw new Error("The paired asset is on a different deployment network");
   if (recovery) assertHistoricalOpeningValuation(openingValuation, stock.address, chainId);
   else assertOpeningValuation(openingValuation, stock.address, chainId);
-  if (feeEngine && (chainId !== 4663 || [creator, treasury, protocolOwner, DEAD, "0x0000000000000000000000000000000000000000"].some((address) => sameAddress(feeEngine, address))))
-    throw new Error("The fee engine must be a distinct Robinhood Chain beneficiary");
+  if (feeEngine && [creator, treasury, protocolOwner, DEAD, "0x0000000000000000000000000000000000000000"].some((address) => sameAddress(feeEngine, address)))
+    throw new Error("The fee engine must be a distinct beneficiary on the selected chain");
   const lpBeneficiaries = beneficiaries([
     {
       beneficiary: protocolOwner,
@@ -167,7 +173,7 @@ export function buildLaunch(
       type: "dopplerERC20V1",
       name: draft.name,
       symbol: draft.symbol,
-      tokenURI: `data:application/json,${encodeURIComponent(JSON.stringify(tokenMetadata(draft, openingValuation, chainId, feeEngine, recovery)))}`,
+      tokenURI: `data:application/json,${encodeURIComponent(JSON.stringify(tokenMetadata(draft, openingValuation, chainId, feeEngine, recovery, historicalFeePolicy)))}`,
     })
     .saleConfig({
       initialSupply: SUPPLY,
@@ -242,7 +248,7 @@ export function assertTradingFeeCalldata(tradingFeeBps: number | undefined, pool
 // Bind the engine field in a preview to both immutable beneficiary arrays in
 // the exact CreateParams that will be signed, including guarded first buys.
 export function assertEngineFeeCalldata(input: { feePolicy?: string; feeEngine?: Address; creator: Address; feeTreasury?: Address }, poolInitializerData: Hex) {
-  if (input.feePolicy !== ENGINE_FEE_POLICY) {
+  if (!isEngineFeePolicy(input.feePolicy)) {
     if (input.feeEngine) throw new Error("The fee engine does not match the launch fee policy");
     return;
   }
@@ -252,7 +258,7 @@ export function assertEngineFeeCalldata(input: { feePolicy?: string; feeEngine?:
   const lp = pool.beneficiaries.filter((entry) => sameAddress(entry.beneficiary, input.feeEngine!));
   const trade = hook.feeBeneficiaries.filter((entry) => sameAddress(entry.beneficiary, input.feeEngine!));
   if (lp.length !== 1 || trade.length !== 1 || lp[0].shares !== WAD * 2280n / 10_000n || trade[0].shares !== WAD * 2400n / 10_000n ||
-    !sameAddress(pool.dopplerHook, ROBINHOOD_CONTRACTS.rehype) || hook.feeRoutingMode !== 1)
+    !sameAddress(pool.dopplerHook, contractsFor({ mode: [BASE_COLLECTOR_FEE_POLICY, BASE_AUTOMATION_FEE_POLICY].some(policy => policy === input.feePolicy) ? "base" : "robinhood" }).rehype) || hook.feeRoutingMode !== 1)
     throw new Error("The launch calldata does not contain the fixed fee engine shares");
 }
 export function swapTransaction(

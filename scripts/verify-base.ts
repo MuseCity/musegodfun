@@ -1,10 +1,14 @@
-import { runtimeFromEnv, redact } from "../server/config";
+import { runtimeFromEnv, mainnetRpcUrl, redact } from "../server/config";
 import { mkdir, writeFile } from "node:fs/promises";
 import { createPublicClient, http } from "viem";
-import { base } from "viem/chains";
+import { base, robinhood } from "viem/chains";
 import { airlockAbi } from "@whetstone-research/doppler-sdk/evm";
 import { CONTRACTS, STOCKS } from "../src/lib/config";
 import { assertStock } from "../src/lib/protocol";
+import { BASE_COLLECTOR_MANIFEST, verifyBaseCollector } from "../server/base-collector";
+import { readOpeningValuation } from "../server/opening-price";
+import { launchAssetsFor } from "../src/lib/config";
+const runtime = runtimeFromEnv(8453);
 // The public endpoint rate-limits bursts of code and archive reads. Serialize
 // transport requests for this offline verifier and retry only explicit limits.
 let rpcQueue = Promise.resolve();
@@ -33,7 +37,7 @@ const pacedFetch: typeof fetch = async (input, init) => {
 };
 const client = createPublicClient({
   chain: base,
-  transport: http(runtimeFromEnv().rpcUrl, {
+  transport: http(runtime.rpcUrl, {
     timeout: 60_000,
     retryCount: 1,
     fetchFn: pacedFetch,
@@ -103,8 +107,21 @@ for (let i = 0; i < STOCKS.length; i += 6) {
     )),
   );
 }
-// Base is retained for historical receipt/asset reads. New fixed-USD
-// issuance is scoped to Robinhood; do not simulate it with a fabricated price.
+if (launchAssetsFor(runtime.config).length !== 36 || STOCKS.length !== 36)
+  throw new Error("Expected the exact 36 admitted Base B20 addresses");
+let collector: unknown = { status: "not_deployed", activation: "not_run" };
+if (runtime.config.feeEngine) {
+  try {
+    const destination = createPublicClient({ chain: robinhood, transport: http(mainnetRpcUrl(4663, runtime.environment), { timeout: 25_000, retryCount: 1 }) });
+    collector = { status: "verified", graph: await verifyBaseCollector(client, runtime.config.feeEngine, { robinhoodClient: destination }), activation: BASE_COLLECTOR_MANIFEST.activation.status };
+  }
+  catch (error) { collector = { status: "unavailable", error: redact(error) }; process.exitCode = 1; }
+}
+// Opt-in pricing consumes the same bounded LI.FI budget as launches. It never
+// substitutes directory prices or submits a transaction.
+const valuations = [];
+if (process.argv.includes("--pricing")) for (const asset of launchAssetsFor(runtime.config))
+  valuations.push(await readOpeningValuation(client, asset, 8453, runtime.lifi));
 const simulations: never[] = [];
 const result = {
   scope:
@@ -115,12 +132,16 @@ const result = {
   blockTimestamp: block.timestamp,
   modules,
   stocks,
+  collector,
+  valuations,
   simulations,
-  issuanceSimulation: "not_run: new fixed-USD issuance is scoped to Robinhood Chain",
+  issuanceSimulation: "not_run: mainnet issuance requires the reviewed fee adapter and dedicated native Automation graph, plus wallet/canary acceptance; use the Base fork verifier for local execution",
+  realCrossChainExecution: "not_run: native Automation / Relay requires canonical source and destination receipts",
+  nativeAutomation: { provider: "Splits", bridge: "Relay", receiver: BASE_COLLECTOR_MANIFEST.constants.automationReceiver ?? null, sourceGuardedConversion: false },
 };
 await mkdir("docs/evidence", { recursive: true });
 await writeFile(
-  "docs/evidence/base-verification.json",
+  "docs/evidence/base-go-live-verification.json",
   JSON.stringify(
     result,
     (_, v) => (typeof v === "bigint" ? v.toString() : v),

@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 2,
+  "chainId": 8453,
+  "architecture": "splits-treasury-native-automation",
+  "mode": "preflight",
+  "observedAt": "2026-10-09T13:00:27.841Z",
+  "finalizedBlockNumber": "52380263",
+  "finalizedBlockHash": "0xec6677aadf01995737964ef11f7f49780dd8eb98a4677e0e3026fa77a3af4235",
+  "dependencies": {
+    "initializer": {
+      "address": "0xBDF938149ac6a781F94FAa0ed45E6A0e984c6544",
+      "runtimeHash": "0x5b476c3e00510cf45a444fa16bc219c9164953064f0a50cd202275227220c80b",
+      "proxyImplementation": null,
+      "proxyCheck": "direct"
+    },
+    "rehype": {
+      "address": "0x5F9eB5f6726Fe88D5e39867967F5b833d2fA3215",
+      "runtimeHash": "0x01585d74cb29f438874b9c0bcd473cb7ca72a12058cc9114ff25674f7bf6d298",
+      "proxyImplementation": null,
+      "proxyCheck": "direct"
+    }
+  },
+  "automationAccountVerification": "not_initialized",
+  "dedicatedBaseAutomationMissing": true,
+  "nativeRuleConfigured": false,
+  "deploymentSequence": null,
+  "verifiedCollector": null,
+  "mainnetDeployment": "not_run",
+  "nativeCrossChainExecution": "not_run",
+  "publicBaseActivation": "not_run",
+  "ownerReviewRequired": [
+    "dedicated Base native Automation initialization, owner, signers and implementation",
+    "native 100% Relay rule to canonical Robinhood WETH and the existing Treasury",
+    "immutable Collector constructor and source manager fingerprints",
+    "deployment wallet and Base gas budget",
+    "isolated origin, per-token actual-fee release budgets, and keeper gas authorization",
+    "existing Robinhood Treasury finite Forwarder allowance and final keeper gas budget",
+    "genuine fee native cross-chain closure, full journals/FIFO, desktop/mobile recovery and pause/rollback proof"
+  ],
+  "trustBoundary": "Collector immutable recipient and exact fee receipts do not make the native Automation account, parent owner or route providers immutable. Native rule changes remain owner-controlled."
+}

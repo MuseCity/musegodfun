@@ -7,6 +7,7 @@ import { firstBuyPaymentAssets } from "../src/lib/first-buy-payment";
 test("real Worker routes refresh native secrets and flags while persistent pause survives code updates",{timeout:60_000},async()=>{
   const bundled=await build({entryPoints:["worker/index.ts"],bundle:true,write:false,format:"esm",platform:"node",target:"es2022",external:["node:*","cloudflare:*"],banner:{js:'import {createRequire} from "node:module";const require=createRequire("/fixture.js");'}});
   let paused=false;const keys:string[]=[];
+  const legacyBatchId = `0x${"ab".repeat(32)}`;
   const bindings={CHAIN_MODE:"robinhood",NODE_ENV:"production",PLATFORM_TREASURY:"0x1111111111111111111111111111111111111111",ENABLE_MAINNET_TRANSACTIONS:"true",SUPABASE_URL:"https://fixture.supabase.co",SUPABASE_SECRET_KEY:"fixture-db",LIFI_API_KEY:"fixture-old",ROBINHOOD_RPC_URL:"https://rh-rpc.fake.test",BASE_RPC_URL:"https://base-rpc.fake.test",TURNSTILE_SITE_KEY:"fixture-public",TURNSTILE_SECRET_KEY:"fixture-private"};
   const options=(env:Record<string,string>,suffix="")=>convertV4MiniflareOptions({modules:true,compatibilityDate:"2026-10-04",compatibilityFlags:["nodejs_compat"],script:bundled.outputFiles[0].text+suffix,durableObjects:{LAUNCHPAD:{className:"LaunchpadRuntime",useSQLite:true}},bindings:env,serviceBindings:{ASSETS:async()=>new Response("asset fixture")},outboundService:async request=>{
     const url=new URL(request.url);
@@ -14,6 +15,8 @@ test("real Worker routes refresh native secrets and flags while persistent pause
       assert.equal(request.headers.get("apikey"),"fixture-db");
       if(url.pathname.endsWith("musegod_runtime_controls"))return Response.json([{paused,revision:4,updated_at:1,reason:"fixture"}]);
       if(url.pathname.endsWith("musegod_reserve_runtime_budget"))return Response.json({allowed:true,retryAfter:0});
+      if(url.pathname.endsWith("musegod_buyback_batches") && url.searchParams.get("id") === `eq.${legacyBatchId}`)
+        return Response.json([{payload:{id:legacyBatchId,quote:{stockAddress:"0x1111111111111111111111111111111111111111",treasury:bindings.PLATFORM_TREASURY},hashes:{},steps:{}}}]);
       return Response.json([]);
     }
     if(url.hostname==="li.quest") {
@@ -33,9 +36,15 @@ test("real Worker routes refresh native secrets and flags while persistent pause
   try {
     assert.equal((await get("/api/config")).writesEnabled,true);
     assert.equal((await get("/api/chains/8453/config")).writesEnabled,false);
+    const burnRecovery = async () => {
+      const response = await mf.dispatchFetch(`https://musegod.fun/api/chains/8453/buyback/batches/${legacyBatchId}/step?kind=burn`, {headers:{"cf-connecting-ip":"192.0.2.90"}});
+      return (await response.json() as {code:string}).code;
+    };
+    assert.equal(await burnRecovery(), "AUTHORIZATION_REQUIRED", "Base is paused but a historical destination step consults enabled RH through real DO RPC; the missing original batch authorization still blocks signing");
     await get("/api/first-buy/prices");assert(keys.every(key=>key==="fixture-old"));
     await mf.setOptions(options({...bindings,ENABLE_MAINNET_TRANSACTIONS:"false",LIFI_API_KEY:"fixture-new"}));
     assert.equal((await get("/api/config")).writesEnabled,false);
+    assert.equal(await burnRecovery(), "SIGNING_DISABLED", "Current RH binding updates block destination recovery independently of Base");
     keys.length=0;await get("/api/first-buy/prices");assert(keys.length>0 && keys.every(key=>String(key)==="fixture-new"));
     paused=true;
     await mf.setOptions(options(bindings,"\n// New version, same persisted safety control\n"));

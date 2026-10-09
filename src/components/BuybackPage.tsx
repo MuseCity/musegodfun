@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { ArrowUpRight, Flame } from "lucide-react";
 import { formatUnits } from "viem";
-import { explorerFor, networkName, shortAddress, type RuntimeConfig } from "../lib/config";
+import { deploymentChain, explorerFor, networkName, shortAddress, type RuntimeConfig } from "../lib/config";
 import { FEE_SHARES, feePolicyFor, launchFeePolicy, MUSEGOD_BUYBACK } from "../lib/fee-policy";
 import { chainApi } from "../lib/api";
 import type { MarketSummary } from "../lib/market";
@@ -9,6 +9,7 @@ import { MUSEGOD } from "../lib/musegod";
 import { burnShare, useMusegodBurn } from "../lib/musegod-burn";
 import FeeBreakdown from "./FeeBreakdown";
 import BuybackEngine from "./BuybackEngine";
+import BaseBuyback from "./BaseBuyback";
 
 function ChainAddress({ address, explorer }: { address: string; explorer?: string }) {
   return explorer
@@ -41,7 +42,7 @@ export default function BuybackPage({ config }: { config: RuntimeConfig | null }
         <span className="burn-logo" aria-hidden="true"><img src={MUSEGOD.image} alt="" /></span>
         <div>
           <h1 id="burn-title">MUSEGOD buyback and burn</h1>
-          <p>{(shares.buyback / 100).toLocaleString("en-US")}% of every new launch’s trading fee funds MUSEGOD buybacks on the open market; purchased MUSEGOD goes to the dead address.</p>
+          <p>{(shares.buyback / 100).toLocaleString("en-US")}% of every new launch’s trading fee is allocated to the MUSEGOD buyback budget. Fees await collection, conversion and execution; purchased MUSEGOD goes to the dead address.</p>
         </div>
       </div>
       <div className="burn-total">
@@ -63,7 +64,9 @@ export default function BuybackPage({ config }: { config: RuntimeConfig | null }
       </dl>
       <p className="burn-footnote">Transfers to the dead address remove tokens from circulation; they do not reduce ERC-20 totalSupply. Value uses the current Bankr / Pools price, not the price at each burn.</p>
     </section>
-    <BuybackEngine config={config} onRefresh={() => setRevision((value) => value + 1)} />
+    {!config ? <p role="status">Reading the selected network configuration…</p>
+      : deploymentChain(config) === 8453 ? <BaseBuyback config={config} onRefresh={() => setRevision((value) => value + 1)} />
+      : <BuybackEngine config={config} onRefresh={() => setRevision((value) => value + 1)} />}
     <details className="card disclosure">
       <summary>How new pool fees are distributed</summary>
       <FeeBreakdown policy={launchFeePolicy(config)} />
