@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
-import { RefreshCw, TrendingUp, Users } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, RefreshCw } from "lucide-react";
 import { formatUnits } from "viem";
 import { chainApi } from "../lib/api";
 import { deploymentChain, explorerFor, shortAddress, type TokenRecord } from "../lib/config";
@@ -13,6 +13,7 @@ import {
   type TradeData,
 } from "../lib/market";
 import { errorMessage } from "../lib/validation";
+import { changeClass } from "../lib/format";
 const PriceChart = lazy(() => import("./PriceChart"));
 const usd = (n: number | null | undefined, precise = false) =>
   n == null
@@ -107,11 +108,15 @@ export default function TokenMarket({
   token,
   refreshKey,
   kind = "launch",
+  metric,
 }: {
   token: MarketToken;
   refreshKey: string;
   kind?: "launch" | "musegod";
+  // Replaces the fully diluted valuation tile (MUSEGOD shows its burn share).
+  metric?: { label: string; value: string; title?: string };
 }) {
+  const [chartType, setChartType] = useState<"line" | "candles">(kind === "musegod" ? "line" : "candles");
   const [interval, setIntervalValue] = useState<ChartInterval>("1h"),
     [revision, setRevision] = useState(0);
   const [period, setPeriod] = useState("h24"),
@@ -174,68 +179,78 @@ export default function TokenMarket({
   const items =
     trades.data?.trades.filter((t) => filter === "all" || t.side === filter) ??
     [];
+  const buys = activity?.buys ?? null, sells = activity?.sells ?? null;
+  const flowTotal = (buys ?? 0) + (sells ?? 0);
+  const changeKind = changeClass(change);
   return (
     <>
-      <section className="panel market-panel">
+      <section className="card market-panel" aria-label={`${token.symbol} market`}>
         <div className="market-price-row">
           <div>
             <span className="eyebrow">{token.symbol} PRICE</span>
             <div className="market-price">
-              {usd(stats?.priceUsd, true)}
-              <span className={(change ?? 0) < 0 ? "negative" : "positive"}>
+              <span className="mono">{usd(stats?.priceUsd, true)}</span>
+              <span className={`change-chip ${changeKind}`}>
+                {changeKind === "positive" ? <ArrowUpRight size={14} /> : changeKind === "negative" ? <ArrowDownRight size={14} /> : null}
                 {change == null
                   ? "—"
-                  : `${change >= 0 ? "+" : ""}${change.toFixed(2)}%`}{" "}
-                <small>24h</small>
+                  : `${change >= 0 ? "+" : ""}${change.toFixed(2)}%`} · 24h
               </span>
             </div>
           </div>
           <button
-            className="icon-button"
+            type="button"
+            className="round-button"
             aria-label="Refresh market data"
             title="Refresh market data"
             onClick={() => setRevision((n) => n + 1)}
           >
-            <RefreshCw size={16} />
+            <RefreshCw size={18} />
           </button>
         </div>
-        <div className="market-metrics">
+        <dl className="stat-grid market-metrics">
           <div>
-            <span>Market cap</span>
-            <b>{usd(stats?.marketCapUsd)}</b>
+            <dt>Market cap</dt>
+            <dd>{usd(stats?.marketCapUsd)}</dd>
+          </div>
+          {metric ? <div>
+            <dt>{metric.label}</dt>
+            <dd title={metric.title}>{metric.value}</dd>
+          </div> : <div>
+            <dt>Fully diluted valuation</dt>
+            <dd>{usd(stats?.fdvUsd)}</dd>
+          </div>}
+          <div>
+            <dt>Liquidity</dt>
+            <dd>{usd(stats?.liquidityUsd)}</dd>
           </div>
           <div>
-            <span>Fully diluted valuation</span>
-            <b>{usd(stats?.fdvUsd)}</b>
+            <dt>24h volume</dt>
+            <dd>{usd(stats?.periods.h24.volume)}</dd>
           </div>
-          <div>
-            <span>Liquidity</span>
-            <b>{usd(stats?.liquidityUsd)}</b>
-          </div>
-          <div>
-            <span>24h volume</span>
-            <b>{usd(stats?.periods.h24.volume)}</b>
-          </div>
-        </div>
+        </dl>
         {(summary.error || stats?.status === "stale") && (
           <p className="market-warning" role="status">
             {summary.error || stats?.warning}
           </p>
         )}
         <div className="chart-toolbar">
-          <div className="intervals" aria-label="Chart interval">
+          <div className="segmented" role="group" aria-label="Chart type">
+            <button type="button" aria-pressed={chartType === "line"} onClick={() => setChartType("line")}>Line</button>
+            <button type="button" aria-pressed={chartType === "candles"} onClick={() => setChartType("candles")}>Candles</button>
+          </div>
+          <div className="segmented mono" role="group" aria-label="Chart interval">
             {CHART_INTERVALS.map((value) => (
               <button
+                type="button"
                 key={value}
                 aria-pressed={interval === value}
-                className={interval === value ? "active" : ""}
                 onClick={() => setIntervalValue(value)}
               >
                 {value}
               </button>
             ))}
           </div>
-          <span>Price · USD</span>
         </div>
         {history.data?.status === "stale" && (
           <p className="market-warning">
@@ -248,6 +263,7 @@ export default function TokenMarket({
               key={`${token.address}:${interval}`}
               candles={history.data.candles}
               symbol={token.symbol}
+              type={chartType}
             />
           </Suspense>
         ) : (
@@ -258,133 +274,118 @@ export default function TokenMarket({
           />
         )}
         <div className="market-attribution">
-          <a
-            href={chartSourceUrl}
-            target="_blank"
-            rel="noreferrer"
-          >
-            {kind === "musegod" && chartSource === "Bankr" ? "Bankr / Pools" : chartSource} ↗
-          </a>
           <span>
+            <a
+              href={chartSourceUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {kind === "musegod" && chartSource === "Bankr" ? "Bankr / Pools" : chartSource} ↗
+            </a>{" "}
             {chartSnapshot
-              ? `Fetched at ${new Date(chartSnapshot.fetchedAt).toLocaleTimeString("en-US")} · ${kind === "musegod" ? "Refreshes every minute while visible" : "Shared 15-minute snapshot"}`
-              : "Update time appears after market data loads"}
+              ? `· ${kind === "musegod" ? "refreshes every minute while visible" : "shared 15-minute snapshot"} · ${new Date(chartSnapshot.fetchedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}`
+              : "· update time appears after market data loads"}
           </span>
         </div>
       </section>
-      <section className="panel market-activity">
-        <div className="section-heading">
-          <h2>
-            <TrendingUp size={17} /> Trading activity
-          </h2>
-          <div className="intervals">
+      <section className="card market-feed" aria-label={kind === "launch" ? "Trades and holders" : "Recent trades"}>
+        <div className="feed-head">
+          {kind === "launch" ? <div className="feed-tabs" role="group" aria-label="Market feed">
+            <button
+              type="button"
+              aria-pressed={tab === "trades"}
+              onClick={() => setTab("trades")}
+            >
+              Recent trades
+            </button>
+            <button
+              type="button"
+              aria-pressed={tab === "holders"}
+              onClick={() => setTab("holders")}
+            >
+              Holders
+            </button>
+          </div> : <h2 className="card-title">Recent trades</h2>}
+          {tab === "trades" || kind === "musegod" ? <div className="segmented compact" role="group" aria-label="Trade filter">
             {[
-              ["m5", "5m"],
-              ["h1", "1h"],
-              ["h6", "6h"],
-              ["h24", "24h"],
+              ["all", "All"],
+              ["buy", "Buy"],
+              ["sell", "Sell"],
             ].map(([value, label]) => (
               <button
+                type="button"
                 key={value}
-                className={period === value ? "active" : ""}
-                aria-pressed={period === value}
-                onClick={() => setPeriod(value)}
+                aria-pressed={filter === value}
+                onClick={() => setFilter(value)}
               >
                 {label}
               </button>
             ))}
-          </div>
-        </div>
-        <div className="activity-values">
-          <div>
-            <span>Buys</span>
-            <b className="positive">{activity?.buys ?? "—"}</b>
-          </div>
-          <div>
-            <span>Sells</span>
-            <b className="negative">{activity?.sells ?? "—"}</b>
-          </div>
-          <div>
-            <span>Volume</span>
-            <b>{usd(activity?.volume)}</b>
-          </div>
-          <div>
-            <span>Price change</span>
-            <b
-              className={(activity?.change ?? 0) < 0 ? "negative" : "positive"}
-            >
-              {activity?.change == null
-                ? "—"
-                : `${activity.change > 0 ? "+" : ""}${activity.change.toFixed(2)}%`}
-            </b>
-          </div>
-        </div>
-      </section>
-      <section className="panel market-feed">
-        <div className="feed-tabs">
-          <button
-            className={tab === "trades" ? "active" : ""}
-            aria-pressed={tab === "trades"}
-            onClick={() => setTab("trades")}
-          >
-            <TrendingUp size={16} /> Recent trades
-          </button>
-          {kind === "launch" && <button
-            className={tab === "holders" ? "active" : ""}
-            aria-pressed={tab === "holders"}
-            onClick={() => setTab("holders")}
-          >
-            <Users size={16} /> Holders
-          </button>}
+          </div> : <span className="hint">Top 10 of <span className="mono">{holders.data?.indexedCount ?? "—"}</span> indexed holders</span>}
         </div>
         {tab === "trades" || kind === "musegod" ? (
           <>
-            <div className="feed-filter">
-              <div className="intervals">
+            <div className="trade-flow">
+              <div className="segmented mono compact" role="group" aria-label="Activity period">
                 {[
-                  ["all", "All"],
-                  ["buy", "Buy"],
-                  ["sell", "Sell"],
+                  ["m5", "5m"],
+                  ["h1", "1h"],
+                  ["h6", "6h"],
+                  ["h24", "24h"],
                 ].map(([value, label]) => (
                   <button
+                    type="button"
                     key={value}
-                    className={filter === value ? "active" : ""}
-                    aria-pressed={filter === value}
-                    onClick={() => setFilter(value)}
+                    aria-pressed={period === value}
+                    onClick={() => setPeriod(value)}
                   >
                     {label}
                   </button>
                 ))}
               </div>
-              <span>Recently indexed trades</span>
+              <span className="mono positive">{buys ?? "—"} buys</span>
+              <div className="flow-bar" aria-hidden="true">
+                {flowTotal > 0 ? <>
+                  <i className="buy" style={{ flex: buys ?? 0 }} />
+                  <i className="sell" style={{ flex: sells ?? 0 }} />
+                </> : <i className="none" />}
+              </div>
+              <span className="mono negative">{sells ?? "—"} sells</span>
             </div>
+            <p className="flow-stats hint">
+              Volume <span className="mono">{usd(activity?.volume)}</span> · Price change{" "}
+              <span className={`mono ${(activity?.change ?? 0) < 0 ? "negative" : (activity?.change ?? 0) > 0 ? "positive" : ""}`}>
+                {activity?.change == null
+                  ? "—"
+                  : `${activity.change > 0 ? "+" : ""}${activity.change.toFixed(2)}%`}
+              </span>
+            </p>
             {items.length ? (
-              <div className="market-table-scroll">
-                <table className="market-table">
+              <div className="table-scroll">
+                <table className="data-table market-table">
                   <thead>
                     <tr>
                       <th>Type / time</th>
-                      <th>Amount (USD)</th>
-                      <th>{token.symbol}</th>
-                      <th>Price (USD)</th>
-                      <th>Trader</th>
+                      <th className="num">Amount (USD)</th>
+                      <th className="num">{token.symbol}</th>
+                      <th className="num">Price (USD)</th>
+                      <th className="num">Trader</th>
                     </tr>
                   </thead>
                   <tbody>
                     {items.slice(0, 30).map((t) => (
                       <tr key={t.id}>
-                        <td>
+                        <td className="trade-type">
                           <a
-                            className={
-                              t.side === "buy" ? "positive" : "negative"
-                            }
+                            className={`side-tag ${t.side === "buy" ? "positive" : "negative"}`}
                             href={explorer ? `${explorer}/tx/${t.hash}` : undefined}
                             target="_blank"
                             rel="noreferrer"
+                            title="View transaction"
                           >
-                            {t.side === "buy" ? "Buy" : "Sell"} ↗
-                          </a>
-                          <small title={t.at}>
+                            {t.side === "buy" ? "Buy" : "Sell"}
+                          </a>{" "}
+                          <small className="mono" title={t.at}>
                             {new Date(t.at).toLocaleString("en-US", {
                               month: "2-digit",
                               day: "2-digit",
@@ -393,16 +394,16 @@ export default function TokenMarket({
                             })}
                           </small>
                         </td>
-                        <td>{usd(t.usd)}</td>
-                        <td title={String(t.amount)}>{count(t.amount)}</td>
-                        <td>{usd(t.price, true)}</td>
-                        <td>
+                        <td className="num">{usd(t.usd)}</td>
+                        <td className="num" title={String(t.amount)}>{count(t.amount)}</td>
+                        <td className="num">{usd(t.price, true)}</td>
+                        <td className="num">
                           {t.account ? <a
                             href={explorer ? `${explorer}/address/${t.account}` : undefined}
                             target="_blank"
                             rel="noreferrer"
                           >
-                            {shortAddress(t.account)} ↗
+                            {shortAddress(t.account)}
                           </a> : "—"}
                         </td>
                       </tr>
@@ -419,63 +420,58 @@ export default function TokenMarket({
             )}
             <p className="feed-note">
               {trades.data?.status === "stale" ? "Previous snapshot · " : ""}{kind === "musegod" ? "Bankr / Pools" : "CoinGecko"} ·
-              Shows up to the latest 30 trades. Indexing may be delayed.
+              Latest 30 trades · indexing may lag the chain.
             </p>
           </>
         ) : (
           <>
             {holders.data?.holders.length ? (
-              <>
-                <div className="feed-filter">
-                  <b>Indexed addresses {holders.data.indexedCount ?? "—"}</b>
-                  <span>Top 10 indexed holders</span>
-                </div>
-                <div className="market-table-scroll">
-                  <table className="market-table">
-                    <thead>
-                      <tr>
-                        <th>Address</th>
-                        <th>{token.symbol} held</th>
-                        <th>Share of total supply</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {holders.data.holders.map((h, index) => {
-                        const percent =
-                          BigInt(holders.data!.totalSupply) > 0n
-                            ? Number(
-                                (BigInt(h.amount) * 1_000_000n) /
-                                  BigInt(holders.data!.totalSupply),
-                              ) / 10000
-                            : null;
-                        return (
-                          <tr key={h.address}>
-                            <td>
-                              <a
-                                href={explorer ? `${explorer}/token/${token.address}?a=${h.address}` : undefined}
-                                target="_blank"
-                                rel="noreferrer"
-                              >
-                                <span className="holder-rank">{index + 1}</span>
-                                {shortAddress(h.address)} ↗
-                              </a>
-                              {h.isContract && <small>Contract</small>}
-                            </td>
-                            <td title={formatUnits(BigInt(h.amount), 18)}>
-                              {count(Number(formatUnits(BigInt(h.amount), 18)))}
-                            </td>
-                            <td>
-                              {percent == null
-                                ? "—"
-                                : `${percent < 0.0001 ? "<0.0001" : percent.toFixed(4)}%`}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </>
+              <div className="table-scroll">
+                <table className="data-table market-table">
+                  <thead>
+                    <tr>
+                      <th>Address</th>
+                      <th className="num">{token.symbol} held</th>
+                      <th className="num">Share of total supply</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {holders.data.holders.map((h, index) => {
+                      const percent =
+                        BigInt(holders.data!.totalSupply) > 0n
+                          ? Number(
+                              (BigInt(h.amount) * 1_000_000n) /
+                                BigInt(holders.data!.totalSupply),
+                            ) / 10000
+                          : null;
+                      return (
+                        <tr key={h.address}>
+                          <td>
+                            <span className="holder-rank">{index + 1}</span>
+                            <a
+                              className="mono"
+                              href={explorer ? `${explorer}/token/${token.address}?a=${h.address}` : undefined}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              {shortAddress(h.address)}
+                            </a>
+                            {h.isContract && <span className="chip sm sunken">Contract</span>}
+                          </td>
+                          <td className="num" title={formatUnits(BigInt(h.amount), 18)}>
+                            {count(Number(formatUnits(BigInt(h.amount), 18)))}
+                          </td>
+                          <td className="num">
+                            {percent == null
+                              ? "—"
+                              : `${percent < 0.0001 ? "<0.0001" : percent.toFixed(4)}%`}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             ) : (
               <Message
                 loading={holders.loading}
@@ -486,7 +482,7 @@ export default function TokenMarket({
             <p className="feed-note">
               {holders.data?.status === "stale" ? "Previous snapshot · " : ""}Blockscout ·{" "}
               {holders.data
-                ? `Fetched at ${new Date(holders.data.fetchedAt).toLocaleTimeString("en-US")}.`
+                ? `Fetched at ${new Date(holders.data.fetchedAt).toLocaleTimeString("en-US")}. `
                 : ""}
               Indexing may be incomplete; pool contracts, burn addresses, or other holders may be missing. This list does not represent all holders.
             </p>

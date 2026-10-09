@@ -61,3 +61,29 @@ export default function FeeBreakdown({ policy, tradingFeeBps, children }: {
     {children}
   </div>;
 }
+
+// Gross policy shares applied to a verified trading fee: where each trade's
+// fee goes, before the separate 0.05% LP fee. Unknown inputs render nothing.
+export function FeeSplitBar({ policy, tradingFeeBps }: { policy: string | undefined; tradingFeeBps?: number }) {
+  const shares = feePolicyFor(policy);
+  if (!shares || tradingFeeBps === undefined || !(TRADING_FEE_BPS as readonly number[]).includes(tradingFeeBps)) return null;
+  const of = (share: number) => `${Number((tradingFeeBps * share / 1_000_000).toFixed(4))}%`;
+  const parts = [
+    { key: "creator", label: "Creator", share: shares.creator },
+    { key: "buyback", label: "MUSEGOD buyback", share: shares.buyback },
+    { key: "operations", label: "Operations", share: shares.operations },
+    { key: "protocol", label: "Doppler", share: shares.protocol },
+  ].filter((part) => part.share > 0);
+  return <div className="fee-split">
+    <div className="fee-split-head">
+      <span>Where each <span className="mono">{percent(tradingFeeBps)}</span> trading fee goes</span>
+      <span>plus a <span className="mono">{percent(LP_FEE_PPM / 100)}</span> LP fee</span>
+    </div>
+    <div className="fee-split-bar" aria-hidden="true">
+      {parts.map((part) => <i key={part.key} className={part.key} style={{ flex: part.share }} />)}
+    </div>
+    <dl className="fee-split-legend">
+      {parts.map((part) => <div key={part.key}><dt><i className={part.key} aria-hidden="true" />{part.label}</dt><dd>{of(part.share)}</dd></div>)}
+    </dl>
+  </div>;
+}

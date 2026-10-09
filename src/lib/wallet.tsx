@@ -1,3 +1,4 @@
+import { X } from "lucide-react";
 import { quoteNow } from "./quote-clock";
 import { assertLaunchIntentLock, launchIntentStorageKey, saveFrozenLaunch } from "./launch-intent";
 import {
@@ -1125,57 +1126,69 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       {open && (
         <dialog
           ref={dialog}
-          className="wallet-dialog"
+          className="modal narrow wallet-dialog"
           onCancel={() => setOpen(false)}
           onClose={() => setOpen(false)}
           aria-labelledby="wallet-title"
         >
-          <div className="section-heading">
-            <h2 id="wallet-title">{account ? "Wallet account" : "Connect wallet"}</h2>
-            <button aria-label="Close wallet dialog" onClick={() => setOpen(false)}>
-              Close
+          <div className="modal-head">
+            <h2 id="wallet-title" className="modal-title">{account ? "Wallet account" : "Connect wallet"}</h2>
+            <button type="button" className="close-button" aria-label="Close wallet dialog" onClick={() => setOpen(false)}>
+              <X size={20} />
             </button>
           </div>
-          <p>
-            Connecting only reads your address and balances; no signature is required. On mobile, use your wallet browser.
-          </p>
-          {account && (
+          {account ? (
             <>
-              <code className="wallet-address">{account}</code>
-              <p>
-                Network ID: {chainId}
-                {chainId && [8453, 31337, 4663].includes(chainId)
-                  ? ` · ${balanceNetwork ?? (chainId === 4663 ? "Robinhood Chain" : chainId === 31337 ? "Local fork" : "Base")} ETH balance: ${ethBalance ?? "Unavailable"}`
-                  : " · Balance queries are unavailable on this network"}
-              </p>
-              <button className="secondary" onClick={disconnect}>
-                Disconnect
-              </button>
+              <div className="wallet-summary">
+                <code className="wallet-address">{account}</code>
+                <dl>
+                  <div><dt>Network ID</dt><dd>{chainId ?? "—"}{chainId === 4663 ? " · Robinhood" : chainId === 8453 ? " · Base" : chainId === 31337 ? " · Local fork" : ""}</dd></div>
+                  <div><dt>{chainId && [8453, 31337, 4663].includes(chainId) ? `${balanceNetwork ?? (chainId === 4663 ? "Robinhood Chain" : chainId === 31337 ? "Local fork" : "Base")} ETH balance` : "ETH balance"}</dt>
+                    <dd>{chainId && [8453, 31337, 4663].includes(chainId) ? ethBalance ?? "Unavailable" : "Unavailable on this network"}</dd></div>
+                </dl>
+              </div>
+              <div className="button-row wallet-actions">
+                <a className="secondary" href={`/rewards?chainId=${network.chainId}`} onClick={(event) => {
+                  if (event.metaKey || event.ctrlKey || event.shiftKey) return;
+                  event.preventDefault(); setOpen(false);
+                  history.pushState({}, "", `/rewards?chainId=${network.chainId}`); window.dispatchEvent(new PopStateEvent("popstate")); window.scrollTo({ top: 0 });
+                }}>My rewards</a>
+                <button type="button" className="secondary" onClick={disconnect}>
+                  Disconnect
+                </button>
+              </div>
             </>
-          )}
-          {options.map((option) => (
-            <button
-              className="wallet-option"
-              key={option.id}
-              disabled={connecting}
-              onClick={async () => {
-                await controller.current!.select(option);
-                if (controller.current!.state.account) setOpen(false);
-              }}
-            >
-              {option.name}{" "}
-              {controller.current?.selected?.provider === option.provider
-                ? " · Selected"
-                : ""}
-            </button>
-          ))}
-          {!options.length && (
-            <p role="status">
-              No wallet detected. Open this page in a browser with MetaMask, Coinbase Wallet,
-              or another compatible wallet installed.
+          ) : (
+            <p>
+              Connecting only reads your address and balances; no signature is required. On mobile, use your wallet browser.
             </p>
           )}
-          {error && <p role="alert">{error}</p>}
+          {options.length > 0 && <div className="wallet-options">
+            {options.map((option) => {
+              const selected = controller.current?.selected?.provider === option.provider;
+              return <button
+                type="button"
+                className={`wallet-option${selected ? " selected" : ""}`}
+                key={option.id}
+                disabled={connecting}
+                onClick={async () => {
+                  await controller.current!.select(option);
+                  if (controller.current!.state.account) setOpen(false);
+                }}
+              >
+                <span className="wallet-initial" aria-hidden="true">{option.name.slice(0, 1)}</span>
+                <span className="wallet-name">{option.name}</span>
+                {selected && <span className="wallet-selected">{" "}· Selected</span>}
+              </button>;
+            })}
+          </div>}
+          {!options.length && (
+            <p role="status" className="notice"><span>
+              No wallet detected. Open this page in a browser with MetaMask, Coinbase Wallet,
+              or another compatible wallet installed.
+            </span></p>
+          )}
+          {error && <p role="alert" className="notice error"><span>{error}</span></p>}
         </dialog>
       )}
     </Context.Provider>

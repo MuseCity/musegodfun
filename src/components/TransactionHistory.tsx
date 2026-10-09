@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { History, X } from "lucide-react";
 import { decodeEventLog, encodeFunctionData, erc20Abi, getAddress, isAddress, type Hash } from "viem";
 import { bundlerAbi } from "@whetstone-research/doppler-sdk/evm";
 import { useWallet, transactionClient } from "../lib/wallet";
@@ -204,7 +205,16 @@ export default function TransactionHistory({
     [hash, setHash] = useState(""),
     [recoveryChain, setRecoveryChain] = useState<8453 | 4663>(config ? deploymentChain(config) : 4663),
     [error, setError] = useState(""),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [open, setOpen] = useState(false);
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    if (open && dialog.current && !dialog.current.open) dialog.current.showModal();
+  }, [open]);
+  // The dialog unmounts with its trigger; reset so the button works again.
+  useEffect(() => {
+    if (!wallet.account || !config) setOpen(false);
+  }, [wallet.account, config]);
   useEffect(() => {
     const sync = () => setRows(transactions());
     window.addEventListener("musegod:transactions", sync);
@@ -316,69 +326,89 @@ export default function TransactionHistory({
       setBusy(false);
     }
   }
+  const pending = visible.filter((r) => r.status === "pending").length;
+  const describe = (row: Transaction) => row.firstBuyClaim ? "First buy lock claim" : row.firstBuyPayment ? "First buy payment conversion" : row.action === "buyback" ? ({ approval: "Buyback approval", deposit: "Cross-chain buyback", burn: "MUSEGOD burn" }[row.buybackKind!]) : actions[row.action];
+  const state = (row: Transaction) => (row.firstBuyClaim || row.firstBuyPayment) && !row.registered && row.status === "cancelled" ? "Cancellation pending verification" : (row.firstBuyClaim || row.firstBuyPayment) && !row.registered && row.status === "replaced" ? "Replacement pending verification" : labels[row.status];
   return (
-    <details className="transaction-history">
-      <summary>
-        Wallet transaction history · {visible.filter((r) => r.status === "pending").length}{" "}
-        pending
-      </summary>
-      <p>Records are stored in this browser. A timeout remains pending. Enter a transaction hash to resume checking.</p>
-      {config.mode !== "fork" && <label>
-        Lookup network
-        <select value={recoveryChain} onChange={(e) => setRecoveryChain(Number(e.target.value) as 8453 | 4663)}>
-          <option value={8453}>Base</option>
-          <option value={4663}>Robinhood Chain</option>
-        </select>
-      </label>}
-      <label>
-        Transaction hash
-        <input
-          value={hash}
-          onChange={(e) => setHash(e.target.value)}
-          placeholder="0x…"
-        />
-      </label>
-      <button disabled={busy || !hash} onClick={() => void recoverHash()}>
-        Resume lookup
+    <>
+      <button type="button" className="round-button" aria-label={`Wallet transaction history, ${pending} pending`} title="Wallet transaction history"
+        onClick={() => setOpen(true)}>
+        <History size={18} />
+        {pending > 0 && <span className="badge" aria-hidden="true">{pending}</span>}
       </button>
-      {error && <p role="alert">{error}</p>}
-      <ul>
-        {visible.map((row) => (
-          <li key={`${row.chainId}:${row.deploymentChainId ?? ""}:${row.hash}`}>
-            <span>
-              {row.firstBuyClaim ? "First buy lock claim" : row.firstBuyPayment ? "First buy payment conversion" : row.action === "buyback" ? ({ approval: "Buyback approval", deposit: "Cross-chain buyback", burn: "MUSEGOD burn" }[row.buybackKind!]) : actions[row.action]} · {(row.firstBuyClaim || row.firstBuyPayment) && !row.registered && row.status === "cancelled" ? "Cancellation pending verification" : (row.firstBuyClaim || row.firstBuyPayment) && !row.registered && row.status === "replaced" ? "Replacement pending verification" : labels[row.status]} · {networkName(rowNetwork(row))} ·{" "}
-            </span>
-            {row.chainId !== 31337 ? (
-              <a
-                href={`${explorerFor({ mode: row.chainId === 4663 ? "robinhood" : "base" })}/tx/${row.hash}`}
-                target="_blank"
-                rel="noreferrer"
+      {open && <dialog ref={dialog} className="modal narrow transaction-history" aria-labelledby="history-title"
+        onCancel={() => setOpen(false)} onClose={() => setOpen(false)}>
+        <div className="modal-head">
+          <h2 id="history-title" className="history-title">Wallet transaction history · <span className={pending ? "pending-count" : ""}>{pending} pending</span></h2>
+          <button type="button" className="close-button" aria-label="Close transaction history" onClick={() => dialog.current?.close()}><X size={20} /></button>
+        </div>
+        <p>Records are stored in this browser. A timeout remains pending. Enter a transaction hash to resume checking.</p>
+        {visible.length ? <ul className="history-list">
+          {visible.map((row) => (
+            <li key={`${row.chainId}:${row.deploymentChainId ?? ""}:${row.hash}`} className={`history-row ${row.status}`}>
+              <span>
+                <b>{describe(row)}</b> · <span className="history-status">{state(row)}</span> · {networkName(rowNetwork(row))} ·{" "}
+                {row.chainId !== 31337 ? (
+                  <a
+                    href={`${explorerFor({ mode: row.chainId === 4663 ? "robinhood" : "base" })}/tx/${row.hash}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mono"
+                  >
+                    {shortAddress(row.hash)}
+                  </a>
+                ) : (
+                  <code>{shortAddress(row.hash)}</code>
+                )}
+              </span>
+              {row.replacement && <small>Replaced by <code className="wrap">{row.replacement}</code></small>}
+              <button
+                type="button"
+                className="secondary"
+                disabled={busy}
+                onClick={async () => {
+                  setBusy(true);
+                  setError("");
+                  try {
+                    await settleRecovery(recoveryKey(row.chainId, row.hash), () => check(row), true);
+                  } catch (e) {
+                    setError(errorMessage(e));
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
               >
-                {shortAddress(row.hash)}
-              </a>
-            ) : (
-              <code>{shortAddress(row.hash)}</code>
-            )}{" "}
-            <button
-              disabled={busy}
-              onClick={async () => {
-                setBusy(true);
-                setError("");
-                try {
-                  await settleRecovery(recoveryKey(row.chainId, row.hash), () => check(row), true);
-                } catch (e) {
-                  setError(errorMessage(e));
-                } finally {
-                  setBusy(false);
-                }
-              }}
-            >
-              Check again
-            </button>
-            {row.replacement && <small>Replaced by {row.replacement}</small>}
-          </li>
-        ))}
-      </ul>
-    </details>
+                Check again
+              </button>
+            </li>
+          ))}
+        </ul> : <p className="history-empty">No transactions from this wallet are recorded in this browser.</p>}
+        <form className="history-lookup" onSubmit={(event) => { event.preventDefault(); if (hash && !busy) void recoverHash(); }}>
+          {config.mode !== "fork" && <label className="field">
+            <span className="field-label">Lookup network</span>
+            <select value={recoveryChain} onChange={(e) => setRecoveryChain(Number(e.target.value) as 8453 | 4663)}>
+              <option value={8453}>Base</option>
+              <option value={4663}>Robinhood Chain</option>
+            </select>
+          </label>}
+          <div className="field">
+            <label className="field-label" htmlFor="history-hash">Transaction hash</label>
+            <span className="history-hash">
+              <input
+                id="history-hash"
+                value={hash}
+                onChange={(e) => setHash(e.target.value)}
+                placeholder="0x…"
+                className="mono"
+              />
+              <button type="submit" className="secondary" disabled={busy || !hash}>
+                Resume lookup
+              </button>
+            </span>
+          </div>
+        </form>
+        {error && <p role="alert" className="field-error">{error}</p>}
+      </dialog>}
+    </>
   );
 }

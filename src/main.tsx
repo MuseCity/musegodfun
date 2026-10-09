@@ -5,6 +5,8 @@ import { WalletProvider } from "./lib/wallet";
 import { App } from "./App";
 import { NetworkProvider } from "./lib/network";
 import "./styles.css";
+import { initTheme } from "./lib/theme";
+initTheme();
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <ErrorBoundary>

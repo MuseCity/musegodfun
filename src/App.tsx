@@ -9,30 +9,39 @@ import { assertLaunchPlanValidity } from "./lib/launch-plan";
 import { dopplerUrl } from "./lib/doppler";
 import TransactionHistory from "./components/TransactionHistory";
 import { transactions, updateTransaction, saveTransaction } from "./lib/transactions";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type AnchorHTMLAttributes, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import {
   ArrowDown,
   ArrowDownLeft,
+  ArrowDownRight,
   ArrowRight,
   ArrowUpRight,
   Check,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
+  CircleAlert,
   CircleHelp,
   Coins,
   Compass,
   Copy,
-  ExternalLink,
   Flame,
+  ImagePlus,
+  Info,
+  LayoutGrid,
+  List,
   LoaderCircle,
   LockKeyhole,
+  Moon,
   Plus,
   RefreshCw,
   Rocket,
   Search,
+  Share2,
   ShieldCheck,
   Sparkles,
-  Ticket,
+  Sun,
+  TriangleAlert,
   Wallet,
   X,
 } from "lucide-react";
@@ -77,7 +86,6 @@ import {
   minimumOutput,
   restoreDraft,
   parseAmount,
-  safeImage,
   safeSocialLink,
   type LaunchInput,
 } from "./lib/validation";
@@ -105,11 +113,15 @@ import TokenMarket from "./components/TokenMarket";
 import MusegodPage from "./components/MusegodPage";
 import { MUSEGOD } from "./lib/musegod";
 import BuybackPage from "./components/BuybackPage";
-import FeeBreakdown from "./components/FeeBreakdown";
+import FeeBreakdown, { FeeSplitBar } from "./components/FeeBreakdown";
+import ShareDialog from "./components/ShareDialog";
+import SlippageControl from "./components/SlippageControl";
 import { LP_FEE_PPM, TRADING_FEE_BPS, tradingFeeBpsFor } from "./lib/trading-fee";
 import { ASSET_CATEGORIES, assetCategory, type AssetCategory } from "./lib/asset-categories";
 import assetLogos from "./lib/asset-logos.json";
 import { buildIdentity } from "./lib/build-info";
+import { useTheme } from "./lib/theme";
+import { relativeTime, usdCompact, percentChange, changeClass, dateLabel, feePercent, tokenImageSrc } from "./lib/format";
 import TokenCard from "./components/TokenCard";
 import { useTokenCardMarkets } from "./lib/token-card-market";
 
@@ -188,9 +200,7 @@ function Link({
 }: {
   href: string;
   children: ReactNode;
-  className?: string;
-  title?: string;
-}) {
+} & Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "href" | "onClick">) {
   const { chainId } = useNetwork();
   const target = ["/", "/create", "/rewards"].includes(href) ? `${href}?chainId=${chainId}` : href;
   return (
@@ -213,26 +223,23 @@ function Notice({
   kind = "info",
 }: {
   children: ReactNode;
-  kind?: "info" | "error" | "success";
+  kind?: "info" | "error" | "success" | "warning";
 }) {
+  const Icon = kind === "success" ? CheckCircle2 : kind === "error" ? CircleAlert : kind === "warning" ? TriangleAlert : Info;
   return (
     <div
       className={`notice ${kind}`}
       role={kind === "error" ? "alert" : "status"}
     >
-      {kind === "success" ? (
-        <CheckCircle2 size={17} />
-      ) : (
-        <CircleHelp size={17} />
-      )}
+      <Icon size={17} aria-hidden="true" />
       <span>{children}</span>
     </div>
   );
 }
 function Loading() {
   return (
-    <div className="loading">
-      <LoaderCircle className="spin" size={20} />
+    <div className="loading" role="status">
+      <LoaderCircle className="spin" size={18} />
       Loading on-chain data…
     </div>
   );
@@ -254,10 +261,10 @@ function FieldError({
 }
 function StockIcon({
   stock,
-  small = false,
+  size = "sm",
 }: {
   stock: Pick<Stock, "ticker">;
-  small?: boolean;
+  size?: "sm" | "md" | "lg";
 }) {
   const [failedPath, setFailedPath] = useState<string | null>(null);
   const logo = (assetLogos as Partial<Record<string, { path: string; background?: string }>>)[stock.ticker];
@@ -265,7 +272,7 @@ function StockIcon({
   const showLogo = path && failedPath !== path;
   return (
     <span
-      className={`stock-icon ${small ? "small" : ""} ${showLogo ? "has-logo" : ""}`}
+      className={`stock-icon ${size}`}
       style={showLogo && logo?.background ? { background: logo.background } : undefined}
       aria-hidden="true"
     >
@@ -276,13 +283,17 @@ function StockIcon({
     </span>
   );
 }
-function TokenIcon({ name, image }: { name: string; image?: string }) {
+function TokenIcon({ name, image, size, featured = false }: {
+  name: string; image?: string; size?: "lg" | "xl"; featured?: boolean;
+}) {
+  const src = tokenImageSrc({ kind: featured ? "musegod" : "launch", image });
   return (
-    <span className="token-icon">
-      {image && safeImage(image) ? (
+    <span className={`token-icon${size ? ` ${size}` : ""}${featured ? " featured" : ""}`} aria-hidden="true">
+      <span>{name.slice(0, 1).toUpperCase() || "?"}</span>
+      {src ? (
         <img
-          key={image}
-          src={safeImage(image)}
+          key={src}
+          src={src}
           alt=""
           referrerPolicy="no-referrer"
           onError={(e) => {
@@ -290,7 +301,6 @@ function TokenIcon({ name, image }: { name: string; image?: string }) {
           }}
         />
       ) : null}
-      <span>{name.slice(0, 1) || "?"}</span>
     </span>
   );
 }
@@ -382,12 +392,15 @@ function TxLink({ hash, config }: { hash: string; config: RuntimeConfig }) {
     <code className="wrap">Local transaction: {hash}</code>
   );
 }
-const feePercent = (basisPoints: number) => `${basisPoints / 100}%`;
 const openingCapUsdLabel = `$${OPENING_CAP_USD.toLocaleString("en-US")}`;
 type PaymentAttempt = FirstBuyPaymentAttempt;
 function paymentKey(config: RuntimeConfig, account: Address, intent?: string) {
   if (intent) return launchIntentStorageKey(config, account, intent, "payment");
   return `musegod.first-buy.payment.${config.chainId}.${deploymentChain(config)}.${account.toLowerCase()}`;
+}
+// Creator and fee treasury are the launch's recorded fee beneficiaries.
+function isFeeBeneficiary(token: Pick<TokenRecord, "creator" | "feeTreasury">, account: Address | null | undefined) {
+  return !!account && (!!token.creator && sameAddress(token.creator, account) || !!token.feeTreasury && sameAddress(token.feeTreasury, account));
 }
 function scopedApi(config: RuntimeConfig | null) {
   return <T,>(path: string, body?: unknown): Promise<T> => config
@@ -398,6 +411,7 @@ function scopedApi(config: RuntimeConfig | null) {
 export function App() {
   const network = useNetwork();
   const helpDialog = useRef<HTMLDialogElement>(null);
+  const { theme, toggle: toggleTheme } = useTheme();
   const [path, setPath] = useState(location.pathname),
     [version, setVersion] = useState(0),
     [showHelp, setHelp] = useState(false);
@@ -432,14 +446,18 @@ export function App() {
   }, [path]);
   const assets = assetsFor(config.data ?? undefined);
   const chainName = config.data ? networkName(config.data) : "Loading network…";
+  const explorer = config.data ? explorerFor(config.data) : undefined;
+  const known = /^\/(?:create|rewards|buyback)?$/.test(path) ||
+    /^\/token\/(?:(?:base|robinhood)\/)?0x[0-9a-fA-F]{40}$/.test(path);
   const nav = [
     { href: "/", id: "explore", icon: Compass, label: "Explore" },
     { href: "/create", id: "create", icon: Plus, label: "Launch token" },
     { href: "/rewards", id: "rewards", icon: Coins, label: "My rewards" },
     { href: "/buyback", id: "buyback", icon: Flame, label: "Buyback and burn" },
   ];
-  const title =
-    current === "create"
+  const title = !known
+    ? "Page not found"
+    : current === "create"
       ? "Launch token"
       : current === "rewards"
         ? "Creator rewards"
@@ -451,121 +469,117 @@ export function App() {
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <Link href="/" className="brand">
-          <img src="/favicon.svg" alt="" />
-          musegod<span>.fun</span>
-        </Link>
-        <div className="side-label">THE NEXT BIG LITTLE THING</div>
-        <nav>
+        <div className="brand-block">
+          <Link href="/" className="brand" title="musegod.fun home">
+            musegod<span>.fun</span>
+          </Link>
+          <div className="brand-tagline">THE NEXT BIG LITTLE THING</div>
+        </div>
+        <nav className="side-nav" aria-label="Main">
           {nav.map((n) => (
             <Link
               href={n.href}
               key={n.id}
-              className={`nav-link ${current === n.id ? "active" : ""}`}
+              className={`nav-link ${known && current === n.id ? "active" : ""}`}
+              aria-current={known && current === n.id && !tokenAddress ? "page" : undefined}
             >
-              <n.icon size={19} />
+              <n.icon size={20} strokeWidth={1.75} />
               {n.label}
-              {n.id === "create" && <span className="nav-plus">+</span>}
             </Link>
           ))}
         </nav>
-        <div className="sidebar-bottom">
-          <div className="side-note">
-            <Sparkles size={19} />
-            <strong>Turn inspiration into a token.</strong>
-            <span>
-              Paired with tokenized assets
-              <br />Built on {chainName}
-            </span>
+        <div className="network-box">
+          <div className="network-label">
+            <span>Network</span>
+            <span>{config.data?.mode === "fork" ? "LOCAL FORK" : "MAINNET"}</span>
           </div>
-          <button className="help-link" onClick={() => setHelp(true)}>
-            <CircleHelp size={17} />
-            How it works
-            <ArrowUpRight size={14} />
-          </button>
-          <div className="network">
-            <span className="chain-mark" />
-            {chainName}
-            <span className="network-tag">
-              {config.data?.mode === "fork" ? "LOCAL FORK" : "MAINNET"}
-            </span>
+          <div className="network-switch" role="group" aria-label="Launch network">
+            {([[4663, "Robinhood"], [8453, "Base"]] as const).map(([id, label]) => (
+              <button type="button" key={id} aria-pressed={network.chainId === id}
+                onClick={() => { if (network.chainId !== id) network.selectChain(id); }}>{label}</button>
+            ))}
           </div>
         </div>
+        <button type="button" className="sidebar-help" onClick={() => setHelp(true)}>
+          <CircleHelp size={17} />
+          How it works
+        </button>
       </aside>
       <div className="workspace">
         <header className="topbar">
-          <div className="breadcrumb">
-            <span>musegod.fun</span>
-            <ChevronRight size={14} />
-            {title}
-          </div>
+          <nav className="breadcrumb" aria-label="Breadcrumb">
+            <Link href="/">musegod.fun</Link>
+            <span aria-hidden="true">/</span>
+            <span aria-current="page">{title}</span>
+          </nav>
           <div className="topbar-actions">
-            <select aria-label="Launch network" className="network-select" value={network.chainId}
-              onChange={(event) => network.selectChain(Number(event.target.value) as 8453 | 4663)}>
-              <option value={4663}>Robinhood Chain</option><option value={8453}>Base</option>
-            </select>
-            {(!config.data?.writesEnabled || config.data?.mode === "fork") && (
-              <span className="preview-badge">
-                <span className="dot" />
-                {config.data?.writesEnabled ? "Local fork" : "Mainnet read-only"}
+            {(!config.data?.writesEnabled || config.data?.mode === "fork") && config.data && (
+              <span className={`status-chip${config.data.mode === "fork" ? " fork" : ""}`}>
+                <TriangleAlert size={16} aria-hidden="true" />
+                {config.data.mode === "fork" ? "Local fork" : "Mainnet read-only"}
               </span>
             )}
+            <TransactionHistory config={config.data} />
+            <button type="button" className="round-button" onClick={toggleTheme}
+              aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+              title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}>
+              {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+            </button>
+            {current === "explore" && !tokenAddress && known && (
+              <Link href="/create" className="primary">
+                <Plus size={18} strokeWidth={2} />
+                Launch token
+              </Link>
+            )}
             <button
-              className="wallet-button"
+              type="button"
+              className={`wallet-button${wallet.account ? " connected" : ""}`}
               disabled={wallet.connecting}
+              aria-label={wallet.account ? `Wallet account ${shortAddress(wallet.account)}` : undefined}
               onClick={() => void wallet.connect()}
             >
-              <Wallet size={16} />
-              {wallet.connecting
-                ? "Connecting…"
-                : wallet.account
-                  ? shortAddress(wallet.account)
-                  : "Connect wallet"}
+              {wallet.account ? <>
+                <span className="wallet-avatar" aria-hidden="true"><Wallet size={16} /></span>
+                <span className="mono">{shortAddress(wallet.account)}</span>
+              </> : <>
+                <Wallet size={18} />
+                {wallet.connecting ? "Connecting…" : "Connect wallet"}
+              </>}
             </button>
           </div>
         </header>
-        <div className="mobile-nav">
-          {nav.map((n) => (
-            <Link
-              href={n.href}
-              key={n.id}
-              className={current === n.id ? "selected" : ""}
-            >
-              <n.icon size={17} />
-              {n.label}
-            </Link>
-          ))}
-        </div>
-        <main>
-          {wallet.error && <Notice kind="error">{wallet.error}</Notice>}
-          {config.error && <Notice kind="error">{config.error}</Notice>}
-          {config.data?.mode === "fork" && (
-            <Notice>
-              Connected to {chainName}. Funds and transactions exist only in this local test environment.
-            </Notice>
-          )}
-          {wallet.account &&
-            config.data &&
-            wallet.chainId !== config.data.chainId && (
-              <Notice kind="error">
-                Your wallet network differs from the platform. Switch before trading to{" "}
-                {chainName} ({config.data.chainId})
-                .
-                <button
-                  onClick={() => void wallet.switchChain(config.data!.chainId)}
-                >
-                  Switch network
-                </button>
+        <main className="page">
+          <div className="page-notices">
+            {wallet.error && <Notice kind="error">{wallet.error}</Notice>}
+            {config.error && <Notice kind="error">{config.error}</Notice>}
+            {config.data?.mode === "fork" && (
+              <Notice>
+                Connected to {chainName}. Funds and transactions exist only in this local test environment.
               </Notice>
             )}
+            {wallet.account &&
+              config.data &&
+              wallet.chainId !== config.data.chainId && (
+                <Notice kind="error">
+                  Your wallet network differs from the platform. Switch before trading to{" "}
+                  {chainName} ({config.data.chainId})
+                  .
+                  <br />
+                  <button
+                    onClick={() => void wallet.switchChain(config.data!.chainId)}
+                  >
+                    Switch network
+                  </button>
+                </Notice>
+              )}
+          </div>
           <TurnstileGate />
-          <TransactionHistory config={config.data} />
-          <LockRecovery config={config.data} />
-          {!/^\/(?:create|rewards|buyback)?$/.test(path) &&
-          !/^\/token\/(?:(?:base|robinhood)\/)?0x[0-9a-fA-F]{40}$/.test(path) ? (
-            <section className="panel">
-              <h1>Page not found</h1>
-              <Link href="/">Back to home</Link>
+          {!known ? (
+            <section className="card not-found">
+              <span className="eyebrow">404</span>
+              <h1 className="page-title">Page not found</h1>
+              <p className="muted">This address does not match a musegod.fun page.</p>
+              <div><Link href="/" className="secondary">Back to home</Link></div>
             </section>
           ) : current === "create" ? (
             <CreatePage
@@ -602,68 +616,78 @@ export function App() {
               hasMore={!!tokens.nextCursor}
               loadMore={tokens.loadMore}
               refresh={() => setVersion((v) => v + 1)}
+              account={wallet.account}
+              onHelp={() => setHelp(true)}
             />
           )}
         </main>
-        <footer>
-          <span>
-            Launches: <b>Doppler</b> + <b>Uniswap v4</b>
-          </span>
-          <span>Your meme token does not represent ownership of the underlying stock.</span>
-          <External href="https://docs.doppler.lol/">Protocol docs</External>
-          <div className="build-provenance">
-            {buildIdentity.source === "github-actions" ? <>
-              <External href={`${buildIdentity.repository}/commit/${buildIdentity.commit}`}>
-                Source {buildIdentity.commit.slice(0, 7)}
-              </External>
-              <span aria-hidden="true">·</span>
-              <External href={buildIdentity.releaseUrl!}>Verify build</External>
-            </> : <span title={`Source base: ${buildIdentity.commit}`}>
-              Local build{buildIdentity.dirty ? " (dirty)" : ""} · {buildIdentity.commit.slice(0, 7)}
-            </span>}
+        <footer className="site-footer">
+          <div className="footer-card">
+            <div className="footer-top">
+              <span className="footer-brand">musegod<span>.fun</span></span>
+              <nav className="footer-links" aria-label="Resources">
+                <button type="button" onClick={() => setHelp(true)}>How it works</button>
+                <a href="https://docs.doppler.lol/" target="_blank" rel="noreferrer">Protocol docs ↗</a>
+                {explorer && <a href={explorer} target="_blank" rel="noreferrer">Explorer ↗</a>}
+                {buildIdentity.source === "github-actions" ? <>
+                  <a href={`${buildIdentity.repository}/commit/${buildIdentity.commit}`} target="_blank" rel="noreferrer">
+                    Source <span className="mono">{buildIdentity.commit.slice(0, 7)}</span> ↗
+                  </a>
+                  <a href={buildIdentity.releaseUrl!} target="_blank" rel="noreferrer">Verify build ↗</a>
+                </> : <span className="build-provenance" title={`Source base: ${buildIdentity.commit}`}>
+                  Local build{buildIdentity.dirty ? " (dirty)" : ""} · <span className="mono">{buildIdentity.commit.slice(0, 7)}</span>
+                </span>}
+              </nav>
+            </div>
+            <p>
+              Not investment advice. Launches use Doppler and Uniswap v4. Your meme token does not represent ownership of the underlying stock. musegod.fun is noncustodial: your wallet confirms every transaction. Not affiliated with {network.chainId === 8453 ? "Coinbase Global, Inc." : "Robinhood Markets, Inc."}
+            </p>
           </div>
         </footer>
       </div>
       {showHelp && (
         <dialog
           ref={helpDialog}
-          className="modal"
-          aria-label="How it works"
+          className="modal narrow"
+          aria-labelledby="help-title"
           onCancel={() => setHelp(false)}
           onClose={() => setHelp(false)}
         >
-          <button
-            className="close-button"
-            aria-label="Close help"
-            onClick={() => setHelp(false)}
-          >
-            <X />
-          </button>
-          <span className="eyebrow">HOW IT WORKS</span>
-          <h2>One meme. One stock pair.</h2>
+          <div className="modal-head">
+            <div>
+              <span className="eyebrow">HOW IT WORKS</span>
+              <h2 className="modal-title" id="help-title">One meme. One stock pair.</h2>
+            </div>
+            <button
+              className="close-button"
+              aria-label="Close help"
+              onClick={() => setHelp(false)}
+            >
+              <X size={20} />
+            </button>
+          </div>
           <p>
             Choose a supported asset on {chainName} as the quote asset. The new meme’s 1 billion tokens enter a Doppler multicurve pool, and trades settle in the selected quote asset.
           </p>
-          <div className="help-steps">
-            <p>
-              <b>01 Choose a quote asset</b>
-              <span>{assets.slice(0, 3).map((asset) => asset.symbol).join(", ")}.</span>
-            </p>
-            <p>
-              <b>02 Create a fixed-supply meme</b>
-              <span>Liquidity is locked in Uniswap v4, with no graduation threshold.</span>
-            </p>
-            <p>
-              <b>03 Claim your trading fees</b>
-              <span>New pools first deduct Doppler’s {feePercent(FEE_SHARES.protocol)} protocol share. Of the remaining net fees, the creator receives {feePercent(FEE_SHARES.creatorNet)}; the platform receives {feePercent(FEE_SHARES.platformNet)}. Platform income is then allocated {feePercent(FEE_SHARES.platformBuyback)} to buybacks and {feePercent(FEE_SHARES.platformOperations)} to operations.</span>
-            </p>
-          </div>
+          <ol className="help-steps">
+            <li>
+              <span className="mono">01</span>
+              <div><b>Choose a quote asset</b><span>{assets.slice(0, 3).map((asset) => asset.symbol).join(", ")}.</span></div>
+            </li>
+            <li>
+              <span className="mono">02</span>
+              <div><b>Create a fixed-supply meme</b><span>Liquidity is locked in Uniswap v4, with no graduation threshold.</span></div>
+            </li>
+            <li>
+              <span className="mono">03</span>
+              <div><b>Claim your trading fees</b><span>New pools first deduct Doppler’s {feePercent(FEE_SHARES.protocol)} protocol share. Of the remaining net fees, the creator receives {feePercent(FEE_SHARES.creatorNet)}; the platform receives {feePercent(FEE_SHARES.platformNet)}. Platform income is then allocated {feePercent(FEE_SHARES.platformBuyback)} to buybacks and {feePercent(FEE_SHARES.platformOperations)} to operations.</span></div>
+            </li>
+          </ol>
           <Notice>
             Paired assets follow their issuer’s transfer, redemption, and regional rules. The meme token itself does not represent company stock.
           </Notice>
-          <button className="primary" onClick={() => setHelp(false)}>
+          <button className="primary large full" onClick={() => setHelp(false)}>
             Got it
-            <Check size={16} />
           </button>
         </dialog>
       )}
@@ -675,6 +699,8 @@ export function App() {
 export type ExploreToken = Pick<TokenRecord, "address" | "name" | "symbol" | "description" | "image" | "createdAt" | "mode" | "deploymentChainId" | "creator"> & {
   kind: "launch" | "musegod";
   quote: Stock;
+  tradingFeeBps?: number;
+  locked?: boolean;
 };
 export function exploreTokens(
   tokens: TokenRecord[], config: RuntimeConfig | null, search: string,
@@ -687,6 +713,8 @@ export function exploreTokens(
       kind: "launch", address: token.address, name: token.name, symbol: token.symbol,
       description: token.description, image: token.image, createdAt: token.createdAt,
       mode: token.mode, deploymentChainId: token.deploymentChainId, creator: token.creator, quote: quoteAsset(token),
+      tradingFeeBps: token.tradingFeeBps,
+      locked: !!token.firstBuyLock && (token.firstBuyLock.start + token.firstBuyLock.vestingDuration) * 1000 > Date.now(),
     }));
   if (featured) {
     const quote = assetsFor({ mode: "robinhood" }).find((asset) => sameAddress(asset.address, MUSEGOD.weth))!;
@@ -704,6 +732,25 @@ export function exploreTokens(
     });
 }
 
+type QuickFilter = "all" | "new" | "locked" | "mine";
+const DAY = 86_400_000;
+const VIEW_KEY = "musegod.explore.view";
+function savedView(): "list" | "grid" {
+  try { return localStorage.getItem(VIEW_KEY) === "grid" ? "grid" : "list"; } catch { return "list"; }
+}
+function openRow(event: ReactMouseEvent, href: string) {
+  if ((event.target as HTMLElement).closest("a, button")) return;
+  if (event.metaKey || event.ctrlKey || event.shiftKey) { window.open(href, "_blank", "noopener"); return; }
+  navigate(href);
+}
+function ChangeChip({ value }: { value: number | null | undefined }) {
+  const kind = changeClass(value);
+  return <span className={`change-chip ${kind}`}>
+    {kind === "positive" ? <ArrowUpRight size={12} strokeWidth={2} /> : kind === "negative" ? <ArrowDownRight size={12} strokeWidth={2} /> : null}
+    {percentChange(value)}
+  </span>;
+}
+
 export function Explore({
   tokens,
   tokenError,
@@ -715,6 +762,8 @@ export function Explore({
   hasMore = false,
   loadMore,
   refresh,
+  account = null,
+  onHelp,
 }: {
   tokens: TokenRecord[] | null;
   tokenError: string;
@@ -726,6 +775,8 @@ export function Explore({
   hasMore?: boolean;
   loadMore?: () => void;
   refresh: () => void;
+  account?: Address | null;
+  onHelp?: () => void;
 }) {
   // Resource refreshes temporarily clear their data. Keep the confirmed
   // directory visible, without carrying entries into another deployment.
@@ -738,163 +789,275 @@ export function Explore({
   if (tokens !== null) directory.current.tokens = displayConfig
     ? listedTokens(tokens, displayConfig.mode, deploymentChain(displayConfig)) : tokens;
   const assets = assetsFor(displayConfig ?? undefined);
-  const chainName = displayConfig ? networkName(displayConfig) : "Loading network…";
+  const launchAssets = launchAssetsFor(displayConfig ?? undefined);
+  const chainName = displayConfig ? networkName(displayConfig) : "Robinhood Chain";
   const [search, setSearch] = useState(""),
     [filter, setFilter] = useState("all"),
-    [order, setOrder] = useState("new");
-  const filtered = exploreTokens(directory.current.tokens, displayConfig, search, filter, order === "name" ? "name" : "new");
-  const markets = useTokenCardMarkets(directory.current.tokens, config, refreshVersion);
+    [order, setOrder] = useState("new"),
+    [quick, setQuick] = useState<QuickFilter>("all"),
+    [view, setView] = useState<"list" | "grid">(savedView);
+  const now = Date.now();
+  const listed = directory.current.tokens;
+  const newCount = listed.filter((token) => now - token.createdAt < DAY).length;
+  const lockedCount = listed.filter((token) => token.firstBuyLock && (token.firstBuyLock.start + token.firstBuyLock.vestingDuration) * 1000 > now).length;
+  const mineCount = account ? listed.filter((token) => token.creator && sameAddress(token.creator, account)).length : 0;
+  const activeQuick: QuickFilter = quick === "mine" && !account ? "all" : quick;
+  const filtered = exploreTokens(listed, displayConfig, search, filter, order === "name" ? "name" : "new")
+    .filter((entry) => activeQuick === "all" || entry.kind === "launch" && (
+      activeQuick === "new" ? now - entry.createdAt < DAY
+        : activeQuick === "locked" ? entry.locked
+          : !!account && !!entry.creator && sameAddress(entry.creator, account)));
+  const markets = useTokenCardMarkets(listed, config, refreshVersion);
+  const showMarket = displayConfig?.mode === "base";
+  const marketFor = (entry: ExploreToken) => markets[entry.address.toLowerCase()] ?? {
+    data: null, loading: !config, error: entry.mode === "fork" ? "Fork test" : "Market data unavailable",
+  };
+  const stats = (entry: ExploreToken) => {
+    const data = marketFor(entry).data;
+    return data && data.status !== "unavailable" ? data : null;
+  };
+  const verifiedPairs = stocks
+    ? launchAssets.filter((asset) => stocks.some((s) => s.verified && s.chainId === asset.chainId && sameAddress(s.address, asset.address))).length
+    : null;
+  const trending = showMarket ? filtered
+    .filter((entry) => entry.kind === "launch" && stats(entry)?.periods.h24?.volume != null)
+    .sort((a, b) => (stats(b)!.periods.h24!.volume ?? 0) - (stats(a)!.periods.h24!.volume ?? 0))
+    .slice(0, 5) : [];
+  const fetched = filtered.map(stats).find((entry) => entry?.status !== "stale" && entry?.fetchedAt)?.fetchedAt;
+  const setViewMode = (next: "list" | "grid") => {
+    setView(next);
+    try { localStorage.setItem(VIEW_KEY, next); } catch { /* View preference is optional. */ }
+  };
+  const filtersActive = !!search || filter !== "all" || activeQuick !== "all";
+  const feeLabel = (entry: ExploreToken) => entry.kind === "musegod" ? "1% pool"
+    : entry.tradingFeeBps !== undefined ? feePercent(entry.tradingFeeBps) : "—";
+  const stackTickers = ["NVDA", "TSLA", "AAPL", "AMZN", "GOOGL", "MSFT", "SPY", "AMD"];
+  const stack = stackTickers.map((ticker) => assets.find((asset) => asset.ticker === ticker)).filter((asset): asset is Stock => !!asset).slice(0, 6);
+  const shares = feePolicyFor(launchFeePolicy(displayConfig)) ?? FEE_SHARES;
   return (
     <>
-      <div className="page-heading">
-        <div>
-          <span className="eyebrow">MEMES MEET MARKETS</span>
-          <h1>
-            A small idea,
-            <br className="mobile-break" />
-            endless possibilities<span className="accent">.</span>
-          </h1>
-          <p>Launch your meme, paired with an asset you like.</p>
+      <section className="card hero explore-hero" aria-labelledby="intro-title">
+        <div className="explore-hero-copy">
+          <span className="eyebrow">MEMES MEET MARKETS · ON {chainName.toUpperCase()}</span>
+          <h1 id="intro-title">A small idea, endless possibilities.</h1>
+          <p>Your meme, its own trading pair. Launch it paired with an asset you like.</p>
+          {stack.length > 0 && <span className="logo-stack" aria-hidden="true">
+            {stack.map((asset) => <StockIcon key={asset.address} stock={asset} size="md" />)}
+          </span>}
         </div>
-        <Link href="/create" className="primary">
-          <Plus size={18} />
-          Launch token
-        </Link>
-      </div>
-      <div className="market-intro">
-        <div className="market-copy">
-          <span className="pill">
-            <span className="chain-mark" />
-            ON {chainName.toUpperCase()}
-          </span>
-          <h2>
-            Your meme,
-            <br />
-            its own trading pair.
-          </h2>
-          <p>
-            NVDA, TSLA, AAPL…
-            <br />
-            From an idea to an on-chain community.
-          </p>
-          <Link href="/create">
-            Start with an asset
-            <ArrowRight size={18} />
-          </Link>
-        </div>
-        <div className="stock-orbit" aria-label="Illustration of quote asset pairs">
-          <div className="orbit-circle" />
-          <span className="orbit-center">
-            <Ticket size={42} />
-            <b>YOUR MEME</b>
-          </span>
-          {assets.filter((s) => ["NVDA", "AAPL", "TSLA", "MSFT", "AMZN", "GOOGL"].includes(s.ticker)).slice(0, 6).map((s, i) => (
-            <div className={`orbit-item orbit-${i}`} key={s.ticker}>
-              <StockIcon stock={s} />
-              <span>{s.ticker}</span>
-            </div>
-          ))}
-        </div>
-        <div className="intro-facts">
-          <span>
-            <b>1B</b>New launch supply
-          </span>
-          <span>
-            <b>{stocks ? stocks.filter((s) => s.verified).length : "—"}</b>
-            Verified paired assets
-          </span>
-          <span>
-            <b>1%–3%</b>Trading fee at launch
-          </span>
-        </div>
-      </div>
-      <div className="section-heading">
-        <h2>
-          Explore tokens <span className="count">{filtered.length}</span>
-        </h2>
-        <button
-          className="icon-button"
-          title="Refresh data"
-          aria-label="Refresh data"
-          onClick={refresh}
-        >
-          <RefreshCw size={17} />
-        </button>
-      </div>
-      <div className="filters">
-        <div className="search-input">
-          <Search size={17} />
-          <input
-            aria-label="Search tokens"
-            placeholder="Search by name, symbol, or contract address"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
-        <select
-          aria-label="Filter by quote asset"
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-        >
-          <option value="all">All quote assets</option>
-          {ASSET_CATEGORIES.map((category) => {
-            const group = assets.filter((asset) => assetCategory(asset) === category.id);
-            return group.length ? <optgroup key={category.id} label={category.label}>
-              {group.map((asset) => <option key={asset.address} value={asset.ticker}>
-                {asset.ticker} · {asset.name}
-              </option>)}
-            </optgroup> : null;
-          })}
-        </select>
-        <select
-          aria-label="Token sort order"
-          value={order}
-          onChange={(e) => setOrder(e.target.value)}
-        >
-          <option value="new">Newest launches</option>
-          <option value="name">Name A–Z</option>
-        </select>
-      </div>
-      {tokenError && <Notice kind="error">Platform launches could not be loaded: {tokenError}</Notice>}
-      {loading && !tokens?.length && <Loading />}
-      {filtered.length ? (
-        <div className="token-grid">
-          {filtered.map((t) => <TokenCard key={t.address} token={t} onNavigate={navigate}
-            market={markets[t.address.toLowerCase()] ?? {
-              data: null, loading: !config,
-              error: t.mode === "fork" ? "Fork test" : "Market data unavailable",
-            }} />)}
-        </div>
-      ) : !loading && !tokenError ? (
-        <div className="empty-state">
-          <div className="empty-symbol">
-            <Sparkles size={29} />
+        <dl className="stat-grid large hero-stats">
+          <div><dt>Listed launches</dt><dd>{tokens === null && !listed.length ? "—" : `${listed.length}${hasMore ? "+" : ""}`}</dd></div>
+          <div><dt>New in 24h</dt><dd>{tokens === null && !listed.length ? "—" : newCount}</dd></div>
+          <div><dt>Verified paired assets</dt><dd>{verifiedPairs ?? "—"}</dd></div>
+        </dl>
+      </section>
+
+      {trending.length > 0 && (
+        <section className="spotlight-section" aria-labelledby="spot-title">
+          <div className="section-heading">
+            <h2 id="spot-title" className="spot-title">Trending · 24h volume</h2>
+            <span className="hint">Top launches by CoinGecko 24h volume · shared 15-minute snapshot</span>
           </div>
-          <h3>
-            {search || filter !== "all"
-              ? "No matching tokens"
-              : "The first story starts with you."}
-          </h3>
-          <p>
-            {search || filter !== "all"
-              ? "Try another search or quote asset filter."
-              : "No confirmed launches have been registered yet. Choose an asset and create a pair for your idea."}
-          </p>
-          <Link href="/create" className="secondary">
-            Create your meme
-            <ArrowUpRight size={16} />
-          </Link>
-        </div>
-      ) : null}
-      {hasMore && <button type="button" className="secondary full" disabled={loading} onClick={loadMore}>{loading ? "Loading more tokens…" : "Load more tokens"}</button>}
-      {stockError && (
-        <Notice kind="error">Asset contract verification is unavailable: {stockError}</Notice>
+          <ol className="spotlight">
+            {trending.map((entry, index) => {
+              const data = stats(entry)!;
+              return <li key={entry.address}>
+                <a href={tokenPath(entry)} onClick={(event) => {
+                  if (!event.metaKey && !event.ctrlKey && !event.shiftKey) { event.preventDefault(); navigate(tokenPath(entry)); }
+                }}>
+                  <span className="rank">{index + 1}</span>
+                  <TokenIcon name={entry.name} image={entry.image} />
+                  <span className="who"><b>{entry.name}</b><span>${entry.symbol} · {entry.quote.ticker} pair</span>
+                    {data.status === "stale" && <span className="token-card-market-state stale" title={data.warning || marketFor(entry).error || undefined}>
+                      Previous snapshot · <time dateTime={data.fetchedAt} title={data.fetchedAt}>{new Date(data.fetchedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</time>
+                    </span>}
+                  </span>
+                  <span className="value"><b>{usdCompact(data.periods.h24?.volume)}</b>
+                    <span className={changeClass(data.periods.h24?.change)}>{percentChange(data.periods.h24?.change)} · 24h</span></span>
+                </a>
+              </li>;
+            })}
+          </ol>
+        </section>
       )}
-      <div className="info-strip">
-        <LockKeyhole size={18} />
-        <span>New launches: Fixed supply · Locked liquidity · Creator rewards</span>
-        <span>New launches are listed after on-chain confirmation</span>
-      </div>
+
+      <section className="explore-section" aria-labelledby="explore-title">
+        <div className="explore-toolbar">
+          <h2 id="explore-title" className="serif-title">
+            Explore tokens <span className="count">{filtered.length}</span>
+          </h2>
+          <label className="search-input">
+            <Search size={18} aria-hidden="true" />
+            <span className="visually-hidden">Search tokens</span>
+            <input
+              type="search"
+              aria-label="Search tokens"
+              placeholder="Search by name, symbol, or contract address"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </label>
+          <label className="select-box">
+            <span className="visually-hidden">Filter by quote asset</span>
+            <select
+              aria-label="Filter by quote asset"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+            >
+              <option value="all">All quote assets</option>
+              {ASSET_CATEGORIES.map((category) => {
+                const group = assets.filter((asset) => assetCategory(asset) === category.id);
+                return group.length ? <optgroup key={category.id} label={category.label}>
+                  {group.map((asset) => <option key={asset.address} value={asset.ticker}>
+                    {asset.ticker} · {asset.name}
+                  </option>)}
+                </optgroup> : null;
+              })}
+            </select>
+          </label>
+          <label className="select-box">
+            <span className="visually-hidden">Token sort order</span>
+            <select
+              aria-label="Token sort order"
+              value={order}
+              onChange={(e) => setOrder(e.target.value)}
+            >
+              <option value="new">Newest launches</option>
+              <option value="name">Name A–Z</option>
+            </select>
+          </label>
+          <div className="segmented view-toggle" role="group" aria-label="View">
+            <button type="button" aria-pressed={view === "list"} aria-label="List view" onClick={() => setViewMode("list")}><List size={16} /></button>
+            <button type="button" aria-pressed={view === "grid"} aria-label="Grid view" onClick={() => setViewMode("grid")}><LayoutGrid size={16} /></button>
+          </div>
+          <button
+            type="button"
+            className="icon-button"
+            title="Refresh data"
+            aria-label="Refresh data"
+            onClick={refresh}
+          >
+            <RefreshCw size={16} />
+          </button>
+        </div>
+        <div className="quick-filters" role="group" aria-label="Quick filters">
+          <button type="button" className="filter-chip" aria-pressed={activeQuick === "all"} onClick={() => setQuick("all")}>All launches</button>
+          <button type="button" className="filter-chip" aria-pressed={activeQuick === "new"} onClick={() => setQuick("new")}>New in 24h <span className="count">{newCount}</span></button>
+          <button type="button" className="filter-chip" aria-pressed={activeQuick === "locked"} onClick={() => setQuick("locked")}><LockKeyhole size={13} />Locked first buy <span className="count">{lockedCount}</span></button>
+          {account && <button type="button" className="filter-chip" aria-pressed={activeQuick === "mine"} onClick={() => setQuick("mine")}>Launched by me <span className="count">{mineCount}</span></button>}
+        </div>
+        <p className="market-note">
+          <span>{displayConfig?.mode === "fork" ? "Local fork launches have no mainnet market data. Open a token for an on-chain quote."
+            : showMarket ? `Market data from CoinGecko · shared 15-minute snapshot${fetched ? ` · updated ${new Date(fetched).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}` : ""}`
+              : "Robinhood Chain launch listings have no market statistics yet. Open a token for its chart and an on-chain quote."}</span>
+          <span>New launches are listed after on-chain confirmation.</span>
+        </p>
+        {tokenError && <Notice kind="error">Platform launches could not be loaded: {tokenError}</Notice>}
+        {loading && !tokens?.length && <Loading />}
+        {filtered.length ? view === "grid" ? (
+          <div className="token-grid">
+            {filtered.map((t) => <TokenCard key={t.address} token={t} onNavigate={navigate} market={marketFor(t)} />)}
+          </div>
+        ) : (
+          <div className="token-table-wrap">
+            <table className="token-table">
+              <thead>
+                <tr>
+                  <th scope="col">Token</th>
+                  <th scope="col">Pair</th>
+                  <th scope="col" className="num">Fee</th>
+                  {showMarket && <>
+                    <th scope="col" className="num">Market cap</th>
+                    <th scope="col" className="num">24h volume</th>
+                    <th scope="col" className="num">24h change</th>
+                  </>}
+                  <th scope="col">Creator</th>
+                  <th scope="col" className="num">Launched</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((entry) => {
+                  const href = tokenPath(entry);
+                  const data = stats(entry);
+                  const market = marketFor(entry);
+                  const featured = entry.kind === "musegod";
+                  const unknown = (value: number | null | undefined) => value == null || !Number.isFinite(value);
+                  return <tr key={entry.address} className={featured ? "featured-row" : undefined} onClick={(event) => openRow(event, href)}>
+                    <td>
+                      <div className="token-cell">
+                        <TokenIcon name={entry.name} image={entry.image} featured={featured} />
+                        <div>
+                          <span className="token-name-line">
+                            <Link href={href} className="token-name" title={entry.name}>{entry.name}</Link>
+                            {featured && <span className="featured-label"><Sparkles size={12} /> Featured</span>}
+                            {entry.locked && <span className="lock-flag" title="First buy locked"><LockKeyhole size={13} aria-label="First buy locked" /></span>}
+                          </span>
+                          <span className="token-sub">
+                            ${entry.symbol} · {featured ? <>SushiSwap v3{data && <> · {usdCompact(data.marketCapUsd)} mcap · <span className={changeClass(data.periods.h24?.change)}>{percentChange(data.periods.h24?.change)}</span> 24h</>}</> : shortAddress(entry.address)}
+                          </span>
+                          {data?.status === "stale" && <span className="token-card-market-state stale" role="status" title={data.warning || market.error || undefined}>
+                            Previous snapshot · <time dateTime={data.fetchedAt} title={data.fetchedAt}>{new Date(data.fetchedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</time>
+                          </span>}
+                        </div>
+                      </div>
+                    </td>
+                    <td><span className="pair-label"><StockIcon stock={entry.quote} />{entry.quote.ticker}</span></td>
+                    <td className="num">{feeLabel(entry)}</td>
+                    {showMarket && <>
+                      <td className={`num${unknown(data?.marketCapUsd) ? " unknown" : ""}`}>{usdCompact(data?.marketCapUsd)}</td>
+                      <td className={`num${unknown(data?.periods.h24?.volume) ? " unknown" : ""}`}>{usdCompact(data?.periods.h24?.volume)}</td>
+                      <td className="num" title={market.error || undefined}><ChangeChip value={data?.periods.h24?.change} /></td>
+                    </>}
+                    <td className="creator" title={entry.creator ?? undefined}>{entry.creator ? shortAddress(entry.creator) : "—"}</td>
+                    <td className="age">{featured ? "Featured" : <time dateTime={new Date(entry.createdAt).toISOString()} title={new Date(entry.createdAt).toLocaleString("en-US")}>{relativeTime(entry.createdAt, now)}</time>}</td>
+                  </tr>;
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : !loading && !tokenError ? (
+          <div className="empty-state">
+            <div className="empty-symbol">
+              <Sparkles size={24} />
+            </div>
+            <h3>
+              {filtersActive
+                ? "No matching tokens"
+                : "The first story starts with you."}
+            </h3>
+            <p>
+              {filtersActive
+                ? "Try another search, quote asset or quick filter."
+                : "No confirmed launches have been registered yet. Choose an asset and create a pair for your idea."}
+            </p>
+            <Link href="/create" className="secondary">
+              Create your meme
+              <ArrowUpRight size={16} />
+            </Link>
+          </div>
+        ) : null}
+        {hasMore && <div className="load-more"><button type="button" className="secondary" disabled={loading} onClick={loadMore}>{loading ? "Loading more tokens…" : "Load more tokens"}</button></div>}
+        {stockError && (
+          <Notice kind="error">Asset contract verification is unavailable: {stockError}</Notice>
+        )}
+      </section>
+
+      <section className="card how-card" aria-labelledby="how-title">
+        <div className="section-heading">
+          <h2 id="how-title" className="how-title">Priced in an asset, not in a coin.</h2>
+          {onHelp && <button type="button" className="text-button" onClick={onHelp}>Read how it works <ArrowRight size={14} /></button>}
+        </div>
+        <ol className="how-steps">
+          <li><span className="step-no">01 · LAUNCH</span><b>One billion tokens, one locked pool</b>
+            <span>The full supply opens in a Doppler + Uniswap v4 pool targeting a <span className="mono">{openingCapUsdLabel}</span> valuation. Liquidity stays locked, with no graduation migration.</span></li>
+          <li><span className="step-no">02 · PAIR</span><b>Pick the asset buyers pay with</b>
+            <span><span className="mono">{launchAssets.length}</span> tokenized stocks, ETFs and crypto assets on {chainName}. The pair is permanent.</span></li>
+          <li><span className="step-no">03 · EARN</span><b>Set a {feePercent(TRADING_FEE_BPS[0])}–{feePercent(TRADING_FEE_BPS.at(-1)!)} fee, keep {feePercent(shares.creator)} of it</b>
+            <span>Fees accrue on-chain in the paired asset and your token. Claim the trading fee and LP fee whenever you like; only gas is due.</span></li>
+          <li className="halo"><span className="step-no">04 · BURN</span><b>{feePercent(shares.buyback)} funds MUSEGOD buybacks</b>
+            <span>The platform’s buyback share is reserved for MUSEGOD buybacks; purchased MUSEGOD goes to the dead address. <Link href="/buyback">See the buyback status</Link>.</span></li>
+        </ol>
+      </section>
     </>
   );
 }
@@ -946,6 +1109,7 @@ function CreatePage({
   const [query, setQuery] = useState(""),
     [category, setCategory] = useState<AssetCategory>("all"),
     [showAllAssets, setShowAllAssets] = useState(false),
+    [advancedOpen, setAdvancedOpen] = useState(false),
     [draftSaved, setDraftSaved] = useState(false),
     [invalidField, setInvalidField] = useState(""),
     [error, setError] = useState(""),
@@ -986,6 +1150,9 @@ function CreatePage({
       else if (!anonymous && !firstResolution) { setDraft(restoreDraft(null, config)); setFirstBuy(firstBuyDraft(config, null)); }
     }
   }, [config?.chainId, config?.deploymentChainId, wallet.account, configurationPending]);
+  useEffect(() => {
+    if (invalidField === "tradingFeeBps") setAdvancedOpen(true);
+  }, [invalidField]);
   const tradingFeeBps = tradingFeeBpsFor(draft.tradingFeeBps);
   const assets = launchAssetsFor(config ?? undefined);
   const stock = assets.find((asset) => sameAddress(asset.address, draft.quoteAddress)) ?? assets[0],
@@ -1779,29 +1946,25 @@ function CreatePage({
   if (!config) return <Loading />;
   const chainName = networkName(config);
   const explorer = explorerFor(config);
+  const launchShares = feePolicyFor(launchFeePolicy(config)) ?? FEE_SHARES;
+  const creatorCut = `${Number((tradingFeeBps * launchShares.creator / 1_000_000).toFixed(4))}%`;
+  const buying = Number(firstBuy.amount || "0") > 0;
+  const lockLabel = firstBuy.lockDays === 0 ? "No lock" : firstBuy.lockDays === 365 ? "1 year" : `${firstBuy.lockDays} days`;
   return (
     <>
-      <div className="page-heading create-heading">
-        <div>
-          <span className="eyebrow">MAKE IT YOURS</span>
-          <h1>
-            Launch your token<span className="accent">.</span>
-          </h1>
-          <p>Give it a name and choose a quote asset. Preview your meme, then confirm the launch.</p>
-        </div>
-        <span className="pill">
-          <span className="chain-mark" />
-          {chainName} · Tokenized asset pairs
-        </span>
+      <div className="page-heading">
+        <span className="eyebrow">MAKE IT YOURS</span>
+        <h1 className="page-title">Launch your token.</h1>
+        <p className="page-lede">Give it a name and choose a quote asset. Preview your meme, then confirm the launch.</p>
       </div>
-      {savedLaunchIntents(config, wallet.account).some((saved) => saved.intentId !== intentId) && <details className="panel">
+      {savedLaunchIntents(config, wallet.account).some((saved) => saved.intentId !== intentId) && <details className="card disclosure saved-launches">
         <summary>Saved launches</summary>
         <ul>{savedLaunchIntents(config, wallet.account).filter((saved) => saved.intentId !== intentId).map((saved) => <li key={saved.intentId}>
-          {saved.name} · {saved.pending ? "Awaiting transaction recovery" : "Saved draft"}{" "}
+          <span><b>{saved.name}</b> · {saved.pending ? "Awaiting transaction recovery" : "Saved draft"}</span>
           <button type="button" className="secondary" disabled={busy} onClick={() => resumeIntent(saved.intentId)}>Resume {saved.name}</button>
         </li>)}</ul>
       </details>}
-      <div className="create-layout launch-flow">
+      <div className="create-layout">
         <form
           id="launch-form"
           ref={formRef}
@@ -1813,26 +1976,28 @@ function CreatePage({
           }}
         >
           <section
-            className="panel identity-panel"
+            className="card identity-panel"
             aria-labelledby="identity-heading"
           >
-            <div className="panel-heading">
+            <div className="card-head">
               <div>
-                <h2 id="identity-heading">Give your meme an identity</h2>
-                <p>The name and symbol cannot be changed after launch.</p>
+                <h2 id="identity-heading" className="card-title">Give your meme an identity</h2>
+                <p className="card-sub">The name and symbol cannot be changed after launch.</p>
               </div>
             </div>
             <div className="identity-fields">
               <button
                 type="button"
-                className="image-preview-button"
+                className="image-drop"
                 aria-label={draft.image ? "Replace token image" : "Upload token image"}
                 aria-describedby="token-image-help"
                 aria-busy={uploadingImage}
                 disabled={uploadingImage}
                 onClick={() => imageInput.current?.click()}
               >
-                {uploadingImage ? <LoaderCircle className="spin" size={28} /> : <TokenIcon name={draft.name} image={draft.image} />}
+                {uploadingImage ? <LoaderCircle className="spin" size={28} /> : draft.image || draft.name
+                  ? <TokenIcon name={draft.name || "?"} image={draft.image} size="lg" />
+                  : <ImagePlus size={28} aria-hidden="true" />}
                 <span>{uploadingImage ? "Uploading…" : draft.image ? "Replace image" : "Upload image"}</span>
               </button>
               <input ref={imageInput} type="file" accept={TOKEN_IMAGE_ACCEPT} hidden
@@ -1842,9 +2007,9 @@ function CreatePage({
                   event.currentTarget.value = "";
                   if (file) void uploadImage(file);
                 }} />
-              <div>
-                <label>
-                  Token name <span>*</span>
+              <div className="identity-inputs">
+                <label className="field">
+                  <span className="field-label"><span>Token name <span className="req">*</span></span><span className="field-counter">{draft.name.length} / 32</span></span>
                   <input
                     name="name"
                     aria-label="Token name"
@@ -1864,9 +2029,9 @@ function CreatePage({
                     error={error}
                   />
                 </label>
-                <label>
-                  Token symbol <span>*</span>
-                  <div className="input-prefix">
+                <label className="field">
+                  <span className="field-label"><span>Token symbol <span className="req">*</span></span><span className="field-counter">{draft.symbol.length} / 10</span></span>
+                  <span className="input-prefix">
                     <span>$</span>
                     <input
                       name="symbol"
@@ -1885,20 +2050,20 @@ function CreatePage({
                       placeholder="NVCAT"
                       autoComplete="off"
                     />
-                    <FieldError
-                      name="symbol"
-                      invalidField={invalidField}
-                      error={error}
-                    />
-                  </div>
+                  </span>
+                  <FieldError
+                    name="symbol"
+                    invalidField={invalidField}
+                    error={error}
+                  />
                 </label>
               </div>
             </div>
-            <p className="image-upload-help" id="token-image-help">PNG, JPG, WebP or GIF · Up to 5 MB. GIFs use the first frame.</p>
-            {uploadingImage && <span className="image-upload-status" role="status">Uploading token image…</span>}
+            <p className="hint" id="token-image-help">PNG, JPG, WebP or GIF · Up to 5 MB. GIFs use the first frame.</p>
+            {uploadingImage && <span className="hint" role="status">Uploading token image…</span>}
             {imageError && <span className="field-error" role="alert">{imageError}</span>}
-            <label>
-              Description <span className="optional">Optional</span>
+            <label className="field">
+              <span className="field-label"><span>Description <span className="optional">Optional</span></span><span className="field-counter">{draft.description.length} / 280</span></span>
               <textarea
                 name="description"
                 aria-label="Description"
@@ -1908,12 +2073,9 @@ function CreatePage({
                 placeholder="Your meme’s story starts here…"
                 onChange={(e) => update("description", e.target.value)}
               />
-              <span className="field-counter">
-                {draft.description.length} / 280
-              </span>
             </label>
-            <label>
-              Image URL <span className="optional">Optional · Upload an image or paste a public HTTPS URL</span>
+            <label className="field">
+              <span className="field-label"><span>Image URL <span className="optional">Optional · instead of uploading, public HTTPS only</span></span></span>
               <input
                 name="image"
                 aria-label="Image URL"
@@ -1934,111 +2096,56 @@ function CreatePage({
               />
             </label>
             <div className="social-fields">
-              <label>
-                Website <span className="optional">Optional</span>
-                <input
-                  name="website"
-                  aria-label="Website"
-                  aria-describedby={
-                    invalidField === "website"
-                      ? "launch-error-website"
-                      : undefined
-                  }
-                  aria-invalid={invalidField === "website"}
-                  type="url"
-                  value={draft.website ?? ""}
-                  maxLength={500}
-                  placeholder="https://"
-                  onChange={(e) => update("website", e.target.value)}
-                />
-                <FieldError
-                  name="website"
-                  invalidField={invalidField}
-                  error={error}
-                />
-              </label>
-              <label>
-                X / Twitter <span className="optional">Optional</span>
-                <input
-                  name="twitter"
-                  aria-label="X / Twitter"
-                  aria-describedby={
-                    invalidField === "twitter"
-                      ? "launch-error-twitter"
-                      : undefined
-                  }
-                  aria-invalid={invalidField === "twitter"}
-                  type="url"
-                  value={draft.twitter ?? ""}
-                  maxLength={500}
-                  placeholder="https://x.com/…"
-                  onChange={(e) => update("twitter", e.target.value)}
-                />
-                <FieldError
-                  name="twitter"
-                  invalidField={invalidField}
-                  error={error}
-                />
-              </label>
-              <label>
-                Telegram <span className="optional">Optional</span>
-                <input
-                  name="telegram"
-                  aria-label="Telegram"
-                  aria-describedby={
-                    invalidField === "telegram"
-                      ? "launch-error-telegram"
-                      : undefined
-                  }
-                  aria-invalid={invalidField === "telegram"}
-                  type="url"
-                  value={draft.telegram ?? ""}
-                  maxLength={500}
-                  placeholder="https://t.me/…"
-                  onChange={(e) => update("telegram", e.target.value)}
-                />
-                <FieldError
-                  name="telegram"
-                  invalidField={invalidField}
-                  error={error}
-                />
-              </label>
+              {([["website", "Website", "https://"], ["twitter", "X / Twitter", "https://x.com/…"], ["telegram", "Telegram", "https://t.me/…"]] as const).map(([field, label, placeholder]) =>
+                <label className="field" key={field}>
+                  <span className="field-label"><span>{label} <span className="optional">Optional</span></span></span>
+                  <input
+                    name={field}
+                    aria-label={label}
+                    aria-describedby={invalidField === field ? `launch-error-${field}` : undefined}
+                    aria-invalid={invalidField === field}
+                    type="url"
+                    value={draft[field] ?? ""}
+                    maxLength={500}
+                    placeholder={placeholder}
+                    onChange={(e) => update(field, e.target.value)}
+                  />
+                  <FieldError
+                    name={field}
+                    invalidField={invalidField}
+                    error={error}
+                  />
+                </label>)}
             </div>
           </section>
-          <section className="panel" aria-labelledby="quote-heading">
-            <div className="panel-heading">
+          <section className="card quote-panel" aria-labelledby="quote-heading">
+            <div className="card-head">
               <div>
-                <h2 id="quote-heading">Choose a quote asset</h2>
-                <p>Buyers pay with the selected asset and sellers receive it.</p>
+                <h2 id="quote-heading" className="card-title">Choose a quote asset</h2>
+                <p className="card-sub">Buyers pay with the selected asset and sellers receive it. <b>The pair is permanent</b> and cannot be changed after launch.</p>
               </div>
+              <span className="pill">{chainName} · {assets.length} assets</span>
             </div>
-            <div className="launch-chain">
-              <span className="pill">
-                <span className="chain-mark" />
-                {chainName}
-              </span>
-              <span>{assets.length} supported assets</span>
-            </div>
-            <div className="asset-categories" role="group" aria-label="Quote asset categories">
+            <div className="quick-filters asset-categories" role="group" aria-label="Quote asset categories">
               {[{ id: "all", label: "All assets" }, ...ASSET_CATEGORIES].map((group) => {
                 const count = group.id === "all" ? assets.length :
                   assets.filter((asset) => assetCategory(asset) === group.id).length;
-                return count ? <button type="button" key={group.id}
+                return count ? <button type="button" key={group.id} className="filter-chip"
                   aria-pressed={category === group.id}
                   onClick={() => { setCategory(group.id as AssetCategory); setShowAllAssets(false); }}>
-                  {group.label}<span>{count}</span>
+                  {group.label}<span className="count">{count}</span>
                 </button> : null;
               })}
             </div>
-            <div className="search-input stock-search">
-              <Search size={17} />
+            <label className="search-input">
+              <Search size={18} aria-hidden="true" />
               <input
                 value={query}
                 onChange={(e) => { setQuery(e.target.value); setShowAllAssets(false); }}
                 placeholder="Search by name, symbol or contract address"
                 aria-label="Search quote assets"
               />
-            </div>
+            </label>
             {stockError && (
               <Notice kind="error">
                 {stockError}{" "}
@@ -2049,7 +2156,7 @@ function CreatePage({
             )}
             <div className="asset-results">
               <span role="status">Showing {visibleAssets.length} of {matching.length} matching assets</span>
-              {category !== "all" || query.trim() ? <button type="button" onClick={() => {
+              {category !== "all" || query.trim() ? <button type="button" className="text-button" onClick={() => {
                 setCategory("all"); setQuery(""); setShowAllAssets(false);
               }}>Clear filters</button> : null}
             </div>
@@ -2062,38 +2169,81 @@ function CreatePage({
                   aria-pressed={sameAddress(s.address, stock.address)}
                   onClick={() => update("quoteAddress", s.address)}
                 >
-                  <StockIcon stock={s} />
+                  <StockIcon stock={s} size="md" />
                   <span>
                     <b>{s.ticker}</b>
                     <small title={s.name}>{s.name}</small>
                   </span>
                   {sameAddress(s.address, stock.address) && (
-                    <span className="selected-check">
-                      <Check size={12} />
+                    <span className="selected-check" aria-hidden="true">
+                      <Check size={12} strokeWidth={3} />
                     </span>
                   )}
                 </button>
               ))}
             </div>
             {!query.trim() && matching.length > 12 && !showAllAssets && (
-              <button type="button" className="secondary" onClick={() => setShowAllAssets(true)}>Show all {matching.length} assets</button>
+              <div className="load-more"><button type="button" className="secondary" onClick={() => setShowAllAssets(true)}>Show all {matching.length} assets</button></div>
             )}
             {matching.length === 0 && (
               <p className="muted center">No matching asset found</p>
             )}
             <div className="selected-quote">
-              <StockIcon stock={stock} small />
-              <div>
-                <b>
-                  {stock.name} · {stock.symbol}
-                </b>
-                <span>{stock.issuer}</span>
+              <div className="selected-quote-head">
+                <StockIcon stock={stock} size="md" />
+                <div>
+                  <b>{stock.name} · {stock.symbol}</b>
+                  <span>{stock.issuer} · {explorer ? <External href={`${explorer}/token/${stock.address}`}>
+                    {shortAddress(stock.address)}
+                  </External> : <code>{shortAddress(stock.address)}</code>}</span>
+                </div>
+                <span className={`chip sm ${status?.verified ? "up" : stocks ? "down" : "sunken"}`}>
+                  <ShieldCheck size={13} />
+                  {status?.verified ? "Contract identity verified" : stocks ? "Verification failed" : "Verifying…"}
+                </span>
               </div>
-              {explorer ? <External href={`${explorer}/token/${stock.address}`}>
-                {shortAddress(stock.address)}
-              </External> : <code>{shortAddress(stock.address)}</code>}
+              <details className="disclosure stock-verification">
+                <summary>
+                  {status?.verified
+                    ? "Asset details · Contract identity verified"
+                    : stocks
+                      ? "Asset details · Verification failed"
+                      : "Verifying the asset contract…"}
+                </summary>
+                <div className="stock-metadata">
+                  <p><b>{stock.symbol}</b> · {stock.issuer} · {chainName} · {stock.standard}</p>
+                  <External href={stock.sourceUrl}>Asset reference</External>
+                  {stock.standard === "B20" && <p>
+                    1 {stock.symbol}{" "}
+                    <StockShares
+                      value={10n ** BigInt(stock.decimals)}
+                      stock={stock}
+                      status={status}
+                    />
+                  </p>}
+                  <p>
+                    On-chain supply:{" "}
+                    {status?.verified && status.totalSupply !== null ? (
+                      <span className="mono">
+                        <NumberText
+                          value={status.totalSupply}
+                          decimals={stock.decimals}
+                        />{" "}
+                        {stock.symbol}
+                      </span>
+                    ) : (
+                      "Unavailable"
+                    )}
+                  </p>
+                  {status?.verified && (
+                    <small>
+                      Verified at block #{status.blockNumber} · Trades settle in token amounts.{stock.standard === "B20" ? " Share equivalents are indicative." : ""}
+                    </small>
+                  )}
+                </div>
+              </details>
             </div>
-            <p className="quote-explanation">
+            <p className="hint">
               Buyers pay {stock.symbol}, and you earn fees from trading. Your meme’s price reflects both trading supply and demand and the quote asset’s price.
             </p>
             {status?.error && (
@@ -2104,247 +2254,176 @@ function CreatePage({
                 </button>
               </Notice>
             )}
-            <details className="stock-verification">
-              <summary>
-                <ShieldCheck size={15} />
-                {status?.verified
-                  ? "Asset details · Contract identity verified"
-                  : stocks
-                    ? "Asset details · Verification failed"
-                    : "Verifying the asset contract…"}
-                <ChevronRight size={15} />
-              </summary>
-              <div className="stock-metadata">
-                <div>
-                  <b>{stock.symbol}</b>
-                  <span>{stock.issuer} · {chainName} · {stock.standard}</span>
-                </div>
-                <External href={stock.sourceUrl}>Asset reference</External>
-                {stock.standard === "B20" && <p>
-                  1 {stock.symbol}{" "}
-                  <StockShares
-                    value={10n ** BigInt(stock.decimals)}
-                    stock={stock}
-                    status={status}
-                  />
-                </p>}
-                <p>
-                  On-chain supply:
-                  {status?.verified && status.totalSupply !== null ? (
-                    <>
-                      <NumberText
-                        value={status.totalSupply}
-                        decimals={stock.decimals}
-                      />{" "}
-                      {stock.symbol}
-                    </>
-                  ) : (
-                    "Unavailable"
-                  )}
-                </p>
-                {status?.verified && (
-                  <small>
-                    Verified at block #{status.blockNumber} · Trades settle in token amounts.{stock.standard === "B20" ? " Share equivalents are indicative." : ""}
-                  </small>
-                )}
-              </div>
-            </details>
           </section>
           <FirstBuy value={firstBuy} asset={paymentAsset} assets={paymentAssets} balance={paymentBalance} price={paymentPrice}
             lockAvailable={!!config.launchLockAvailable} busy={busy || (!!paymentAttempt && !paymentAttempt.actualOutput)}
             error={invalidField === "firstBuy" ? error : ""} onChange={updateFirstBuy} />
-          <section className="panel trading-fee-panel" aria-labelledby="trading-fee-heading">
-            <h2 id="trading-fee-heading">Trading fee</h2>
-            <div className="trading-fee-options" role="radiogroup" aria-label="Trading fee" aria-describedby="trading-fee-help">
-              {TRADING_FEE_BPS.map((bps, index) => <button type="button" role="radio" key={bps}
-                name="tradingFeeBps" value={bps} aria-checked={tradingFeeBps === bps}
-                tabIndex={tradingFeeBps === bps ? 0 : -1}
-                disabled={busy || (!!paymentAttempt && !paymentAttempt.actualOutput)}
-                onClick={() => update("tradingFeeBps", bps)}
-                onKeyDown={(event) => {
-                  let next: number;
-                  if (event.key === "ArrowRight" || event.key === "ArrowDown") next = (index + 1) % TRADING_FEE_BPS.length;
-                  else if (event.key === "ArrowLeft" || event.key === "ArrowUp") next = (index + TRADING_FEE_BPS.length - 1) % TRADING_FEE_BPS.length;
-                  else if (event.key === "Home") next = 0;
-                  else if (event.key === "End") next = TRADING_FEE_BPS.length - 1;
-                  else return;
-                  event.preventDefault();
-                  update("tradingFeeBps", TRADING_FEE_BPS[next]);
-                  event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>("button")[next]?.focus();
-                }}>{feePercent(bps)}</button>)}
+          <details className="card advanced-panel" open={advancedOpen}
+            onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}>
+            <summary>
+              <span>
+                <b>Advanced options</b>
+                <span className="hint">Trading fee {feePercent(tradingFeeBps)} · you earn {creatorCut} of every trade</span>
+              </span>
+              <span className="text-button">{advancedOpen ? "Done" : "Edit"} <ChevronDown size={14} /></span>
+            </summary>
+            <div className="trading-fee-panel" aria-labelledby="trading-fee-heading">
+              <h3 id="trading-fee-heading" className="field-label">Trading fee</h3>
+              <div className="segmented mono trading-fee-options" role="radiogroup" aria-label="Trading fee" aria-describedby="trading-fee-help">
+                {TRADING_FEE_BPS.map((bps, index) => <button type="button" role="radio" key={bps}
+                  name="tradingFeeBps" value={bps} aria-checked={tradingFeeBps === bps}
+                  tabIndex={tradingFeeBps === bps ? 0 : -1}
+                  disabled={busy || (!!paymentAttempt && !paymentAttempt.actualOutput)}
+                  onClick={() => update("tradingFeeBps", bps)}
+                  onKeyDown={(event) => {
+                    let next: number;
+                    if (event.key === "ArrowRight" || event.key === "ArrowDown") next = (index + 1) % TRADING_FEE_BPS.length;
+                    else if (event.key === "ArrowLeft" || event.key === "ArrowUp") next = (index + TRADING_FEE_BPS.length - 1) % TRADING_FEE_BPS.length;
+                    else if (event.key === "Home") next = 0;
+                    else if (event.key === "End") next = TRADING_FEE_BPS.length - 1;
+                    else return;
+                    event.preventDefault();
+                    update("tradingFeeBps", TRADING_FEE_BPS[next]);
+                    event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>("button")[next]?.focus();
+                  }}>{feePercent(bps)}</button>)}
+              </div>
+              <p className="hint" id="trading-fee-help">Trades after launch pay {feePercent(tradingFeeBps)}, plus a 0.05% LP fee. The trading fee is fixed when the pool is created and cannot be changed afterwards. A higher fee increases earnings per trade and costs traders more.</p>
             </div>
-            <p className="muted" id="trading-fee-help">Trades after launch pay {feePercent(tradingFeeBps)}, plus a 0.05% LP fee. The trading fee is fixed when the pool is created and cannot be changed afterwards. A higher fee increases earnings per trade and costs traders more.</p>
-          </section>
-          {paymentAttempt && <section className="panel payment-recovery" aria-label="First buy payment status">
-            <h3>{paymentAttempt.actualOutput ? "Payment received" : "Submitted payment conversion"}</h3>
-            {paymentAttempt.actualOutput && <p>{formatUnits(BigInt(paymentAttempt.actualOutput), paymentAttempt.quote.toToken.decimals)} {paymentAttempt.quote.toToken.symbol} verified in your wallet. {paymentPairSupported ? "Preview the launch using this amount." : "This asset is unavailable for new launches. These tokens stay in your wallet."}</p>}
+          </details>
+          {paymentAttempt && <section className="card payment-recovery" aria-label="First buy payment status">
+            <h3 className="card-title">{paymentAttempt.actualOutput ? "Payment received" : "Submitted payment conversion"}</h3>
+            {paymentAttempt.actualOutput && <p className="body-copy">{formatUnits(BigInt(paymentAttempt.actualOutput), paymentAttempt.quote.toToken.decimals)} {paymentAttempt.quote.toToken.symbol} verified in your wallet. {paymentPairSupported ? "Preview the launch using this amount." : "This asset is unavailable for new launches. These tokens stay in your wallet."}</p>}
             <TxLink hash={paymentAttempt.hash} config={config} />
-            <button type="button" className="secondary" disabled={busy} onClick={() => void recoverPayment()}><RefreshCw size={14} /> Check payment status</button>
-            {paymentAttempt.actualOutput && <button type="button" className="text-button" disabled={busy} onClick={() => {
-              if (!wallet.account) return;
-              generation.current++;
-              if (paymentPairSupported) setDraft((draft) => ({ ...draft, quoteAddress: paymentAttempt.quote.toToken.address }));
-              setFirstBuy(paymentPairSupported ? { ...firstBuy, payAddress: paymentAttempt.quote.toToken.address,
-                amount: formatUnits(BigInt(paymentAttempt.actualOutput!), paymentAttempt.quote.toToken.decimals) }
-                : { ...firstBuy, payAddress: stock.address, amount: "0", lockDays: 0 });
-              setPlan(null); setPaymentQuote(null); setPaymentAttempt(null);
-              localStorage.removeItem(paymentKey(config, wallet.account, intentId));
-              setMessage(paymentPairSupported ? "Use the paired asset in your wallet directly. You can adjust the first buy amount."
-                : `${paymentAttempt.quote.toToken.symbol} stays in your wallet. Choose a new first buy for the current paired asset.`);
-            }}>{paymentPairSupported ? "Use paired asset directly" : "Keep tokens and start a new first buy"}</button>}
-            <p className="muted">A completed conversion stays in your wallet if you cancel or the launch fails. This check never sends another conversion.</p>
+            <div className="button-row">
+              <button type="button" className="secondary" disabled={busy} onClick={() => void recoverPayment()}><RefreshCw size={14} /> Check payment status</button>
+              {paymentAttempt.actualOutput && <button type="button" className="text-button" disabled={busy} onClick={() => {
+                if (!wallet.account) return;
+                generation.current++;
+                if (paymentPairSupported) setDraft((draft) => ({ ...draft, quoteAddress: paymentAttempt.quote.toToken.address }));
+                setFirstBuy(paymentPairSupported ? { ...firstBuy, payAddress: paymentAttempt.quote.toToken.address,
+                  amount: formatUnits(BigInt(paymentAttempt.actualOutput!), paymentAttempt.quote.toToken.decimals) }
+                  : { ...firstBuy, payAddress: stock.address, amount: "0", lockDays: 0 });
+                setPlan(null); setPaymentQuote(null); setPaymentAttempt(null);
+                localStorage.removeItem(paymentKey(config, wallet.account, intentId));
+                setMessage(paymentPairSupported ? "Use the paired asset in your wallet directly. You can adjust the first buy amount."
+                  : `${paymentAttempt.quote.toToken.symbol} stays in your wallet. Choose a new first buy for the current paired asset.`);
+              }}>{paymentPairSupported ? "Use paired asset directly" : "Keep tokens and start a new first buy"}</button>}
+            </div>
+            <p className="hint">A completed conversion stays in your wallet if you cancel or the launch fails. This check never sends another conversion.</p>
           </section>}
+          <div className="launch-footer">
+            <div className="draft-status">
+              <span>
+                {draftSaved ? <><Check size={14} aria-hidden="true" /> Draft saved automatically in this browser</> : "Draft not saved yet"}
+              </span>
+              <button
+                type="button"
+                className="text-button"
+                disabled={busy || (!!paymentAttempt && !paymentAttempt.actualOutput)}
+                onClick={() => {
+                  generation.current++;
+                  imageUpload.current++;
+                  setUploadingImage(false);
+                  setImageError("");
+                  currentPlan.current = null; setDraft(restoreDraft(null, config ?? undefined));
+                  setFirstBuy({ amount: "0", slippageBps: 100, payAddress: launchAssetsFor(config)[0].address, lockDays: 0 });
+                  setPaymentQuote(null);
+                  setQuery("");
+                  setPlan(null);
+                  setReview(false);
+                  setError("");
+                  setInvalidField("");
+                  setMessage("Draft cleared. You can start a new launch.");
+                }}
+              >
+                Clear draft
+              </button>
+            </div>
+            {error && !review && !invalidField && (
+              <Notice kind="error">{error}</Notice>
+            )}
+            {message && !review && <Notice kind="success">{message}</Notice>}
+            {(txHash || submissionUnknown) && !confirmed && <Notice>Your previous launch is being checked. Its payment and transaction are saved.</Notice>}
+            {(txHash || submissionUnknown || paymentAttempt && !paymentAttempt.actualOutput) && <button type="button" className="secondary full" disabled={busy} onClick={startAnotherLaunch}>Create another token</button>}
+            {submissionUnknown && !txHash && <label className="field"><span className="field-label">Transaction hash from your wallet</span><input value={recoveryHash} onChange={(event) => setRecoveryHash(event.target.value)} placeholder="0x…" aria-label="Transaction hash from your wallet" className="mono" /></label>}
+            <button
+              type="submit"
+              form="launch-form"
+              className="primary large full"
+              disabled={busy || !!txHash || submissionUnknown || uploadingImage || configurationPending}
+            >
+              Review and continue
+              <ArrowRight size={17} />
+            </button>
+            <p className="launch-caption">
+              Next, review your launch details. No transaction is sent yet.
+            </p>
+            {config?.blockReason && (
+              <p className="launch-blocked">{config.blockReason}</p>
+            )}
+            {(txHash || submissionUnknown) && (
+              <button
+                type="button"
+                className="text-button recovery"
+                disabled={busy || confirmed}
+                onClick={() => void recover()}
+              >
+                Recover pending launch
+                <RefreshCw size={13} />
+              </button>
+            )}
+          </div>
         </form>
         <aside className="preview-column" aria-label="Live launch preview">
-          <section className="preview-card">
+          <section className="card preview-card">
             <div className="preview-header">
-              <span>
-                <span className="dot" />
-                Live preview
-              </span>
-              <span className="base-label">
-                <span className="chain-mark" />
-                {chainName}
-              </span>
+              <span><span className="live-dot" aria-hidden="true" />Live preview · on the board</span>
+              <span>{chainName}</span>
             </div>
-            <div className="meme-identity">
-              <TokenIcon name={draft.name} image={draft.image} />
+            <div className="preview-token">
+              <TokenIcon name={draft.name || "Your token"} image={draft.image} size="lg" />
               <div>
                 <h2>{draft.name || "Your token"}</h2>
-                <span>${draft.symbol || "MEME"}</span>
+                <span className="token-card-pair">${draft.symbol || "MEME"} · <StockIcon stock={stock} />{stock.symbol} pair</span>
+                <span className="token-card-venue">just now · {feePercent(tradingFeeBps)} fee</span>
               </div>
             </div>
-            <p className="preview-description">
-              {draft.description || "Add a description to introduce your meme."}
-            </p>
+            {draft.description && <p className="preview-description">{draft.description}</p>}
             <SocialLinks token={draft} />
-            <div className="pair-display">
-              <span>Quote asset</span>
-              <div>
-                <StockIcon stock={stock} small />
-                <b>{stock.symbol}</b>
-              </div>
+            <p className="hint">Lists on Explore as soon as the transaction confirms.</p>
+            <div className="launch-summary">
+              <h3>Launch summary</h3>
+              <dl className="rows">
+                <div><dt>Supply</dt><dd>1,000,000,000 · all in the pool</dd></div>
+                <div><dt>Opens at</dt><dd>{openingCapUsdLabel} valuation</dd></div>
+                <div><dt>Quote asset</dt><dd><span className="pair-label"><StockIcon stock={stock} />{stock.symbol} · permanent</span></dd></div>
+                <div><dt>Trading fee</dt><dd>{feePercent(tradingFeeBps)} + 0.05% LP</dd></div>
+                <div><dt>Your cut</dt><dd className="highlight">{creatorCut} of every trade</dd></div>
+                <div><dt>First buy</dt><dd>{buying ? `${firstBuy.amount} ${paymentAsset.symbol}${firstBuy.lockDays ? ` · ${lockLabel} lock` : ""}` : "None"}</dd></div>
+                <div><dt>Liquidity</dt><dd className="sans">Locked · no graduation migration</dd></div>
+                <div><dt>Launch cost</dt><dd className="sans">{buying ? <>First buy + {chainName} gas</> : <>{chainName} gas only</>}</dd></div>
+              </dl>
             </div>
-            <div className="launch-outcome">
-              <h3>What you launch</h3>
-              <ul>
-                <li>
-                  <b>1,000,000,000 tokens</b>{" "}Fixed supply, all deposited into the pool
-                </li>
-                <li>
-                  Targets <b>{openingCapUsdLabel}</b> before the first buy
-                </li>
-                <li>
-                  A trading pool settled in <b>{stock.symbol}</b>
-                </li>
-                <li>
-                  Liquidity is <b>permanently locked</b>, with no graduation migration
-                </li>
-                <li>
-                  Creator receives <b>{feePercent(FEE_SHARES.creatorNet)}</b> of net fees (after Doppler)
-                </li>
-                <li>
-                  Platform receives <b>{feePercent(FEE_SHARES.platformNet)}</b> of net fees (after Doppler)
-                </li>
-                <li>
-                  Platform income is allocated <b>{feePercent(FEE_SHARES.platformBuyback)}</b> to buybacks and <b>{feePercent(FEE_SHARES.platformOperations)}</b> to operations
-                </li>
-                <li>
-                  {Number(firstBuy.amount || "0") > 0 ? <>Optional first buy plus <b>{chainName} network gas</b></> : <>Launch costs only <b>{chainName} network gas</b></>}
-                </li>
-              </ul>
-            </div>
-            <details className="curve-disclosure">
-              <summary>
-                How the launch curve works
-                <ChevronRight size={15} />
-              </summary>
+            <details className="disclosure sunken curve-disclosure">
+              <summary>How the launch curve works</summary>
               <LaunchCurve ticker={stock.symbol} curvePolicy={CURVE_POLICY}
                 openingValuation={plan?.openingValuation} quoteDecimals={stock.decimals}
                 tokenAddress={plan?.tokenAddress} quoteAddress={stock.address} />
-              <p>
+              <p className="hint">
                 All 1 billion tokens enter the pool: 97% spans {openingCapUsdLabel} to ${LAUNCH_CURVE_MAIN_END_USD.toLocaleString("en-US")} market cap across 18 adjacent price doublings. The remaining 3% supplies a higher price tail with a finite limit. The initial positions are fixed at launch. A LI.FI buy/sell quote reference sets the initial valuation and expires after 60 seconds. Tick rounding, the optional first buy and later asset price changes affect USD market cap. Buys move the price up and sells move it down.
               </p>
             </details>
-            <div className="fee-heading">
-              <Coins size={16} />
-              <h3>Earn your share of every trade</h3>
-            </div>
-            <FeeBreakdown policy={launchFeePolicy(config)} tradingFeeBps={tradingFeeBps}>
-              <Link href="/buyback" className="mechanism-link">View the buyback policy and status <ArrowUpRight size={14} /></Link>
-            </FeeBreakdown>
-          </section>
-          <div className="preview-note">
-            <ShieldCheck size={20} />
-            <p>
-              Review the parameters, simulate the launch, then confirm in your wallet. You retain control of your funds.
+            <details className="disclosure sunken">
+              <summary>How fees are distributed</summary>
+              <FeeBreakdown policy={launchFeePolicy(config)} tradingFeeBps={tradingFeeBps}>
+                <Link href="/buyback" className="mechanism-link">View the buyback policy and status <ArrowUpRight size={14} /></Link>
+              </FeeBreakdown>
+            </details>
+            <p className="hint">
+              Review the parameters, simulate the launch, then confirm in your wallet. You retain control of your funds. Stock Tokens carry issuer, liquidity and jurisdiction risks; <a href="https://docs.robinhood.com/rhj/" target="_blank" rel="noreferrer">review the issuer’s terms</a>. Your meme does not represent company equity.
             </p>
-          </div>
-          <p className="asset-note">
-            Stock Tokens carry issuer, liquidity and jurisdiction risks; <a href="https://docs.robinhood.com/rhj/" target="_blank" rel="noreferrer">review the issuer’s terms</a>. Your meme does not represent company equity.
-          </p>
+          </section>
         </aside>
-        <div className="launch-footer">
-          <div className="draft-status">
-            <span>
-              {draftSaved ? "Draft saved automatically in this browser" : "Draft not saved yet"}
-            </span>
-            <button
-              type="button"
-              className="text-button"
-              disabled={busy || (!!paymentAttempt && !paymentAttempt.actualOutput)}
-              onClick={() => {
-                generation.current++;
-                imageUpload.current++;
-                setUploadingImage(false);
-                setImageError("");
-                currentPlan.current = null; setDraft(restoreDraft(null, config ?? undefined));
-                setFirstBuy({ amount: "0", slippageBps: 100, payAddress: launchAssetsFor(config)[0].address, lockDays: 0 });
-                setPaymentQuote(null);
-                setQuery("");
-                setPlan(null);
-                setReview(false);
-                setError("");
-                setInvalidField("");
-                setMessage("Draft cleared. You can start a new launch.");
-              }}
-            >
-              Clear draft
-            </button>
-          </div>
-          {error && !review && !invalidField && (
-            <Notice kind="error">{error}</Notice>
-          )}
-          {message && !review && <Notice kind="success">{message}</Notice>}
-          {(txHash || submissionUnknown) && !confirmed && <Notice>Your previous launch is being checked. Its payment and transaction are saved.</Notice>}
-          {(txHash || submissionUnknown || paymentAttempt && !paymentAttempt.actualOutput) && <button type="button" className="secondary full" disabled={busy} onClick={startAnotherLaunch}>Create another token</button>}
-          {submissionUnknown && !txHash && <label>Transaction hash from your wallet<input value={recoveryHash} onChange={(event) => setRecoveryHash(event.target.value)} placeholder="0x…" /></label>}
-          <button
-            type="submit"
-            form="launch-form"
-            className="primary full"
-            disabled={busy || !!txHash || submissionUnknown || uploadingImage || configurationPending}
-          >
-            Review and continue
-            <ArrowRight size={17} />
-          </button>
-          <p className="launch-caption">
-            Next, review your launch details. No transaction is sent yet.
-          </p>
-          {config?.blockReason && (
-            <p className="launch-blocked">{config.blockReason}</p>
-          )}
-          {(txHash || submissionUnknown) && (
-            <button
-              className="text-button recovery"
-              disabled={busy || confirmed}
-              onClick={() => void recover()}
-            >
-              Recover pending launch
-              <RefreshCw size={13} />
-            </button>
-          )}
-        </div>
       </div>
       {review && (
         <dialog
@@ -2357,129 +2436,145 @@ function CreatePage({
           }}
           onClose={() => setReview(false)}
         >
-          <button
-            className="close-button"
-            disabled={busy}
-            aria-label="Back to edit"
-            onClick={() => setReview(false)}
-          >
-            <X />
-          </button>
-          <span className="eyebrow">READY TO LAUNCH</span>
-          <h2 id="launch-review-title">Review your launch</h2>
-          <p>The name, symbol, trading fee, and fee distribution are fixed after launch.</p>
+          <div className="modal-head">
+            <div>
+              <span className="eyebrow">READY TO LAUNCH</span>
+              <h2 className="modal-title" id="launch-review-title">Review your launch</h2>
+              <p>{paymentQuote ? "Your payment converts first; one wallet transaction then launches the pool and makes your first buy." : buying ? "One wallet transaction launches the pool and makes your first buy." : "One wallet transaction launches the pool."} The name, symbol, trading fee, and fee distribution are fixed after launch.</p>
+            </div>
+            <button
+              type="button"
+              className="close-button"
+              disabled={busy}
+              aria-label="Back to edit"
+              onClick={() => setReview(false)}
+            >
+              <X size={20} />
+            </button>
+          </div>
           <div className="review-identity">
-            <TokenIcon name={draft.name} image={draft.image} />
+            <TokenIcon name={draft.name} image={draft.image} size="lg" />
             <div>
               <h3>{draft.name}</h3>
-              <span>
+              <span className="mono">
                 ${draft.symbol} · {stock.symbol} pair
               </span>
             </div>
           </div>
-          <dl className="review-facts">
-            <div>
-              <dt>Network / asset issuer</dt>
-              <dd>{chainName} / {stock.issuer}</dd>
-            </div>
-            <div>
-              <dt>Supply</dt>
-              <dd>1 billion tokens · 100% in the pool</dd>
-            </div>
-            <div>
-              <dt>Initial valuation target</dt>
-              <dd>
-                <b>{openingCapUsdLabel}</b> before the first buy
-              </dd>
-            </div>
-            <div>
-              <dt>Opening price reference</dt>
-              <dd>Fresh LI.FI reference · 5-minute wallet window</dd>
-            </div>
-            <div>
-              <dt>Net fee distribution (after Doppler)</dt>
-              <dd>Creator {feePercent(FEE_SHARES.creatorNet)} · Platform {feePercent(FEE_SHARES.platformNet)}</dd>
-            </div>
-            <div>
-              <dt>Trading fee</dt>
-              <dd>{feePercent(tradingFeeBps)} · Fixed after launch</dd>
-            </div>
-            <div>
-              <dt>Nominal total fee</dt>
-              <dd>{(tradingFeeBps + LP_FEE_PPM / 100) / 100}% including the 0.05% LP fee</dd>
-            </div>
-            <div>
-              <dt>Total fee allocation equivalents</dt>
-              <dd>Creator {feePercent(FEE_SHARES.creator)} · Buyback budget {feePercent(FEE_SHARES.buyback)} · Operating budget {feePercent(FEE_SHARES.operations)} · Doppler {feePercent(FEE_SHARES.protocol)}</dd>
-            </div>
-            <div>
-              <dt>Buyback target / recipient</dt>
-              <dd>Robinhood Chain MUSEGOD → {shortAddress(MUSEGOD_BUYBACK.burnAddress)}</dd>
-            </div>
-            <div>
-              <dt>{chainName} platform treasury</dt>
-              <dd>{config?.treasury ? shortAddress(config.treasury) : "Not configured"}</dd>
-            </div>
-            <div>
-              <dt>Platform income allocation (platform income = 100%)</dt>
-              <dd>{feePercent(FEE_SHARES.platformBuyback)} to buybacks and {feePercent(FEE_SHARES.platformOperations)} to operations{config.feeEngine ? ", split directly between the public engine and treasury" : ", allocated manually by the treasury wallet"}</dd>
-            </div>
-            <div>
-              <dt>Launch cost</dt>
-              <dd>{Number(firstBuy.amount || "0") > 0 ? `${firstBuy.amount} ${paymentAsset.symbol} + network gas` : "Network gas only"}</dd>
-            </div>
-            {Number(firstBuy.amount || "0") > 0 && <div>
-              <dt>First buy slippage</dt><dd>{firstBuy.slippageBps / 100}%</dd>
-            </div>}
+          <div className="review-permanent">
+            <span><LockKeyhole size={14} aria-hidden="true" /> Permanent after launch</span>
+            <span>{chainName} · Doppler + Uniswap v4</span>
+          </div>
+          <dl className="review-tiles">
+            <div className="tile"><dt>Quote asset</dt><dd><span className="pair-label"><StockIcon stock={stock} />{stock.symbol}</span></dd></div>
+            <div className="tile"><dt>Trading fee</dt><dd>{feePercent(tradingFeeBps)} <small>+ 0.05% LP</small></dd></div>
+            <div className="tile"><dt>Supply</dt><dd>1B <small>· all in pool</small></dd></div>
+            <div className="tile"><dt>Opens at</dt><dd>{openingCapUsdLabel}</dd></div>
           </dl>
-          {Number(firstBuy.amount || "0") > 0 && <div className="first-buy-slippage">
-            <span>Slippage per conversion / first buy</span><div role="group" aria-label="First buy slippage tolerance">
+          <div className="review-earn">
+            <span>You earn <b className="mono">{creatorCut}</b> of every trade</span>
+            <span className="mono">Buyback {Number((tradingFeeBps * launchShares.buyback / 1_000_000).toFixed(4))}% · Operations {Number((tradingFeeBps * launchShares.operations / 1_000_000).toFixed(4))}% · Doppler {Number((tradingFeeBps * launchShares.protocol / 1_000_000).toFixed(4))}%</span>
+          </div>
+          <details className="disclosure">
+            <summary>Fee policy, treasuries and price references</summary>
+            <dl className="rows review-facts">
+              <div>
+                <dt>Network / asset issuer</dt>
+                <dd className="sans">{chainName} / {stock.issuer}</dd>
+              </div>
+              <div>
+                <dt>Initial valuation target</dt>
+                <dd className="sans">
+                  <b>{openingCapUsdLabel}</b> before the first buy
+                </dd>
+              </div>
+              <div>
+                <dt>Opening price reference</dt>
+                <dd className="sans">Fresh LI.FI reference · 5-minute wallet window</dd>
+              </div>
+              <div>
+                <dt>Net fee distribution (after Doppler)</dt>
+                <dd className="sans">Creator {feePercent(FEE_SHARES.creatorNet)} · Platform {feePercent(FEE_SHARES.platformNet)}</dd>
+              </div>
+              <div>
+                <dt>Nominal total fee</dt>
+                <dd className="sans">{(tradingFeeBps + LP_FEE_PPM / 100) / 100}% including the 0.05% LP fee</dd>
+              </div>
+              <div>
+                <dt>Total fee allocation equivalents</dt>
+                <dd className="sans">Creator {feePercent(FEE_SHARES.creator)} · Buyback budget {feePercent(FEE_SHARES.buyback)} · Operating budget {feePercent(FEE_SHARES.operations)} · Doppler {feePercent(FEE_SHARES.protocol)}</dd>
+              </div>
+              <div>
+                <dt>Buyback target / recipient</dt>
+                <dd className="sans">Robinhood Chain MUSEGOD → {shortAddress(MUSEGOD_BUYBACK.burnAddress)}</dd>
+              </div>
+              <div>
+                <dt>{chainName} platform treasury</dt>
+                <dd>{config?.treasury ? shortAddress(config.treasury) : "Not configured"}</dd>
+              </div>
+              <div>
+                <dt>Platform income allocation (platform income = 100%)</dt>
+                <dd className="sans">{feePercent(FEE_SHARES.platformBuyback)} to buybacks and {feePercent(FEE_SHARES.platformOperations)} to operations{config.feeEngine ? ", split directly between the public engine and treasury" : ", allocated manually by the treasury wallet"}</dd>
+              </div>
+              <div>
+                <dt>Launch cost</dt>
+                <dd className="sans">{buying ? `${firstBuy.amount} ${paymentAsset.symbol} + network gas` : "Network gas only"}</dd>
+              </div>
+              {buying && <div>
+                <dt>First buy slippage</dt><dd>{firstBuy.slippageBps / 100}%</dd>
+              </div>}
+            </dl>
+          </details>
+          {buying && <div className="first-buy-slippage">
+            <span>Slippage per conversion / first buy</span><div className="segmented mono compact" role="group" aria-label="First buy slippage tolerance">
               {FIRST_BUY_SLIPPAGE_BPS.map((bps) => <button type="button" key={bps} aria-pressed={firstBuy.slippageBps === bps}
                 disabled={busy || !!paymentAttempt} onClick={() => updateFirstBuy({ ...firstBuy, slippageBps: bps }, true)}>{bps / 100}%</button>)}
             </div>
           </div>}
-          {paymentQuote && <section className="first-buy-preview" aria-label="Payment conversion review">
-            <h3>{paymentQuote.protocol === "wrap" ? "Wrap ETH into WETH" : "Convert payment with LI.FI"}</h3><dl className="review-facts">
+          {paymentQuote && <section className="step-card" aria-label="Payment conversion review">
+            <h3><span className="step-number">1</span>{paymentQuote.protocol === "wrap" ? "Wrap ETH into WETH" : "Convert payment with LI.FI"}</h3>
+            <dl className="rows">
               <div><dt>You pay</dt><dd>{formatUnits(BigInt(paymentQuote.amountIn), paymentQuote.fromToken.decimals)} {paymentQuote.fromToken.symbol}</dd></div>
               <div><dt>Estimated paired asset</dt><dd>{formatUnits(BigInt(paymentQuote.expectedOut), paymentQuote.toToken.decimals)} {paymentQuote.toToken.symbol}</dd></div>
               <div><dt>Minimum paired asset</dt><dd>{formatUnits(BigInt(paymentQuote.minimumOut), paymentQuote.toToken.decimals)} {paymentQuote.toToken.symbol}</dd></div>
               <div><dt>LI.FI route fee</dt><dd>{formatUnits(BigInt(paymentQuote.feeAmount), paymentQuote.fromToken.decimals)} {paymentQuote.fromToken.symbol}{paymentQuote.feeUsd && ` (≈ $${paymentQuote.feeUsd})`}</dd></div>
               <div><dt>Estimated conversion gas</dt><dd>{paymentQuote.gasFeeUsd ? `≈ $${paymentQuote.gasFeeUsd}` : "Unavailable"}</dd></div>
-              <div><dt>Recipient</dt><dd><code>{paymentQuote.account}</code></dd></div>
+              <div><dt>Recipient</dt><dd><code className="wrap">{paymentQuote.account}</code></dd></div>
               <div><dt>Quote expires</dt><dd>{new Date(paymentQuote.expiresAt).toLocaleString("en-US")}</dd></div>
-              <div><dt>First buy lock</dt><dd>{firstBuy.lockDays === 0 ? "No lock" : firstBuy.lockDays === 365 ? "1 year" : `${firstBuy.lockDays} days`}</dd></div>
-            </dl><p>This payment supplies the first buy shown below, using the conversion's guaranteed output for its preview. Your token minimum stays fixed; after any necessary approvals and conversion, the final wallet transaction is prepared automatically. Network and route fees are included above.</p>
+              <div><dt>First buy lock</dt><dd className="sans">{lockLabel}</dd></div>
+            </dl>
+            <p className="hint">This payment supplies the first buy shown below, using the conversion's guaranteed output for its preview. Your token minimum stays fixed; after any necessary approvals and conversion, the final wallet transaction is prepared automatically. Network and route fees are included above.</p>
           </section>}
-          {plan?.firstBuy && <section className="first-buy-preview" aria-label="First buy preview">
-            <h3>Your first buy</h3>
-            <dl className="review-facts">
+          {plan?.firstBuy && <section className="step-card" aria-label="First buy preview">
+            <h3><span className="step-number">{paymentQuote ? 2 : 1}</span>Your first buy</h3>
+            <dl className="rows">
               <div><dt>You spend</dt><dd>{plan.firstBuy.amount} {stock.symbol}</dd></div>
-              <div><dt>Estimated tokens received</dt><dd><NumberText value={plan.firstBuy.expectedAmountOut} decimals={18} /> {draft.symbol}</dd></div>
+              <div><dt>Estimated tokens received</dt><dd>≈ <NumberText value={plan.firstBuy.expectedAmountOut} decimals={18} /> {draft.symbol}</dd></div>
               <div><dt>Minimum tokens received</dt><dd><NumberText value={plan.firstBuy.minAmountOut} decimals={18} /> {draft.symbol}</dd></div>
               <div><dt>Share of total supply</dt><dd>{formatUnits(BigInt(plan.firstBuy.expectedAmountOut) * 100_000_000n / SUPPLY, 6)}%</dd></div>
-              <div><dt>Recipient</dt><dd><code>{plan.firstBuy.recipient}</code></dd></div>
-              <div><dt>First buy lock</dt><dd>{(plan.firstBuy.lockDays ?? 0) === 0 ? "No lock" : plan.firstBuy.lockDays === 365 ? "1 year" : `${plan.firstBuy.lockDays} days`}</dd></div>
+              <div><dt>Recipient</dt><dd><code className="wrap">{plan.firstBuy.recipient}</code></dd></div>
+              <div><dt>First buy lock</dt><dd className="sans">{(plan.firstBuy.lockDays ?? 0) === 0 ? "No lock" : <><LockKeyhole size={12} aria-hidden="true" /> {plan.firstBuy.lockDays === 365 ? "1 year" : `${plan.firstBuy.lockDays} days`} · releases in full</>}</dd></div>
               <div><dt>Preview expires</dt><dd>{new Date(plan.firstBuy.deadline * 1000).toLocaleString("en-US")}</dd></div>
               <div><dt>Slippage tolerance</dt><dd>{plan.firstBuy.slippageBps / 100}%</dd></div>
               <div><dt>Approval amount</dt><dd>{plan.firstBuy.amount} {stock.symbol} only</dd></div>
             </dl>
-            <p>The first buy waives the creator and platform portion of the trading fee. Protocol and liquidity fees are included; network gas is separate. Any required token approval happens first; the complete launch and buy is then simulated before wallet confirmation. If the buy fails, the launch also reverts. A confirmed approval remains in place.</p>
+            <p className="hint">The first buy waives the creator and platform portion of the trading fee. Protocol and liquidity fees are included; network gas is separate. Any required token approval happens first; the complete launch and buy is then simulated before wallet confirmation. If the buy fails, the launch also reverts. A confirmed approval remains in place.</p>
           </section>}
           <div className="review-progress">
             <span className="complete">
               <Check size={14} />
               Parameter check
             </span>
-            <ChevronRight size={14} />
-            <span className={plan ? "complete" : ""}>{Number(firstBuy.amount || "0") > 0 ? "First buy preview" : "On-chain simulation"}</span>
-            <ChevronRight size={14} />
-            <span>Wallet confirmation</span>
+            <ChevronRight size={14} aria-hidden="true" />
+            <span className={plan ? "complete" : "current"}>{plan && <Check size={14} />}{buying ? "First buy preview" : "On-chain simulation"}</span>
+            <ChevronRight size={14} aria-hidden="true" />
+            <span className={plan ? "current" : ""}>Wallet confirmation</span>
           </div>
-          {(plan?.openingValuation && "warnings" in plan.openingValuation ? plan.openingValuation.warnings : undefined)?.map((warning) => <Notice key={warning.code}>{warning.message}</Notice>)}
-          {paymentQuote?.warnings?.map((warning) => <Notice key={warning}>{warning}</Notice>)}
-          {plan?.requiresReconfirmation && plan.firstBuy && <Notice>The updated minimum is {formatUnits(BigInt(plan.firstBuy.expectedAmountOut) * BigInt(10_000 - plan.firstBuy.slippageBps) / 10_000n, 18)} {draft.symbol || "tokens"}. Your previous payment and approval are saved.</Notice>}
+          {(plan?.openingValuation && "warnings" in plan.openingValuation ? plan.openingValuation.warnings : undefined)?.map((warning) => <Notice key={warning.code} kind="warning">{warning.message}</Notice>)}
+          {paymentQuote?.warnings?.map((warning) => <Notice key={warning} kind="warning">{warning}</Notice>)}
+          {plan?.requiresReconfirmation && plan.firstBuy && <Notice kind="warning">The updated minimum is {formatUnits(BigInt(plan.firstBuy.expectedAmountOut) * BigInt(10_000 - plan.firstBuy.slippageBps) / 10_000n, 18)} {draft.symbol || "tokens"}. Your previous payment and approval are saved.</Notice>}
           {error && <Notice kind="error">{error}</Notice>}
-          {error && !busy && !paymentAttempt && !txHash && !submissionUnknown && /LI\.FI pricing or routing is unavailable|no.*route|liquidity|capacity is temporarily/i.test(error) && <div className="review-actions">
+          {error && !busy && !paymentAttempt && !txHash && !submissionUnknown && /LI\.FI pricing or routing is unavailable|no.*route|liquidity|capacity is temporarily/i.test(error) && <div className="button-row review-actions">
             <button type="button" className="secondary" onClick={() => void simulate()}>Retry preview</button>
             <button type="button" className="secondary" onClick={() => { setReview(false); requestAnimationFrame(() => document.querySelector<HTMLSelectElement>('select[aria-label="Pay with"]')?.focus()); }}>Choose another payment asset</button>
             <button type="button" className="secondary" onClick={() => updateFirstBuy({ ...firstBuy, payAddress: stock.address, amount: "0", lockDays: 0 })}>Use existing {stock.symbol}</button>
@@ -2499,25 +2594,25 @@ function CreatePage({
             onClick={() => void wallet.switchChain(config.chainId)}>Switch wallet to {chainName}</button>}
           {!wallet.account ? (
             <button
-              className="primary full"
+              className="primary large full"
               disabled={wallet.connecting}
               onClick={() => void wallet.connect()}
             >
-              {wallet.connecting ? "Connecting…" : "Connect wallet to continue"}
               <Wallet size={16} />
+              {wallet.connecting ? "Connecting…" : "Connect wallet to continue"}
             </button>
           ) : paymentAttempt && !paymentAttempt.actualOutput ? (
-            <button className="primary full" disabled={busy} onClick={() => void recoverPayment()}>Check submitted payment</button>
+            <button className="primary large full" disabled={busy} onClick={() => void recoverPayment()}>Check submitted payment</button>
           ) : plan?.requiresReconfirmation ? (
-            <button className="primary full" disabled={busy} onClick={() => void acceptPriceChange()}>{converting && !converted ? "Accept updated minimum and convert" : "Accept updated minimum"}</button>
+            <button className="primary large full" disabled={busy} onClick={() => void acceptPriceChange()}>{converting && !converted ? "Accept updated minimum and convert" : "Accept updated minimum"}</button>
           ) : paymentQuote && plan ? (
-            <button className="primary full" disabled={busy || !config.writesEnabled || wallet.chainId !== config.chainId}
-              onClick={() => void convertPayment()}>{busy ? "Confirming payment…" : paymentQuote.protocol === "wrap" ? "Wrap ETH and launch" : "Convert payment and launch"}<ArrowRight size={17} /></button>
+            <button className="primary large full" disabled={busy || !config.writesEnabled || wallet.chainId !== config.chainId}
+              onClick={() => void convertPayment()}><Wallet size={17} />{busy ? "Confirming payment…" : paymentQuote.protocol === "wrap" ? "Wrap ETH and launch" : "Convert payment and launch"}</button>
           ) : converting && !converted ? (
-            <button className="primary full" disabled={busy} onClick={() => void simulate()}>Refresh payment and launch preview<RefreshCw size={17} /></button>
+            <button className="primary large full" disabled={busy} onClick={() => void simulate()}>Refresh payment and launch preview<RefreshCw size={17} /></button>
           ) : !plan ? (
             <button
-              className="primary full"
+              className="primary large full"
               disabled={busy || !!txHash || !config?.treasury}
               onClick={() => void simulate()}
             >
@@ -2526,20 +2621,20 @@ function CreatePage({
               ) : (
                 <ShieldCheck size={17} />
               )}
-              {busy ? "Preparing launch preview…" : planExpired ? "Refresh preview" : Number(firstBuy.amount || "0") > 0 ? "Preview launch and first buy" : "Simulate launch"}
+              {busy ? "Preparing launch preview…" : planExpired ? "Refresh preview" : buying ? "Preview launch and first buy" : "Simulate launch"}
             </button>
           ) : (
             <>
-              <div className="plan-result">
-                <CheckCircle2 size={16} />
+              <div className="notice success plan-result">
+                <CheckCircle2 size={17} aria-hidden="true" />
                 <span>
                   {plan.firstBuy ? "First buy quoted" : "Simulation passed"} · Predicted token address
                   <br />
-                  <code>{plan.tokenAddress}</code>
+                  <code className="wrap">{plan.tokenAddress}</code>
                 </span>
               </div>
               <button
-                className="primary full"
+                className="primary large full"
                 disabled={busy || !!txHash || !config?.writesEnabled || wallet.chainId !== config.chainId}
                 onClick={() => void launch()}
               >
@@ -2557,12 +2652,13 @@ function CreatePage({
           )}
           {txHash && config && <TxLink hash={txHash} config={config} />}
           <button
-            className="text-button full"
+            className="secondary large full"
             disabled={busy}
             onClick={() => setReview(false)}
           >
             Back to edit
           </button>
+          <p className="launch-caption">You have five minutes to confirm in your wallet once the preview is ready.{converting ? " A completed conversion stays in your wallet if you cancel or the launch fails." : ""}</p>
         </dialog>
       )}
     </>
@@ -2597,6 +2693,7 @@ function TokenPage({
     [hash, setHash] = useState<Hex | null>(null),
     [balance, setBalance] = useState<bigint | null>(null),
     [copied, setCopied] = useState(false),
+    [sharing, setSharing] = useState(false),
     [clock, setClock] = useState(quoteNow());
   useEffect(() => {
     generation.current++;
@@ -2655,11 +2752,11 @@ function TokenPage({
     const lookupError = resource.error || lastError;
     if (!lookupError) return <Loading />;
     // A catalog miss is never proof a launch does not exist: a launch this
-    // browser sent may still be awaiting registration from Your transactions.
+    // browser sent may still be awaiting registration from transaction history.
     const pendingRegistration = !!config && sentLaunchAwaitingRegistration(config, address);
     return pendingRegistration ? (
       <Notice>
-        This launch is not registered yet. Finish registration from Your transactions.
+        This launch is not registered yet. Finish registration from Wallet transaction history in the header.
         {" "}({lookupError})
       </Notice>
     ) : <Notice kind="error">{lookupError}</Notice>;
@@ -2709,95 +2806,124 @@ function TokenPage({
       setBusy(false);
     }
   }
+  const beneficiary = isFeeBeneficiary(token, wallet.account);
+  const chainLabel = token.mode === "fork" ? "Fork test asset" : token.mode === "robinhood" ? "Robinhood Chain" : "Base";
+  const canonicalUrl = `${location.origin}${tokenPath(token)}`;
   return (
     <>
-      <Link href="/" className="back-link">
-        ← Back to explore
-      </Link>
-      <div className="token-title">
-        <TokenIcon name={token.name} image={token.image} />
-        <div>
-          <h1>{token.name}</h1>
-          <p>
-            ${token.symbol} · {stock.symbol} pair
-          </p>
+      <div className="token-header">
+        <TokenIcon name={token.name} image={token.image} size="xl" />
+        <div className="token-header-main">
+          <div className="token-header-title">
+            <h1>{token.name}</h1>
+            <span className="pill">{chainLabel}</span>
+          </div>
+          <div className="token-header-line">
+            <span className="token-header-pair">${token.symbol} · {stock.symbol} pair</span>
+            <button
+              type="button"
+              className="copy-chip"
+              aria-label={copied ? "Token contract address copied" : "Copy token contract address"}
+              onClick={() =>
+                void navigator.clipboard
+                  .writeText(token.address)
+                  .then(() => setCopied(true))
+                  .catch(() => setError("Copy failed. Copy the address from the contract details."))
+              }
+            >
+              {copied ? <Check size={14} /> : <Copy size={14} />}
+              <span className="mono">{copied ? "Copied" : shortAddress(token.address)}</span>
+            </button>
+            <SocialLinks token={token} />
+          </div>
+          <div className="token-header-meta">
+            <span>
+              {token.creator ? <>by {explorer && token.mode !== "fork"
+                ? <a className="mono" href={`${explorer}/address/${token.creator}`} target="_blank" rel="noreferrer">{shortAddress(token.creator)}</a>
+                : <span className="mono">{shortAddress(token.creator)}</span>} · </> : "Creator not verified · "}
+              launched <span className="mono strong">{dateLabel(token.createdAt)}</span> · {relativeTime(token.createdAt)}
+            </span>
+            {token.tradingFeeBps !== undefined && <span className="chip sm sunken mono">{feePercent(token.tradingFeeBps)} + 0.05% LP fee</span>}
+            {!stateInvalid && <span className="chip sm sunken"><LockKeyhole size={12} />Liquidity locked</span>}
+            {!stateInvalid && stockStatus?.verified && <span className="chip sm up"><Check size={12} />Verified quote asset</span>}
+          </div>
         </div>
-        <span className="pill">
-          {token.mode === "fork" ? "Fork test asset" : token.mode === "robinhood" ? "Robinhood Chain" : "Base"}
-        </span>
-      </div>
-      <div className="token-toolbar">
-        <button
-          className="text-button"
-          onClick={() =>
-            void navigator.clipboard
-              .writeText(token.address)
-              .then(() => setCopied(true))
-              .catch(() => setError("Copy failed. Copy the address from the contract details."))
-          }
-        >
-          <Copy size={13} />
-          {copied ? "Copied" : shortAddress(token.address)}
+        <button type="button" className="secondary token-share" onClick={() => setSharing(true)}>
+          <Share2 size={16} />Share
         </button>
-        <SocialLinks token={token} />
       </div>
-      <div className="detail-layout token-trading-layout">
-        <div>
+      {token.openingValuationUnverified && <Notice kind="warning">Not verified by the platform: this launch was recovered from a backup without a platform attestation, so its opening valuation is unverified.</Notice>}
+      {sharing && <ShareDialog name={token.name} url={canonicalUrl}
+        detail={`$${token.symbol} · ${stock.symbol} pair${token.tradingFeeBps !== undefined ? ` · ${feePercent(token.tradingFeeBps)} fee` : ""}`}
+        icon={<TokenIcon name={token.name} image={token.image} />} onClose={() => setSharing(false)} />}
+      <div className="detail-layout">
+        <div className="detail-main">
           <TokenMarket token={token} refreshKey={hash ?? ""} />
-          <FirstBuyLock token={token} config={config} />
-          <section className="panel">
-            <h2>About {token.name}</h2>
+          <FeeCard token={token} config={config} variant={beneficiary ? "token" : "rewards"} />
+          <FirstBuyLock token={token} config={config} hideWhenEmpty />
+          <section className="card about-card" aria-labelledby="about-title">
+            <h2 id="about-title" className="card-title">About {token.name}</h2>
             <p className="body-copy">
               {token.description || "The creator has not added a description yet."}
             </p>
-            <SocialLinks token={token} />
-            <dl className="contract-list">
-              <div>
-                <dt>Token contract</dt>
-                <dd>
-                  {token.mode === "fork" ? (
-                    <code>{shortAddress(token.address)}</code>
-                  ) : (
-                    <External
-                      href={`${explorer}/token/${token.address}`}
-                    >
-                      {shortAddress(token.address)}
-                    </External>
-                  )}
-                </dd>
-              </div>
-              <div>
-                <dt>Quote asset</dt>
-                <dd>
-                  {explorer ? <External href={`${explorer}/token/${stock.address}`}>
-                    {stock.symbol}
-                  </External> : <code>{stock.symbol}</code>}
-                </dd>
-              </div>
-              <div>
-                <dt>Creator</dt>
-                <dd>
-                  {token.creator ? shortAddress(token.creator) : "Not verified"}
-                </dd>
-              </div>
-              <div>
-                <dt>Supply</dt>
-                <dd>1,000,000,000</dd>
-              </div>
-              {token.openingValuationUnverified && <div>
-                <dt>Opening valuation</dt>
-                <dd>Not verified by the platform: this launch was recovered from a backup without a platform attestation.</dd>
-              </div>}
-              <div>
-                <dt>Created</dt>
-                <dd>{new Date(token.createdAt).toLocaleString("en-US")}</dd>
-              </div>
-            </dl>
-            <h3>How fees are distributed</h3>
-            <FeeBreakdown policy={token.feePolicy} tradingFeeBps={token.tradingFeeBps}>
-              <Link href="/buyback" className="mechanism-link">View the buyback policy and status <ArrowUpRight size={14} /></Link>
-            </FeeBreakdown>
-            <details className="launch-curve-details">
+            <FeeSplitBar policy={token.feePolicy} tradingFeeBps={token.tradingFeeBps} />
+            <div className="about-facts">
+              <span>Pool ID <code title={token.poolId}>{shortAddress(token.poolId)}</code></span>
+              <span>Supply <span className="mono">1,000,000,000</span></span>
+              <Link href="/buyback">How the buyback works <ArrowRight size={13} /></Link>
+            </div>
+            <details className="disclosure boxed">
+              <summary>Contract details</summary>
+              <dl className="rows">
+                <div>
+                  <dt>Token contract</dt>
+                  <dd>
+                    {token.mode === "fork" ? (
+                      <code>{shortAddress(token.address)}</code>
+                    ) : (
+                      <External
+                        href={`${explorer}/token/${token.address}`}
+                      >
+                        {shortAddress(token.address)}
+                      </External>
+                    )}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Quote asset</dt>
+                  <dd>
+                    {explorer ? <External href={`${explorer}/token/${stock.address}`}>
+                      {stock.symbol}
+                    </External> : <code>{stock.symbol}</code>}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Creator</dt>
+                  <dd>
+                    {token.creator ? shortAddress(token.creator) : "Not verified"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Supply</dt>
+                  <dd>1,000,000,000</dd>
+                </div>
+                {token.openingValuationUnverified && <div>
+                  <dt>Opening valuation</dt>
+                  <dd className="sans">Unverified · recovered from a backup without a platform attestation</dd>
+                </div>}
+                <div>
+                  <dt>Created</dt>
+                  <dd>{new Date(token.createdAt).toLocaleString("en-US")}</dd>
+                </div>
+              </dl>
+            </details>
+            <details className="disclosure boxed">
+              <summary>How fees are distributed</summary>
+              <FeeBreakdown policy={token.feePolicy} tradingFeeBps={token.tradingFeeBps}>
+                <Link href="/buyback" className="mechanism-link">View the buyback policy and status <ArrowUpRight size={14} /></Link>
+              </FeeBreakdown>
+            </details>
+            <details className="disclosure boxed launch-curve-details">
               <summary>View launch curve</summary>
               {token.openingValuationUnverified && <p className="muted">The opening valuation behind this curve is not verified by the platform.</p>}
               <LaunchCurve ticker={stock.symbol} curvePolicy={token.curvePolicy}
@@ -2805,15 +2931,15 @@ function TokenPage({
                 tokenAddress={token.address} quoteAddress={stock.address} />
             </details>
           </section>
-          <FeeCard token={token} config={config} />
         </div>
-        <section className="panel trade-panel" id="trade">
+        <section className="card trade-panel" id="trade" aria-labelledby="trade-title">
           <div className="trade-panel-heading">
-            <h2>Trade {token.symbol}</h2>
+            <h2 id="trade-title" className="card-title">Trade {token.symbol}</h2>
             <span className="pill">{stock.symbol} pair</span>
           </div>
-          <div className="trade-tabs">
+          <div className="trade-tabs" role="group" aria-label="Trade side">
             <button
+              type="button"
               aria-pressed={side === "buy"}
               className={side === "buy" ? "active" : ""}
               disabled={busy}
@@ -2822,6 +2948,7 @@ function TokenPage({
               Buy
             </button>
             <button
+              type="button"
               aria-pressed={side === "sell"}
               className={side === "sell" ? "active sell" : ""}
               disabled={busy}
@@ -2830,11 +2957,187 @@ function TokenPage({
               Sell
             </button>
           </div>
+          {stateInvalid ? (
+            <Notice kind="error">The on-chain pool does not match this listing, so quotes and trades are disabled.</Notice>
+          ) : stateUnavailable && (
+            <Notice kind="error">
+              On-chain pool state is unavailable, so quotes and trades are paused. Retrying automatically.
+              {resource.data?.stateError ? ` ${resource.data.stateError}` : ""}
+            </Notice>
+          )}
+          {resource.error && <Notice kind="error">Could not refresh this token: {resource.error}</Notice>}
+          <label className="trade-box pay">
+            <span className="trade-box-head">
+              <span>You pay <b>{inputSymbol}</b></span>
+              <span className="balance">
+                Balance:{" "}
+                <b>{balance === null ? (
+                  "—"
+                ) : (
+                  <NumberText value={balance} decimals={inputDecimals} />
+                )}</b>
+              </span>
+            </span>
+            <input
+              aria-label="Trade input amount"
+              disabled={busy}
+              inputMode="decimal"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="0.00"
+            />
+            {side === "buy" && balance !== null && (
+              <StockShares
+                value={balance}
+                stock={stock}
+                status={stockStatus}
+              />
+            )}
+          </label>
+          <div className="quick-amounts">
+            {side === "buy"
+              ? ["1", "5", "10"].map(
+                  (value) => (
+                    <button
+                      type="button"
+                      key={value}
+                      disabled={busy}
+                      onClick={() => setAmount(value)}
+                    >
+                      {value} {stock.symbol}
+                    </button>
+                  ),
+                )
+              : [25, 50, 75].map((percent) => (
+                  <button
+                    type="button"
+                    key={percent}
+                    disabled={busy || balance === null}
+                    onClick={() =>
+                      balance !== null &&
+                      setAmount(
+                        formatUnits(
+                          (balance * BigInt(percent)) / 100n,
+                          inputDecimals,
+                        ),
+                      )
+                    }
+                  >
+                    {percent}%
+                  </button>
+                ))}
+            <button
+              type="button"
+              disabled={busy || balance === null}
+              onClick={() =>
+                balance !== null &&
+                setAmount(formatUnits(balance, inputDecimals))
+              }
+            >
+              Max
+            </button>
+          </div>
+          <div className="trade-arrow" aria-hidden="true">
+            <ArrowDown size={16} />
+          </div>
+          <div className="trade-box receive">
+            <span className="trade-box-head">
+              <span>You receive (estimated) <b>{outputSymbol}</b></span>
+            </span>
+            <strong>
+              {quote ? (
+                <NumberText value={quote.amountOut} decimals={outputDecimals} />
+              ) : (
+                "—"
+              )}
+            </strong>
+            {quote && side === "sell" && (
+              <StockShares
+                value={quote.amountOut}
+                stock={stock}
+                status={stockStatus}
+              />
+            )}
+          </div>
+          <SlippageControl value={slippage} disabled={busy} onChange={setSlippage} />
+          {quote && (
+            <dl className="rows boxed quote-summary">
+              <div>
+                <dt>Minimum received</dt>
+                <dd>
+                  <NumberText
+                    value={minimumOutput(BigInt(quote.amountOut), slippage)}
+                    decimals={outputDecimals}
+                  />{" "}
+                  {outputSymbol}
+                </dd>
+              </div>
+              <div>
+                <dt>Quote expires in</dt>
+                <dd>
+                  {Math.max(0, Math.ceil((quote.expiresAt - clock) / 1000))} seconds
+                </dd>
+              </div>
+            </dl>
+          )}
+          <button
+            type="button"
+            className="secondary full trade-quote"
+            disabled={busy || !amount || stateUnavailable}
+            onClick={() => void getQuote()}
+          >
+            {busy ? (
+              <LoaderCircle className="spin" size={16} />
+            ) : (
+              <RefreshCw size={16} />
+            )}
+            Get on-chain quote
+          </button>
+          {wallet.account ? (
+            <button
+              type="button"
+              className="primary large full"
+              disabled={
+                busy ||
+                !quote ||
+                clock >= quote.expiresAt ||
+                !config?.writesEnabled ||
+                wallet.chainId !== config.chainId
+              }
+              onClick={() => void execute()}
+            >
+              Confirm {side === "buy" ? "Buy" : "Sell"}
+              <ArrowUpRight size={16} />
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="primary large full"
+              onClick={() => void wallet.connect()}
+            >
+              <Wallet size={16} />
+              Connect wallet to trade
+            </button>
+          )}
+          {config?.blockReason && (
+            <p className="launch-blocked">{config.blockReason}</p>
+          )}
+          {error && <Notice kind="error">{error}</Notice>}
+          {stockResource.error && (
+            <Notice kind="error">
+              Could not load the stock multiplier. The share equivalent is unavailable. {stockResource.error}
+            </Notice>
+          )}
+          {progress && <Notice>{progress}</Notice>}
+          {hash && config && <TxLink hash={hash} config={config} />}
+          <p className="trade-note">
+            Router approval is limited to this amount and valid for 5 minutes. Execution depends on slippage and liquidity and follows the stock token’s transfer rules. {token.symbol} does not represent ownership of {stock.name} stock.
+          </p>
           {token.mode !== "fork" && (
             <div className="doppler-entry">
               {dopplerUrl(token) ? (
                 <a
-                  className="primary full"
+                  className="text-button"
                   href={dopplerUrl(token)!}
                   target="_blank"
                   rel="noreferrer"
@@ -2853,189 +3156,6 @@ function TokenPage({
               </p>
             </div>
           )}
-          {stateInvalid ? (
-            <Notice kind="error">The on-chain pool does not match this listing, so quotes and trades are disabled.</Notice>
-          ) : stateUnavailable && (
-            <Notice kind="error">
-              On-chain pool state is unavailable, so quotes and trades are paused. Retrying automatically.
-              {resource.data?.stateError ? ` ${resource.data.stateError}` : ""}
-            </Notice>
-          )}
-          {resource.error && <Notice kind="error">Could not refresh this token: {resource.error}</Notice>}
-          <label className="trade-input">
-            <span>
-              You pay <b>{inputSymbol}</b>
-            </span>
-            <input
-              aria-label="Trade input amount"
-              disabled={busy}
-              inputMode="decimal"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder="0.00"
-            />
-            <span className="balance">
-              Balance:
-              {balance === null ? (
-                "—"
-              ) : (
-                <NumberText value={balance} decimals={inputDecimals} />
-              )}
-              {side === "buy" && balance !== null && (
-                <StockShares
-                  value={balance}
-                  stock={stock}
-                  status={stockStatus}
-                />
-              )}
-            </span>
-          </label>
-          <div className="quick-amounts">
-            {side === "buy"
-              ? ["1", "5", "10"].map(
-                  (value) => (
-                    <button
-                      key={value}
-                      disabled={busy}
-                      onClick={() => setAmount(value)}
-                    >
-                      {value} {stock.symbol}
-                    </button>
-                  ),
-                )
-              : [25, 50, 75].map((percent) => (
-                  <button
-                    key={percent}
-                    disabled={busy || balance === null}
-                    onClick={() =>
-                      balance !== null &&
-                      setAmount(
-                        formatUnits(
-                          (balance * BigInt(percent)) / 100n,
-                          inputDecimals,
-                        ),
-                      )
-                    }
-                  >
-                    {percent}%
-                  </button>
-                ))}
-            <button
-              disabled={busy || balance === null}
-              onClick={() =>
-                balance !== null &&
-                setAmount(formatUnits(balance, inputDecimals))
-              }
-            >
-              Max
-            </button>
-          </div>
-          <div className="trade-arrow">
-            <ArrowDown size={16} />
-          </div>
-          <div className="receive">
-            <span>
-              You receive (estimated) <b>{outputSymbol}</b>
-            </span>
-            <strong>
-              {quote ? (
-                <NumberText value={quote.amountOut} decimals={outputDecimals} />
-              ) : (
-                "—"
-              )}
-            </strong>
-            {quote && side === "sell" && (
-              <StockShares
-                value={quote.amountOut}
-                stock={stock}
-                status={stockStatus}
-              />
-            )}
-          </div>
-          <label className="slippage">
-            Maximum slippage
-            <select
-              aria-label="Maximum trade slippage"
-              value={slippage}
-              disabled={busy}
-              onChange={(e) => setSlippage(Number(e.target.value))}
-            >
-              <option value={50}>0.5%</option>
-              <option value={100}>1%</option>
-              <option value={200}>2%</option>
-              <option value={500}>5%</option>
-            </select>
-          </label>
-          {quote && (
-            <div className="quote-summary">
-              <div>
-                <span>Minimum received</span>
-                <b>
-                  <NumberText
-                    value={minimumOutput(BigInt(quote.amountOut), slippage)}
-                    decimals={outputDecimals}
-                  />{" "}
-                  {outputSymbol}
-                </b>
-              </div>
-              <div>
-                <span>Quote expires in</span>
-                <b>
-                  {Math.max(0, Math.ceil((quote.expiresAt - clock) / 1000))} seconds
-                </b>
-              </div>
-            </div>
-          )}
-          <button
-            className="secondary full"
-            disabled={busy || !amount || stateUnavailable}
-            onClick={() => void getQuote()}
-          >
-            {busy ? (
-              <LoaderCircle className="spin" size={16} />
-            ) : (
-              <RefreshCw size={16} />
-            )}
-            Get on-chain quote
-          </button>
-          {wallet.account ? (
-            <button
-              className="primary full"
-              disabled={
-                busy ||
-                !quote ||
-                clock >= quote.expiresAt ||
-                !config?.writesEnabled ||
-                wallet.chainId !== config.chainId
-              }
-              onClick={() => void execute()}
-            >
-              Confirm {side === "buy" ? "Buy" : "Sell"}
-              <ArrowUpRight size={16} />
-            </button>
-          ) : (
-            <button
-              className="primary full"
-              onClick={() => void wallet.connect()}
-            >
-              <Wallet size={16} />
-              Connect wallet to trade
-            </button>
-          )}
-          {config?.blockReason && (
-            <p className="launch-blocked">{config.blockReason}</p>
-          )}
-          {error && <Notice kind="error">{error}</Notice>}
-          {stockResource.error && (
-            <Notice kind="error">
-              Could not load the stock multiplier. The share equivalent is unavailable. {stockResource.error}
-            </Notice>
-          )}
-          {progress && <Notice>{progress}</Notice>}
-          {hash && config && <TxLink hash={hash} config={config} />}
-          <p className="asset-note">
-            Router approval is limited to this amount and valid for 5 minutes. Execution depends on slippage and liquidity and follows the stock token’s transfer rules.
-          </p>
         </section>
       </div>
     </>
@@ -3070,8 +3190,8 @@ function FeeIncomeReference({ token, account, currency, amount }: {
     { label: "Rounding remainder (retained)", amount: allocation.remainder },
   ].filter((part) => part.amount > 0n);
   return <div className="fee-allocation">
-    <span>{asset.symbol} · Allocation reference after claiming</span>
-    <dl>{parts.map((part) => <div key={part.label}>
+    <span className="hint mono">{asset.symbol}</span>
+    <dl className="rows">{parts.map((part) => <div key={part.label}>
       <dt>{part.label}</dt><dd>{formatUnits(part.amount, asset.decimals)} {asset.symbol}</dd>
     </div>)}</dl>
   </div>;
@@ -3079,9 +3199,11 @@ function FeeIncomeReference({ token, account, currency, amount }: {
 function FeeCard({
   token,
   config,
+  variant = "rewards",
 }: {
   token: TokenRecord;
   config: RuntimeConfig | null;
+  variant?: "token" | "rewards";
 }) {
   const api = scopedApi(config);
   const generation = useRef(0);
@@ -3143,27 +3265,73 @@ function FeeCard({
     ? isCreator ? (policy.operations > 0 ? "Creator and platform income" : "Creator income and buyback funds")
       : policy.operations > 0 ? "Platform income (buyback and operations)" : "Buyback funds"
     : isCreator ? "Creator income" : "Beneficiary fees";
-  return (
-    <section className="panel fee-panel">
-      <div className="section-heading">
-        <h2>
-          <Coins size={20} /> {token.symbol} {incomeTitle}
-        </h2>
-        <button
-          className="text-button"
-          disabled={busy || !wallet.account}
-          onClick={() => void check()}
-        >
-          <RefreshCw size={14} />
-          Check fees
-        </button>
+  const policyNote = !policy ? "This pool has no identified fee policy. Only claimable on-chain amounts are shown, without estimating their allocation." : isTreasury
+    ? `${isCreator ? `The creator and platform share this address. First allocate the claimed amount ${feePercent(policy.creatorNet)} to the creator and ${feePercent(policy.platformNet)} to the platform.` : "This address claims platform income."}${policy.operations > 0 ? ` Then allocate platform income ${feePercent(policy.platformBuyback)} to buybacks and ${feePercent(policy.platformOperations)} to operations.` : " This pool retains its original policy: all platform income is allocated to the buyback budget."}`
+    : "";
+  const stock = quoteAsset(token);
+  const claimDisabled = (type: "trade" | "lp") => !data || busy || !config?.writesEnabled || wallet.chainId !== config.chainId ||
+    BigInt(data[type].fees0) + BigInt(data[type].fees1) === 0n;
+  const amounts = (type: "trade" | "lp") => data ? <>
+    <dd><NumberText value={data[type].fees0} decimals={poolCurrency(data.poolKey.currency0, token).decimals} /> {symbol(data.poolKey.currency0)}</dd>
+    <dd><NumberText value={data[type].fees1} decimals={poolCurrency(data.poolKey.currency1, token).decimals} /> {symbol(data.poolKey.currency1)}</dd>
+  </> : <dd className="faint">{busy ? "Reading…" : "—"}</dd>;
+  const checkButton = <button
+    type="button"
+    className="text-button"
+    disabled={busy || !wallet.account}
+    onClick={() => void check()}
+  >
+    <RefreshCw size={14} className={busy && !data ? "spin" : undefined} />
+    Check fees
+  </button>;
+  const allocation = data && policy && wallet.account ? <details className="disclosure">
+    <summary>Allocation reference after claiming</summary>
+    <div className="fee-allocations">
+      {(["trade", "lp"] as const).map((type) => <div key={type}>
+        <b>{type === "trade" ? "Trading fee" : "LP fee"}</b>
+        <FeeIncomeReference token={token} account={wallet.account!} currency={data.poolKey.currency0} amount={data[type].fees0} />
+        <FeeIncomeReference token={token} account={wallet.account!} currency={data.poolKey.currency1} amount={data[type].fees1} />
+      </div>)}
+    </div>
+    <p className="hint">Calculated for each asset using the creator and treasury recorded at launch, as a reference for manual allocation after claiming. Buyback budgets are rounded down and remainders are retained. Account for each pool separately. Check manually if protocol income is included or beneficiary rights have been transferred.</p>
+  </details> : null;
+  if (variant === "token") return (
+    <section className="card fee-panel" aria-labelledby={`fees-${token.address}`}>
+      <div className="card-head">
+        <h2 id={`fees-${token.address}`} className="card-title"><Coins size={18} />{isCreator ? "You created this token" : `${token.symbol} ${incomeTitle}`}</h2>
+        <span className="button-row">{checkButton}<Link href="/rewards" className="text-button">Manage in My rewards <ArrowRight size={14} /></Link></span>
       </div>
-      <p className="muted">
-        Amounts are queried for the connected wallet. Trading and LP fees are claimed separately and sent to the on-chain beneficiaries.
-        {!policy ? " This pool has no identified fee policy. Only claimable on-chain amounts are shown, without estimating their allocation." : isTreasury
-          ? `${isCreator ? ` The creator and platform share this address. First allocate the claimed amount ${feePercent(policy.creatorNet)} to the creator and ${feePercent(policy.platformNet)} to the platform.` : " This address claims platform income."}${policy.operations > 0 ? ` Then allocate platform income ${feePercent(policy.platformBuyback)} to buybacks and ${feePercent(policy.platformOperations)} to operations.` : " This pool retains its original policy: all platform income is allocated to the buyback budget."}`
-          : ""}
-      </p>
+      {policyNote && <p className="hint">{policyNote}</p>}
+      <dl className="tile-grid">
+        <div className="tile"><dt>Trading fee to claim</dt>{amounts("trade")}</div>
+        <div className="tile"><dt>LP fee to claim</dt>{amounts("lp")}</div>
+      </dl>
+      {!data && <p className="hint">Click Check fees to read the current claimable on-chain amounts. Trading and LP fees are claimed separately and sent to the on-chain beneficiaries.</p>}
+      <div className="button-row">
+        <button type="button" className="secondary" disabled={claimDisabled("trade")} onClick={() => void claim("trade")}>Claim trading fee</button>
+        <button type="button" className="secondary" disabled={claimDisabled("lp")} onClick={() => void claim("lp")}>Claim LP fee</button>
+      </div>
+      {allocation}
+      {error && <Notice kind="error">{error}</Notice>}
+      {hash && config && <TxLink hash={hash} config={config} />}
+    </section>
+  );
+  return (
+    <section className="card fee-panel rewards-fee" aria-labelledby={`fees-${token.address}`}>
+      <div className="card-head">
+        <div className="fee-identity">
+          <TokenIcon name={token.name} image={token.image} />
+          <div>
+            <h3 id={`fees-${token.address}`} className="fee-title"><Coins size={16} aria-hidden="true" /><span className="mono">{token.symbol}</span> {incomeTitle}</h3>
+            <span className="hint">
+              <Link href={tokenPath(token)}>{token.name}</Link> · <span className="mono">{stock.symbol}</span> pair
+              {token.tradingFeeBps !== undefined && <> · <span className="mono">{feePercent(token.tradingFeeBps)}</span> trading fee</>}
+            </span>
+          </div>
+        </div>
+        {checkButton}
+      </div>
+      {policyNote && <p className="hint">{policyNote}</p>}
       {!wallet.account ? (
         <button className="secondary" onClick={() => void wallet.connect()}>
           Connect wallet to view
@@ -3171,36 +3339,15 @@ function FeeCard({
       ) : data ? (
         <div className="fee-claims">
           {(["trade", "lp"] as const).map((type) => (
-            <div key={type}>
-              <span>{type === "trade" ? "Trading fee" : "LP fee"}</span>
-              <b>
-                <NumberText
-                  value={data[type].fees0}
-                  decimals={
-                    poolCurrency(data.poolKey.currency0, token).decimals
-                  }
-                />{" "}
-                {symbol(data.poolKey.currency0)}
-              </b>
-              <b>
-                <NumberText
-                  value={data[type].fees1}
-                  decimals={
-                    poolCurrency(data.poolKey.currency1, token).decimals
-                  }
-                />{" "}
-                {symbol(data.poolKey.currency1)}
-              </b>
-              <FeeIncomeReference token={token} account={wallet.account!} currency={data.poolKey.currency0} amount={data[type].fees0} />
-              <FeeIncomeReference token={token} account={wallet.account!} currency={data.poolKey.currency1} amount={data[type].fees1} />
+            <div key={type} className="tile">
+              <dl>
+                <dt>{type === "trade" ? "Trading fee" : "LP fee"}</dt>
+                {amounts(type)}
+              </dl>
               <button
+                type="button"
                 className="secondary"
-                disabled={
-                  busy ||
-                  !config?.writesEnabled ||
-                  wallet.chainId !== config.chainId ||
-                  BigInt(data[type].fees0) + BigInt(data[type].fees1) === 0n
-                }
+                disabled={claimDisabled(type)}
                 onClick={() => void claim(type)}
               >
                 Claim
@@ -3210,9 +3357,9 @@ function FeeCard({
           ))}
         </div>
       ) : (
-        <p className="muted">Click Check fees to read the current claimable on-chain amounts.</p>
+        <p className="fee-empty">Click Check fees to read the current claimable on-chain amounts.</p>
       )}
-      {data && policy && <p className="muted">Calculated for each asset using the creator and treasury recorded at launch, as a reference for manual allocation after claiming. Buyback budgets are rounded down and remainders are retained. Account for each pool separately. Check manually if protocol income is included or beneficiary rights have been transferred.</p>}
+      {allocation}
       {error && <Notice kind="error">{error}</Notice>}
       {hash && config && <TxLink hash={hash} config={config} />}
     </section>
@@ -3232,28 +3379,25 @@ function Rewards({
   loadMore: () => void;
 }) {
   const wallet = useWallet(),
-    mine = tokens.filter(
-      (t) =>
-        wallet.account && (
-          (t.creator && sameAddress(t.creator, wallet.account)) ||
-          (t.feeTreasury && sameAddress(t.feeTreasury, wallet.account))
-        ),
-    );
+    mine = tokens.filter((t) => isFeeBeneficiary(t, wallet.account));
+  const shares = feePolicyFor(launchFeePolicy(config)) ?? FEE_SHARES;
+  const locked = mine.filter((t) => t.firstBuyLock && wallet.account && sameAddress(t.firstBuyLock.recipient, wallet.account)).length;
   return (
     <>
       <div className="page-heading">
-        <div>
-          <span className="eyebrow">CREATE. TRADE. EARN.</span>
-          <h1>
-            Every good meme earns its moment<span className="accent">.</span>
-          </h1>
-          <p>Every trade in your meme can accrue creator fees.</p>
-        </div>
+        <span className="eyebrow">CREATE. TRADE. EARN.</span>
+        <h1 className="page-title">Every good meme earns its moment.</h1>
+        <p className="page-lede">You keep {feePercent(shares.creator)} of every trading fee on new launches. Fees stay on-chain until you claim them.</p>
       </div>
+      {wallet.account && <dl className="reward-stats">
+        <div className="card halo"><dt>Your launches</dt><dd>{mine.length}{hasMore ? "+" : ""}</dd><dd className="hint">As creator or fee treasury in the loaded catalog</dd></div>
+        <div className="card"><dt>Your creator share</dt><dd>{feePercent(shares.creator)}</dd><dd className="hint">{feePercent(shares.creatorNet)} of fees after Doppler’s {feePercent(shares.protocol)}</dd></div>
+        <div className="card"><dt>Locked first buys</dt><dd>{locked}</dd><dd className="hint">Recorded at launch; check each lock’s on-chain status below</dd></div>
+      </dl>}
       {!wallet.account ? (
         <div className="empty-state">
           <div className="empty-symbol">
-            <Wallet size={28} />
+            <Wallet size={24} />
           </div>
           <h3>Connect a wallet to view your rewards.</h3>
           <p>Fees remain on-chain until you claim them.</p>
@@ -3263,27 +3407,31 @@ function Rewards({
           </button>
         </div>
       ) : mine.length ? (
-        mine.map((t) => <FeeCard key={t.address} token={t} config={config} />)
-      ) : (
-        <div className="empty-state">
-          <div className="empty-symbol">
-            <Coins size={28} />
+        <section className="rewards-list" aria-labelledby="launches-title">
+          <div className="section-heading">
+            <h2 id="launches-title" className="serif-title">Your launches <span className="count">{mine.length}</span></h2>
           </div>
+          <p className="hint">Trading fee and LP fee are claimed separately, each in its own wallet transaction.</p>
+          {mine.map((t) => <FeeCard key={t.address} token={t} config={config} />)}
+        </section>
+      ) : (
+        <div className="empty-state dashed">
           <h3>{hasMore ? "No matching launches in the loaded page" : "No launches for this wallet yet"}</h3>
           <p>{hasMore ? "Load older launches to find this wallet's fees." : "Launch a token with this wallet to manage its fees here."}</p>
-          <Link href="/create" className="primary">
+          <Link href="/create" className="text-button">
             Launch your first token
-            <Plus size={16} />
+            <ArrowRight size={14} />
           </Link>
         </div>
       )}
-      {wallet.account && hasMore && <button type="button" className="secondary full" disabled={loading} onClick={loadMore}>{loading ? "Loading older launches…" : "Load older launches"}</button>}
-      <div className="panel">
-        <h2>How are fees distributed for new pools?</h2>
+      {wallet.account && hasMore && <div className="load-more"><button type="button" className="secondary" disabled={loading} onClick={loadMore}>{loading ? "Loading older launches…" : "Load older launches"}</button></div>}
+      <LockRecovery config={config} />
+      <details className="card disclosure">
+        <summary>How are fees distributed for new pools?</summary>
         <FeeBreakdown policy={launchFeePolicy(config)}>
           <Link href="/buyback" className="mechanism-link">View the buyback policy and status <ArrowUpRight size={14} /></Link>
         </FeeBreakdown>
-      </div>
+      </details>
     </>
   );
 }

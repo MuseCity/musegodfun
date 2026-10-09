@@ -362,7 +362,7 @@ async function historyTrackBackoff(page, state) {
   // A manual check that finds the launch still confirming clears the wait.
   state.trackedReceipt = true; state.head = 16n;
   await page.getByRole('button',{name:'Back to edit',exact:true}).first().click();
-  await page.getByText(/Wallet transaction history/).click();
+  await page.getByRole('button', { name: /^Wallet transaction history/ }).click();
   const check = page.locator('.transaction-history').getByRole('button', { name: 'Check again', exact: true });
   await check.click();
   await page.waitForFunction(() => [...document.querySelectorAll('.transaction-history button')]

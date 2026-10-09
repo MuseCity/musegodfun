@@ -9,11 +9,15 @@ export class ErrorBoundary extends Component<
   }
   render() {
     return this.state.failed ? (
-      <main className="panel">
-        <h1>This page is temporarily unavailable</h1>
-        <p>Broadcast transactions are unaffected. Reload to resume checking them in your wallet transaction history.</p>
-        <button onClick={() => location.reload()}>Reload</button>
-        <a href="/">Back to home</a>
+      <main className="page">
+        <section className="card not-found">
+          <h1 className="page-title">This page is temporarily unavailable</h1>
+          <p className="muted">Broadcast transactions are unaffected. Reload to resume checking them in your wallet transaction history.</p>
+          <div className="button-row">
+            <button type="button" className="secondary" onClick={() => location.reload()}>Reload</button>
+            <a href="/" className="text-button">Back to home</a>
+          </div>
+        </section>
       </main>
     ) : (
       this.props.children

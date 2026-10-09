@@ -32,11 +32,11 @@ function LaunchCurve({ ticker, curvePolicy, openingValuation, quoteDecimals, tok
     <div className="curve-label"><span>Initial supply curve</span><span>Priced in {ticker}</span></div>
     <svg viewBox="0 0 360 170" role="img" aria-label="Initial launch curve: sold supply from 0 to 97 percent against market cap on a logarithmic scale; excludes fees and added liquidity">
       <defs><linearGradient id={fillId} x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stopColor="#bcf26b" stopOpacity=".5" /><stop offset="100%" stopColor="#bcf26b" stopOpacity="0" />
+        <stop offset="0%" style={{ stopColor: "var(--halo)", stopOpacity: 0.45 }} /><stop offset="100%" style={{ stopColor: "var(--halo)", stopOpacity: 0 }} />
       </linearGradient></defs>
-      {[20, 47, 74, 101, 128].map((y) => <path key={y} d={`M40 ${y}H330`} stroke="#e4e7df" strokeDasharray="3 5" />)}
+      {[20, 47, 74, 101, 128].map((y) => <path key={y} d={`M40 ${y}H330`} style={{ stroke: "var(--line)" }} strokeDasharray="3 5" />)}
       <path d={`${path} L330 128 L40 128 Z`} fill={`url(#${fillId})`} />
-      <path d={path} fill="none" stroke="#6c981c" strokeWidth="2.5" />
+      <path d={path} fill="none" style={{ stroke: "var(--halo-ink)" }} strokeWidth="2.5" />
       <text x="36" y="19" textAnchor="end">{compact(model.mainEndFdvUsd)}</text>
       <text x="36" y="132" textAnchor="end">{compact(model.openingFdvUsd)}</text>
       {[0, 25, 50, 75, 97].map((sold) => <text key={sold} x={40 + sold / 97 * 290} y="146" textAnchor="middle">{sold}%</text>)}

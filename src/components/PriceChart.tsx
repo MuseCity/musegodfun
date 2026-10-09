@@ -4,24 +4,46 @@ import {
   ColorType,
   createChart,
   HistogramSeries,
+  LineSeries,
   type IChartApi,
   type ISeriesApi,
   type UTCTimestamp,
 } from "lightweight-charts";
 import type { Candle } from "../lib/market";
+import { useTheme } from "../lib/theme";
+
+// Chart colors follow the page tokens so both themes stay legible.
+function palette() {
+  const css = getComputedStyle(document.documentElement);
+  const token = (name: string, fallback: string) => css.getPropertyValue(name).trim() || fallback;
+  return {
+    background: token("--surface-raised", "#ffffff"),
+    text: token("--ink-faint", "#706757"),
+    line: token("--line", "#e6ddca"),
+    up: token("--up", "#00777a"),
+    down: token("--down", "#b73510"),
+    font: token("--font-mono", "IBM Plex Mono, monospace"),
+  };
+}
+const alpha = (color: string, hex: string) => /^#[0-9a-f]{6}$/i.test(color) ? `${color}${hex}` : color;
 
 export default function PriceChart({
   candles,
   symbol,
+  type = "candles",
 }: {
   candles: Candle[];
   symbol: string;
+  type?: "candles" | "line";
 }) {
+  const { theme } = useTheme();
   const container = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
-  const series = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const series = useRef<ISeriesApi<"Candlestick"> | ISeriesApi<"Line"> | null>(null);
   const volume = useRef<ISeriesApi<"Histogram"> | null>(null);
   const fitted = useRef(false);
+  const candlesRef = useRef(candles);
+  candlesRef.current = candles;
   const [hover, setHover] = useState<{
     open: number;
     high: number;
@@ -30,24 +52,26 @@ export default function PriceChart({
   } | null>(null);
   useEffect(() => {
     if (!container.current) return;
+    const colors = palette();
     const c = createChart(container.current, {
       autoSize: true,
       layout: {
-        background: { type: ColorType.Solid, color: "#ffffff" },
-        textColor: "#7b8175",
-        fontFamily: "DM Sans, sans-serif",
+        background: { type: ColorType.Solid, color: colors.background },
+        textColor: colors.text,
+        fontFamily: colors.font,
+        fontSize: 11,
         attributionLogo: true,
       },
       grid: {
-        vertLines: { color: "#f3f4ef" },
-        horzLines: { color: "#f0f2eb" },
+        vertLines: { visible: false },
+        horzLines: { color: colors.line },
       },
       rightPriceScale: {
-        borderColor: "#e4e7dc",
+        borderVisible: false,
         scaleMargins: { top: 0.12, bottom: 0.25 },
       },
       timeScale: {
-        borderColor: "#e4e7dc",
+        borderVisible: false,
         timeVisible: true,
         secondsVisible: false,
       },
@@ -58,14 +82,17 @@ export default function PriceChart({
       },
       handleScroll: { vertTouchDrag: false },
     });
-    const s = c.addSeries(CandlestickSeries, {
-      upColor: "#5b9135",
-      downColor: "#d36954",
-      wickUpColor: "#5b9135",
-      wickDownColor: "#d36954",
-      borderVisible: false,
-      priceFormat: { type: "price", precision: 10, minMove: 0.0000000001 },
-    });
+    const priceFormat = { type: "price" as const, precision: 10, minMove: 0.0000000001 };
+    const s = type === "line"
+      ? c.addSeries(LineSeries, { color: colors.up, lineWidth: 2, priceFormat })
+      : c.addSeries(CandlestickSeries, {
+        upColor: colors.up,
+        downColor: colors.down,
+        wickUpColor: colors.up,
+        wickDownColor: colors.down,
+        borderVisible: false,
+        priceFormat,
+      });
     const v = c.addSeries(HistogramSeries, {
       priceFormat: { type: "volume" },
       priceScaleId: "volume",
@@ -76,9 +103,11 @@ export default function PriceChart({
     chart.current = c;
     series.current = s;
     volume.current = v;
+    fitted.current = false;
     c.subscribeCrosshairMove((event) => {
-      const data = event.seriesData.get(s);
-      setHover(data && "open" in data ? data : null);
+      const time = event.time;
+      const candle = time === undefined ? undefined : candlesRef.current.find((entry) => entry.time === time);
+      setHover(candle ?? null);
     });
     return () => {
       c.remove();
@@ -87,26 +116,27 @@ export default function PriceChart({
       volume.current = null;
       fitted.current = false;
     };
-  }, []);
+  }, [type, theme]);
   useEffect(() => {
-    series.current?.setData(
-      candles.map((c) => ({ ...c, time: c.time as UTCTimestamp })),
-    );
+    const colors = palette();
+    const points = candles.map((c) => ({ ...c, time: c.time as UTCTimestamp }));
+    if (type === "line") (series.current as ISeriesApi<"Line"> | null)?.setData(points.map((c) => ({ time: c.time, value: c.close })));
+    else (series.current as ISeriesApi<"Candlestick"> | null)?.setData(points);
     volume.current?.setData(
       candles.map((c) => ({
         time: c.time as UTCTimestamp,
         value: c.volume,
-        color: c.close >= c.open ? "#90b97066" : "#d98d7c66",
+        color: alpha(c.close >= c.open ? colors.up : colors.down, "59"),
       })),
     );
     if (!fitted.current && candles.length) {
       chart.current?.timeScale().fitContent();
       fitted.current = true;
     }
-  }, [candles]);
+  }, [candles, type, theme]);
   const bar = hover ?? candles.at(-1);
   return (
-    <>
+    <div className="price-chart-wrap">
       <div className="chart-ohlc" aria-live="off">
         <span>{symbol} / USD</span>
         {bar && (
@@ -128,7 +158,7 @@ export default function PriceChart({
         className="price-chart"
         ref={container}
         role="img"
-        aria-label={`${symbol} USD candlestick chart and volume with ${candles.length} candles. Drag, zoom, and hover to inspect prices.`}
+        aria-label={`${symbol} USD ${type === "line" ? "line" : "candlestick"} chart and volume with ${candles.length} ${type === "line" ? "points" : "candles"}. Drag, zoom, and hover to inspect prices.`}
       />
       <div className="chart-credit">
         <span>UTC · USD price / volume</span>
@@ -136,6 +166,6 @@ export default function PriceChart({
           TradingView Lightweight Charts™ · © 2025 TradingView, Inc.
         </a>
       </div>
-    </>
+    </div>
   );
 }

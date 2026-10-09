@@ -46,12 +46,14 @@ export default function TurnstileGate() {
     }).catch((cause) => active && setError(cause.message));
     return () => { active = false; if (widget) window.turnstile?.remove(widget); };
   }, [request, retry]);
-  return <dialog ref={dialog} className="modal" aria-labelledby="verification-title" onCancel={(event) => { event.preventDefault(); cancel(); }}>
-    <h2 id="verification-title">Quick verification</h2>
+  return <dialog ref={dialog} className="modal narrow turnstile-dialog" aria-labelledby="verification-title" onCancel={(event) => { event.preventDefault(); cancel(); }}>
+    <h2 id="verification-title" className="modal-title">Quick verification</h2>
     <p>A quick check helps keep previews available. Your draft and completed payments are saved.</p>
-    <div ref={container} />
-    {error && <p role="alert">{error}</p>}
-    {error && <button type="button" className="secondary" onClick={() => { setError(""); setRetry((value) => value + 1); }}>Retry verification</button>}
-    <button type="button" className="secondary" onClick={cancel}>Back to my draft</button>
+    <div ref={container} className="turnstile-box" />
+    {error && <p role="alert" className="field-error">{error}</p>}
+    <div className="button-row">
+      {error && <button type="button" className="secondary" onClick={() => { setError(""); setRetry((value) => value + 1); }}>Retry verification</button>}
+      <button type="button" className="text-button" onClick={cancel}>Back to my draft</button>
+    </div>
   </dialog>;
 }
