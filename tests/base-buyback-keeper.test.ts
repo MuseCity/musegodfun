@@ -211,6 +211,16 @@ test("keeper execution rejects governance, treasury and Automation role reuse",(
   assert.throws(()=>assertBaseKeeperRoles(account.address,{constants:{...constants,[role]:account.address}} as any),/separate/);
  assert.throws(()=>assertBaseKeeperRoles(account.address,{constants} as any,account.address),/separate/);
 });
+test("trusted Splits execution binds the actual keeper to owner acceptance without changing legacy role checks",()=>{
+ const constants={governor:collector,operationsTreasury:automation,automationReceiver:STOCKS[0].address};
+ const activation={status:"trusted_splits_authorized",trustedSplitsAcceptance:{keeper:account.address}};
+ assert.doesNotThrow(()=>assertBaseKeeperRoles(account.address,{constants,activation} as any));
+ activation.trustedSplitsAcceptance.keeper=STOCKS[1].address;
+ assert.throws(()=>assertBaseKeeperRoles(account.address,{constants,activation} as any),/governor-authorized.*keeper/);
+ assert.throws(()=>assertBaseKeeperRoles(account.address,{constants,activation:{status:"trusted_splits_authorized"}} as any),/governor-authorized.*keeper/);
+ for(const status of ["not_run","canary_verified"])
+  assert.doesNotThrow(()=>assertBaseKeeperRoles(account.address,{constants,activation:{...activation,status}} as any));
+});
 test("unknown recovery progresses independently over repeated sync/release cycles and never consumes genuine principal",async()=>{
  const asset={...STOCKS[0],chainId:8453 as const,pending:"7",untracked:"1000000",pendingUntracked:"0",totalClaimed:"7",totalReleased:"0",automationBalance:"0",verifiedAsset:true};
  const status={available:true,paused:false,automation,assets:[asset]} as any,custody={automation:{assets:[]}} as any;

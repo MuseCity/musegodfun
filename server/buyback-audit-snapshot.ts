@@ -5,6 +5,7 @@ import { BASE_BUYBACK_PROTOCOL, BASE_BUYBACK_TREASURY, BASE_BUYBACK_VAULT, BASE_
 import { custodyMaxLag, emptyCustodyReport } from "../src/lib/buyback-custody-ledger";
 import { emptyVaultLedgerReport, type VaultLedgerReport } from "../src/lib/buyback-vault-ledger";
 import { BASE_COLLECTOR_MANIFEST, baseCollectorGraphFingerprint } from "./base-collector";
+import { baseActivationAcceptanceReady } from "./base-activation-record";
 import rhDeployment from "../contracts/artifacts/buyback-v2-deployment.json";
 import type { NativeCustodyReadiness, VaultLedgerRuntime } from "./buyback-vault-runtime";
 import type { Runtime } from "./config";
@@ -140,7 +141,8 @@ function parseSnapshot(runtime: Runtime, value: unknown, now: number): BaseAudit
   return row;
 }
 function applicableActivation(runtime: Runtime, now: number) {
-  if (!runtime.canaryOrigin && runtime.dataScope !== "verify-base-canary") return BASE_COLLECTOR_MANIFEST.activation.status === "canary_verified";
+  if (!runtime.canaryOrigin && runtime.dataScope !== "verify-base-canary")
+    return ["base", "robinhood"].includes(runtime.dataScope) && baseActivationAcceptanceReady(BASE_COLLECTOR_MANIFEST);
   const authorization = BASE_COLLECTOR_MANIFEST.canaryAuthorization;
   if (!/^verify-[a-z0-9-]+$/.test(runtime.dataScope) || runtime.environment?.NODE_ENV === "production" || !runtime.canaryOrigin ||
     !authorization || authorization.version !== 2 || authorization.chainId !== 8453 || authorization.origin !== runtime.canaryOrigin ||

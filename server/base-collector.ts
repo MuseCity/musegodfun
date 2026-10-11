@@ -8,7 +8,7 @@ import { BASE_AUTOMATION_FEE_POLICY } from "../src/lib/fee-policy";
 import { BASE_NATIVE_DESTINATION_POLICY } from "../src/lib/base-buyback";
 import { verifyGovernorSignature } from "./buyback-activation";
 import { verifyFeeEngineRuntime } from "./buyback-engine";
-import { assertBaseActivationRecord, persistBaseActivationRecord } from "./base-activation-record";
+import { assertBaseActivationRecord, baseActivationAcceptanceReady, persistBaseActivationRecord } from "./base-activation-record";
 import robinhoodDeployment from "../contracts/artifacts/buyback-v2-deployment.json";
 import { BUYBACK_CODE_HASHES, RELAY_ROUTER } from "./buyback";
 import { RELAY_APPROVAL_PROXY, RELAY_DEPOSITORY } from "../src/lib/buyback";
@@ -29,6 +29,10 @@ export type BaseCollectorClient = Pick<PublicClient<Transport, any>, "getChainId
 export type BaseCollectorCanaryAuthorization = { version: 2; chainId: 8453; origin: string; collector: Address; automationReceiver: Address;
   graphFingerprint: Hex; keeper: Address; releaseBudgets: { token: Address; decimals: number; maxAmount: string }[];
   maxBaseGasWei: string; maxRobinhoodGasWei: string; expiresAt: string; signer: Address; signature: Hex };
+/** Owner accepts the native provider and exact project wiring; this is not a claim that any fee or burn has occurred. */
+export type BaseTrustedSplitsAcceptance = { version: 1; sourceChainId: 8453; destinationChainId: 4663; graphFingerprint: Hex;
+  collector: Address; automationReceiver: Address; destinationTreasury: Address; destinationWeth: Address; destinationVault: Address;
+  keeper: Address; ruleId: string; configurationSha256: Hex; trustSplitsNativeExecution: true; signer: Address; signature: Hex };
 export type BaseWalletFlowProof = { creator: Address; token: Address; quoteAsset: Address; poolId: Hex; launchHash: Hex; firstBuyHash: Hex;
   buyHash: Hex; sellHash: Hex; feeClaimHashes: Hex[]; recoveryEvidenceUri: string; recoveryEvidenceSha256: Hex; plan: LaunchPlan };
 export type BaseWalletAcceptance = { version: 1; chainId: 8453; graphFingerprint: Hex; desktop: BaseWalletFlowProof; mobile: BaseWalletFlowProof; signer: Address; signature: Hex };
@@ -331,6 +335,27 @@ export function baseCollectorCanaryMessage(value: Omit<BaseCollectorCanaryAuthor
     releaseBudgets: value.releaseBudgets.map(entry => ({ token: entry.token.toLowerCase(), decimals: entry.decimals, maxAmount: entry.maxAmount })),
     maxBaseGasWei: value.maxBaseGasWei, maxRobinhoodGasWei: value.maxRobinhoodGasWei, expiresAt: value.expiresAt })}\nI authorize this exact isolated origin and keeper to claim actual validated fees and release only the listed cumulative token amounts. I understand native Splits Automation has mutable signer and provider authority. This does not authorize public Base activation.`;
 }
+
+export function baseTrustedSplitsMessage(value: Omit<BaseTrustedSplitsAcceptance, "signer" | "signature">) {
+  return `MUSEGOD BASE TRUSTED SPLITS CONFIGURATION V1\n${JSON.stringify({ version: value.version, sourceChainId: value.sourceChainId,
+    destinationChainId: value.destinationChainId, graphFingerprint: value.graphFingerprint.toLowerCase(), collector: value.collector.toLowerCase(),
+    automationReceiver: value.automationReceiver.toLowerCase(), destinationTreasury: value.destinationTreasury.toLowerCase(),
+    destinationWeth: value.destinationWeth.toLowerCase(), destinationVault: value.destinationVault.toLowerCase(), keeper: value.keeper.toLowerCase(),
+    ruleId: value.ruleId, configurationSha256: value.configurationSha256.toLowerCase(), trustSplitsNativeExecution: value.trustSplitsNativeExecution })}\nI accept Splits native Automation and its mutable signer, owner and provider authority for this exact configuration. I authorize the fixed project fee path without requiring manufactured fees, a completed cross-chain canary, or native scheduling evidence before launch. Actual arrivals and MUSEGOD transfers to dead must still be accounted from canonical receipts. This configuration acceptance does not resume the Collector or public Base controls, authorize any transaction gas budget, or attest that a fee, bridge or burn has occurred.`;
+}
+
+export async function verifyBaseTrustedSplitsAuthority(client: BaseCollectorClient, manifest: BaseCollectorManifest, head: bigint) {
+  if (await client.getChainId() !== 8453) throw new Error("Trusted Splits configuration requires the canonical Base RPC");
+  const acceptance = manifest.activation.trustedSplitsAcceptance;
+  if (manifest.activation.status !== "trusted_splits_authorized" || !baseActivationAcceptanceReady(manifest) || !acceptance ||
+    acceptance.graphFingerprint.toLowerCase() !== baseCollectorGraphFingerprint(manifest).toLowerCase() || sameAddress(acceptance.keeper, zeroAddress) ||
+    [manifest.constants.governor,manifest.constants.operationsTreasury,manifest.constants.automationReceiver,manifest.constants.destinationTreasury,manifest.automationAccount.owner]
+      .some(role => role && sameAddress(role,acceptance.keeper)) || manifest.automationAccount.signers.some(signer => {
+        const authority = baseSplitsSignerAuthority(signer); return authority.kind === "account" && sameAddress(authority.address,acceptance.keeper);
+      })) throw new Error("Exact trusted Splits configuration and governor acceptance are required");
+  await signedAuthority(client, manifest, acceptance.signer, acceptance.signature, baseTrustedSplitsMessage(acceptance), head);
+  return acceptance;
+}
 async function signedAuthority(client: BaseCollectorClient, manifest: BaseCollectorManifest, signer: Address, signature: Hex, message: string, head: bigint) {
   const governor = getAddress(manifest.constants.governor!), code = await client.getCode({ address: governor, blockNumber: head });
   const authorityClient = { ...client, getBlock: async (parameters: { blockNumber: bigint } | { blockTag: "finalized" }) => {
@@ -374,7 +399,7 @@ export async function verifyBaseCollector(client: BaseCollectorClient, candidate
   const head = tip.number;
   const runtimeAcceptance = options.requireActivation === "runtime" && !options.allowCanary;
   if (runtimeAcceptance) {
-    if (manifest.activation.status !== "canary_verified" || !manifest.activation.nativeExecution || !options.robinhoodClient || !options.auditStore)
+    if (!baseActivationAcceptanceReady(manifest) || !options.robinhoodClient || !options.auditStore)
       throw new Error("A finalized operator activation record is required for production operation");
     const destinationTip = await options.robinhoodClient.getBlock({ blockTag: "latest" });
     if (destinationTip.number === null || !hash(destinationTip.hash)) throw new Error("The Robinhood canonical settlement head is unavailable");
@@ -408,10 +433,17 @@ export async function verifyBaseCollector(client: BaseCollectorClient, candidate
     if (paused) throw new Error("The Collector is paused");
     result.canaryAuthorization = await verifyBaseCanaryAuthorization(client, manifest, head, options.canaryOrigin);
   } else if (options.requireActivation !== false && !runtimeAcceptance) {
-    if (paused) throw new Error("The Collector is paused");
-    const checked = await verifyBaseNativeActivationAcceptance(client, options.robinhoodClient, manifest, head, options.auditStore);
-    if (options.recordActivation) await persistBaseActivationRecord(client, options.robinhoodClient!, options.auditStore!, manifest,
-      result.manifestFingerprint, checked.anchors, checked.heads);
+    if (paused && manifest.activation.status !== "trusted_splits_authorized") throw new Error("The Collector is paused");
+    const checked = manifest.activation.status === "trusted_splits_authorized"
+      ? await verifyBaseTrustedSplitsActivationAcceptance(client, options.robinhoodClient, manifest, head)
+      : await verifyBaseNativeActivationAcceptance(client, options.robinhoodClient, manifest, head, options.auditStore);
+    if (options.recordActivation) {
+      // Finish the outer verification before publishing the private record. No later RPC failure may make a completed write look partial.
+      if ((await client.getBlock({ blockNumber: head })).hash !== tip.hash) throw new Error("The Base verification head was reorganized");
+      await persistBaseActivationRecord(client, options.robinhoodClient!, options.auditStore!, manifest,
+        result.manifestFingerprint, checked.anchors, checked.heads);
+      return result;
+    }
   }
   if ((await client.getBlock({ blockNumber: head })).hash !== tip.hash) throw new Error("The Base verification head was reorganized");
   return result;
@@ -664,6 +696,32 @@ async function currentBaseSettlementGraph(source: BaseCollectorClient, destinati
   })()]);
   return { number: graph.blockNumber, hash: tip.hash };
 }
+
+/** Only project configuration is accepted here. No fee, provider run, arrival or burn is invented. */
+async function verifyBaseTrustedSplitsActivationAcceptance(source: BaseCollectorClient, destination: BaseCollectorClient | undefined,
+  manifest: BaseCollectorManifest, head: bigint) {
+  if (!destination || await destination.getChainId() !== 4663) throw new Error("Trusted Splits wiring requires the canonical Robinhood RPC");
+  await verifyBaseTrustedSplitsAuthority(source, manifest, head);
+  const [sourceTip,destinationTip] = await Promise.all([source.getBlock({blockNumber:head}),currentBaseSettlementGraph(source,destination,head)]);
+  if (!hash(sourceTip.hash)) throw new Error("The Base canonical configuration head is unavailable");
+  const heads: EvidenceHeads = {source:{number:head,hash:sourceTip.hash},destination:destinationTip};
+  const configurationAnchor = async (client: BaseCollectorClient, tip: EvidenceBlock): Promise<EvidenceBlock> => {
+    const finalized = await client.getBlock({blockTag:"finalized"});
+    if (finalized.number === null || !hash(finalized.hash) || finalized.number > tip.number || tip.number < 64n)
+      throw new Error("Finalized configuration wiring is unavailable");
+    const number = finalized.number < tip.number-64n ? finalized.number : tip.number-64n;
+    const block = await client.getBlock({blockNumber:number});
+    if (block.number !== number || !hash(block.hash)) throw new Error("Canonical configuration anchor is unavailable");
+    return {number,hash:block.hash};
+  };
+  const [deployment,initialization,sourceAnchor,destinationAnchor] = await Promise.all([
+    canonicalReceipt(source,manifest.collector.transactionHash!,head),canonicalReceipt(source,manifest.automationAccount.initializationHash!,head),
+    configurationAnchor(source,heads.source),configurationAnchor(destination,heads.destination),
+  ]);
+  const sourceBlocks = [deployment,initialization].map(receipt=>({number:receipt.blockNumber,hash:receipt.blockHash}));
+  const anchors: EvidenceAnchors = {source:[...new Map([...sourceBlocks,sourceAnchor].map(block=>[String(block.number),block])).values()],destination:[destinationAnchor]};
+  return {heads,anchors};
+}
 async function verifyBaseNativeActivationAcceptance(source: BaseCollectorClient, destination: BaseCollectorClient | undefined, manifest: BaseCollectorManifest, head: bigint, auditStore?: BaseAuditStore) {
   if (manifest.activation.status !== "canary_verified" || !manifest.activation.nativeExecution || !destination || (await destination.getChainId()) !== 4663)
     throw new Error("A complete genuine-fee native cross-chain canary activation proof is required; a status flag is insufficient");
@@ -694,6 +752,7 @@ async function verifyBaseNativeActivationAcceptance(source: BaseCollectorClient,
 /** Current EIP-1271 revocation/authority remains effective without replaying
  * historical wallet, fee, scheduler or rollback receipts in production. */
 async function verifyBaseLiveAcceptanceAuthority(source: BaseCollectorClient, manifest: BaseCollectorManifest, head: bigint) {
+  if (manifest.activation.status === "trusted_splits_authorized") { await verifyBaseTrustedSplitsAuthority(source, manifest, head); return; }
   await verifyBaseCanaryAuthorization(source, manifest, head, manifest.canaryAuthorization?.origin, true);
   await verifyBaseWalletAuthority(source, manifest, manifest.activation.walletAcceptance ?? undefined, baseCollectorGraphFingerprint(manifest), head);
   await verifyBasePauseRollbackAuthority(source, manifest, head);

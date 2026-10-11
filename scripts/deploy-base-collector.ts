@@ -9,7 +9,7 @@ import { createPublicClient, encodeDeployData, getAddress, getContractAddress, h
 import { base } from "viem/chains";
 import { loadEnvironment, mainnetRpcUrl, redact } from "../server/config";
 import { baseOperatorAuditStore } from "./base-audit-store";
-import type { BaseCollectorCanaryAuthorization, BaseWalletAcceptance, BasePauseRollbackAcceptance, BaseNativeRunAcceptance } from "../server/base-collector";
+import type { BaseCollectorCanaryAuthorization, BaseWalletAcceptance, BasePauseRollbackAcceptance, BaseNativeRunAcceptance, BaseTrustedSplitsAcceptance } from "../server/base-collector";
 
 export const BASE_COLLECTOR_FIXED = {
   initializer: getAddress("0xbdf938149ac6a781f94faa0ed45e6a0e984c6544"), rehype: getAddress("0x5f9eb5f6726fe88d5e39867967f5b833d2fa3215"),
@@ -34,7 +34,7 @@ export type BaseCollectorDeployment = {
     outputToken: Address; recipient: Address; allocationBps: 10000; ruleId: string | null; configurationSha256: Hex | null };
   finalSettlement: { forwarder: Address; vault: Address; chainId: 4663; permissionsChanged: boolean };
   canaryAuthorization?: BaseCollectorCanaryAuthorization | null;
-  activation: { status: "not_run" | "canary_verified"; nativeExecution?: unknown; nativeRunAcceptance?: BaseNativeRunAcceptance | null; walletAcceptance?: BaseWalletAcceptance | null;
+  activation: { status: "not_run" | "canary_verified" | "trusted_splits_authorized"; trustedSplitsAcceptance?: BaseTrustedSplitsAcceptance | null; nativeExecution?: unknown; nativeRunAcceptance?: BaseNativeRunAcceptance | null; walletAcceptance?: BaseWalletAcceptance | null;
     pauseRollbackAcceptance?: BasePauseRollbackAcceptance | null };
 };
 type Artifact = { abi: Abi; bytecode: Hex; deployedBytecode: Hex; compilerInputSha256: string; creationBytecodeHash: Hex;

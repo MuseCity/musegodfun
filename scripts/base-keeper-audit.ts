@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { createPublicClient, http, type PublicClient, type Transport } from "viem";
 import { robinhood } from "viem/chains";
 import { BASE_COLLECTOR_MANIFEST, verifyBaseCollector, type VerifiedBaseCollector } from "../server/base-collector";
+import { baseActivationAcceptanceReady } from "../server/base-activation-record";
 import { BaseFeeQuoteReader, type BaseFeeDependencies } from "../server/base-buyback";
 import { publishBaseAuditSnapshot, publishBaseAuditFailure, type BaseAuditSnapshotContents } from "../server/buyback-audit-snapshot";
 import { createVaultLedgerRuntime, readCanonicalBaseSourceBatches, type VaultLedgerRuntime } from "../server/buyback-vault-runtime";
@@ -50,7 +51,7 @@ export function createBaseKeeperAudit(input: BaseKeeperAuditInput, deps: BaseKee
     const [sourceChain, destinationChain] = await Promise.all([input.sourceClient.getChainId(), destinationClient.getChainId()]);
     if (sourceChain !== 8453 || destinationChain !== 4663) throw new Error("Host audit RPCs differ from their financial scopes");
   };
-  const activationRequirement = () => BASE_COLLECTOR_MANIFEST.activation.status === "canary_verified" ? "runtime" as const : false;
+  const activationRequirement = () => baseActivationAcceptanceReady(BASE_COLLECTOR_MANIFEST) ? "runtime" as const : false;
   const graph = () => (deps.verifyCollector ?? verifyBaseCollector)(input.sourceClient, BASE_COLLECTOR_MANIFEST.collector.address!,
     { requireActivation: activationRequirement(), robinhoodClient: destinationClient, auditStore: input.source });
   const configuration = async () => {

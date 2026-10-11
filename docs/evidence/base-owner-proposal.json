@@ -1,7 +1,7 @@
 {
   "schemaVersion": 3,
-  "recordedAt": "2026-10-11T05:10:40.330040+00:00",
-  "status": "base_collector_deployed_verified_paused",
+  "recordedAt": "2026-10-11T10:42:15.108Z",
+  "status": "trusted_splits_configuration_prepared_base_paused_owner_confirmation_pending",
   "architecture": "splits-treasury-native-automation",
   "sourceBaseline": "f7c1264b2995c2c243c7f95419254a3e45d118f2",
   "chainId": 8453,
@@ -96,13 +96,15 @@
     },
     {
       "step": 5,
-      "action": "Sign exact private HTTPS origin, graph, D3 keeper, expiry, per-token genuine-fee cumulative release budgets and separate Base/RH gas ceilings; approve isolated Base CAS resume and Collector resume for device-wallet canary.",
-      "authorization": "actual amounts/origin/expiry and gas budgets are pending; no source fee principal top-up"
+      "action": "Governor accepts the exact trusted Splits configuration and signed keeper. Explicit operator verifies finalized deployment/current two-chain wiring and records canonical Base configuration acceptance while the Collector remains paused.",
+      "authorization": "Exact unsigned message is prepared below; signature and explicit record operation remain pending. This grants no gas budget or control resume.",
+      "status": "unsigned_configuration_prepared"
     },
     {
       "step": 6,
-      "action": "Run genuine fee claim/release, native conversion/Relay, Treasury receipt, existing Forwarder/Vault settlement, specific-batch FIFO/dead reconciliation; keep received canary WETH <=0.01. Test desktop/mobile broadcast recovery and native-authority pause plus compatible rollback. Review and attest the exact Splits native scheduled job/completed run, bound to both transaction hashes and the complete canonical financial acceptance hash; receipts alone do not prove native scheduling or full provider job completion.",
-      "authorization": "small real fee principal and gas execution required; synthetic funding cannot pass"
+      "action": "Initialize the three financial checkpoints before first release; authorize the existing-host Base keeper with its own bounded gas budget and separately approve Collector resume. Normal fees use native Splits; actual arrivals, FIFO and MUSEGOD-to-dead receipts continue to be reconciled.",
+      "authorization": "Host/operational gas and Collector transaction approval remain pending. No manufactured fee funding, scheduler completion or cross-chain canary is required.",
+      "status": "production_controls_and_collector_still_paused"
     },
     {
       "step": 7,
@@ -139,9 +141,9 @@
   "securityFixSourceTreeSha256": "de04f243efd69a7d2932e0d96bd13842e69c967ca3626b8e616f1a7c5e2763bc",
   "historicalPostCommitSecurityFixes": "Local defensive implementation and independent readthrough passed: 841 application tests / 171 contract tests, updated Base source-fork recovery, build and dry-run. Deployment and production activation are not authorized by these checks.",
   "activationPrerequisites": {
-    "realRelayDestinationGolden": "Owner-authorized genuine scheduled B20 source fees and actual canonical WETH receipt to the fixed contract Treasury under relay-v3-permit2-signed-execution-receipt-v3. Funding token/quantity may differ; fixed solver Permit2 owner signs the complete ordered conversion. Third-party USDG fills only establish structure; captured or live historical code and project financial receipt remain required. Ordinary RPC suffices; no full ArbOS replay or paid trace prerequisite.",
+    "realRelayDestinationGolden": "Removed as a launch gate by owner decision. Normal operational attribution still requires genuine source/actual canonical destination receipts; provider hints, foreign deposits and aggregate burns do not establish Base provenance.",
     "solverAuthority": "Fixed solver witness owner is historically undelegated EOA; ordinary zero-value signed root may rotate. Valid Permit2 owner witness, exact executed calls and actual payment required. Direct Router roots without witness remain unsupported.",
-    "migrationInventory": "not_run; confirm prior same-version contents before separately authorized application; forward repair if old content applied",
+    "migrationInventory": "Three additive production migrations and both-chain backup/restore checks completed in pausedProductionPublication; financial checkpoints are not initialized yet.",
     "productionWorkerQuota": "Native financial audit removed from Worker; actual persisted-read/config/launch/market quota and host freshness still need publication acceptance. No paid Worker plan is required solely for the removed audit.",
     "hostSupervisor": "Before activation validate one guarded writer, existing-host supervisor crash restart, missed-publication/restart/guard alerts and incident procedure. No production supervisor/service installed this round.",
     "historicalRpc": "Existing correctly chain-scoped Alchemy endpoint proved selected ~80-minute historical Router/Proxy/Permit2 reads. No fixed five-minute outage terminal rule. Keep existing key available to isolated keeper. Provider/billing/SLA/full historical proof and real project receipt remain separate; no purchase or new RPC setting."
@@ -782,6 +784,289 @@
       "basePaused": true,
       "robinhoodOperational": true,
       "requirements": "Stop financial writer before rollback; preserve additive schemas, data and journals; no return to pre-Collector code."
+    }
+  },
+  "trustedSplitsLaunchPreparation": {
+    "recordedAt": "2026-10-11T10:42:15.108Z",
+    "status": "implementation_and_contract_wiring_prepared_not_deployed_or_activated",
+    "ownerDecision": "OK，按信任 0xSplits 的方案继续，完成 Base 的配置和接线核对，取消专门制造手续费的测试门禁，保留实际到账和销毁记账。Base 先保持暂停，准备好后给我具体上线确认项。",
+    "supersededCanaryChecklist": [
+      {
+        "step": 5,
+        "action": "Sign exact private HTTPS origin, graph, D3 keeper, expiry, per-token genuine-fee cumulative release budgets and separate Base/RH gas ceilings; approve isolated Base CAS resume and Collector resume for device-wallet canary.",
+        "authorization": "actual amounts/origin/expiry and gas budgets are pending; no source fee principal top-up"
+      },
+      {
+        "step": 6,
+        "action": "Run genuine fee claim/release, native conversion/Relay, Treasury receipt, existing Forwarder/Vault settlement, specific-batch FIFO/dead reconciliation; keep received canary WETH <=0.01. Test desktop/mobile broadcast recovery and native-authority pause plus compatible rollback. Review and attest the exact Splits native scheduled job/completed run, bound to both transaction hashes and the complete canonical financial acceptance hash; receipts alone do not prove native scheduling or full provider job completion.",
+        "authorization": "small real fee principal and gas execution required; synthetic funding cannot pass"
+      }
+    ],
+    "cancelledFundingRequests": {
+      "dedicatedFeeManufacturing": true,
+      "oneThousandUsdc": true,
+      "tenUsdc": true,
+      "noTransferRequested": true
+    },
+    "trustBoundary": "Accepts native mutable signer/owner/provider execution; configuration acceptance is neither receipt proof, scheduler completion nor a guarantee of immediate conversion, availability or fair pricing.",
+    "unsignedGovernorAcceptance": {
+      "signer": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+      "payload": {
+        "version": 1,
+        "sourceChainId": 8453,
+        "destinationChainId": 4663,
+        "graphFingerprint": "0x29461adb72dd2bdc859539b5b6ed65bc1f86f8490d4a0d6b3ab829e84bf919f2",
+        "collector": "0x3B6d01e627Fe6e06C831E0f9f57aC976a88309Ff",
+        "automationReceiver": "0x1283E6CE717347607D4DA3a439cD2324833EEcc0",
+        "destinationTreasury": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+        "destinationWeth": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+        "destinationVault": "0x28E6B43525301312084310F31f4C9c9873d7a125",
+        "keeper": "0xd3f11a4DDcED57aC4E41F8CE7fD323959667e278",
+        "ruleId": "d428b46c-92ad-4c3a-862b-f57b5333a45f",
+        "configurationSha256": "0xa818457f88ba865c54990fa5493d90d750162f1bdc9913f68eef81e0204d1e7a",
+        "trustSplitsNativeExecution": true
+      },
+      "message": "MUSEGOD BASE TRUSTED SPLITS CONFIGURATION V1\n{\"version\":1,\"sourceChainId\":8453,\"destinationChainId\":4663,\"graphFingerprint\":\"0x29461adb72dd2bdc859539b5b6ed65bc1f86f8490d4a0d6b3ab829e84bf919f2\",\"collector\":\"0x3b6d01e627fe6e06c831e0f9f57ac976a88309ff\",\"automationReceiver\":\"0x1283e6ce717347607d4da3a439cd2324833eecc0\",\"destinationTreasury\":\"0xb3c11aa2148521a3ef6d446672b720a63a2d8349\",\"destinationWeth\":\"0x0bd7d308f8e1639fab988df18a8011f41eacad73\",\"destinationVault\":\"0x28e6b43525301312084310f31f4c9c9873d7a125\",\"keeper\":\"0xd3f11a4ddced57ac4e41f8ce7fd323959667e278\",\"ruleId\":\"d428b46c-92ad-4c3a-862b-f57b5333a45f\",\"configurationSha256\":\"0xa818457f88ba865c54990fa5493d90d750162f1bdc9913f68eef81e0204d1e7a\",\"trustSplitsNativeExecution\":true}\nI accept Splits native Automation and its mutable signer, owner and provider authority for this exact configuration. I authorize the fixed project fee path without requiring manufactured fees, a completed cross-chain canary, or native scheduling evidence before launch. Actual arrivals and MUSEGOD transfers to dead must still be accounted from canonical receipts. This configuration acceptance does not resume the Collector or public Base controls, authorize any transaction gas budget, or attest that a fee, bridge or burn has occurred.",
+      "messageSha256": "0a955507a36a4359d1e2ef642aa5c8aae8d91dedfba4026abd7810fc750ec8a6",
+      "signature": "0x3ff37774ec0f76ea97a6a43e4d5c003234861922f4ec5b821bf8c187b19ab77310f02cd1a05fe33b9aa24b09f6d81183c9cce7aaabdceeb1841219bb39d09c681b",
+      "signed": true,
+      "signedAt": "2026-10-11T12:42:43.190Z"
+    },
+    "wiring": {
+      "chainIds": [
+        8453,
+        4663
+      ],
+      "collector": {
+        "address": "0x3B6d01e627Fe6e06C831E0f9f57aC976a88309Ff",
+        "paused": true,
+        "governor": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+        "receiver": "0x1283E6CE717347607D4DA3a439cD2324833EEcc0",
+        "lpShare": "228000000000000000",
+        "hookShare": "240000000000000000",
+        "runtimeMatches": true
+      },
+      "nativeRule": {
+        "ruleId": "d428b46c-92ad-4c3a-862b-f57b5333a45f",
+        "policySha256": "0xa818457f88ba865c54990fa5493d90d750162f1bdc9913f68eef81e0204d1e7a",
+        "initializationPolicy": "100% canonical RH WETH to existing RH Treasury; $5 trigger; 150bps slippage; passThrough=0",
+        "currentUiObserved": "Refreshed official Splits UI shows this rule ID/account, Treasury recipient, Robinhood WETH image/label, 100% allocation and $5 trigger. No changes saved or triggered.",
+        "exactPolicyBasis": "Exact chain/token addresses and 150bps/passThrough values are retained in the signed account-creation review and declaration hash; live UI basic fields refreshed, full API response body was unavailable to the browser observer."
+      },
+      "robinhood": {
+        "treasury": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+        "forwarder": "0x808d538f13ce0356E80C7a5ac2798d09206aB8f4",
+        "vault": "0x28E6B43525301312084310F31f4C9c9873d7a125",
+        "canonicalWeth": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+        "forwarderAllowanceRaw": "7994453195093645",
+        "forwarderAllowanceFinite": true,
+        "vaultCapRaw": "10000000000000000",
+        "windowSeconds": 300,
+        "immutableGraphMatches": true
+      },
+      "assets": {
+        "baseB20ExactIdentities": 36,
+        "baseB20Decimals": 8,
+        "baseWethDecimals": 18,
+        "robinhoodWethDecimals": 18,
+        "scope": "36 admission addresses statically compared exactly with catalog; no repeated route/36-token production scan"
+      },
+      "publicControls": {
+        "origins": [
+          "https://musegod.fun",
+          "https://www.musegod.fun"
+        ],
+        "base": {
+          "writesEnabled": false,
+          "paused": true,
+          "revision": 0
+        },
+        "robinhood": {
+          "writesEnabled": true,
+          "paused": false,
+          "revision": 1
+        }
+      },
+      "verificationScope": "Limited read-only RPC wiring and current UI read; no transaction, signature, fee funding, DB/permission write, production service or subscription purchase"
+    },
+    "actualFinancialExecution": {
+      "fees": "not_run",
+      "bridge": "not_run",
+      "buybackAttribution": "not_run",
+      "museToDead": "not_run",
+      "manufacturedFeeGate": "removed"
+    },
+    "launchConfirmationItems": [
+      {
+        "id": "configuration_signature",
+        "action": "Sign the exact prepared governor configuration message for the fixed graph/rule/D3 keeper; record it only after full canonical operator verification.",
+        "pending": true
+      },
+      {
+        "id": "paused_publication",
+        "action": "Commit/publish the new trusted-mode compatible paused build through the existing release workflow; verify both origins. Production source currently remains 32a575f40313ed6dc402bb95a91c19fee3575996.",
+        "pending": true
+      },
+      {
+        "id": "financial_checkpoints",
+        "action": "Initialize canonical Base Automation, Robinhood Treasury and shared Vault checkpoints before first Collector release; preserve backups and existing Robinhood flow.",
+        "pending": true
+      },
+      {
+        "id": "host_and_gas",
+        "action": "Authorize one guarded writer on the existing keeper host, restart/alert operating setup and an explicit bounded initial Base gas budget; unknown recovery remains disabled without its separate budget. No test principal or new paid service.",
+        "pending": true
+      },
+      {
+        "id": "collector_resume",
+        "action": "Approve the exact C4 Collector resume transaction and current total gas bound; verify canonical receipt. This is separate from public issuance.",
+        "pending": true
+      },
+      {
+        "id": "public_base_activation",
+        "action": "After paused publication/configuration and operational setup are verified, separately approve ENABLE_BASE_TRANSACTIONS and CAS resume using the then-current Base revision. Robinhood stays unchanged.",
+        "pending": true
+      }
+    ],
+    "rollback": "Pause public Base signing and Collector releases first, stop Base submitter, then restore the verified compatible paused build while retaining DB/receipts/nonce/reservations/FIFO. Native account authority handles any already handed-off funds; RH flow remains unchanged.",
+    "validation": {
+      "recordedAt": "2026-10-11T10:56:48.322Z",
+      "sourceBaseline": "95f8d6929e5ff33535d7262221da8ea78fa3a590",
+      "sourceTreeSha256": "8311f732a708eedc990242e2c35e05d18e49760fc3bd25c96a71c3ac4fe72569",
+      "sourceTreeFiles": 268,
+      "sourceTreeScope": "tracked src/server/scripts/tests/contracts/src plus manifest/package/lock/build config; no evidence self-hash",
+      "unitTests": {
+        "passed": 1339,
+        "failed": 0,
+        "skipped": 0
+      },
+      "typecheck": "passed",
+      "workerTypecheck": "passed",
+      "build": "passed",
+      "diffCheck": "passed",
+      "contractTests": "not_repeated_no_contract_or_compiler_change",
+      "independentReview": "activation, runtime/snapshot and keeper gates read-only reviewed; discovered snapshot gate fixed with regression",
+      "contractsChanged": false,
+      "migrationsChanged": false,
+      "robinhoodKeeperChanged": false,
+      "releaseGateChanged": false,
+      "financialReceiptPolicyChanged": false,
+      "fifoChanged": false,
+      "productionWrites": false,
+      "mainnetTransactions": false,
+      "signatureProduced": false,
+      "newProductionService": false,
+      "servicePurchase": false
+    },
+    "governorResumeUnsignedReview": {
+      "kind": "unsigned_current_governor_resume_review",
+      "chainId": 8453,
+      "account": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+      "to": "0x3B6d01e627Fe6e06C831E0f9f57aC976a88309Ff",
+      "data": "0x046f7da2",
+      "value": "0",
+      "signed": false,
+      "broadcast": false,
+      "paused": true,
+      "nonce": 0,
+      "gasLimit": "44185",
+      "maxFeePerGas": "12000000",
+      "totalMaximumFeeWei": "531635996376",
+      "feeReservation": {
+        "executionWei": "530220000000",
+        "l1Wei": "1415996376",
+        "operatorWei": "0",
+        "totalWei": "531635996376",
+        "blockNumber": "52463035",
+        "blockHash": "0xdb92b5b4eb63c2a9c115d7daecc53e663e76a40a18cd7f43051e45b676cdf40b",
+        "unsignedHash": "0xbe0466852ddad12b0099ad5b0c27538bb7f2b0a821036ade5d134b7c1f70f825",
+        "unsignedBytes": 42
+      },
+      "estimateOnly": true
+    },
+    "initialOperationalGasProposal": {
+      "approved": true,
+      "totalBaseGasCeilingWei": "20000000000000",
+      "governorActionsWei": "2000000000000",
+      "keeperCumulativeWei": "16000000000000",
+      "gasFundingTransactionsWei": "2000000000000",
+      "fundingSource": "Existing D5 Base ETH only; re-read balances and full Base fees immediately before each authorized transaction",
+      "manufacturedFeePrincipalRaw": "0",
+      "newRobinhoodGasAuthorizationRequested": false,
+      "unknownRecoveryGasWei": "0",
+      "maximumFeeEstimateExpiry": "Reestimate immediately before approved execution; stale estimates cannot authorize broadcasting",
+      "approval": {
+        "ownerMessage": "继续",
+        "scope": "Previously presented concrete launch confirmation items and fixed 20e12 wei Base gas split",
+        "recordedAt": "2026-10-11T12:32:25.745Z"
+      }
+    }
+  },
+  "trustedSplitsLaunchExecution": {
+    "recordedAt": "2026-10-11T12:32:25.745Z",
+    "authorization": "Owner continuation of presented launch confirmation items",
+    "configurationSignature": {
+      "status": "verified",
+      "signer": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+      "messageSha256": "0a955507a36a4359d1e2ef642aa5c8aae8d91dedfba4026abd7810fc750ec8a6",
+      "verifiedAt": "2026-10-11T12:43:31.693Z",
+      "baseBlockNumber": "52466631"
+    },
+    "publishedBuild": "not_run",
+    "operatorActivationRecord": "not_run",
+    "financialCheckpoints": "pending_canonical_module_history_warmup",
+    "hostSupervisor": "prepared_not_installed_not_started",
+    "remoteNotifications": "not_configured",
+    "collectorPaused": true,
+    "basePublicControl": {
+      "paused": true,
+      "revision": 0
+    },
+    "robinhoodPublicControl": {
+      "paused": false,
+      "revision": 1
+    },
+    "gasTransactions": "not_run",
+    "gasBudgetWei": {
+      "total": "20000000000000",
+      "governor": "2000000000000",
+      "funding": "2000000000000",
+      "keeper": "16000000000000",
+      "unknownRecovery": "0"
+    },
+    "manufacturedFeePrincipalRaw": "0",
+    "financialExecution": {
+      "fees": "not_run",
+      "bridge": "not_run",
+      "buybackAttribution": "not_run",
+      "museToDead": "not_run"
+    },
+    "backups": [
+      {
+        "scope": "base",
+        "sha256": "5385e12a3e6ac54a55f78dacef6aeaf2eb202d45d1c4002a7a57c700b9c06552"
+      },
+      {
+        "scope": "robinhood",
+        "sha256": "24b691fd14e86bf84b9357f8204b1da70727de564f6c14554e5810b927b9d5d4"
+      }
+    ],
+    "validation": {
+      "recordedAt": "2026-10-11T12:44:46.076Z",
+      "sourceTreeSha256": "856600f19156359bed766caab68395bfe3018ca1628cd262b558f13c8da8264a",
+      "sourceTreeFiles": 269,
+      "sourceTreeAlgorithm": "sha256 of lexicographically sorted tracked path + NUL + bytes + NUL for named source/config scope",
+      "unitTests": {
+        "passed": 1344,
+        "failed": 0,
+        "skipped": 0
+      },
+      "typecheck": "passed",
+      "workerTypecheck": "passed",
+      "build": "passed",
+      "diffCheck": "passed",
+      "contractTests": "not_repeated_locally_no_Solidity_or_compiler_change_CI_requires_full_contract_validation",
+      "scope": "Signed trusted-Splits formal manifest plus isolated offline fixtures and initialization-only 60-second preparation budget; ordinary read/reconcile/signing budgets unchanged"
     }
   }
 }

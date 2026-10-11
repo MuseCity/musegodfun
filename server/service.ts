@@ -302,12 +302,12 @@ export class LaunchpadService {
             automationReceiver = verified.automationReceiver;
           }
         }
-      } catch { /* Deployment, owner canary approval and real activation are separate prerequisites. */ }
+      } catch { /* Deployment, reviewed wiring and owner activation authority are separate prerequisites. */ }
     }
     let writesEnabled = this.runtime.config.writesEnabled, blockReason = this.runtime.config.blockReason, controlRevision = 0, signingPaused = false;
     if (deploymentChain(this.runtime.config) === 8453 && !baseCollectorReady) {
       writesEnabled = false;
-      blockReason = "Base issuance awaits its verified fee adapter, native Automation, wallet acceptance and real fee buyback activation.";
+      blockReason = "Base issuance awaits its verified fee adapter, native Automation configuration and owner activation confirmation.";
     }
     if (this.runtime.config.mode !== "fork") {
       try {

@@ -6,7 +6,7 @@ import type { BaseCollectorManifest } from "../server/base-collector";
 import type { BaseAuditStore } from "../server/base-audit";
 import { BASE_NATIVE_DESTINATION_POLICY } from "../src/lib/base-buyback";
 import { canonicalProofJson } from "../server/base-native-provenance";
-import { activationRecordIdentity, assertBaseActivationRecord, hasBaseLaunchActivationRecord, persistBaseActivationRecord,
+import { activationRecordIdentity, assertBaseActivationRecord, baseActivationAcceptanceReady, hasBaseLaunchActivationRecord, persistBaseActivationRecord,
   type BaseActivationAnchors, type BaseActivationHeads } from "../server/base-activation-record";
 
 const hash = (number: bigint | number): Hex => `0x${BigInt(number).toString(16).padStart(64, "0")}`;
@@ -52,6 +52,127 @@ function fixture() {
   return { manifest, anchors, heads, store, records, source, destination, client, reads: () => rpcReads, casCalls: () => casCalls,
     mutateStore: (value: { casMiss?: boolean; failure?: boolean }) => { casMiss = value.casMiss ?? false; storeFailure = value.failure ?? false; } };
 }
+
+function trustedFixture() {
+  const f = fixture(), manifest = f.manifest;
+  manifest.canaryAuthorization = null;
+  manifest.activation = { status: "trusted_splits_authorized", trustedSplitsAcceptance: {
+    version: 1, sourceChainId: 8453, destinationChainId: 4663, graphFingerprint: graph,
+    collector: manifest.collector.address!, automationReceiver: manifest.constants.automationReceiver!,
+    destinationTreasury: manifest.constants.destinationTreasury, destinationWeth: manifest.constants.destinationWeth,
+    destinationVault: manifest.finalSettlement.vault, keeper: "0xd3f11a4DDcED57aC4E41F8CE7fD323959667e278",
+    ruleId: manifest.nativeRule.ruleId!, configurationSha256: manifest.nativeRule.configurationSha256!,
+    trustSplitsNativeExecution: true, signer: manifest.constants.governor!, signature: "0x1234",
+  } };
+  return f;
+}
+
+test("trusted Splits acceptance can persist exact finalized wiring without creating canary fee, native execution, wallet or burn proof", async () => {
+  const f = trustedFixture();
+  assert.equal(baseActivationAcceptanceReady(f.manifest), true);
+  assert.equal(await hasBaseLaunchActivationRecord(f.store, f.manifest, graph), false);
+  assert.equal(f.manifest.canaryAuthorization, null);
+  for (const key of ["nativeExecution", "nativeRunAcceptance", "walletAcceptance", "pauseRollbackAcceptance"])
+    assert.equal((f.manifest.activation as Record<string, unknown>)[key], undefined);
+  await persistBaseActivationRecord(f.source, f.destination, f.store, f.manifest, graph, f.anchors, f.heads);
+  assert.equal(await hasBaseLaunchActivationRecord(f.store, f.manifest, graph), true);
+  await assertBaseActivationRecord(f.source, f.destination, f.store, f.manifest, graph, f.heads);
+  const record = [...f.records.values()][0];
+  assert.equal(record.protocol, "internal_native_activation_v1");
+  assert.equal(record.version, 1);
+  assert.equal(record.graphFingerprint, graph);
+  assert(!JSON.stringify(record).includes("canary_verified"));
+  assert(!JSON.stringify(record).includes("nativeExecution"));
+  const reads = f.reads(), writes = f.casCalls();
+  f.source.state.failed = true; f.destination.state.failed = true;
+  assert.equal(await hasBaseLaunchActivationRecord(f.store, f.manifest, graph), true);
+  assert.equal(f.reads(), reads); assert.equal(f.casCalls(), writes);
+});
+
+test("trusted status alone, missing signature, wrong governor or altered configured wiring cannot grant activation", async () => {
+  const other = "0x1111111111111111111111111111111111111111";
+  const changes: ((m: BaseCollectorManifest) => void)[] = [
+    m => { delete m.activation.trustedSplitsAcceptance; },
+    m => { m.activation.trustedSplitsAcceptance!.signature = undefined as any; },
+    m => { m.activation.trustedSplitsAcceptance!.signature = "0x"; },
+    m => { m.activation.trustedSplitsAcceptance!.signature = "0x123"; },
+    m => { m.activation.trustedSplitsAcceptance!.signature = "not-hex" as Hex; },
+    m => { m.activation.trustedSplitsAcceptance!.signer = other; },
+    m => { m.activation.trustedSplitsAcceptance!.keeper = "0x0000000000000000000000000000000000000000"; },
+    m => { m.activation.trustedSplitsAcceptance!.version = 2 as any; },
+    m => { m.activation.trustedSplitsAcceptance!.sourceChainId = 4663 as any; },
+    m => { m.activation.trustedSplitsAcceptance!.destinationChainId = 8453 as any; },
+    m => { m.activation.trustedSplitsAcceptance!.trustSplitsNativeExecution = false as any; },
+    m => { delete (m.activation.trustedSplitsAcceptance as any).trustSplitsNativeExecution; },
+    m => { m.activation.trustedSplitsAcceptance!.graphFingerprint = "0x"; },
+    m => { m.activation.trustedSplitsAcceptance!.collector = other; },
+    m => { m.activation.trustedSplitsAcceptance!.automationReceiver = other; },
+    m => { m.activation.trustedSplitsAcceptance!.destinationTreasury = other; },
+    m => { m.activation.trustedSplitsAcceptance!.destinationWeth = other; },
+    m => { m.activation.trustedSplitsAcceptance!.destinationVault = other; },
+    m => { m.activation.trustedSplitsAcceptance!.ruleId = ""; },
+    m => { m.activation.trustedSplitsAcceptance!.ruleId += "-changed"; },
+    m => { m.activation.trustedSplitsAcceptance!.configurationSha256 = hash(777); },
+    m => { m.activation.trustedSplitsAcceptance!.configurationSha256 = "0x"; },
+    m => { m.activation.status = "not_run"; },
+  ];
+  for (const change of changes) {
+    const f = trustedFixture(); change(f.manifest);
+    assert.equal(baseActivationAcceptanceReady(f.manifest), false);
+    await assert.rejects(() => persistBaseActivationRecord(f.source, f.destination, f.store, f.manifest, graph, f.anchors, f.heads), unavailable);
+    assert.equal(await hasBaseLaunchActivationRecord(f.store, f.manifest, graph), false);
+    assert.equal(f.casCalls(), 0); assert.equal(f.records.size, 0);
+  }
+});
+
+test("trusted activation record binds the full signed acceptance, graph and any retained historical canary authorization", async () => {
+  const f = trustedFixture();
+  await persistBaseActivationRecord(f.source, f.destination, f.store, f.manifest, graph, f.anchors, f.heads);
+  const identity = activationRecordIdentity(f.manifest, graph);
+  for (const change of [
+    (m: BaseCollectorManifest) => { m.activation.trustedSplitsAcceptance!.signature = "0x5678"; },
+    (m: BaseCollectorManifest) => { m.activation.trustedSplitsAcceptance!.keeper = "0x1111111111111111111111111111111111111111"; },
+    (m: BaseCollectorManifest) => { m.canaryAuthorization = { signature: "0x4567", expiresAt: "1" } as any; },
+  ]) {
+    const changed = structuredClone(f.manifest); change(changed);
+    assert.notEqual(activationRecordIdentity(changed, graph).id, identity.id);
+    assert.equal(await hasBaseLaunchActivationRecord(f.store, changed, graph), false);
+    await assert.rejects(() => assertBaseActivationRecord(f.source, f.destination, f.store, changed, graph, f.heads), unavailable);
+  }
+  const changedGraph = structuredClone(f.manifest);
+  changedGraph.activation.trustedSplitsAcceptance!.graphFingerprint = hash(998);
+  assert.equal(baseActivationAcceptanceReady(changedGraph), true, "The new graph requires its own explicit finalized record");
+  await assert.rejects(() => persistBaseActivationRecord(f.source, f.destination, f.store, changedGraph, graph, f.anchors, f.heads), unavailable);
+  await assert.rejects(() => assertBaseActivationRecord(f.source, f.destination, f.store, changedGraph, hash(998), f.heads), unavailable);
+  assert.equal(await hasBaseLaunchActivationRecord(f.store, changedGraph, hash(998)), false);
+  assert.equal(f.casCalls(), 1);
+});
+
+test("trusted acceptance remains pending on unavailable RPC, missing finality, shallow anchors or an operator CAS conflict", async () => {
+  for (const cause of ["rpc", "finalized", "depth", "cas"] as const) {
+    const f = trustedFixture();
+    if (cause === "rpc") f.source.state.failed = true;
+    if (cause === "finalized") f.destination.state.finalized = 119n;
+    if (cause === "depth") f.heads.source = { number: 164n, hash: hash(164) };
+    if (cause === "cas") f.mutateStore({ casMiss: true });
+    await assert.rejects(() => persistBaseActivationRecord(f.source, f.destination, f.store, f.manifest, graph, f.anchors, f.heads), unavailable);
+    assert.equal(f.records.size, 0);
+    assert.equal(await hasBaseLaunchActivationRecord(f.store, f.manifest, graph), false);
+  }
+});
+
+test("historical canary acceptance still requires every original proof and cannot be silently upgraded to trusted Splits", () => {
+  const f = fixture();
+  assert.equal(baseActivationAcceptanceReady(f.manifest), true);
+  for (const field of ["nativeExecution", "nativeRunAcceptance", "walletAcceptance", "pauseRollbackAcceptance"] as const) {
+    const changed = structuredClone(f.manifest); delete changed.activation[field];
+    assert.equal(baseActivationAcceptanceReady(changed), false, field);
+  }
+  const missingAuthorization = structuredClone(f.manifest); missingAuthorization.canaryAuthorization = null;
+  assert.equal(baseActivationAcceptanceReady(missingAuthorization), false);
+  f.manifest.activation.status = "trusted_splits_authorized";
+  assert.equal(baseActivationAcceptanceReady(f.manifest), false);
+});
 
 test("finalized activation is reused across cold clients without receipts, logs, traces, writes, or a TTL", async () => {
   const f = fixture();

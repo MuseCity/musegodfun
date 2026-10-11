@@ -12,6 +12,7 @@ import { CONTRACTS, sameAddress, type RuntimeConfig } from "../src/lib/config";
 import { BASE_AUTOMATION_FEE_POLICY } from "../src/lib/fee-policy";
 import type { VaultLedgerReport } from "../src/lib/buyback-vault-ledger";
 import { BASE_COLLECTOR_MANIFEST, verifyBaseCollector, assertBaseKeeperAuthority, type BaseCollectorCanaryAuthorization } from "../server/base-collector";
+import { baseActivationAcceptanceReady } from "../server/base-activation-record";
 import { BASE_GAS_PRICE_ORACLE, baseGasPriceOracleAbi, canonicalBaseReceipt, collectorClaimEvidence, collectorReleaseEvidence, collectorUntrackedSyncEvidence, readCanonicalBaseTransactionFee, readTrustedBaseRecoveryAssets, type BaseRecoveryAssetPolicy } from "../server/base-buyback";
 import { loadEnvironment, redact, runtimeFromEnv, mainnetRpcUrl, type Runtime, type RuntimeEnvironment } from "../server/config";
 import { SupabaseStore, type StoreBackend } from "../server/supabase-store";
@@ -136,9 +137,11 @@ export function assertBaseRoleSecrets(environment: RuntimeEnvironment) {
   if (!environment.MUSEGOD_KEEPER_PRIVATE_KEY || Object.entries(environment).some(([name, value]) => value &&
     /PRIVATE_KEY|EVM_DY|MNEMONIC|SEED_PHRASE/i.test(name) && name !== "MUSEGOD_KEEPER_PRIVATE_KEY")) throw new Error("The execute process must contain only its own MUSEGOD_KEEPER_PRIVATE_KEY wallet secret");
 }
-export function assertBaseKeeperRoles(keeper: Address, manifest: Pick<typeof BASE_COLLECTOR_MANIFEST, "constants">, treasury?: Address | null) {
+export function assertBaseKeeperRoles(keeper: Address, manifest: Pick<typeof BASE_COLLECTOR_MANIFEST, "constants"> & Partial<Pick<typeof BASE_COLLECTOR_MANIFEST, "activation">>, treasury?: Address | null) {
   if ([manifest.constants.governor, manifest.constants.operationsTreasury, manifest.constants.automationReceiver, manifest.constants.destinationTreasury, treasury]
     .some(role => role && sameAddress(role, keeper))) throw new Error("The Base gas keeper must be separate from governor, treasury and Automation custody roles");
+  if (manifest.activation?.status === "trusted_splits_authorized" && !sameAddress(keeper, manifest.activation.trustedSplitsAcceptance?.keeper ?? ""))
+    throw new Error("The Base gas keeper differs from the governor-authorized trusted Splits keeper");
 }
 export function baseFeeTransaction(batch: BaseFeeBatch) {
   if (batch.protocol !== BASE_BUYBACK_PROTOCOL || batch.sourceChainId !== 8453 || batch.destinationChainId !== 4663) throw new Error("Only native Base fee tasks can be signed");
@@ -497,7 +500,7 @@ export async function runBaseBuybackKeeper(args = process.argv.slice(2)) {
         verifyGraph: () => verifyBaseCollector(client, collector, { requireActivation: false,
           robinhoodClient: destination, auditStore: source }),
         verifyAuthority: async graph => {
-          if (!execute && (canary ? graph.paused : BASE_COLLECTOR_MANIFEST.activation.status !== "canary_verified")) return false;
+          if (!execute && (canary ? graph.paused : !baseActivationAcceptanceReady(BASE_COLLECTOR_MANIFEST))) return false;
           await verifyBaseCollector(client, collector, { requireActivation: canary ? false : "runtime", allowCanary: canary,
             canaryOrigin: canary ? origin : undefined, robinhoodClient: destination, auditStore: source });
           return true;

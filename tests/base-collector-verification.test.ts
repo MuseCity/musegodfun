@@ -5,13 +5,18 @@ import { encodeAbiParameters, encodeDeployData, encodeEventTopics, getAddress, k
 import { privateKeyToAccount } from "viem/accounts";
 import splitsCode from "../contracts/artifacts/base-collector/splits-base-code.json";
 import collectorArtifact from "../contracts/artifacts/base-collector/MusegodBaseFeeCollector.json";
+import robinhoodDeployment from "../contracts/artifacts/buyback-v2-deployment.json";
+import buybackConfig from "../contracts/buyback.config.json";
 import { BASE_COLLECTOR_MANIFEST, baseCollectorExpectedRuntime, baseCollectorGraphFingerprint, baseCollectorCanaryMessage,
   verifyBaseCollector, verifyBaseAutomationAccount, BASE_SPLITS_FACTORY, BASE_SPLITS_FACTORY_HASH, BASE_SPLITS_IMPLEMENTATION, BASE_SPLITS_IMPLEMENTATION_HASH, BASE_SPLITS_PROXY_HASH, type BaseCollectorClient, type BaseCollectorManifest, type BaseCollectorCanaryAuthorization } from "../server/base-collector";
-import { baseCollectorFinalizedEvidence, verifyBaseCanaryAuthorization, baseNativeExecutionSha256, baseNativeRunAcceptanceMessage, verifyBaseNativeRunAuthority, assertBaseKeeperAuthority, baseSplitsSignerAuthority, type BaseNativeRunAcceptance } from "../server/base-collector";
-import { CONTRACTS, STOCKS, sameAddress } from "../src/lib/config";
+import { baseCollectorFinalizedEvidence, verifyBaseCanaryAuthorization, baseNativeExecutionSha256, baseNativeRunAcceptanceMessage, verifyBaseNativeRunAuthority, assertBaseKeeperAuthority, baseSplitsSignerAuthority, baseTrustedSplitsMessage, verifyBaseTrustedSplitsAuthority, type BaseTrustedSplitsAcceptance, type BaseNativeRunAcceptance } from "../server/base-collector";
+import { assetsFor, CONTRACTS, STOCKS, sameAddress } from "../src/lib/config";
 import { prepareBaseCollectorDeploymentSequence } from "../scripts/deploy-base-collector";
-import { persistBaseActivationRecord } from "../server/base-activation-record";
+import { hasBaseLaunchActivationRecord, persistBaseActivationRecord } from "../server/base-activation-record";
 import type { BaseAuditStore } from "../server/base-audit";
+import { BUYBACK_CODE_HASHES, RELAY_ROUTER } from "../server/buyback";
+import { RELAY_APPROVAL_PROXY, RELAY_DEPOSITORY } from "../src/lib/buyback";
+import { BUYBACK_FORWARDER_ALLOWANCE_CAP } from "../src/lib/buyback-engine";
 const address = (value: number) => getAddress(`0x${value.toString(16).padStart(40, "0")}`);
 const hash = (value: number) => `0x${value.toString(16).padStart(64, "0")}` as Hex;
 const governor = privateKeyToAccount(`0x${"01".padStart(64, "0")}`);
@@ -19,6 +24,9 @@ const collector = address(10), automation = address(11), implementation = BASE_S
 const runtime = "0x6001600055" as Hex, implementationCode = splitsCode.implementationCode as Hex, proxyCode = splitsCode.proxyCode as Hex, factoryCode = splitsCode.factoryCode as Hex;
 function fixture() {
   const manifest = structuredClone(BASE_COLLECTOR_MANIFEST);
+  // Each offline scenario chooses its own acceptance; never inherit a live owner signature.
+  manifest.activation = { status: "not_run" };
+  manifest.canaryAuthorization = null;
   manifest.status = "deployed_verified";
   manifest.constants.governor = governor.address; manifest.constants.automationReceiver = automation;
   manifest.collector = { address: collector, runtimeHash: hash(0), transactionHash: hash(1), blockNumber: "100" };
@@ -174,6 +182,8 @@ test("a finalized static replay never replaces fresh EIP-1271 governor authoriza
 });
 test("native pending manifest never claims deployment or invokes RPC", async () => {
   const pending = structuredClone(BASE_COLLECTOR_MANIFEST);
+  pending.activation = { status: "not_run" };
+  pending.canaryAuthorization = null;
   pending.status = "not_deployed";
   Object.assign(pending.collector, { address: null, runtimeHash: null, transactionHash: null, blockNumber: null });
   pending.constants.automationReceiver = null;
@@ -368,6 +378,8 @@ test("graph fingerprint excludes activation/auth proofs but binds the native rul
 });
 test("unsigned native Collector deployment has one CREATE and no module or role enabling", async () => {
   const pending = structuredClone(BASE_COLLECTOR_MANIFEST);
+  pending.activation = { status: "not_run" };
+  pending.canaryAuthorization = null;
   pending.status = "not_deployed";
   Object.assign(pending.collector, { address: null, runtimeHash: null, transactionHash: null, blockNumber: null });
   pending.constants.automationReceiver = null;
@@ -423,6 +435,8 @@ test("native completed-run acceptance rechecks current governor EIP-1271 authori
 test("production activation needs a retained operator result and never falls back to historical receipts", async () => {
   const f = fixture(); f.manifest.activation.status = "canary_verified";
   f.manifest.activation.nativeExecution = { proof: { sourceHash: hash(3), destinationHash: hash(4) } };
+  f.manifest.canaryAuthorization = {} as any; f.manifest.activation.walletAcceptance = {} as any;
+  f.manifest.activation.pauseRollbackAcceptance = {} as any; f.manifest.activation.nativeRunAcceptance = {} as any;
   let receipts = 0, writes = 0;
   f.client.getTransactionReceipt = async () => { receipts++; throw new Error("Runtime must not replay historical receipts"); };
   const destination = { getChainId: async () => 4663, getBlock: async () => ({ number: 1000n, hash: hash(1000) }) } as unknown as BaseCollectorClient;
@@ -465,4 +479,153 @@ test("live Automation checks keep current signers and modules while skipping acc
   g.moduleLogs.push({address:automation,blockNumber:500n,topics:encodeEventTopics({abi:[parseAbiItem("event EnabledModule(address indexed module)")],eventName:"EnabledModule",args:{module:keeper}}),data:"0x",removed:false});g.moduleEnabled(true);
   await assert.rejects(verifyBaseAutomationAccount(g.client,g.manifest,1000n,undefined,false),/module is enabled/);
   assert.equal(receipts,0);
+});
+
+async function trustedAcceptance(f: ReturnType<typeof fixture>) {
+  const acceptance: BaseTrustedSplitsAcceptance = { version:1,sourceChainId:8453,destinationChainId:4663,
+    graphFingerprint:baseCollectorGraphFingerprint(f.manifest),collector,automationReceiver:automation,
+    destinationTreasury:f.manifest.constants.destinationTreasury,destinationWeth:f.manifest.constants.destinationWeth,
+    destinationVault:f.manifest.finalSettlement.vault,keeper,ruleId:f.manifest.nativeRule.ruleId!,
+    configurationSha256:f.manifest.nativeRule.configurationSha256!,trustSplitsNativeExecution:true,signer:governor.address,signature:"0x" };
+  acceptance.signature=await governor.signMessage({message:baseTrustedSplitsMessage(acceptance)});
+  f.manifest.activation={status:"trusted_splits_authorized",trustedSplitsAcceptance:acceptance};f.manifest.canaryAuthorization=null;
+  return acceptance;
+}
+
+test("trusted Splits acceptance authenticates the configured project path without inventing any execution proof",async()=>{
+  const f=fixture();const acceptance=await trustedAcceptance(f);let receipts=0;
+  f.client.getTransactionReceipt=async()=>{receipts++;throw new Error("There is no manufactured fee, wallet or provider-run receipt");};
+  assert.equal(await verifyBaseTrustedSplitsAuthority(f.client,f.manifest,1000n),acceptance);
+  assert.equal(f.manifest.activation.nativeExecution,undefined);assert.equal(f.manifest.canaryAuthorization,null);assert.equal(receipts,0);
+  f.mutate({chainId:4663});await assert.rejects(()=>verifyBaseTrustedSplitsAuthority(f.client,f.manifest,1000n),/Base RPC/);
+});
+
+test("trusted acceptance signature binds chains, graph, assets, accounts, rule, keeper and the explicit trust decision",async()=>{
+  const mutations: [string,unknown][]=[["version",2],["sourceChainId",4663],["destinationChainId",8453],["graphFingerprint",hash(777)],
+    ["collector",address(777)],["automationReceiver",address(777)],["destinationTreasury",address(777)],["destinationWeth",address(777)],
+    ["destinationVault",address(777)],["keeper",address(777)],["ruleId","another-rule"],["configurationSha256",hash(777)],
+    ["trustSplitsNativeExecution",false],["signer",keeper],["signature","0x"]];
+  for(const [field,value] of mutations){const f=fixture();await trustedAcceptance(f);(f.manifest.activation.trustedSplitsAcceptance as any)[field]=value;
+    await assert.rejects(()=>verifyBaseTrustedSplitsAuthority(f.client,f.manifest,1000n),Error,field);}
+  const other=fixture();const acceptance=await trustedAcceptance(other);
+  acceptance.signature=await privateKeyToAccount(hash(2)).signMessage({message:baseTrustedSplitsMessage(acceptance)});
+  await assert.rejects(()=>verifyBaseTrustedSplitsAuthority(other.client,other.manifest,1000n),/governor|signature/);
+});
+
+test("trusted configuration records retain live governor revocation and do not enable runtime on a status flag alone",async()=>{
+  const f=fixture();await trustedAcceptance(f);let receipts=0,signatures=0;
+  const records=new Map<string,any>(),store:BaseAuditStore={getBuybackBatch:async id=>records.get(id)??null,compareAndSetBuybackAudit:async row=>{records.set(String(row.id),row);return true;}};
+  const destination={getChainId:async()=>4663,getBlock:async(input:any)=>{const number=input.blockNumber??1000n;return{number,hash:hash(Number(number))};}} as unknown as BaseCollectorClient;
+  await assert.rejects(()=>verifyBaseCollector(f.client,collector,{manifest:f.manifest,requireActivation:"runtime",robinhoodClient:destination,auditStore:store}),/explicit operator verification/);
+  await persistBaseActivationRecord(f.client,destination,store,f.manifest,baseCollectorGraphFingerprint(f.manifest),
+    {source:[{number:90n,hash:hash(90)},{number:100n,hash:hash(100)}],destination:[{number:120n,hash:hash(120)}]},
+    {source:{number:1000n,hash:hash(1000)},destination:{number:1000n,hash:hash(1000)}});
+  const code=f.client.getCode.bind(f.client),read=f.client.readContract.bind(f.client);
+  f.client.getCode=async args=>args.address===governor.address?"0x1234":code(args);
+  f.client.readContract=(async(args:any)=>{if(args.functionName==="isValidSignature"){signatures++;return"0x00000000";}return read(args);}) as any;
+  f.client.getTransactionReceipt=async()=>{receipts++;throw new Error("Runtime cannot replay configuration receipts");};
+  await assert.rejects(()=>verifyBaseCollector(f.client,collector,{manifest:f.manifest,requireActivation:"runtime",robinhoodClient:destination,auditStore:store}),/Governor contract rejected/);
+  assert.equal(signatures,1);assert.equal(receipts,0);assert.equal(records.size,1);
+});
+
+test("a paused Collector records owner-approved Splits wiring only after complete two-chain graph and finalized anchor verification",async t=>{
+  // Only bytecode hashes are synthetic. The Robinhood addresses, immutable
+  // getters and safety limits remain those of the pinned deployed graph.
+  // This exercises configuration acceptance, never a mainnet fee execution.
+  const runtimeHash=keccak256(runtime),contracts=Object.values(robinhoodDeployment.contracts);
+  const originalContractHashes=contracts.map(contract=>contract.runtimeHash);
+  const implementation=robinhoodDeployment.preflight.dependencies.find(entry=>entry.name==="swapperImpl")!;
+  const originalImplementationHash=implementation.runtimeHash,originalRouterHashes={...buybackConfig.expectedRuntimeHashes},originalRelayHashes={...BUYBACK_CODE_HASHES};
+  t.after(()=>{
+    contracts.forEach((contract,index)=>{contract.runtimeHash=originalContractHashes[index];});
+    implementation.runtimeHash=originalImplementationHash;
+    Object.assign(buybackConfig.expectedRuntimeHashes,originalRouterHashes);
+    Object.assign(BUYBACK_CODE_HASHES,originalRelayHashes);
+  });
+  contracts.forEach(contract=>{contract.runtimeHash=runtimeHash;});implementation.runtimeHash=runtimeHash;
+  buybackConfig.expectedRuntimeHashes.router=runtimeHash;buybackConfig.expectedRuntimeHashes.routerExecutor=runtimeHash;
+  for(const endpoint of [RELAY_APPROVAL_PROXY,RELAY_DEPOSITORY,RELAY_ROUTER])BUYBACK_CODE_HASHES[endpoint.toLowerCase()]=runtimeHash;
+  const c=robinhoodDeployment.constants,nodes=Object.fromEntries(Object.entries(robinhoodDeployment.contracts).map(([name,entry])=>[name,getAddress(entry.address)]));
+  const feeds=[{token:c.weth,feed:c.ethUsdFeed,maxAge:buybackConfig.ethMaxAge,checkOraclePaused:false},...buybackConfig.feeds];
+  const descriptions=robinhoodDeployment.assetFeedDescriptions as Record<string,{descriptionHash:string}>;
+  const rhAssets=assetsFor({mode:"robinhood"});
+  const getters:Record<string,Record<string,unknown>>={
+    [nodes.engine.toLowerCase()]:{initializer:c.initializer,rehype:c.rehype,oracle:nodes.oracle,assetOracle:nodes.assetOracle,settlementVault:nodes.vault,
+      swapper:nodes.swapper,weth:c.weth,muse:c.muse,router:c.router,automation:c.automation,routerCodeHash:runtimeHash,
+      routerExecutor:c.routerExecutor,routerExecutorCodeHash:runtimeHash},
+    [nodes.executor.toLowerCase()]:{swapper:nodes.swapper,weth:c.weth,musegod:c.muse,router:c.swapRouter},
+    [nodes.forwarder.toLowerCase()]:{source:c.automationTreasury,weth:c.weth,swapper:nodes.swapper,vault:nodes.vault,
+      MAX_ALLOWANCE:BUYBACK_FORWARDER_ALLOWANCE_CAP,totalForwarded:0n},
+    [nodes.vault.toLowerCase()]:{weth:c.weth,musegod:c.muse,oracle:nodes.oracle,swapper:nodes.swapper,executor:nodes.executor,pool:c.museWethPool,
+      WINDOW_CAP:10n**16n,WINDOW_SECONDS:300n,MAX_DEVIATION_BPS:200n},
+    [nodes.assetOracle.toLowerCase()]:{governor:c.treasury,weth:c.weth,FEED_CHANGE_DELAY:604800n},
+    [nodes.oracle.toLowerCase()]:{weth:c.weth,musegod:c.muse,museWethPool:c.museWethPool,ethUsdFeed:c.ethUsdFeed,
+      TWAP_SECONDS:buybackConfig.twapSeconds,ethMaxAge:buybackConfig.ethMaxAge},
+    [nodes.swapper.toLowerCase()]:{owner:address(0),paused:false,beneficiary:c.beneficiary,tokenToBeneficiary:c.muse,oracle:nodes.oracle,
+      defaultScaledOfferFactor:985000,getPairScaledOfferFactors:[0]},
+  };
+  for(const scenario of ["complete","no_post_write_rpc","wrong_recipient","source_not_finalized","destination_past_head","destination_finalized_unavailable","head_changed_before_write","head_rpc_before_write"] as const){
+    const f=fixture();f.getters.paused=true;await trustedAcceptance(f);
+    const baseCode=f.client.getCode.bind(f.client),baseBlock=f.client.getBlock.bind(f.client),baseReceipt=f.client.getTransactionReceipt.bind(f.client);
+    const receiptHashes:Hex[]=[];let nativeRequests=0,activationWrites=0,postWriteReads=0,sourceAnchorRead=false,destinationAnchorRead=false;
+    f.client.getCode=async input=>[RELAY_APPROVAL_PROXY,RELAY_DEPOSITORY,RELAY_ROUTER].some(endpoint=>sameAddress(endpoint,input.address))?runtime:baseCode(input);
+    f.client.getBlock=async input=>{
+      if(scenario==="no_post_write_rpc"&&activationWrites){postWriteReads++;throw new Error("No RPC is permitted after the completed activation CAS");}
+      if(input&&"blockNumber" in input&&input.blockNumber===936n)sourceAnchorRead=true;
+      if(input&&"blockNumber" in input&&input.blockNumber===1000n&&sourceAnchorRead&&destinationAnchorRead){
+        if(scenario==="head_changed_before_write")return{number:1000n,hash:hash(999)} as any;
+        if(scenario==="head_rpc_before_write")throw new Error("Outer Base head RPC is unavailable before activation CAS");
+      }
+      return input&&"blockTag" in input&&input.blockTag==="finalized"&&scenario==="source_not_finalized"
+        ? {number:99n,hash:hash(99)} as any:baseBlock(input);
+    };
+    f.client.getTransactionReceipt=async input=>{receiptHashes.push(input.hash);return baseReceipt(input);};
+    f.client.request=async()=>{nativeRequests++;throw new Error("Configuration acceptance must not trace or send transactions");};
+    const records=new Map<string,any>();
+    const store:BaseAuditStore={getBuybackBatch:async id=>structuredClone(records.get(id)??null),compareAndSetBuybackAudit:async(row,expected)=>{
+      assert.deepEqual(records.get(row.id)??null,expected);records.set(row.id,structuredClone(row));
+      if(row.protocol==="internal_native_activation_v1")activationWrites++;return true;
+    }};
+    const destination={getChainId:async()=>4663,getBlockNumber:async()=>1000n,getCode:async()=>runtime,
+      getBlock:async(input:{blockNumber?:bigint;blockTag?:string})=>{
+        if(scenario==="no_post_write_rpc"&&activationWrites){postWriteReads++;throw new Error("No destination RPC is permitted after activation CAS");}
+        if(input.blockNumber===900n)destinationAnchorRead=true;
+        if(input.blockTag==="finalized"&&scenario==="destination_finalized_unavailable")throw new Error("Finalized RPC is unavailable");
+        const number=input.blockNumber??(input.blockTag==="finalized"?(scenario==="destination_past_head"?1001n:900n):1000n);
+        return{number,hash:hash(Number(number)),timestamp:1000n};
+      },readContract:async(input:{address:Address;functionName:string;args?:Address[];blockNumber:bigint})=>{
+        assert.equal(input.blockNumber,1000n);
+        if(input.functionName==="balanceOf"||input.functionName==="allowance")return 0n;
+        if(input.functionName==="descriptionHash")return descriptions[input.args![0].toLowerCase()].descriptionHash;
+        if(input.functionName==="assetFeeds"){
+          const feed=feeds.find(entry=>sameAddress(entry.token,input.args![0]))!;
+          const decimals=sameAddress(feed.token,c.weth)?18:rhAssets.find(asset=>sameAddress(asset.address,feed.token))!.decimals;
+          return[feed.feed,feed.maxAge,decimals,8,feed.checkOraclePaused];
+        }
+        if(scenario==="wrong_recipient"&&sameAddress(input.address,nodes.forwarder)&&input.functionName==="source")return address(999);
+        const value=getters[input.address.toLowerCase()]?.[input.functionName];
+        assert.notEqual(value,undefined,`Unexpected configured Robinhood getter ${input.address}.${input.functionName}`);return value;
+      },request:async()=>{nativeRequests++;throw new Error("Configuration acceptance must not use trace");},
+    } as unknown as BaseCollectorClient;
+    const options={manifest:f.manifest,recordActivation:true,robinhoodClient:destination,auditStore:store};
+    if(scenario==="complete"||scenario==="no_post_write_rpc"){
+      const verified=await verifyBaseCollector(f.client,collector,options);
+      assert.equal(verified.paused,true);assert.equal(verified.manifestFingerprint,baseCollectorGraphFingerprint(f.manifest));
+      assert.equal(activationWrites,1);
+      assert.equal(await hasBaseLaunchActivationRecord(store,f.manifest,verified.manifestFingerprint),true);
+      const record=[...records.values()].find(row=>row.protocol==="internal_native_activation_v1");
+      assert.deepEqual(record.anchors.source.map((anchor:any)=>anchor.number).sort(),["100","90","936"]);
+      assert.deepEqual(record.anchors.destination,[{number:"900",hash:hash(900)}]);
+      assert.equal(record.finalized.source.number,"1000");assert.equal(record.finalized.destination.number,"900");
+    }else{
+      const error=scenario==="wrong_recipient"?/WETH forwarder dependencies/:scenario==="head_changed_before_write"?/verification head was reorganized/:
+        scenario==="head_rpc_before_write"?/Outer Base head RPC is unavailable/:/finalized|Finalized|finalized Base activation record/;
+      await assert.rejects(()=>verifyBaseCollector(f.client,collector,options),error);
+      assert.equal(activationWrites,0);
+      assert.equal(await hasBaseLaunchActivationRecord(store,f.manifest,baseCollectorGraphFingerprint(f.manifest)),false);
+    }
+    assert.equal(f.getters.paused,true,scenario);assert.equal(f.manifest.activation.nativeExecution,undefined);
+    assert.equal(f.manifest.canaryAuthorization,null);assert.equal(nativeRequests,0);assert.equal(postWriteReads,0);
+    assert(receiptHashes.every(receipt=>receipt===hash(1)||receipt===hash(2)),"Only existing deployment and account initialization receipts may be inspected");
+  }
 });

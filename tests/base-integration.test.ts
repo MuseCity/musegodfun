@@ -46,7 +46,9 @@ function reviewedFixture(t: import("node:test").TestContext) {
     implementation:{address:BASE_SPLITS_IMPLEMENTATION,runtimeHash:BASE_SPLITS_IMPLEMENTATION_HASH},factory:{address:BASE_SPLITS_FACTORY,runtimeHash:BASE_SPLITS_FACTORY_HASH},
     threshold:1,signers:[{...signer,index:0}],initializationHash:hash,blockNumber:"1",creation:{owner,threshold:1,signers:[signer],salt:"8453"}};
   BASE_COLLECTOR_MANIFEST.collector.runtimeHash=keccak256(baseCollectorExpectedRuntime(BASE_COLLECTOR_MANIFEST));
-  BASE_COLLECTOR_MANIFEST.activation.status = "canary_verified";
+  // Complete legacy payload presence for isolated display fixtures; cryptographic and receipt verification has separate tests.
+  BASE_COLLECTOR_MANIFEST.activation = {status:"canary_verified",nativeExecution:{},nativeRunAcceptance:{} as any,
+    walletAcceptance:{} as any,pauseRollbackAcceptance:{} as any};BASE_COLLECTOR_MANIFEST.canaryAuthorization={} as any;
   t.after(() => Object.assign(BASE_COLLECTOR_MANIFEST, manifest));
 }
 function hostContents(observedAt: number, sourceReady = true, fresh = true): BaseAuditSnapshotContents {
@@ -269,6 +271,29 @@ test("Base issuance uses its completed acceptance and CAS controls without keepe
     await service.store.updateRuntimeControl(false,"isolated test resume",2);now+=60_000;
     const expired=await read();assert.equal(expired.writesEnabled,true);assert.equal(expired.feeEngine,collector);
     assert.equal(calls,0,"Neither keeper downtime nor stale statistics can invoke chain checks or disable issuance");
+  }finally{await f.close();}
+});
+
+test("trusted Splits issuance needs a completed wiring record, flag and CAS resume while financial execution stays unperformed",async t=>{
+  reviewedFixture(t);const manifest=BASE_COLLECTOR_MANIFEST,hash=`0x${"12".repeat(32)}` as const;
+  manifest.activation={status:"trusted_splits_authorized",trustedSplitsAcceptance:{version:1,sourceChainId:8453,destinationChainId:4663,
+    graphFingerprint:baseCollectorGraphFingerprint(manifest),collector:manifest.collector.address!,automationReceiver:manifest.constants.automationReceiver!,
+    destinationTreasury:manifest.constants.destinationTreasury,destinationWeth:manifest.constants.destinationWeth,destinationVault:manifest.finalSettlement.vault,
+    keeper:"0xd3f11a4DDcED57aC4E41F8CE7fD323959667e278",ruleId:manifest.nativeRule.ruleId!,configurationSha256:manifest.nativeRule.configurationSha256!,
+    trustSplitsNativeExecution:true,signer:manifest.constants.governor!,signature:"0x1234"}};manifest.canaryAuthorization=null;
+  const f=await fixture(true),service=f.services.get(8453)!;let rpcReads=0;
+  Object.assign(service,{client:{getChainId:async()=>{rpcReads++;throw new Error("Issuance uses a previously verified private wiring record");}}});
+  const read=()=>fetch(`${f.origin}/api/chains/8453/config`).then(response=>response.json());
+  try{
+    await service.store.updateRuntimeControl(false,"isolated owner control",0);assert.equal((await read()).writesEnabled,false,"A trust flag alone is insufficient");
+    const client=(chainId:number)=>({getChainId:async()=>chainId,getBlock:async({blockNumber,blockTag}:any)=>({number:blockNumber??(blockTag==="finalized"?2n:100n),hash})});
+    // Private operator-result fixture only: signature verification is tested at the actual authority boundary separately.
+    await persistBaseActivationRecord(client(8453) as any,client(4663) as any,service.store,manifest,baseCollectorGraphFingerprint(manifest),
+      {source:[{number:1n,hash}],destination:[{number:1n,hash}]},{source:{number:100n,hash},destination:{number:100n,hash}});
+    const ready=await read();assert.equal(ready.writesEnabled,true);assert.equal(ready.feeEngine,collector);assert.equal(rpcReads,0);
+    assert.equal(manifest.activation.nativeExecution,undefined);assert.equal(manifest.activation.walletAcceptance,undefined);
+    f.base.config.writesEnabled=false;assert.equal((await read()).writesEnabled,false);f.base.config.writesEnabled=true;
+    await service.store.updateRuntimeControl(true,"isolated pause",1);assert.equal((await read()).writesEnabled,false);
   }finally{await f.close();}
 });
 

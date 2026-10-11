@@ -306,6 +306,9 @@ test("functional release smoke covers prices, verified assets and a read-only ca
 
 function deployedCollectorManifest(): BaseCollectorManifest {
   const manifest = structuredClone(BASE_COLLECTOR_MANIFEST);
+  // Pristine rollout fixtures represent their own unsigned state, regardless of the deployed owner's later acceptance.
+  manifest.activation = { status: "not_run" };
+  manifest.canaryAuthorization = null;
   manifest.status = "deployed_verified";
   manifest.nativeRule.ruleId = null;
   manifest.nativeRule.configurationSha256 = null;
@@ -328,6 +331,8 @@ function deployedCollectorManifest(): BaseCollectorManifest {
 test("first deployed paused baseline requires a fresh pristine check, then rollback carries the same Collector graph", async () => {
   const candidateManifest = deployedCollectorManifest(), candidateVars = { ENABLE_BASE_TRANSACTIONS: "false", BASE_FEE_COLLECTOR_ADDRESS: candidateManifest.collector.address! };
   const pending = structuredClone(BASE_COLLECTOR_MANIFEST);
+  pending.activation = { status: "not_run" };
+  pending.canaryAuthorization = null;
   pending.status = "not_deployed";
   Object.assign(pending.collector, { address: null, runtimeHash: null, transactionHash: null, blockNumber: null });
   let pristineCalls = 0, pristine = true;
@@ -378,6 +383,8 @@ test("uploaded runtime flags must equal the frozen source even while persistent 
 test("a pending Collector release cannot introduce the Base signing flag or a canary record", async () => {
   const input = { previousVars: {}, candidateVars: {}, candidateManifest: structuredClone(BASE_COLLECTOR_MANIFEST),
     previousRecoveryProtocol: false, pristine: async () => true };
+  input.candidateManifest.activation = { status: "not_run" };
+  input.candidateManifest.canaryAuthorization = null;
   input.candidateManifest.status = "not_deployed";
   Object.assign(input.candidateManifest.collector, { address: null, runtimeHash: null, transactionHash: null, blockNumber: null });
   assert.equal(await baseRollbackCompatible(input), true);

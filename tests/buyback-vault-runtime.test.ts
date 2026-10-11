@@ -1,9 +1,10 @@
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Store } from "../server/store";
+import { BASE_COLLECTOR_MANIFEST } from "../server/base-collector";
 import { runtimeFromEnv } from "../server/config";
 import { assertNativeCustodyReadiness, createVaultLedgerRuntime, openVaultLedgerReadOnlyStore, readCanonicalBaseSourceBatches } from "../server/buyback-vault-runtime";
 import { BASE_BUYBACK_PROTOCOL } from "../src/lib/base-buyback";
@@ -36,6 +37,65 @@ test("undeployed and fork runtime remain unavailable and perform no implicit pee
  const directory=mkdtempSync(join(tmpdir(),"native-fork-")),runtime=runtimeFromEnv(8453,{CHAIN_MODE:"fork",FORK_CHAIN_ID:"8453",DATA_DIR:directory}),store=new Store(runtime.dataDir,31337);
  let peers=0;const ledger=createVaultLedgerRuntime({runtime,store,client:{} as any},{openPeerStore:async()=>{peers++;throw new Error("no peer");}});
  try{assert.equal((await ledger.custody()).ready,false);assert.equal((await ledger.read()).attributionReady,false);assert.equal(peers,0);await assert.rejects(()=>ledger.initialize(),/canonical runtime/);await assert.rejects(()=>ledger.reconcile(),/canonical runtime/);}finally{await ledger.close();store.close();rmSync(directory,{recursive:true,force:true});}
+});
+
+function checkpointRuntimeFixture(t:TestContext,chain:8453|4663,graphDelay=13_000,releasedAt?:bigint){
+ const directory=mkdtempSync(join(tmpdir(),"native-checkpoint-operator-")),source=new Store(join(directory,"base"),8453),rh=new Store(join(directory,"robinhood"),4663);
+ const runtime=runtimeFromEnv(chain,{CHAIN_MODE:chain===8453?"base":"robinhood",DATA_DIR:directory}),collector=addr(30),automation=addr(31);
+ let now=0,sourceGraphs=0,destinationGraphs=0,nativeVerifications=0;t.mock.method(Date,"now",()=>now);
+ const scans:{from:bigint;to:bigint}[]=[];
+ const client=(chainId:8453|4663)=>({getChainId:async()=>chainId,getBlockNumber:async()=>100n,
+  getBlock:async({blockNumber}:any)=>({number:blockNumber,hash:hash(Number(blockNumber)+1000),parentHash:hash(Number(blockNumber)+999)}),
+  getCode:async()=>"0x6000",readContract:async()=>0n,getLogs:async({address,event,fromBlock,toBlock}:any)=>{
+   assert.equal(chainId,8453);assert.equal(address,collector);assert.equal(event.name,"FeesReleased");scans.push({from:fromBlock,to:toBlock});
+   return releasedAt!==undefined&&releasedAt>=fromBlock&&releasedAt<=toBlock?[{blockNumber:releasedAt}]:[];
+  }});
+ const sourceClient=client(8453),rhClient=client(4663),store=chain===8453?source:rh;
+ // This retained unverified row is used only to prove that checkpoint creation
+ // never prewarms unrelated native candidates or pretends they are income.
+ source.saveBuybackBatch({id:"retained-provider-proof",protocol:BASE_BUYBACK_PROTOCOL,sourceChainId:8453,destinationChainId:4663,
+  kind:"native_relay",status:"received",updatedAt:1,proof:{sourceHash:hash(7),destinationHash:hash(8)}});
+ const ledger=createVaultLedgerRuntime({runtime,store,client:(chain===8453?sourceClient:rhClient) as any},{
+  manifest:{status:"deployed_verified",collector:{address:collector},activation:{status:"not_run"}} as any,confirmations:1n,
+  openPeerStore:async(peer)=>peer.config.chainId===8453?source:rh,createPeerClient:(peer)=>(peer.config.chainId===8453?sourceClient:rhClient) as any,
+  verifyCollector:async()=>{sourceGraphs++;now+=graphDelay;return{collector,automationReceiver:automation,runtimeHash:hash(2),manifestFingerprint:hash(3),initialDeploymentBlock:1n,paused:true};},
+  verifyRobinhoodGraph:async()=>{destinationGraphs++;return{vault:BASE_BUYBACK_VAULT,weth:BASE_BUYBACK_RH_WETH,swapper:addr(32)};},
+  verifyNativeRelay:async()=>{nativeVerifications++;throw new Error("Checkpoint creation must not prewarm financial execution proofs");},
+ });
+ t.after(async()=>{await ledger.close();try{source.close();}catch{}try{rh.close();}catch{}rmSync(directory,{recursive:true,force:true});});
+ return{ledger,source,rh,scans,counts:()=>({sourceGraphs,destinationGraphs,nativeVerifications})};
+}
+
+for(const chain of [8453,4663] as const)test(`offline operator initializes canonical ${chain} checkpoints after a >12-second graph read without enlarging normal read gates`,async t=>{
+ const f=checkpointRuntimeFixture(t,chain);
+ assert.equal((await f.ledger.read()).attributionReady,false);assert.equal((await f.ledger.custody()).ready,false);
+ assert.equal(f.counts().destinationGraphs,0,"Ordinary read/custody stop at their original 12-second deadline");
+ assert.equal(f.source.custodyLedgerState("base_automation"),null);assert.equal(f.rh.custodyLedgerState("robinhood_treasury"),null);assert.equal(f.rh.vaultLedgerState(),null);
+ await f.ledger.initialize();
+ const expectedScan=Array.from({length:10},(_,index)=>({from:BigInt(index*10+1),to:BigInt(index*10+10)}));
+ assert.deepEqual(f.scans,Array.from({length:chain===8453?2:4},()=>expectedScan).flat(),"Every deployment-to-head log page remains guarded before and after checkpoint collection");
+ assert.equal(f.counts().destinationGraphs,1);assert.equal(f.counts().nativeVerifications,0,"Only operator preparation skips irrelevant provider prewarming");
+ const source=f.source.custodyLedgerState("base_automation"),treasury=f.rh.custodyLedgerState("robinhood_treasury"),vault=f.rh.vaultLedgerState();
+ if(chain===8453){assert.equal(source?.chainId,8453);assert.equal(source?.revision,1);assert.equal(source?.checkpoint.number,"99");assert.equal(treasury,null);assert.equal(vault,null);}
+ else{assert.equal(source,null);assert.equal(treasury?.chainId,4663);assert.equal(treasury?.checkpoint.number,"99");assert.equal(vault?.chainId,4663);assert.equal(vault?.checkpoint.number,"99");}
+ assert.equal((await f.ledger.read()).attributionReady,false);assert.equal((await f.ledger.custody()).ready,false);
+ assert.equal(f.counts().destinationGraphs,1,"Established checkpoints do not enlarge subsequent read/custody deadlines");
+ assert.deepEqual(f.source.custodyLedgerState("base_automation"),source);assert.deepEqual(f.rh.custodyLedgerState("robinhood_treasury"),treasury);assert.deepEqual(f.rh.vaultLedgerState(),vault);
+});
+
+for(const chain of [8453,4663] as const)test(`the ${chain} initialization budget cannot bypass a genuine first-release guard`,async t=>{
+ const f=checkpointRuntimeFixture(t,chain,13_000,25n);
+ await assert.rejects(f.ledger.initialize(),/pre-Base-funding/);
+ assert.deepEqual(f.scans,[{from:1n,to:10n},{from:11n,to:20n},{from:21n,to:30n}],"The actual complete-range guard stops on the first recorded release");
+ assert.equal(f.source.custodyLedgerState("base_automation"),null);assert.equal(f.rh.custodyLedgerState("robinhood_treasury"),null);assert.equal(f.rh.vaultLedgerState(),null);
+ assert.equal(f.counts().nativeVerifications,0);
+});
+
+test("operator graph preparation that exceeds its 60-second budget cannot write any checkpoint",async t=>{
+ const f=checkpointRuntimeFixture(t,8453,60_001);
+ await assert.rejects(f.ledger.initialize(),/maintenance budget reached/);
+ assert.equal(f.source.custodyLedgerState("base_automation"),null);assert.equal(f.rh.custodyLedgerState("robinhood_treasury"),null);assert.equal(f.rh.vaultLedgerState(),null);
+ assert.deepEqual(f.scans,[]);assert.equal(f.counts().destinationGraphs,0);
 });
 
 import { encodeAbiParameters, encodeEventTopics, keccak256, parseAbiItem, stringToHex } from "viem";
@@ -109,7 +169,8 @@ test("a pending candidate cannot hide a later actually authenticated duplicate r
 });
 for(const failure of ["activation record missing","acceptance not finalized","EIP-1271 authorization revoked"])test(`financial journals advance while live authorization rejects ${failure}`,async()=>{
  const f=nativeRuntimeFixture(),verify=f.deps.verifyCollector,checks:unknown[]=[];
- f.deps.manifest.activation.status="canary_verified";
+ f.deps.manifest.activation={status:"canary_verified",nativeExecution:{},nativeRunAcceptance:{},walletAcceptance:{},pauseRollbackAcceptance:{}};
+ f.deps.manifest.canaryAuthorization={};
  f.deps.verifyCollector=async(...args:any[])=>{
   checks.push(args[2].requireActivation);
   if(args[2].requireActivation!==false)throw new Error(failure);
@@ -123,6 +184,30 @@ for(const failure of ["activation record missing","acceptance not finalized","EI
   assert.equal(f.rh.vaultLedgerState()!.cursor.number,"101");
   assert.equal(f.source.custodyLedgerState("base_automation")!.cursor.number,"100","Peer maintenance remains read-only");
   assert.deepEqual(checks,["runtime",false],"Only live execution authorization uses the activation gate");
+ }finally{await ledger.close();f.close();}
+});
+test("trusted Splits Automation configuration still requires the live activation record and accepts no unsigned or not_run shortcut",async()=>{
+ const f=nativeRuntimeFixture(),verify=f.deps.verifyCollector,checks:unknown[]=[];
+ const manifest=structuredClone(BASE_COLLECTOR_MANIFEST);manifest.collector.address=f.deps.manifest.collector.address;
+ manifest.constants.automationReceiver=addr(31);
+ manifest.activation={status:"trusted_splits_authorized",trustedSplitsAcceptance:{version:1,sourceChainId:8453,destinationChainId:4663,
+  graphFingerprint:hash(300),collector:manifest.collector.address!,automationReceiver:manifest.constants.automationReceiver,
+  destinationTreasury:manifest.constants.destinationTreasury,destinationWeth:manifest.constants.destinationWeth,
+  destinationVault:manifest.finalSettlement.vault,keeper:addr(33),ruleId:manifest.nativeRule.ruleId!,
+  configurationSha256:manifest.nativeRule.configurationSha256!,trustSplitsNativeExecution:true,signer:manifest.constants.governor!,signature:"0x1234"}};
+ manifest.canaryAuthorization=null;f.deps.manifest=manifest;
+ let authorized=false;
+ f.deps.verifyCollector=async(...args:any[])=>{checks.push(args[2].requireActivation);
+  if(args[2].requireActivation!==false&&!authorized)throw new Error("activation record missing");
+  return{...await verify(...args),paused:false};};
+ const ledger=f.create();try{
+  assert.equal(await ledger.automationPolicy(),"unverified");assert.deepEqual(checks,["runtime"]);
+  authorized=true;assert.equal(await ledger.automationPolicy(),"configured");assert.deepEqual(checks,["runtime","runtime"]);
+  assert.equal(manifest.activation.nativeExecution,undefined,"Configuration acceptance is not a fabricated fee or destruction receipt");
+  manifest.activation.trustedSplitsAcceptance!.signature="0x";
+  assert.equal(await ledger.automationPolicy(),"unverified");assert.deepEqual(checks,["runtime","runtime"]);
+  manifest.activation.trustedSplitsAcceptance!.signature="0x1234";manifest.activation.status="not_run";
+  assert.equal(await ledger.automationPolicy(),"unverified");assert.deepEqual(checks,["runtime","runtime"]);
  }finally{await ledger.close();f.close();}
 });
 test("an old destination-policy audit cannot skip the new verifier or erase retained history",async()=>{

@@ -165,7 +165,7 @@ const result = {
   collector,
   valuations,
   simulations,
-  issuanceSimulation: "not_run: mainnet issuance requires the reviewed fee adapter and dedicated native Automation graph, plus wallet/canary acceptance; use the Base fork verifier for local execution",
+  issuanceSimulation: "not_run: mainnet issuance requires the reviewed fee adapter, dedicated native Automation wiring and governor configuration acceptance; manufactured fee/canary execution is not a launch prerequisite in trusted Splits mode",
   realCrossChainExecution: "not_run: native Automation / Relay requires canonical source and destination receipts",
   nativeAutomation: { provider: "Splits", bridge: "Relay", receiver: BASE_COLLECTOR_MANIFEST.constants.automationReceiver ?? null, sourceGuardedConversion: false },
 };

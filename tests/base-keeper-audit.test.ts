@@ -210,9 +210,13 @@ test("the default Collector reader retains the host's persistent graph audit and
 });
 
 test("live spending authority requires acceptance while display and index graph verification stay independent", async t => {
-  const originalStatus = BASE_COLLECTOR_MANIFEST.activation.status;
-  BASE_COLLECTOR_MANIFEST.activation.status = "canary_verified";
-  t.after(() => { BASE_COLLECTOR_MANIFEST.activation.status = originalStatus; });
+  const originalActivation = clone(BASE_COLLECTOR_MANIFEST.activation), originalCanary = BASE_COLLECTOR_MANIFEST.canaryAuthorization;
+  // Structural offline acceptance; the live verification boundary remains
+  // independently rejected until its private record is available.
+  BASE_COLLECTOR_MANIFEST.activation = { status: "canary_verified", nativeExecution: {},
+    nativeRunAcceptance: {} as any, walletAcceptance: {} as any, pauseRollbackAcceptance: {} as any };
+  BASE_COLLECTOR_MANIFEST.canaryAuthorization = {} as any;
+  t.after(() => { BASE_COLLECTOR_MANIFEST.activation = originalActivation; BASE_COLLECTOR_MANIFEST.canaryAuthorization = originalCanary; });
   let retained = false; const checks: unknown[] = [];
   const f = fixture(t, { dependencies: { readCollectorStatus: undefined, publishSnapshot: async(_runtime,_store,contents)=>contents as any, verifyCollector: (async (client: Client, address: Address, options: any) => {
     assert.equal(client, f.baseClient); assert.equal(address, collector); assert.equal(options.robinhoodClient, f.rhClient); assert.equal(options.auditStore, f.baseStore.value);
@@ -232,6 +236,46 @@ test("live spending authority requires acceptance while display and index graph 
   });
   assert.equal((await f.audit.engine()).collector, collector);
   assert.deepEqual(checks, ["runtime", false, false, "runtime", false]); assert.equal(f.httpReads(), 0);
+});
+
+test("host audit uses live activation verification for trusted Splits without a fee-execution proof", async t => {
+  const originalActivation = clone(BASE_COLLECTOR_MANIFEST.activation);
+  t.after(() => { BASE_COLLECTOR_MANIFEST.activation = originalActivation; });
+  const checks: unknown[] = []; let retained = false;
+  const f = fixture(t, { dependencies: { verifyCollector: (async (client: Client, address: Address, options: any) => {
+    assert.equal(client, f.baseClient); assert.equal(address, collector); assert.equal(options.auditStore, f.baseStore.value);
+    checks.push(options.requireActivation);
+    if (options.requireActivation === "runtime" && !retained) throw new Error("Finalized activation record missing");
+    return clone(f.verified);
+  }) as any } });
+  const manifest = BASE_COLLECTOR_MANIFEST;
+  manifest.activation = { status: "trusted_splits_authorized", trustedSplitsAcceptance: {
+    version: 1, sourceChainId: 8453, destinationChainId: 4663, graphFingerprint: blockHash(2), collector,
+    automationReceiver: manifest.constants.automationReceiver!, destinationTreasury: manifest.constants.destinationTreasury,
+    destinationWeth: manifest.constants.destinationWeth, destinationVault: manifest.constants.destinationVault,
+    keeper: "0x3333333333333333333333333333333333333333", ruleId: manifest.nativeRule.ruleId!,
+    configurationSha256: manifest.nativeRule.configurationSha256!, trustSplitsNativeExecution: true,
+    signer: manifest.constants.governor!, signature: "0x1234",
+  } };
+  await assert.rejects(f.audit.graph(), /activation record missing/);
+  assert.deepEqual(checks, ["runtime"]);
+  assert.equal(manifest.activation.nativeExecution, undefined, "No genuine-fee receipt or scheduler run is fabricated");
+  retained = true;
+  assert.deepEqual(await f.audit.graph(), f.verified);
+  assert.deepEqual(checks, ["runtime", "runtime"]);
+  f.verified.automationReceiver = manifest.constants.automationReceiver!;
+  const round = await f.audit.maintainRound({ observedAt: f.now(), maxDurationMs: 0,
+    verifyAuthority: async () => { await f.audit.graph(); return true; } });
+  assert.equal(round.activationVerified, true, "An applicable trusted snapshot cannot downgrade the verified host runtime gate");
+  assert.equal(round.snapshot?.graph?.activationVerified, true); assert.equal(round.error, undefined);
+  assert.equal(f.baseStore.counts.auditWrites, 1); assert.equal(f.rhStore.counts.auditWrites, 1);
+  checks.length = 0;
+  manifest.activation.trustedSplitsAcceptance!.signature = "0x";
+  await f.audit.graph();
+  manifest.activation.status = "not_run";
+  await f.audit.graph();
+  assert.deepEqual(checks, [false, false], "Unsigned and not_run configurations remain graph-only reads");
+  assert.equal(f.httpReads(), 0); assert.equal(f.baseStore.counts.financialWrites + f.rhStore.counts.financialWrites, 0);
 });
 
 for (const failure of ["activation record missing", "acceptance not finalized", "EIP-1271 authorization revoked"]) test(`maintenance indexes and publishes when ${failure}`, async t => {

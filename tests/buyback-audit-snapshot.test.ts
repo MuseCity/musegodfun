@@ -35,7 +35,11 @@ function fixture(t: TestContext) {
     factory: { address: BASE_SPLITS_FACTORY, runtimeHash: BASE_SPLITS_FACTORY_HASH }, threshold: 1, signers: [{ ...signer,index: 0 }],
     initializationHash: blockHash, blockNumber: "1", creation: { owner,threshold: 1,signers: [signer],salt: "8453" } };
   BASE_COLLECTOR_MANIFEST.collector.runtimeHash = keccak256(baseCollectorExpectedRuntime(BASE_COLLECTOR_MANIFEST));
-  BASE_COLLECTOR_MANIFEST.activation.status = "canary_verified";
+  // Structural offline legacy acceptance only. Host signature and settlement
+  // verification are exercised separately from this private display parser.
+  BASE_COLLECTOR_MANIFEST.activation = { status: "canary_verified", nativeExecution: {},
+    nativeRunAcceptance: {} as any, walletAcceptance: {} as any, pauseRollbackAcceptance: {} as any };
+  BASE_COLLECTOR_MANIFEST.canaryAuthorization = {} as any;
   t.after(() => { Object.assign(BASE_COLLECTOR_MANIFEST, manifest); store.close(); rmSync(directory, { recursive: true, force: true }); });
   const runtime = runtimeFromEnv(8453, { CHAIN_MODE: "base", NODE_ENV: "development", BASE_FEE_COLLECTOR_ADDRESS: collector,
     BASE_PLATFORM_TREASURY: BASE_COLLECTOR_MANIFEST.constants.operationsTreasury!, ENABLE_BASE_TRANSACTIONS: "true", DATA_DIR: directory });
@@ -51,6 +55,77 @@ function fixture(t: TestContext) {
     anchors: [{ chainId: 8453, number: "164", hash: blockHash }, { chainId: 4663, number: "164", hash: blockHash }], revisions: { automation: 1, treasury: 2, vault: 3 } });
   return { runtime, store, contents, advance: (milliseconds: number) => { now += milliseconds; } };
 }
+
+function trustedFixture(t: TestContext) {
+  const f = fixture(t), manifest = BASE_COLLECTOR_MANIFEST;
+  // This nonempty signature is a structural fixture, never a governor or
+  // provider attestation. Only the private host can publish these rows after
+  // its live verifier; the display path does not perform RPC/crypto audits.
+  manifest.activation = { status: "trusted_splits_authorized", trustedSplitsAcceptance: {
+    version: 1, sourceChainId: 8453, destinationChainId: 4663, graphFingerprint: baseCollectorGraphFingerprint(manifest),
+    collector, automationReceiver: automation, destinationTreasury: manifest.constants.destinationTreasury,
+    destinationWeth: manifest.constants.destinationWeth, destinationVault: manifest.finalSettlement.vault,
+    keeper: "0x3333333333333333333333333333333333333333", ruleId: manifest.nativeRule.ruleId!,
+    configurationSha256: manifest.nativeRule.configurationSha256!, trustSplitsNativeExecution: true,
+    signer: manifest.constants.governor!, signature: "0x1234",
+  } };
+  manifest.canaryAuthorization = null;
+  return f;
+}
+
+test("trusted Splits host snapshots publish and display canonical amounts without any fabricated canary execution", async t => {
+  const f = trustedFixture(t), contents = f.contents();
+  contents.vaultLedger.baseReceivedWeth = "10000000000000001";
+  contents.vaultLedger.baseAttributedMuseToDead = "9876543210123456789";
+  contents.custody.vault = structuredClone(contents.vaultLedger);
+  const snapshot = await publishBaseAuditSnapshot(f.runtime, f.store, contents);
+  assert.equal(snapshot.graph?.activationVerified, true);
+  assert.deepEqual(await readBaseAuditSnapshot(f.runtime, f.store), JSON.parse(JSON.stringify(snapshot)));
+  const display = createPersistedVaultLedgerRuntime(f);
+  assert.equal(await display.automationPolicy(), "configured");
+  assert.equal((await display.read()).baseReceivedWeth, contents.vaultLedger.baseReceivedWeth);
+  assert.equal((await display.read()).baseAttributedMuseToDead, contents.vaultLedger.baseAttributedMuseToDead);
+  assert.equal(BASE_COLLECTOR_MANIFEST.activation.nativeExecution, undefined);
+  assert.equal(BASE_COLLECTOR_MANIFEST.canaryAuthorization, null);
+  const rh = runtimeFromEnv(4663, { CHAIN_MODE: "robinhood", DATA_DIR: f.runtime.dataDir });
+  const rhSnapshot = await publishBaseAuditSnapshot(rh, f.store, contents);
+  assert.equal(rhSnapshot.runtimeChainId, 4663); assert.ok(await readBaseAuditSnapshot(rh, f.store));
+});
+
+for (const [name, tamper] of [
+  ["wrong owner signer", (manifest: typeof BASE_COLLECTOR_MANIFEST) => { manifest.activation.trustedSplitsAcceptance!.signer = collector; }],
+  ["empty signature", (manifest: typeof BASE_COLLECTOR_MANIFEST) => { manifest.activation.trustedSplitsAcceptance!.signature = "0x"; }],
+  ["malformed signature", (manifest: typeof BASE_COLLECTOR_MANIFEST) => { manifest.activation.trustedSplitsAcceptance!.signature = "0xabc"; }],
+  ["missing acceptance", (manifest: typeof BASE_COLLECTOR_MANIFEST) => { manifest.activation.trustedSplitsAcceptance = null; }],
+  ["not_run", (manifest: typeof BASE_COLLECTOR_MANIFEST) => { manifest.activation.status = "not_run"; }],
+] as const) test(`trusted display activation rejects ${name} without a public chain audit`, async t => {
+  const f = trustedFixture(t); tamper(BASE_COLLECTOR_MANIFEST);
+  await assert.rejects(publishBaseAuditSnapshot(f.runtime, f.store, f.contents()), /inconsistent/);
+  assert.equal(await readBaseAuditSnapshot(f.runtime, f.store), null);
+});
+
+test("trusted public acceptance cannot authorize isolated canary, restore, or wrong-chain snapshot scopes", async t => {
+  const f = trustedFixture(t);
+  for (const runtime of [
+    { ...f.runtime, dataScope: "verify-base-canary", canaryOrigin: "https://private-canary.invalid" },
+    { ...f.runtime, dataScope: "verify-base-operator" },
+    { ...f.runtime, dataScope: "restore-base-operator" },
+    { ...f.runtime, dataScope: "robinhood" },
+  ]) await assert.rejects(publishBaseAuditSnapshot(runtime, f.store, f.contents()), /inconsistent|scope and chain/);
+});
+
+test("trusted owner payload and rule changes select another private snapshot identity", async t => {
+  const f = trustedFixture(t), published = await publishBaseAuditSnapshot(f.runtime, f.store, f.contents());
+  const original = structuredClone(BASE_COLLECTOR_MANIFEST.activation.trustedSplitsAcceptance!);
+  for (const [field, value] of [["signature", "0x5678"], ["keeper", collector], ["configurationSha256", `0x${"cd".repeat(32)}`]] as const) {
+    Object.assign(BASE_COLLECTOR_MANIFEST.activation.trustedSplitsAcceptance!, { [field]: value });
+    assert.equal(await readBaseAuditSnapshot(f.runtime, f.store), null);
+    BASE_COLLECTOR_MANIFEST.activation.trustedSplitsAcceptance = structuredClone(original);
+  }
+  BASE_COLLECTOR_MANIFEST.nativeRule.ruleId = "reconfigured-native-policy";
+  assert.equal(await readBaseAuditSnapshot(f.runtime, f.store), null);
+  assert.equal(f.store.getBuybackBatch(published.id)?.binding, published.binding, "Read invalidation preserves the prior private history");
+});
 
 test("private canonical host snapshots round-trip through the existing durable audit CAS and are never journal writers", async t => {
   const f = fixture(t), published = await publishBaseAuditSnapshot(f.runtime, f.store, f.contents());

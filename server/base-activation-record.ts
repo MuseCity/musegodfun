@@ -15,10 +15,40 @@ type ActivationRecord = { id: string; protocol: "internal_native_activation_v1";
   anchors: { source: StoredBlock[]; destination: StoredBlock[] }; finalized: StoredPair; verifiedAt: number };
 const chains = ["source", "destination"] as const;
 const isHash = (value: unknown): value is Hex => typeof value === "string" && /^0x[\da-f]{64}$/i.test(value);
+const isAddress = (value: unknown): value is Hex => typeof value === "string" && /^0x[\da-f]{40}$/i.test(value) && BigInt(value) !== 0n;
+const sameAddress = (left: unknown, right: unknown) => isAddress(left) && isAddress(right) && left.toLowerCase() === right.toLowerCase();
 const isNumber = (value: unknown): value is string => typeof value === "string" && /^(0|[1-9]\d{0,77})$/.test(value) && BigInt(value) < 2n ** 256n;
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 const pending = () => new Error("The finalized Base activation record is unavailable or changed; explicit operator verification is required");
 const lower = (value: Hex) => value.toLowerCase() as Hex;
+
+/** Owner acceptance of configured Splits execution does not manufacture a fee,
+ * bridge or burn receipt. Historical canary acceptance retains its own proof. */
+export function baseActivationAcceptanceReady(manifest: BaseCollectorManifest): boolean {
+  if (!manifest || !object(manifest.activation)) return false;
+  const activation = manifest.activation;
+  if (activation.status === "canary_verified") return !!activation.nativeExecution && !!manifest.canaryAuthorization &&
+    !!activation.walletAcceptance && !!activation.pauseRollbackAcceptance && !!activation.nativeRunAcceptance;
+  if (activation.status !== "trusted_splits_authorized") return false;
+  const acceptance = activation.trustedSplitsAcceptance;
+  if (!object(acceptance) || acceptance.version !== 1 || acceptance.sourceChainId !== 8453 || acceptance.destinationChainId !== 4663 ||
+    manifest.chainId !== 8453 || !isHash(acceptance.graphFingerprint) || acceptance.trustSplitsNativeExecution !== true ||
+    !isAddress(acceptance.keeper) || !sameAddress(acceptance.signer, manifest.constants?.governor) ||
+    typeof acceptance.signature !== "string" || !/^0x(?:[\da-f]{2})+$/i.test(acceptance.signature) ||
+    typeof acceptance.ruleId !== "string" || acceptance.ruleId.trim().length === 0 || acceptance.ruleId !== manifest.nativeRule?.ruleId ||
+    !isHash(acceptance.configurationSha256) || !isHash(manifest.nativeRule?.configurationSha256) ||
+    lower(acceptance.configurationSha256) !== lower(manifest.nativeRule.configurationSha256)) return false;
+  return sameAddress(acceptance.collector, manifest.collector?.address) &&
+    sameAddress(acceptance.automationReceiver, manifest.constants?.automationReceiver) &&
+    sameAddress(acceptance.destinationTreasury, manifest.constants?.destinationTreasury) &&
+    sameAddress(acceptance.destinationWeth, manifest.constants?.destinationWeth) &&
+    sameAddress(acceptance.destinationVault, manifest.finalSettlement?.vault);
+}
+
+function assertAcceptance(manifest: BaseCollectorManifest, graphFingerprint: Hex): void {
+  if (!baseActivationAcceptanceReady(manifest) || !isHash(graphFingerprint) || manifest.activation.status === "trusted_splits_authorized" &&
+    lower(manifest.activation.trustedSplitsAcceptance!.graphFingerprint) !== lower(graphFingerprint)) throw pending();
+}
 
 // The full acceptance proof is bound independently of object key order and hex case.
 function canonical(value: unknown): string {
@@ -95,12 +125,11 @@ async function canonicalAnchors(source: Client, destination: Client, anchors: Ac
   } catch { throw pending(); }
 }
 
-/** Call only after explicit full operator acceptance succeeds. The private store is trusted server metadata, not a cryptographic seal. */
+/** Call only after the selected operator acceptance succeeds. The private store is trusted server metadata, not a cryptographic seal. */
 export async function persistBaseActivationRecord(source: Client, destination: Client, store: BaseAuditStore, manifest: BaseCollectorManifest,
   graphFingerprint: Hex, anchors: BaseActivationAnchors, heads: BaseActivationHeads): Promise<void> {
+  assertAcceptance(manifest, graphFingerprint);
   const identity = activationRecordIdentity(manifest, graphFingerprint);
-  if (manifest.activation.status !== "canary_verified" || !manifest.activation.nativeExecution || !manifest.canaryAuthorization ||
-    !manifest.activation.walletAcceptance || !manifest.activation.pauseRollbackAcceptance || !manifest.activation.nativeRunAcceptance) throw pending();
   const captured = parseAnchors({ source: anchors.source.map(storedBlock), destination: anchors.destination.map(storedBlock) });
   const headPair = { source: storedBlock(heads.source), destination: storedBlock(heads.destination) };
   try {
@@ -119,6 +148,7 @@ export async function persistBaseActivationRecord(source: Client, destination: C
 /** Reuses finalized acceptance across process restarts; never fetches old receipts, logs, or traces. */
 export async function assertBaseActivationRecord(source: Client, destination: Client, store: BaseAuditStore, manifest: BaseCollectorManifest,
   graphFingerprint: Hex, heads: BaseActivationHeads): Promise<void> {
+  assertAcceptance(manifest, graphFingerprint);
   const identity = activationRecordIdentity(manifest, graphFingerprint), headPair = { source: storedBlock(heads.source), destination: storedBlock(heads.destination) };
   try {
     const record = parseRecord(await store.getBuybackBatch(identity.id), identity);
@@ -131,8 +161,7 @@ export async function assertBaseActivationRecord(source: Client, destination: Cl
 export async function hasBaseLaunchActivationRecord(store: Pick<BaseAuditStore, "getBuybackBatch">, manifest: BaseCollectorManifest,
   graphFingerprint: Hex): Promise<boolean> {
   try {
-    if (manifest.activation.status !== "canary_verified" || !manifest.activation.nativeExecution || !manifest.canaryAuthorization ||
-      !manifest.activation.walletAcceptance || !manifest.activation.pauseRollbackAcceptance || !manifest.activation.nativeRunAcceptance) return false;
+    assertAcceptance(manifest, graphFingerprint);
     const identity = activationRecordIdentity(manifest, graphFingerprint);
     parseRecord(await store.getBuybackBatch(identity.id), identity);
     return true;

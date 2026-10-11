@@ -31,6 +31,7 @@ async function mainLoopFixture(t: TestContext) {
   const poolId = `0x${"ab".repeat(32)}` as Hex, blockHash = `0x${"cd".repeat(32)}` as Hex;
   const rows = new Map<string, BaseFeeBatch>(), transactions = new Map<string, any>();
   const calls: string[] = [], snapshots: any[] = [], outputs: any[] = [], signed: Hex[] = [], broadcasts: Hex[] = [];
+  let onSign: (() => void) | undefined;
   let authority = false, finalLeaseFailure = false, tailAsserts = 0, leaseArmed = false, stopAfterPublications = Infinity;
   const source = { close() {}, runtimeControl: async () => ({ paused: false, revision: 7 }), tokens: async () => [{
     address: STOCKS[1].address, quoteAddress: STOCKS[0].address, poolId, feePolicy: BASE_AUTOMATION_FEE_POLICY, feeEngine: collector,
@@ -80,13 +81,17 @@ async function mainLoopFixture(t: TestContext) {
       if (snapshots.length === stopAfterPublications) process.emit("SIGTERM"); // Deliver only the local stop event, never an OS signal.
       return contents as any; },
   };
-  const wallet = { signTransaction: async (input: any) => { calls.push("sign"); const raw = await keeper.signTransaction({ ...input, chainId: 8453 }); signed.push(raw); return raw; },
+  const wallet = { signTransaction: async (input: any) => { calls.push("sign"); const raw = await keeper.signTransaction({ ...input, chainId: 8453 }); signed.push(raw); onSign?.(); return raw; },
     sendRawTransaction: async ({ serializedTransaction: raw }: { serializedTransaction: Hex }) => {
       calls.push("broadcast"); broadcasts.push(raw); const parsed = parseTransaction(raw), hash = keccak256(raw);
       transactions.set(hash, { hash, type: "eip1559", from: keeper.address, to: parsed.to, nonce: parsed.nonce, input: parsed.data, value: 0n }); return hash;
     } };
   BASE_COLLECTOR_MANIFEST.collector.address = collector; BASE_COLLECTOR_MANIFEST.status = "deployed_verified";
-  BASE_COLLECTOR_MANIFEST.activation.status = "canary_verified";
+  // A structural legacy acceptance fixture only. The live verifier remains
+  // separately mocked and can still reject all financial signatures below.
+  BASE_COLLECTOR_MANIFEST.activation = { status: "canary_verified", nativeExecution: {},
+    nativeRunAcceptance: {} as any, walletAcceptance: {} as any, pauseRollbackAcceptance: {} as any };
+  BASE_COLLECTOR_MANIFEST.canaryAuthorization = {} as any;
   process.env = { PATH: environment.PATH, NODE_ENV: "test", DATA_DIR: directory, BASE_RPC_URL: "https://base.invalid",
     ROBINHOOD_RPC_URL: "https://rh.invalid", BASE_FEE_COLLECTOR_ADDRESS: collector, ENABLE_BASE_TRANSACTIONS: "true",
     BASE_PLATFORM_TREASURY: oldManifest.constants.operationsTreasury!, SUPABASE_URL: "https://offlinefixture.supabase.co",
@@ -99,6 +104,7 @@ async function mainLoopFixture(t: TestContext) {
     "viem": { createPublicClient: ({ chain }: any) => chain.id === 8453 ? client : destination, createWalletClient: () => wallet },
     "node:os": { homedir: () => directory },
     "../server/base-collector": { verifyBaseCollector: verifyCollector, assertBaseKeeperAuthority: async () => { calls.push("authority:roles"); } },
+    "../server/config": { loadEnvironment: () => {} },
     "../server/service": { LaunchpadService: class { store = source; client = client; async fees() { return { lp: { fees0: 1n, fees1: 0n }, trade: { fees0: 0n, fees1: 0n } }; } } },
     "../server/supabase-store": { SupabaseStore: class { constructor() { return source; } } },
     "../server/base-buyback": { readTrustedBaseRecoveryAssets: async () => STOCKS.slice(0, 2) },
@@ -129,7 +135,22 @@ async function mainLoopFixture(t: TestContext) {
   return { entry, keeper, collector, automation, poolId, blockHash, rows, transactions, calls, snapshots, outputs, signed, broadcasts,
     path: entry.baseCanonicalKeeperLease(collector, keeper.address),
     setAuthority(value: boolean) { authority = value; }, stopAfterPublications(count: number) { stopAfterPublications = count; },
+    afterSign(callback: () => void) { onSign = callback; },
     setFinalLeaseFailure(value: boolean) { finalLeaseFailure = value; tailAsserts = 0; leaseArmed = false; } };
+}
+
+function installOfflineTrustedAcceptance(f: { collector: Address; automation: Address; keeper: { address: Address }; blockHash: Hex }) {
+  const manifest = BASE_COLLECTOR_MANIFEST;
+  manifest.constants.automationReceiver = f.automation;
+  manifest.activation = { status: "trusted_splits_authorized", trustedSplitsAcceptance: {
+    version: 1, sourceChainId: 8453, destinationChainId: 4663, graphFingerprint: f.blockHash,
+    collector: f.collector, automationReceiver: f.automation, destinationTreasury: manifest.constants.destinationTreasury,
+    destinationWeth: manifest.constants.destinationWeth, destinationVault: manifest.constants.destinationVault,
+    keeper: f.keeper.address, ruleId: manifest.nativeRule.ruleId!, configurationSha256: manifest.nativeRule.configurationSha256!,
+    trustSplitsNativeExecution: true, signer: manifest.constants.governor!, signature: "0x1234",
+  } };
+  manifest.canaryAuthorization = null;
+  return manifest.activation.trustedSplitsAcceptance!;
 }
 
 test("execute main loop keeps maintaining and recovering already broadcast history when live activation is missing", async t => {
@@ -155,6 +176,45 @@ test("execute main loop keeps maintaining and recovering already broadcast histo
   const local = await f.entry.readBasePublicJson<{ batches: BaseFeeBatch[] }>(f.path); assert.deepEqual(local!.batches, JSON.parse(JSON.stringify([publicRow])));
   assert.equal(f.calls.filter(call => call === "recover:receipt").length, 1, "Finalized recovered history is not re-read on the second round");
   assert.equal(f.signed.length, 0); assert.equal(f.broadcasts.length, 0);
+});
+
+test("audit-only trusted Splits activation enters the live gate without fabricated execution and cannot bypass a missing activation record", async t => {
+  const f = await mainLoopFixture(t), manifest = BASE_COLLECTOR_MANIFEST;
+  // The signature below is an offline payload fixture. verifyCollector is the
+  // authority boundary: this test never substitutes a provider execution proof.
+  installOfflineTrustedAcceptance(f);
+  delete process.env.MUSEGOD_KEEPER_PRIVATE_KEY;
+  await f.entry.runBaseBuybackKeeper(["--audit-only", "--once"]);
+  assert.equal(f.calls.filter(call => call === "authority:live").length, 1);
+  assert.equal(f.outputs.at(-1)?.activationVerified, false);
+  f.setAuthority(true);
+  await f.entry.runBaseBuybackKeeper(["--audit-only", "--once"]);
+  assert.equal(f.calls.filter(call => call === "authority:live").length, 2);
+  assert.equal(f.outputs.at(-1)?.activationVerified, true);
+  const accepted = manifest.activation.trustedSplitsAcceptance!;
+  accepted.signature = "0x";
+  await f.entry.runBaseBuybackKeeper(["--audit-only", "--once"]);
+  assert.equal(f.calls.filter(call => call === "authority:live").length, 2, "An unsigned payload cannot reach the active runtime gate");
+  assert.equal(f.outputs.at(-1)?.activationVerified, false);
+  accepted.signature = "0x1234";
+  manifest.activation.status = "not_run";
+  await f.entry.runBaseBuybackKeeper(["--audit-only", "--once"]);
+  assert.equal(f.calls.filter(call => call === "authority:live").length, 2, "not_run cannot be authorized by a leftover payload");
+  assert.equal(f.outputs.at(-1)?.activationVerified, false);
+  assert.equal(f.signed.length, 0); assert.equal(f.broadcasts.length, 0);
+});
+
+test("trusted Splits keeper binding is checked again after signing and before transport entry", async t => {
+  const f = await mainLoopFixture(t), acceptance = installOfflineTrustedAcceptance(f);
+  f.setAuthority(true);
+  f.afterSign(() => { acceptance.keeper = STOCKS[2].address; });
+  await f.entry.runBaseBuybackKeeper(["--execute", "--once", "--max-gas-wei=100000000"]);
+  assert.equal(f.signed.length, 1, "The matching keeper passes the pre-sign authorization gate");
+  assert.equal(f.broadcasts.length, 0, "A changed accepted keeper is rejected before broadcast");
+  const abandoned = [...f.rows.values()][0];
+  assert.equal(abandoned.status, "abandoned"); assert.equal(abandoned.abandonedBeforeBroadcast, true);
+  assert.doesNotThrow(() => f.entry.assertBaseNoUnknown([...f.rows.values()], f.keeper.address));
+  assert.equal(f.entry.baseCanonicalGasSpent([...f.rows.values()], f.keeper.address), 0n);
 });
 
 test("execute main loop abandons at its last beforeBroadcast lease check, then restart reuses the unused nonce", async t => {

@@ -91,11 +91,28 @@
     "configurationSha256": "0xa818457f88ba865c54990fa5493d90d750162f1bdc9913f68eef81e0204d1e7a"
   },
   "activation": {
-    "status": "not_run",
+    "status": "trusted_splits_authorized",
     "nativeExecution": null,
     "walletAcceptance": null,
     "pauseRollbackAcceptance": null,
-    "nativeRunAcceptance": null
+    "nativeRunAcceptance": null,
+    "trustedSplitsAcceptance": {
+      "version": 1,
+      "sourceChainId": 8453,
+      "destinationChainId": 4663,
+      "graphFingerprint": "0x29461adb72dd2bdc859539b5b6ed65bc1f86f8490d4a0d6b3ab829e84bf919f2",
+      "collector": "0x3B6d01e627Fe6e06C831E0f9f57aC976a88309Ff",
+      "automationReceiver": "0x1283E6CE717347607D4DA3a439cD2324833EEcc0",
+      "destinationTreasury": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+      "destinationWeth": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+      "destinationVault": "0x28E6B43525301312084310F31f4C9c9873d7a125",
+      "keeper": "0xd3f11a4DDcED57aC4E41F8CE7fD323959667e278",
+      "ruleId": "d428b46c-92ad-4c3a-862b-f57b5333a45f",
+      "configurationSha256": "0xa818457f88ba865c54990fa5493d90d750162f1bdc9913f68eef81e0204d1e7a",
+      "trustSplitsNativeExecution": true,
+      "signer": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+      "signature": "0x3ff37774ec0f76ea97a6a43e4d5c003234861922f4ec5b821bf8c187b19ab77310f02cd1a05fe33b9aa24b09f6d81183c9cce7aaabdceeb1841219bb39d09c681b"
+    }
   },
   "canaryAuthorization": null,
   "finalSettlement": {

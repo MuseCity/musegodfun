@@ -5,6 +5,7 @@ import { BASE_BUYBACK_PROTOCOL, BASE_BUYBACK_RH_WETH, BASE_BUYBACK_TREASURY, BAS
 import { convertCustodyFragments, emptyCustodyReport, type CustodyCommit, type CustodyEvent, type CustodyLedgerId, type CustodyReport } from "../src/lib/buyback-custody-ledger";
 import { emptyVaultLedgerReport, vaultEventId, type VaultBaseFillEvidence, type VaultEventCursor, type VaultLedgerCommit, type VaultLedgerEvent, type VaultLedgerReport } from "../src/lib/buyback-vault-ledger";
 import { BASE_COLLECTOR_MANIFEST, verifyBaseCollector, type BaseCollectorManifest } from "./base-collector";
+import { baseActivationAcceptanceReady } from "./base-activation-record";
 import { verifyBaseNativeRelayProof, verifyAdapterRelease, verifyTreasuryForward, nativeRelayFragments, canonicalProofJson } from "./base-native-provenance";
 import { verifyFeeEngineRuntime } from "./buyback-engine";
 import rhDeployment from "../contracts/artifacts/buyback-v2-deployment.json";
@@ -162,7 +163,7 @@ export function createVaultLedgerRuntime(input:VaultLedgerRuntimeInput,deps:Vaul
     async automationPolicy(){
       // This is a reviewed configuration with canonical account/acceptance evidence, not live scheduler health.
       const privateCanary=chain===8453&&!!input.runtime.canaryOrigin&&/^verify-[a-z0-9-]+$/.test(input.runtime.dataScope);
-      if(!privateCanary&&manifest.activation.status!=="canary_verified")return "unverified";
+      if(!privateCanary&&!baseActivationAcceptanceReady(manifest))return "unverified";
       try{const source=await peer(8453),rh=await peer(4663);
         const checked=await(deps.verifyCollector??verifyBaseCollector)(source.client,getAddress(manifest.collector.address!),{manifest,
           ...(privateCanary?{requireActivation:false,allowCanary:true,canaryOrigin:input.runtime.canaryOrigin}:{requireActivation:"runtime" as const}),robinhoodClient:rh.client,auditStore});
@@ -171,7 +172,7 @@ export function createVaultLedgerRuntime(input:VaultLedgerRuntimeInput,deps:Vaul
     },
     async sourceStatus(){const work=await session(),ar=await work.sourceReady(),tr=await work.treasuryReady();if(!ar.ready||!ar.fresh||!tr.ready||!tr.fresh)return{ready:false,assets:[],receivedWeth:"0",refundedWeth:"0"};
       return{ready:ar.assets.every(row=>row.ready)&&tr.assets.every(row=>row.ready)&&!ar.withheldEventIds.length&&!tr.withheldEventIds.length,assets:ar.assets.map(row=>({asset:row.asset,pending:row.basePending,verifiedClaimed:row.baseReceived})),receivedWeth:tr.assets.find(row=>sameAddress(row.asset,BASE_BUYBACK_RH_WETH))?.baseReceived??"0",refundedWeth:"0"};},
-    async initialize(){writer(chain as 8453|4663);const work=await session();const guard=async()=>{
+    async initialize(){writer(chain as 8453|4663);const work=await session(Date.now()+60_000,false);const guard=async()=>{
       const initial=BigInt(work.checked.initialDeploymentBlock),head=await work.source.client.getBlockNumber(),event=parseAbiItem("event FeesReleased(address indexed token,address indexed receiver,uint256 amount)");
       for(let from=initial;from<=head;from+=10n)if((await work.source.client.getLogs({address:work.checked.collector,event,fromBlock:from,toBlock:from+9n<head?from+9n:head,strict:true})).length)return false;
       return true;};
