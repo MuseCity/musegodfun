@@ -78,11 +78,15 @@ test("an operator-configured engine is never trusted, even on a local fork, and 
       assert(!trustedLaunchPolicies(config).some((policy) => policy.feeEngine?.toLowerCase() === configuredEngine.toLowerCase()));
     }
   const baseConfig: RuntimeConfig = { mode: "base", deploymentChainId: 8453, chainId: 8453, treasury: configured, writesEnabled: false, blockReason: null };
-  assert.doesNotThrow(() => assertTrustedLaunchPolicy({ feePolicy: FEE_POLICY, feeTreasury: configured }, baseConfig, at(1n)));
-  assert.throws(() => assertTrustedLaunchPolicy({ feePolicy: FEE_POLICY, feeTreasury: operations }, baseConfig, at(1n)));
+  const preCollector = structuredClone(BASE_COLLECTOR_MANIFEST);
+  preCollector.status = "not_deployed";
+  Object.assign(preCollector.collector, { address: null, runtimeHash: null, transactionHash: null, blockNumber: null });
+  const basePolicies = trustedLaunchPolicies(baseConfig, ENGINE_MANIFEST, preCollector);
+  assert.doesNotThrow(() => assertTrustedLaunchPolicy({ feePolicy: FEE_POLICY, feeTreasury: configured }, baseConfig, at(1n), basePolicies));
+  assert.throws(() => assertTrustedLaunchPolicy({ feePolicy: FEE_POLICY, feeTreasury: operations }, baseConfig, at(1n), basePolicies));
   assert.throws(() => assertTrustedLaunchPolicy({ feePolicy: ENGINE_FEE_POLICY, feeTreasury: operations, feeEngine: engine }, baseConfig, at(10n ** 9n),
-    trustedLaunchPolicies(baseConfig, deployed())));
-  assert.deepEqual(trustedLaunchPolicies({ ...baseConfig, treasury: null }), [], "no configured treasury trusts nothing on Base");
+    trustedLaunchPolicies(baseConfig, deployed(), preCollector)));
+  assert.deepEqual(trustedLaunchPolicies({ ...baseConfig, treasury: null }, ENGINE_MANIFEST, preCollector), [], "no configured treasury trusts nothing on Base");
 });
 
 test("after the recorded engine cutover, treasury-only routing is trusted only through the signing window", () => {
@@ -105,9 +109,12 @@ test("after the recorded engine cutover, treasury-only routing is trusted only t
   assert.doesNotThrow(() => assertTrustedLaunchPolicy({ feePolicy: FEE_POLICY, feeTreasury: operations }, robinhood(), at(10n ** 12n, 10n ** 12n),
     trustedLaunchPolicies(robinhood(), deployed())), "without a cutover, treasury-only routing has no time bound");
   const baseConfig: RuntimeConfig = { mode: "base", deploymentChainId: 8453, chainId: 8453, treasury: configured, writesEnabled: false, blockReason: null };
+  const preCollector = structuredClone(BASE_COLLECTOR_MANIFEST);
+  preCollector.status = "not_deployed";
+  Object.assign(preCollector.collector, { address: null, runtimeHash: null, transactionHash: null, blockNumber: null });
   assert.equal(engineLaunchCutover(baseConfig, withCutover), undefined);
   assert.doesNotThrow(() => assertTrustedLaunchPolicy({ feePolicy: FEE_POLICY, feeTreasury: configured }, baseConfig, at(10n ** 12n, 10n ** 12n),
-    trustedLaunchPolicies(baseConfig, withCutover)), "Base has no engine and keeps treasury routing");
+    trustedLaunchPolicies(baseConfig, withCutover, preCollector)), "Base has no engine and keeps treasury routing");
 });
 
 test("a recorded cutover is a fixed fact; a malformed one refuses treasury-only routing but never engine routing", () => {

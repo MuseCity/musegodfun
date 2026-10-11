@@ -2,13 +2,13 @@
   "schemaVersion": 2,
   "chainId": 8453,
   "architecture": "splits-treasury-native-automation",
-  "status": "not_deployed",
+  "status": "deployed_verified",
   "feePolicy": "creator-70-musegod-base-automation-v1",
   "collector": {
-    "address": null,
-    "runtimeHash": null,
-    "transactionHash": null,
-    "blockNumber": null
+    "address": "0x3B6d01e627Fe6e06C831E0f9f57aC976a88309Ff",
+    "runtimeHash": "0x437fdeb7b8500f79207158f6f3d7ea8844fd0b2b85d3fc90cd16403b252b35a5",
+    "transactionHash": "0x867720302f73085f5f29f217894276aad5a1cc184d3d037846803e64a47a0aa1",
+    "blockNumber": "52454982"
   },
   "constants": {
     "initializer": "0xbdf938149ac6a781f94faa0ed45e6a0e984c6544",
@@ -18,7 +18,7 @@
     "destinationVault": "0x28E6B43525301312084310F31f4C9c9873d7a125",
     "governor": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
     "operationsTreasury": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
-    "automationReceiver": null,
+    "automationReceiver": "0x1283E6CE717347607D4DA3a439cD2324833EEcc0",
     "destinationTreasury": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349"
   },
   "dependencies": {
@@ -36,20 +36,48 @@
     }
   },
   "automationAccount": {
-    "address": null,
-    "runtimeHash": null,
-    "implementation": null,
-    "owner": null,
-    "ownerRuntimeHash": null,
-    "threshold": null,
-    "signers": [],
-    "initializationHash": null,
-    "blockNumber": null,
+    "address": "0x1283E6CE717347607D4DA3a439cD2324833EEcc0",
+    "runtimeHash": "0xaaa52c8cc8a0e3fd27ce756cc6b4e70c51423e9b597b11f32d3e49f8b1fc890d",
     "factory": {
       "address": "0x8E6Af8Ed94E87B4402D0272C5D6b0D47F0483e7C",
       "runtimeHash": "0x7320f2779f3b27b8dac66bdbfd7063345cee66aca9aa2d56f1b46ba5a9dcab05"
     },
-    "creation": null
+    "implementation": {
+      "address": "0x15ec0Fa66A0D96a64d67C58368641fBE9325F3FA",
+      "runtimeHash": "0x8d790f1df78f070d2202718db467e6ee141274c7010372d93dc27d183bc1e446"
+    },
+    "owner": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+    "ownerRuntimeHash": "0xaaa52c8cc8a0e3fd27ce756cc6b4e70c51423e9b597b11f32d3e49f8b1fc890d",
+    "threshold": 1,
+    "signers": [
+      {
+        "index": 0,
+        "slot1": "0x03f6a052474eecfe27884899c3ba21f5dbc9743f11c9000a335be4467cf0fd44",
+        "slot2": "0x67fbf26c1a1d26289c7ed56abd1747c419a467d180eff8c2f477ea180442f605"
+      },
+      {
+        "index": 1,
+        "slot1": "0x000000000000000000000000e6f980B95a25BDff1f5A620c58158C3c2c70a1cD",
+        "slot2": "0x0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    ],
+    "initializationHash": "0x864c87e6dabc6e03c5cce701f7958cb54e5fb69364954867829388f665ba7d30",
+    "blockNumber": "52452759",
+    "creation": {
+      "owner": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+      "threshold": 1,
+      "signers": [
+        {
+          "slot1": "0x03f6a052474eecfe27884899c3ba21f5dbc9743f11c9000a335be4467cf0fd44",
+          "slot2": "0x67fbf26c1a1d26289c7ed56abd1747c419a467d180eff8c2f477ea180442f605"
+        },
+        {
+          "slot1": "0x000000000000000000000000e6f980B95a25BDff1f5A620c58158C3c2c70a1cD",
+          "slot2": "0x0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "salt": "0"
+    }
   },
   "nativeRule": {
     "protocol": "splits-native-automation",
@@ -59,8 +87,8 @@
     "outputToken": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
     "recipient": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
     "allocationBps": 10000,
-    "ruleId": null,
-    "configurationSha256": null
+    "ruleId": "d428b46c-92ad-4c3a-862b-f57b5333a45f",
+    "configurationSha256": "0xa818457f88ba865c54990fa5493d90d750162f1bdc9913f68eef81e0204d1e7a"
   },
   "activation": {
     "status": "not_run",

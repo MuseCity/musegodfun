@@ -1,0 +1,386 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-10-11T04:36:24.898Z",
+  "layer": "official_UI_plus_canonical_Base_receipt_and_full_account_graph",
+  "account": {
+    "address": "0x1283E6CE717347607D4DA3a439cD2324833EEcc0",
+    "name": "Base Buyback Automation",
+    "ownerAddress": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+    "threshold": 1,
+    "chainIds": [
+      1,
+      10,
+      42161,
+      8453,
+      137,
+      56,
+      42220,
+      480,
+      4217,
+      999,
+      4663
+    ],
+    "initialConditions": {
+      "owner": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+      "threshold": 1,
+      "salt": "0",
+      "signers": [
+        {
+          "index": 0,
+          "slot1": "0x03f6a052474eecfe27884899c3ba21f5dbc9743f11c9000a335be4467cf0fd44",
+          "slot2": "0x67fbf26c1a1d26289c7ed56abd1747c419a467d180eff8c2f477ea180442f605"
+        },
+        {
+          "index": 1,
+          "slot1": "0x000000000000000000000000e6f980B95a25BDff1f5A620c58158C3c2c70a1cD",
+          "slot2": "0x0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ]
+    },
+    "modules": []
+  },
+  "nativeRule": {
+    "id": "d428b46c-92ad-4c3a-862b-f57b5333a45f",
+    "accountAddress": "0x1283E6CE717347607D4DA3a439cD2324833EEcc0",
+    "isActive": true,
+    "policy": {
+      "outputs": [
+        {
+          "percent": 100,
+          "targetChainId": 4663,
+          "destinationAddress": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+          "targetTokenAddress": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73"
+        }
+      ],
+      "version": 1,
+      "slippage": 150,
+      "passThroughPercent": 0,
+      "minimumThresholdUsd": 5,
+      "passThroughDestinationAddress": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349"
+    }
+  },
+  "initialization": {
+    "status": "canonical_64_confirmed_account_graph_verified",
+    "proof": {
+      "observedAt": "2026-10-11T05:05:13.421Z",
+      "rpcHost": "base-mainnet.g.alchemy.com",
+      "chainId": 8453,
+      "userOperationHash": "0x705c7c4ac22cf5997fcf2d8e89b0e707868daf7c1a16b6ded6084af794a4aa11",
+      "transactionHash": "0x864c87e6dabc6e03c5cce701f7958cb54e5fb69364954867829388f665ba7d30",
+      "status": "success",
+      "blockNumber": "52452759",
+      "blockHash": "0xb426decd9050d76ea35f31cd7cbd917133e145a50891451aeaf8ffcbea892c17",
+      "head": "52452882",
+      "headHash": "0x9107ea1dacdc200c73c286caf99767e71611ad4a32dd31b1e26308f97afff60d",
+      "finalizedHead": "52452258",
+      "finalizedHash": "0x33ff5f37449f6c6fc1ee98456b9b6d3fb4d44121a8f9ac5bc4a6444ef083dc9c",
+      "finalizedCoversInitialization": false,
+      "confirmations": "123",
+      "canonical64Confirmed": true,
+      "from": "0x43370371e0bb085d04d02a815230aaf67b35ef25",
+      "to": "0x0000000071727de22e5e9d8baf0edac6f37da032",
+      "value": "0",
+      "gasUsed": "474796",
+      "effectiveGasPrice": "6150000",
+      "bundleExecutionGasWei": "2919995400000",
+      "accounts": [
+        {
+          "address": "0x1283E6CE717347607D4DA3a439cD2324833EEcc0",
+          "status": "verified",
+          "runtimeHash": "0xaaa52c8cc8a0e3fd27ce756cc6b4e70c51423e9b597b11f32d3e49f8b1fc890d",
+          "manifestAccount": {
+            "address": "0x1283E6CE717347607D4DA3a439cD2324833EEcc0",
+            "runtimeHash": "0xaaa52c8cc8a0e3fd27ce756cc6b4e70c51423e9b597b11f32d3e49f8b1fc890d",
+            "factory": {
+              "address": "0x8E6Af8Ed94E87B4402D0272C5D6b0D47F0483e7C",
+              "runtimeHash": "0x7320f2779f3b27b8dac66bdbfd7063345cee66aca9aa2d56f1b46ba5a9dcab05"
+            },
+            "implementation": {
+              "address": "0x15ec0Fa66A0D96a64d67C58368641fBE9325F3FA",
+              "runtimeHash": "0x8d790f1df78f070d2202718db467e6ee141274c7010372d93dc27d183bc1e446"
+            },
+            "owner": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+            "ownerRuntimeHash": "0xaaa52c8cc8a0e3fd27ce756cc6b4e70c51423e9b597b11f32d3e49f8b1fc890d",
+            "threshold": 1,
+            "signers": [
+              {
+                "index": 0,
+                "slot1": "0x03f6a052474eecfe27884899c3ba21f5dbc9743f11c9000a335be4467cf0fd44",
+                "slot2": "0x67fbf26c1a1d26289c7ed56abd1747c419a467d180eff8c2f477ea180442f605"
+              },
+              {
+                "index": 1,
+                "slot1": "0x000000000000000000000000e6f980B95a25BDff1f5A620c58158C3c2c70a1cD",
+                "slot2": "0x0000000000000000000000000000000000000000000000000000000000000000"
+              }
+            ],
+            "initializationHash": "0x864c87e6dabc6e03c5cce701f7958cb54e5fb69364954867829388f665ba7d30",
+            "blockNumber": "52452759",
+            "creation": {
+              "owner": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+              "threshold": 1,
+              "signers": [
+                {
+                  "slot1": "0x03f6a052474eecfe27884899c3ba21f5dbc9743f11c9000a335be4467cf0fd44",
+                  "slot2": "0x67fbf26c1a1d26289c7ed56abd1747c419a467d180eff8c2f477ea180442f605"
+                },
+                {
+                  "slot1": "0x000000000000000000000000e6f980B95a25BDff1f5A620c58158C3c2c70a1cD",
+                  "slot2": "0x0000000000000000000000000000000000000000000000000000000000000000"
+                }
+              ],
+              "salt": "0"
+            }
+          },
+          "ownerCodeHash": "0xaaa52c8cc8a0e3fd27ce756cc6b4e70c51423e9b597b11f32d3e49f8b1fc890d",
+          "moduleHistory": {
+            "from": "52452759",
+            "through": "52452882",
+            "enabledModules": []
+          }
+        },
+        {
+          "address": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+          "status": "verified",
+          "runtimeHash": "0xaaa52c8cc8a0e3fd27ce756cc6b4e70c51423e9b597b11f32d3e49f8b1fc890d",
+          "manifestAccount": {
+            "address": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+            "runtimeHash": "0xaaa52c8cc8a0e3fd27ce756cc6b4e70c51423e9b597b11f32d3e49f8b1fc890d",
+            "factory": {
+              "address": "0x8E6Af8Ed94E87B4402D0272C5D6b0D47F0483e7C",
+              "runtimeHash": "0x7320f2779f3b27b8dac66bdbfd7063345cee66aca9aa2d56f1b46ba5a9dcab05"
+            },
+            "implementation": {
+              "address": "0x15ec0Fa66A0D96a64d67C58368641fBE9325F3FA",
+              "runtimeHash": "0x8d790f1df78f070d2202718db467e6ee141274c7010372d93dc27d183bc1e446"
+            },
+            "owner": "0xEc10eBE3B5085a1d636137975755C8cF90ac2B5d",
+            "ownerRuntimeHash": null,
+            "threshold": 1,
+            "signers": [
+              {
+                "index": 0,
+                "slot1": "0x03f6a052474eecfe27884899c3ba21f5dbc9743f11c9000a335be4467cf0fd44",
+                "slot2": "0x67fbf26c1a1d26289c7ed56abd1747c419a467d180eff8c2f477ea180442f605"
+              }
+            ],
+            "initializationHash": "0x864c87e6dabc6e03c5cce701f7958cb54e5fb69364954867829388f665ba7d30",
+            "blockNumber": "52452759",
+            "creation": {
+              "owner": "0xEc10eBE3B5085a1d636137975755C8cF90ac2B5d",
+              "threshold": 1,
+              "signers": [
+                {
+                  "slot1": "0x03f6a052474eecfe27884899c3ba21f5dbc9743f11c9000a335be4467cf0fd44",
+                  "slot2": "0x67fbf26c1a1d26289c7ed56abd1747c419a467d180eff8c2f477ea180442f605"
+                }
+              ],
+              "salt": "2014250453"
+            }
+          },
+          "ownerCodeHash": null,
+          "moduleHistory": {
+            "from": "52452759",
+            "through": "52452882",
+            "enabledModules": []
+          }
+        }
+      ],
+      "verificationDatabaseWrites": false,
+      "factoryEvents": [
+        {
+          "event": "SmartVaultCreated",
+          "logIndex": 51,
+          "args": {
+            "smartVault": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+            "owner": "0xEc10eBE3B5085a1d636137975755C8cF90ac2B5d",
+            "signers": [
+              {
+                "slot1": "0x03f6a052474eecfe27884899c3ba21f5dbc9743f11c9000a335be4467cf0fd44",
+                "slot2": "0x67fbf26c1a1d26289c7ed56abd1747c419a467d180eff8c2f477ea180442f605"
+              }
+            ],
+            "threshold": 1,
+            "salt": "2014250453"
+          }
+        },
+        {
+          "event": "SmartVaultCreated",
+          "logIndex": 56,
+          "args": {
+            "smartVault": "0x1283E6CE717347607D4DA3a439cD2324833EEcc0",
+            "owner": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+            "signers": [
+              {
+                "slot1": "0x03f6a052474eecfe27884899c3ba21f5dbc9743f11c9000a335be4467cf0fd44",
+                "slot2": "0x67fbf26c1a1d26289c7ed56abd1747c419a467d180eff8c2f477ea180442f605"
+              },
+              {
+                "slot1": "0x000000000000000000000000e6f980b95a25bdff1f5a620c58158c3c2c70a1cd",
+                "slot2": "0x0000000000000000000000000000000000000000000000000000000000000000"
+              }
+            ],
+            "threshold": 1,
+            "salt": "0"
+          }
+        }
+      ],
+      "userOperationEvents": [
+        {
+          "event": "UserOperationEvent",
+          "args": {
+            "userOpHash": "0x705c7c4ac22cf5997fcf2d8e89b0e707868daf7c1a16b6ded6084af794a4aa11",
+            "sender": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+            "paymaster": "0x0000000000000000000000000000000000000000",
+            "nonce": "19675048848524073309040417381024087794673724921948229640555070915902160502784",
+            "success": true,
+            "actualGasCost": "0",
+            "actualGasUsed": "503711"
+          }
+        }
+      ],
+      "userOperationStructure": {
+        "entryPoint": "0x0000000071727de22e5e9d8baf0edac6f37da032",
+        "outerFunction": "handleOps",
+        "matchedTreasuryOperations": 1,
+        "sourceCall": "execute",
+        "businessCalls": 1,
+        "target": "0x8E6Af8Ed94E87B4402D0272C5D6b0D47F0483e7C",
+        "value": "0",
+        "calldataHash": "0x1fb98fd2a7833547a24643f2c221ec342e69df9c9eb4732db37a38b1a1ab6a70",
+        "matchesUnsignedReview": true,
+        "treasuryInitCodeMatchesOriginalFactoryAndParameters": true,
+        "signaturePersisted": false
+      }
+    },
+    "screenshot": "docs/evidence/base-automation-initialization-completed.jpg"
+  },
+  "assetConversion": "not_run",
+  "collectorDeployment": {
+    "status": "deployed_verified_paused",
+    "evidence": "docs/evidence/base-collector-mainnet-deployment.json",
+    "address": "0x3B6d01e627Fe6e06C831E0f9f57aC976a88309Ff",
+    "transactionHash": "0x867720302f73085f5f29f217894276aad5a1cc184d3d037846803e64a47a0aa1",
+    "blockNumber": "52454982",
+    "paused": true
+  },
+  "publicBaseActivation": "not_run",
+  "readOnlyBaseVerification": {
+    "schemaVersion": 1,
+    "observedAt": "2026-10-11T04:39:09.661Z",
+    "chainId": 8453,
+    "providerHost": "base-mainnet.g.alchemy.com",
+    "blockNumber": "52452100",
+    "blockHash": "0x63f956bc56cc8ff3538b3b903d9952eb36ec0b0f79f92ae800634cde19e52f03",
+    "account": "0x1283E6CE717347607D4DA3a439cD2324833EEcc0",
+    "officialFactoryVerified": true,
+    "officialImplementationVerified": true,
+    "create2Prediction": "0x1283E6CE717347607D4DA3a439cD2324833EEcc0",
+    "create2Matches": true,
+    "signerAuthorities": [
+      {
+        "index": 0,
+        "kind": "passkey",
+        "x": "0x03f6a052474eecfe27884899c3ba21f5dbc9743f11c9000a335be4467cf0fd44",
+        "y": "0x67fbf26c1a1d26289c7ed56abd1747c419a467d180eff8c2f477ea180442f605"
+      },
+      {
+        "index": 1,
+        "kind": "account",
+        "address": "0xe6f980B95a25BDff1f5A620c58158C3c2c70a1cD"
+      }
+    ],
+    "threshold": 1,
+    "owner": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+    "ownerDeployed": false,
+    "automationDeployed": false,
+    "simulation": "passed_read_only",
+    "unsignedInitialization": {
+      "chainId": 8453,
+      "from": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+      "to": "0x8E6Af8Ed94E87B4402D0272C5D6b0D47F0483e7C",
+      "value": "0",
+      "data": "0x406f52fd000000000000000000000000b3c11aa2148521a3ef6d446672b720a63a2d8349000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000203f6a052474eecfe27884899c3ba21f5dbc9743f11c9000a335be4467cf0fd4467fbf26c1a1d26289c7ed56abd1747c419a467d180eff8c2f477ea180442f605000000000000000000000000e6f980B95a25BDff1f5A620c58158C3c2c70a1cD0000000000000000000000000000000000000000000000000000000000000000",
+      "calldataHash": "0x1fb98fd2a7833547a24643f2c221ec342e69df9c9eb4732db37a38b1a1ab6a70",
+      "functionName": "createAccount",
+      "assetTransfers": [],
+      "tokenApprovals": [],
+      "moduleChanges": []
+    },
+    "initializationReceipt": null,
+    "initialization": "not_run",
+    "collectorDeployment": "not_run",
+    "broadcast": "not_run"
+  },
+  "uiInitializationReview": {
+    "chainId": 8453,
+    "to": "0x8E6Af8Ed94E87B4402D0272C5D6b0D47F0483e7C",
+    "value": "0",
+    "data": "0x406f52fd000000000000000000000000b3c11aa2148521a3ef6d446672b720a63a2d8349000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000203f6a052474eecfe27884899c3ba21f5dbc9743f11c9000a335be4467cf0fd4467fbf26c1a1d26289c7ed56abd1747c419a467d180eff8c2f477ea180442f605000000000000000000000000e6f980B95a25BDff1f5A620c58158C3c2c70a1cD0000000000000000000000000000000000000000000000000000000000000000",
+    "gasDisplay": "Sponsored ~ $0.01",
+    "submitted": true,
+    "simulationUrl": "https://dashboard.tenderly.co/shared/simulation/35ea9af0-8877-44de-96ec-b6a3d30a590f",
+    "memo": "Base: initialize Treasury and Automation 0x1283…Ecc0. 0 ETH; no token transfer or approval.",
+    "screenshot": "docs/evidence/base-automation-initialization-review.jpg",
+    "userOperationHash": "0x705c7c4ac22cf5997fcf2d8e89b0e707868daf7c1a16b6ded6084af794a4aa11",
+    "transactionHash": "0x864c87e6dabc6e03c5cce701f7958cb54e5fb69364954867829388f665ba7d30"
+  },
+  "policySha256": "0xa818457f88ba865c54990fa5493d90d750162f1bdc9913f68eef81e0204d1e7a",
+  "policyHashBasis": "SHA256 of JSON.stringify(nativeRule.policy) exactly as retained here; mutable server policy, not a governor signature or scheduler execution proof",
+  "scope": "Canonical Base Treasury and Automation initialization, complete finalized/current authority/module checks, and owner-authorized D5 Collector deployment verified at least 64 blocks after mining. Collector and public Base remain paused; genuine fee conversion/native execution and public activation remain unperformed.",
+  "limitations": [
+    "The initialization was fully reverified at the retained finalized deployment-preflight block. Collector creation, immutable runtime and paused state were verified at least 64 blocks after its canonical deployment receipt.",
+    "Requested UserOperation actualGasCost is 0; the outer bundler transaction paid separate network costs. This does not imply future sponsored operation availability.",
+    "Native policy/slippage/service signing authority remain mutable; no native scheduled run or genuine fee cross-chain execution has been observed."
+  ],
+  "sourceTreasuryBootstrap": {
+    "address": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+    "owner": "0xEc10eBE3B5085a1d636137975755C8cF90ac2B5d",
+    "threshold": 1,
+    "initialConditions": {
+      "owner": "0xEc10eBE3B5085a1d636137975755C8cF90ac2B5d",
+      "threshold": 1,
+      "salt": "2014250453",
+      "signers": [
+        {
+          "index": 0,
+          "slot1": "0x03f6a052474eecfe27884899c3ba21f5dbc9743f11c9000a335be4467cf0fd44",
+          "slot2": "0x67fbf26c1a1d26289c7ed56abd1747c419a467d180eff8c2f477ea180442f605"
+        }
+      ]
+    },
+    "modules": [],
+    "create2Prediction": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+    "create2Matches": true,
+    "deployedAtRetainedBaseHead": false,
+    "scope": "First Base transaction from this counterfactual Treasury requires its standard Splits factory initialization, using these original workspace credentials. This does not change Robinhood account authority."
+  },
+  "lastVerifiedAt": "2026-10-11T06:19:34.491Z",
+  "productionPause": {
+    "observedAt": "2026-10-11T06:17:56.431Z",
+    "origins": [
+      {
+        "origin": "https://musegod.fun",
+        "chainId": 8453,
+        "writesEnabled": false,
+        "signingPaused": true,
+        "controlRevision": 0
+      },
+      {
+        "origin": "https://www.musegod.fun",
+        "chainId": 8453,
+        "writesEnabled": false,
+        "signingPaused": true,
+        "controlRevision": 0
+      }
+    ]
+  },
+  "latestFinalizedCheck": {
+    "observedAt": "2026-10-11T06:14:24.322Z",
+    "blockNumber": "52454385",
+    "blockHash": "0xefc96ae3a6734e8f353046d12794d0f2601f020ddb455a4542121ad1cc8d0f66",
+    "initializationBlock": "52452759",
+    "coversInitialization": true,
+    "fullAccountGraphAndModules": "verified"
+  }
+}

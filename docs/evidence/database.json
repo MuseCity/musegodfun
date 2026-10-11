@@ -694,5 +694,118 @@
       "public signing resume"
     ],
     "nextStep": "The approved pause/migration task is complete. Continue the separately scoped protocol-compatible paused runtime and V2/canary acceptance process; signing remains paused."
+  },
+  "baseCollectorProductionMigration": {
+    "observedAt": "2026-10-11T06:38:29.794Z",
+    "project": "vrhzgmulcyqqzkkforsl",
+    "migrations": [
+      {
+        "file": "supabase/migrations/20261009050807_buyback_vault_ledger.sql",
+        "productionVersion": "20261011063532",
+        "sha256": "6bc45b408930ed1bbaf3f9df1f18977388e93d1c6d399d5ee6dfda5db489d72f"
+      },
+      {
+        "file": "supabase/migrations/20261009125045_buyback_native_custody_ledger.sql",
+        "productionVersion": "20261011063545",
+        "sha256": "6960af2a77fd5c67cf5b77a719ff27ce559b8edb23db850054cb3868d98e5637"
+      },
+      {
+        "file": "supabase/migrations/20261009221226_buyback_stable_pagination_and_anchors.sql",
+        "productionVersion": "20261011063558",
+        "sha256": "2cef02965d1d6343afc66c4057dda467859621701504d544596c40ed3ecad90a"
+      }
+    ],
+    "backups": [
+      {
+        "scope": "base",
+        "beforeVersion": 2,
+        "afterVersion": 3,
+        "preserved": {
+          "plans": 6,
+          "tokens": 0,
+          "pending_launches": 0,
+          "buyback_batches": 0
+        },
+        "backups": [
+          {
+            "stage": "pre",
+            "path": ".cache/base-paused-release-2026-10-11/pre-base.json",
+            "bytes": 500985,
+            "sha256": "a7818f82a5ecf107aac7c7490bf2a7e707855f7a5ff3d7074d570f105de432fe"
+          },
+          {
+            "stage": "post",
+            "path": ".cache/base-paused-release-2026-10-11/post-base.json",
+            "bytes": 501339,
+            "sha256": "5385e12a3e6ac54a55f78dacef6aeaf2eb202d45d1c4002a7a57c700b9c06552"
+          }
+        ]
+      },
+      {
+        "scope": "robinhood",
+        "beforeVersion": 2,
+        "afterVersion": 3,
+        "preserved": {
+          "plans": 24,
+          "tokens": 2,
+          "pending_launches": 2,
+          "buyback_batches": 0
+        },
+        "backups": [
+          {
+            "stage": "pre",
+            "path": ".cache/base-paused-release-2026-10-11/pre-robinhood.json",
+            "bytes": 1343957,
+            "sha256": "904bae34abd550558e4f9b8ffd059aa98d5ef751c98a1f7b85a197dddd55ae87"
+          },
+          {
+            "stage": "post",
+            "path": ".cache/base-paused-release-2026-10-11/post-robinhood.json",
+            "bytes": 1344419,
+            "sha256": "e2b5071ffe4cb9f2889ea81471ff32d3a94ee26706a168766d7ea0cdf51432a7"
+          }
+        ]
+      }
+    ],
+    "verification": {
+      "observedAt": "2026-10-11T06:37:14.300Z",
+      "backend": "Supabase",
+      "project": "vrhzgmulcyqqzkkforsl",
+      "scope": "isolated verification rows only",
+      "checks": [
+        "health",
+        "native internal-audit CAS RPC exists and rejects stale expectations",
+        "legacy unbounded ledger RPCs are absent from the server Data API",
+        "atomic concurrent quota",
+        "quota survives reconnect",
+        "snapshot readback",
+        "consistent backup / empty target restore",
+        "restore preserves quota",
+        "nonempty restore rejected",
+        "launch plan and pending hash survive reconnect",
+        "fee policy and original treasury survive reconnect and backup restore",
+        "idempotent token registration and replacement status",
+        "backup restores token and canonical receipt identity",
+        "orphan token removal",
+        "buyback batch amounts and receipt history survive reconnect and upsert",
+        "buyback batch scope isolation and 24-hour cleanup retention",
+        "version-3 backup preserves canonical vault journal, checkpoint, legacy balances and runtime control revision",
+        "native custody migration tables and atomic commits are present",
+        "both native custody checkpoints, blocks and events survive reconnect and backup restore",
+        "unknown Base source submission nonce, original hash, gas and replacement evidence survive backup restore",
+        "source batch keyset pages preserve independent historical rows",
+        "version-1 backup without buyback batches restores successfully",
+        "restore cannot overwrite a scope containing only buyback batches"
+      ]
+    },
+    "base": {
+      "paused": true,
+      "revision": 0
+    },
+    "robinhood": {
+      "paused": false,
+      "revision": 1
+    },
+    "rollback": "Retain additive schema and all financial rows; application rollback only to protocol 7 / destination policy v3 compatible paused code. Never overwrite a production scope with a backup."
   }
 }

@@ -307,6 +307,8 @@ test("functional release smoke covers prices, verified assets and a read-only ca
 function deployedCollectorManifest(): BaseCollectorManifest {
   const manifest = structuredClone(BASE_COLLECTOR_MANIFEST);
   manifest.status = "deployed_verified";
+  manifest.nativeRule.ruleId = null;
+  manifest.nativeRule.configurationSha256 = null;
   Object.assign(manifest.collector, { address: "0x4444444444444444444444444444444444444444", runtimeHash: `0x${"11".repeat(32)}`,
     transactionHash: `0x${"22".repeat(32)}`, blockNumber: "100" });
   for (const entry of Object.values(manifest.dependencies)) Object.assign(entry, { runtimeHash: `0x${"33".repeat(32)}`, proxyCheck: "direct" });
@@ -325,6 +327,9 @@ function deployedCollectorManifest(): BaseCollectorManifest {
 
 test("first deployed paused baseline requires a fresh pristine check, then rollback carries the same Collector graph", async () => {
   const candidateManifest = deployedCollectorManifest(), candidateVars = { ENABLE_BASE_TRANSACTIONS: "false", BASE_FEE_COLLECTOR_ADDRESS: candidateManifest.collector.address! };
+  const pending = structuredClone(BASE_COLLECTOR_MANIFEST);
+  pending.status = "not_deployed";
+  Object.assign(pending.collector, { address: null, runtimeHash: null, transactionHash: null, blockNumber: null });
   let pristineCalls = 0, pristine = true;
   const input = { previousVars: { ENABLE_BASE_TRANSACTIONS: "false" }, candidateVars, candidateManifest,
     previousRecoveryProtocol: false, pristine: async () => { pristineCalls++; return pristine; } };
@@ -332,7 +337,7 @@ test("first deployed paused baseline requires a fresh pristine check, then rollb
   pristine = false;
   assert.equal(await baseRollbackCompatible(input), false, "recheck before activation and rollback catches intervening financial activity");
   assert.equal(pristineCalls, 2);
-  assert.equal(await baseRollbackCompatible({ ...input, previousRecoveryProtocol: true, previousManifest: BASE_COLLECTOR_MANIFEST }), false,
+  assert.equal(await baseRollbackCompatible({ ...input, previousRecoveryProtocol: true, previousManifest: pending }), false,
     "pending manifest and code marker alone cannot recover a deployed Collector");
   pristine = true;
   const blockedCalls = pristineCalls;
@@ -373,6 +378,8 @@ test("uploaded runtime flags must equal the frozen source even while persistent 
 test("a pending Collector release cannot introduce the Base signing flag or a canary record", async () => {
   const input = { previousVars: {}, candidateVars: {}, candidateManifest: structuredClone(BASE_COLLECTOR_MANIFEST),
     previousRecoveryProtocol: false, pristine: async () => true };
+  input.candidateManifest.status = "not_deployed";
+  Object.assign(input.candidateManifest.collector, { address: null, runtimeHash: null, transactionHash: null, blockNumber: null });
   assert.equal(await baseRollbackCompatible(input), true);
   assert.equal(await baseRollbackCompatible({ ...input, candidateVars: { ENABLE_BASE_TRANSACTIONS: "true" } }), false);
   input.candidateManifest.activation.status = "canary_verified";

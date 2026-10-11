@@ -73,7 +73,14 @@ async function seedLaunchAcceptance(store: Parameters<typeof persistBaseActivati
     { source: [{ number: 1n, hash }], destination: [{ number: 1n, hash }] },
     { source: { number: 100n, hash }, destination: { number: 100n, hash } });
 }
-test("a copied canary scope and enabled flag cannot activate a pending Collector or expose RH signing targets",async()=>{
+test("a copied canary scope and enabled flag cannot activate a pending Collector or expose RH signing targets",async t=>{
+  const manifest = structuredClone(BASE_COLLECTOR_MANIFEST);
+  t.after(() => Object.assign(BASE_COLLECTOR_MANIFEST, manifest));
+  BASE_COLLECTOR_MANIFEST.status = "not_deployed";
+  Object.assign(BASE_COLLECTOR_MANIFEST.collector, { address: null, runtimeHash: null, transactionHash: null, blockNumber: null });
+  BASE_COLLECTOR_MANIFEST.constants.automationReceiver = null;
+  Object.assign(BASE_COLLECTOR_MANIFEST.automationAccount, { address: null, runtimeHash: null, implementation: null, owner: null, ownerRuntimeHash: null,
+    threshold: null, signers: [], initializationHash: null, blockNumber: null, creation: null });
   const f=await fixture();try{
     const response=await fetch(`${f.origin}/api/chains/8453/config`),config=await response.json();assert.equal(response.status,200);
     assert.equal(config.writesEnabled,false);assert.equal(config.feeEngine,null);

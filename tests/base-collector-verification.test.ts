@@ -173,10 +173,16 @@ test("a finalized static replay never replaces fresh EIP-1271 governor authoriza
   assert.equal(replays, 1); assert.equal(signatures, 3);
 });
 test("native pending manifest never claims deployment or invokes RPC", async () => {
+  const pending = structuredClone(BASE_COLLECTOR_MANIFEST);
+  pending.status = "not_deployed";
+  Object.assign(pending.collector, { address: null, runtimeHash: null, transactionHash: null, blockNumber: null });
+  pending.constants.automationReceiver = null;
+  Object.assign(pending.automationAccount, { address: null, runtimeHash: null, implementation: null, owner: null, ownerRuntimeHash: null,
+    threshold: null, signers: [], initializationHash: null, blockNumber: null, creation: null });
   let calls = 0; const client = { getChainId: async () => { calls++; return 8453; } } as unknown as BaseCollectorClient;
-  await assert.rejects(() => verifyBaseCollector(client, collector, { manifest: BASE_COLLECTOR_MANIFEST, ...readOnly }), /deployment has not been verified/);
-  assert.equal(calls, 0); assert.equal(BASE_COLLECTOR_MANIFEST.constants.automationReceiver, null);
-  assert.equal(BASE_COLLECTOR_MANIFEST.activation.status, "not_run");
+  await assert.rejects(() => verifyBaseCollector(client, collector, { manifest: pending, ...readOnly }), /deployment has not been verified/);
+  assert.equal(calls, 0); assert.equal(pending.constants.automationReceiver, null);
+  assert.equal(pending.activation.status, "not_run");
 });
 test("exact native graph reconstructs every immutable and keeps fresh pause state", async () => {
   const f = fixture(); const result = await verifyBaseCollector(f.client, collector, { manifest: f.manifest, ...readOnly });
@@ -362,6 +368,11 @@ test("graph fingerprint excludes activation/auth proofs but binds the native rul
 });
 test("unsigned native Collector deployment has one CREATE and no module or role enabling", async () => {
   const pending = structuredClone(BASE_COLLECTOR_MANIFEST);
+  pending.status = "not_deployed";
+  Object.assign(pending.collector, { address: null, runtimeHash: null, transactionHash: null, blockNumber: null });
+  pending.constants.automationReceiver = null;
+  Object.assign(pending.automationAccount, { address: null, runtimeHash: null, implementation: null, owner: null, ownerRuntimeHash: null,
+    threshold: null, signers: [], initializationHash: null, blockNumber: null, creation: null });
   await assert.rejects(() => prepareBaseCollectorDeploymentSequence(pending, governor.address, 2n), /dedicated Base/);
   const f = fixture(); f.manifest.collector.address = null;
   const proposal = await prepareBaseCollectorDeploymentSequence(f.manifest, governor.address, 2n);

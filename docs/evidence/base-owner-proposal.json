@@ -1,7 +1,7 @@
 {
   "schemaVersion": 3,
-  "recordedAt": "2026-10-11T04:05:15.032438+00:00",
-  "status": "code_accepted_mainnet_actions_not_authorized",
+  "recordedAt": "2026-10-11T05:10:40.330040+00:00",
+  "status": "base_collector_deployed_verified_paused",
   "architecture": "splits-treasury-native-automation",
   "sourceBaseline": "f7c1264b2995c2c243c7f95419254a3e45d118f2",
   "chainId": 8453,
@@ -13,13 +13,35 @@
     "keeperAuthorityCheck": "Must differ from canonical Automation/Treasury owners and EOA/ERC1271 signing authority; P256 identities are interpreted by official semantics. Distinct keys do not prove independent humans."
   },
   "newBaseAutomation": {
-    "address": null,
-    "ruleId": null,
-    "status": "owner_UI_creation_required",
-    "ownerAndSigners": "must be read from the actual official Base factory initialization and current account; do not assume RH account exists on Base",
+    "address": "0x1283E6CE717347607D4DA3a439cD2324833EEcc0",
+    "ruleId": "d428b46c-92ad-4c3a-862b-f57b5333a45f",
+    "status": "canonical_64_confirmed_account_graph_verified",
+    "ownerAndSigners": "Official factory creation receipt/CREATE2 prediction and complete current owner/signers/threshold verified on Base. Treasury owner also verified against its original creation/current full authority.",
     "factory": "0x8E6Af8Ed94E87B4402D0272C5D6b0D47F0483e7C",
     "implementation": "0x15ec0Fa66A0D96a64d67C58368641fBE9325F3FA",
-    "modules": "Complete canonical enable history and current enabled state must show no execution modules; current owner/signers remain separately reviewed."
+    "modules": "Complete canonical EnabledModule history through Base block 52452882 verified; no enabled modules.",
+    "initializationStatus": "human_submitted_canonical_receipt_verified",
+    "configurationSha256": "0xa818457f88ba865c54990fa5493d90d750162f1bdc9913f68eef81e0204d1e7a",
+    "configurationHashBasis": "SHA256 of JSON.stringify(nativeRule.policy) exactly as retained here; mutable server policy, not a governor signature or scheduler execution proof",
+    "uiObservedOwner": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
+    "uiObservedThreshold": 1,
+    "uiObservedSignerAuthorities": [
+      {
+        "index": 0,
+        "kind": "passkey",
+        "x": "0x03f6a052474eecfe27884899c3ba21f5dbc9743f11c9000a335be4467cf0fd44",
+        "y": "0x67fbf26c1a1d26289c7ed56abd1747c419a467d180eff8c2f477ea180442f605"
+      },
+      {
+        "index": 1,
+        "kind": "account",
+        "address": "0xe6f980B95a25BDff1f5A620c58158C3c2c70a1cD"
+      }
+    ],
+    "evidence": "docs/evidence/base-automation-initialization.json",
+    "initializationHash": "0x864c87e6dabc6e03c5cce701f7958cb54e5fb69364954867829388f665ba7d30",
+    "userOperationHash": "0x705c7c4ac22cf5997fcf2d8e89b0e707868daf7c1a16b6ded6084af794a4aa11",
+    "blockNumber": "52452759"
   },
   "nativeRule": {
     "sourceChainId": 8453,
@@ -28,40 +50,49 @@
     "allocationBps": 10000,
     "recipient": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
     "bridgeProvider": "Relay",
-    "requiredReview": "ruleId and configuration SHA256 bound to governor authorization; native provider routes remain mutable"
+    "requiredReview": "ruleId and configuration SHA256 bound to governor authorization; native provider routes remain mutable",
+    "ruleId": "d428b46c-92ad-4c3a-862b-f57b5333a45f",
+    "configurationSha256": "0xa818457f88ba865c54990fa5493d90d750162f1bdc9913f68eef81e0204d1e7a"
   },
   "collectorConstructor": {
     "initializer": "0xBDF938149ac6a781F94FAa0ed45E6A0e984c6544",
     "rehype": "0x5F9eB5f6726Fe88D5e39867967F5b833d2fA3215",
     "governor": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
-    "automationReceiver": null,
+    "automationReceiver": "0x1283E6CE717347607D4DA3a439cD2324833EEcc0",
     "initiallyPaused": true,
     "runtimeBytes": 6927,
     "creationBytecodeHash": "0x58806e3bc2ef47df029ccb93c52f37ae1b24e7a3911339b6fca7a549a1f6c4d3",
     "compilerInputSha256": "873e380891f940264e730a02d021aee9c46e608b6514ee900bfd6b8ac298b9a2",
-    "creationTransaction": "pending actual account initialization, reviewed manifest and fresh deployer nonce; preflight generates unsigned calldata only",
+    "creationTransaction": "Completed owner-authorized D5 EIP1559 CREATE 0x867720302f73085f5f29f217894276aad5a1cc184d3d037846803e64a47a0aa1; canonical successful receipt at Base block 52454982, at least 64-block exact runtime/immutables/paused verification, actual full fee 9685784837230 wei within the 20000000000000 wei ceiling. Never repeat the recorded deployment nonce.",
     "unknownRecovery": "Normal production keeper automatically syncs/releases verified pool unknown balances to the same fixed Automation with independent counters/events and shared durable nonce/gas safety; zero genuine fee/canary credit. Existing private signatures do not authorize these actions."
   },
   "ownerExecutionChecklist": [
     {
       "step": 1,
       "action": "Create dedicated Base native Automation under the existing Splits Treasury using the human passkey; export the exact 100% canonical Robinhood WETH-to-existing-Treasury rule.",
-      "authorization": "account and native rule UI signatures required; no existing RH rule change"
+      "authorization": "account and native rule UI signatures required; no existing RH rule change",
+      "status": "completed",
+      "evidence": "docs/evidence/base-automation-initialization.json"
     },
     {
       "step": 2,
       "action": "Review factory creation receipt, CREATE2 prediction, owner, implementation, complete current indexed signers/threshold and rule hash. Bind the new address in the existing manifest.",
-      "authorization": "read-only"
+      "authorization": "read-only",
+      "status": "completed",
+      "evidence": "docs/evidence/base-collector-mainnet-deployment.json"
     },
     {
       "step": 3,
       "action": "Run unsigned Collector preflight with the existing D5 deployer; review exact calldata, current nonce, predicted address, Base L2/L1/operator gas and immutable bindings; only then authorize deployment.",
-      "authorization": "deployment transaction and separate gas ceiling required"
+      "authorization": "deployment transaction and separate gas ceiling required",
+      "status": "completed",
+      "evidence": "docs/evidence/base-collector-mainnet-deployment.json"
     },
     {
       "step": 4,
       "action": "Authorize additive financial journals and backup restore; initialize Base Automation, existing RH Treasury and existing shared Vault checkpoints before the first release. Keep public controls paused.",
-      "authorization": "database maintenance required; no RH financial permission change"
+      "authorization": "database maintenance required; no RH financial permission change",
+      "status": "schema_migration_and_backup_restore_complete_checkpoints_not_initialized"
     },
     {
       "step": 5,
@@ -80,7 +111,7 @@
     }
   ],
   "budgets": {
-    "deploymentGasWei": null,
+    "deploymentGasWei": "20000000000000",
     "baseKeeperGasWei": null,
     "robinhoodKeeperGasWei": null,
     "releaseBudgets": [],
@@ -430,5 +461,88 @@
     "codeAndTestsChangedAfterValidation": false,
     "scope": "All validated repair changes on this branch, including prior repair rounds; local commit only. No push, deploy, signing-control change, mainnet transaction, service purchase or production database write.",
     "mainnetAuthorization": false
+  },
+  "collectorDeploymentReview": {
+    "evidence": "docs/evidence/base-collector-mainnet-deployment.json",
+    "deployer": "0xd5C256e6411a6835543F2bCd763341639e3Cf56f",
+    "nonce": 3,
+    "predictedCollector": "0x3B6d01e627Fe6e06C831E0f9f57aC976a88309Ff",
+    "gasReservationWei": "14376661948878",
+    "suggestedGasCeilingWei": "20000000000000",
+    "deploymentAuthorized": true,
+    "submitted": true,
+    "initiallyPaused": true,
+    "finalizedPreflight": "verified",
+    "formalManifestBinding": "deployed_verified",
+    "bindingCandidate": "candidateManifest in unsigned preflight evidence",
+    "unsignedProposalEvidence": "docs/evidence/base-collector-unsigned-preflight.json",
+    "finalizedBlockNumber": "52454385",
+    "transactionHash": "0x867720302f73085f5f29f217894276aad5a1cc184d3d037846803e64a47a0aa1",
+    "blockNumber": "52454982",
+    "actualGasWei": "9685784837230",
+    "totalGasCeilingWei": "20000000000000",
+    "confirmations": "75",
+    "collectorPaused": true,
+    "verifiedAt": "2026-10-11T06:19:34.491Z",
+    "localAcceptanceEvidence": "docs/evidence/base-collector-mainnet-deployment.json"
+  },
+  "mainnetAccountInitialization": {
+    "transactionHash": "0x864c87e6dabc6e03c5cce701f7958cb54e5fb69364954867829388f665ba7d30",
+    "userOperationHash": "0x705c7c4ac22cf5997fcf2d8e89b0e707868daf7c1a16b6ded6084af794a4aa11",
+    "blockNumber": "52452759",
+    "canonical64Confirmed": true,
+    "accounts": [
+      "0x1283E6CE717347607D4DA3a439cD2324833EEcc0",
+      "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349"
+    ]
+  },
+  "productionPauseEvidence": {
+    "observedAt": "2026-10-11T06:17:56.431Z",
+    "origins": [
+      {
+        "origin": "https://musegod.fun",
+        "chainId": 8453,
+        "writesEnabled": false,
+        "signingPaused": true,
+        "controlRevision": 0
+      },
+      {
+        "origin": "https://www.musegod.fun",
+        "chainId": 8453,
+        "writesEnabled": false,
+        "signingPaused": true,
+        "controlRevision": 0
+      }
+    ]
+  },
+  "collectorDeploymentAuthorization": {
+    "authorizedAt": "2026-10-11T06:00:58.623340+00:00",
+    "source": "explicit_human_message",
+    "chainId": 8453,
+    "deployer": "0xd5C256e6411a6835543F2bCd763341639e3Cf56f",
+    "collector": "0x3B6d01e627Fe6e06C831E0f9f57aC976a88309Ff",
+    "nonce": 3,
+    "totalGasCeilingWei": "20000000000000",
+    "value": "0",
+    "calldataHash": "0x4af2804b37ad08f27f0d93ca5c65feca127610a9f601b8f1785b0b988c305783",
+    "requireFinalizedAccountCheck": true,
+    "collectorMustRemainPaused": true,
+    "publicBaseMustRemainPaused": true,
+    "message": "确认，等 finalized 检查通过后，用现有 D5 钱包按总 gas 上限 0.00002 ETH 部署 Collector。Collector 和 Base 继续保持暂停。"
+  },
+  "pausedProductionPublication": {
+    "authorization": "User explicitly requested production database migration and publication of a paused Collector-compatible version",
+    "observedAt": "2026-10-11T06:39:18.425Z",
+    "database": "migrated_and_isolated_restore_verified",
+    "databaseEvidence": "docs/evidence/database.json",
+    "collector": "0x3B6d01e627Fe6e06C831E0f9f57aC976a88309Ff",
+    "basePaused": true,
+    "collectorPaused": true,
+    "robinhoodPermissionsChanged": false,
+    "financialWriterStarted": false,
+    "phase": "ready_for_compatible_paused_baseline",
+    "minimumRecoveryProtocol": 7,
+    "destinationPolicy": "relay-v3-permit2-signed-execution-receipt-v3",
+    "rollback": "Establish and verify a real same-graph paused compatibility baseline before the ordinary immutable release. Retain additive schema and all financial state; the old f7c1264 Worker is historical, not the new native rollback target."
   }
 }

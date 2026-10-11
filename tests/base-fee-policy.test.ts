@@ -32,6 +32,8 @@ test("Native fee adapter receipt allocation never applies a second platform 80/2
 test("Base receipt registry trusts the fixed native fee adapter from cutover while retaining earlier treasury receipts", () => {
   const config: RuntimeConfig = { mode: "base", chainId: 8453, treasury, writesEnabled: false, blockReason: "paused", feeEngine: collector, feePolicy: BASE_AUTOMATION_FEE_POLICY };
   const manifest = structuredClone(BASE_COLLECTOR_MANIFEST);
+  manifest.status = "not_deployed";
+  Object.assign(manifest.collector, { address: null, runtimeHash: null, transactionHash: null, blockNumber: null });
   assert.equal(trustedLaunchPolicies(config, ENGINE_MANIFEST, manifest).length, 0);
   manifest.status = "deployed_verified"; manifest.collector.address = collector; manifest.collector.blockNumber = "100"; manifest.constants.operationsTreasury = treasury;
   const policies = trustedLaunchPolicies(config, ENGINE_MANIFEST, manifest);
