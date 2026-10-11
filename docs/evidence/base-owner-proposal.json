@@ -540,9 +540,128 @@
     "collectorPaused": true,
     "robinhoodPermissionsChanged": false,
     "financialWriterStarted": false,
-    "phase": "ready_for_compatible_paused_baseline",
+    "phase": "compatible_paused_baseline_verified",
     "minimumRecoveryProtocol": 7,
     "destinationPolicy": "relay-v3-permit2-signed-execution-receipt-v3",
-    "rollback": "Establish and verify a real same-graph paused compatibility baseline before the ordinary immutable release. Retain additive schema and all financial state; the old f7c1264 Worker is historical, not the new native rollback target."
+    "rollback": "Establish and verify a real same-graph paused compatibility baseline before the ordinary immutable release. Retain additive schema and all financial state; the old f7c1264 Worker is historical, not the new native rollback target.",
+    "baseline": {
+      "workerVersion": "f33828e5-0e79-44e7-9a54-7ec33200d255",
+      "sourceCommit": "81424c077e79909a10e458c404e82861f6b34e15",
+      "buildSource": "local",
+      "dirty": false,
+      "graphFingerprint": "0x29461adb72dd2bdc859539b5b6ed65bc1f86f8490d4a0d6b3ab829e84bf919f2",
+      "onlyNewRuntimeVariable": "BASE_FEE_COLLECTOR_ADDRESS",
+      "bindingsPreserved": {
+        "secretNames": [
+          "ALCHEMY_API_KEY",
+          "LIFI_API_KEY",
+          "PINATA_JWT",
+          "PLAN_ATTESTATION_KEY",
+          "SUPABASE_SECRET_KEY"
+        ],
+        "durableObjectNamespace": "c8a77d910da540ca90bab930bae908c5",
+        "migrationTag": "v1"
+      },
+      "online": {
+        "observedAt": "2026-10-11T06:48:00.752Z",
+        "results": [
+          {
+            "origin": "https://musegod.fun",
+            "filesVerified": 212,
+            "worker": "f33828e5-0e79-44e7-9a54-7ec33200d255",
+            "source": "81424c077e79909a10e458c404e82861f6b34e15",
+            "buildSource": "local",
+            "runtime": "passed",
+            "smoke": [
+              {
+                "chainId": 8453,
+                "auxiliaryPrices": "available",
+                "unknownReferences": 0,
+                "tradeQuote": "not_run"
+              },
+              {
+                "chainId": 4663,
+                "auxiliaryPrices": "available",
+                "unknownReferences": 0,
+                "tradeQuote": "passed"
+              }
+            ],
+            "controls": [
+              {
+                "chainId": 8453,
+                "writesEnabled": false,
+                "signingPaused": true,
+                "revision": 0,
+                "feePolicy": "creator-70-musegod-base-automation-v1",
+                "feeEngine": null
+              },
+              {
+                "chainId": 4663,
+                "writesEnabled": true,
+                "signingPaused": false,
+                "revision": 1,
+                "feePolicy": "creator-70-musegod-swapper-v3",
+                "feeEngine": "0x9caefd217ea5a039BbA77Ae5b0626733eA093769"
+              }
+            ]
+          },
+          {
+            "origin": "https://www.musegod.fun",
+            "filesVerified": 212,
+            "worker": "f33828e5-0e79-44e7-9a54-7ec33200d255",
+            "source": "81424c077e79909a10e458c404e82861f6b34e15",
+            "buildSource": "local",
+            "runtime": "passed",
+            "smoke": [
+              {
+                "chainId": 8453,
+                "auxiliaryPrices": "available",
+                "unknownReferences": 0,
+                "tradeQuote": "not_run"
+              },
+              {
+                "chainId": 4663,
+                "auxiliaryPrices": "available",
+                "unknownReferences": 0,
+                "tradeQuote": "passed"
+              }
+            ],
+            "controls": [
+              {
+                "chainId": 8453,
+                "writesEnabled": false,
+                "signingPaused": true,
+                "revision": 0,
+                "feePolicy": "creator-70-musegod-base-automation-v1",
+                "feeEngine": null
+              },
+              {
+                "chainId": 4663,
+                "writesEnabled": true,
+                "signingPaused": false,
+                "revision": 1,
+                "feePolicy": "creator-70-musegod-swapper-v3",
+                "feeEngine": "0x9caefd217ea5a039BbA77Ae5b0626733eA093769"
+              }
+            ]
+          }
+        ]
+      },
+      "collectorVerification": {
+        "observedAt": "2026-10-11T06:41:35.579Z",
+        "graphFingerprint": "0x29461adb72dd2bdc859539b5b6ed65bc1f86f8490d4a0d6b3ab829e84bf919f2",
+        "verification": {
+          "collector": "0x3B6d01e627Fe6e06C831E0f9f57aC976a88309Ff",
+          "paused": true,
+          "automationReceiver": "0x1283E6CE717347607D4DA3a439cD2324833EEcc0",
+          "runtimeHash": "0x437fdeb7b8500f79207158f6f3d7ea8844fd0b2b85d3fc90cd16403b252b35a5",
+          "initialDeploymentBlock": "52454982",
+          "manifestFingerprint": "0x29461adb72dd2bdc859539b5b6ed65bc1f86f8490d4a0d6b3ab829e84bf919f2"
+        }
+      },
+      "previousWorkerHistoricalOnly": "b99bc36a-bbe1-49d4-b3e7-e3090f00d288",
+      "compatibleRollback": "same-graph protocol-7 / receipt-policy-v3 paused baseline; no downgrade to pre-Collector worker",
+      "immutableRelease": "pending"
+    }
   }
 }
