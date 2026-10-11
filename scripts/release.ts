@@ -86,7 +86,7 @@ function frozenBuild() {
 
 async function request(url: string, init: RequestInit = {}): Promise<Response> {
   const response = await fetch(url, { ...init, signal: AbortSignal.timeout(30_000) });
-  if (!response.ok) throw new Error(`HTTP ${response.status} for ${new URL(url).origin}${new URL(url).pathname}`);
+  if (!response.ok) throw Object.assign(new Error(`HTTP ${response.status} for ${new URL(url).origin}${new URL(url).pathname}`), { status: response.status });
   return response;
 }
 
@@ -106,6 +106,20 @@ async function cloudflare<T>(account: string, path: string): Promise<T> {
   const data = await response.json() as { success: boolean; result: T };
   if (!data.success || !data.result) throw new Error(`Cloudflare read-back failed for ${path}`);
   return data.result;
+}
+
+// Only the version just reported by the successful upload may be temporarily absent.
+// Retry its read-back, never the upload or any publication/activation operation.
+export async function readUploadedCandidate(account: string, version: string,
+  wait: (milliseconds: number) => Promise<unknown> = waitForPropagation): Promise<WorkerVersion> {
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try { return await cloudflare<WorkerVersion>(account, `scripts/${workerName}/versions/${version}`); }
+    catch (error) {
+      if (!(error instanceof Error) || !("status" in error) || error.status !== 404 || attempt === 3) throw error;
+      await wait(10_000);
+    }
+  }
+  throw new Error("Candidate version read-back retry budget exhausted");
 }
 
 function canonical(value: unknown): string {
@@ -467,7 +481,7 @@ async function main() {
         const uploads = records.filter(record => record.type === "version-upload");
         if (uploads.length !== 1 || uploads[0].worker_name !== workerName || !/^[a-f0-9-]{36}$/.test(uploads[0].version_id || ""))
           throw new Error("Wrangler did not report exactly one candidate Worker version");
-        const candidate = await cloudflare<WorkerVersion>(account, `scripts/${workerName}/versions/${uploads[0].version_id}`);
+        const candidate = await readUploadedCandidate(account, uploads[0].version_id!);
         assertCandidateRuntimeBindings(candidate.resources.bindings, config.vars);
         if (candidate.id !== uploads[0].version_id || candidate.annotations?.["workers/tag"] !== build.identity.commit)
           throw new Error("Candidate version metadata does not match the source commit");

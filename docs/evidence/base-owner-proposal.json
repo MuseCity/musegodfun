@@ -662,6 +662,26 @@
       "previousWorkerHistoricalOnly": "b99bc36a-bbe1-49d4-b3e7-e3090f00d288",
       "compatibleRollback": "same-graph protocol-7 / receipt-policy-v3 paused baseline; no downgrade to pre-Collector worker",
       "immutableRelease": "pending"
+    },
+    "immutableReleaseAttempt": {
+      "runId": 38119316257,
+      "sourceCommit": "2350b430d6996b743bc2442ebd200944040d1351",
+      "status": "candidate_metadata_404_before_release_or_activation",
+      "inactiveCandidate": "f38531e6-c404-48ea-b24a-46938c932d48",
+      "verifiedActiveBaseline": "f33828e5-0e79-44e7-9a54-7ec33200d255",
+      "subsequentMetadataRead": {
+        "status": 200,
+        "credential": "existing local OAuth, not CI credential"
+      },
+      "fix": "Only the exact successfully uploaded candidate metadata GET retries HTTP 404 up to three reads with 10s waits. No upload/activation retry or relaxed assertions.",
+      "validation": {
+        "appTests": 1316,
+        "passed": 1316,
+        "failed": 0,
+        "skipped": 0,
+        "typecheck": "passed",
+        "independentToolingReview": "passed"
+      }
     }
   }
 }
