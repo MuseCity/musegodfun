@@ -12,7 +12,7 @@ import { resetQuoteClock } from "../src/lib/quote-clock";
 import type { Transaction } from "../src/lib/transactions";
 import { syntheticOpeningValuation } from "./fixtures";
 import { buildLaunch } from "../src/lib/protocol";
-import { FEE_POLICY } from "../src/lib/fee-policy";
+import { FEE_POLICY, BASE_AUTOMATION_FEE_POLICY } from "../src/lib/fee-policy";
 import { TRADING_FEE_BPS } from "../src/lib/trading-fee";
 
 const account: Address = "0x1111111111111111111111111111111111111111";
@@ -71,6 +71,19 @@ function v2Plan(firstBuy = true, expected = "100", acceptedFloor?: string): Laun
   value.id = keccak256(value.data);
   return value;
 }
+
+test("a Base native launch revalidates its exact current fee adapter before signing",()=>{
+ const value=plan(false),feeEngine="0x5555555555555555555555555555555555555555" as Address;
+ const sdk=new DopplerSDK<8453>({publicClient:createPublicClient({transport:http("http://127.0.0.1:1")}),chainId:8453});
+ const createData=sdk.factory.encodeCreateMulticurveParams(buildLaunch(sdk,value.draft,account,account,other,value.openingValuation!,undefined,8453,feeEngine));
+ value.data=encodeFunctionData({abi:airlockAbi,functionName:"create",args:[createData]});value.transaction!.data=value.data;
+ value.feePolicy=BASE_AUTOMATION_FEE_POLICY;value.feeEngine=feeEngine;value.feeTreasury=account;
+ const native={...config,feePolicy:BASE_AUTOMATION_FEE_POLICY,feeEngine};
+ assert.doesNotThrow(()=>assertLaunchWalletPlan(value,native,account));
+ for(const engine of [undefined,other])assert.throws(()=>assertLaunchWalletPlan(value,{...native,feeEngine:engine},account),/fee engine|fee adapter/i);
+ assert.throws(()=>assertLaunchWalletPlan(plan(false),native,account),/fee policy/,
+  "An omitted historical policy cannot bypass the active Base native fee destination");
+});
 
 test("v2 wallet execution keeps the finalized five-minute window after opening-price freshness expires", async (t) => {
   const initial = 1_800_000_000_000; let now = initial;

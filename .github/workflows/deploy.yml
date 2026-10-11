@@ -70,6 +70,19 @@ jobs:
       - name: Validate the frozen build
         run: npx --no-install tsx scripts/release.ts --check-build
 
+      # Only this serialized master-push workflow writes these private audit cursors.
+      # They contain public graph/block identities, never keys or transaction data.
+      - name: Restore anchored Base pristine audit progress
+        id: pristine-audit
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: |
+            .cache/base-pristine-audit/*.json
+            .cache/base-native-audit/*.json
+          key: base-pristine-v3-${{ hashFiles('package-lock.json', 'scripts/release.ts', 'scripts/base-audit-store.ts', 'server/base-audit.ts', 'server/base-collector.ts', 'contracts/artifacts/base-collector-deployment.json') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            base-pristine-v3-${{ hashFiles('package-lock.json', 'scripts/release.ts', 'scripts/base-audit-store.ts', 'server/base-audit.ts', 'server/base-collector.ts', 'contracts/artifacts/base-collector-deployment.json') }}-
+
       - name: Publish immutable build, activate and verify
         run: npx --no-install tsx scripts/release.ts
         env:
@@ -77,3 +90,12 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: 4b68bb6b6c38892162610027f25fbb0d
           WRANGLER_SEND_METRICS: 'false'
+
+      - name: Retain Base pristine audit progress even when publication is blocked
+        if: always() && steps.pristine-audit.outcome == 'success'
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: |
+            .cache/base-pristine-audit/*.json
+            .cache/base-native-audit/*.json
+          key: ${{ steps.pristine-audit.outputs.cache-primary-key }}

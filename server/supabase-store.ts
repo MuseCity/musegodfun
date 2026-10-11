@@ -2,7 +2,7 @@ import type { Hex } from "viem";
 import { packPlan, unpackPlan } from "./plan-storage";
 import { defaultRuntimeControl, type RuntimeControl, type BudgetName, type BudgetResult } from "./runtime-policy";
 import type { TokenRecord } from "../src/lib/config";
-import { assertBuybackBatchId, type Store, type LaunchPlan, type BuybackBatchRecord, type BuybackBatchPageRecord } from "./store";
+import { assertBuybackBatchId, assertBuybackAuditRecord, type Store, type LaunchPlan, type BuybackBatchRecord, type BuybackBatchPageRecord } from "./store";
 import { assertVaultAmount, assertVaultCommit, type VaultLedgerState, type VaultLedgerCommit, type VaultLedgerEvent, type VaultLedgerBlock, type VaultEventCursor } from "../src/lib/buyback-vault-ledger";
 import { assertCustodyCommit, type CustodyCommit, type CustodyEvent, type CustodyLedgerId, type CustodyState } from "../src/lib/buyback-custody-ledger";
 export type StoreBackend = {
@@ -125,24 +125,24 @@ export class SupabaseStore implements StoreBackend {
     );
     return rows[0]?.payload ?? null;
   }
+  async compareAndSetBuybackAudit(next:BuybackBatchRecord,expected:BuybackBatchRecord|null):Promise<boolean> {
+    assertBuybackAuditRecord(next);if(expected!==null){assertBuybackAuditRecord(expected);if(expected.id!==next.id)throw new Error("Internal audit CAS identity differs");}
+    const result=await this.request<unknown>("rpc/musegod_compare_and_set_buyback_audit","POST",{p_scope:this.scope,p_next:next,p_expected:expected});
+    if(typeof result!=="boolean")throw new Error("Internal audit CAS returned an invalid result");return result;
+  }
   async listBuybackBatches(): Promise<BuybackBatchRecord[]> {
     const rows = await this.request<{ payload: BuybackBatchRecord }[]>(
       `musegod_buyback_batches?${this.where()}&order=updated_at.desc,id&select=payload&limit=1000`,
     );
     return rows.map((row) => row.payload);
   }
-  async buybackBatchPage(limit = 100, before?: { updatedAt: number; id: string }): Promise<BuybackBatchPageRecord[]> {
+  async buybackBatchPage(limit = 100, before?: { sequence: string }): Promise<BuybackBatchPageRecord[]> {
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new Error("Invalid buyback batch page size");
-    if (before) {
-      assertBuybackBatchId(before.id);
-      if (!Number.isSafeInteger(before.updatedAt) || before.updatedAt < 0) throw new Error("Invalid buyback batch cursor");
-    }
-    // PostgREST reserved characters in IDs are quoted in its grammar, then URL encoded.
-    const id = before ? `"${before.id.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"` : "";
-    const cursor = before ? `&or=${encodeURIComponent(`(updated_at.lt.${before.updatedAt},and(updated_at.eq.${before.updatedAt},id.gt.${id}))`)}` : "";
-    const rows = await this.request<{ payload: BuybackBatchRecord; updated_at: number }[]>(
-      `musegod_buyback_batches?${this.where()}${cursor}&order=updated_at.desc,id&select=payload,updated_at&limit=${limit}`);
-    return rows.map(row => ({ ...row.payload, updatedAt: row.updated_at }));
+    if(before)assertVaultAmount(before.sequence);
+    const cursor = before ? `&sequence=lt.${before.sequence}` : "";
+    const rows = await this.request<{ payload: BuybackBatchRecord; updated_at: number; sequence:string }[]>(
+      `musegod_buyback_batches?${this.where()}${cursor}&order=sequence.desc&select=payload,updated_at,sequence::text&limit=${limit}`);
+    return rows.map(row => ({ ...row.payload, updatedAt: row.updated_at, sequence:row.sequence }));
   }
   private assertVaultLedgerAuthority() {
     if (this.scope === "base") throw new Error("Vault ledger belongs to the Robinhood store");

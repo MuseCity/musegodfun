@@ -8,7 +8,7 @@ import { assertSigningEnabled } from "./validation";
 import { assertLaunchPlanValidity, type LaunchPlan, type LaunchTransaction } from "./launch-plan";
 import { launchGuardAbi } from "./launch-guard";
 import { transactionMatchesConfig, type Transaction } from "./transactions";
-import { ENGINE_FEE_POLICY, launchFeePolicy } from "./fee-policy";
+import { ENGINE_FEE_POLICY, BASE_AUTOMATION_FEE_POLICY, launchFeePolicy } from "./fee-policy";
 import { assertEngineFeeCalldata, assertTradingFeeCalldata } from "./protocol";
 
 export type LaunchSimulation = { valid: true; gas: string; amountOut: string | null; simulatedAt: number };
@@ -85,8 +85,11 @@ export function assertLaunchWalletPlan(plan: LaunchPlan, config: RuntimeConfig, 
   assertLaunchPlanValidity(plan, deploymentChain(config), now);
   if (!assetsFor(config).some((asset) => sameAddress(asset.address, plan.draft.quoteAddress)))
     throw new Error("The selected quote asset is not supported on this network");
-  if ((plan.feePolicy !== undefined || launchFeePolicy(config) === ENGINE_FEE_POLICY) && plan.feePolicy !== launchFeePolicy(config))
+  const feePolicy = launchFeePolicy(config);
+  if ((plan.feePolicy !== undefined || feePolicy === ENGINE_FEE_POLICY || feePolicy === BASE_AUTOMATION_FEE_POLICY) && plan.feePolicy !== feePolicy)
     throw new Error("The launch fee policy has changed. Run a new preview.");
+  if (plan.feePolicy === BASE_AUTOMATION_FEE_POLICY && (!config.feeEngine || !plan.feeEngine || !sameAddress(plan.feeEngine, config.feeEngine)))
+    throw new Error("The Base fee adapter configuration changed or could not be verified. Run a new preview.");
   if (plan.feePolicy === ENGINE_FEE_POLICY && (!config.feeEngine || !plan.feeEngine || !sameAddress(plan.feeEngine, config.feeEngine) ||
     [config.treasury, config.automationReceiver, config.automationTreasury, config.wethForwarder].some((address) => !address || sameAddress(address, "0x0000000000000000000000000000000000000000")) ||
     new Set([config.treasury, config.automationReceiver, config.automationTreasury, config.wethForwarder].map((address) => address?.toLowerCase())).size !== 4))

@@ -1,0 +1,51 @@
+{
+  "compilerVersion": "0.8.28+commit.7893614a.Emscripten.clang",
+  "compilerErrors": 0,
+  "fullRuntimeMatch": true,
+  "runtimeBytes": 7746,
+  "immutableDeclarations": [
+    {
+      "id": 2905,
+      "name": "ROUTER"
+    },
+    {
+      "id": 2909,
+      "name": "PERMIT2"
+    }
+  ],
+  "immutableValues": {
+    "1718": "0x000000000000000000000000b92fe925dc43a0ecde6c8b1a2709c170ec4fff4f",
+    "1722": "0x000000000000000000000000000000000022d473030f116ddee9f6b43ac78ba3"
+  },
+  "immutableReferences": {
+    "2905": [
+      {
+        "length": 32,
+        "start": 3729
+      },
+      {
+        "length": 32,
+        "start": 3874
+      },
+      {
+        "length": 32,
+        "start": 4743
+      },
+      {
+        "length": 32,
+        "start": 5332
+      },
+      {
+        "length": 32,
+        "start": 5692
+      }
+    ],
+    "2909": [
+      {
+        "length": 32,
+        "start": 4088
+      }
+    ]
+  },
+  "inputSha256": "8e3dfd280f4e0a604ed2cc3d2d3ac543d847d8355e00e0f6914dc49b1bd56c1c"
+}

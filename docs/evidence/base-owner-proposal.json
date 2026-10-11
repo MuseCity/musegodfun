@@ -1,7 +1,7 @@
 {
   "schemaVersion": 3,
-  "recordedAt": "2026-10-09T13:14:36.512490+00:00",
-  "status": "unsigned_owner_review_native_mainnet_not_authorized",
+  "recordedAt": "2026-10-11T04:05:15.032438+00:00",
+  "status": "code_accepted_mainnet_actions_not_authorized",
   "architecture": "splits-treasury-native-automation",
   "sourceBaseline": "f7c1264b2995c2c243c7f95419254a3e45d118f2",
   "chainId": 8453,
@@ -9,7 +9,8 @@
     "governorAndOperations": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
     "deploymentWallet": "0xd5C256e6411a6835543F2bCd763341639e3Cf56f",
     "gasKeeper": "0xd3f11a4DDcED57aC4E41F8CE7fD323959667e278",
-    "independentQuoteSigner": "retired; native Splits service signs its own conversion and bridge work"
+    "independentQuoteSigner": "retired; native Splits service signs its own conversion and bridge work",
+    "keeperAuthorityCheck": "Must differ from canonical Automation/Treasury owners and EOA/ERC1271 signing authority; P256 identities are interpreted by official semantics. Distinct keys do not prove independent humans."
   },
   "newBaseAutomation": {
     "address": null,
@@ -17,7 +18,8 @@
     "status": "owner_UI_creation_required",
     "ownerAndSigners": "must be read from the actual official Base factory initialization and current account; do not assume RH account exists on Base",
     "factory": "0x8E6Af8Ed94E87B4402D0272C5D6b0D47F0483e7C",
-    "implementation": "0x15ec0Fa66A0D96a64d67C58368641fBE9325F3FA"
+    "implementation": "0x15ec0Fa66A0D96a64d67C58368641fBE9325F3FA",
+    "modules": "Complete canonical enable history and current enabled state must show no execution modules; current owner/signers remain separately reviewed."
   },
   "nativeRule": {
     "sourceChainId": 8453,
@@ -34,10 +36,11 @@
     "governor": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
     "automationReceiver": null,
     "initiallyPaused": true,
-    "runtimeBytes": 5883,
-    "creationBytecodeHash": "0x5a7441ae15a5330d2ca3ff1efa51801b8272acd4922c5e6a0f1ad0de6315005c",
-    "compilerInputSha256": "c597501cebc8b08c092fdba4f88ab39bf9f972551b781f53e0cebf150de03bf4",
-    "creationTransaction": "pending actual account initialization, reviewed manifest and fresh deployer nonce; preflight generates unsigned calldata only"
+    "runtimeBytes": 6927,
+    "creationBytecodeHash": "0x58806e3bc2ef47df029ccb93c52f37ae1b24e7a3911339b6fca7a549a1f6c4d3",
+    "compilerInputSha256": "873e380891f940264e730a02d021aee9c46e608b6514ee900bfd6b8ac298b9a2",
+    "creationTransaction": "pending actual account initialization, reviewed manifest and fresh deployer nonce; preflight generates unsigned calldata only",
+    "unknownRecovery": "Normal production keeper automatically syncs/releases verified pool unknown balances to the same fixed Automation with independent counters/events and shared durable nonce/gas safety; zero genuine fee/canary credit. Existing private signatures do not authorize these actions."
   },
   "ownerExecutionChecklist": [
     {
@@ -83,7 +86,9 @@
     "releaseBudgets": [],
     "canaryReceivedWethCeilingRaw": "10000000000000000",
     "gasSeparate": true,
-    "nativeSourceEconomicCap": "No Collector-enforced WETH rolling cap or price minimum; per-token canary release ceilings only restrict project release and do not constrain mutable native signers"
+    "nativeSourceEconomicCap": "No Collector-enforced WETH rolling cap or price minimum; per-token canary release ceilings only restrict project release and do not constrain mutable native signers",
+    "baseUnknownRecoveryGasWei": null,
+    "unknownRecovery": "Explicit separate --max-untracked-gas-wei enables bounded recovery; default disabled, exhaustion skips only recovery, actual ETH retains full remaining genuine budget; private canary excludes recovery."
   },
   "existingRobinhood": {
     "treasury": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",
@@ -96,5 +101,334 @@
   "mainnetExecution": "not_run",
   "publicBaseActivation": "not_run",
   "fundingRequested": false,
-  "rollback": "Pause Base new signing and project releases, revoke native account/rule execution authority, then use same-graph recovery-protocol-2 paused release. Preserve journals, assets and in-flight recovery."
+  "rollback": "Keep Base paused; stop the financial writer before compatible recovery-protocol-7 / destination-policy-v3 paused rollback. Preserve all journals, code/source facts, optional scheduling metadata and unresolved nonce/gas records. No rollback executed.",
+  "reviewedImplementationCommit": "21b33ee7fdb1fc0fae6acd268f25f001b469fb1a",
+  "postCommitSecurityFixes": "Round9 locally completed:17 direct signed-receipt regressions/17 killed targeted mutations,2 direct unchanged keeper-loop tests/2 killed mutations, full-queue and moving-overflow starvation repaired in both discovery paths, transaction positions indexed. Final1306/1306 application and171/171 contract tests, zero failures/skips; dual typecheck/build/Worker dry-run passed. Low1/4/5/7 retained with explicit fail-closed or supported-host reasons. Existing Alchemy key read ~80-minute historical pinned code; correct chain endpoint already prioritized, no new config/service, no fixed5-minute permanent failure. Actual fee/device/native/host/publication/rollback acceptance and external R9 code review passed; mainnet acceptance remains pending. No commit/push/deploy/mainnet transaction/production state write.",
+  "securityFixSourceTreeSha256": "de04f243efd69a7d2932e0d96bd13842e69c967ca3626b8e616f1a7c5e2763bc",
+  "historicalPostCommitSecurityFixes": "Local defensive implementation and independent readthrough passed: 841 application tests / 171 contract tests, updated Base source-fork recovery, build and dry-run. Deployment and production activation are not authorized by these checks.",
+  "activationPrerequisites": {
+    "realRelayDestinationGolden": "Owner-authorized genuine scheduled B20 source fees and actual canonical WETH receipt to the fixed contract Treasury under relay-v3-permit2-signed-execution-receipt-v3. Funding token/quantity may differ; fixed solver Permit2 owner signs the complete ordered conversion. Third-party USDG fills only establish structure; captured or live historical code and project financial receipt remain required. Ordinary RPC suffices; no full ArbOS replay or paid trace prerequisite.",
+    "solverAuthority": "Fixed solver witness owner is historically undelegated EOA; ordinary zero-value signed root may rotate. Valid Permit2 owner witness, exact executed calls and actual payment required. Direct Router roots without witness remain unsupported.",
+    "migrationInventory": "not_run; confirm prior same-version contents before separately authorized application; forward repair if old content applied",
+    "productionWorkerQuota": "Native financial audit removed from Worker; actual persisted-read/config/launch/market quota and host freshness still need publication acceptance. No paid Worker plan is required solely for the removed audit.",
+    "hostSupervisor": "Before activation validate one guarded writer, existing-host supervisor crash restart, missed-publication/restart/guard alerts and incident procedure. No production supervisor/service installed this round.",
+    "historicalRpc": "Existing correctly chain-scoped Alchemy endpoint proved selected ~80-minute historical Router/Proxy/Permit2 reads. No fixed five-minute outage terminal rule. Keep existing key available to isolated keeper. Provider/billing/SLA/full historical proof and real project receipt remain separate; no purchase or new RPC setting."
+  },
+  "finalRepairStoppingRule": "Five-round loop closed with external local-code accept. Documentation/evidence requirement completed; do not start a sixth repair, architecture migration, deployment or activation without a separate owner decision.",
+  "externalFinalAcceptance": {
+    "path": "/Volumes/code/opc/musegodfun/.claude/worktrees/base-blocking-issues-fix-9d9962/review/base-splits-claude-accept-round5-2026-10-10.md",
+    "sha256": "e0b4a1669f49638f0e35ab51974cef57452889fd06efc85624bab21a29f060e8",
+    "status": "local_code_accepted_not_activation",
+    "comparedReviewerInputFiles": 106,
+    "preCommitEvidenceRequirement": "completed",
+    "sourceTreeSha256": "580776a4c2d977b5ce63f842a73d5bdbe1f3d609a82c4aa8cbdb142f78777e8b",
+    "appliesTo": "Historical fifth-round source only; round-7 funding policy, source-cache, lease and issuance changes have no external round-7 or mainnet activation accept."
+  },
+  "keeperHostMigration": {
+    "recordedAt": "2026-10-10T10:04:04.475Z",
+    "status": "host_migration_implemented_strict_replay_adapter_connected_mainnet_backend_acceptance_pending",
+    "sourceTreeSha256": "ed49e2ec22ffd778b0209a2f3536f4a8f9980c017c9ef346c98e7c098997ae2f",
+    "applicationTests": {
+      "command": "npm test",
+      "passed": 1081,
+      "failed": 0,
+      "skipped": 0
+    },
+    "executionAuthorized": false,
+    "publicBaseActivation": "not_run",
+    "realReplayBackendAcceptance": "pending",
+    "rollback": "Keep Base paused; stop host writer before a compatible paused Worker baseline resumes native journal maintenance; retain all canonical recovery and financial rows.",
+    "reviewEvidence": "base-splits-review.json"
+  },
+  "productionCostScope": {
+    "recordedAt": "2026-10-10T12:17:41.548Z",
+    "status": "implemented_local_checks_passed_not_deployed",
+    "sourceTreeSha256": "4a250ae704cf92948243d002444fe99b77db6bece990a0edfd918a8721a3f95a",
+    "applicationTests": {
+      "command": "npm test",
+      "passed": 1101,
+      "failed": 0,
+      "skipped": 0
+    },
+    "productionMutation": false,
+    "activationRecordProducer": "Explicit operator --record-activation, canonical Base Supabase, actual deployed Collector, complete verification only",
+    "activationRecordWritten": false,
+    "acceptanceRequiredBeforePublicOperation": true,
+    "paidPlanRequiredForRemovedHistoricalAudit": false
+  },
+  "baseReplayBackend": {
+    "recordedAt": "2026-10-10T13:53:42.806689Z",
+    "status": "base_op_call_backend_accepted_robinhood_nitro_backend_pending",
+    "sourceTreeSha256": "c02c34d3ba018b93b1f7bb9ad8b53dbdedb25c33b6cb737304068857414e3ff3",
+    "applicationTests": {
+      "command": "npm test",
+      "passed": 1112,
+      "failed": 0,
+      "skipped": 0
+    },
+    "baseCallBackendAccepted": true,
+    "robinhoodCallBackendAccepted": false,
+    "mainnetFeeClosedLoopAccepted": false,
+    "productionControlWrites": 0,
+    "executionAuthorized": "Local implementation/read-only proof only; no deployment/funds/control authority",
+    "collectorStatus": "not_deployed",
+    "publicBaseActivation": "not_run",
+    "activationRecordWritten": false,
+    "reviewEvidence": "base-splits-review.json",
+    "minimumNextStep": "Historical Nitro backend proposal superseded by robinhoodDestinationReceipt; no full ArbOS replay prerequisite",
+    "historicalMinimumNextStep": "Compatible ArbOS-61 Nitro execution plus finite witness/state acquisition; actual canonical destination caller, amount, code, system-prefix and receipt comparison"
+  },
+  "robinhoodDestinationReceipt": {
+    "recordedAt": "2026-10-10T15:17:50.517587+00:00",
+    "status": "implemented_local_checks_passed_not_deployed",
+    "policy": "relay-fixed-router-canonical-receipt-v1",
+    "sourceTreeSha256": "9572bcfa9046fe6e2b489a07651cf5b6fb185f6a733cb3bc9a6ef311f4b5f74e",
+    "applicationTests": {
+      "command": "npm test",
+      "passed": 1149,
+      "failed": 0,
+      "skipped": 0
+    },
+    "source": "Base full-prefix digest-pinned local OP replay retained",
+    "destination": "Explicit ordinary Robinhood RPC, canonical full transaction/receipt/event/code/anchor proof; no replay wrapper or debug call",
+    "actualQualifiedDestinationSample": "not_captured_in_bounded_scan",
+    "mainnetFeeClosedLoopAccepted": false,
+    "independentFormalArchitectureAcceptance": "not_run",
+    "newPaidProvider": false,
+    "productionDatabaseWrites": 0,
+    "productionControlWrites": 0,
+    "deployed": false,
+    "collectorStatus": "not_deployed",
+    "activationRecordWritten": false,
+    "publicBaseActivation": "not_run",
+    "rollback": "Keep Base paused, stop host writer before restoring a compatible paused strict implementation; preserve all old/new audit, acceptance, funds/nonce/gas and in-flight rows",
+    "reviewEvidence": "base-splits-review.json",
+    "supersededBy": "round7Repair; original policy/source/test evidence remains historical"
+  },
+  "preRound7SecurityFixRecord": {
+    "recordedAt": "2026-10-10T07:43:05.797348+00:00",
+    "postCommitSecurityFixes": "Fifth/final external local-code acceptance completed. Fresh frozen final inputs pass 998 application tests / 171 contract tests, both typechecks, build, Worker dry-run and exact Collector artifact reproduction. The earlier 970-test repair-only record is historical; 28 later offline no-trace tests are included in the final tree and remain unconnected to production. Seven nonblocking residuals are retained. Real project destination trace/provider authentication, native scheduling, genuine fee loop and device wallets remain pending. Base is paused; no commit, push, deployment or production authorization.",
+    "sourceTreeSha256": "580776a4c2d977b5ce63f842a73d5bdbe1f3d609a82c4aa8cbdb142f78777e8b"
+  },
+  "round7Repair": {
+    "recordedAt": "2026-10-11T00:18:30.919449+00:00",
+    "status": "implemented_local_validation_passed_external_round7_accept_pending",
+    "inputReview": {
+      "path": "/Volumes/code/opc/musegodfun/.claude/worktrees/base-blocking-issues-fix-9d9962/review/base-splits-claude-accept-round6-2026-10-11.md",
+      "sha256": "40290865f945bbefed79e70206050eb0d713bead408faf9760890263f57fd5f7",
+      "scope": [
+        "F1",
+        "D1",
+        "D2",
+        "M1",
+        "M2",
+        "M3",
+        "M4",
+        "recovery_protocol_7"
+      ]
+    },
+    "sourceTreeSha256": "1686307aabc64e474736b1b53e2c0f9a1f468a12acd56cab0f8f2af0e48e70c6",
+    "boundSourceFiles": 736,
+    "recoveryProtocol": 7,
+    "destinationPolicy": "relay-v3-permit2-owner-receipt-v2",
+    "validation": {
+      "applicationTests": 1217,
+      "contractTests": 171,
+      "failures": 0,
+      "skipped": 0,
+      "bothTypechecks": "passed",
+      "build": "passed",
+      "workerDryRun": "passed"
+    },
+    "productionWrites": {
+      "database": 0,
+      "control": 0,
+      "transactions": 0,
+      "deployment": false,
+      "servicePurchase": false,
+      "processInstalled": false
+    },
+    "activationRecordWritten": false,
+    "publicBaseActivation": "not_run",
+    "pendingActivation": [
+      "Owner-authorized genuine B20 source fees and scheduled run through a supported real WETH/contract-Treasury receipt",
+      "Historical implementations/canonicality and actual source replay proof for that batch",
+      "Actual native account/scheduler execution acceptance",
+      "Existing RH Treasury/Forwarder/shared Vault execution and actual dead-transfer FIFO attribution",
+      "Desktop/mobile issuance and broadcast recovery",
+      "Existing host supervisor restart/alert/incident acceptance",
+      "Compatible paused publication and rollback rehearsal"
+    ],
+    "rollback": "Keep Base paused; stop host financial writer before compatible protocol-7 paused rollback; preserve historical journals, accepted records, source cache and unknown/abandoned nonce/gas reservations. No rollback executed.",
+    "reviewEvidence": "base-splits-review.json",
+    "externalReview": {
+      "path": "/Volumes/code/opc/musegodfun/.claude/worktrees/base-blocking-issues-fix-9d9962/review/base-splits-claude-accept-round7-2026-10-11.md",
+      "sha256": "5ae88e50a68d874bb52d775edcdc4ddc4735ff0f4f9e1245fb681bba1923677a",
+      "status": "Code safety accepted; actual arrival compatibility required owner D3 and round8 remediation; not round8 acceptance"
+    }
+  },
+  "round8Repair": {
+    "recordedAt": "2026-10-11T02:36:52.147432+00:00",
+    "status": "implemented_round8_local_validation_passed_external_round8_accept_not_run",
+    "inputReview": {
+      "path": "/Volumes/code/opc/musegodfun/.claude/worktrees/base-blocking-issues-fix-9d9962/review/base-splits-claude-accept-round7-2026-10-11.md",
+      "sha256": "5ae88e50a68d874bb52d775edcdc4ddc4735ff0f4f9e1245fb681bba1923677a",
+      "scope": [
+        "D1-a",
+        "owner_D3",
+        "D1-b",
+        "D1-c",
+        "D1-d",
+        "missing_regressions",
+        "low_1_to_7"
+      ]
+    },
+    "previousSourceTreeSha256": "1686307aabc64e474736b1b53e2c0f9a1f468a12acd56cab0f8f2af0e48e70c6",
+    "sourceTreeSha256": "d2cbc0a519c4b595612c0b81eb9ec2be9c5a36eea76bb3aca03ad85f3bf6067f",
+    "boundSourceFiles": 737,
+    "recoveryProtocol": 7,
+    "destinationPolicy": "relay-v3-permit2-signed-execution-receipt-v3",
+    "validation": {
+      "applicationTests": 1282,
+      "contractTests": 171,
+      "failures": 0,
+      "skipped": 0,
+      "bothTypechecks": "passed",
+      "build": "passed",
+      "workerDryRun": "passed"
+    },
+    "productionWrites": {
+      "database": 0,
+      "control": 0,
+      "transactions": 0,
+      "deployment": false,
+      "servicePurchase": false,
+      "processInstalled": false
+    },
+    "activationRecordWritten": false,
+    "publicBaseActivation": "not_run",
+    "pendingActivation": [
+      "Separately owner-authorized actual dedicated Base Automation creation/native scheduled run and deployed fixed Collector graph",
+      "Genuine B20 source fees/full Base replay and a D3-authenticated actual canonical Robinhood WETH receipt to the fixed contract Treasury",
+      "Timely captured historical code facts or available ordinary-RPC historical state; uncaptured pruned facts remain pending",
+      "Existing Robinhood Treasury/Forwarder/shared Vault execution and actual dead-transfer FIFO attribution",
+      "Desktop/mobile issuance, trades, fee claim and broadcast recovery",
+      "Existing host supervisor crash restart/alerts/incident acceptance; no production process installed in this round",
+      "Owner-authorized canonical checkpoints/activation metadata and compatible paused publication/rollback rehearsal",
+      "Separate owner-authorized Base flag and latest-control-revision CAS resume only after complete acceptance"
+    ],
+    "rollback": "Keep Base paused; stop the financial writer before rollback to a compatible recovery-protocol-7 / destination-policy-v3 paused build. An older protocol-7/policy-v2 build is not compatible. Preserve historical financial rows, verified code/source facts and unknown/abandoned nonce/gas reservations. No rollback executed.",
+    "findingDispositions": "See complete D1-a/D3, D1-b/c/d, tests and low-1-to-7 table in base-splits-review.json round8Repair",
+    "reviewEvidence": "base-splits-review.json",
+    "externalReview": {
+      "path": "/Volumes/code/opc/musegodfun/.claude/worktrees/base-blocking-issues-fix-9d9962/review/base-splits-claude-accept-round8-2026-10-11.md",
+      "sha256": "2e3b08f95bfc511442fbe9638eea2940fee5eaf2e7223c8c16d877e3ca4613a1",
+      "status": "Conditional local code acceptance of R8; required test gaps and nonblocking dispositions motivate R9, not acceptance of R9 changes."
+    }
+  },
+  "round9Repair": {
+    "recordedAt": "2026-10-11T03:32:58.801634+00:00",
+    "status": "round9_local_validation_passed_external_round9_accept_not_run",
+    "inputReview": {
+      "path": "/Volumes/code/opc/musegodfun/.claude/worktrees/base-blocking-issues-fix-9d9962/review/base-splits-claude-accept-round8-2026-10-11.md",
+      "sha256": "2e3b08f95bfc511442fbe9638eea2940fee5eaf2e7223c8c16d877e3ca4613a1",
+      "scope": [
+        "three_guard_test_gap_groups",
+        "low_1_to_7",
+        "historical_rpc_read_only_check"
+      ]
+    },
+    "previousSourceTreeSha256": "d2cbc0a519c4b595612c0b81eb9ec2be9c5a36eea76bb3aca03ad85f3bf6067f",
+    "sourceTreeSha256": "de04f243efd69a7d2932e0d96bd13842e69c967ca3626b8e616f1a7c5e2763bc",
+    "boundSourceFiles": 737,
+    "recoveryProtocol": 7,
+    "destinationPolicy": "relay-v3-permit2-signed-execution-receipt-v3",
+    "validation": {
+      "applicationTests": 1306,
+      "contractTests": 171,
+      "failures": 0,
+      "skipped": 0,
+      "bothTypechecks": "passed",
+      "build": "passed",
+      "workerDryRun": "passed"
+    },
+    "unchangedProductionCode": {
+      "financialReceiptEngine": true,
+      "sourceReplayBackend": true,
+      "keeperProductionLoop": true,
+      "processLeaseImplementation": true,
+      "releaseGate": true,
+      "rpcConfiguration": true,
+      "allContractAndMigrationInputs": true,
+      "robinhoodKeeper": true
+    },
+    "productionWrites": {
+      "database": 0,
+      "control": 0,
+      "configuration": 0,
+      "transactions": 0,
+      "deployment": false,
+      "servicePurchase": false,
+      "processInstalled": false,
+      "commit": false,
+      "push": false
+    },
+    "activationRecordWritten": false,
+    "publicBaseActivation": "not_run",
+    "pendingActivation": [
+      "Separately owner-authorized actual dedicated Base Automation creation/native scheduled run and deployed fixed Collector graph",
+      "Genuine B20 source fees/full Base replay and a D3-authenticated actual canonical Robinhood WETH receipt to the fixed contract Treasury",
+      "Timely captured historical code facts or available ordinary-RPC historical state; uncaptured pruned facts remain pending",
+      "Existing Robinhood Treasury/Forwarder/shared Vault execution and actual dead-transfer FIFO attribution",
+      "Desktop/mobile issuance, trades, fee claim and broadcast recovery",
+      "Existing host supervisor crash restart/alerts/incident acceptance; no production process installed in this round",
+      "Owner-authorized canonical checkpoints/activation metadata and compatible paused publication/rollback rehearsal",
+      "Separate owner-authorized Base flag and latest-control-revision CAS resume only after complete acceptance"
+    ],
+    "rollback": "Keep Base paused; stop the financial writer before compatible recovery-protocol-7 / destination-policy-v3 paused rollback. Preserve all journals, code/source facts, optional scheduling metadata and unresolved nonce/gas records. No rollback executed.",
+    "reviewEvidence": "base-splits-review.json",
+    "findingDispositions": "See three guard groups, low1–7, mutations and historicalRpc in base-splits-review.json round9Repair.",
+    "externalReview": {
+      "path": "/Volumes/code/opc/musegodfun/.claude/worktrees/base-blocking-issues-fix-9d9962/review/base-splits-claude-accept-round9-2026-10-11.md",
+      "sha256": "d7dea8875190019404ed087b5e43502a2bc817523e5915dd18218beb5a7f1091",
+      "status": "passed_code_layer_only",
+      "validation": {
+        "applicationTests": 1306,
+        "contractTests": 171,
+        "failures": 0,
+        "skipped": 0,
+        "typecheck": "passed",
+        "build": "passed",
+        "diffCheck": "passed"
+      },
+      "independentMutations": [
+        {
+          "check": "batch_tag",
+          "failedTests": 1
+        },
+        {
+          "check": "historical_code",
+          "failedTests": 3
+        },
+        {
+          "check": "success_target",
+          "failedTests": 1
+        },
+        {
+          "check": "success_value",
+          "failedTests": 1
+        }
+      ],
+      "boundary": "External code acceptance; mainnet steps separately authorized. Historical80-minute code read is an observed sample, not maximum retention or a future SLA."
+    }
+  },
+  "localCommitPreparation": {
+    "authorizedAt": "2026-10-11T04:05:15.032438+00:00",
+    "branch": "codex/add-base-native-automation",
+    "parentCommit": "21b33ee7fdb1fc0fae6acd268f25f001b469fb1a",
+    "acceptedSourceTreeSha256": "de04f243efd69a7d2932e0d96bd13842e69c967ca3626b8e616f1a7c5e2763bc",
+    "codeAndTestsChangedAfterValidation": false,
+    "scope": "All validated repair changes on this branch, including prior repair rounds; local commit only. No push, deploy, signing-control change, mainnet transaction, service purchase or production database write.",
+    "mainnetAuthorization": false
+  }
 }

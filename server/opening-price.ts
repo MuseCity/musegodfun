@@ -236,10 +236,12 @@ export async function readOpeningValuation(client: PublicClient<Transport, any>,
   const withAssets = (quote: LifiOpeningQuote, fromToken: FirstBuyPaymentAsset, toToken: FirstBuyPaymentAsset): BaseOpeningQuote =>
     ({ ...quote, fromToken: { ...fromToken }, toToken: { ...toToken } });
   let wethUsdReference: BaseOpeningQuote | undefined, wethPrice: string | undefined;
-  if (chainId === 8453) {
+  const readWethReference = async () => {
     const { entries, key } = referenceCache(deps, http.integrator), requestedAt = now();
     let cached = entries.get(key);
-    if (!cached || requestedAt < cached.quotedAt || requestedAt >= cached.expiresAt) {
+    // Leave time for the remaining probes and final identity read. A shared
+    // reference near expiry must not create a recurring failed preview window.
+    if (!cached || requestedAt < cached.quotedAt || requestedAt + RPC_TIMEOUT >= cached.expiresAt) {
       const value = probe(sellNumeraire, numeraire, BigInt(BASE_WETH_REFERENCE_AMOUNT), numeraire)
         .then((quote) => withAssets(quote, sellNumeraire, numeraire));
       cached = { quotedAt: requestedAt, expiresAt: requestedAt + LAUNCH_PRICE_TTL, value };
@@ -250,7 +252,8 @@ export async function readOpeningValuation(client: PublicClient<Transport, any>,
     catch (error) { if (entries.get(key) === cached) entries.delete(key); throw error; }
     if (now() >= wethUsdReference.expiresAt) throw new Error("The LI.FI WETH/USD reference expired. Run a new simulation.");
     wethPrice = deriveBaseWethPrice(wethUsdReference);
-  }
+  };
+  if (chainId === 8453) await readWethReference();
   const readPair = async () => {
     const buy = await probe(numeraire, quoteToken, probeAmount);
     const sell = await probe(quoteToken, sellNumeraire, amount(buy.amountOut), wethPrice ?? numeraire);
@@ -266,6 +269,12 @@ export async function readOpeningValuation(client: PublicClient<Transport, any>,
     pair = await readPair();
   }
   const { buy, sell } = pair;
+  if (chainId === 8453) {
+    // Slow pair probes can outlive the cached reference. Renew only that leg;
+    // preserve each pair's original quantities, timestamps and expiry.
+    await readWethReference();
+    sell.numerairePriceUsd = wethPrice!;
+  }
   const quotes = [buy, sell, ...(wethUsdReference ? [wethUsdReference] : [])];
   const quotedAt = Math.min(...quotes.map((quote) => quote.quotedAt)), expiresAt = Math.min(...quotes.map((quote) => quote.expiresAt));
   if (now() >= expiresAt || quotes.some((quote) => quote.obtainedAt >= expiresAt))

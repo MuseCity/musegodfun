@@ -293,6 +293,33 @@ test("Base WETH reference is single-flight, immutable to callers, and bounds sna
   await assert.rejects(slow.read(), /expired/);
 });
 
+test("Base previews renew a shared WETH reference near expiry without extending the paired quotes", async () => {
+  const f = fixture();
+  await f.read();
+  f.state.now = NOW + LAUNCH_PRICE_TTL - 1_000;
+  f.state.quoteDelay = 1_000;
+  const result = await f.read(), evidence = result.lifi as BaseLifiOpeningEvidence;
+  assert.equal(f.requests.filter(url => sameAddress(url.searchParams.get("fromToken")!, wrappedEther(8453))).length, 2);
+  assert.equal(evidence.wethUsdReference.quotedAt, NOW + 59_000);
+  assert.equal(result.expiresAt, evidence.wethUsdReference.expiresAt);
+  assert(result.expiresAt > f.state.now);
+});
+
+test("Base renews a reference exhausted by slow pair probes and recalculates WETH/USD from the new leg", async () => {
+  const f = fixture();
+  await f.read();
+  f.state.now = NOW + 40_000;
+  f.state.quoteDelay = 15_000;
+  f.state.sellReference = "0.99";
+  const result = await f.read(), evidence = result.lifi as BaseLifiOpeningEvidence;
+  assert.equal(evidence.buy.quotedAt, NOW + 40_000);
+  assert.equal(evidence.sell.quotedAt, NOW + 55_000);
+  assert.equal(evidence.wethUsdReference.quotedAt, NOW + 70_000);
+  assert.equal(evidence.sell.numerairePriceUsd, "2475");
+  assert.equal(evidence.sellNumeraire.priceUsd, "2475");
+  assert.equal(result.expiresAt, NOW + 100_000, "A new reference cannot extend the oldest pair quote");
+});
+
 
 test("Base v2 freezes a fresh three-leg price for the existing five-minute signing window", async () => {
   const f = fixture(), openingValuation = await f.read();

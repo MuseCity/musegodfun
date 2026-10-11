@@ -36,6 +36,10 @@ contract MusegodBaseFeeCollector is ReentrancyGuard {
     mapping(address => uint256) public pendingFees;
     mapping(address => uint256) public totalClaimed;
     mapping(address => uint256) public totalReleased;
+    mapping(address => bool) public verifiedAssets;
+    mapping(address => uint256) public pendingUntracked;
+    mapping(address => uint256) public totalUntrackedSynced;
+    mapping(address => uint256) public totalUntrackedReleased;
 
     error InvalidConfiguration();
     error Unauthorized();
@@ -49,6 +53,8 @@ contract MusegodBaseFeeCollector is ReentrancyGuard {
     event FeesClaimed(bytes32 indexed poolId, address indexed manager, address indexed token, uint256 amount);
     event ClaimFailed(bytes32 indexed poolId, address indexed manager, bytes reason);
     event FeesReleased(address indexed token, address indexed receiver, uint256 amount);
+    event UntrackedSynced(address indexed token, uint256 amount);
+    event UntrackedReleased(address indexed token, address indexed receiver, uint256 amount);
     event PausedChanged(bool paused);
 
     constructor(address initializer_, address rehype_, address governor_, address automationReceiver_) {
@@ -94,7 +100,8 @@ contract MusegodBaseFeeCollector is ReentrancyGuard {
 
     function untrackedBalance(address token) public view returns (uint256) {
         uint256 balance = IERC20(token).balanceOf(address(this));
-        return balance > pendingFees[token] ? balance - pendingFees[token] : 0;
+        uint256 tracked = pendingFees[token] + pendingUntracked[token];
+        return balance > tracked ? balance - tracked : 0;
     }
 
     /// @notice Anyone may claim both managers. One manager's failure does not roll back the other claim.
@@ -118,8 +125,10 @@ contract MusegodBaseFeeCollector is ReentrancyGuard {
             key.currency0 == address(0) || key.currency0 >= key.currency1 || key.currency0.code.length == 0
                 || key.currency1.code.length == 0 || key.hooks != initializer || key.tickSpacing != 10
                 || key.fee != 0x800000 || keccak256(abi.encode(key)) != poolId
-                || fm.getShares(poolId, address(this)) != (manager == initializer ? LP_SHARE : HOOK_SHARE)
+                || fm.getShares(poolId, address(this)) < (manager == initializer ? LP_SHARE : HOOK_SHARE)
         ) revert InvalidPool();
+        verifiedAssets[key.currency0] = true;
+        verifiedAssets[key.currency1] = true;
         uint256 before0 = IERC20(key.currency0).balanceOf(address(this));
         uint256 before1 = IERC20(key.currency1).balanceOf(address(this));
         fm.collectFees(poolId);
@@ -136,17 +145,47 @@ contract MusegodBaseFeeCollector is ReentrancyGuard {
         emit FeesClaimed(poolId, manager, token, amount);
     }
 
+    /// @notice Recovers unsolicited balances of actual verified pool assets without calling them fee income.
+    /// @dev External manager payouts and donations are indistinguishable by balance alone. They remain a separate
+    /// unknown bucket, never increment totalClaimed and never emit FeesClaimed/FeesReleased. A zero-credit
+    /// claimFees on a valid pool can register its assets before recovery. Synchronization is allowed while paused.
+    function syncUntracked(address token) external nonReentrant {
+        _dependencies();
+        if (!verifiedAssets[token]) revert InvalidPool();
+        uint256 amount = untrackedBalance(token);
+        if (amount == 0) revert InvalidAmount();
+        pendingUntracked[token] += amount;
+        totalUntrackedSynced[token] += amount;
+        emit UntrackedSynced(token, amount);
+    }
+
     /// @notice Releases only verified manager receipts, including the newly launched meme-token side.
     /// @dev Donations are never credited. Issuer seizure/rebasing shortfalls block releases until solvent.
     function releaseFees(address token, uint256 amount) external nonReentrant {
         if (paused) revert Paused();
         _dependencies();
         if (amount == 0 || amount > pendingFees[token]) revert InvalidAmount();
-        uint256 beforeCollector = IERC20(token).balanceOf(address(this));
-        if (beforeCollector < pendingFees[token]) revert BalanceMismatch();
-        uint256 beforeReceiver = IERC20(token).balanceOf(automationReceiver);
         pendingFees[token] -= amount;
         totalReleased[token] += amount;
+        _release(token, amount);
+        emit FeesReleased(token, automationReceiver, amount);
+    }
+
+    /// @notice Forwards recovered unknown balances to the same fixed Automation, separately from verified fees.
+    function releaseUntracked(address token, uint256 amount) external nonReentrant {
+        if (paused) revert Paused();
+        _dependencies();
+        if (!verifiedAssets[token] || amount == 0 || amount > pendingUntracked[token]) revert InvalidAmount();
+        pendingUntracked[token] -= amount;
+        totalUntrackedReleased[token] += amount;
+        _release(token, amount);
+        emit UntrackedReleased(token, automationReceiver, amount);
+    }
+
+    function _release(address token, uint256 amount) private {
+        uint256 beforeCollector = IERC20(token).balanceOf(address(this));
+        if (beforeCollector < pendingFees[token] + pendingUntracked[token] + amount) revert BalanceMismatch();
+        uint256 beforeReceiver = IERC20(token).balanceOf(automationReceiver);
         IERC20(token).safeTransfer(automationReceiver, amount);
         uint256 afterCollector = IERC20(token).balanceOf(address(this));
         uint256 afterReceiver = IERC20(token).balanceOf(automationReceiver);
@@ -154,6 +193,5 @@ contract MusegodBaseFeeCollector is ReentrancyGuard {
             afterCollector > beforeCollector || beforeCollector - afterCollector != amount
                 || afterReceiver < beforeReceiver || afterReceiver - beforeReceiver != amount
         ) revert BalanceMismatch();
-        emit FeesReleased(token, automationReceiver, amount);
     }
 }

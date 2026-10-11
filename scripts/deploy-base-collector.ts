@@ -8,6 +8,7 @@ import { createPublicClient, encodeDeployData, getAddress, getContractAddress, h
   type Abi, type Address, type Hex } from "viem";
 import { base } from "viem/chains";
 import { loadEnvironment, mainnetRpcUrl, redact } from "../server/config";
+import { baseOperatorAuditStore } from "./base-audit-store";
 import type { BaseCollectorCanaryAuthorization, BaseWalletAcceptance, BasePauseRollbackAcceptance, BaseNativeRunAcceptance } from "../server/base-collector";
 
 export const BASE_COLLECTOR_FIXED = {
@@ -72,7 +73,9 @@ export async function prepareBaseCollectorDeploymentSequence(manifest: BaseColle
       args: [BASE_COLLECTOR_FIXED.initializer, BASE_COLLECTOR_FIXED.rehype, governor, receiver] }) }] };
 }
 export async function inspectBaseCollector(manifest: BaseCollectorDeployment, rpcUrl: string, verifyDeployed: boolean, deployer?: Address) {
-  const client = createPublicClient({ chain: base, transport: http(rpcUrl, { timeout: 30_000, retryCount: 1 }) });
+  const { createLocalReplayClient } = await import("./base-local-replay");
+  const { baseOperatorAuditStore } = await import("./base-audit-store");
+  const client = createLocalReplayClient(createPublicClient({ chain: base, transport: http(rpcUrl, { timeout: 30_000, retryCount: 1 }) }), { chainId: 8453, rpcUrl, auditStore: baseOperatorAuditStore() });
   assert.equal(await client.getChainId(), 8453, "Wrong RPC chain");
   assert.equal(manifest.schemaVersion, 2); assert.equal(manifest.chainId, 8453);
   assert.equal(manifest.architecture, "splits-treasury-native-automation"); assert.equal(manifest.feePolicy, "creator-70-musegod-base-automation-v1");
@@ -106,7 +109,7 @@ export async function inspectBaseCollector(manifest: BaseCollectorDeployment, rp
   let verifiedCollector = null;
   if (verifyDeployed) {
     assert(manifest.collector.address, "Collector is not deployed");
-    verifiedCollector = await verifyBaseCollector(client, manifest.collector.address, { manifest, requireActivation: false });
+    verifiedCollector = await verifyBaseCollector(client, manifest.collector.address, { manifest, requireActivation: false, auditStore: baseOperatorAuditStore() });
   }
   assert.equal((await client.getBlock({ blockNumber: block.number })).hash, block.hash, "The preflight Base block reorganized");
   return { schemaVersion: 2, chainId: 8453, architecture: manifest.architecture, mode: verifyDeployed ? "verify" : "preflight", observedAt: new Date().toISOString(),

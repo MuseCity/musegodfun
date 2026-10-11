@@ -58,8 +58,9 @@ import { assertLaunchPlanValidity, LAUNCH_SIGNING_TTL, restorePrepared, serializ
 import { chainLaunchDependencies, LaunchGuardMismatch, verifyLaunchGuard } from "./launch-guard";
 import { assertLaunchTradingFee, assertPlanIntegrity, assertRecoveryPlan, verifiedFirstBuyLock, verifyCreationAccounting, verifyGuardedReceipt } from "./launch-verification";
 import { verifyFeeEngine } from "./buyback-engine";
-import { BASE_COLLECTOR_MANIFEST, verifyBaseCollector } from "./base-collector";
+import { BASE_COLLECTOR_MANIFEST, baseCollectorGraphFingerprint, verifyBaseCollector } from "./base-collector";
 import type { createVaultLedgerRuntime } from "./buyback-vault-runtime";
+import { hasBaseLaunchActivationRecord } from "./base-activation-record";
 import { assertTrustedLaunchPolicy, engineLaunchCutover, ENGINE_MANIFEST, trustedLaunchPolicies, type EngineLaunchCutover } from "./launch-policy-registry";
 import { planAttestation, verifyPlanAttestation } from "./plan-attestation";
 import { BudgetUnavailable } from "./runtime-policy";
@@ -76,6 +77,9 @@ export class LaunchpadService {
   get assets() { return assetsFor(this.runtime.config); }
   readonly store: StoreBackend;
   vaultLedgerRuntime?: ReturnType<typeof createVaultLedgerRuntime>;
+  // Public Node/Worker apps consume private host projections. CLI verification
+  // services retain their canonical audit path and explicit writer authority.
+  financialAuditReadOnly = false;
   private readonly guardCandidate: Address | null;
   private readonly firstBuyGuardCandidate: Address | null;
   private readonly feeEngineCandidate: Address | null;
@@ -273,18 +277,30 @@ export class LaunchpadService {
     }
     if (this.feeEngineCandidate && deploymentChain(this.runtime.config) === 8453) {
       try {
-        await this.assertNetwork();
         const canary = this.runtime.environment?.NODE_ENV !== "production" && this.runtime.dataScope === "verify-base-canary";
-        const destination = this.baseDestinationClient ??= createPublicClient({ chain: robinhood, transport: http(mainnetRpcUrl(4663, this.runtime.environment), {
-          batch: { batchSize: 20, wait: 0 }, timeout: 25_000, retryCount: 1,
-        }), batch: { multicall: true } });
-        const verified = await verifyBaseCollector(this.client, this.feeEngineCandidate, { requireActivation: true, allowCanary: canary,
-          canaryOrigin: this.runtime.canaryOrigin, robinhoodClient: destination });
-        const treasury = BASE_COLLECTOR_MANIFEST.constants.operationsTreasury;
-        if (this.runtime.config.treasury && treasury && sameAddress(this.runtime.config.treasury, treasury)) {
-          feeEngine = verified.collector;
-          baseCollectorReady = !verified.paused;
-          automationReceiver = verified.automationReceiver;
+        if (!canary && this.runtime.config.mode !== "fork") {
+          const manifest = BASE_COLLECTOR_MANIFEST, treasury = manifest.constants.operationsTreasury;
+          const fingerprint = baseCollectorGraphFingerprint(manifest);
+          if (this.runtime.dataScope === "base" && manifest.collector.address && sameAddress(this.feeEngineCandidate, manifest.collector.address) &&
+            this.runtime.config.treasury && treasury && sameAddress(this.runtime.config.treasury, treasury) &&
+            await hasBaseLaunchActivationRecord(this.store, manifest, fingerprint)) {
+            feeEngine = manifest.collector.address;
+            baseCollectorReady = true;
+            automationReceiver = manifest.constants.automationReceiver;
+          }
+        } else {
+          await this.assertNetwork();
+          const destination = this.baseDestinationClient ??= createPublicClient({ chain: robinhood, transport: http(mainnetRpcUrl(4663, this.runtime.environment), {
+            batch: { batchSize: 20, wait: 0 }, timeout: 25_000, retryCount: 1,
+          }), batch: { multicall: true } });
+          const verified = await verifyBaseCollector(this.client, this.feeEngineCandidate, { requireActivation: "runtime", allowCanary: canary,
+            canaryOrigin: this.runtime.canaryOrigin, robinhoodClient: destination,auditStore:this.store });
+          const treasury = BASE_COLLECTOR_MANIFEST.constants.operationsTreasury;
+          if (this.runtime.config.treasury && treasury && sameAddress(this.runtime.config.treasury, treasury)) {
+            feeEngine = verified.collector;
+            baseCollectorReady = !verified.paused;
+            automationReceiver = verified.automationReceiver;
+          }
         }
       } catch { /* Deployment, owner canary approval and real activation are separate prerequisites. */ }
     }
@@ -819,19 +835,32 @@ export class LaunchpadService {
     return await this.store.tokenByTxHash(hash) ?? token;
   }
   private reconciling = false;
+  private ledgerReconciling?: Promise<unknown>;
   private reconcileCursor?: Hex;
   async reconcile(maxDurationMs = 60_000) {
     if (this.reconciling) return;
     this.reconciling = true;
     const deadline = Date.now() + maxDurationMs;
     try {
+      // Public alarms recover launch receipts only. Empty queues need no RPC;
+      // private writers must still reconcile financial work without launches.
+      const pending = this.financialAuditReadOnly ? await this.store.pendingLaunches() : undefined;
+      if (pending?.length === 0) return;
       await this.assertNetwork();
-      // Give this chain's canonical financial journal a bounded turn before a busy launch
-      // recovery queue. Both consume the same absolute maintenance deadline.
-      if (this.vaultLedgerRuntime && this.runtime.config.mode !== "fork" &&
+      // Financial maintenance gets its own bounded turn in parallel. A slow
+      // peer-chain RPC must never consume the launch queue's entire turn first.
+      let ledgerWork: Promise<unknown> | undefined;
+      if (!this.financialAuditReadOnly && this.vaultLedgerRuntime && this.runtime.config.mode !== "fork" &&
         this.runtime.dataScope === (deploymentChain(this.runtime.config) === 8453 ? "base" : "robinhood") && Date.now() < deadline)
-        await this.vaultLedgerRuntime.reconcile(Math.min(30_000, maxDurationMs / 2, Math.max(0, deadline - Date.now()))).catch(() => undefined);
-      const rows = await this.store.pendingLaunches();
+      {
+        if(!this.ledgerReconciling){
+          const work=this.vaultLedgerRuntime.reconcile(Math.min(30_000,maxDurationMs/2,Math.max(0,deadline-Date.now()))).catch(()=>undefined)
+            .finally(()=>{if(this.ledgerReconciling===work)this.ledgerReconciling=undefined;});
+          this.ledgerReconciling=work;
+        }
+        ledgerWork=this.ledgerReconciling;
+      }
+      const rows = pending ?? await this.store.pendingLaunches();
       const finalized = await this.client.getBlock({ blockTag: "finalized" }).catch(() => null);
       const cursor = rows.findIndex((row) => row.hash === this.reconcileCursor);
       const ordered = [...rows.slice(cursor + 1), ...rows.slice(0, cursor + 1)];
@@ -882,6 +911,14 @@ export class LaunchpadService {
         } finally {
           this.reconcileCursor = row.hash;
         }
+      }
+      if (ledgerWork && Date.now() < deadline) {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([ledgerWork, new Promise<void>(resolve => {
+            timer = setTimeout(resolve, Math.max(0, deadline - Date.now()));
+          })]);
+        } finally { clearTimeout(timer); }
       }
     } finally {
       this.reconciling = false;

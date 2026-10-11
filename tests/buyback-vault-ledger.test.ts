@@ -142,7 +142,7 @@ test("service establishes pre-deposit checkpoint, indexes third-party Executed a
     let report=await service.reconcile();assert.equal(report.totalMuseToDead,"9");assert.equal(report.baseAttributedMuseToDead,"0");
     const evidence=(funding(1,"6","base","base-source") as VaultLedgerEvent&{kind:"weth_in"}).baseFill!;
     report=await service.classifyBaseFill(entry.id,evidence);assert.equal(report.baseAttributedMuseToDead,"9");assert.equal(report.basePendingWeth,"2");
-    verify=false;assert.equal((await service.read()).attributionReady,false);verify=true;
+    verify=false;const withheld=await service.read();assert.equal(withheld.attributionReady,true);assert.equal(withheld.baseAttributedMuseToDead,"0");assert.equal(withheld.totalMuseToDead,"9");verify=true;
     fixture.headers.set(1,{number:"1",hash:hash(999),parentHash:block(0).hash});fixture.journal.splice(0,fixture.journal.length);
     assert.equal((await service.read()).attributionReady,false);
     report=await service.reconcile();assert.equal(report.attributionReady,true);assert.equal(report.baseAttributedMuseToDead,"0");
@@ -175,7 +175,7 @@ test("default maintenance catches a growing 10-block-per-second backlog with 100
   }finally{store.close();rmSync(directory,{recursive:true,force:true});}
 });
 
-test("maintenance time budget finishes one canonical page atomically and resumes its exact cursor",async t=>{
+test("maintenance never begins a journal commit after its absolute deadline and resumes the prior cursor",async t=>{
   const directory=mkdtempSync(join(tmpdir(),"vault-ledger-deadline-")),store=new Store(directory,31337),fixture=serviceFixture();
   for(let number=0;number<=500;number++)fixture.headers.set(number,block(number));
   let clock=0;
@@ -185,8 +185,8 @@ test("maintenance time budget finishes one canonical page atomically and resumes
     fixture.setHead(1n);await service.establishCheckpoint(()=>true);
     t.mock.method(Date,"now",()=>clock);clock=0;fixture.setHead(501n);
     let report=await service.reconcile(10);
-    assert.equal(report.indexedThrough,"100");assert.equal(report.confirmedThrough,"500");assert.equal(report.caughtUp,false);
-    assert.equal(store.vaultLedgerBlockPage(1000).length,101,"No partial page or unchecked header is committed");
+    assert.equal(report.indexedThrough,null);assert.equal(store.vaultLedgerState()!.cursor.number,"0");assert.equal(report.confirmedThrough,"500");assert.equal(report.caughtUp,false);
+    assert.equal(store.vaultLedgerBlockPage(1000).length,1,"No partial page or unchecked header is committed");
     clock=0;report=await service.reconcile();assert.equal(report.indexedThrough,"500");assert.equal(report.caughtUp,true);
     assert.equal(store.vaultLedgerBlockPage(1000).length,501);
     await assert.rejects(service.reconcile(60_001),/time budget/);
@@ -212,7 +212,57 @@ test("Treasury source reorg invalidates prior Base attribution only after canoni
  const client={getBlockNumber:async()=>2n,getBlock:async({blockNumber}:any)=>({...block(Number(blockNumber)),number:blockNumber})} as any;
  const ledger=new VaultLedgerService(store,client,{vault,weth,swapper,confirmations:1n,verifyBaseFill:async(_event,evidence)=>"protocol" in evidence&&evidence.fragments.every(fragment=>fragment.batchId===currentSource)});
  try{assert.equal((await ledger.read()).baseAttributedMuseToDead,"10");await assert.rejects(()=>ledger.invalidateBaseFill(input.id),/cannot be invalidated/);
-  currentSource="B";assert.equal((await ledger.read()).attributionReady,false);await ledger.classifyBaseFill(input.id,{...input.baseFill as any,fragments:[{batchId:"B",amount:"5"}],treasuryRevision:2});assert.equal((await ledger.read()).batches[0].batchId,"B");
+  currentSource="B";const withheld=await ledger.read();assert.equal(withheld.attributionReady,true);assert.equal(withheld.baseAttributedMuseToDead,"0");assert.equal(withheld.totalMuseToDead,"10");await ledger.classifyBaseFill(input.id,{...input.baseFill as any,fragments:[{batchId:"B",amount:"5"}],treasuryRevision:2});assert.equal((await ledger.read()).batches[0].batchId,"B");
   currentSource="unknown";await ledger.invalidateBaseFill(input.id);const report=await ledger.read();assert.equal(report.attributionReady,true);assert.equal(report.baseAttributedMuseToDead,"0");assert.equal(report.totalMuseToDead,"10","Actual global dead transfers are retained");assert.equal(store.vaultLedgerEventPage(1)[0].kind,"weth_in");
+ }finally{store.close();rmSync(directory,{recursive:true,force:true});}
+});
+
+test("zero/self WETH logs are no-ops in Vault scans and retained historical replay",async()=>{
+ const directory=mkdtempSync(join(tmpdir(),"vault-noops-")),store=new Store(directory,31337),f=serviceFixture(),service=new VaultLedgerService(store,f.client,{vault,weth,swapper,confirmations:1n});
+ try{f.setHead(1n);await service.establishCheckpoint(()=>true);f.journal.push(funding(1,"5"),{...position(2,20),amount:"0",kind:"weth_out",from:vault,to:source},{...position(3,30),amount:"99",kind:"weth_in",source:"unknown",from:vault,to:vault});
+  // The mocked balance tracks actual economic effects, so a self transfer adds nothing.
+  const read=f.client.readContract;f.client.readContract=(async (input:any)=>{const functionName=input.functionName;return functionName==="balanceOf"?5n:read(input as any);}) as any;
+  const receipt=f.client.getTransactionReceipt;let receipts=0;f.client.getTransactionReceipt=(async(input:any)=>{receipts++;assert.equal(input.hash,hash(1),"No-op logs never request receipt RPC");return receipt(input);}) as any;
+  f.setHead(2n);const report=await service.reconcile();assert.equal(receipts,1);assert.equal(report.attributionReady,true);assert.equal(store.vaultLedgerEventPage().length,1);assert.equal(report.totalExecutionWeth,"0");
+  assert.equal(replayVaultLedger(state("5"),f.journal,1n).attributionReady,true);
+ }finally{store.close();rmSync(directory,{recursive:true,force:true});}
+});
+test("rolling ancestry is bounded while all financial events and checkpoint remain available for a deep-reorg replay",async()=>{
+ const directory=mkdtempSync(join(tmpdir(),"vault-anchor-window-")),store=new Store(directory,31337),f=serviceFixture();
+ for(let number=0;number<=5000;number++)f.headers.set(number,block(number));
+ const service=new VaultLedgerService(store,f.client,{vault,weth,swapper,confirmations:1n});
+ try{const s={...state("5"),cursor:block(5000)};store.commitVaultLedger({expectedRevision:0,state:s,blocks:Array.from({length:5001},(_,number)=>block(number)),events:[funding(1,"5")]});
+  const anchors=(store.backup() as any).tables.vault_ledger_blocks;assert.equal(anchors.length,4097);assert.equal(store.vaultLedgerEventPage().length,1);assert.ok(anchors.some((row:any)=>row.number===0));
+  f.setHead(5001n);for(let number=905;number<=5000;number++)f.headers.set(number,block(number,10000));f.headers.set(905,{...block(905,10000),parentHash:block(904).hash});
+  // All retained recent anchors are orphaned; the immutable canonical checkpoint is sufficient to replay the full financial interval.
+  f.journal.push(funding(1,"5"));const report=await service.reconcile();assert.equal(report.indexedThrough,"1000");assert.equal(report.attributionReady,true);assert.equal(store.vaultLedgerEventPage().length,1);assert.equal(store.vaultLedgerState()!.cursor.hash,block(1000,10000).hash);
+ }finally{store.close();rmSync(directory,{recursive:true,force:true});}
+});
+test("Vault freshness expires beyond six hundred confirmed blocks while historical attribution stays intact",()=>{
+ const s=state("5"),events=[funding(1,"5","base","A")];assert.equal(replayVaultLedger(s,events,601n).fresh,true);const stale=replayVaultLedger(s,events,602n);assert.equal(stale.fresh,false);assert.equal(stale.baseReceivedWeth,"5");assert.equal(stale.caughtUp,false);
+});
+
+test("one invalid source proof withholds only its FIFO lots and recovers without losing actual burns",async()=>{
+ const directory=mkdtempSync(join(tmpdir(),"vault-lot-isolation-")),store=new Store(directory,31337),events=[funding(1,"4","base","A"),funding(2,"6","base","B"),funding(3,"3","base","C"),...execute(4,"9","90","7")],s=state("4","9","90");let validBad=false;
+ store.commitVaultLedger({expectedRevision:0,state:s,blocks:[block(0),block(1)],events});
+ const client={getBlockNumber:async()=>2n,getBlock:async({blockNumber}:any)=>({...block(Number(blockNumber)),number:blockNumber})} as any;
+ const ledger=new VaultLedgerService(store,client,{vault,weth,swapper,confirmations:1n,verifyBaseFill:async(e)=>e.id!==events[1].id||validBad});
+ try{
+  let report=await ledger.read();assert.equal(report.attributionReady,true);assert.equal(report.totalMuseToDead,"90");assert.equal(report.totalCallerProfit,"7");assert.equal(report.baseAttributedMuseToDead,"40");assert.equal(report.basePendingWeth,"3");assert.equal(report.baseReceivedWeth,"7");assert.equal(report.lots.reduce((sum,lot)=>sum+BigInt(lot.remaining),0n),4n);assert.equal(report.allocations.reduce((sum,row)=>sum+BigInt(row.museToDead),0n),90n);assert.deepEqual(report.allocations.map(row=>[row.batchId,row.wethAmount]),[["A","4"],[null,"5"]]);
+  const persisted=store.vaultLedgerEventPage()[1];assert.equal(persisted.kind==="weth_in"&&persisted.source,"base","Withheld proof remains persisted for recovery");
+  validBad=true;report=await ledger.read();assert.equal(report.baseAttributedMuseToDead,"90");assert.equal(report.baseReceivedWeth,"13");validBad=false;report=await ledger.read();assert.equal(report.baseAttributedMuseToDead,"40");assert.equal(report.attributionReady,true);
+  const current=store.vaultLedgerState()!;store.commitVaultLedger({expectedRevision:current.revision,state:{...current,revision:current.revision+1,observedBalance:"999"},blocks:[],events:[]});assert.equal((await ledger.read()).attributionReady,false,"Accounting errors still stop attribution");
+ }finally{store.close();rmSync(directory,{recursive:true,force:true});}
+});
+
+for(const lag of [50n,4100n])test(`Vault RPC behind cursor by ${lag} blocks never rolls back canonical financial events`,async()=>{
+ const directory=mkdtempSync(join(tmpdir(),"vault-provider-lag-")),store=new Store(directory,31337);let head=5001n-lag,reorganized=false,logReads=0;const events=[funding(1,"5")],s={...state("5"),cursor:block(5000)};
+ store.commitVaultLedger({expectedRevision:0,state:s,blocks:Array.from({length:5001},(_,n)=>block(n)),events});
+ const client={getBlockNumber:async()=>head,getBlock:async({blockNumber}:any)=>({...block(Number(blockNumber)),...(reorganized&&blockNumber===5000n?{hash:hash(9000)}:{}),number:blockNumber}),readContract:async({functionName}:any)=>functionName==="balanceOf"?5n:0n,getLogs:async()=>{logReads++;return[];}} as any;
+ const ledger=new VaultLedgerService(store,client,{vault,weth,swapper,confirmations:1n,maxBlocks:1});
+ try{
+  const snapshot=store.vaultLedgerEventPage(),report=await ledger.reconcile();assert.equal(report.attributionReady,false);assert.match(report.reason!,/RPC is behind/);assert.deepEqual(store.vaultLedgerState(),s);assert.deepEqual(store.vaultLedgerEventPage(),snapshot);assert.equal(logReads,0);
+  head=5001n;assert.equal((await ledger.reconcile()).attributionReady,true);assert.equal(store.vaultLedgerState()!.revision,1);
+  reorganized=true;assert.equal((await ledger.reconcile()).attributionReady,true);assert.equal(store.vaultLedgerState()!.cursor.hash,hash(9000));assert.deepEqual(store.vaultLedgerEventPage(),snapshot,"Real recent reorg preserves earlier canonical financial rows");
  }finally{store.close();rmSync(directory,{recursive:true,force:true});}
 });

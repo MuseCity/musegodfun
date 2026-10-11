@@ -1,6 +1,6 @@
 import { runtimeFromEnv, mainnetRpcUrl, redact } from "../server/config";
 import { mkdir, writeFile } from "node:fs/promises";
-import { createPublicClient, http } from "viem";
+import { createPublicClient, http, type PublicClient, type Transport } from "viem";
 import { base, robinhood } from "viem/chains";
 import { airlockAbi } from "@whetstone-research/doppler-sdk/evm";
 import { CONTRACTS, STOCKS } from "../src/lib/config";
@@ -8,7 +8,33 @@ import { assertStock } from "../src/lib/protocol";
 import { BASE_COLLECTOR_MANIFEST, verifyBaseCollector } from "../server/base-collector";
 import { readOpeningValuation } from "../server/opening-price";
 import { launchAssetsFor } from "../src/lib/config";
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+import { boundedBaseOperatorAudit, baseOperatorAuditStore } from "./base-audit-store";
+import type { BaseAuditStore } from "../server/base-audit";
+import { createLocalReplayClient } from "./base-local-replay";
+import { SupabaseStore } from "../server/supabase-store";
+
+/** Both operator tools retain checked pages without ever signing a transaction. */
+export async function verifyBaseCollectorForOperator(
+  client: Parameters<typeof verifyBaseCollector>[0], address: Parameters<typeof verifyBaseCollector>[1],
+  options: Parameters<typeof verifyBaseCollector>[2] = {},
+  deps: { verifyGraph?: typeof verifyBaseCollector; auditStore?: BaseAuditStore; maxDurationMs?: number } = {},
+) {
+  const rpc = client as PublicClient<Transport, any>;
+  const auditStore = deps.auditStore ?? baseOperatorAuditStore();
+  const source = deps.verifyGraph ? client : createLocalReplayClient(rpc, { chainId: 8453, rpcUrl: rpc.transport?.url!, auditStore });
+  return boundedBaseOperatorAudit(store => (deps.verifyGraph ?? verifyBaseCollector)(source, address, { ...options, auditStore: store }),
+    auditStore, deps.maxDurationMs);
+}
+
+export async function runBaseVerification() {
 const runtime = runtimeFromEnv(8453);
+const recordActivation = process.argv.includes("--record-activation");
+if (recordActivation && (runtime.dataScope !== "base" || !runtime.supabase))
+  throw new Error("Explicit activation recording requires the canonical Base Supabase operator scope; no record was written");
+if (recordActivation && (!runtime.config.feeEngine || BASE_COLLECTOR_MANIFEST.status !== "deployed_verified"))
+  throw new Error("A verified deployed Base Collector is required before recording activation; no record was written");
 // The public endpoint rate-limits bursts of code and archive reads. Serialize
 // transport requests for this offline verifier and retry only explicit limits.
 let rpcQueue = Promise.resolve();
@@ -111,11 +137,15 @@ if (launchAssetsFor(runtime.config).length !== 36 || STOCKS.length !== 36)
   throw new Error("Expected the exact 36 admitted Base B20 addresses");
 let collector: unknown = { status: "not_deployed", activation: "not_run" };
 if (runtime.config.feeEngine) {
+  const activationStore = recordActivation ? new SupabaseStore(runtime.supabase!.url, runtime.supabase!.secretKey, "base", "base") : undefined;
   try {
     const destination = createPublicClient({ chain: robinhood, transport: http(mainnetRpcUrl(4663, runtime.environment), { timeout: 25_000, retryCount: 1 }) });
-    collector = { status: "verified", graph: await verifyBaseCollector(client, runtime.config.feeEngine, { robinhoodClient: destination }), activation: BASE_COLLECTOR_MANIFEST.activation.status };
+    collector = { status: "verified", graph: await verifyBaseCollectorForOperator(client, runtime.config.feeEngine,
+      { robinhoodClient: destination, recordActivation }, { auditStore: activationStore }), activation: BASE_COLLECTOR_MANIFEST.activation.status,
+      activationRecord: recordActivation ? "persisted_after_complete_finalized_verification" : "not_written" };
   }
   catch (error) { collector = { status: "unavailable", error: redact(error) }; process.exitCode = 1; }
+  finally { await activationStore?.close(); }
 }
 // Opt-in pricing consumes the same bounded LI.FI budget as launches. It never
 // substitutes directory prices or submits a transaction.
@@ -164,3 +194,7 @@ console.log(
 );
 if (modules.some((m) => !m.hasCode) || stocks.some((s) => !s.verified))
   process.exitCode = 1;
+}
+const direct = process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url;
+const runner = process.argv[2] && pathToFileURL(resolve(process.argv[2])).href === import.meta.url && process.argv[1]?.endsWith("run.ts");
+if (direct || runner) await runBaseVerification().catch(error => { console.error(redact(error)); process.exitCode = 1; });

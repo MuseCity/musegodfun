@@ -2,8 +2,10 @@ import { getAddress, parseAbi, type Address, type Hex } from "viem";
 
 /** An unshipped research protocol identifier. Never authorize new execution with it. */
 export const BASE_LEGACY_ACROSS_PROTOCOL = "lifi_across_weth_v1";
-export const BASE_RECOVERY_PROTOCOL = 2;
+/** V7 separates issuance from host maintenance and binds destination funding; V1-V6 remain readable. */
+export const BASE_RECOVERY_PROTOCOL = 7;
 export const BASE_NATIVE_BUYBACK_PROTOCOL = "splits_native_relay_v1";
+export const BASE_NATIVE_DESTINATION_POLICY = "relay-v3-permit2-signed-execution-receipt-v3";
 export const BASE_BUYBACK_PROTOCOL = BASE_NATIVE_BUYBACK_PROTOCOL;
 export const BASE_BUYBACK_WETH = getAddress("0x4200000000000000000000000000000000000006");
 export const BASE_BUYBACK_RH_WETH = getAddress("0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73");
@@ -13,10 +15,13 @@ export const BASE_BUYBACK_FORWARDER = getAddress("0x808d538f13ce0356E80C7a5ac279
 export const baseCollectorAbi = parseAbi([
   "function claimFees(bytes32 poolId)", "function releaseFees(address token,uint256 amount)",
   "function pendingFees(address token) view returns(uint256)", "function totalClaimed(address token) view returns(uint256)",
+  "function verifiedAssets(address token) view returns(bool)", "function syncUntracked(address token)", "function releaseUntracked(address token,uint256 amount)",
+  "function pendingUntracked(address token) view returns(uint256)", "function totalUntrackedSynced(address token) view returns(uint256)", "function totalUntrackedReleased(address token) view returns(uint256)",
   "function totalReleased(address token) view returns(uint256)", "function untrackedBalance(address token) view returns(uint256)",
   "function paused() view returns(bool)", "function automationReceiver() view returns(address)",
   "event FeesClaimed(bytes32 indexed poolId,address indexed manager,address indexed token,uint256 amount)",
   "event FeesReleased(address indexed token,address indexed receiver,uint256 amount)",
+  "event UntrackedSynced(address indexed token,uint256 amount)", "event UntrackedReleased(address indexed token,address indexed receiver,uint256 amount)",
 ]);
 export type BaseFeeAsset = { chainId: 8453 | 4663; address: Address; symbol: string; decimals: number };
 export type BaseGasReservation = { executionWei: string; l1Wei: string; operatorWei: string; totalWei: string;
@@ -38,13 +43,31 @@ export type BaseNativeRelayEvidence = {
 };
 export type BaseFeeBatch = {
   id: string; protocol: typeof BASE_NATIVE_BUYBACK_PROTOCOL; sourceChainId: 8453; destinationChainId: 4663;
-  collector: Address; kind: "claim" | "release" | "native_relay";
-  status: "broadcast" | "unknown" | "claimed" | "released" | "bridging" | "received" | "awaiting_buyback" |
-    "attributed" | "reverted" | "cancelled" | "refunded" | "reorg";
+  collector: Address; kind: "claim" | "release" | "sync_untracked" | "release_untracked" | "native_relay";
+  status: "broadcast" | "unknown" | "claimed" | "synced" | "released" | "bridging" | "received" | "awaiting_buyback" |
+    "attributed" | "reverted" | "cancelled" | "refunded" | "reorg" | "asset_failed" | "evidence_pending" | "abandoned";
   createdAt: number; updatedAt: number; poolId?: Hex; inputAsset?: BaseFeeAsset; amountIn: string;
   receivedAmount: string; refundedAmount: string; burnedAmount: string; claimHashes: Hex[];
   sourceHash?: Hex; sourceBlockNumber?: string; sourceBlockHash?: Hex; destinationHash?: Hex; destinationScanAfter?: Hex; destinationFromBlock?: string; destinationFromBlockHash?: Hex; destinationMatchHash?: Hex; requestId?: Hex; orderId?: Hex; nativeConflict?: { sourceHash: Hex; requestId: Hex; orderId: Hex };
   claimCredits?: { poolId: Hex; manager: Address; token: Address; amount: string }[];
+  /** Verified pool identities, including canonical zero-credit registration. Never fee income. */
+  claimAssets?: Address[];
+  /** A zero-fee pool-registration attempt for unknown recovery uses the separate operator-authorized recovery gas ceiling. */
+  recoveryRegistration?: boolean;
+  /** Set only after the exact canonical receipt and actual gas were verified at/below a captured finalized head. */
+  sourceFinalized?: boolean;
+  /** Bounded discovery retry queue only; these hashes are not arrival evidence. */
+  destinationPendingHashes?: Hex[];
+  /** Overflow scheduling range over the complete canonical destination journal. */
+  destinationOverflowFrom?: Hex; destinationOverflowAfter?: Hex; destinationOverflowThrough?: Hex; destinationOverflowPending?: boolean;
+  /** Already-mined asset evidence is rechecked at this time, never by repeating its source spend. */
+  evidenceRetryAt?: number;
+  /** Durable bounded discovery backoff; never permission to repeat source spending. */
+  nativeRetryAfter?: number;
+  nativeRetryAttempts?: number;
+  /** Current local signer proved broadcast was never invoked. Unlock only after both journals retain the complete abandoned marker. */
+  abandonedBeforeBroadcast?: true;
+  untrackedSync?: { token: Address; amount: string };
   release?: { token: Address; amount: string; automation: Address };
   journal?: { caller: Address; nonce: number; to: Address; dataHash: Hex; hash: Hex; gasLimit: string; maxFeePerGas: string; signedAt: number };
   replacements?: { hash: Hex; cancelled: boolean; blockNumber: string; blockHash: Hex }[];
@@ -58,6 +81,7 @@ export type BaseCollectorStatus = {
   nativeAutomationState: "unverified" | "configured" | "paused";
   totalBridgedWeth: string; totalRefundedWeth: string; assets: (BaseFeeAsset & {
     pending: string; untracked: string; totalClaimed: string; totalReleased: string; automationBalance: string;
+    pendingUntracked?: string; totalUntrackedSynced?: string; totalUntrackedReleased?: string; verifiedAsset?: boolean;
   })[]; batches: BaseFeeBatch[]; ledgerComplete: boolean; assetsComplete: boolean; error?: string;
 };
 export function integer(value: unknown, zero = false): bigint {

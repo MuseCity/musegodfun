@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { SupabaseStore } from "../server/supabase-store";
 import { loadEnvironment } from "../server/config";
 import { STOCKS, type TokenRecord } from "../src/lib/config";
@@ -8,6 +10,25 @@ import type { LaunchPlan } from "../server/store";
 import { FEE_POLICY } from "../src/lib/fee-policy";
 import { BASE_BUYBACK_PROTOCOL, BASE_BUYBACK_VAULT, BASE_BUYBACK_RH_WETH, BASE_BUYBACK_WETH, type BaseFeeBatch } from "../src/lib/base-buyback";
 import { vaultEventId, type VaultLedgerEvent, type VaultLedgerState } from "../src/lib/buyback-vault-ledger";
+import type { CustodyLedgerId, CustodyState, CustodyEvent } from "../src/lib/buyback-custody-ledger";
+/** Disposable scopes only; the legacy probes use invalid commits and cannot mutate financial rows. */
+export async function assertNativeAuditDatabaseMigration(store: SupabaseStore, url: string, key: string) {
+  if (!/^verify-[a-z0-9-]+$/.test(store.scope)) throw new Error("Audit migration verification requires an isolated verify scope");
+  const row = { id: `internal_native_migration_probe:${randomUUID()}`, protocol: "internal_native_migration_probe_v1", through: "0" };
+  assert.equal(await store.compareAndSetBuybackAudit(row, null), true, "Native audit CAS RPC is absent or cannot commit");
+  assert.equal(await store.compareAndSetBuybackAudit(row, null), false, "Native audit CAS must reject a stale expectation");
+  await store.request(`musegod_buyback_batches?scope=eq.${store.scope}&id=eq.${encodeURIComponent(row.id)}`, "DELETE");
+  for (const kind of ["vault", "custody"]) {
+    const response = await fetch(`${url}/rest/v1/rpc/musegod_commit_${kind}_ledger_unbounded`, { method: "POST", redirect: "manual",
+      headers: { apikey: key, ...(key.startsWith("eyJ") ? { Authorization: `Bearer ${key}` } : {}), "Content-Type": "application/json" },
+      body: JSON.stringify({ p_scope: store.scope, p_commit: {} }), signal: AbortSignal.timeout(15000) });
+    const error = await response.json().catch(() => null);
+    if (response.status !== 404 || error?.code !== "PGRST202")
+      throw new Error("Legacy unbounded ledger RPC remains exposed or its absence could not be verified");
+  }
+}
+
+export async function runDatabaseVerification() {
 loadEnvironment();
 const id = randomUUID(),
   scope = `verify-${id}`,
@@ -27,7 +48,13 @@ const store = connect(scope),
 let connected = false;
 try {
   await store.health();
+  // Fail before writing disposable fixtures when the native custody migration
+  // is absent. Ordinary launch/Vault health alone does not cover these tables.
+  await Promise.all(["state", "blocks", "events"].map(table =>
+    store.request(`musegod_custody_ledger_${table}?scope=eq.${scope}&select=*&limit=0`)));
+  await store.request(`musegod_buyback_batches?scope=eq.${scope}&select=sequence&limit=0`);
   connected = true;
+  await assertNativeAuditDatabaseMigration(store, process.env.SUPABASE_URL || "", process.env.SUPABASE_SECRET_KEY || "");
   const now = Date.now();
   const reserved = await Promise.all(
     Array.from({ length: 6 }, () => store.reserveMarketCall(now, 1, 2)),
@@ -129,6 +156,20 @@ try {
   await store.commitVaultLedger({ expectedRevision: 0, state: vaultState, blocks: [checkpointBlock, cursor], events: [vaultEvent] });
   assert.deepEqual(await connect(scope).vaultLedgerState(), vaultState);
   assert.deepEqual(await connect(scope).vaultLedgerEventPage(), [vaultEvent]);
+  const custodyFixtures = (["base_automation", "robinhood_treasury"] as CustodyLedgerId[]).map(ledgerId => {
+    const asset = ledgerId === "base_automation" ? BASE_BUYBACK_WETH : BASE_BUYBACK_RH_WETH;
+    const state: CustodyState = { version: 1, id: ledgerId, chainId: ledgerId === "base_automation" ? 8453 : 4663,
+      account: STOCKS[3].address, revision: 1, checkpoint: checkpointBlock, cursor,
+      openingBalances: { [asset.toLowerCase()]: "0" }, observedBalances: { [asset.toLowerCase()]: "21" }, updatedAt: now, blockedReason: null };
+    const event: CustodyEvent = { id: vaultEventId(hash, 1), blockNumber: "1", blockHash: cursor.hash, transactionHash: hash,
+      transactionIndex: 0, logIndex: 1, asset, kind: "in", from: STOCKS[2].address, to: state.account, amount: "21" };
+    return { state, event };
+  });
+  for (const { state, event } of custodyFixtures) {
+    await store.commitCustodyLedger({ expectedRevision: 0, state, blocks: [checkpointBlock, cursor], events: [event] });
+    assert.deepEqual(await connect(scope).custodyLedgerState(state.id), state);
+    assert.deepEqual(await connect(scope).custodyLedgerEventPage(state.id), [event]);
+  }
   await store.updateRuntimeControl(true, "Isolated database verification fixture", 0);
   const backup = await store.backup();
   assert.equal(backup.version, 3);
@@ -141,9 +182,15 @@ try {
   assert.deepEqual(await restore.vaultLedgerState(), vaultState);
   assert.deepEqual(await restore.vaultLedgerEventPage(), [vaultEvent]);
   assert.deepEqual(await restore.vaultLedgerBlockPage(), [cursor, checkpointBlock]);
+  for (const { state, event } of custodyFixtures) {
+    assert.deepEqual(await restore.custodyLedgerState(state.id), state);
+    assert.deepEqual(await restore.custodyLedgerEventPage(state.id), [event]);
+    assert.deepEqual(await restore.custodyLedgerBlockPage(state.id), [cursor, checkpointBlock]);
+  }
   assert.deepEqual(await restore.runtimeControl(), await store.runtimeControl(), "Runtime pause and CAS revision survive an isolated restore");
   const historicalBackup: Record<string, unknown> = { ...backup, version: 1 };
-  for (const field of ["buyback_batches", "runtime_controls", "vault_ledger_state", "vault_ledger_blocks", "vault_ledger_events"]) delete historicalBackup[field];
+  for (const field of ["buyback_batches", "runtime_controls", "vault_ledger_state", "vault_ledger_blocks", "vault_ledger_events",
+    "custody_ledger_state", "custody_ledger_blocks", "custody_ledger_events"]) delete historicalBackup[field];
   await legacy.restore(historicalBackup);
   assert.deepEqual(await legacy.token(token.address), token, "Historical version-1 backups remain readable");
   assert.deepEqual(await legacy.listBuybackBatches(), [], "Absent legacy batch field restores as empty");
@@ -169,6 +216,8 @@ try {
         scope: "isolated verification rows only",
         checks: [
           "health",
+          "native internal-audit CAS RPC exists and rejects stale expectations",
+          "legacy unbounded ledger RPCs are absent from the server Data API",
           "atomic concurrent quota",
           "quota survives reconnect",
           "snapshot readback",
@@ -183,6 +232,8 @@ try {
           "buyback batch amounts and receipt history survive reconnect and upsert",
           "buyback batch scope isolation and 24-hour cleanup retention",
           "version-3 backup preserves canonical vault journal, checkpoint, legacy balances and runtime control revision",
+          "native custody migration tables and atomic commits are present",
+          "both native custody checkpoints, blocks and events survive reconnect and backup restore",
           "unknown Base source submission nonce, original hash, gas and replacement evidence survive backup restore",
           "source batch keyset pages preserve independent historical rows",
           "version-1 backup without buyback batches restores successfully",
@@ -204,6 +255,9 @@ try {
       "snapshots",
       "quota",
       "buyback_batches",
+      "custody_ledger_events",
+      "custody_ledger_blocks",
+      "custody_ledger_state",
       "vault_ledger_events",
       "vault_ledger_blocks",
       "vault_ledger_state",
@@ -212,3 +266,7 @@ try {
       await db.request(`musegod_${table}?scope=eq.${db.scope}`, "DELETE");
   }
 }
+}
+const direct = process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url;
+const runner = process.argv[2] && pathToFileURL(resolve(process.argv[2])).href === import.meta.url && process.argv[1]?.endsWith("run.ts");
+if (direct || runner) await runDatabaseVerification();

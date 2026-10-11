@@ -22,14 +22,15 @@ const fork=await startChainFork(mainnetRpcUrl(8453),8453,8453);
 assert.equal(new URL(fork.rpc).hostname,"127.0.0.1");
 const client=createPublicClient({chain:base,transport:http(fork.rpc,{timeout:120_000,retryCount:0})});
 assert.equal(await client.getChainId(),8453);assert.match(await fork.rpcCall("web3_clientVersion"),/anvil/i);
-const accounts:Address[]=(await fork.rpcCall("eth_accounts") as Address[]).map(account=>getAddress(account));const[creator,governor]=accounts;
+const accounts:Address[]=(await fork.rpcCall("eth_accounts") as Address[]).map(account=>getAddress(account));const[creator,governor,externalCaller]=accounts;
 assert(creator !== governor);
 const wallet=createWalletClient({chain:base,account:creator,transport:http(fork.rpc,{timeout:120_000})});
 const governorWallet=createWalletClient({chain:base,account:governor,transport:http(fork.rpc,{timeout:120_000})});
+const externalWallet=createWalletClient({chain:base,account:externalCaller,transport:http(fork.rpc,{timeout:120_000})});
 const snapshot=await fork.rpcCall("evm_snapshot");
 const sha256=(value:string)=>createHash("sha256").update(value).digest("hex");
 const serialize=(_key:string,value:unknown)=>typeof value==="bigint"?value.toString():value;
-const proof:Record<string,unknown>={version:3,scope:"Actual Base Splits factory/implementation and Doppler managers on isolated Anvil fork; fee claim/release to locally initialized native account only",
+const proof:Record<string,unknown>={version:4,scope:"Actual Base Splits factory/implementation and Doppler managers on isolated Anvil fork; external zero-share payout recovery and genuine/unknown release to locally initialized native account only",
   upstreamChainId:8453,executionChainId:8453,forkBlockNumber:String(fork.blockNumber),sourceHash:sha256(await readFile(new URL(import.meta.url),"utf8")),
   artifactCreationHash:artifact.creationBytecodeHash,architecture:"splits-treasury-native-automation",existingAdAInitialization:"not_run",mainnetTransactionsSubmitted:false,crossChainFill:"not_run",robinhoodSettlement:"not_run",walletProductionAcceptance:"not_run",
   nativeAutomationScheduling:"not_run",nativeRelayCrossChain:"not_run",status:"running",stage:"initializing",snapshotRestored:false,blockedUpstreamWrites:0};
@@ -140,9 +141,24 @@ try{
   const buy=await trade(state.poolKey,stock.address,buyAmount);const sell=await trade(state.poolKey,token,(await balance(token,creator))/2n);
   proof.launch={...launch,token,poolId,valuation};proof.buy=buy;proof.sell=sell;
   proof.stage="actual_manager_fee_claim";console.log("Base fork: actual_manager_fee_claim");
-  const sharesAbi=parseAbi(["function getShares(bytes32,address) view returns(uint256)"]);
+  const sharesAbi=parseAbi(["function getShares(bytes32,address) view returns(uint256)",
+    "function collectFees(bytes32) returns(uint128,uint128)","function updateBeneficiary(bytes32,address)"]);
   assert.equal(await client.readContract({address:CONTRACTS.initializer,abi:sharesAbi,functionName:"getShares",args:[poolId,collector]}),228n*10n**15n);
   assert.equal(await client.readContract({address:CONTRACTS.rehype,abi:sharesAbi,functionName:"getShares",args:[poolId,collector]}),24n*10n**16n);
+  proof.stage="actual_zero_share_external_payout_recovery";console.log("Base fork: actual_zero_share_external_payout_recovery");
+  assert.equal(await client.readContract({address:CONTRACTS.initializer,abi:sharesAbi,functionName:"getShares",args:[poolId,externalCaller]}),0n);
+  const externalCollect=await send(CONTRACTS.initializer,encodeFunctionData({abi:sharesAbi,functionName:"collectFees",args:[poolId]}),externalWallet);
+  const beforeExternalPair=await balance(stock.address,collector),beforeExternalMeme=await balance(token,collector);
+  const externalPayout=await send(CONTRACTS.initializer,encodeFunctionData({abi:sharesAbi,functionName:"updateBeneficiary",args:[poolId,collector]}),externalWallet);
+  const externalPaired=await balance(stock.address,collector)-beforeExternalPair,externalMeme=await balance(token,collector)-beforeExternalMeme;
+  assert(externalPaired>0n||externalMeme>0n);assert.equal(await read(collector,"pendingFees",[stock.address]),0n);assert.equal(await read(collector,"pendingFees",[token]),0n);
+  assert.equal(await read(collector,"totalClaimed",[stock.address]),0n);assert.equal(await read(collector,"untrackedBalance",[stock.address]),externalPaired);
+  const giftedShares=await send(CONTRACTS.initializer,encodeFunctionData({abi:sharesAbi,functionName:"updateBeneficiary",args:[poolId,collector]}));
+  assert.equal(await client.readContract({address:CONTRACTS.initializer,abi:sharesAbi,functionName:"getShares",args:[poolId,collector]}),893n*10n**15n);
+  const increasedShareTrade=await trade(state.poolKey,stock.address,buyAmount);
+  proof.externalFeePayout={zeroShareCaller:externalCaller,collect:externalCollect,payout:externalPayout,pairedAmount:externalPaired,memeAmount:externalMeme,
+    genuineFeeCredit:"0",classification:"unknown until separately synchronized; never canary fee evidence"};
+  proof.increasedCollectorShares={transaction:giftedShares,shares:893n*10n**15n,trade:increasedShareTrade,scope:"Local fixture creator voluntarily gifts its LP beneficiary shares"};
   // Paused claims remain safe and permissionless; no module, quote signer or bridge transaction is involved.
   const beforeClaim=await balance(stock.address,collector);
   const claim=await send(collector,encodeFunctionData({abi,functionName:"claimFees",args:[poolId]}));
@@ -150,8 +166,15 @@ try{
   assert.equal(await balance(stock.address,collector)-beforeClaim,pending);assert.equal(await read(collector,"totalClaimed",[stock.address]),pending);
   const memePending=await read<bigint>(collector,"pendingFees",[token]);proof.claim={...claim,pairedPending:pending,memePending};
   await send(stock.address,encodeFunctionData({abi:erc20Abi,functionName:"transfer",args:[collector,42n]}));
-  assert.equal(await read(collector,"untrackedBalance",[stock.address]),42n);
+  assert.equal(await read(collector,"untrackedBalance",[stock.address]),externalPaired+42n);
+  const untrackedSync=await send(collector,encodeFunctionData({abi,functionName:"syncUntracked",args:[stock.address]}));
+  assert.equal(await read(collector,"pendingUntracked",[stock.address]),externalPaired+42n);assert.equal(await read(collector,"untrackedBalance",[stock.address]),0n);
+  assert.equal(await read(collector,"totalClaimed",[stock.address]),pending);assert.equal(await read(collector,"totalReleased",[stock.address]),0n);
+  assert.equal(await read(collector,"totalUntrackedSynced",[stock.address]),externalPaired+42n);
+  proof.untrackedSync={...untrackedSync,amount:externalPaired+42n,donationAmount:"42",genuineFeeCounterUnchanged:true};
+  if(externalMeme>0n)await send(collector,encodeFunctionData({abi,functionName:"syncUntracked",args:[token]}));
   await assert.rejects(()=>client.simulateContract({address:collector!,abi,functionName:"releaseFees",args:[stock.address,pending],account:creator}));
+  await assert.rejects(()=>client.simulateContract({address:collector!,abi,functionName:"releaseUntracked",args:[stock.address,externalPaired+42n],account:creator}));
   await send(collector,encodeFunctionData({abi,functionName:"resume"}),governorWallet);
   proof.stage="actual_fee_release_to_initialized_native_account";
   const beforeReceiver=await balance(stock.address,executionAccount);
@@ -159,11 +182,17 @@ try{
   assert.equal(await balance(stock.address,executionAccount)-beforeReceiver,pending);
   assert.equal(await read(collector,"pendingFees",[stock.address]),0n);
   assert.equal(await read(collector,"totalReleased",[stock.address]),pending);
-  assert.equal(await read(collector,"untrackedBalance",[stock.address]),42n);
-  proof.release={...released,asset:stock.address,amount:pending,receiver:executionAccount,donationExcluded:"42"};
+  assert.equal(await read(collector,"pendingUntracked",[stock.address]),externalPaired+42n);
+  proof.release={...released,asset:stock.address,amount:pending,receiver:executionAccount,unknownExcluded:externalPaired+42n};
   if(memePending>0n){const before=await balance(token,executionAccount);const memeRelease=await send(collector,encodeFunctionData({abi,functionName:"releaseFees",args:[token,memePending]}));
     assert.equal(await balance(token,executionAccount)-before,memePending);proof.memeRelease={...memeRelease,amount:memePending};}
   else proof.memeRelease={status:"not_run",reason:"No meme-token fee accrued in this bounded actual-fork trade fixture; nonzero meme fee release is covered by contract unit tests only"};
+  const unknownBefore=await balance(stock.address,executionAccount),unknownRelease=await send(collector,encodeFunctionData({abi,functionName:"releaseUntracked",args:[stock.address,externalPaired+42n]}));
+  assert.equal(await balance(stock.address,executionAccount)-unknownBefore,externalPaired+42n);assert.equal(await read(collector,"pendingUntracked",[stock.address]),0n);
+  assert.equal(await read(collector,"totalUntrackedReleased",[stock.address]),externalPaired+42n);assert.equal(await read(collector,"totalReleased",[stock.address]),pending);
+  proof.untrackedRelease={...unknownRelease,amount:externalPaired+42n,receiver:executionAccount,classification:"unknown; excluded from genuine fee/canary acceptance"};
+  if(externalMeme>0n){const before=await balance(token,executionAccount),memeUnknownRelease=await send(collector,encodeFunctionData({abi,functionName:"releaseUntracked",args:[token,externalMeme]}));
+    assert.equal(await balance(token,executionAccount)-before,externalMeme);proof.memeUntrackedRelease={...memeUnknownRelease,amount:externalMeme};}
   await send(collector,encodeFunctionData({abi,functionName:"pause"}),governorWallet);
   assert.equal(await read(collector,"paused"),true);
   proof.status="passed";proof.sourceClaimReleaseFlowPassed=true;proof.stage="completed";console.log("Base fork: source claim/release completed; native scheduler and cross-chain execution not run");

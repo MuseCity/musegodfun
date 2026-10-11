@@ -45,6 +45,7 @@
     "preflight:base-collector": "tsx scripts/deploy-base-collector.ts --preflight",
     "test:base-collector": "forge test --root contracts --match-contract \"MusegodBaseFeeCollector.*\"",
     "keeper:base-buyback": "tsx scripts/base-buyback-keeper.ts",
+    "audit:base": "tsx scripts/base-buyback-keeper.ts --audit-only",
     "ledger:buyback": "tsx scripts/run.ts scripts/buyback-vault-ledger.ts",
     "test:base-collector-fork": "tsx scripts/run.ts scripts/test-base-collector-fork.ts",
     "canary:base": "tsx scripts/base-canary-server.ts"

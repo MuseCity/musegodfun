@@ -6,6 +6,28 @@ import { tmpdir } from "node:os";
 import { Store, type BuybackBatchRecord } from "../server/store";
 import { SupabaseStore } from "../server/supabase-store";
 
+test("internal audit CAS prevents late lower progress across SQLite clients and preserves exact JSON expectations",()=>{
+ const directory=mkdtempSync(join(tmpdir(),"buyback-audit-cas-")),first=new Store(directory,31337),second=new Store(directory,31337),restored=new Store(join(directory,"restored"),31337);
+ const initial={id:"internal_native_releases:fixture",protocol:"internal_native_base_audit_v1",through:"0",entries:[],nested:{a:1,b:2}},high={...initial,through:"100",entries:["canonical-owner-release"]},low={...initial,through:"50"};
+ try{
+  assert.equal(first.compareAndSetBuybackAudit(initial,null),true);assert.equal(second.compareAndSetBuybackAudit(initial,null),false);
+  const stale=second.getBuybackBatch(initial.id)!;assert.equal(first.compareAndSetBuybackAudit(high,{nested:{b:2,a:1},entries:[],through:"0",protocol:initial.protocol,id:initial.id}),true,"Object key order has the same meaning as PostgreSQL JSONB");
+  assert.equal(second.compareAndSetBuybackAudit(low,stale),false);assert.deepEqual(second.getBuybackBatch(initial.id),high);
+  assert.equal(first.compareAndSetBuybackAudit(low,{...high,nested:{a:1,b:999}}),false,"Expectations compare the complete nested payload");
+  assert.throws(()=>first.compareAndSetBuybackAudit({id:"financial-batch",protocol:"splits_native_relay_v1"},null),/internal native/);assert.throws(()=>first.compareAndSetBuybackAudit(high,0 as any),/audit metadata/);
+  restored.restore(first.backup());assert.deepEqual(restored.getBuybackBatch(initial.id),high);assert.equal(restored.compareAndSetBuybackAudit({...high,through:"101"},high),true);
+ }finally{restored.close();second.close();first.close();rmSync(directory,{recursive:true,force:true});}
+});
+
+test("Supabase audit CAS is a scoped typed RPC and never uses the financial upsert",async(t)=>{
+ const calls:any[]=[],next={id:"internal_native_modules:fixture",protocol:"internal_native_base_audit_v1",through:"0",entries:[]};let response:unknown=true;
+ t.mock.method(globalThis,"fetch",async(url:string,init:RequestInit)=>{calls.push({url,method:init.method,body:JSON.parse(init.body as string)});return Response.json(response);});
+ const store=new SupabaseStore("https://fixture.supabase.co","local-test-only","verify-audit-cas");
+ assert.equal(await store.compareAndSetBuybackAudit(next,null),true);assert.match(calls[0].url,/rpc\/musegod_compare_and_set_buyback_audit$/);assert.deepEqual(calls[0].body,{p_scope:"verify-audit-cas",p_next:next,p_expected:null});assert.equal(calls[0].method,"POST");
+ response=false;assert.equal(await store.compareAndSetBuybackAudit({...next,through:"5"},next),false);response={success:true};await assert.rejects(()=>store.compareAndSetBuybackAudit(next,next),/invalid result/);
+ await assert.rejects(()=>store.compareAndSetBuybackAudit({...next,id:"ordinary-financial-id"},null),/internal native/);assert.equal(calls.length,3);
+});
+
 test("buyback receipts preserve exact amounts across upsert, restart and snapshot cleanup", () => {
   const directory = mkdtempSync(join(tmpdir(), "musegod-buyback-store-"));
   let store: Store | undefined;
@@ -105,31 +127,39 @@ test("batch keyset pages recover every historical source batch with tied timesta
   try {
     for (let i = 0; i < 1203; i++) store.saveBuybackBatch({ id: `source-${String(i).padStart(4, "0")}`, updatedAt: Math.floor(i / 3), status: i === 0 ? "unknown" : "bridged", bridgeNonce: String(i) });
     const all = [];
-    let before: { updatedAt: number; id: string } | undefined;
+    let before: { sequence: string } | undefined;
     for (;;) {
       const page = store.buybackBatchPage(71, before); all.push(...page);
       if (page.length < 71) break;
       before = page.at(-1)!;
     }
     assert.equal(all.length, 1203); assert.equal(new Set(all.map(row => row.id)).size, 1203);
-    assert.equal(all.at(-3)?.status, "unknown", "The oldest unresolved batch is not lost behind a display cap");
+    assert.equal(all.at(-1)?.status, "unknown", "The oldest unresolved batch is not lost behind a display cap");
     assert.equal(store.listBuybackBatches().length, 1000);
     assert.throws(() => store.buybackBatchPage(101), /page size/);
-    assert.throws(() => store.buybackBatchPage(10, { updatedAt: -1, id: "source" }), /cursor/);
+    assert.throws(() => store.buybackBatchPage(10, { sequence: "-1" }), /raw vault amount/);
   } finally { store.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
-test("Supabase source-batch keyset pagination uses authoritative timestamps and quotes reserved ID characters", async (t) => {
+test("Supabase source-batch pagination uses immutable raw sequence beyond safe-integer precision", async (t) => {
   const calls: URL[] = [], id = 'batch,scope.eq.base)"\\&name';
   t.mock.method(globalThis, "fetch", async (input: string) => {
     calls.push(new URL(input));
-    return new Response(JSON.stringify([{ payload: { id, updatedAt: 2, status: "unknown", amount: "1000000000000000000000001" }, updated_at: 99 }]));
+    return new Response(JSON.stringify([{ payload: { id, updatedAt: 2, status: "unknown", amount: "1000000000000000000000001" }, updated_at: 99,sequence:"9007199254740993123" }]));
   });
   const store = new SupabaseStore("https://fixture.supabase.co", "fixture", "base");
-  const [row] = await store.buybackBatchPage(37, { updatedAt: 100, id });
+  const [row] = await store.buybackBatchPage(37, { sequence:"9007199254740993124" });
   assert.equal(row.updatedAt, 99); assert.equal(row.amount, "1000000000000000000000001");
   assert.equal(calls[0].searchParams.get("scope"), "eq.base"); assert.equal(calls[0].searchParams.get("limit"), "37");
-  assert.match(calls[0].searchParams.get("or")!, /id.gt."batch,scope.eq.base\)/);
+  assert.equal(calls[0].searchParams.get("sequence"),"lt.9007199254740993124");assert.equal(row.sequence,"9007199254740993123");
   assert.equal(calls[0].searchParams.get("name"), null, "Cursor contents cannot introduce another URL parameter");
   await assert.rejects(store.buybackBatchPage(101), /page size/); assert.equal(calls.length, 1);
+});
+
+test("batch updates between stable pages do not skip or duplicate records and backup preserves sequence",()=>{
+ const directory=mkdtempSync(join(tmpdir(),"stable-pages-")),restoreDirectory=mkdtempSync(join(tmpdir(),"stable-pages-restore-")),store=new Store(directory,31337),restore=new Store(restoreDirectory,31337);
+ try{for(let i=0;i<150;i++)store.saveBuybackBatch({id:`batch-${i}`,updatedAt:1});const first=store.buybackBatchPage(100);store.saveBuybackBatch({id:"batch-1",updatedAt:Date.now(),status:"received"});store.saveBuybackBatch({id:"batch-149",updatedAt:0,status:"unknown"});
+  const second=store.buybackBatchPage(100,{sequence:first.at(-1)!.sequence});assert.equal(new Set([...first,...second].map(row=>row.id)).size,150);assert.equal(second.length,50);
+  restore.restore(store.backup());assert.deepEqual(restore.buybackBatchPage(100,{sequence:first.at(-1)!.sequence}),second);assert.equal(restore.buybackBatchPage(1)[0].sequence,"150");
+ }finally{store.close();restore.close();rmSync(directory,{recursive:true,force:true});rmSync(restoreDirectory,{recursive:true,force:true});}
 });

@@ -1,0 +1,531 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-10-10T15:12:53.024Z",
+  "purpose": "Historical narrow no-trace prototype comparison; not the current canonical-receipt destination policy",
+  "execution": {
+    "networkRequests": 0,
+    "traceRequests": 0,
+    "mainnetWrites": 0,
+    "signed": false,
+    "deployed": false,
+    "runtimePolicyChanged": false
+  },
+  "sources": {
+    "fixture": {
+      "path": "tests/fixtures/native-relay-no-trace-mainnet.json",
+      "sha256": "a6c2ac3d80c2f113ff2181d69c19327dc4a71c38a0259a964f607b74f7d1ac6d",
+      "capturedAt": {
+        "automation": "2026-10-10T06:31:41.824Z",
+        "crosschain": "2026-10-10T06:40:17.722Z"
+      }
+    },
+    "prototype": {
+      "path": "scripts/base-native-no-trace.ts",
+      "sha256": "628d6ad31b3bda2175f9bf9b95da83eea22ad1f1c10eb6dfb59da4dce7442c77"
+    },
+    "comparison": {
+      "path": "scripts/compare-base-native-no-trace.ts",
+      "sha256": "da99d2619f6899d8f96ea42bd366f28f9038fca65a8435ed1da6706c791e4eb6"
+    },
+    "qualification": {
+      "path": "docs/evidence/base-native-route-qualification.json",
+      "sha256": "25ad44cfd23803f74157302e8960d4143faf335b656eea5b42283cb2658d9efa"
+    }
+  },
+  "actualMainnetSamples": {
+    "robinhoodSameChain": {
+      "hash": "0x6003a4536cef6977c478f1736c4ec5e8518be422907e043bd13a689db48abdfa",
+      "chainId": 4663,
+      "automationEnvelope": {
+        "supported": true,
+        "result": {
+          "userOpHash": "0xa09c11b4ad8bf1b60b2b0f0668d3c771ee05a94cbc103c76629d2dc598df9a22",
+          "executionLogs": 16,
+          "calls": [
+            {
+              "target": "0x4EA005168D7F09a7A0Ba9D1DEf21a479950E44C2",
+              "selector": "0x095ea7b3",
+              "value": "0"
+            },
+            {
+              "target": "0x6131B5fae19EA4f9D964eAc0408E4408b66337b5",
+              "selector": "0xe21fd0e9",
+              "value": "0"
+            }
+          ],
+          "implementationContinuity": "not_proven"
+        }
+      },
+      "projectBaseSource": {
+        "supported": false,
+        "reason": "A same-chain Robinhood run is not a Base source proof"
+      },
+      "scope": "Actual same-chain conversion; not Base bridging"
+    },
+    "thirdPartyBaseRobinhood": {
+      "sourceHash": "0x319545694f8cf9cbbcdb23e907f9191dd3a96fa7f9004383e01e15fe9c9842d0",
+      "destinationHash": "0x622ef525006e629421445d49bfd7a5ceb4809158b4c81f27bfb374370372d660",
+      "directNativeReceiptCorrelation": {
+        "supported": true,
+        "result": {
+          "status": "observed_matching_canonical_receipts",
+          "orderId": "0xd89365b6eda11e67a37f21d56cd71acf4775ca42fdf76b71d7330f3a639bc85d",
+          "sourceNativeWei": "3748445073097782",
+          "destinationNativeWei": "3738959352407765",
+          "destinationSender": "0x18dd3c14e34c1bc379f7538068c59160d9f68e25",
+          "fixedProviderAuthenticated": false,
+          "projectWethTreasuryPolicy": false,
+          "cryptographicCrossChainProof": false
+        }
+      },
+      "projectDestination": {
+        "supported": false,
+        "reason": "Destination must be a direct fixed EOA Router transaction"
+      },
+      "scope": "External ETH-to-ETH receipts; no project fee provenance, fixed-solver authentication or WETH/Treasury acceptance"
+    },
+    "historicalRuntimeHashes": {
+      "automation": {
+        "relayRouter": {
+          "address": "0xb92fe925dc43a0ecde6c8b1a2709c170ec4fff4f",
+          "blockNumber": "0x4f62023",
+          "runtimeHash": "0xde894e5c12e9513d50613c8fff375ecbf19b5d9a53bec0662e2b9667e3ec8f15"
+        },
+        "relayApprovalProxy": {
+          "address": "0xccc88a9d1b4ed6b0eaba998850414b24f1c315be",
+          "blockNumber": "0x4f62023",
+          "runtimeHash": "0xa3b36a6aa3c2fb588b92336d88b0735b40dea0282c110d2034edf688ca661b5b"
+        },
+        "relayDepository": {
+          "address": "0x4cd00e387622c35bddb9b4c962c136462338bc31",
+          "blockNumber": "0x4f62023",
+          "runtimeHash": "0xc8b9128d5bc2534ff2b2d7a45fd35a657ec345f5b9ad1d7a05b47b73d1ef4b07"
+        },
+        "entryPoint": {
+          "address": "0x0000000071727de22e5e9d8baf0edac6f37da032",
+          "blockNumber": "0x4f62023",
+          "runtimeHash": "0x8db5ff695839d655407cc8490bb7a5d82337a86a6b39c3f0258aa6c3b582fc58"
+        },
+        "automation": {
+          "address": "0xAdA3348D6fC8EcF7cc2DbCA931D038b4B2913E3a",
+          "blockNumber": "0x4f62023",
+          "runtimeHash": "0xaaa52c8cc8a0e3fd27ce756cc6b4e70c51423e9b597b11f32d3e49f8b1fc890d"
+        }
+      },
+      "source": [
+        {
+          "name": "Depository",
+          "address": "0x4cd00e387622c35bddb9b4c962c136462338bc31",
+          "atBlock": "0x31fbf55",
+          "runtimeHash": "0x77df38a47ee0c4453bc1bdc5f322712f0104ba1d97c4798dd49f16d4ed2e6256"
+        },
+        {
+          "name": "Router",
+          "address": "0xb92fe925dc43a0ecde6c8b1a2709c170ec4fff4f",
+          "atBlock": "0x31fbf55",
+          "runtimeHash": "0xde894e5c12e9513d50613c8fff375ecbf19b5d9a53bec0662e2b9667e3ec8f15"
+        },
+        {
+          "name": "ApprovalProxy",
+          "address": "0xccc88a9d1b4ed6b0eaba998850414b24f1c315be",
+          "atBlock": "0x31fbf55",
+          "runtimeHash": "0xa3b36a6aa3c2fb588b92336d88b0735b40dea0282c110d2034edf688ca661b5b"
+        }
+      ],
+      "destination": [
+        {
+          "name": "Actual fill transaction recipient",
+          "address": "0xe1b3fe4797c45034ff85ecbbd1156c3901cda2fe",
+          "atBlock": "0x50dc89d",
+          "runtimeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        }
+      ]
+    }
+  },
+  "retainedNativeQuotes": {
+    "scope": "Expired unsigned quote calldata only; no live route availability or execution claim",
+    "assets": 36,
+    "supportedStructures": 0,
+    "rejectedStructures": 35,
+    "unavailableCaptures": 1,
+    "records": [
+      {
+        "symbol": "NVDAc",
+        "file": ".cache/base-native-route-audit/NVDAc-outbound.json",
+        "sha256": "c21cbcf0762c527b5449ee853c5d7102c79e69a09ee850d4677a308be2c97b85",
+        "sourceAsset": "0xb20000000000000000000078ee7ce2fE4908108C",
+        "cleanupNativeAmount": "0",
+        "status": "unsupported_structure",
+        "reason": "Unknown source route/caught failure"
+      },
+      {
+        "symbol": "AAPLc",
+        "file": ".cache/base-native-route-audit/AAPLc-outbound.json",
+        "sha256": "3e37de42c51d5d0a7eac26fa4e3a470e08978d5a5085d5e7ba35d3e1abd1bf2e",
+        "sourceAsset": "0xb200000000000000000000C2e324d24d7eEcd1fb",
+        "cleanupNativeAmount": "0",
+        "status": "unsupported_structure",
+        "reason": "Unknown source route/caught failure"
+      },
+      {
+        "symbol": "GOOGLc",
+        "file": ".cache/base-native-route-audit/GOOGLc-outbound.json",
+        "sha256": "49620ddfa8bfafe866694cbcfb45aab4957f1088e481c378d844a1f6cb2643a3",
+        "sourceAsset": "0xb2000000000000000000002D0BA3164cc74f58B7",
+        "cleanupNativeAmount": "0",
+        "status": "unsupported_structure",
+        "reason": "Unknown source route/caught failure"
+      },
+      {
+        "symbol": "METAc",
+        "file": ".cache/base-native-route-audit/METAc-outbound.json",
+        "sha256": "39315767ae1568902479f96cd765d76cc4d0952effd98df71927952944493f4e",
+        "sourceAsset": "0xb2000000000000000000008bC8786B856E61707C",
+        "cleanupNativeAmount": "0",
+        "status": "unsupported_structure",
+        "reason": "Unknown source route/caught failure"
+      },
+      {
+        "symbol": "AMZNc",
+        "file": ".cache/base-native-route-audit/AMZNc-outbound.json",
+        "sha256": "95b71ea1bb9db1ba72014c626dd6553adfb69855aff1c83410c12f9f332ab595",
+        "sourceAsset": "0xb200000000000000000000d9192b6B456483C2E8",
+        "cleanupNativeAmount": "0",
+        "status": "unsupported_structure",
+        "reason": "Unknown source route/caught failure"
+      },
+      {
+        "symbol": "MSFTc",
+        "file": ".cache/base-native-route-audit/MSFTc-outbound.json",
+        "sha256": "3c12cca81d031771d73b017f2968e9942615f80b4cb8d446057cb3dade3da847",
+        "sourceAsset": "0xB200000000000000000000Ab99cFa739E253872B",
+        "cleanupNativeAmount": "0",
+        "status": "unsupported_structure",
+        "reason": "Unknown source route/caught failure"
+      },
+      {
+        "symbol": "MSTRc",
+        "file": ".cache/base-native-route-audit/MSTRc-outbound.json",
+        "sha256": "73572d057cbc72f0ab86bfefdf7acb34792a818b137236c4caaec53f6106bd83",
+        "sourceAsset": "0xb2000000000000000000004884b426556b92883d",
+        "cleanupNativeAmount": "0",
+        "status": "unsupported_structure",
+        "reason": "Unknown source route/caught failure"
+      },
+      {
+        "symbol": "SNDKc",
+        "file": ".cache/base-native-route-audit/SNDKc-outbound.json",
+        "sha256": "7f518964df0da2e52bc2fa84ced0a985961b59790bbac72c69aec9c5bd5b657c",
+        "sourceAsset": "0xb200000000000000000000397293Cb8cda9a10c5",
+        "cleanupNativeAmount": "0",
+        "status": "unsupported_structure",
+        "reason": "Unknown source route/caught failure"
+      },
+      {
+        "symbol": "SPCXc",
+        "file": ".cache/base-native-route-audit/SPCXc-outbound.json",
+        "sha256": "250f7fcf7f7e17118a66f85b1dd6d144fec09aa211e5d4dcfe1e28b3f0f637bf",
+        "sourceAsset": "0xb2000000000000000000007b9fcbd005511aCBd5",
+        "cleanupNativeAmount": "0",
+        "status": "unsupported_structure",
+        "reason": "Unknown source route/caught failure"
+      },
+      {
+        "symbol": "TSLAc",
+        "file": ".cache/base-native-route-audit/TSLAc-outbound.json",
+        "sha256": "99ddbf3cf80ee9f21dd709866148cd5c1010ea2b154eeb0d4ff6fec5efd0529b",
+        "sourceAsset": "0xb2000000000000000000001e800a7f5189430cD0",
+        "cleanupNativeAmount": "0",
+        "status": "unsupported_structure",
+        "reason": "Unknown source route/caught failure"
+      },
+      {
+        "symbol": "AMDc",
+        "file": ".cache/base-native-route-audit/AMDc-outbound.json",
+        "sha256": "f7fd072332702bfb14963665e47fc98b2a70deed1b66829e2072e1c985bd9fc4",
+        "sourceAsset": "0xB2000000000000000000000d8Ce462E99ee7A47B",
+        "cleanupNativeAmount": "0",
+        "status": "unsupported_structure",
+        "reason": "Unknown source route/caught failure"
+      },
+      {
+        "symbol": "ASTSc",
+        "file": ".cache/base-native-route-audit/ASTSc-outbound.json",
+        "sha256": "f8c86903c1dba1cb3fc09c20aaf032213bb18a8cbbd5cc1085fa7dcc94f934aa",
+        "sourceAsset": "0xB200000000000000000000B1a29cF17A1819288a",
+        "cleanupNativeAmount": "0",
+        "status": "unsupported_structure",
+        "reason": "Unknown source route/caught failure"
+      },
+      {
+        "symbol": "AVGOc",
+        "file": ".cache/base-native-route-audit/AVGOc-outbound.json",
+        "sha256": "409c4e82d7cb9096687de3b9e5aebcf01b0ab75d7a5919ae609b980f5353dadb",
+        "sourceAsset": "0xB200000000000000000000Fc737aeA6196aB5a4c",
+        "cleanupNativeAmount": "0",
+        "status": "unsupported_structure",
+        "reason": "Unknown source route/caught failure"
+      },
+      {
+        "symbol": "BEc",
+        "file": ".cache/base-native-route-audit/BEc-outbound.json",
+        "sha256": "75265a87606074a0946a2291d5d23d45413505fb5e9b2b6cb26c3a0ca22ddb7b",
+        "sourceAsset": "0xb20000000000000000000016f9dfe862feBA122b",
+        "cleanupNativeAmount": "0",
+        "status": "unsupported_structure",
+        "reason": "Unknown source route/caught failure"
+      },
+      {
+        "symbol": "CAKEc",
+        "file": ".cache/base-native-route-audit/CAKEc-outbound.json",
+        "sha256": "2ee7db0e5f421497ced84365b966f8f1610311a4720435df3b226aabab36c2ad",
+        "sourceAsset": "0xb200000000000000000000f215E4C890CFb7176B",
+        "cleanupNativeAmount": "0",
+        "status": "unsupported_structure",
+        "reason": "Unknown source route/caught failure"
+      },
+      {
+        "symbol": "DJTc",
+        "file": ".cache/base-native-route-audit/DJTc-outbound.json",
+        "sha256": "af7ad30e2e05b4bc566dfb22ffdafe84cb77141969f5b3e3d1fe24f150cb6ac9",
+        "sourceAsset": "0xb200000000000000000000428E3a3eebBb20692B",
+        "cleanupNativeAmount": "0",
+        "status": "unsupported_structure",
+        "reason": "Unknown source route/caught failure"
+      },
+      {
+        "symbol": "DUOLc",
+        "file": ".cache/base-native-route-audit/DUOLc-outbound.json",
+        "sha256": "e168e2698c533eca00d1de84fc6e46b118b89fb6d1a05163b5a2e9a30be3f1a9",
+        "sourceAsset": "0xb200000000000000000000A613D12dEAfBBb1Db7",
+        "cleanupNativeAmount": "0",
+        "status": "unsupported_structure",
+        "reason": "Unknown source route/caught failure"
+      },
+      {
+        "symbol": "GMEc",
+        "file": ".cache/base-native-route-audit/GMEc-outbound.json",
+        "sha256": "1d52ede47c71349561fb981bc04d9d8183ab524b4e05819ce386578ffc1ea396",
+        "sourceAsset": "0xb2000000000000000000007790ed6E48e06eD935",
+        "cleanupNativeAmount": "0",
+        "status": "unsupported_structure",
+        "reason": "Unknown source route/caught failure"
+      },
+      {
+        "symbol": "HIMSc",
+        "file": ".cache/base-native-route-audit/HIMSc-outbound.json",
+        "sha256": "6c5e125e5b5737937db449dc0d1d810519a011ee1e0a4f7ea31e7711b2d04b1f",
+        "sourceAsset": "0xB20000000000000000000043a599976181Bcf336",
+        "cleanupNativeAmount": "0",
+        "status": "unsupported_structure",
+        "reason": "Unknown source route/caught failure"
+      },
+      {
+        "symbol": "HTZc",
+        "file": ".cache/base-native-route-audit/HTZc-outbound.json",
+        "sha256": "41508e616ecc454df9b8122d504fede4aa6324ba09f50670938b41965c6ffc6a",
+        "sourceAsset": "0xb2000000000000000000002601C5C94F435da168",
+        "cleanupNativeAmount": "0",
+        "status": "unsupported_structure",
+        "reason": "Unknown source route/caught failure"
+      },
+      {
+        "symbol": "LLYc",
+        "file": ".cache/base-native-route-audit/LLYc-outbound.json",
+        "sha256": "d1635f680f2b15aa466e6b46e06ff754a3cdb672c8274d2113cbeded1f71c29b",
+        "sourceAsset": "0xB200000000000000000000f1a0F91e34892E4718",
+        "cleanupNativeAmount": "0",
+        "status": "unsupported_structure",
+        "reason": "Unknown source route/caught failure"
+      },
+      {
+        "symbol": "MRNAc",
+        "file": ".cache/base-native-route-audit/MRNAc-outbound.json",
+        "sha256": "37d85146e2604c19a16f1327e80139ba98770fb173fb5dbb983ebcf4e7e21cd8",
+        "sourceAsset": "0xB200000000000000000000e215e9B76ecBA02468",
+        "cleanupNativeAmount": "0",
+        "status": "unsupported_structure",
+        "reason": "Unknown source route/caught failure"
+      },
+      {
+        "symbol": "MRVLc",
+        "file": ".cache/base-native-route-audit/MRVLc-retry-outbound.json",
+        "sha256": "6217e92b5b1ee1b34ea04943bda3e50491dc3d6bebd1069784190682c20326a0",
+        "sourceAsset": "0xB200000000000000000000eC3c4c7395Cc609813",
+        "cleanupNativeAmount": "0",
+        "status": "unsupported_structure",
+        "reason": "Unknown source route/caught failure"
+      },
+      {
+        "symbol": "MUc",
+        "file": ".cache/base-native-route-audit/MUc-outbound.json",
+        "sha256": "791a0006801bea5a714dc5c9da774984ec418b3020c37ca3371f54add18e15bd",
+        "sourceAsset": "0xb200000000000000000000Fd2f87532B90095211",
+        "cleanupNativeAmount": "0",
+        "status": "unsupported_structure",
+        "reason": "Unknown source route/caught failure"
+      },
+      {
+        "symbol": "NFLXc",
+        "file": ".cache/base-native-route-audit/NFLXc-outbound.json",
+        "sha256": "cdf79d2db78f56e52876da224528032c1ac5cbdb5a4e020210acfc72ca9fd23d",
+        "sourceAsset": "0xb20000000000000000000058B8c947e44011dFE6",
+        "cleanupNativeAmount": "0",
+        "status": "unsupported_structure",
+        "reason": "Unknown source route/caught failure"
+      },
+      {
+        "symbol": "ORCLc",
+        "file": ".cache/base-native-route-audit/ORCLc-outbound.json",
+        "sha256": "b8647ae727e5b6dd22e409ee4be004dea405bdace8dd03df07ad03389bd1836a",
+        "sourceAsset": "0xb200000000000000000000347AFbA223D7B6b63C",
+        "cleanupNativeAmount": "0",
+        "status": "unsupported_structure",
+        "reason": "Unknown source route/caught failure"
+      },
+      {
+        "symbol": "PFEc",
+        "file": ".cache/base-native-route-audit/PFEc-outbound.json",
+        "sha256": "541f51be065ca59503ec5b774ddf6eb87653bdacbdb921f9ab95a2336b360f06",
+        "sourceAsset": "0xB20000000000000000000018FE7eC7d6DfeeB528",
+        "cleanupNativeAmount": "0",
+        "status": "unsupported_structure",
+        "reason": "Unknown source route/caught failure"
+      },
+      {
+        "symbol": "PLTRc",
+        "file": ".cache/base-native-route-audit/PLTRc-outbound.json",
+        "sha256": "02e6afe59f54be050c55d45ac60fcee685e2c5a26f7de3fa4c550ca42a5fa596",
+        "sourceAsset": "0xb2000000000000000000007d16372840dF4dAbbe",
+        "cleanupNativeAmount": "0",
+        "status": "unsupported_structure",
+        "reason": "Unknown source route/caught failure"
+      },
+      {
+        "symbol": "PMc",
+        "file": ".cache/base-native-route-audit/PMc-outbound.json",
+        "status": "not_run_missing_capture"
+      },
+      {
+        "symbol": "PTONc",
+        "file": ".cache/base-native-route-audit/PTONc-outbound.json",
+        "sha256": "bc64780102953bb1364f30e66f4dab4d1760a37188102a13dbd7c69af0048eca",
+        "sourceAsset": "0xB2000000000000000000009272A491812842Aa84",
+        "cleanupNativeAmount": "0",
+        "status": "unsupported_structure",
+        "reason": "Unknown source route/caught failure"
+      },
+      {
+        "symbol": "PYPLc",
+        "file": ".cache/base-native-route-audit/PYPLc-outbound.json",
+        "sha256": "c49872a7c1449a6d761ea67f2fbe404a4ea6d9ed5b8accfeb3a4026f6b065782",
+        "sourceAsset": "0xb200000000000000000000450ad3abE5d4846c6E",
+        "cleanupNativeAmount": "0",
+        "status": "unsupported_structure",
+        "reason": "Unknown source route/caught failure"
+      },
+      {
+        "symbol": "QUBTc",
+        "file": ".cache/base-native-route-audit/QUBTc-outbound.json",
+        "sha256": "ce32e3ce95111ec8144efd48f4bd3203c8c95dd65954f5f5406e14295e83180b",
+        "sourceAsset": "0xb200000000000000000000CA425ab42e07C35bC3",
+        "cleanupNativeAmount": "0",
+        "status": "unsupported_structure",
+        "reason": "Unknown source route/caught failure"
+      },
+      {
+        "symbol": "RBLXc",
+        "file": ".cache/base-native-route-audit/RBLXc-outbound.json",
+        "sha256": "c8aca5294d57a6d86dc52f495fc7d8cd73414c89f8ce6e7e07321f9e175ba20d",
+        "sourceAsset": "0xB2000000000000000000005bd7AE89b9E6189Bb5",
+        "cleanupNativeAmount": "0",
+        "status": "unsupported_structure",
+        "reason": "Unknown source route/caught failure"
+      },
+      {
+        "symbol": "RDDTc",
+        "file": ".cache/base-native-route-audit/RDDTc-outbound.json",
+        "sha256": "f80e89fc611f8a50be4b9dc2d853dab9e59921dfebe667a647681e231a9ee49f",
+        "sourceAsset": "0xb20000000000000000000066242d4067724cB7A1",
+        "cleanupNativeAmount": "0",
+        "status": "unsupported_structure",
+        "reason": "Unknown source route/caught failure"
+      },
+      {
+        "symbol": "TTWOc",
+        "file": ".cache/base-native-route-audit/TTWOc-outbound.json",
+        "sha256": "1d5f395b95e079c44be622a136230f95ccd2d5980cd8d0d77aa37b44b15a2c5a",
+        "sourceAsset": "0xB200000000000000000000f720C26062Bc3067Da",
+        "cleanupNativeAmount": "0",
+        "status": "unsupported_structure",
+        "reason": "Unknown source route/caught failure"
+      },
+      {
+        "symbol": "WENc",
+        "file": ".cache/base-native-route-audit/WENc-outbound.json",
+        "sha256": "e489d86a8873467118fe9721d4b1ee562aa0b9eeb6a64bdec9af63562868b32c",
+        "sourceAsset": "0xB20000000000000000000044E3CD7a0E1028E57a",
+        "cleanupNativeAmount": "0",
+        "status": "unsupported_structure",
+        "reason": "Unknown source route/caught failure"
+      }
+    ]
+  },
+  "comparison": {
+    "historicalTrace": {
+      "source": "Authenticates the actual successful Automation/ApprovalProxy/Router/Depository call tree",
+      "destination": "Binds a successful fixed-provider Router cleanup to its WETH transfer; covers more nested route layouts",
+      "actualMainnetTraceComparison": "not_run; existing Alchemy Free-tier trace rejection remains the recorded provider limitation",
+      "syntheticComparison": "Current canonical-receipt tests compare exact root calldata and success events with the historical narrow prototype; neither asserts a real project settlement",
+      "historicalProofRefresh": "Historical trace-era behavior; current keeper caches immutable canonical source proofs and checks current anchors and new bounded candidates"
+    },
+    "currentDestination": {
+      "policy": "relay-fixed-router-canonical-receipt-v1",
+      "source": "Base source still requires local OP replay",
+      "destination": "Complete root calldata, exact compiled Router success witnesses, final cleanup payment window, historical EOA/code and canonical snapshots",
+      "prototypeIsProductionVerifier": false,
+      "actualProjectMainnetSettlement": "not_run"
+    },
+    "historicalNoTracePrototype": {
+      "source": "Recomputed EntryPoint v0.7 UserOp hash, success event, exact SmartVault CALL list and bounded log window",
+      "destination": "Strict direct fixed EOA -> Router: positive canonical WETH wrap plus exact positive cleanup only",
+      "unsupported": [
+        "B20 opaque DEX routes",
+        "zero-value native cleanup after unknown route calls",
+        "modules/aggregated or multiple UserOps/paymasters/account creation",
+        "nested/arbitrary destination calls",
+        "unproved execution-time upgradeable account implementation"
+      ],
+      "acceptedProvenance": false
+    },
+    "routeRequirements": {
+      "b20Conversion": "Conversion is required, but arbitrary opaque DEX routes are not; a complete reviewed route whitelist could broaden the prototype",
+      "zeroCleanup": "A provider construction choice, not a protocol requirement. Positive cleanup means exact native amount, not a minimum-output floor",
+      "currentWhitelist": "Only narrow WETH unwrap/wrap plus positive exact cleanup was implemented; rejecting old B20 quotes does not prove no-trace is impossible",
+      "changingCalls": "Native Splits scheduler route constraints/custom calldata support has not been established; do not mutate retained signed orders or assume leftover refunds go to Automation"
+    },
+    "rpcCost": {
+      "traceEndpointRequired": false,
+      "monthlySavings": "Not measured; ordinary RPC/code/upgrade-history reads remain necessary"
+    },
+    "conclusion": "This historical whole-path prototype is not production. Its B20 rejection count is not an admission gate for the current Base-source-replay plus Robinhood-receipt policy"
+  },
+  "activation": {
+    "baseMustRemainPaused": true,
+    "replacementReady": false,
+    "required": [
+      "Complete route whitelist or a verifiable execution wrapper/event protocol",
+      "Execution-time implementation and canonical code binding",
+      "Actual B20 -> canonical Robinhood WETH -> fixed Treasury sample",
+      "Independent acceptance of the new proof policy"
+    ]
+  },
+  "validation": {
+    "applicationTests": {
+      "status": "not_run_by_this_offline_comparison"
+    },
+    "typecheck": {
+      "status": "not_run_by_this_offline_comparison"
+    }
+  }
+}

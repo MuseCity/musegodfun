@@ -5,12 +5,15 @@ import manifestData from "../contracts/artifacts/base-collector-deployment.json"
 import collectorArtifact from "../contracts/artifacts/base-collector/MusegodBaseFeeCollector.json";
 import { CONTRACTS, STOCKS, sameAddress } from "../src/lib/config";
 import { BASE_AUTOMATION_FEE_POLICY } from "../src/lib/fee-policy";
+import { BASE_NATIVE_DESTINATION_POLICY } from "../src/lib/base-buyback";
 import { verifyGovernorSignature } from "./buyback-activation";
 import { verifyFeeEngineRuntime } from "./buyback-engine";
+import { assertBaseActivationRecord, persistBaseActivationRecord } from "./base-activation-record";
 import robinhoodDeployment from "../contracts/artifacts/buyback-v2-deployment.json";
 import { BUYBACK_CODE_HASHES, RELAY_ROUTER } from "./buyback";
 import { RELAY_APPROVAL_PROXY, RELAY_DEPOSITORY } from "../src/lib/buyback";
 import type { BaseNativeExecutionAcceptance } from "./base-native-provenance";
+import { readBaseAudit, type BaseAuditStore } from "./base-audit";
 import { airlockAbi, bundlerAbi, DopplerSDK, computePoolId } from "@whetstone-research/doppler-sdk/evm";
 import { assertRecoveryPlan, verifyCreationAccounting, verifyGuardedReceipt, verifiedFirstBuyLock } from "./launch-verification";
 import { verifyLaunchGuard } from "./launch-guard";
@@ -40,6 +43,19 @@ export const BASE_SPLITS_IMPLEMENTATION = getAddress("0x15ec0Fa66A0D96a64d67C583
 export const BASE_SPLITS_FACTORY_HASH = "0x7320f2779f3b27b8dac66bdbfd7063345cee66aca9aa2d56f1b46ba5a9dcab05" as Hex;
 export const BASE_SPLITS_IMPLEMENTATION_HASH = "0x8d790f1df78f070d2202718db467e6ee141274c7010372d93dc27d183bc1e446" as Hex;
 export const BASE_SPLITS_PROXY_HASH = "0xaaa52c8cc8a0e3fd27ce756cc6b4e70c51423e9b597b11f32d3e49f8b1fc890d" as Hex;
+/** Official SmartVault Signer.sol: slot2=0 is an address signer (EOA or ERC-1271); nonzero is a P256/WebAuthn key. */
+export function baseSplitsSignerAuthority(signer: { slot1: Hex; slot2: Hex }): { kind: "account"; address: Address } | { kind: "passkey"; x: Hex; y: Hex } {
+  if (!/^0x[\da-f]{64}$/i.test(signer.slot1) || !/^0x[\da-f]{64}$/i.test(signer.slot2)) throw new Error("Unknown Splits signer authority encoding");
+  const x = BigInt(signer.slot1), y = BigInt(signer.slot2);
+  if (y === 0n) {
+    if (x === 0n || x >= 2n ** 160n) throw new Error("Unknown Splits account signer authority");
+    return { kind: "account", address: getAddress(`0x${signer.slot1.slice(-40)}`) };
+  }
+  const p = 0xffffffff00000001000000000000000000000000ffffffffffffffffffffffffn;
+  const b = 0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604bn;
+  if (x >= p || y >= p || (y * y - x * x * x + 3n * x - b) % p !== 0n) throw new Error("Unknown or invalid Splits P256 signer authority");
+  return { kind: "passkey", x: signer.slot1, y: signer.slot2 };
+}
 const factoryAbi = parseAbi(["function IMPLEMENTATION() view returns(address)",
   "function getAddress(address owner,(bytes32 slot1,bytes32 slot2)[] signers,uint8 threshold,uint256 salt) view returns(address)",
   "event SmartVaultCreated(address indexed smartVault,address owner,(bytes32 slot1,bytes32 slot2)[] signers,uint8 threshold,uint256 salt)"]);
@@ -47,6 +63,7 @@ const implementationSlot = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920
 const abi = collectorArtifact.abi as Abi;
 const accountAbi = parseAbi(["function owner() view returns(address)", "function getThreshold() view returns(uint8)",
   "function getSignerCount() view returns(uint8)", "function getSigner(uint8) view returns((bytes32 slot1,bytes32 slot2))",
+  "function isModuleEnabled(address module) view returns(bool)", "event EnabledModule(address indexed module)",
   "event InitializedSigners((bytes32 slot1,bytes32 slot2)[] signers,uint8 threshold)",
   "function FACTORY() view returns(address)", "function getImplementation() view returns(address)", "event OwnershipTransferred(address indexed previousOwner,address indexed newOwner)"]);
 const poolIdentityAbi = parseAbi(["function getPoolKey(bytes32) view returns((address currency0,address currency1,uint24 fee,int24 tickSpacing,address hooks))", "function getShares(bytes32,address) view returns(uint256)"]);
@@ -60,6 +77,63 @@ const amount = (value: unknown, allowZero = false): bigint => {
 const fixed = { initializer: CONTRACTS.initializer, rehype: CONTRACTS.rehype,
   weth: getAddress("0x4200000000000000000000000000000000000006"), destinationWeth: getAddress("0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73"),
   destinationTreasury: getAddress("0xb3C11Aa2148521A3ef6d446672b720A63a2D8349"), destinationVault: getAddress("0x28E6B43525301312084310F31f4C9c9873d7a125") };
+
+/** Live control authority, not merely custody contract addresses. Unknown contract-signature/owner semantics fail closed.
+ * This compares on-chain keys; it cannot establish that different keys/passkeys are held by different people. */
+export async function assertBaseKeeperAuthority(source: BaseCollectorClient, destination: BaseCollectorClient, manifest: BaseCollectorManifest, keeper: Address) {
+  if (await source.getChainId() !== 8453 || await destination.getChainId() !== 4663) throw new Error("Keeper authority verification requires both exact chain RPCs");
+  const heads = await Promise.all([source.getBlock({ blockTag: "latest" }),destination.getBlock({ blockTag: "latest" })]);
+  if (heads.some(head => head.number === null || !head.hash)) throw new Error("Canonical keeper authority heads are unavailable");
+  if ([manifest.constants.governor,manifest.constants.operationsTreasury,manifest.constants.automationReceiver,manifest.constants.destinationTreasury]
+    .some(address => address && sameAddress(address,keeper))) throw new Error("The keeper must be separate from custody and governance authority");
+  const inspect = async (client: BaseCollectorClient, blockNumber: bigint, address: Address, path: Set<string>, reviewed = false): Promise<void> => {
+    if (sameAddress(address,keeper)) throw new Error("The keeper must be separate from actual Splits owner and signer authority");
+    if (sameAddress(address,zeroAddress)) return;
+    const code = await client.getCode({ address,blockNumber });
+    if (!code || code === "0x") { if (reviewed) throw new Error("The reviewed Splits custody account is not deployed"); return; }
+    const key = address.toLowerCase();
+    if (path.has(key) || path.size >= 8 || keccak256(code) !== BASE_SPLITS_PROXY_HASH) throw new Error("Unknown or cyclic contract owner/signer authority; keeper isolation cannot be proven");
+    const nextPath = new Set(path).add(key);
+    const read = <T>(functionName: string,args?: readonly unknown[]) => client.readContract({ address,abi: accountAbi,functionName: functionName as "owner",args: args as any,blockNumber }) as Promise<T>;
+    const [slot,factory,implementation,owner,threshold,count,keeperModule] = await Promise.all([client.getStorageAt({ address,slot: implementationSlot,blockNumber }),
+      read<Address>("FACTORY"),read<Address>("getImplementation"),read<Address>("owner"),read<number>("getThreshold"),read<number>("getSignerCount"),read<boolean>("isModuleEnabled",[keeper])]);
+    const [factoryCode,implementationCode,factoryImplementation] = await Promise.all([client.getCode({ address: BASE_SPLITS_FACTORY,blockNumber }),
+      client.getCode({ address: BASE_SPLITS_IMPLEMENTATION,blockNumber }),client.readContract({ address: BASE_SPLITS_FACTORY,abi: factoryAbi,functionName: "IMPLEMENTATION",blockNumber })]);
+    if (keeperModule !== false) throw new Error("The keeper is enabled as an actual Splits execution module");
+    if (!slot || BigInt(slot) !== BigInt(BASE_SPLITS_IMPLEMENTATION) || !sameAddress(factory,BASE_SPLITS_FACTORY) || !sameAddress(implementation,BASE_SPLITS_IMPLEMENTATION) ||
+      !factoryCode || keccak256(factoryCode) !== BASE_SPLITS_FACTORY_HASH || !implementationCode || keccak256(implementationCode) !== BASE_SPLITS_IMPLEMENTATION_HASH ||
+      !sameAddress(String(factoryImplementation),BASE_SPLITS_IMPLEMENTATION) || !Number.isInteger(count) || count < 1 || count > 255 || !Number.isInteger(threshold) || threshold < 1 || threshold > count)
+      throw new Error("Unknown Splits custody implementation, threshold or signer authority");
+    const signers: { index: number; slot1: Hex; slot2: Hex }[] = [];
+    if (reviewed && (count !== manifest.automationAccount.signers.length || new Set(manifest.automationAccount.signers.map(signer=>signer.index)).size !== count))
+      throw new Error("The reviewed Automation signer authority changed");
+    // The exact official implementation's count is cardinality, not a maximum index. Reviewed sparse indexes plus
+    // live count prove coverage. For Treasury/parent accounts stop only once every counted nonempty slot is found.
+    const indexes = reviewed ? manifest.automationAccount.signers.map(signer=>signer.index) : Array.from({ length: 256 },(_,index)=>index);
+    for (let first = 0; first < indexes.length; first += 16) {
+      const group = await Promise.all(indexes.slice(first,first+16).map(async index => ({ index,...await read<{ slot1: Hex; slot2: Hex }>("getSigner",[index]) })));
+      signers.push(...group.filter(signer => BigInt(signer.slot1) !== 0n || BigInt(signer.slot2) !== 0n));
+      if (signers.length >= count) break;
+    }
+    if (signers.length !== count || new Set(signers.map(signer=>`${signer.slot1.toLowerCase()}:${signer.slot2.toLowerCase()}`)).size !== count)
+      throw new Error("The complete indexed Splits signer authority cannot be proven");
+    if (reviewed && (!sameAddress(owner,manifest.automationAccount.owner!) || threshold !== manifest.automationAccount.threshold ||
+      signers.length !== manifest.automationAccount.signers.length || signers.some(signer => !manifest.automationAccount.signers.some(expected => expected.index === signer.index &&
+        expected.slot1.toLowerCase() === signer.slot1.toLowerCase() && expected.slot2.toLowerCase() === signer.slot2.toLowerCase())))) throw new Error("The reviewed Automation owner or signer authority changed");
+    await inspect(client,blockNumber,owner,nextPath);
+    for (const signer of signers) {
+      const decoded = baseSplitsSignerAuthority(signer);
+      if (decoded.kind === "account") await inspect(client,blockNumber,decoded.address,nextPath);
+    }
+  };
+  for (const [index,client] of [source,destination].entries()) {
+    const number = heads[index].number!;
+    const keeperCode = await client.getCode({ address: keeper,blockNumber: number });
+    if (keeperCode && keeperCode !== "0x") throw new Error("Keeper isolation requires an undelegated EOA on both chains");
+    await inspect(client,number,index === 0 ? manifest.automationAccount.address! : manifest.constants.destinationTreasury,new Set(),index === 0);
+    if ((await client.getBlock({ blockNumber: number })).hash !== heads[index].hash) throw new Error("Canonical keeper authority changed during verification");
+  }
+}
 
 function reviewedManifest(manifest: BaseCollectorManifest, candidate: Address) {
   if (!manifest || manifest.schemaVersion !== 2 || manifest.chainId !== 8453 || manifest.architecture !== "splits-treasury-native-automation" ||
@@ -167,7 +241,7 @@ function transfers(receipt: TransactionReceipt, token: Address, from: Address | 
   return events(receipt, token, erc20Abi).filter(event => event.eventName === "Transfer" && (!from || sameAddress(String(event.args.from), from)) && (!to || sameAddress(String(event.args.to), to)))
     .reduce((sum, event) => sum + BigInt(String(event.args.value)), 0n);
 }
-export async function verifyBaseAutomationAccount(client: BaseCollectorClient, manifest: BaseCollectorManifest, head: bigint) {
+export async function verifyBaseAutomationAccount(client: BaseCollectorClient, manifest: BaseCollectorManifest, head: bigint, auditStore?: BaseAuditStore, verifyInitialization = true) {
   const account = manifest.automationAccount;
   reviewedAccount(account);
   const creation = account.creation!;
@@ -176,7 +250,7 @@ export async function verifyBaseAutomationAccount(client: BaseCollectorClient, m
   const initialBlock = BigInt(account.blockNumber!);
   // Check provenance at both the original initialization and the current head.
   // Factory receipt plus official CREATE2 prediction supports EntryPoint/internal creation without trusting a caller-supplied trace.
-  for (const blockNumber of [...new Set([initialBlock, head])]) {
+  for (const blockNumber of [...new Set(verifyInitialization ? [initialBlock, head] : [head])]) {
     const factoryCode = await client.getCode({ address: BASE_SPLITS_FACTORY, blockNumber });
     if (!factoryCode || factoryCode === "0x" || keccak256(factoryCode) !== BASE_SPLITS_FACTORY_HASH ||
       !sameAddress(await readFactory<Address>("IMPLEMENTATION", undefined, blockNumber), BASE_SPLITS_IMPLEMENTATION))
@@ -186,8 +260,10 @@ export async function verifyBaseAutomationAccount(client: BaseCollectorClient, m
     const [factory, implementation] = await Promise.all([read<Address>("FACTORY", undefined, blockNumber), read<Address>("getImplementation", undefined, blockNumber)]);
     if (!sameAddress(factory, BASE_SPLITS_FACTORY) || !sameAddress(implementation, BASE_SPLITS_IMPLEMENTATION)) throw new Error("The account is not bound to the official Base Splits deployment");
   }
-  const predicted = await readFactory<Address>("getAddress", [creation.owner, creation.signers, creation.threshold, BigInt(creation.salt)], initialBlock);
-  if (!sameAddress(predicted, account.address!)) throw new Error("The native Automation address differs from the official CREATE2 creation prediction");
+  if (verifyInitialization) {
+    const predicted = await readFactory<Address>("getAddress", [creation.owner, creation.signers, creation.threshold, BigInt(creation.salt)], initialBlock);
+    if (!sameAddress(predicted, account.address!)) throw new Error("The native Automation address differs from the official CREATE2 creation prediction");
+  }
   const [owner, threshold, count] = await Promise.all([read<Address>("owner"), read<number>("getThreshold"), read<number>("getSignerCount")]);
   if (!sameAddress(owner, account.owner!) || threshold !== account.threshold || count !== account.signers.length) throw new Error("The Splits native Automation owner or signer threshold changed");
   await Promise.all(account.signers.map(async signer => {
@@ -198,6 +274,7 @@ export async function verifyBaseAutomationAccount(client: BaseCollectorClient, m
     const ownerCode = await client.getCode({ address: account.owner!, blockNumber: head });
     if (!ownerCode || ownerCode === "0x" || keccak256(ownerCode) !== account.ownerRuntimeHash) throw new Error("The reviewed Automation owner runtime changed");
   }
+  if (verifyInitialization) {
   const receipt = await canonicalReceipt(client, account.initializationHash!, head);
   const initialization = events(receipt, account.address!, accountAbi).filter(event => event.eventName === "InitializedSigners");
   const factories = events(receipt, BASE_SPLITS_FACTORY, factoryAbi).filter(event => event.eventName === "SmartVaultCreated" && sameAddress(String(event.args.smartVault), account.address!));
@@ -218,6 +295,34 @@ export async function verifyBaseAutomationAccount(client: BaseCollectorClient, m
   }));
   const earlierCode = initialBlock > 0n ? await client.getCode({ address: account.address!, blockNumber: initialBlock - 1n }) : undefined;
   if (earlierCode && earlierCode !== "0x") throw new Error("The native Automation initialization does not establish its original deployment");
+  }
+  await verifyNoBaseAutomationModules(client, account, head, auditStore);
+}
+
+async function verifyNoBaseAutomationModules(client: BaseCollectorClient, account: BaseCollectorManifest["automationAccount"], head: bigint, auditStore?: BaseAuditStore) {
+  // The official ModuleManager emits every enable. Persist complete anchored pages; live permissions always remain fresh.
+  const initial = BigInt(account.blockNumber!), event = accountAbi.find(entry => entry.type === "event" && entry.name === "EnabledModule")!;
+  const id = `internal_native_modules:${keccak256(stringToHex(`${account.address!.toLowerCase()}:${account.initializationHash}:${account.implementation!.runtimeHash}`))}`;
+  const entries = await readBaseAudit<{ module: Address; blockNumber: string }>({ client, store: auditStore, id, from: initial, to: head,
+    validate: (value): value is { module: Address; blockNumber: string } => !!value && typeof value === "object" && /^0x[\da-f]{40}$/i.test(String((value as any).module)),
+    page: async (from, to) => {
+      const groups = await Promise.all(Array.from({ length: Number((to - from) / 10n) + 1 }, (_, index) => {
+        const first = from + BigInt(index * 10), last = first + 9n < to ? first + 9n : to;
+        return client.getLogs({ address: account.address!, event: event as any, fromBlock: first, toBlock: last, strict: true });
+      }));
+      const rows: { module: Address; blockNumber: string }[] = [];
+      for (const log of groups.flat()) {
+        if (log.removed || log.blockNumber === null || log.blockNumber < from || log.blockNumber > to || !sameAddress(log.address, account.address!))
+          throw new Error("The native Automation module history is not canonical");
+        const decoded = decodeEventLog({ abi: accountAbi, topics: log.topics, data: log.data, strict: true });
+        rows.push({ module: getAddress((decoded.args as { module: Address }).module), blockNumber: String(log.blockNumber) });
+      }
+      return rows;
+    } });
+  await Promise.all([...new Set(entries.map(row => row.module.toLowerCase()))].map(async module => {
+    const enabled = await client.readContract({ address: account.address!, abi: accountAbi, functionName: "isModuleEnabled", args: [module as Address], blockNumber: head });
+    if (enabled !== false) throw new Error("An unreviewed execution module is enabled on the Base native Automation account");
+  }));
 }
 
 export function baseCollectorCanaryMessage(value: Omit<BaseCollectorCanaryAuthorization, "signer" | "signature">) {
@@ -239,6 +344,8 @@ export async function verifyBaseCanaryAuthorization(client: BaseCollectorClient,
   if (!authorization || authorization.version !== 2 || authorization.chainId !== 8453 || !origin || origin !== authorization.origin ||
     authorization.graphFingerprint !== baseCollectorGraphFingerprint(manifest) || !sameAddress(authorization.collector, manifest.collector.address!) ||
     !sameAddress(authorization.automationReceiver, manifest.constants.automationReceiver!) || !authorization.keeper || sameAddress(authorization.keeper, zeroAddress) ||
+    [manifest.constants.governor!, manifest.constants.operationsTreasury, manifest.constants.automationReceiver!,manifest.constants.destinationTreasury,manifest.automationAccount.owner!].some(role => role && sameAddress(authorization.keeper, role)) ||
+    manifest.automationAccount.signers.some(signer => { const authority = baseSplitsSignerAuthority(signer); return authority.kind === "account" && sameAddress(authority.address,authorization.keeper); }) ||
     !Array.isArray(authorization.releaseBudgets) || !authorization.releaseBudgets.length || authorization.releaseBudgets.length > 72 ||
     new Set(authorization.releaseBudgets.map(entry => entry.token.toLowerCase())).size !== authorization.releaseBudgets.length ||
     !manifest.nativeRule.ruleId || !hash(manifest.nativeRule.configurationSha256)) throw new Error("An exact origin and human governor authorization are required for the isolated native canary");
@@ -254,16 +361,30 @@ export async function verifyBaseCanaryAuthorization(client: BaseCollectorClient,
   return authorization;
 }
 export async function verifyBaseCollector(client: BaseCollectorClient, candidate: Address, options: {
-  manifest?: BaseCollectorManifest; requireActivation?: boolean; allowCanary?: boolean; canaryOrigin?: string; robinhoodClient?: BaseCollectorClient;
+  manifest?: BaseCollectorManifest; requireActivation?: boolean | "runtime"; recordActivation?: boolean; allowCanary?: boolean; canaryOrigin?: string; robinhoodClient?: BaseCollectorClient; auditStore?: BaseAuditStore;
 } = {}): Promise<VerifiedBaseCollector> {
   // Async verification must bind one immutable copy, including full proof bytes.
   const manifest = structuredClone(options.manifest ?? BASE_COLLECTOR_MANIFEST);
+  if (options.recordActivation && (options.allowCanary || options.requireActivation === false || options.requireActivation === "runtime" || !options.auditStore))
+    throw new Error("Recording activation requires explicit complete operator verification and a private persistent store");
   reviewedManifest(manifest, candidate);
   if ((await client.getChainId()) !== 8453) throw new Error("Base Collector verification requires chain 8453 RPC");
   const tip = await client.getBlock({ blockTag: "latest" });
   if (tip.number === null || !tip.hash) throw new Error("The Base canonical head is unavailable");
   const head = tip.number;
-  await Promise.all([verifyDependency(client, manifest.dependencies.initializer, head, "Base initializer"), verifyDependency(client, manifest.dependencies.rehype, head, "Base Rehype"), verifyBaseAutomationAccount(client, manifest, head)]);
+  const runtimeAcceptance = options.requireActivation === "runtime" && !options.allowCanary;
+  if (runtimeAcceptance) {
+    if (manifest.activation.status !== "canary_verified" || !manifest.activation.nativeExecution || !options.robinhoodClient || !options.auditStore)
+      throw new Error("A finalized operator activation record is required for production operation");
+    const destinationTip = await options.robinhoodClient.getBlock({ blockTag: "latest" });
+    if (destinationTip.number === null || !hash(destinationTip.hash)) throw new Error("The Robinhood canonical settlement head is unavailable");
+    const destination = { number: destinationTip.number, hash: destinationTip.hash };
+    await assertBaseActivationRecord(client, options.robinhoodClient, options.auditStore, manifest, baseCollectorGraphFingerprint(manifest),
+      { source: { number: head, hash: tip.hash }, destination });
+    await verifyBaseLiveAcceptanceAuthority(client, manifest, head);
+    await currentBaseSettlementGraph(client, options.robinhoodClient, head);
+  }
+  await Promise.all([verifyDependency(client, manifest.dependencies.initializer, head, "Base initializer"), verifyDependency(client, manifest.dependencies.rehype, head, "Base Rehype"), verifyBaseAutomationAccount(client, manifest, head, options.auditStore, !runtimeAcceptance)]);
   const expected = baseCollectorExpectedRuntime(manifest), code = await client.getCode({ address: candidate, blockNumber: head });
   if (keccak256(expected) !== manifest.collector.runtimeHash || !code || code.toLowerCase() !== expected.toLowerCase()) throw new Error("The Base Collector runtime differs from exact compiler output and immutable bindings");
   const getters = <T>(functionName: string) => client.readContract({ address: candidate, abi, functionName, blockNumber: head }) as Promise<T>;
@@ -273,20 +394,24 @@ export async function verifyBaseCollector(client: BaseCollectorClient, candidate
   if (!sameAddress(initializer, fixed.initializer) || !sameAddress(rehype, fixed.rehype) || !sameAddress(governor, manifest.constants.governor!) ||
     !sameAddress(receiver, manifest.constants.automationReceiver!) || sourceChainId !== 8453n || lpShare !== 228n * 10n ** 15n || hookShare !== 24n * 10n ** 16n || typeof paused !== "boolean")
     throw new Error("The Collector fixed fee recipient, governor or economic shares changed");
+  if (!runtimeAcceptance) {
   const receipt = await canonicalReceipt(client, manifest.collector.transactionHash!, head);
   const transaction = await client.getTransaction({ hash: receipt.transactionHash });
   if (receipt.blockNumber !== BigInt(manifest.collector.blockNumber!) || !receipt.contractAddress || !sameAddress(receipt.contractAddress, candidate) ||
     BigInt(manifest.automationAccount.blockNumber!) > receipt.blockNumber || transaction.to !== null || transaction.value !== 0n ||
     transaction.input.toLowerCase() !== encodeDeployData({ abi, bytecode: collectorArtifact.bytecode as Hex,
       args: [fixed.initializer, fixed.rehype, governor, receiver] }).toLowerCase()) throw new Error("The Collector canonical constructor deployment differs from the reviewed native graph");
-  const result: VerifiedBaseCollector = { collector: candidate, paused, automationReceiver: receiver, runtimeHash: keccak256(code), initialDeploymentBlock: receipt.blockNumber,
+  }
+  const result: VerifiedBaseCollector = { collector: candidate, paused, automationReceiver: receiver, runtimeHash: keccak256(code), initialDeploymentBlock: BigInt(manifest.collector.blockNumber!),
     manifestFingerprint: baseCollectorGraphFingerprint(manifest) };
   if (options.allowCanary) {
     if (paused) throw new Error("The Collector is paused");
     result.canaryAuthorization = await verifyBaseCanaryAuthorization(client, manifest, head, options.canaryOrigin);
-  } else if (options.requireActivation !== false) {
+  } else if (options.requireActivation !== false && !runtimeAcceptance) {
     if (paused) throw new Error("The Collector is paused");
-    await verifyBaseNativeActivationAcceptance(client, options.robinhoodClient, manifest, head);
+    const checked = await verifyBaseNativeActivationAcceptance(client, options.robinhoodClient, manifest, head, options.auditStore);
+    if (options.recordActivation) await persistBaseActivationRecord(client, options.robinhoodClient!, options.auditStore!, manifest,
+      result.manifestFingerprint, checked.anchors, checked.heads);
   }
   if ((await client.getBlock({ blockNumber: head })).hash !== tip.hash) throw new Error("The Base verification head was reorganized");
   return result;
@@ -500,6 +625,7 @@ async function baseAcceptanceAnchors(source: BaseCollectorClient, destination: B
   const wallet = manifest.activation.walletAcceptance!, pause = manifest.activation.pauseRollbackAcceptance!;
   const native = manifest.activation.nativeExecution as BaseNativeExecutionAcceptance;
   const sourceHashes = new Set<Hex>([native.proof.sourceHash, pause.pauseHash, pause.resumeHash,
+    manifest.collector.transactionHash!, manifest.automationAccount.initializationHash!,
     ...[wallet.desktop, wallet.mobile].flatMap(flow => [flow.launchHash, flow.buyHash, flow.sellHash, ...flow.feeClaimHashes])]);
   const destinationHashes = new Set<Hex>([native.proof.destinationHash,
     ...native.vault.events.filter(event => event.kind === "executed").map(event => event.transactionHash)]);
@@ -538,7 +664,7 @@ async function currentBaseSettlementGraph(source: BaseCollectorClient, destinati
   })()]);
   return { number: graph.blockNumber, hash: tip.hash };
 }
-async function verifyBaseNativeActivationAcceptance(source: BaseCollectorClient, destination: BaseCollectorClient | undefined, manifest: BaseCollectorManifest, head: bigint) {
+async function verifyBaseNativeActivationAcceptance(source: BaseCollectorClient, destination: BaseCollectorClient | undefined, manifest: BaseCollectorManifest, head: bigint, auditStore?: BaseAuditStore) {
   if (manifest.activation.status !== "canary_verified" || !manifest.activation.nativeExecution || !destination || (await destination.getChainId()) !== 4663)
     throw new Error("A complete genuine-fee native cross-chain canary activation proof is required; a status flag is insufficient");
   const fingerprint = baseCollectorGraphFingerprint(manifest);
@@ -551,15 +677,25 @@ async function verifyBaseNativeActivationAcceptance(source: BaseCollectorClient,
   if (!hash(sourceTip.hash)) throw new Error("The Base canonical activation head is unavailable");
   const heads: EvidenceHeads = { source: { number: head, hash: sourceTip.hash }, destination: destinationTip };
   const anchors = await baseAcceptanceAnchors(source, destination, manifest, heads);
-  const key = keccak256(stringToHex(JSON.stringify([fingerprint, manifest.canaryAuthorization, manifest.activation])));
+  const key = keccak256(stringToHex(JSON.stringify([BASE_NATIVE_DESTINATION_POLICY, fingerprint, manifest.canaryAuthorization, manifest.activation])));
   await baseCollectorFinalizedEvidence(source, destination, key, heads, anchors, async () => {
     await verifyBaseWalletReceipts(source, manifest, wallet, head);
     await verifyBasePauseRollbackReceipts(source, manifest, pause, head);
     const { verifyBaseNativeActivation } = await import("./base-native-provenance");
-    const native = await verifyBaseNativeActivation(source as PublicClient<Transport, any>, destination as PublicClient<Transport, any>, manifest, head);
+    const native = await verifyBaseNativeActivation(source as PublicClient<Transport, any>, destination as PublicClient<Transport, any>, manifest, head, { auditStore });
     if (amount(native.receivedWeth) > 10n ** 16n || amount(native.museToDead) === 0n) throw new Error("The genuine native canary must settle within its 0.01 WETH ceiling");
     const sourceReceipt = await canonicalReceipt(source, native.sourceHash, head);
     if ((await source.getBlock({ blockNumber: sourceReceipt.blockNumber })).timestamp > BigInt(authorization.expiresAt))
       throw new Error("The native source execution occurred after its human authorization expired");
   });
+  return { heads, anchors };
+}
+
+/** Current EIP-1271 revocation/authority remains effective without replaying
+ * historical wallet, fee, scheduler or rollback receipts in production. */
+async function verifyBaseLiveAcceptanceAuthority(source: BaseCollectorClient, manifest: BaseCollectorManifest, head: bigint) {
+  await verifyBaseCanaryAuthorization(source, manifest, head, manifest.canaryAuthorization?.origin, true);
+  await verifyBaseWalletAuthority(source, manifest, manifest.activation.walletAcceptance ?? undefined, baseCollectorGraphFingerprint(manifest), head);
+  await verifyBasePauseRollbackAuthority(source, manifest, head);
+  await verifyBaseNativeRunAuthority(source, manifest, head);
 }

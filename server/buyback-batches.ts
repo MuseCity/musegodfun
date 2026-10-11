@@ -24,7 +24,7 @@ export type BuybackBatchStore = {
   saveBuybackBatch(batch: StoredBatch): unknown | Promise<unknown>;
   getBuybackBatch(id: string): any | Promise<any>;
   listBuybackBatches(): any[] | Promise<any[]>;
-  buybackBatchPage?(limit: number, before?: { updatedAt: number; id: string }): any[] | Promise<any[]>;
+  buybackBatchPage?(limit: number, before?: { sequence: string }): any[] | Promise<any[]>;
 };
 type ReadClient = PublicClient<any, any>;
 type Options = { robinhoodClient?: ReadClient; fetch?: typeof fetch; now?: () => number;
@@ -69,12 +69,12 @@ export class BuybackBatchService {
   private async allLegacy(): Promise<StoredBatch[]> {
     if (!this.store.buybackBatchPage) return (await this.store.listBuybackBatches()).filter(b => !b.protocol && b.quote?.stockAddress && b.steps && b.hashes);
     const result: StoredBatch[] = [];
-    let before: { updatedAt: number; id: string } | undefined;
+    let before: { sequence: string } | undefined;
     for (;;) {
       const rows = await this.store.buybackBatchPage(100, before);
       result.push(...rows.filter(b => !b.protocol && b.quote?.stockAddress && b.steps && b.hashes));
       if (rows.length < 100) return result;
-      const last = rows.at(-1)!; before = { updatedAt: last.updatedAt, id: last.id };
+      const last = rows.at(-1)!; before = { sequence: last.sequence };
     }
   }
   private signing(batch?: StoredBatch) {

@@ -353,7 +353,7 @@ async function readApi<T>(origin: string, path: string, body?: unknown): Promise
   if (text.length > 1_048_576) throw new Error("The keeper API response exceeds the size limit");
   return JSON.parse(text) as T;
 }
-export async function runKeeper(args = process.argv.slice(2)) {
+export async function runKeeper(args: string[] = process.argv.slice(2)) {
   if (args.some((arg) => !["--execute", "--once"].includes(arg) && !arg.startsWith("--api="))) throw new Error("Use --once, --execute, or --api=https://your-platform-origin");
   if (args.filter((arg) => arg.startsWith("--api=")).length > 1) throw new Error("Select one keeper API origin");
   try { process.loadEnvFile(".env"); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw new Error("Unable to load the local keeper environment"); }

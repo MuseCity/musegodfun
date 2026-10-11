@@ -21,6 +21,8 @@ export type VaultLedgerOptions = {
   vault: Address; weth: Address; swapper: Address; engineForwarders?: Address[];
   confirmations?: bigint; maxBlocks?: number;
   verifyBaseFill?: (event: VaultLedgerEvent, evidence: VaultBaseFillEvidence) => Promise<boolean>;
+  /** Rebuild current native FIFO fragments without discarding healthy lots in a shared transfer. Read projection only. */
+  resolveBaseFill?: (event: VaultLedgerEvent) => Promise<VaultBaseFillEvidence | null>;
 };
 
 /** The Robinhood worker owns this journal. Base consumers use its report, never a second Base-scoped ledger. */
@@ -54,10 +56,11 @@ export class VaultLedgerService {
     ]);
     return { observedBalance: String(balance), observedTotalSpent: String(spent), observedTotalBurned: String(burned) };
   }
-  private async events() {
+  private async events(deadline=Infinity) {
     const events: VaultLedgerEvent[] = [];
     let cursor: VaultEventCursor | undefined;
     for (;;) {
+      if(Date.now()>=deadline)throw new Error("Vault maintenance budget reached; pending");
       const page = await this.store.vaultLedgerEventPage(500, cursor);
       events.push(...page);
       if (page.length < 500) return events;
@@ -78,52 +81,64 @@ export class VaultLedgerService {
     await this.store.commitVaultLedger({ expectedRevision: 0, state, blocks: [block], events: [] });
     return this.read();
   }
-  async read(): Promise<VaultLedgerReport> {
+  async read(deadline=Infinity): Promise<VaultLedgerReport> {
+    if(Date.now()>=deadline)return emptyVaultLedgerReport(0n,"Vault maintenance budget reached; pending");
     const head = await this.confirmedHead(), state = await this.store.vaultLedgerState();
     if (!state) return emptyVaultLedgerReport(head);
     this.assertGraph(state);
-    const canonical = BigInt(state.cursor.number) <= head && equal((await this.block(BigInt(state.cursor.number))).hash, state.cursor.hash);
+    if(BigInt(state.cursor.number)>head)return {...emptyVaultLedgerReport(head,"Vault RPC is behind the indexed cursor; pending canonical verification"),initialized:true,checkpointBlock:state.checkpoint.number,indexedThrough:state.cursor.number};
+    const canonical = equal((await this.block(BigInt(state.cursor.number))).hash, state.cursor.hash);
     if (!canonical) return { ...emptyVaultLedgerReport(head, "Vault journal reorg or confirmation rollback; reconciliation is required"), initialized: true,
       checkpointBlock: state.checkpoint.number, indexedThrough: state.cursor.number };
-    const events = await this.events();
-    for (const event of events) if (event.kind === "weth_in" && event.source === "base") {
-      if (!this.options.verifyBaseFill || !await this.options.verifyBaseFill(event, event.baseFill!))
-        return { ...emptyVaultLedgerReport(head, "Base source or Across fill verification is unresolved; attribution is withheld"), initialized: true,
-          checkpointBlock: state.checkpoint.number, indexedThrough: state.cursor.number };
+    const events = await this.events(deadline),projected:VaultLedgerEvent[]=[];
+    for (const event of events) {if(Date.now()>=deadline)return emptyVaultLedgerReport(head,"Vault maintenance budget reached; pending");
+      if(event.kind!=="weth_in"||event.source!=="base"){projected.push(event);continue;}
+      let evidence:VaultBaseFillEvidence|null=null;
+      try{
+        if(this.options.resolveBaseFill)evidence=await this.options.resolveBaseFill(event);
+        else if(this.options.verifyBaseFill&&await this.options.verifyBaseFill(event,event.baseFill!))evidence=event.baseFill!;
+        if(evidence)assertVaultBaseFill(event,evidence,state);
+      }catch{evidence=null;}
+      // Failed source proof withholds only this lot's attribution. The canonical
+      // WETH movement must still consume FIFO and reconcile real executions.
+      projected.push(evidence?{...event,baseFill:evidence}:{...event,source:"unknown",baseFill:undefined});
     }
     // A CAS prevents a read from combining an old cursor with newly appended/rolled-back rows.
     const after = await this.store.vaultLedgerState();
     if (after?.revision !== state.revision) return { ...emptyVaultLedgerReport(head, "Vault journal changed during read; retry"), initialized: true };
     if (!equal((await this.block(BigInt(state.cursor.number))).hash, state.cursor.hash))
       return { ...emptyVaultLedgerReport(head, "Vault journal changed chain during read; reconcile"), initialized: true };
-    return replayVaultLedger(state, events, head);
+    return replayVaultLedger(state, projected, head);
   }
-  private async commonAncestor(state: VaultLedgerState, head: bigint): Promise<VaultLedgerBlock | null> {
-    let before: string | undefined;
-    for (;;) {
-      const page = await this.store.vaultLedgerBlockPage(100, before);
-      for (const candidate of page) {
-        if (BigInt(candidate.number) <= head && equal((await this.block(BigInt(candidate.number))).hash, candidate.hash)) return candidate;
-      }
-      if (page.length < 100) return null;
-      before = page.at(-1)!.number;
+  private async commonAncestor(state: VaultLedgerState, head: bigint,deadline=Infinity): Promise<VaultLedgerBlock | null> {
+    let ancestor:VaultLedgerBlock|null=null;
+    if(equal((await this.block(BigInt(state.checkpoint.number))).hash,state.checkpoint.hash))ancestor=state.checkpoint;
+    let lower=BigInt(state.cursor.number)-4095n>BigInt(state.checkpoint.number)+1n?BigInt(state.cursor.number)-4095n:BigInt(state.checkpoint.number)+1n,upper=BigInt(state.cursor.number)<head?BigInt(state.cursor.number):head;
+    while(lower<=upper){if(Date.now()>=deadline)throw new Error("Vault maintenance budget reached; pending");const middle=(lower+upper)/2n,candidate=(await this.store.vaultLedgerBlockPage(1,String(middle+1n)))[0];
+      if(!candidate||BigInt(candidate.number)<lower){lower=middle+1n;continue;}
+      if(equal((await this.block(BigInt(candidate.number))).hash,candidate.hash)){ancestor=candidate;lower=middle+1n;}else upper=middle-1n;
     }
+    return ancestor;
   }
   async reconcile(maxDurationMs = 45_000): Promise<VaultLedgerReport> {
     if (!Number.isFinite(maxDurationMs) || maxDurationMs < 0 || maxDurationMs > 60_000) throw new Error("Invalid vault maintenance time budget");
     const deadline = Date.now() + maxDurationMs;
     const head = await this.confirmedHead();
     let state = await this.store.vaultLedgerState();
+    try {
     if (!state) return emptyVaultLedgerReport(head);
     this.assertGraph(state);
-    if (BigInt(state.cursor.number) > head || !equal((await this.block(BigInt(state.cursor.number))).hash, state.cursor.hash)) {
-      const ancestor = await this.commonAncestor(state, head);
+    if(BigInt(state.cursor.number)>head)return {...emptyVaultLedgerReport(head,"Vault RPC is behind the indexed cursor; pending canonical verification"),initialized:true,checkpointBlock:state.checkpoint.number,indexedThrough:state.cursor.number};
+    if (!equal((await this.block(BigInt(state.cursor.number))).hash, state.cursor.hash)) {
+      const ancestor = await this.commonAncestor(state, head,deadline);
+      if(Date.now()>=deadline)return emptyVaultLedgerReport(head,"Vault maintenance budget reached; pending");
       if (!ancestor || BigInt(ancestor.number) < BigInt(state.checkpoint.number)) {
         const blocked = { ...state, revision: state.revision + 1, updatedAt: Date.now(), blockedReason: "Vault checkpoint was reorganized; audited checkpoint recovery is required" };
         await this.store.commitVaultLedger({ expectedRevision: state.revision, state: blocked, blocks: [], events: [] });
         return this.read();
       }
       const observed = await this.balances(BigInt(ancestor.number));
+      if(Date.now()>=deadline)return emptyVaultLedgerReport(head,"Vault maintenance budget reached; pending");
       state = await this.store.commitVaultLedger({ expectedRevision: state.revision,
         state: { ...state, cursor: ancestor, ...observed, revision: state.revision + 1, updatedAt: Date.now(), blockedReason: null },
         blocks: [], events: [], rollbackAfterBlock: ancestor.number });
@@ -156,6 +171,7 @@ export class VaultLedgerService {
       // Twenty requests match the existing RPC HTTP batch size. Preserve
       // every header and verify ordered ancestry after each bounded group.
       for (let start = from; start <= to; start += 20n) {
+        if(Date.now()>=deadline)throw new Error("Vault maintenance budget reached; pending");
         const end = start + 19n < to ? start + 19n : to;
         const group = await Promise.all(Array.from({ length: Number(end - start + 1n) }, (_, index) => this.block(start + BigInt(index))));
         for (const block of group) {
@@ -167,8 +183,10 @@ export class VaultLedgerService {
       const events: VaultLedgerEvent[] = [];
       const receipts = new Map<Hex, Awaited<ReturnType<LedgerClient["getTransactionReceipt"]>>>();
       for (const log of [...incoming, ...outgoing, ...executed]) {
+        if(Date.now()>=deadline)throw new Error("Vault maintenance budget reached; pending");
         if (log.removed || !log.transactionHash || !log.blockHash || log.blockNumber === null || log.logIndex === null || log.transactionIndex === null ||
           blockHashes.get(String(log.blockNumber)) !== log.blockHash.toLowerCase()) throw new Error("Noncanonical Vault log; retry later");
+        if(equal(log.address,this.options.weth)){const decoded=decodeEventLog({abi:[transferEvent],data:log.data,topics:log.topics as [Hex,...Hex[]],strict:true});if(decoded.args.value===0n||equal(decoded.args.from,decoded.args.to))continue;}
         let receipt = receipts.get(log.transactionHash);
         if (!receipt) { receipt = await this.client.getTransactionReceipt({ hash: log.transactionHash }); receipts.set(log.transactionHash, receipt); }
         if (receipt.status !== "success" || !equal(receipt.blockHash, log.blockHash) || receipt.transactionIndex !== log.transactionIndex ||
@@ -178,7 +196,7 @@ export class VaultLedgerService {
           blockHash: log.blockHash, transactionHash: log.transactionHash, transactionIndex: log.transactionIndex, logIndex: log.logIndex };
         if (equal(log.address, this.options.weth)) {
           const decoded = decodeEventLog({ abi: [transferEvent], data: log.data, topics: log.topics as [Hex, ...Hex[]], strict: true });
-          if (equal(decoded.args.from, this.options.vault) && equal(decoded.args.to, this.options.vault)) throw new Error("Self-transfer cannot establish Vault funding provenance");
+          if(decoded.args.value===0n||equal(decoded.args.from,decoded.args.to))continue;
           events.push(equal(decoded.args.to, this.options.vault)
             ? { ...position, kind: "weth_in", from: decoded.args.from, to: decoded.args.to, amount: String(decoded.args.value),
               source: this.options.engineForwarders?.some(a => equal(a, decoded.args.from)) ? "robinhood_engine" : "unknown" }
@@ -191,34 +209,39 @@ export class VaultLedgerService {
       }
       const observed = await this.balances(to);
       if (!equal((await this.block(to)).hash, before.hash) || !equal(blocks.at(-1)!.hash, before.hash)) throw new Error("Vault range changed during collection");
+      if(Date.now()>=deadline)break;
       state = await this.store.commitVaultLedger({ expectedRevision: state.revision,
         state: { ...state, cursor: before, ...observed, revision: state.revision + 1, updatedAt: Date.now() }, blocks, events });
       scanned += Number(to - from + 1n);
     }
-    return this.read();
+    return Date.now()>=deadline?emptyVaultLedgerReport(head,"Vault maintenance budget reached; pending"):await this.read(deadline);
+    }catch(error){if(Date.now()>=deadline)return emptyVaultLedgerReport(head,"Vault maintenance budget reached; pending");throw error;}
   }
-  async classifyBaseFill(eventId: string, evidence: VaultBaseFillEvidence): Promise<VaultLedgerReport> {
+  async classifyBaseFill(eventId: string, evidence: VaultBaseFillEvidence, deadline=Infinity): Promise<VaultLedgerReport> {
     const state = await this.store.vaultLedgerState();
     if (!state) throw new Error("Vault checkpoint has not been established");
     this.assertGraph(state);
-    const event = (await this.events()).find(row => row.id === eventId);
+    const event = (await this.events(deadline)).find(row => row.id === eventId);
     if (!event) throw new Error("Vault transfer not indexed");
     assertVaultBaseFill(event, evidence, state);
     if (!this.options.verifyBaseFill || !await this.options.verifyBaseFill(event, evidence)) throw new Error("Base source batch and Across fill are not canonically verified");
     if (!equal((await this.block(BigInt(event.blockNumber))).hash, event.blockHash)) throw new Error("Base fill was reorganized; reconcile before classification");
+    const revalidate=event.kind === "weth_in" && event.source === "base" && !!event.baseFill && !await this.options.verifyBaseFill(event,event.baseFill);
+    if(Date.now()>=deadline)throw new Error("Vault maintenance budget reached; pending");
     await this.store.commitVaultLedger({ expectedRevision: state.revision,
       state: { ...state, revision: state.revision + 1, updatedAt: Date.now() }, blocks: [], events: [],
       classifications: [{ eventId, source: "base", baseFill: evidence,
-        revalidate: event.kind === "weth_in" && event.source === "base" && !!event.baseFill && !await this.options.verifyBaseFill(event,event.baseFill) }] });
-    return this.read();
+        revalidate }] });
+    return this.read(deadline);
   }
-  async invalidateBaseFill(eventId:string):Promise<VaultLedgerReport> {
+  async invalidateBaseFill(eventId:string,deadline=Infinity):Promise<VaultLedgerReport> {
     const state=await this.store.vaultLedgerState();if(!state)throw new Error("Vault checkpoint missing");this.assertGraph(state);
-    const event=(await this.events()).find(row=>row.id===eventId);
+    const event=(await this.events(deadline)).find(row=>row.id===eventId);
     if(!event||event.kind!=="weth_in"||event.source!=="base"||!event.baseFill||!this.options.verifyBaseFill||await this.options.verifyBaseFill(event,event.baseFill))throw new Error("Canonical Base provenance cannot be invalidated");
     if(!equal((await this.block(BigInt(event.blockNumber))).hash,event.blockHash))throw new Error("Vault classification transfer reorg; reconcile first");
+    if(Date.now()>=deadline)throw new Error("Vault maintenance budget reached; pending");
     await this.store.commitVaultLedger({expectedRevision:state.revision,state:{...state,revision:state.revision+1,updatedAt:Date.now()},blocks:[],events:[],classifications:[{eventId,source:"unknown",revalidate:true}]});
-    return this.read();
+    return this.read(deadline);
   }
 
 }

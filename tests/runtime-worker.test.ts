@@ -36,6 +36,15 @@ test("real Worker routes refresh native secrets and flags while persistent pause
   try {
     assert.equal((await get("/api/config")).writesEnabled,true);
     assert.equal((await get("/api/chains/8453/config")).writesEnabled,false);
+    // No private host snapshot is available. Even anonymous forced refreshes
+    // may only read Supabase; the outbound fixture rejects all RPC methods
+    // except the existing cheap chain identity check.
+    for(const chain of [8453,4663])for(const path of ["vault-ledger","custody",...(chain===8453?["engine"]:[])]){
+      const response=await mf.dispatchFetch(`https://musegod.fun/api/chains/${chain}/buyback/${path}`,{headers:{"cf-connecting-ip":"192.0.2.12","cache-control":"no-cache"}});
+      assert.equal(response.status,200);
+      const status=await response.json() as any;
+      assert.equal(path==="vault-ledger"?status.attributionReady:path==="custody"?status.ready:status.ledgerComplete,false);
+    }
     const burnRecovery = async () => {
       const response = await mf.dispatchFetch(`https://musegod.fun/api/chains/8453/buyback/batches/${legacyBatchId}/step?kind=burn`, {headers:{"cf-connecting-ip":"192.0.2.90"}});
       return (await response.json() as {code:string}).code;

@@ -1,0 +1,47 @@
+{
+  "compilerVersion": "0.8.17+commit.8df45f5f.Emscripten.clang",
+  "compilerErrors": 0,
+  "fullRuntimeMatch": true,
+  "runtimeBytes": 9152,
+  "immutableDeclarations": [
+    {
+      "id": 24,
+      "name": "decimals"
+    },
+    {
+      "id": 38,
+      "name": "INITIAL_CHAIN_ID"
+    },
+    {
+      "id": 40,
+      "name": "INITIAL_DOMAIN_SEPARATOR"
+    },
+    {
+      "id": 1049,
+      "name": "_CACHED_DOMAIN_SEPARATOR"
+    },
+    {
+      "id": 1051,
+      "name": "_CACHED_CHAIN_ID"
+    }
+  ],
+  "immutableValues": {
+    "1026": "0x448684463b1f7965c1ec7c249cee11520df24c07242efc2b20f6e54c85614fad",
+    "1028": "0x0000000000000000000000000000000000000000000000000000000000001237"
+  },
+  "immutableReferences": {
+    "1049": [
+      {
+        "length": 32,
+        "start": 6983
+      }
+    ],
+    "1051": [
+      {
+        "length": 32,
+        "start": 6945
+      }
+    ]
+  },
+  "inputSha256": "b1ee0697126c978d84492ff9f2118e7631ab0c06598a1e1d038af4684f459b7c"
+}

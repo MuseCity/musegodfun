@@ -16,7 +16,7 @@ export type VaultLegacyBaseFillEvidence = {
 };
 /** Native Relay is received into a shared Treasury. Only canonical Forwarder + Treasury FIFO can propagate its fragments. */
 export type VaultNativeTreasuryEvidence = { protocol: "splits_native_relay_v1"; treasury: Address;
-  treasuryEventId: string; treasuryRevision: number; fragments: CustodyFragment[];
+  treasuryEventId: string; forwarderLogIndex?: number; treasuryRevision: number; fragments: CustodyFragment[];
   fillTransactionHash: Hex; fillBlockHash: Hex; fillLogIndex: number; recipient: Address; outputToken: Address; outputAmount: string };
 export type VaultBaseFillEvidence = VaultLegacyBaseFillEvidence | VaultNativeTreasuryEvidence;
 export function vaultFillFragments(evidence: VaultBaseFillEvidence): CustodyFragment[] {
@@ -56,7 +56,7 @@ export type VaultLedgerBatchSummary = {
   attributedMuseToDead: string; status: "pending_vault" | "partially_consumed" | "consumed";
 };
 export type VaultLedgerReport = {
-  version: 1; initialized: boolean; caughtUp: boolean; attributionReady: boolean; reason: string | null;
+  version: 1; initialized: boolean; caughtUp: boolean; fresh: boolean; lagBlocks: string; maxLagBlocks: string; attributionReady: boolean; reason: string | null;
   checkpointBlock: string | null; indexedThrough: string | null; confirmedThrough: string;
   baseReceivedWeth: string; baseSpentWeth: string; basePendingWeth: string; baseAttributedMuseToDead: string;
   totalExecutionWeth: string; totalMuseToDead: string; totalCallerProfit: string;
@@ -150,7 +150,7 @@ export function compareVaultEvents(a: VaultEventCursor, b: VaultEventCursor) {
   return block < 0n ? -1 : block > 0n ? 1 : a.transactionIndex - b.transactionIndex || a.logIndex - b.logIndex;
 }
 export function emptyVaultLedgerReport(confirmedThrough: bigint, reason = "Vault checkpoint has not been established"): VaultLedgerReport {
-  return { version: 1, initialized: false, caughtUp: false, attributionReady: false, reason,
+  return { version: 1, initialized: false, caughtUp: false, fresh: false, lagBlocks: String(confirmedThrough), maxLagBlocks: "600", attributionReady: false, reason,
     checkpointBlock: null, indexedThrough: null, confirmedThrough: String(confirmedThrough),
     baseReceivedWeth: "0", baseSpentWeth: "0", basePendingWeth: "0", baseAttributedMuseToDead: "0",
     totalExecutionWeth: "0", totalMuseToDead: "0", totalCallerProfit: "0", lots: [], allocations: [], batches: [] };
@@ -160,8 +160,10 @@ export function replayVaultLedger(state: VaultLedgerState, input: VaultLedgerEve
   assertVaultState(state);
   const report = emptyVaultLedgerReport(confirmedThrough);
   Object.assign(report, { initialized: true, checkpointBlock: state.checkpoint.number, indexedThrough: state.cursor.number,
-    caughtUp: BigInt(state.cursor.number) === confirmedThrough, reason: state.blockedReason });
-  const events = [...input].sort(compareVaultEvents);
+    caughtUp: BigInt(state.cursor.number) === confirmedThrough,
+    lagBlocks: String(confirmedThrough > BigInt(state.cursor.number) ? confirmedThrough - BigInt(state.cursor.number) : 0n),
+    fresh: BigInt(state.cursor.number) <= confirmedThrough && confirmedThrough - BigInt(state.cursor.number) <= 600n, reason: state.blockedReason });
+  const events = [...input].filter(event => event.kind === "executed" || event.amount !== "0" && event.from.toLowerCase() !== event.to.toLowerCase()).sort(compareVaultEvents);
   const unique = new Set<string>();
   const lots: { value: VaultLedgerLot; remaining: bigint; consumed: bigint; burned: bigint }[] = [];
   const addLot = (id: string, source: VaultSource, amount: bigint, batchId: string | null) => {

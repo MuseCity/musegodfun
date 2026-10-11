@@ -1,6 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { packPlan, unpackPlan } from "./plan-storage";
 import { BUDGETS, defaultRuntimeControl, type RuntimeControl, type BudgetName, type BudgetResult } from "./runtime-policy";
 import type { Address, Hex } from "viem";
@@ -10,10 +11,15 @@ import { assertVaultAmount, assertVaultBaseFill, assertVaultCommit, type VaultLe
 import { assertCustodyCommit, assertCustodyEvent, assertCustodyFragments, type CustodyCommit, type CustodyEvent, type CustodyLedgerId, type CustodyState } from "../src/lib/buyback-custody-ledger";
 export type { LaunchPlan } from "../src/lib/launch-plan";
 export type BuybackBatchRecord = Record<string, unknown> & { id: string };
-export type BuybackBatchPageRecord = BuybackBatchRecord & { updatedAt: number };
+export type BuybackBatchPageRecord = BuybackBatchRecord & { updatedAt: number; sequence: string };
 export function assertBuybackBatchId(id: unknown): asserts id is string {
   if (typeof id !== "string" || id.length === 0 || id.length > 200)
     throw new Error("Invalid buyback batch ID");
+}
+export function assertBuybackAuditRecord(value:unknown):asserts value is BuybackBatchRecord {
+  if(!value||typeof value!=="object"||Array.isArray(value))throw new Error("Invalid internal native audit metadata");
+  const record=value as BuybackBatchRecord;assertBuybackBatchId(record.id);
+  if(!record.id.startsWith("internal_native_")||typeof record.protocol!=="string"||!/^internal_native_[a-z0-9_]+$/.test(record.protocol))throw new Error("Only internal native audit metadata can use audit CAS");
 }
 export class Store {
   readonly db: DatabaseSync;
@@ -149,22 +155,28 @@ export class Store {
       .get(id) as { payload: string } | undefined;
     return row ? JSON.parse(row.payload) : null;
   }
+  compareAndSetBuybackAudit(next:BuybackBatchRecord,expected:BuybackBatchRecord|null):boolean {
+    assertBuybackAuditRecord(next);if(expected!==null){assertBuybackAuditRecord(expected);if(expected.id!==next.id)throw new Error("Internal audit CAS identity differs");}
+    const normalizedExpected=expected===null?null:JSON.parse(JSON.stringify(expected));
+    this.db.exec("BEGIN IMMEDIATE");
+    try{
+      const current=this.getBuybackBatch(next.id);
+      if(!isDeepStrictEqual(current,normalizedExpected)){this.db.exec("ROLLBACK");return false;}
+      this.saveBuybackBatch(next);this.db.exec("COMMIT");return true;
+    }catch(error){this.db.exec("ROLLBACK");throw error;}
+  }
   listBuybackBatches(): BuybackBatchRecord[] {
     return (this.db.prepare(
       "SELECT payload FROM buyback_batches ORDER BY updated_at DESC,id LIMIT 1000",
     ).all() as { payload: string }[]).map((row) => JSON.parse(row.payload));
   }
-  buybackBatchPage(limit = 100, before?: { updatedAt: number; id: string }): BuybackBatchPageRecord[] {
+  buybackBatchPage(limit = 100, before?: { sequence: string }): BuybackBatchPageRecord[] {
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new Error("Invalid buyback batch page size");
-    if (before) {
-      assertBuybackBatchId(before.id);
-      if (!Number.isSafeInteger(before.updatedAt) || before.updatedAt < 0) throw new Error("Invalid buyback batch cursor");
-    }
+    if (before) assertVaultAmount(before.sequence);
     const rows = before
-      ? this.db.prepare("SELECT payload,updated_at FROM buyback_batches WHERE updated_at<? OR (updated_at=? AND id>?) ORDER BY updated_at DESC,id LIMIT ?")
-        .all(before.updatedAt, before.updatedAt, before.id, limit)
-      : this.db.prepare("SELECT payload,updated_at FROM buyback_batches ORDER BY updated_at DESC,id LIMIT ?").all(limit);
-    return (rows as { payload: string; updated_at: number }[]).map(row => ({ ...JSON.parse(row.payload), updatedAt: row.updated_at }));
+      ? this.db.prepare("SELECT payload,updated_at,CAST(rowid AS TEXT) AS sequence FROM buyback_batches WHERE rowid<? ORDER BY rowid DESC LIMIT ?").all(BigInt(before.sequence),limit)
+      : this.db.prepare("SELECT payload,updated_at,CAST(rowid AS TEXT) AS sequence FROM buyback_batches ORDER BY rowid DESC LIMIT ?").all(limit);
+    return (rows as { payload: string; updated_at: number; sequence:string }[]).map(row => ({ ...JSON.parse(row.payload), updatedAt: row.updated_at,sequence:row.sequence }));
   }
   private assertVaultLedgerAuthority() {
     const row = this.db.prepare("SELECT value FROM metadata WHERE key='chainId'").get() as { value: string };
@@ -231,6 +243,7 @@ export class Store {
       }
       this.db.prepare("INSERT INTO vault_ledger_state VALUES(1,?,?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,payload=excluded.payload")
         .run(input.state.revision, JSON.stringify(input.state));
+      this.db.prepare("DELETE FROM vault_ledger_blocks WHERE number<>? AND number<?").run(BigInt(input.state.checkpoint.number),BigInt(input.state.cursor.number)-4095n);
       this.db.exec("COMMIT"); return input.state;
     } catch (error) { this.db.exec("ROLLBACK"); throw error; }
   }
@@ -294,6 +307,7 @@ export class Store {
         this.db.prepare("UPDATE custody_ledger_events SET payload=? WHERE ledger_id=? AND id=?").run(JSON.stringify(changed),id,event.id);
       }
       this.db.prepare("INSERT INTO custody_ledger_state VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,payload=excluded.payload").run(id,input.state.revision,JSON.stringify(input.state));
+      this.db.prepare("DELETE FROM custody_ledger_blocks WHERE ledger_id=? AND number<>? AND number<?").run(id,BigInt(input.state.checkpoint.number),BigInt(input.state.cursor.number)-4095n);
       this.db.exec("COMMIT"); return input.state;
     } catch (error) { this.db.exec("ROLLBACK"); throw error; }
   }
@@ -302,7 +316,7 @@ export class Store {
     const tables = ["metadata", "plans", "tokens", "snapshots", "quota", "pending_launches", "buyback_batches", "protected_plans", "runtime_control", "vault_ledger_state", "vault_ledger_blocks", "vault_ledger_events", "custody_ledger_state", "custody_ledger_blocks", "custody_ledger_events"];
     this.db.exec("BEGIN");
     try {
-      const backup = { version: 3, sqlite: true, tables: Object.fromEntries(tables.map(table => [table, this.db.prepare(`SELECT * FROM ${table}`).all()])) };
+      const backup = { version: 3, sqlite: true, tables: Object.fromEntries(tables.map(table => [table, this.db.prepare(table === "buyback_batches" ? "SELECT *,CAST(rowid AS TEXT) AS sequence FROM buyback_batches" : `SELECT * FROM ${table}`).all()])) };
       this.db.exec("COMMIT"); return backup;
     } catch (error) { this.db.exec("ROLLBACK"); throw error; }
   }
@@ -318,8 +332,11 @@ export class Store {
       if (tables.some(table => !!this.db.prepare(`SELECT 1 FROM ${table} LIMIT 1`).get())) throw new Error("Restore target is not empty");
       for (const table of tables) {
         const columns = (this.db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map(row => row.name);
-        for (const row of value.tables[table] || []) this.db.prepare(`INSERT INTO ${table}(${columns.join(",")}) VALUES(${columns.map(() => "?").join(",")})`)
-          .run(...columns.map(column => row[column] as string | number | null));
+        for (const row of value.tables[table] || []) {
+          const keys=table === "buyback_batches" && row.sequence !== undefined ? ["rowid",...columns] : columns;
+          if(keys[0] === "rowid")assertVaultAmount(row.sequence);
+          this.db.prepare(`INSERT INTO ${table}(${keys.join(",")}) VALUES(${keys.map(() => "?").join(",")})`).run(...keys.map(column => column === "rowid" ? BigInt(row.sequence as string) : row[column] as string | number | null));
+        }
       }
       this.db.exec("COMMIT");
     } catch (error) { this.db.exec("ROLLBACK"); throw error; }

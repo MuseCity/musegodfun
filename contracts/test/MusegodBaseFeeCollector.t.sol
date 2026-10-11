@@ -34,18 +34,42 @@ contract NativeCollectorManager {
     uint256 public amount1;
     bool public fail;
     bool public decreaseBalance;
+    mapping(address => uint256) private shares;
+    mapping(address => uint256) private last0;
+    mapping(address => uint256) private last1;
+    uint256 private cumulative0;
+    uint256 private cumulative1;
     function configure(PoolKey calldata key_, address beneficiary_, uint256 share_, uint256 a0, uint256 a1) external {
+        shares[beneficiary] = 0;
         key = key_; beneficiary = beneficiary_; share = share_; amount0 = a0; amount1 = a1;
+        shares[beneficiary_] = share_;
+        last0[beneficiary_] = cumulative0; last1[beneficiary_] = cumulative1;
     }
+    function seedBeneficiary(address account, uint256 value) external { shares[account] = value; last0[account] = cumulative0; last1[account] = cumulative1; }
     function faults(bool fail_, bool decrease_) external { fail = fail_; decreaseBalance = decrease_; }
     function getPoolKey(bytes32) external view returns (PoolKey memory) { return key; }
-    function getShares(bytes32, address account) external view returns (uint256) { return account == beneficiary ? share : 0; }
+    function getShares(bytes32, address account) external view returns (uint256) { return shares[account]; }
     function collectFees(bytes32) external returns (uint128, uint128) {
         require(!fail);
         if (decreaseBalance) NativeCollectorToken(key.currency0).burn(msg.sender, 1);
-        else NativeCollectorToken(key.currency0).mint(msg.sender, amount0);
-        NativeCollectorToken(key.currency1).mint(msg.sender, amount1);
+        else { cumulative0 += amount0; cumulative1 += amount1; _release(msg.sender); }
         return (999, 999); // Only actual balance increments, never nominal return values, are credited.
+    }
+    // Mirrors the deployed FeesManager: a zero-share caller can collect cumulative fees and update to an
+    // existing beneficiary. Both addresses are released before their shares are merged. Fee units are normalized
+    // to the configured initial share so the mock's requested initial payouts remain exact integers.
+    function updateBeneficiary(bytes32, address next) external {
+        require(next != msg.sender);
+        _release(msg.sender); _release(next);
+        if (shares[next] == 0) { last0[next] = cumulative0; last1[next] = cumulative1; }
+        shares[next] += shares[msg.sender]; shares[msg.sender] = 0;
+    }
+    function _release(address account) private {
+        if (shares[account] == 0) return;
+        uint256 a0 = (cumulative0 - last0[account]) * shares[account] / share;
+        uint256 a1 = (cumulative1 - last1[account]) * shares[account] / share;
+        last0[account] = cumulative0; last1[account] = cumulative1;
+        NativeCollectorToken(key.currency0).mint(account, a0); NativeCollectorToken(key.currency1).mint(account, a1);
     }
 }
 
@@ -116,10 +140,48 @@ contract MusegodBaseFeeCollectorTest {
             vm.expectRevert(Collector.NoValidClaim.selector); collector.claimFees(keccak256(abi.encode(invalid)));
         }
     }
-    function testOtherBeneficiaryAndDoubleCountedSharesRejected() public {
+    function testInsufficientOrAbsentCollectorSharesRejected() public {
         NativeCollectorManager(INITIALIZER).configure(key, CALLER, 0.228e18, 40, 60);
-        NativeCollectorManager(REHYPE).configure(key, address(collector), 0.48e18, 10, 20);
+        NativeCollectorManager(REHYPE).configure(key, address(collector), 0.239e18, 10, 20);
         vm.expectRevert(Collector.NoValidClaim.selector); claim();
+    }
+    function testAdditionalBeneficiarySharesCannotDisableClaims() public {
+        NativeCollectorManager(INITIALIZER).seedBeneficiary(CALLER, 0.1e18);
+        vm.prank(CALLER); NativeCollectorManager(INITIALIZER).updateBeneficiary(poolId, address(collector));
+        require(NativeCollectorManager(INITIALIZER).getShares(poolId, address(collector)) > collector.LP_SHARE());
+        claim(); require(collector.pendingFees(address(token0)) >= 50);
+    }
+    function testZeroShareUpdateBypassRecoversIntoUnknownWithoutFakingFeeIncome() public {
+        NativeCollectorManager(REHYPE).faults(true, false);
+        vm.prank(CALLER); NativeCollectorManager(INITIALIZER).collectFees(poolId);
+        require(token0.balanceOf(CALLER) == 0);
+        vm.prank(CALLER); NativeCollectorManager(INITIALIZER).updateBeneficiary(poolId, address(collector));
+        require(token0.balanceOf(address(collector)) == 40); require(collector.pendingFees(address(token0)) == 0);
+        // Register the actual pool assets even when this next claim has no fresh fee.
+        NativeCollectorManager(INITIALIZER).configure(key, address(collector), 0.228e18, 0, 0);
+        claim(); collector.syncUntracked(address(token0));
+        require(collector.pendingUntracked(address(token0)) == 40); require(collector.totalClaimed(address(token0)) == 0);
+        require(collector.totalUntrackedSynced(address(token0)) == 40);
+        resume(); collector.releaseUntracked(address(token0), 40);
+        require(token0.balanceOf(RECEIVER) == 40); require(collector.totalReleased(address(token0)) == 0);
+        require(collector.totalUntrackedReleased(address(token0)) == 40);
+    }
+    function testUnknownDonationRecoveryNeverMixesWithClaimedFees() public {
+        claim(); token0.mint(address(collector), 123); collector.syncUntracked(address(token0));
+        require(collector.pendingFees(address(token0)) == 50); require(collector.pendingUntracked(address(token0)) == 123);
+        require(collector.untrackedBalance(address(token0)) == 0);
+        vm.expectRevert(Collector.Paused.selector); collector.releaseUntracked(address(token0), 123);
+        resume(); collector.releaseUntracked(address(token0), 123); collector.releaseFees(address(token0), 50);
+        require(token0.balanceOf(RECEIVER) == 173); require(collector.totalReleased(address(token0)) == 50);
+        require(collector.totalClaimed(address(token0)) == 50); require(collector.totalUntrackedReleased(address(token0)) == 123);
+    }
+    function testUnverifiedAssetCannotSyncAndBothBucketsEnforceSolvency() public {
+        NativeCollectorToken unknown = new NativeCollectorToken(); unknown.mint(address(collector), 5);
+        vm.expectRevert(Collector.InvalidPool.selector); collector.syncUntracked(address(unknown));
+        claim(); token0.mint(address(collector), 5); collector.syncUntracked(address(token0)); resume();
+        token0.burn(address(collector), 1);
+        vm.expectRevert(Collector.BalanceMismatch.selector); collector.releaseUntracked(address(token0), 1);
+        vm.expectRevert(Collector.BalanceMismatch.selector); collector.releaseFees(address(token0), 1);
     }
     function testBalanceDecreaseNotCreditedAndOtherManagerSurvives() public {
         token0.mint(address(collector), 5); NativeCollectorManager(INITIALIZER).faults(false, true);
@@ -152,6 +214,16 @@ contract MusegodBaseFeeCollectorTest {
         vm.expectRevert(Collector.BalanceMismatch.selector); collector.releaseFees(address(token0), 50);
         require(collector.pendingFees(address(token0)) == 50); require(collector.totalReleased(address(token0)) == 0);
         require(token0.balanceOf(RECEIVER) == 0);
+    }
+    function testUnknownReleaseTaxAndReentrancyRollBackBothBuckets() public {
+        claim(); token0.mint(address(collector), 12); collector.syncUntracked(address(token0)); resume();
+        token0.configure(1, false);
+        vm.expectRevert(Collector.BalanceMismatch.selector); collector.releaseUntracked(address(token0), 12);
+        require(collector.pendingUntracked(address(token0)) == 12); require(collector.totalUntrackedReleased(address(token0)) == 0);
+        require(collector.pendingFees(address(token0)) == 50); require(token0.balanceOf(RECEIVER) == 0);
+        token0.configure(0, true);
+        vm.expectRevert(bytes4(keccak256("ReentrancyGuardReentrantCall()"))); collector.releaseUntracked(address(token0), 12);
+        require(collector.pendingUntracked(address(token0)) == 12); require(collector.pendingFees(address(token0)) == 50);
     }
     function testIssuerSeizureShortfallBlocksRelease() public {
         claim(); resume(); token0.burn(address(collector), 1);
@@ -186,5 +258,18 @@ contract MusegodBaseFeeCollectorTest {
         if (amount != 0) collector.releaseFees(address(token0), amount);
         require(collector.totalClaimed(address(token0)) == amount);
         require(collector.totalReleased(address(token0)) == amount); require(collector.pendingFees(address(token0)) == 0);
+    }
+    function testFuzzFeeAndUnknownConservation(uint128 feeAmount, uint128 unknownAmount) public {
+        NativeCollectorManager(INITIALIZER).configure(key, address(collector), 0.228e18, feeAmount, 0);
+        NativeCollectorManager(REHYPE).configure(key, address(collector), 0.24e18, 0, 0);
+        claim(); token0.mint(address(collector), unknownAmount);
+        if (unknownAmount != 0) collector.syncUntracked(address(token0));
+        resume();
+        if (unknownAmount != 0) collector.releaseUntracked(address(token0), unknownAmount);
+        require(collector.pendingFees(address(token0)) == feeAmount); require(collector.totalClaimed(address(token0)) == feeAmount);
+        if (feeAmount != 0) collector.releaseFees(address(token0), feeAmount);
+        require(collector.totalReleased(address(token0)) == feeAmount); require(collector.totalUntrackedReleased(address(token0)) == unknownAmount);
+        require(collector.pendingFees(address(token0)) == 0 && collector.pendingUntracked(address(token0)) == 0);
+        require(token0.balanceOf(RECEIVER) == uint256(feeAmount) + unknownAmount);
     }
 }

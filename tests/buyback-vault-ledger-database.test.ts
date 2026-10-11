@@ -14,18 +14,40 @@ let available=false;try{execFileSync("docker",["image","inspect",image],{stdio:"
 const addr=(n:number)=>`0x${n.toString(16).padStart(40,"0")}` as Address,hash=(n:number)=>`0x${n.toString(16).padStart(64,"0")}` as Hex;
 const block=(n:number)=>({number:String(n),hash:hash(n+100),parentHash:hash(n+99)});
 const quote=(value:unknown)=>`'${JSON.stringify(value).replaceAll("'","''")}'::jsonb`;
-test("actual PostgreSQL migrations enforce ledger CAS, full SQLite parity, source proof, RLS and compatible restore",{skip:!available,timeout:60_000},async()=>{
+test("actual PostgreSQL migrations enforce ledger CAS, full SQLite parity, source proof, RLS and compatible restore",{skip:!available,timeout:120_000},async()=>{
   let container="";const directory=mkdtempSync(join(tmpdir(),"vault-ledger-pg-parity-"));const store=new Store(directory,31337);
   const sql=(source:string)=>execFileSync("docker",["exec","-i",container,"psql","-U","postgres","-X","-t","-A","-v","ON_ERROR_STOP=1"],{encoding:"utf8",input:source,stdio:["pipe","pipe","pipe"]}).trim();
   try{
     container=execFileSync("docker",["run","--detach","--rm","--network","none","--tmpfs","/var/lib/postgresql/data","--env","POSTGRES_HOST_AUTH_METHOD=trust",image,"-c","listen_addresses="],{encoding:"utf8"}).trim();
     execFileSync("docker",["exec",container,"sh","-c","for i in $(seq 1 100); do test \"$(cat /proc/1/comm)\" = postgres && pg_isready -U postgres >/dev/null && exit 0; sleep 0.1; done; exit 1"],{stdio:"pipe"});
     sql("CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS;");
-    for(const migration of ["20261005000537_musegod_store.sql","20261007094402_runtime_safety_controls.sql","20261009050807_buyback_vault_ledger.sql","20261009125045_buyback_native_custody_ledger.sql"])sql(readFileSync(`supabase/migrations/${migration}`,"utf8"));
+    for(const migration of ["20261005000537_musegod_store.sql","20261007094402_runtime_safety_controls.sql","20261009050807_buyback_vault_ledger.sql","20261009125045_buyback_native_custody_ledger.sql","20261009221226_buyback_stable_pagination_and_anchors.sql"])sql(readFileSync(`supabase/migrations/${migration}`,"utf8"));
+    const auditScope="verify-audit-cas",audit={id:"internal_native_releases:pg-fixture",protocol:"internal_native_base_audit_v1",through:"0",entries:[],nested:{a:1,b:2}},higher={...audit,through:"100",entries:["actual-owner-release"]},lower={...audit,through:"50"};
+    const auditQuery=(next:unknown,expected:unknown,scope=auditScope)=>`SET ROLE service_role;SELECT public.musegod_compare_and_set_buyback_audit('${scope}',${quote(next)},${expected===undefined?"NULL":quote(expected)});`;
+    assert.equal(sql(auditQuery(audit,undefined)).split("\n").at(-1),"t");assert.equal(sql(auditQuery(audit,null)).split("\n").at(-1),"f","SQL NULL and JSON null both mean no existing row");
+    assert.throws(()=>sql(auditQuery(audit,0)),/expectation/);assert.throws(()=>sql(auditQuery({id:"financial",protocol:"splits_native_relay_v1"},null)),/audit metadata/);assert.throws(()=>sql(auditQuery(audit,null,"bad_scope")),/scope/);
+    const raceAudit=await Promise.allSettled([higher,lower].map(next=>promisify(execFile)("docker",["exec",container,"psql","-U","postgres","-X","-t","-A","-v","ON_ERROR_STOP=1","-c",auditQuery(next,audit)])));
+    assert.equal(raceAudit.filter(row=>row.status==="fulfilled"&&row.value.stdout.trim().split("\n").at(-1)==="t").length,1,"Only one cross-process audit page wins its snapshot");
+    const currentAudit=JSON.parse(sql(`SET ROLE service_role;SELECT payload FROM public.musegod_buyback_batches WHERE scope='${auditScope}' AND id='${audit.id}';`).split("\n").at(-1)!);
+    if(currentAudit.through!==higher.through)assert.equal(sql(auditQuery(higher,currentAudit)).split("\n").at(-1),"t");
+    assert.equal(sql(auditQuery(lower,audit)).split("\n").at(-1),"f","The late stale lower page cannot overwrite accepted high progress");
+    assert.equal(sql(auditQuery(audit,null,"verify-audit-other-scope")).split("\n").at(-1),"t","Audit identity remains scoped");
+    sql(`SET ROLE service_role;SELECT public.musegod_restore('restore-audit-cas',public.musegod_backup('${auditScope}'));`);
+    assert.equal(sql(auditQuery({...higher,through:"101"},higher,"restore-audit-cas")).split("\n").at(-1),"t","Restored payload is a compatible CAS expectation");
+    for(const role of ["anon","authenticated"])assert.throws(()=>sql(`SET ROLE ${role};SELECT public.musegod_compare_and_set_buyback_audit('${auditScope}',${quote(higher)},${quote(audit)});`),/permission denied/);
+    assert.equal(sql("SELECT NOT prosecdef AND NOT has_function_privilege('anon',oid,'EXECUTE') AND NOT has_function_privilege('authenticated',oid,'EXECUTE') FROM pg_proc WHERE oid='public.musegod_compare_and_set_buyback_audit(text,jsonb,jsonb)'::regprocedure;"),"t");
+    for(const kind of ["vault","custody"]){
+      assert.equal(sql(`SELECT to_regprocedure('public.musegod_commit_${kind}_ledger_unbounded(text,jsonb)') IS NULL;`),"t","There is no alternate unbounded commit endpoint");
+      assert.equal(sql(`SELECT NOT prosecdef AND has_function_privilege('service_role',oid,'EXECUTE') AND NOT has_function_privilege('anon',oid,'EXECUTE') AND NOT has_function_privilege('authenticated',oid,'EXECUTE') FROM pg_proc WHERE oid='public.musegod_commit_${kind}_ledger(text,jsonb)'::regprocedure;`),"t","Bounded commits remain invoker functions with unchanged execution roles");
+      assert.throws(()=>sql(`SET ROLE service_role;SELECT public.musegod_commit_${kind}_ledger_unbounded('robinhood','{}'::jsonb);`),/does not exist/);
+    }
     const custodyState:CustodyState={version:1,id:"robinhood_treasury",chainId:4663,account:addr(20),revision:1,checkpoint:block(0),cursor:block(1),openingBalances:{[addr(21)]:"0"},observedBalances:{[addr(21)]:"1201"},updatedAt:1,blockedReason:null};
     const custodyEvents:CustodyEvent[]=Array.from({length:1201},(_,i)=>({id:vaultEventId(hash(9000+i),i),blockNumber:"1",blockHash:block(1).hash,transactionHash:hash(9000+i),transactionIndex:i,logIndex:i,asset:addr(21),kind:"in",from:addr(22),to:addr(20),amount:"1"}));
+    custodyEvents[0].nativeTransactionFrom=addr(300);custodyEvents[0].nativeTransactionTo=addr(301);
     const custodyCommit:CustodyCommit={expectedRevision:0,state:custodyState,blocks:[block(0),block(1)],events:custodyEvents};
     store.commitCustodyLedger(custodyCommit);sql(`SET ROLE service_role;SELECT public.musegod_commit_custody_ledger('robinhood',${quote(custodyCommit)});`);
+    const badContext={...custodyCommit,expectedRevision:1,state:{...custodyState,revision:2},blocks:[],events:[{...custodyEvents[0],nativeTransactionFrom:"not-an-address"}]} as unknown as CustodyCommit;
+    assert.throws(()=>store.commitCustodyLedger(badContext),/transaction context/);assert.throws(()=>sql(`SET ROLE service_role;SELECT public.musegod_commit_custody_ledger('robinhood',${quote(badContext)});`),/transaction context/);
     assert.throws(()=>sql(`SET ROLE service_role;SELECT public.musegod_commit_custody_ledger('robinhood',${quote(custodyCommit)});`),/revision/);
     assert.throws(()=>sql(`SET ROLE service_role;SELECT public.musegod_commit_custody_ledger('base',${quote(custodyCommit)});`),/another chain/);
     assert.deepEqual(JSON.parse(sql("SET ROLE service_role;SELECT jsonb_agg(payload ORDER BY block_number,transaction_index,log_index) FROM public.musegod_custody_ledger_events WHERE scope='robinhood';").split("\n").at(-1)!),[...store.custodyLedgerEventPage("robinhood_treasury",1000),...store.custodyLedgerEventPage("robinhood_treasury",1000,custodyEvents[999])]);
@@ -99,6 +121,27 @@ test("actual PostgreSQL migrations enforce ledger CAS, full SQLite parity, sourc
       assert.throws(()=>sql(`SET ROLE ${role};SELECT public.musegod_commit_vault_ledger('robinhood',${quote(commit)});`),/permission denied/);
       assert.throws(()=>sql(`SET ROLE ${role};SELECT public.musegod_backup('robinhood');`),/permission denied/);
     }
+    // Real PostgreSQL capacity regression: 1,200,000 empty-block rows exceeded the former 256 MiB JSON transport budget.
+    const capacityScope="verify-capacity",height=600000;
+    sql(`SET ROLE service_role;SELECT public.musegod_restore('${capacityScope}',public.musegod_backup('restore-ledger'));
+      INSERT INTO public.musegod_vault_ledger_blocks(scope,block_number,payload) SELECT '${capacityScope}',n,jsonb_build_object('number',n::text,'hash','0x'||lpad(to_hex(n+100),64,'0'),'parentHash','0x'||lpad(to_hex(n+99),64,'0')) FROM generate_series(2,${height}) n;
+      INSERT INTO public.musegod_custody_ledger_blocks(scope,ledger_id,block_number,payload) SELECT '${capacityScope}','robinhood_treasury',n,jsonb_build_object('number',n::text,'hash','0x'||lpad(to_hex(n+100),64,'0'),'parentHash','0x'||lpad(to_hex(n+99),64,'0')) FROM generate_series(2,${height}) n;`);
+    const oldBytes=Number(sql(`SET ROLE service_role;SELECT (SELECT sum(octet_length(to_jsonb(b)::text)) FROM public.musegod_vault_ledger_blocks b WHERE scope='${capacityScope}')+(SELECT sum(octet_length(to_jsonb(b)::text)) FROM public.musegod_custody_ledger_blocks b WHERE scope='${capacityScope}');`).split("\n").at(-1));
+    assert.ok(oldBytes>256*1024*1024,"Unbounded ancestry alone exceeds the old backup response budget");
+    const savedVault=JSON.parse(sql(`SET ROLE service_role;SELECT payload FROM public.musegod_vault_ledger_state WHERE scope='${capacityScope}';`).split("\n").at(-1)!);
+    const savedTreasury=JSON.parse(sql(`SET ROLE service_role;SELECT payload FROM public.musegod_custody_ledger_state WHERE scope='${capacityScope}';`).split("\n").at(-1)!);
+    sql(`SET ROLE service_role;
+      SELECT public.musegod_commit_vault_ledger('${capacityScope}',${quote({expectedRevision:savedVault.revision,state:{...savedVault,revision:savedVault.revision+1,cursor:block(height)},blocks:[],events:[]})});
+      SELECT public.musegod_commit_custody_ledger('${capacityScope}',${quote({expectedRevision:savedTreasury.revision,state:{...savedTreasury,revision:savedTreasury.revision+1,cursor:block(height)},blocks:[],events:[]})});
+      INSERT INTO public.musegod_buyback_batches(scope,id,updated_at,payload,sequence) VALUES('${capacityScope}','precision',1,'{"id":"precision"}',9007199254740993123);`);
+    const backupSize=Number(sql(`SET ROLE service_role;SELECT octet_length(public.musegod_backup('${capacityScope}')::text);`).split("\n").at(-1));
+    assert.ok(backupSize<8*1024*1024);assert.equal(sql(`SET ROLE service_role;SELECT count(*) FROM public.musegod_vault_ledger_blocks WHERE scope='${capacityScope}';`).split("\n").at(-1),"4097");
+    assert.equal(sql(`SET ROLE service_role;SELECT count(*) FROM public.musegod_custody_ledger_blocks WHERE scope='${capacityScope}';`).split("\n").at(-1),"4097");
+    sql(`SET ROLE service_role;SELECT public.musegod_restore('restore-capacity',public.musegod_backup('${capacityScope}'));`);
+    assert.equal(sql("SET ROLE service_role;SELECT sequence::text FROM public.musegod_buyback_batches WHERE scope='restore-capacity';").split("\n").at(-1),"9007199254740993123");
+    assert.equal(sql("SET ROLE service_role;SELECT jsonb_typeof(public.musegod_backup('restore-capacity')->'buyback_batches'->0->'sequence');").split("\n").at(-1),"string");
+    for(const table of ["vault","custody"])assert.equal(sql(`SET ROLE service_role;SELECT count(*) FROM public.musegod_${table}_ledger_events WHERE scope='restore-capacity';`).split("\n").at(-1),"1201","Every financial event is restored despite pruned empty-block anchors");
+    console.log(JSON.stringify({capacityHeaders:1200000,oldHeaderBytes:oldBytes,backupBytes:backupSize,retainedAnchorsPerJournal:4097,financialEventsPerJournal:1201}));
     assert.equal(sql("SELECT bool_and(relrowsecurity) FROM pg_class WHERE relname IN ('musegod_vault_ledger_state','musegod_vault_ledger_blocks','musegod_vault_ledger_events');"),"t");
   }finally{store.close();rmSync(directory,{recursive:true,force:true});if(container)try{execFileSync("docker",["rm","-f",container],{stdio:"ignore"})}catch{}}
 });

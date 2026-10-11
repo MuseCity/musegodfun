@@ -21,9 +21,10 @@ import { BuybackReader, BuybackError } from "./buyback";
 import { BuybackBatchService } from "./buyback-batches";
 import { BuybackEngineReader } from "./buyback-engine";
 import { BaseFeeQuoteReader } from "./base-buyback";
-import { createVaultLedgerRuntime, openVaultLedgerReadOnlyStore, readCanonicalBaseSourceBatches } from "./buyback-vault-runtime";
-import { BASE_BUYBACK_PROTOCOL, BASE_LEGACY_ACROSS_PROTOCOL, BASE_BUYBACK_TREASURY, BASE_BUYBACK_VAULT, type BaseCollectorStatus } from "../src/lib/base-buyback";
-import type { VaultLedgerReport } from "../src/lib/buyback-vault-ledger";
+import { createVaultLedgerRuntime, readCanonicalBaseSourceBatches } from "./buyback-vault-runtime";
+import { createPersistedVaultLedgerRuntime, readBaseAuditSnapshot, unavailableBaseCollectorStatus } from "./buyback-audit-snapshot";
+import { BASE_BUYBACK_PROTOCOL, BASE_LEGACY_ACROSS_PROTOCOL } from "../src/lib/base-buyback";
+import { emptyVaultLedgerReport, type VaultLedgerReport } from "../src/lib/buyback-vault-ledger";
 import type { MUSEGODStats } from "../src/lib/buyback";
 import type { LaunchPlan } from "../src/lib/launch-plan";
 import {
@@ -68,6 +69,7 @@ export function createApp(
 ) {
 const app = express(),
   service = new LaunchpadService(runtime);
+service.financialAuditReadOnly = runtime.config.mode !== "fork";
 const images = new TokenImages(runtime.secrets?.pinataJwt, service.store);
 const market = new MarketReader({
   store: service.store,
@@ -80,19 +82,38 @@ const buybackBatches = new BuybackBatchService(buyback, service.store, service.c
   destinationConfig: () => shared.chainConfig?.(4663) ?? Promise.reject(new BuybackError("SIGNING_DISABLED", "The explicit Robinhood recovery runtime is unavailable.")),
 });
 const buybackEngine = new BuybackEngineReader(service.client, () => service.config(), () => service.tokens(), (address, engine) => service.engineClaimPreview(address, engine), service.store, !shared.ingressManaged);
-service.vaultLedgerRuntime = createVaultLedgerRuntime({ runtime, client: service.client, store: service.store });
-const baseFinancialHistory = async () => {
-  if (runtime.dataScope === "base" || runtime.config.mode === "fork") return readCanonicalBaseSourceBatches(service.store);
-  const peer = await openVaultLedgerReadOnlyStore(runtimeFromEnv(8453, runtime.environment ?? {}));
-  try { return await readCanonicalBaseSourceBatches(peer); }
-  finally { await peer.close(); }
-};
-const baseCollector = deploymentChain(runtime.config) === 8453 && runtime.config.feeEngine ? new BaseFeeQuoteReader({
+service.vaultLedgerRuntime = service.financialAuditReadOnly ? createPersistedVaultLedgerRuntime({ runtime, store: service.store })
+  : createVaultLedgerRuntime({ runtime, client: service.client, store: service.store });
+const baseCollector = !service.financialAuditReadOnly && deploymentChain(runtime.config) === 8453 && runtime.config.feeEngine ? new BaseFeeQuoteReader({
   client: service.client, collector: runtime.config.feeEngine,
-  batches: baseFinancialHistory,
+  batches: () => readCanonicalBaseSourceBatches(service.store),
   custodyReport: () => service.vaultLedgerRuntime!.sourceStatus(),
   automationPolicy: () => service.vaultLedgerRuntime!.automationPolicy(),
 }) : null;
+// Display reads share one bounded private snapshot read. Actual signing and
+// canonical maintenance happen on the keeper host, never through these GETs.
+const financialSnapshots = new Map<string, { until: number; value: unknown }>();
+const financialRequests = new Map<string, Promise<unknown>>();
+async function financialRead<T>(key: string, read: () => Promise<T>, request: express.Request): Promise<T> {
+  // no-cache rereads the private database only; it does not request an audit.
+  if (/\bno-cache\b|\bno-store\b/i.test(request.get("cache-control") ?? "") ||
+    /\bno-cache\b/i.test(request.get("pragma") ?? "")) return read();
+  const cached = financialSnapshots.get(key);
+  if (cached && Date.now() < cached.until) return cached.value as T;
+  let pending = financialRequests.get(key);
+  if (!pending) {
+    let timer:ReturnType<typeof setTimeout>|undefined;
+    pending = Promise.race([Promise.resolve().then(read),new Promise<T>((_resolve,reject)=>{
+      timer=setTimeout(()=>reject(new Error("Financial display read timed out; retry canonical status")),15_000);
+    })]).then(value => {
+      const expiry = (value as { auditExpiresAt?: number } | null)?.auditExpiresAt;
+      if(financialRequests.get(key)===pending)financialSnapshots.set(key, { until: Math.min(Date.now() + 5_000, expiry ?? Infinity), value });
+      return value;
+    }).finally(() => {clearTimeout(timer);if(financialRequests.get(key)===pending)financialRequests.delete(key);});
+    financialRequests.set(key, pending);
+  }
+  return pending as Promise<T>;
+}
 const payments = new FirstBuyPaymentReader({ client: service.client, chainId: deploymentChain(runtime.config),
   rpcChainId: runtime.config.mode === "fork" && runtime.config.chainId === 31337 ? 31337 : deploymentChain(runtime.config), ...runtime.lifi, budget: service.store });
 app.set("trust proxy", trustProxy);
@@ -231,22 +252,24 @@ app.post("/api/first-buy/verify", route(async (req, res) => {
 app.get("/api/first-buy-lock/:address", route(async (req, res) =>
   res.json(await service.firstBuyLock(addressSchema.parse(req.params.address))),
 ));
-app.get("/api/buyback/engine", route(async (_req, res) => {
+app.get("/api/buyback/engine", route(async (req, res) => {
   if (deploymentChain(runtime.config) === 4663) { res.json(await buybackEngine.read()); return; }
-  const empty: BaseCollectorStatus = { kind: "base_splits_native", protocol: BASE_BUYBACK_PROTOCOL, chainId: 8453,
-    available: false, collector: null, automation: null, destinationChainId: 4663, destinationTreasury: BASE_BUYBACK_TREASURY,
-    destinationVault: BASE_BUYBACK_VAULT, paused: true, nativeAutomationState: "unverified",
-    totalBridgedWeth: "0", totalRefundedWeth: "0", assets: [], assetsComplete: false, batches: [], ledgerComplete: false,
-    error: "Base fee processing awaits its dedicated Splits Automation account, fee adapter and real fee acceptance." };
-  const status = baseCollector ? await baseCollector.status() : empty;
-  const ledger = await service.vaultLedgerRuntime!.read();
-  const page = baseCollector ? [...(status.available ? status.batches : await baseFinancialHistory())].sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id)).slice(0, 100)
+  res.json(await financialRead("base-engine", async () => {
+  const snapshot = service.financialAuditReadOnly ? await readBaseAuditSnapshot(runtime, service.store) : null;
+  const status = service.financialAuditReadOnly ? snapshot?.collectorStatus ?? unavailableBaseCollectorStatus()
+    : baseCollector ? await baseCollector.status() : unavailableBaseCollectorStatus();
+  const ledger = service.financialAuditReadOnly ? snapshot?.vaultLedger ?? emptyVaultLedgerReport(0n, "The verified host audit snapshot is unavailable or expired.")
+    : await service.vaultLedgerRuntime!.read();
+  const page = status.available ? [...status.batches].sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id)).slice(0, 100)
     : await service.store.buybackBatchPage(100);
-  res.json({ ...status, batches: page.filter(row => row.protocol === BASE_BUYBACK_PROTOCOL).map(row => publicBaseBatch(row, ledger)),
-    ledgerComplete: status.ledgerComplete && ledger.attributionReady && ledger.caughtUp, vaultLedger: ledger });
+  return { ...status, batches: page.filter(row => row.protocol === BASE_BUYBACK_PROTOCOL).map(row => publicBaseBatch(row, ledger)),
+    ledgerComplete: status.ledgerComplete && ledger.attributionReady && ledger.fresh, vaultLedger: ledger,
+    ...(snapshot ? { auditObservedAt: snapshot.observedAt, auditExpiresAt: snapshot.expiresAt,
+      ...(snapshot.failedAt === undefined ? {} : { auditFailedAt: snapshot.failedAt }) } : {}) };
+  }, req));
 }));
-app.get("/api/buyback/vault-ledger", route(async (_req, res) => res.json(await service.vaultLedgerRuntime!.read())));
-app.get("/api/buyback/custody", route(async (_req, res) => res.json(await service.vaultLedgerRuntime!.custody())));
+app.get("/api/buyback/vault-ledger", route(async (req, res) => res.json(await financialRead("vault", () => service.vaultLedgerRuntime!.read(), req))));
+app.get("/api/buyback/custody", route(async (req, res) => res.json(await financialRead("custody", () => service.vaultLedgerRuntime!.custody(), req))));
 let engineQuoting = false;
 app.post("/api/buyback/engine/quote", route(async (req, res) => {
   if (deploymentChain(runtime.config) !== 4663) { res.status(410).json({ code: "AUTOMATIC_BASE_FEES", error: "Base fee conversion is managed by Splits native Automation. Public quote signing is unavailable." }); return; }
@@ -293,15 +316,15 @@ const buybackKind = z.enum(["approval", "deposit", "burn"]);
 app.get("/api/buyback/batches", route(async (req, res) => {
   requireHistoricalBase();
   const limit = z.coerce.number().int().min(1).max(100).default(100).parse(req.query.limit);
-  const before = req.query.before ? z.object({ updatedAt: z.number().nonnegative(), id: z.string().min(1).max(200) }).strict().parse(JSON.parse(String(req.query.before))) : undefined;
+  const before = req.query.before ? z.object({ sequence: z.string().regex(/^[1-9]\d{0,18}$/) }).strict().parse(JSON.parse(String(req.query.before))) : undefined;
   const rows = await service.store.buybackBatchPage(limit, before);
   const ledger = await service.vaultLedgerRuntime!.read();
-  const items = rows.map(row => row.protocol === BASE_BUYBACK_PROTOCOL ? publicBaseBatch(row, ledger)
+  const items = rows.filter(row=>!String(row.protocol).startsWith("internal_native_")).map(row => row.protocol === BASE_BUYBACK_PROTOCOL ? publicBaseBatch(row, ledger)
     : row.protocol === BASE_LEGACY_ACROSS_PROTOCOL ? publicBaseBatch(row)
     : !row.protocol && row.quote && row.hashes && row.steps ? buybackBatches.visible(row as any)
     : { id: row.id, protocol: "historical_unknown", status: "unknown" });
   const last = rows.at(-1);
-  res.json(req.query.limit !== undefined ? { items, nextCursor: rows.length === limit && last ? { updatedAt: last.updatedAt, id: last.id } : null } : items);
+  res.json(req.query.limit !== undefined ? { items, nextCursor: rows.length === limit && last ? { sequence: last.sequence } : null } : items);
 }));
 app.post("/api/buyback/batches", route(async (_req, res) => res.status(410).json({ code: "RELAY_RETIRED", error: "New manual Relay budgets and authorizations are retired." })));
 app.get("/api/buyback/batches/:id/step", route(async (req, res) => {
