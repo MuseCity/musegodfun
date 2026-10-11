@@ -806,6 +806,51 @@
       "paused": false,
       "revision": 1
     },
-    "rollback": "Retain additive schema and all financial rows; application rollback only to protocol 7 / destination policy v3 compatible paused code. Never overwrite a production scope with a backup."
+    "rollback": "Retain additive schema and all financial rows; application rollback only to protocol 7 / destination policy v3 compatible paused code. Never overwrite a production scope with a backup.",
+    "publication": {
+      "observedAt": "2026-10-11T07:07:06.344Z",
+      "worker": "34dbe3a4-36d0-45a5-9a2c-6a2532d61c07",
+      "release": "https://github.com/MuseCity/musegodfun/releases/tag/build-38119840764-1",
+      "source": "32a575f40313ed6dc402bb95a91c19fee3575996",
+      "controls": [
+        {
+          "origin": "https://musegod.fun",
+          "chainId": 8453,
+          "writesEnabled": false,
+          "signingPaused": true,
+          "revision": 0,
+          "feeEngine": null,
+          "feePolicy": "creator-70-musegod-base-automation-v1"
+        },
+        {
+          "origin": "https://musegod.fun",
+          "chainId": 4663,
+          "writesEnabled": true,
+          "signingPaused": false,
+          "revision": 1,
+          "feeEngine": "0x9caefd217ea5a039BbA77Ae5b0626733eA093769",
+          "feePolicy": "creator-70-musegod-swapper-v3"
+        },
+        {
+          "origin": "https://www.musegod.fun",
+          "chainId": 8453,
+          "writesEnabled": false,
+          "signingPaused": true,
+          "revision": 0,
+          "feeEngine": null,
+          "feePolicy": "creator-70-musegod-base-automation-v1"
+        },
+        {
+          "origin": "https://www.musegod.fun",
+          "chainId": 4663,
+          "writesEnabled": true,
+          "signingPaused": false,
+          "revision": 1,
+          "feeEngine": "0x9caefd217ea5a039BbA77Ae5b0626733eA093769",
+          "feePolicy": "creator-70-musegod-swapper-v3"
+        }
+      ],
+      "collectorPaused": true
+    }
   }
 }

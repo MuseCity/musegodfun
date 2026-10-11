@@ -107,7 +107,8 @@
     {
       "step": 7,
       "action": "Publish a compatible paused build; verify both origins and exact source/assets/config. Only complete acceptance allows separately authorized Base flag and latest-revision CAS resume.",
-      "authorization": "publication and public activation require explicit authorization"
+      "authorization": "publication and public activation require explicit authorization",
+      "status": "paused_version_published_verified_public_activation_not_run"
     }
   ],
   "budgets": {
@@ -540,7 +541,7 @@
     "collectorPaused": true,
     "robinhoodPermissionsChanged": false,
     "financialWriterStarted": false,
-    "phase": "compatible_paused_baseline_verified",
+    "phase": "published_paused_verified",
     "minimumRecoveryProtocol": 7,
     "destinationPolicy": "relay-v3-permit2-signed-execution-receipt-v3",
     "rollback": "Establish and verify a real same-graph paused compatibility baseline before the ordinary immutable release. Retain additive schema and all financial state; the old f7c1264 Worker is historical, not the new native rollback target.",
@@ -661,7 +662,7 @@
       },
       "previousWorkerHistoricalOnly": "b99bc36a-bbe1-49d4-b3e7-e3090f00d288",
       "compatibleRollback": "same-graph protocol-7 / receipt-policy-v3 paused baseline; no downgrade to pre-Collector worker",
-      "immutableRelease": "pending"
+      "immutableRelease": "completed; see parent immutableRelease"
     },
     "immutableReleaseAttempt": {
       "runId": 38119316257,
@@ -682,6 +683,105 @@
         "typecheck": "passed",
         "independentToolingReview": "passed"
       }
+    },
+    "completedAt": "2026-10-11T07:07:06.339Z",
+    "sourceCommit": "32a575f40313ed6dc402bb95a91c19fee3575996",
+    "workerVersion": "34dbe3a4-36d0-45a5-9a2c-6a2532d61c07",
+    "immutableRelease": "https://github.com/MuseCity/musegodfun/releases/tag/build-38119840764-1",
+    "workflow": "https://github.com/MuseCity/musegodfun/actions/runs/38119840764",
+    "workflowConclusion": "success",
+    "online": {
+      "observedAt": "2026-10-11T07:06:21.327Z",
+      "results": [
+        {
+          "repository": "https://github.com/MuseCity/musegodfun",
+          "release": "build-38119840764-1",
+          "origin": "https://musegod.fun",
+          "commit": "32a575f40313ed6dc402bb95a91c19fee3575996",
+          "buildId": "build-38119840764-1",
+          "workerVersionId": "34dbe3a4-36d0-45a5-9a2c-6a2532d61c07",
+          "filesVerified": 212,
+          "routesVerified": [
+            "/",
+            "/create"
+          ],
+          "bytesVerified": 2679240,
+          "manifestSha256": "e6885330a134b4e474e5498daab7ce0bc062626cee1beb35dfe3989570d82a5a",
+          "archiveSha256": "1936ea0c8c9ec93f76f379bf14a84e26d6273b5b73773feba32f2cdef642a250"
+        },
+        {
+          "repository": "https://github.com/MuseCity/musegodfun",
+          "release": "build-38119840764-1",
+          "origin": "https://www.musegod.fun",
+          "commit": "32a575f40313ed6dc402bb95a91c19fee3575996",
+          "buildId": "build-38119840764-1",
+          "workerVersionId": "34dbe3a4-36d0-45a5-9a2c-6a2532d61c07",
+          "filesVerified": 212,
+          "routesVerified": [
+            "/",
+            "/create"
+          ],
+          "bytesVerified": 2679240,
+          "manifestSha256": "e6885330a134b4e474e5498daab7ce0bc062626cee1beb35dfe3989570d82a5a",
+          "archiveSha256": "1936ea0c8c9ec93f76f379bf14a84e26d6273b5b73773feba32f2cdef642a250"
+        }
+      ]
+    },
+    "controls": [
+      {
+        "origin": "https://musegod.fun",
+        "chainId": 8453,
+        "writesEnabled": false,
+        "signingPaused": true,
+        "revision": 0,
+        "feeEngine": null,
+        "feePolicy": "creator-70-musegod-base-automation-v1"
+      },
+      {
+        "origin": "https://musegod.fun",
+        "chainId": 4663,
+        "writesEnabled": true,
+        "signingPaused": false,
+        "revision": 1,
+        "feeEngine": "0x9caefd217ea5a039BbA77Ae5b0626733eA093769",
+        "feePolicy": "creator-70-musegod-swapper-v3"
+      },
+      {
+        "origin": "https://www.musegod.fun",
+        "chainId": 8453,
+        "writesEnabled": false,
+        "signingPaused": true,
+        "revision": 0,
+        "feeEngine": null,
+        "feePolicy": "creator-70-musegod-base-automation-v1"
+      },
+      {
+        "origin": "https://www.musegod.fun",
+        "chainId": 4663,
+        "writesEnabled": true,
+        "signingPaused": false,
+        "revision": 1,
+        "feeEngine": "0x9caefd217ea5a039BbA77Ae5b0626733eA093769",
+        "feePolicy": "creator-70-musegod-swapper-v3"
+      }
+    ],
+    "newPaidServices": false,
+    "mainnetTransactions": "none in migration/publication phase",
+    "validation": {
+      "appTests": 1316,
+      "contractTests": 171,
+      "failed": 0,
+      "skipped": 0,
+      "typecheck": "passed",
+      "build": "passed",
+      "artifactReproducibility": "passed"
+    },
+    "compatibleRollback": {
+      "workerVersion": "f33828e5-0e79-44e7-9a54-7ec33200d255",
+      "sourceCommit": "81424c077e79909a10e458c404e82861f6b34e15",
+      "basePaused": true,
+      "robinhoodOperational": true,
+      "requirements": "Stop financial writer before rollback; preserve additive schemas, data and journals; no return to pre-Collector code."
     }
   }
 }
