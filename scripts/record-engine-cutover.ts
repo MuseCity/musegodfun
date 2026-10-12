@@ -5,7 +5,7 @@ import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createPublicClient, getAddress, http, type Hex } from "viem";
 import { robinhood } from "viem/chains";
-import { verifyFeeEngine, type BuybackDeployment } from "../server/buyback-engine";
+import { verifyFeeEngineForOperator as verifyFeeEngine, type BuybackDeployment } from "../server/buyback-engine";
 import { loadEnvironment, redact, runtimeFromEnv } from "../server/config";
 import { assertCutoverReadiness, type EngineLaunchCutover } from "../server/launch-policy-registry";
 

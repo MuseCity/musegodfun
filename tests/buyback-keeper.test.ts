@@ -6,7 +6,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { encodeAbiParameters, getAddress, keccak256, parseAbiParameters, type Address, type Hex } from "viem";
-import { acquireKeeperJournalLock, assertKeeperAccount, assertKeeperDeploymentAccount, assertKeeperGraph, assertKeeperSubmissionRuntime, assertKeeperNonceReady, keeperApiOrigin, keeperGasCost, keeperProfitThreshold, keeperSyncHasNewCredit, keeperTaskWait, KEEPER_TASK_RETRY_POLICY, KeeperSigningStopped, KeeperSubmissionBarrier, readKeeperJournal, readKeeperTaskState, reconcileKeeperJournal, recordKeeperTaskOutcome, redactKeeperError, selectKeeperTasks, writeKeeperJournal, writeKeeperTaskState, type KeeperJournal, type KeeperTaskStateFile } from "../scripts/buyback-keeper";
+import { acquireKeeperJournalLock, assertKeeperAccount, assertKeeperDeploymentAccount, assertKeeperGraph, assertKeeperSubmissionRuntime, assertKeeperNonceReady, createKeeperPublicClientCache, keeperApiOrigin, keeperGasCost, keeperProfitThreshold, keeperSyncHasNewCredit, keeperTaskWait, KEEPER_TASK_RETRY_POLICY, KeeperSigningStopped, KeeperSubmissionBarrier, readKeeperJournal, readKeeperTaskState, reconcileKeeperJournal, recordKeeperTaskOutcome, redactKeeperError, selectKeeperTasks, writeKeeperJournal, writeKeeperTaskState, type KeeperJournal, type KeeperTaskStateFile } from "../scripts/buyback-keeper";
 import { BUYBACK_WETH, BUYBACK_FORWARDER_ALLOWANCE_CAP, buybackAmountCandidates, type BuybackEngineStatus, type EngineAssetStatus } from "../src/lib/buyback-engine";
 import { MUSEGOD_BUYBACK } from "../src/lib/fee-policy";
 import { ENGINE_FEE_POLICY } from "../src/lib/fee-policy";
@@ -30,6 +30,49 @@ test("keeper origins reject non-HTTPS hosts, redirects via paths and embedded cr
   assert.equal(keeperApiOrigin("http://[::1]:5188/"), "http://[::1]:5188");
   for (const bad of ["http://musegod.fun", "http://localhost.evil", "https://user:secret@musegod.fun", "https://musegod.fun/api", "https://musegod.fun?rpc=evil", "https://musegod.fun#secret", "ftp://127.0.0.1"])
     assert.throws(() => keeperApiOrigin(bad));
+});
+
+test("keeper retains one public client across rounds but rereads its chain and replaces it when the RPC binding changes", async t => {
+  const firstUrl = "https://keeper-rpc-a.fixture.test/v2/offline", secondUrl = "https://keeper-rpc-b.fixture.test/v2/offline";
+  const requests: string[] = [];
+  let chainId = 4663;
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input instanceof Request ? input.url : input); assert([firstUrl, secondUrl].includes(url));
+    const request = JSON.parse(input instanceof Request ? await input.text() : String(init?.body));
+    assert.equal(request.method, "eth_chainId"); requests.push(url);
+    return Response.json({ jsonrpc: "2.0", id: request.id, result: `0x${chainId.toString(16)}` });
+  });
+  const clientFor = createKeeperPublicClientCache();
+  const first = await clientFor(4663, firstUrl), secondRound = await clientFor(4663, firstUrl);
+  assert.equal(secondRound, first, "The same client preserves its finalized proof and immutable identity caches");
+  assert.deepEqual(requests, [firstUrl, firstUrl], "A cache hit still makes a new actual RPC chain check");
+  const changedUrl = await clientFor(4663, secondUrl); assert.notEqual(changedUrl, first);
+  chainId = 31337;
+  const changedChain = await clientFor(31337, secondUrl); assert.notEqual(changedChain, changedUrl); assert.equal(changedChain.chain.id, 31337);
+  chainId = 4663;
+  const returned = await clientFor(4663, firstUrl); assert.notEqual(returned, first, "Returning to an old binding cannot resurrect its prior cached proof");
+  assert.deepEqual(requests, [firstUrl, firstUrl, secondUrl, secondUrl, firstUrl]);
+});
+
+test("a changed RPC network or transient chain failure invalidates the retained client before any graph or signing work", async t => {
+  const url = "https://keeper-rpc.fixture.test/v2/offline";
+  let chainId = 4663, unavailable = false, reads = 0;
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    assert.equal(String(input instanceof Request ? input.url : input), url);
+    const request = JSON.parse(input instanceof Request ? await input.text() : String(init?.body));
+    assert.equal(request.method, "eth_chainId"); reads++;
+    if (unavailable) throw new Error("Offline fixture RPC unavailable");
+    return Response.json({ jsonrpc: "2.0", id: request.id, result: `0x${chainId.toString(16)}` });
+  });
+  const clientFor = createKeeperPublicClientCache(), first = await clientFor(4663, url);
+  chainId = 8453;
+  await assert.rejects(clientFor(4663, url), /RPC network differs/);
+  chainId = 4663;
+  const recovered = await clientFor(4663, url); assert.notEqual(recovered, first);
+  unavailable = true; await assert.rejects(clientFor(4663, url), /Offline fixture RPC unavailable/);
+  unavailable = false;
+  const retried = await clientFor(4663, url); assert.notEqual(retried, recovered);
+  assert.equal(reads, 5, "A transport failure is not retried or saved as a successful chain check");
 });
 
 test("keeper gas profitability stays in raw units and rounds the 20 percent buffer upward", () => {

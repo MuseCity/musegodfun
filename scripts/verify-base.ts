@@ -5,7 +5,7 @@ import { base, robinhood } from "viem/chains";
 import { airlockAbi } from "@whetstone-research/doppler-sdk/evm";
 import { CONTRACTS, STOCKS } from "../src/lib/config";
 import { assertStock } from "../src/lib/protocol";
-import { BASE_COLLECTOR_MANIFEST, verifyBaseCollector } from "../server/base-collector";
+import { BASE_COLLECTOR_MANIFEST, verifyBaseCollectorForOperator as verifyBaseCollector } from "../server/base-collector";
 import { readOpeningValuation } from "../server/opening-price";
 import { launchAssetsFor } from "../src/lib/config";
 import { resolve } from "node:path";

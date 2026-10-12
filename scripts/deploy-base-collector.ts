@@ -97,7 +97,7 @@ export async function inspectBaseCollector(manifest: BaseCollectorDeployment, rp
     observed[key] = { address, runtimeHash: keccak256(code), proxyImplementation, proxyCheck: proxyImplementation ? "erc1967" : "direct" };
     if (manifest.dependencies[key].runtimeHash) assert.deepEqual(manifest.dependencies[key], observed[key], `Changed reviewed ${key} dependency`);
   }
-  const { verifyBaseAutomationAccount, verifyBaseCollector } = await import("../server/base-collector");
+  const { verifyBaseAutomationAccount, verifyBaseCollectorForOperator: verifyBaseCollector } = await import("../server/base-collector");
   let accountVerification: "not_initialized" | "verified" = "not_initialized";
   if (manifest.constants.automationReceiver) {
     assert.equal(manifest.automationAccount.address?.toLowerCase(), manifest.constants.automationReceiver.toLowerCase());

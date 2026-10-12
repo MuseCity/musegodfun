@@ -1,4 +1,4 @@
-import { verifyBuybackActivation, type BuybackActivation, type GovernorControlProof } from "./buyback-activation";
+import { verifyBuybackActivation, verifyRecordedBuybackActivation, type BuybackActivation, type GovernorControlProof, type FinalizedBuybackActivation } from "./buyback-activation";
 import { decodeEventLog, decodeFunctionData, encodeAbiParameters, encodeFunctionData, erc20Abi, getAddress, keccak256, parseAbi, parseAbiParameters, type Address, type Hex, type PublicClient, type TransactionReceipt } from "viem";
 import deployment from "../contracts/artifacts/buyback-v2-deployment.json";
 import buybackConfig from "../contracts/buyback.config.json";
@@ -11,6 +11,7 @@ export type BuybackDeployment = {
   contracts: Record<"oracle" | "swapper" | "engine" | "executor" | "forwarder", { address: string | null; runtimeHash: string | null; blockNumber?: string }> & Partial<Record<"assetOracle" | "vault", { address: string | null; runtimeHash: string | null }>>;
   constants: { weth: string; muse: string; initializer: string; rehype: string; router: string; swapRouter: string; swapperFactory: string; beneficiary: string; museWethPool: string; ethUsdFeed: string; treasury: string; automation: string | null; automationTreasury: string | null };
   activation?: BuybackActivation | Record<string, unknown>;
+  activationVerification?: FinalizedBuybackActivation | Record<string, unknown>;
   governance?: { controlProof: GovernorControlProof | Record<string, unknown> | string; [key: string]: unknown };
   assetFeedDescriptions?: Record<string, { description: string; descriptionHash: string }>;
   automation?: { status: string; account: string | null; network: number; outputToken: string; allocationBps: number; recipient: string };
@@ -270,6 +271,15 @@ export async function readFeeFeedProposals(client: Pick<EngineClient, "readContr
 }
 
 export async function verifyFeeEngine(client: EngineClient, candidate: Address, manifest: BuybackDeployment = deployment) {
+  if (manifest.status !== "deployed_verified") throw new Error("The fee engine deployment has not been verified");
+  const graph = await verifyFeeEngineRuntime(client, candidate, manifest);
+  const activation = await verifyRecordedBuybackActivation(client, manifest, graph.blockNumber);
+  return { ...graph, activation };
+}
+
+/** Explicit historical tooling only; public config/quotes and the keeper use
+ * the persisted finalized acceptance above, never this old-receipt replay. */
+export async function verifyFeeEngineForOperator(client: EngineClient, candidate: Address, manifest: BuybackDeployment = deployment) {
   if (manifest.status !== "deployed_verified") throw new Error("The fee engine deployment has not been verified");
   const graph = await verifyFeeEngineRuntime(client, candidate, manifest);
   const activation = await verifyBuybackActivation(client, manifest, graph.blockNumber);

@@ -1,5 +1,5 @@
-import { buybackGraphFingerprint, verifyBuybackActivation } from "../server/buyback-activation";
-import type { BuybackDeployment } from "../server/buyback-engine";
+import { buybackGraphFingerprint, recordFinalizedBuybackActivation } from "../server/buyback-activation";
+import { verifyFeeEngineRuntime, type BuybackDeployment } from "../server/buyback-engine";
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
 import { open, readFile, rename, unlink } from "node:fs/promises";
@@ -12,7 +12,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { robinhood } from "viem/chains";
 import { dirname, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
-import { loadEnvironment, redact, runtimeFromEnv } from "../server/config";
+import { loadEnvironment, mainnetRpcUrl, redact } from "../server/config";
 import buybackConfig from "../contracts/buyback.config.json";
 import { MUSEGOD, MUSEGOD_ROUTER_VERIFICATION } from "../src/lib/musegod";
 
@@ -53,7 +53,7 @@ const bindingAbi = parseAbi([
   "function token0() view returns(address)", "function token1() view returns(address)",
   "function fee() view returns(uint24)", "function description() view returns(string)",
 ]);
-const client = createPublicClient({ chain:robinhood, transport: (await import("viem")).http(runtimeFromEnv().rpcUrl,{timeout:30_000,retryCount:1}) });
+const client = createPublicClient({ chain:robinhood, transport: (await import("viem")).http(mainnetRpcUrl(4663),{batch:{batchSize:20,wait:0},timeout:30_000,retryCount:1}),batch:{multicall:true} });
 let manifest: Deployment;
 try { manifest = JSON.parse(await readFile(path,"utf8")); }
 catch { throw new Error("Prepare the reviewed buyback deployment manifest first"); }
@@ -191,11 +191,24 @@ async function sourceVerify(name:keyof typeof modules,address:Address,creationHa
 
 async function main(args=process.argv.slice(2)) {
   const deploy = args.includes("--deploy");
-  assert(args.every((arg) => ["--deploy", "--verify-only"].includes(arg)), "Use --deploy or --verify-only");
+  assert(args.every((arg) => ["--deploy", "--verify-only", "--record-activation"].includes(arg)), "Use --deploy, --verify-only or --record-activation");
   assert(!(deploy && args.includes("--verify-only")), "Choose one deployment mode");
+  assert(!args.includes("--record-activation") || args.length === 1, "Recording old activation is separate from deployment or source verification");
   assert.equal(await client.getChainId(),4663,"Deployment requires Robinhood mainnet 4663");
   assert.equal(manifest.chainId,4663);
   assert.equal(manifest.schemaVersion,2,"Legacy deployment records must never be overwritten");
+  if (args.includes("--record-activation")) {
+    assert.equal(manifest.status,"deployed_verified","Only the existing verified Robinhood deployment can be recorded");
+    assert(manifest.contracts.engine.address,"The existing engine must be deployed");
+    const graph = await verifyFeeEngineRuntime(client,getAddress(manifest.contracts.engine.address),manifest as unknown as BuybackDeployment);
+    // Only this derived acceptance field is saved. Existing source proofs,
+    // funds, allowances, controls and native rules are untouched.
+    const record = await recordFinalizedBuybackActivation(client,manifest as unknown as BuybackDeployment,graph.blockNumber);
+    manifest.activationVerification = record;
+    await save();
+    console.log(JSON.stringify({status:"finalized_activation_recorded",chainId:4663,activationVerification:record,signed:false,broadcast:false},serialize,2));
+    return;
+  }
   assert.equal(buybackConfig.unpricedFeePolicy,"splits-automation","Unsupported fees require the reviewed Splits Automation route");
   const automation = constants.automation;
   const receiverCode = automation ? await client.getCode({address:automation}) : null;
@@ -264,7 +277,7 @@ async function main(args=process.argv.slice(2)) {
   const rawKey = deploymentPrivateKey();
   const account = deploy && rawKey && /^0x[0-9a-fA-F]{64}$/.test(rawKey) ? privateKeyToAccount(rawKey as Hex) : null;
   if (deploy) assert(account,"Configure the local deployment signer (MUSEGOD_DEPLOY_PRIVATE_KEY or EVM_DY); never send it in chat");
-  const wallet = account ? createWalletClient({chain:robinhood,account,transport:(await import("viem")).http(runtimeFromEnv().rpcUrl,{timeout:30_000,retryCount:0})}) : null;
+  const wallet = account ? createWalletClient({chain:robinhood,account,transport:(await import("viem")).http(mainnetRpcUrl(4663),{timeout:30_000,retryCount:0})}) : null;
   if (account && !Object.values(manifest.contracts).some((entry) => entry.address)) {
     const [balance,gasPrice] = await Promise.all([client.getBalance({address:account.address}),client.getGasPrice()]);
     assert(balance >= 12_000_000n*gasPrice*2n,"The deployer needs enough native ETH for all deployment steps with the fee buffer");
@@ -405,8 +418,14 @@ async function main(args=process.argv.slice(2)) {
   manifest.verifiedAt = new Date().toISOString(); manifest.verificationBlock = String(verificationBlock);
   manifest.graphFingerprint = buybackGraphFingerprint(manifest as unknown as BuybackDeployment);
   try {
-    manifest.activationVerification = { status: "verified", ...await verifyBuybackActivation(client, manifest as unknown as BuybackDeployment, verificationBlock) };
-  } catch {
+    manifest.activationVerification = await recordFinalizedBuybackActivation(client, manifest as unknown as BuybackDeployment, verificationBlock);
+  } catch (error) {
+    if ((manifest.activationVerification as {version?:number;status?:string}|undefined)?.version === 1 &&
+      (manifest.activationVerification as {status?:string}).status === "verified") {
+      // An RPC failure is not a new historical verdict. Retain the completed
+      // record and fail this explicit verification instead of erasing it.
+      await save(); throw error;
+    }
     manifest.activationVerification = { status: "pending", reason: "Runtime/source verification does not activate the graph. Supply canonical funding/settlement receipts and governor-signed control and native scheduler attestations." };
   }
   manifest.mainnetFeeExecution ??= "not_run";

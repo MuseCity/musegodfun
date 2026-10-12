@@ -499,9 +499,51 @@
   "graphFingerprint": "0xa8bd28a62cfb751b3aa30bb32f5e3ddc4e51b4035166a3737642c3d42168e607",
   "activationVerification": {
     "status": "verified",
+    "version": 1,
+    "chainId": 4663,
+    "binding": "0xd510c53c7b49cff0e0ae88fd16f4827c99fc677fd96ccba01a47201236337a32",
     "fingerprint": "0xa8bd28a62cfb751b3aa30bb32f5e3ddc4e51b4035166a3737642c3d42168e607",
     "activatedAtBlock": "83245176",
-    "nativeSchedulerEvidence": "governor_signed_external_attestation_with_canonical_token_receipts"
+    "nativeSchedulerEvidence": "governor_signed_external_attestation_with_canonical_token_receipts",
+    "anchors": [
+      {
+        "number": "83121802",
+        "hash": "0x6dd2b5d8e8273b4518b7d5a6e41fb90cff29dee56b1b3702afad195584f1a9f3"
+      },
+      {
+        "number": "83129329",
+        "hash": "0x1cd344d83878abb017b77e26fd00f104985d28fc0c40542ea2b0a1e87e122b6c"
+      },
+      {
+        "number": "83135170",
+        "hash": "0x7dbb4763f1f76238e59f12e65e061483958b5bf4284fa9f1a80882f6cfa9139c"
+      },
+      {
+        "number": "83234664",
+        "hash": "0x8e1f2e430bb7b8ee7e99159c37c843978b062c125304744bd8996f2db0f1ed6e"
+      },
+      {
+        "number": "83235180",
+        "hash": "0xd5f9e1d6f9a312ad62838f2692f57bd87b8601cfb7da5ded233d50c5c06fbcf9"
+      },
+      {
+        "number": "83238947",
+        "hash": "0xb9c0e36c6f36c9465901ef2d44d360467258dc2e401af8d61c120fcaeb981e2a"
+      },
+      {
+        "number": "83243921",
+        "hash": "0x574d86f64f12f59bcf99ffe6317fb49f6bce014394f9f3f1d03f79535f4d1c9c"
+      },
+      {
+        "number": "83245176",
+        "hash": "0x3ea8bf676850912a5c05e7f0d102c2088c5e5b5495b6f003c22d1a953cd3875c"
+      }
+    ],
+    "finalized": {
+      "number": "85908992",
+      "hash": "0x1541bd2f438f031c7096b78b1cc6f0a68f5a6d6551cd786a7475a3f36d61fd02"
+    },
+    "verifiedAt": 1791730674737
   },
   "forwarderSetup": {
     "source": "0xb3C11Aa2148521A3ef6d446672b720A63a2D8349",

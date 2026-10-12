@@ -4,6 +4,7 @@ import { types } from "node:util";
 import type { Address, Hex, PublicClient, Transport } from "viem";
 import { createBaseKeeperAudit, type BaseKeeperAuditDependencies } from "../scripts/base-keeper-audit";
 import { BASE_COLLECTOR_MANIFEST, type VerifiedBaseCollector } from "../server/base-collector";
+import { BASE_BUYBACK_VAULT, BASE_BUYBACK_RH_WETH } from "../src/lib/base-buyback";
 import { BaseFeeQuoteReader } from "../server/base-buyback";
 import { runtimeFromEnv } from "../server/config";
 import { publishBaseAuditSnapshot, readBaseAuditSnapshot, unavailableBaseCollectorStatus } from "../server/buyback-audit-snapshot";
@@ -24,7 +25,7 @@ function deferred() {
   const promise = new Promise<void>(done => { resolve = done; });
   return { promise, resolve };
 }
-function fixture(t: TestContext, options: { scope?: string; defaultDestination?: boolean; dependencies?: BaseKeeperAuditDependencies } = {}) {
+function fixture(t: TestContext, options: { scope?: string; defaultDestination?: boolean; exerciseGraphs?: boolean; dependencies?: BaseKeeperAuditDependencies } = {}) {
   let now = 10_000, sourceChain = 8453, destinationChain = 4663, httpReads = 0;
   t.mock.method(Date, "now", () => now);
   t.mock.method(globalThis, "fetch", async () => { httpReads++; throw new Error("Public HTTP must not authorize host fee work"); });
@@ -41,7 +42,9 @@ function fixture(t: TestContext, options: { scope?: string; defaultDestination?:
   const source = { ready: false, assets: [], receivedWeth: "0", refundedWeth: "0" };
   let status = unavailableBaseCollectorStatus(), control = { paused: false, revision: 7, updatedAt: now, reason: "offline" };
   let sourceState: any = null, treasuryState: any = null, vaultState: any = null;
-  let onCustody: (() => void | Promise<void>) | undefined, onReconcile: ((chain: number, budget: number) => Promise<void>) | undefined;
+  let onCustody: ((maintenance: boolean) => void | NativeCustodyReadiness | Promise<void | NativeCustodyReadiness>) | undefined,
+    onSource: ((maintenance: boolean) => Promise<typeof source>) | undefined,
+    onReconcile: ((chain: number, budget: number) => Promise<void>) | undefined;
   function store(scope: string) {
     const rows = new Map<string, BuybackBatchRecord>();
     const counts = { closes: 0, financialWrites: 0, auditWrites: 0, snapshotReads: 0 };
@@ -70,20 +73,25 @@ function fixture(t: TestContext, options: { scope?: string; defaultDestination?:
   const ledgers = new Map<number, VaultLedgerRuntime>();
   const createLedger = ((input: any, dependencies: any) => {
     creates.push({ input, dependencies }); const chain = input.runtime.config.chainId;
+    const inspectGraphs = async () => {
+      if (!options.exerciseGraphs) return;
+      await dependencies.verifyCollector(baseClient, collector, { requireActivation: false, robinhoodClient: rhClient, auditStore: baseStore.value });
+      await dependencies.verifyRobinhoodGraph(rhClient);
+    };
     const ledger: VaultLedgerRuntime = {
       async initialize() { calls.push(`initialize:${chain}`); throw new Error("An ordinary host round must not initialize checkpoints"); },
-      async reconcile(budget) { calls.push(`reconcile:${chain}:${budget}`); await onReconcile?.(chain, budget!); return emptyVaultLedgerReport(200n); },
-      async custody() { calls.push(`custody:${chain}`); await onCustody?.(); return custodyReport(); },
-      async read() { calls.push(`vault:${chain}`); return emptyVaultLedgerReport(200n); },
-      async sourceStatus() { calls.push(`source:${chain}`); return clone(source); },
+      async reconcile(budget) { calls.push(`reconcile:${chain}:${budget}`); await inspectGraphs(); await onReconcile?.(chain, budget!); return emptyVaultLedgerReport(200n); },
+      async custody() { calls.push(`custody:${chain}`); await inspectGraphs(); return await onCustody?.(dependencies.fairMaintenance === true) ?? custodyReport(); },
+      async read() { calls.push(`vault:${chain}`); await inspectGraphs(); return emptyVaultLedgerReport(200n); },
+      async sourceStatus() { calls.push(`source:${chain}`); await inspectGraphs(); return onSource ? onSource(dependencies.fairMaintenance === true) : clone(source); },
       async automationPolicy() { calls.push(`policy:${chain}`); return "unverified"; },
       async close() { calls.push(`close:${chain}`); for (const id of [8453, 4663]) {
         const peer = await dependencies.openPeerStore({ config: { chainId: id } }); await peer.close();
       } },
     };
-    ledgers.set(chain, ledger); return ledger;
+    if (!ledgers.has(chain)) ledgers.set(chain, ledger); return ledger;
   }) as BaseKeeperAuditDependencies["createLedger"];
-  const verified: VerifiedBaseCollector = { collector, automationReceiver: automation, paused: false, runtimeHash: blockHash(1),
+  const verified: VerifiedBaseCollector = { collector, automationReceiver: BASE_COLLECTOR_MANIFEST.constants.automationReceiver!, paused: false, runtimeHash: blockHash(1),
     manifestFingerprint: blockHash(2), initialDeploymentBlock: 1n };
   const service = { store: displayStore.value, config: async () => { throw new Error("Public-style config cannot replace local control reads"); } } as unknown as LaunchpadService;
   const audit = createBaseKeeperAudit({ runtime, service, source: baseStore.value, sourceClient: baseClient,
@@ -93,7 +101,10 @@ function fixture(t: TestContext, options: { scope?: string; defaultDestination?:
         assert.equal(client, baseClient); assert.equal(address, collector); assert.equal(options.robinhoodClient, rhClient); assert.equal(options.auditStore, baseStore.value);
         assert.equal(options.requireActivation, false);
         calls.push("graph:8453"); return clone(verified);
-      }) as any, ...options.dependencies });
+      }) as any, verifyRobinhoodGraph: async client => {
+        assert.equal(client, rhClient); calls.push("graph:4663");
+        return { vault: BASE_BUYBACK_VAULT, weth: BASE_COLLECTOR_MANIFEST.constants.destinationWeth, swapper: collector, engineForwarders: [automation] };
+      }, ...options.dependencies });
   t.after(() => audit.close());
   return { audit, runtime, service, baseStore, rhStore, displayStore, baseClient, rhClient, creates, calls, ledgers, verified,
     advance(ms: number) { now += ms; }, now: () => now, httpReads: () => httpReads,
@@ -101,9 +112,21 @@ function fixture(t: TestContext, options: { scope?: string; defaultDestination?:
     setControl(value: Partial<typeof control>) { control = { ...control, ...value }; },
     setStatus(value: typeof status) { status = value; },
     setSourceState(value: any) { sourceState = value; },
-    onCustody(work: () => void | Promise<void>) { onCustody = work; },
+    setTreasuryState(value: any) { treasuryState = value; },
+    onCustody(work: NonNullable<typeof onCustody>) { onCustody = work; },
+    onSource(work: NonNullable<typeof onSource>) { onSource = work; },
     onReconcile(work: (chain: number, budget: number) => Promise<void>) { onReconcile = work; },
   };
+}
+
+/** Offline source projection with the Vault deliberately pending. It is not a
+ * financial-ready checkpoint or an authorization to sign any transaction. */
+function sourceProjectionFixture(received: string): NativeCustodyReadiness {
+  const asset = { asset: collector, ready: true, reason: null, received: "20", pending: "19", baseReceived: "20", basePending: "19" };
+  return { ready: false, reason: "Vault still pending", vault: emptyVaultLedgerReport(200n),
+    automation: { ...emptyCustodyReport("base_automation", 100n), ready: true, fresh: true, revision: 1, checkpointBlock: "1", indexedThrough: "100", lagBlocks: "0", assets: [asset] },
+    treasury: { ...emptyCustodyReport("robinhood_treasury", 200n), ready: true, fresh: true, revision: 1, checkpointBlock: "1", indexedThrough: "200", lagBlocks: "0",
+      assets: [{ ...asset, asset: BASE_BUYBACK_RH_WETH, received, pending: received, baseReceived: received, basePending: received }] } };
 }
 
 test("host explicitly binds each chain's runtime, primary store, peers and RPC without shared-handle ownership", async t => {
@@ -111,6 +134,7 @@ test("host explicitly binds each chain's runtime, primary store, peers and RPC w
   for (const [index, chain, scope, store, client] of [[0, 8453, "base", f.baseStore.value, f.baseClient], [1, 4663, "robinhood", f.rhStore.value, f.rhClient]] as const) {
     const created = f.creates[index]; assert.equal(created.input.runtime.config.chainId, chain); assert.equal(created.input.runtime.dataScope, scope);
     assert.equal(created.input.store, store); assert.equal(created.input.client, client); assert.equal(created.dependencies.auditStore, f.baseStore.value);
+    assert.equal(created.dependencies.readDurationMs, 30_000, "Only the private host grants its two canonical ledgers the longer read budget");
     assert.equal(created.dependencies.createPeerClient({ config: { chainId: chain } }), client);
     const peer = await created.dependencies.openPeerStore(created.input.runtime);
     for (const method of ["commitCustodyLedger", "commitVaultLedger", "saveBuybackBatch", "compareAndSetBuybackAudit"])
@@ -141,8 +165,19 @@ test("canonical journal scopes stay separate from a private canary's launch/cont
 
 test("the ordered round catches RH incoming funds, then Base source evidence, then RH FIFO without initializing checkpoints", async t => {
   const f = fixture(t); f.onReconcile(async () => { f.advance(20); }); await f.audit.reconcile(100);
-  assert.deepEqual(f.calls, ["reconcile:4663:100", "reconcile:8453:80", "reconcile:4663:60"]);
+  assert.deepEqual(f.calls.filter(call => call.startsWith("reconcile:")), ["reconcile:4663:34", "reconcile:8453:33", "reconcile:4663:33"]);
   assert(!f.calls.some(call => call.startsWith("initialize"))); assert.equal((await f.audit.custody()).ready, false);
+  assert.equal(f.baseStore.counts.financialWrites + f.rhStore.counts.financialWrites, 0);
+});
+
+test("sixty-second host maintenance reserves finite RH/Base/RH shares even when earlier RPCs overrun", async t => {
+  const f = fixture(t); f.onReconcile(async () => { f.advance(18_000); });
+  await f.audit.reconcile(60_000);
+  assert.deepEqual(f.calls.filter(call => call.startsWith("reconcile:")), ["reconcile:4663:20000", "reconcile:8453:20000", "reconcile:4663:20000"]);
+  f.calls.length = 0; f.onReconcile(async () => { f.advance(70_000); });
+  await f.audit.reconcile(60_000);
+  assert.deepEqual(f.calls.filter(call => call.startsWith("reconcile:")), ["reconcile:4663:20000", "reconcile:8453:20000", "reconcile:4663:20000"], "Soft-deadline overruns cannot consume another journal's reserved opportunity");
+  assert(!f.calls.some(call => call.startsWith("initialize:")));
   assert.equal(f.baseStore.counts.financialWrites + f.rhStore.counts.financialWrites, 0);
 });
 
@@ -157,15 +192,18 @@ test("a late still-running audit retains singleflight after its deadline; restar
   f.onReconcile(async () => { if (first) { first = false; entered.resolve(); await release.promise; } });
   const initial = f.audit.reconcile(100); await entered.promise; f.advance(101);
   const concurrent = f.audit.reconcile(100); await Promise.resolve(); assert.equal(f.calls.length, 1);
-  release.resolve(); await Promise.all([initial, concurrent]); assert.equal(f.calls.length, 1);
-  await f.audit.reconcile(100); assert.equal(f.calls.filter(call => call.startsWith("reconcile:")).length, 4);
+  release.resolve(); await Promise.all([initial, concurrent]); assert.equal(f.calls.filter(call => call.startsWith("reconcile:")).length, 3);
+  await f.audit.reconcile(100); assert.equal(f.calls.filter(call => call.startsWith("reconcile:")).length, 6);
 });
 
-test("a zero or exhausted budget cannot start another ledger and invalid budgets fail without writes", async t => {
-  const f = fixture(t); await f.audit.reconcile(0); assert.equal(f.calls.length, 0);
-  for (const value of [-1, Infinity, NaN, 180_001]) await assert.rejects(f.audit.reconcile(value), /time budget/);
-  f.onReconcile(async () => { f.advance(100); }); await f.audit.reconcile(100);
-  assert.deepEqual(f.calls, ["reconcile:4663:100"]);
+test("zero starts no ledger and maximum/remainder budgets never overallocate the total logical quota", async t => {
+  const f = fixture(t); await f.audit.reconcile(0); assert(!f.calls.some(call => call.startsWith("reconcile:")));
+  for (const value of [-1, Infinity, NaN, 1.1, 180_001]) await assert.rejects(f.audit.reconcile(value), /time budget/);
+  for (const budget of [1, 2, 100, 60_000, 180_000]) {
+    f.calls.length = 0; f.onReconcile(async () => { f.advance(100_000); }); await f.audit.reconcile(budget);
+    const allocated = f.calls.filter(call => call.startsWith("reconcile:")).map(call => Number(call.split(":")[2]));
+    assert.equal(allocated.reduce((sum, value) => sum + value, 0), budget); assert(allocated.every(value => value > 0 && value <= 60_000));
+  }
 });
 
 test("wrong RPC chains cannot read, reconcile or publish a healthy projection", async t => {
@@ -175,7 +213,7 @@ test("wrong RPC chains cannot read, reconcile or publish a healthy projection", 
     for (const action of [() => f.audit.custody(), () => f.audit.vault(), () => f.audit.engine(), () => f.audit.reconcile(), () => f.audit.publish()])
       await assert.rejects(action(), /financial scopes/);
   }
-  assert.equal(f.calls.length, 0); assert.equal(f.displayStore.counts.auditWrites, 0);
+  assert(!f.calls.some(call => !call.startsWith("close:"))); assert.equal(f.displayStore.counts.auditWrites, 0);
 });
 
 test("fresh local control/config and authority reads have no Worker HTTP dependency", async t => {
@@ -228,14 +266,14 @@ test("live spending authority requires acceptance while display and index graph 
   assert.equal((await f.audit.engine()).available, true);
   f.audit.setVerifiedGraph(f.verified,false);
   const publication = await f.audit.publish(f.verified); assert.equal(publication.graph?.activationVerified, false);
-  assert.deepEqual(checks, ["runtime", false, false]);
+  assert.deepEqual(checks, ["runtime", false], "A display seeded with the same round's checked graph does not repeat its static check");
   retained = true;
   assert.deepEqual(await f.audit.graph(), f.verified);
   t.mock.method(BaseFeeQuoteReader.prototype, "status", async function(this: BaseFeeQuoteReader) {
     const verified = await this.graph(); return { ...unavailableBaseCollectorStatus(), collector: verified.collector };
   });
   assert.equal((await f.audit.engine()).collector, collector);
-  assert.deepEqual(checks, ["runtime", false, false, "runtime", false]); assert.equal(f.httpReads(), 0);
+  assert.deepEqual(checks, ["runtime", false, "runtime", false]); assert.equal(f.httpReads(), 0);
 });
 
 test("host audit uses live activation verification for trusted Splits without a fee-execution proof", async t => {
@@ -285,7 +323,7 @@ for (const failure of ["activation record missing", "acceptance not finalized", 
   } } });
   const result = await f.audit.maintainRound({ observedAt: f.now(), maxDurationMs: 100,
     verifyGraph: async () => f.verified, verifyAuthority: async () => { throw new Error(failure); } });
-  assert.deepEqual(f.calls.filter(call => call.startsWith("reconcile:")), ["reconcile:4663:100", "reconcile:8453:100", "reconcile:4663:100"]);
+  assert.deepEqual(f.calls.filter(call => call.startsWith("reconcile:")), ["reconcile:4663:34", "reconcile:8453:33", "reconcile:4663:33"]);
   assert.equal(result.graph?.collector, collector); assert.equal(result.activationVerified, false); assert.match(String(result.error), new RegExp(failure));
   assert(result.snapshot); assert.equal(result.snapshot.graph?.activationVerified, false); assert.equal(writes.length, 2);
   assert.equal(f.baseStore.counts.financialWrites + f.rhStore.counts.financialWrites, 0);
@@ -326,37 +364,41 @@ test("public display publication uses bound per-scope CAS rows and cannot author
   assert.equal((await f.audit.custody()).ready, false); assert.equal(f.baseStore.counts.financialWrites + f.rhStore.counts.financialWrites, 0);
 });
 
-test("one display projection shares its source status with the default Collector reader", async t => {
-  const f = fixture(t, { dependencies: { readCollectorStatus: undefined } }); let sourceReads = 0;
-  t.mock.method(f.ledgers.get(8453)!, "sourceStatus", async () => ({ ready: false, assets: [], receivedWeth: String(++sourceReads), refundedWeth: "0" }));
+test("one display custody projection supplies both source status and the default Collector reader without a second source session", async t => {
+  const f = fixture(t, { dependencies: { readCollectorStatus: undefined } }); let custodyReads = 0, sourceReads = 0;
+  f.setSourceState({ revision: 1 }); f.setTreasuryState({ revision: 1 });
+  f.onCustody(async () => sourceProjectionFixture(String(++custodyReads)));
+  f.onSource(async () => { sourceReads++; assert.fail("Display must not start another source custody session"); });
   t.mock.method(BaseFeeQuoteReader.prototype, "status", async function(this: BaseFeeQuoteReader) {
     await this.graph(); const source = await this.deps.custodyReport!();
     return { ...unavailableBaseCollectorStatus(), totalBridgedWeth: source.receivedWeth };
   });
-  const published = await f.audit.publish();
-  assert.equal(sourceReads, 1); assert.equal(published.sourceStatus.receivedWeth, "1");
+  const published = await f.audit.publish(f.verified);
+  assert.equal(custodyReads, 1); assert.equal(sourceReads, 0); assert.equal(published.sourceStatus.receivedWeth, "1");
   assert.equal(published.collectorStatus.totalBridgedWeth, published.sourceStatus.receivedWeth);
   assert.equal(f.baseStore.counts.financialWrites + f.rhStore.counts.financialWrites, 0); assert.equal(f.httpReads(), 0);
 });
 
 test("a concurrent spending read stays fresh while a display source projection is pending", async t => {
   const f = fixture(t, { dependencies: { readCollectorStatus: undefined } }), entered = deferred(), release = deferred(); let sourceReads = 0;
-  t.mock.method(f.ledgers.get(8453)!, "sourceStatus", async () => {
+  f.setSourceState({ revision: 1 }); f.setTreasuryState({ revision: 1 });
+  f.onCustody(async () => {
     const reading = ++sourceReads;
     if (reading === 1) { entered.resolve(); await release.promise; }
-    return { ready: false, assets: [], receivedWeth: String(10 + reading), refundedWeth: "0" };
+    return sourceProjectionFixture(String(10 + reading));
   });
+  f.onSource(async () => ({ ready: false, assets: [], receivedWeth: String(10 + ++sourceReads), refundedWeth: "0" }));
   t.mock.method(BaseFeeQuoteReader.prototype, "status", async function(this: BaseFeeQuoteReader) {
     await this.graph(); const source = await this.deps.custodyReport!();
     return { ...unavailableBaseCollectorStatus(), totalBridgedWeth: source.receivedWeth };
   });
-  const publication = f.audit.publish(); await entered.promise;
+  const publication = f.audit.publish(f.verified); await entered.promise;
   assert.equal((await f.audit.engine()).totalBridgedWeth, "12"); assert.equal(sourceReads, 2);
   release.resolve(); const published = await publication;
   assert.equal(published.sourceStatus.receivedWeth, "11"); assert.equal(published.collectorStatus.totalBridgedWeth, "11");
   assert.equal((await f.audit.engine()).totalBridgedWeth, "13");
   f.advance(1);
-  assert.equal((await f.audit.publish()).sourceStatus.receivedWeth, "14"); assert.equal(sourceReads, 4);
+  assert.equal((await f.audit.publish(f.verified)).sourceStatus.receivedWeth, "14"); assert.equal(sourceReads, 4);
   assert.equal(f.baseStore.counts.financialWrites + f.rhStore.counts.financialWrites, 0); assert.equal(f.httpReads(), 0);
 });
 
@@ -378,7 +420,7 @@ test("final canonical anchors cover advancing confirmation heads without renewin
       return { number, hash: blockHash(chain + Number(number)) } as any;
     });
   }
-  t.mock.method(f.ledgers.get(8453)!, "custody", async () => {
+  f.onCustody(async () => {
     f.advance(2000);
     return { ready: false, reason: "Still pending source attribution", automation: emptyCustodyReport("base_automation", 101n),
       treasury: emptyCustodyReport("robinhood_treasury", 201n), vault: emptyVaultLedgerReport(201n) };
@@ -417,4 +459,110 @@ test("closing an active round waits for it and cannot close caller-owned canonic
   const closing = f.audit.close().then(() => { closed = true; }); await Promise.resolve(); assert.equal(closed, false);
   await assert.rejects(f.audit.custody(), /closed/); finish.resolve(); await Promise.all([operation, closing]);
   assert.equal(f.baseStore.counts.closes + f.rhStore.counts.closes, 0); assert.equal(closed, true);
+});
+
+test("one maintenance cycle checks each current graph once across all phases and display, then refreshes next round", async t => {
+  // This exercises orchestration, not receipt acceptance: the publication spy
+  // cannot persist an approval or manufacture financial-ready journal rows.
+  const f = fixture(t, { exerciseGraphs: true, dependencies: { readCollectorStatus: undefined, publishSnapshot: async (_runtime, _store, contents) => contents as any } });
+  t.mock.method(BaseFeeQuoteReader.prototype, "status", async function(this: BaseFeeQuoteReader) {
+    await this.graph(); await this.deps.custodyReport!(); return unavailableBaseCollectorStatus();
+  });
+  for (let round = 1; round <= 2; round++) {
+    const result = await f.audit.maintainRound({ observedAt: f.now(), maxDurationMs: 60_000, verifyAuthority: async () => true });
+    assert.equal(result.error, undefined); assert(result.snapshot); assert.equal(result.activationVerified, true);
+    assert.equal(f.calls.filter(call => call === "graph:8453").length, round);
+    assert.equal(f.calls.filter(call => call === "graph:4663").length, round);
+    assert.equal(f.calls.filter(call => call.startsWith("reconcile:")).length, round * 3);
+    const scoped = f.creates.slice(-2);
+    assert(scoped.every(created => created.dependencies.fairMaintenance === true));
+    assert.notEqual(scoped[0].dependencies.verifyCollector, f.creates[0].dependencies.verifyCollector);
+    assert.notEqual(scoped[0].dependencies.verifyRobinhoodGraph, f.creates[0].dependencies.verifyRobinhoodGraph);
+    f.advance(1);
+  }
+  assert.equal(f.baseStore.counts.financialWrites + f.rhStore.counts.financialWrites, 0);
+});
+
+test("the completed runtime settlement graph supplies the same maintenance cycle without repeating RH verification", async t => {
+  const f = fixture(t, { exerciseGraphs: true });
+  // The real runtime verifier's field-production constraints are covered in
+  // base-collector-verification. This is only its internal orchestration output.
+  f.verified.currentSettlementGraph = { vault: BASE_BUYBACK_VAULT, weth: BASE_COLLECTOR_MANIFEST.constants.destinationWeth,
+    swapper: collector, engineForwarders: [automation] };
+  await f.audit.reconcile(60_000); const unseeded = f.calls.filter(call => call === "graph:4663").length;
+  assert.equal(unseeded, 1);
+  await f.audit.maintainRound({ observedAt: f.now(), maxDurationMs: 60_000, verifyGraph: async () => clone(f.verified) });
+  assert.equal(f.calls.filter(call => call === "graph:4663").length, unseeded, "A fully checked runtime graph must not be rechecked inside every journal/display reader");
+  await f.audit.custody();
+  assert.equal(f.calls.filter(call => call === "graph:4663").length, unseeded + 1, "A concurrent/outside-round financial read must recheck the destination graph");
+  f.advance(1); await f.audit.maintainRound({ observedAt: f.now(), maxDurationMs: 60_000, verifyGraph: async () => clone(f.verified) });
+  assert.equal(f.calls.filter(call => call === "graph:4663").length, unseeded + 1);
+});
+
+test("concurrent graph, custody and engine spending reads observe current account changes independently of the maintenance memo", async t => {
+  let revoked = false, freshChecks = 0;
+  const f = fixture(t, { exerciseGraphs: true, dependencies: { readCollectorStatus: undefined,
+    publishSnapshot: async (_runtime, _store, contents) => contents as any,
+    verifyCollector: (async () => { freshChecks++; if (revoked) throw new Error("Current Automation owner changed"); return clone(f.verified); }) as any } });
+  t.mock.method(BaseFeeQuoteReader.prototype, "status", async function(this: BaseFeeQuoteReader) {
+    await this.graph(); return unavailableBaseCollectorStatus();
+  });
+  const entered = deferred(), release = deferred(); let first = true;
+  f.onReconcile(async () => { if (first) { first = false; entered.resolve(); await release.promise; } });
+  const operation = f.audit.maintainRound({ observedAt: f.now(), maxDurationMs: 60_000, verifyAuthority: async () => true });
+  await entered.promise; assert.equal(freshChecks, 1); revoked = true;
+  await assert.rejects(f.audit.graph(), /Current Automation owner changed/);
+  await assert.rejects(f.audit.custody(), /Current Automation owner changed/);
+  await assert.rejects(f.audit.engine(), /Current Automation owner changed/);
+  assert.equal(freshChecks, 4, "Concurrent financial readers must never borrow the cycle's earlier successful check");
+  release.resolve(); const completed = await operation;
+  assert(completed.snapshot, "Only this display/maintenance cycle may reuse its earlier graph"); assert.equal(freshChecks, 4);
+  f.advance(1); const next = await f.audit.maintainRound({ observedAt: f.now(), maxDurationMs: 60_000, verifyAuthority: async () => true });
+  assert.match(String(next.error), /Current Automation owner changed/); assert.equal(next.activationVerified, false);
+  assert.equal(next.snapshot?.graph ?? null, null); assert(freshChecks > 4);
+  revoked = false; f.advance(1);
+  const recovered = await f.audit.maintainRound({ observedAt: f.now(), maxDurationMs: 60_000, verifyAuthority: async () => true });
+  assert.equal(recovered.error, undefined); assert.equal(recovered.activationVerified, true);
+});
+
+test("revoked runtime authority permits static receipt recovery but never authorizes another fee signature", async t => {
+  const f = fixture(t, { exerciseGraphs: true });
+  const result = await f.audit.maintainRound({ observedAt: f.now(), maxDurationMs: 60_000,
+    verifyGraph: async () => { throw new Error("EIP-1271 live authority revoked"); }, verifyAuthority: async () => { assert.fail("No authority callback without a runtime graph"); } });
+  assert.equal(result.activationVerified, false); assert.match(String(result.error), /authority revoked/);
+  assert.equal(result.graph?.collector, collector); assert.equal(result.snapshot?.graph?.activationVerified, false);
+  assert.equal(f.calls.filter(call => call === "graph:8453").length, 1);
+  assert.equal(f.calls.filter(call => call.startsWith("reconcile:")).length, 3);
+});
+
+test("whole-round singleflight covers initial checks, reconciliation and publication without another writer", async t => {
+  const publications: number[] = [];
+  const f = fixture(t, { dependencies: { publishSnapshot: async (runtime, _store, contents) => { publications.push(runtime.config.chainId); return contents as any; } } }),
+    entered = deferred(), release = deferred(); let graphReads = 0;
+  const options = { observedAt: f.now(), maxDurationMs: 60_000, verifyGraph: async () => {
+    graphReads++; entered.resolve(); await release.promise; return f.verified;
+  }, verifyAuthority: async () => true };
+  const first = f.audit.maintainRound(options); await entered.promise;
+  const second = f.audit.maintainRound(options), third = f.audit.reconcile(60_000);
+  await Promise.resolve(); assert.equal(graphReads, 1); assert.equal(f.creates.length, 2);
+  release.resolve(); const [a, b] = await Promise.all([first, second, third]);
+  assert.equal(a, b); assert.equal(f.calls.filter(call => call.startsWith("reconcile:")).length, 3);
+  assert.deepEqual(publications, [8453, 4663]); assert.equal(f.baseStore.counts.financialWrites + f.rhStore.counts.financialWrites, 0);
+  f.advance(1); await f.audit.maintainRound({ ...options, observedAt: f.now() }); assert.equal(graphReads, 2);
+});
+
+test("a failed per-cycle destination graph is retried next round and never resets financial journals", async t => {
+  let fail = true, reads = 0;
+  const f = fixture(t, { exerciseGraphs: true, dependencies: { publishSnapshot: async (_runtime, _store, contents) => contents as any, verifyRobinhoodGraph: async () => {
+    reads++; if (fail) throw new Error("Temporary RH graph RPC failure");
+    return { vault: BASE_BUYBACK_VAULT, weth: BASE_COLLECTOR_MANIFEST.constants.destinationWeth, swapper: collector };
+  } } });
+  const first = await f.audit.maintainRound({ observedAt: f.now(), maxDurationMs: 60_000, verifyAuthority: async () => true });
+  assert.equal(reads, 1); assert.match(String(first.error), /Temporary RH graph RPC failure/); assert.equal(first.activationVerified, false);
+  assert.equal(first.snapshot?.graph ?? null, null, "A first failed round cannot fabricate a completed snapshot");
+  fail = false; f.advance(1);
+  const recovered = await f.audit.maintainRound({ observedAt: f.now(), maxDurationMs: 60_000, verifyAuthority: async () => true });
+  assert.equal(reads, 2); assert.equal(recovered.error, undefined); assert.equal(recovered.activationVerified, true);
+  assert.equal(f.baseStore.counts.financialWrites + f.rhStore.counts.financialWrites, 0);
+  assert(!f.calls.some(call => call.startsWith("initialize:")));
 });

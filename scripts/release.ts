@@ -8,7 +8,7 @@ import { base } from "viem/chains";
 import { setTimeout as waitForPropagation } from "node:timers/promises";
 import { ENGINE_FEE_POLICY, BASE_AUTOMATION_FEE_POLICY, FEE_POLICY } from "../src/lib/fee-policy";
 import baseCollectorDeployment from "../contracts/artifacts/base-collector-deployment.json";
-import { baseCollectorGraphFingerprint, verifyBaseCollector, type BaseCollectorManifest } from "../server/base-collector";
+import { baseCollectorGraphFingerprint, verifyBaseCollectorForOperator as verifyBaseCollector, type BaseCollectorManifest } from "../server/base-collector";
 import { mainnetRpcUrl } from "../server/config";
 import { STOCKS } from "../src/lib/config";
 import { BASE_BUYBACK_WETH, BASE_RECOVERY_PROTOCOL, BASE_NATIVE_DESTINATION_POLICY } from "../src/lib/base-buyback";

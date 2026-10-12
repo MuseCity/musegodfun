@@ -28,6 +28,12 @@ export type GovernorControlProof = { chainId: number; graphFingerprint: Hex; blo
 type ActivationClient = Pick<PublicClient, "getChainId" | "getCode" | "readContract" | "getTransactionReceipt"> & {
   getBlock(parameters: { blockNumber: bigint } | { blockTag: "finalized" }): Promise<{ number?: bigint | null; hash?: Hex | null }>;
 };
+type ActivationBlock = { number: string; hash: Hex };
+export type FinalizedBuybackActivation = {
+  status: "verified"; version: 1; chainId: 4663; binding: Hex; fingerprint: Hex;
+  activatedAtBlock: string; nativeSchedulerEvidence: "governor_signed_external_attestation_with_canonical_token_receipts";
+  anchors: ActivationBlock[]; finalized: ActivationBlock; verifiedAt: number;
+};
 const unpricedAbi = parseAbi(["event UnpricedForwarded(address indexed token,uint256 amount,address indexed automation)"]);
 const claimedAbi = parseAbi(["event FeesClaimed(bytes32 indexed poolId,address indexed manager,address indexed token,uint256 amount)"]);
 const collectedCounterAbi = parseAbi(["function totalAutomationForwarded(address token) view returns(uint256)"]);
@@ -183,14 +189,7 @@ async function verifyActivationEvidence(client: ActivationClient, manifest: Buyb
 }
 
 type ActivationEvidence = Awaited<ReturnType<typeof verifyActivationEvidence>>;
-const finalizedEvidence = new WeakMap<object, Map<string, { result?: ActivationEvidence; lastBlock?: bigint; inFlight?: Promise<ActivationEvidence> }>>();
-
-/** Only successful evidence whose blocks are finalized may survive a request.
- * Network, governor code/EIP-1271 authority, and the caller's confirmation head
- * remain live checks. Mutable graph/allowances are checked by the graph reader. */
-export async function verifyBuybackActivation(client: ActivationClient, manifest: BuybackDeployment, head: bigint) {
-  // Bind concurrent work to the same proof bytes used for its cache key.
-  manifest = structuredClone(manifest);
+async function verifyCurrentActivationAuthority(client: ActivationClient, manifest: BuybackDeployment, head: bigint) {
   const proof = manifest.activation as BuybackActivation | undefined;
   const control = manifest.governance?.controlProof as GovernorControlProof | undefined;
   if (!proof || proof.schemaVersion !== 1 || proof.chainId !== 4663 || !control || typeof control !== "object" ||
@@ -209,34 +208,114 @@ export async function verifyBuybackActivation(client: ActivationClient, manifest
     signedByGovernor(client, governor, control.signer, control.signature, governorControlMessage(control), head, code),
     signedByGovernor(client, governor, native.signer, native.signature, nativeAcceptanceMessage(native), head, code),
   ]);
-  const key = keccak256(toBytes(JSON.stringify([fingerprint, proof, control])));
-  let cache = finalizedEvidence.get(client);
-  if (!cache) { cache = new Map(); finalizedEvidence.set(client, cache); }
-  let entry = cache.get(key);
-  if (!entry) {
-    entry = {}; cache.set(key, entry);
-    for (const [oldKey, old] of cache) if (cache.size > 16 && oldKey !== key && !old.inFlight) cache.delete(oldKey);
-  }
-  if (!entry.result && !entry.inFlight) {
-    const selected = entry;
-    selected.inFlight = (async () => {
-      const [result, finalized] = await Promise.all([
-        verifyActivationEvidence(client, manifest, head),
-        // Unsupported finalized reads keep the old full replay semantics.
-        client.getBlock({ blockTag: "finalized" }).catch(() => null),
-      ]);
-      const lastBlock = BigInt(control.blockNumber) > BigInt(result.activatedAtBlock) ? BigInt(control.blockNumber) : BigInt(result.activatedAtBlock);
-      if (finalized?.number !== undefined && finalized.number !== null && hash(finalized.hash) && finalized.number >= lastBlock) {
-        selected.result = result; selected.lastBlock = lastBlock;
-      }
-      return result;
-    })().finally(() => {
-      selected.inFlight = undefined;
-      if (!selected.result) cache!.delete(key);
-    });
-  }
-  const result = entry.result ?? await entry.inFlight!;
-  const lastBlock = entry.lastBlock ?? (BigInt(control.blockNumber) > BigInt(result.activatedAtBlock) ? BigInt(control.blockNumber) : BigInt(result.activatedAtBlock));
-  if (head < lastBlock + 64n) throw new Error("Activation receipt is not successful, confirmed and canonical");
-  return { ...result };
+  return { fingerprint, proof, control };
+}
+
+/** Explicit historical verifier for offline/operator tools only. Normal reads
+ * use verifyRecordedBuybackActivation and never replay this acceptance. */
+export async function verifyBuybackActivation(client: ActivationClient, manifest: BuybackDeployment, head: bigint) {
+  manifest = structuredClone(manifest);
+  await verifyCurrentActivationAuthority(client, manifest, head);
+  return verifyActivationEvidence(client, manifest, head);
+}
+
+const pendingRecord = () => new Error("The finalized Robinhood activation record is unavailable or changed; explicit operator recording is required");
+const isObject = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
+const blockNumber = (value: unknown): value is string => typeof value === "string" && /^(0|[1-9]\d{0,77})$/.test(value) && BigInt(value) < 2n ** 256n;
+function canonicalRecordInput(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalRecordInput);
+  if (isObject(value)) return Object.fromEntries(Object.keys(value).sort().filter(key => value[key] !== undefined).map(key => [key, canonicalRecordInput(value[key])]));
+  if (typeof value === "string") return /^0x[\da-f]*$/i.test(value) ? value.toLowerCase() : value;
+  if (value === null || typeof value === "boolean" || typeof value === "number" && Number.isFinite(value)) return value;
+  throw pendingRecord();
+}
+/** Binds the complete financial runtime input, not source-verifier annotations
+ * or this derived record. The packaged manifest is trusted release metadata;
+ * this hash detects drift and is not a governor signature or a public seal. */
+export function buybackActivationRecordBinding(manifest: BuybackDeployment): Hex {
+  const contracts = Object.fromEntries(Object.entries(manifest.contracts).map(([name, entry]) => [name,
+    { address: entry?.address, runtimeHash: entry?.runtimeHash, ...(entry && "blockNumber" in entry ? { blockNumber: entry.blockNumber } : {}) }]));
+  return keccak256(toBytes(JSON.stringify(canonicalRecordInput({ version: 1, chainId: 4663,
+    fingerprint: buybackGraphFingerprint(manifest), schemaVersion: manifest.schemaVersion, status: manifest.status,
+    contracts, constants: manifest.constants, automation: manifest.automation,
+    assetFeedDescriptions: manifest.assetFeedDescriptions, activation: manifest.activation,
+    controlProof: manifest.governance?.controlProof }))));
+}
+function parseActivationBlock(value: unknown): ActivationBlock {
+  if (!isObject(value) || !blockNumber(value.number) || !hash(value.hash)) throw pendingRecord();
+  return { number: value.number, hash: value.hash.toLowerCase() as Hex };
+}
+function parseActivationRecord(manifest: BuybackDeployment): FinalizedBuybackActivation {
+  const value = manifest.activationVerification;
+  if (!isObject(value) || value.status !== "verified" || value.version !== 1 || value.chainId !== 4663 ||
+    value.binding !== buybackActivationRecordBinding(manifest) || value.fingerprint !== buybackGraphFingerprint(manifest) ||
+    !blockNumber(value.activatedAtBlock) || value.nativeSchedulerEvidence !== "governor_signed_external_attestation_with_canonical_token_receipts" ||
+    !Number.isSafeInteger(value.verifiedAt) || Number(value.verifiedAt) <= 0 || !Array.isArray(value.anchors) || !value.anchors.length || value.anchors.length > 24)
+    throw pendingRecord();
+  const anchors = value.anchors.map(parseActivationBlock), finalized = parseActivationBlock(value.finalized);
+  if (new Set(anchors.map(anchor => anchor.number)).size !== anchors.length || anchors.some(anchor => BigInt(anchor.number) > BigInt(finalized.number))) throw pendingRecord();
+  const proof = manifest.activation as BuybackActivation, control = manifest.governance?.controlProof as GovernorControlProof;
+  if (!proof?.legacySwapperCutover || !control || !anchors.some(anchor => anchor.number === control.blockNumber && same(anchor.hash, control.blockHash)) ||
+    !anchors.some(anchor => anchor.number === proof.legacySwapperCutover.blockNumber && same(anchor.hash, proof.legacySwapperCutover.blockHash)) ||
+    !anchors.some(anchor => anchor.number === value.activatedAtBlock)) throw pendingRecord();
+  return { status: "verified", version: 1, chainId: 4663, binding: value.binding as Hex, fingerprint: value.fingerprint as Hex,
+    activatedAtBlock: value.activatedAtBlock, nativeSchedulerEvidence: value.nativeSchedulerEvidence,
+    anchors, finalized, verifiedAt: Number(value.verifiedAt) };
+}
+
+/** Cross-process runtime path: zero historical receipt, log or balance reads.
+ * Keep live governor authority and a canonical finalized checkpoint; mutable
+ * graph, allowance, price and actual funding checks remain at their callers. */
+export async function verifyRecordedBuybackActivation(client: ActivationClient, manifest: BuybackDeployment, head: bigint): Promise<ActivationEvidence> {
+  manifest = structuredClone(manifest);
+  const record = parseActivationRecord(manifest);
+  if (head < BigInt(record.finalized.number) || record.anchors.some(anchor => BigInt(anchor.number) + 64n > head)) throw pendingRecord();
+  await verifyCurrentActivationAuthority(client, manifest, head);
+  const finalized = await client.getBlock({ blockNumber: BigInt(record.finalized.number) });
+  if (finalized.number !== BigInt(record.finalized.number) || !hash(finalized.hash) || !same(finalized.hash, record.finalized.hash)) throw pendingRecord();
+  return { fingerprint: record.fingerprint, activatedAtBlock: record.activatedAtBlock, nativeSchedulerEvidence: record.nativeSchedulerEvidence };
+}
+
+/** One-time operator producer. The caller verifies the current graph first and
+ * atomically saves the returned record in the existing deployment manifest.
+ * No transaction, new fee or native job is created by recording old evidence. */
+export async function recordFinalizedBuybackActivation(client: ActivationClient, manifest: BuybackDeployment, head: bigint): Promise<FinalizedBuybackActivation> {
+  manifest = structuredClone(manifest);
+  let retained: FinalizedBuybackActivation | undefined;
+  try { retained = parseActivationRecord(manifest); } catch { /* Legacy/changed inputs need explicit full operator verification. */ }
+  if (retained) { await verifyRecordedBuybackActivation(client, manifest, head); return retained; }
+  const anchors = new Map<string, ActivationBlock>();
+  const capture = (number: bigint, blockHash: Hex) => {
+    if (number < 0n || !hash(blockHash)) throw pendingRecord();
+    const key = String(number), old = anchors.get(key);
+    if (old && !same(old.hash, blockHash)) throw pendingRecord();
+    anchors.set(key, { number: key, hash: blockHash.toLowerCase() as Hex });
+  };
+  const captured: ActivationClient = { ...client,
+    async getTransactionReceipt(parameters) { const receipt = await client.getTransactionReceipt(parameters); capture(receipt.blockNumber, receipt.blockHash); return receipt; },
+    async getBlock(parameters) {
+      const block = await client.getBlock(parameters);
+      if ("blockNumber" in parameters && block.hash) capture(parameters.blockNumber, block.hash);
+      return block;
+    },
+  };
+  const result = await verifyBuybackActivation(captured, manifest, head);
+  const finalized = await client.getBlock({ blockTag: "finalized" });
+  if (typeof finalized.number !== "bigint" || finalized.number > head || !hash(finalized.hash) ||
+    [...anchors.values()].some(anchor => BigInt(anchor.number) > finalized.number! || BigInt(anchor.number) + 64n > head)) throw pendingRecord();
+  // Recheck every historical anchor and the sampled head before the operator
+  // can publish a completed record; any reorg/RPC error leaves no new record.
+  const headBlock = await client.getBlock({ blockNumber: head });
+  if (headBlock.number !== head || !hash(headBlock.hash)) throw pendingRecord();
+  await Promise.all([...anchors.values(), { number: String(finalized.number), hash: finalized.hash }, { number: String(head), hash: headBlock.hash }].map(async expected => {
+    const actual = await client.getBlock({ blockNumber: BigInt(expected.number) });
+    if (actual.number !== BigInt(expected.number) || !actual.hash || !same(actual.hash, expected.hash)) throw pendingRecord();
+  }));
+  await verifyCurrentActivationAuthority(client, manifest, head);
+  const finalChecks = await Promise.all([client.getBlock({ blockNumber: head }), client.getBlock({ blockNumber: finalized.number })]);
+  if (finalChecks[0].number !== head || !hash(finalChecks[0].hash) || !same(finalChecks[0].hash, headBlock.hash) ||
+    finalChecks[1].number !== finalized.number || !hash(finalChecks[1].hash) || !same(finalChecks[1].hash, finalized.hash)) throw pendingRecord();
+  return { status: "verified", version: 1, chainId: 4663, binding: buybackActivationRecordBinding(manifest), ...result,
+    anchors: [...anchors.values()].sort((a, b) => BigInt(a.number) < BigInt(b.number) ? -1 : 1),
+    finalized: { number: String(finalized.number), hash: finalized.hash.toLowerCase() as Hex }, verifiedAt: Date.now() };
 }

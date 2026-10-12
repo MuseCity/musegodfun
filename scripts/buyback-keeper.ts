@@ -342,6 +342,25 @@ export function redactKeeperError(error: unknown, secrets: (string | undefined)[
   return message.replace(/https?:\/\/[^\s"'<>]+/gi, "[upstream]").slice(0, 500);
 }
 const oracleAbi = parseAbi(["function quoteWethToMuse(uint256 amount) view returns(uint256)"]);
+/** Retain one RPC identity without retaining a successful network check. */
+export function createKeeperPublicClientCache() {
+  const create = (chainId: number, rpcUrl: string) => createPublicClient({
+    chain: defineChain({ ...robinhood, id: chainId, name: chainId === 31337 ? "Keeper local fork" : robinhood.name }),
+    transport: http(rpcUrl, { timeout: 30_000, retryCount: 0 }),
+  });
+  let retained: { chainId: number; rpcUrl: string; client: ReturnType<typeof create> } | undefined;
+  return async (chainId: number, rpcUrl: string) => {
+    const client = retained?.chainId === chainId && retained.rpcUrl === rpcUrl ? retained.client : create(chainId, rpcUrl);
+    try {
+      if (await client.getChainId() !== chainId) throw new Error("The keeper RPC network differs from the platform");
+    } catch (error) {
+      retained = undefined;
+      throw error;
+    }
+    retained = { chainId, rpcUrl, client };
+    return client;
+  };
+}
 async function readApi<T>(origin: string, path: string, body?: unknown): Promise<T> {
   // A local status round may catch up bounded historical pages without Worker limits.
   // Quotes and all public requests keep the existing deadline; broadcast is separate.
@@ -367,6 +386,7 @@ export async function runKeeper(args: string[] = process.argv.slice(2)) {
   if (account && deploymentSenders.some((address) => sameAddress(address, account.address))) throw new Error("The keeper must not reuse a deployment account");
   const attempted = new Map<string, number>();
   const submission = new KeeperSubmissionBarrier();
+  const publicClientFor = createKeeperPublicClientCache();
   const safeError = (error: unknown) => redactKeeperError(error, [rawKey, process.env.MUSEGOD_DEPLOY_PRIVATE_KEY, process.env.EVM_DY, process.env.ALCHEMY_API_KEY, process.env.ROBINHOOD_RPC_URL, process.env.FORK_RPC_URL]);
   let stopping = false;
   let journalPath: string | null = null;
@@ -397,9 +417,8 @@ export async function runKeeper(args: string[] = process.argv.slice(2)) {
         const rpc = new URL(rpcUrl);
         if (config.chainId === 31337 ? !["127.0.0.1", "localhost", "[::1]"].includes(rpc.hostname) : rpc.protocol !== "https:")
           throw new Error("The keeper RPC is not on the expected HTTPS or loopback network");
-        const chain = defineChain({ ...robinhood, id: config.chainId, name: config.chainId === 31337 ? "Keeper local fork" : robinhood.name });
-        const client = createPublicClient({ chain, transport: http(rpcUrl, { timeout: 30_000, retryCount: 0 }) });
-        if (await client.getChainId() !== config.chainId) throw new Error("The keeper RPC network differs from the platform");
+        const client = await publicClientFor(config.chainId, rpcUrl);
+        const chain = client.chain;
         const graph = await verifyFeeEngine(client, config.feeEngine!);
         // Dry runs never create a signing wallet. A public stand-in address is
         // sufficient to simulate permissionless claims and Swapper execution.

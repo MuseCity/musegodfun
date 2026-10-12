@@ -1,7 +1,7 @@
 {
   "schemaVersion": 3,
   "recordedAt": "2026-10-11T04:05:15.032438+00:00",
-  "status": "round9_code_accepted_base_paused_local_commit_prepared",
+  "status": "base_maintenance_closed_locally_public_base_paused_not_deployed",
   "ownerDecision": "OK, implement Base Splits Treasury plus native Automation",
   "architecture": "splits-treasury-native-automation",
   "sourceBaseline": "f7c1264b2995c2c243c7f95419254a3e45d118f2",
@@ -18876,5 +18876,152 @@
     "diffCheck": "passed",
     "contractTests": "not_repeated_locally_no_Solidity_or_compiler_change_CI_requires_full_contract_validation",
     "scope": "Signed trusted-Splits formal manifest plus isolated offline fixtures and initialization-only 60-second preparation budget; ordinary read/reconcile/signing budgets unchanged"
+  },
+  "latestCodeValidation": "baseMaintenanceCloseout",
+  "baseMaintenanceCloseout": {
+    "recordedAt": "2026-10-11T16:02:08.310516+00:00",
+    "ownerDecision": "Save historical Base acceptance once; no daily historical fallback; deduplicate each maintenance round; fix budget starvation. Keep fresh pre-sign/pre-broadcast authorization, real arrival/burn accounting and financial protections. Code/test only, do not deploy; public Base remains paused.",
+    "baselineCommit": "8990f2bb27b12a3ad8bb4583ea19dd7ede091a34",
+    "branch": "codex/add-base-native-automation",
+    "sourceTreeSha256": "811c031f6e957aa79222d85e4ac3c6691b988fc2f882df7d3da2a549866671c6",
+    "sourceTreeFiles": 271,
+    "sourceTreeAlgorithm": "sha256 of sorted tracked path + NUL + bytes + NUL for src/server/scripts/tests/contracts/src plus listed manifests/config/package/lock/CI inputs; evidence documents excluded",
+    "sourceTreeExtraFiles": [
+      ".github/workflows/deploy.yml",
+      "contracts/artifacts/base-collector-deployment.json",
+      "contracts/artifacts/buyback-v2-deployment.json",
+      "contracts/buyback.config.json",
+      "package-lock.json",
+      "package.json",
+      "tsconfig.json",
+      "tsconfig.worker.json",
+      "vite.config.ts",
+      "wrangler.jsonc"
+    ],
+    "scope": "Final local source tree includes the earlier authorized uncommitted Robinhood historical-acceptance closeout and host-read preparation; unrelated work preserved.",
+    "historicalAcceptance": {
+      "dailyModes": [
+        "default",
+        "true",
+        "false",
+        "runtime"
+      ],
+      "dailyPolicy": "exact completed private record plus current graph; no automatic constructor/deployment/account-initialization replay or record creation",
+      "missingOrChangedOrRpcFailure": "retryable_pending",
+      "explicitFullHistory": [
+        "verifyBaseCollectorForOperator",
+        "recordActivation",
+        "isolated legacy canary tooling"
+      ],
+      "currentAnchorAndModuleProtection": "retained",
+      "productionRecordMutationThisTurn": "not_run"
+    },
+    "roundDeduplication": {
+      "readers": "private per-cycle Base/RH maintenance readers are separate from financial fresh readers",
+      "baseGraph": "one successful graph per maintenance cycle, later cycle retries failures",
+      "destinationGraph": "full runtime result reused only after all current settlement checks complete; static recovery verifies it once independently",
+      "display": "one coherent custody report supplies exact fixed-RH-WETH source totals and Collector display",
+      "financialGates": "fresh runtime governor/account/roles/controls/custody/nonce/gas/simulation checks before signing and again before broadcaster entry; no maintenance memo"
+    },
+    "budgetAllocation": {
+      "defaultHostLogicalMs": 60000,
+      "phases": [
+        "Robinhood",
+        "Base",
+        "Robinhood"
+      ],
+      "defaultPhaseMs": [
+        20000,
+        20000,
+        20000
+      ],
+      "maximumHostLogicalMs": 180000,
+      "maximumPhaseLogicalMs": 60000,
+      "rhInternal": "remaining after session preparation is reserved between Treasury and Vault only in host fairMaintenance mode",
+      "softDeadline": "RPCs can overrun; wait for real completion, then start the next reserved phase; no hard wall-clock SLA or background writer",
+      "temporaryFailure": "affected provenance stays pending; valid existing classifications and committed journal prefixes preserved",
+      "wholeRoundSingleflight": "initial checks through publication and actual completion",
+      "ordinaryRobinhoodDefault": "unchanged"
+    },
+    "validation": {
+      "unitTests": {
+        "tests": 1415,
+        "pass": 1415,
+        "fail": 0,
+        "skipped": 0,
+        "cancelled": 0
+      },
+      "targetedTests": {
+        "tests": 186,
+        "passed": 186,
+        "failed": 0,
+        "skipped": 0
+      },
+      "typecheck": "passed",
+      "workerTypecheck": "passed",
+      "build": "passed",
+      "diffCheck": "passed",
+      "contractTests": "not_repeated_no_Solidity_or_compiler_change; prior_171_contract_validation_retained",
+      "logs": [
+        {
+          "path": ".cache/base-maintenance-final-tests.log",
+          "sha256": "f70b27bd2cd4b0e81cc3e21053328c1d3f1c24de9d1a763a17441c56f6b9bb44"
+        },
+        {
+          "path": ".cache/base-maintenance-target-final.log",
+          "sha256": "f5a837c2eb96a7acc35f98d374b031ff2ba16712ed9fe58f2b799610e9d92163"
+        },
+        {
+          "path": ".cache/base-maintenance-final-build.log",
+          "sha256": "028db3cd4f97dab1e8d7fe76d1522fc51300ee5392a5def46ccd17d177856bfa"
+        },
+        {
+          "path": ".cache/base-maintenance-typecheck.log",
+          "sha256": "66c052bad352db513ca7b44fe8ba3ddb0b98a1ce2bff90c0f49e961385b6116a"
+        }
+      ],
+      "regressions": [
+        "all daily record modes make zero deployment/initialization reads on missing/changed/unavailable evidence",
+        "live EIP-1271 revocation still blocks runtime while static receipt recovery stays independent",
+        "per-cycle graph counts and full RH graph seed never leak into concurrent fresh financial readers",
+        "coherent display custody replaces a second source session; ordinary fresh source status has no new Vault dependency",
+        "earlier 70000-ms simulated RPC overrun cannot consume later reserved host or Vault opportunities",
+        "real local Store Treasury/Vault prefixes progress under temporary RPC/capture failure; saved valid fills survive and recover",
+        "whole-round singleflight and shutdown drain actual work without another financial writer",
+        "before-broadcast owner/keeper changes and lease loss still abandon unbroadcast signatures safely"
+      ]
+    },
+    "unchangedFrozenFiles": [
+      {
+        "path": "contracts/artifacts/base-collector-deployment.json",
+        "sha256": "94671d5bbf283c9b2162830f72b544ed940e3789aa5a2f37216ff263ab20478a"
+      },
+      {
+        "path": "contracts/artifacts/base-collector/MusegodBaseFeeCollector.json",
+        "sha256": "53241538b2d8474cd0927544fdda9887fd9500d4e49bf8283ff2801b25ee5b4d"
+      },
+      {
+        "path": "wrangler.jsonc",
+        "sha256": "48170dd56ab19b819427bba0b66173280d9690fa9ab46b983ddf964b592ce19c"
+      },
+      {
+        "path": ".github/workflows/deploy.yml",
+        "sha256": "62db7575e50d4358eab6119f6d459b52b5e217450dfe7a06e55ae6c1bed101d2"
+      }
+    ],
+    "operationalBoundary": {
+      "publicBaseFlag": false,
+      "runtimePermissionMutation": "not_run",
+      "collectorTransaction": "not_run",
+      "mainnetTransaction": "not_run",
+      "deployment": "not_run",
+      "productionJournalCatchup": "not_run",
+      "supervisorInstallOrStart": "not_run",
+      "servicePurchase": "not_run",
+      "commitOrPush": "not_run",
+      "actualArrivalAndDeadTransferAccounting": "retained; no fee or burn fabricated",
+      "productionPerformance": "not_measured; missing peer RPC/storage or checkpoints remains pending",
+      "rollback": "stop prior host writer; retain journals, acceptance, signed hashes and nonce/gas reservations; use paused protocol-7/destination-v3 compatible record-only runtime"
+    }
   }
 }

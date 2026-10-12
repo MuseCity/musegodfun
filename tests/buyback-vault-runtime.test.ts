@@ -6,10 +6,10 @@ import { join } from "node:path";
 import { Store } from "../server/store";
 import { BASE_COLLECTOR_MANIFEST } from "../server/base-collector";
 import { runtimeFromEnv } from "../server/config";
-import { assertNativeCustodyReadiness, createVaultLedgerRuntime, openVaultLedgerReadOnlyStore, readCanonicalBaseSourceBatches } from "../server/buyback-vault-runtime";
+import { assertNativeCustodyReadiness, createVaultLedgerRuntime, nativeSourceStatusFromCustody, openVaultLedgerReadOnlyStore, readCanonicalBaseSourceBatches } from "../server/buyback-vault-runtime";
 import { BASE_BUYBACK_PROTOCOL } from "../src/lib/base-buyback";
 import { sameAddress } from "../src/lib/config";
-import { emptyCustodyReport, type CustodyState } from "../src/lib/buyback-custody-ledger";
+import { emptyCustodyReport, type CustodyReport, type CustodyState } from "../src/lib/buyback-custody-ledger";
 import { emptyVaultLedgerReport } from "../src/lib/buyback-vault-ledger";
 import type { Address, Hex } from "viem";
 const addr=(n:number)=>`0x${n.toString(16).padStart(40,"0")}` as Address,hash=(n:number)=>`0x${n.toString(16).padStart(64,"0")}` as Hex;
@@ -33,13 +33,47 @@ test("readiness requires canonical bounded-fresh Automation, Treasury and Vault 
  assert.doesNotThrow(()=>assertNativeCustodyReadiness(report));
  for(const changed of [{ready:false},{automation:{...report.automation,fresh:false}},{treasury:{...report.treasury,ready:false}},{vault:{...report.vault,attributionReady:false}}])assert.throws(()=>assertNativeCustodyReadiness({...report,...changed}),/checkpoints/);
 });
+
+function sourceStatusReports(){
+ const asset={asset:addr(7),ready:true,reason:null,received:"999999999999999999999999999999999999",pending:"999999999999999999999999999999999999",baseReceived:"100000000000000000000000000000000007",basePending:"100000000000000000000000000000000003"};
+ const automation:CustodyReport={...emptyCustodyReport("base_automation"),ready:true,fresh:true,caughtUp:false,assets:[asset]};
+ const treasury:CustodyReport={...emptyCustodyReport("robinhood_treasury"),ready:true,fresh:true,caughtUp:false,
+  assets:[{...asset,asset:BASE_BUYBACK_WETH,baseReceived:"999999999999999999999999999999999999"},
+   {...asset,asset:`0x${BASE_BUYBACK_RH_WETH.slice(2).toUpperCase()}` as Address,baseReceived:"100000000000000000000000000000000011"}]};
+ const counts={assets:[{asset:addr(7),pending:"100000000000000000000000000000000003",verifiedClaimed:"100000000000000000000000000000000007"}],receivedWeth:"100000000000000000000000000000000011",refundedWeth:"0"};
+ return{automation,treasury,counts};
+}
+
+test("display source status preserves exact attributed raw amounts and only the fixed Robinhood WETH without requiring a Vault projection",()=>{
+ const f=sourceStatusReports(),before=structuredClone(f);
+ assert.deepEqual(nativeSourceStatusFromCustody(f.automation,f.treasury),{ready:true,...f.counts});
+ assert.deepEqual(f,before,"Projection cannot mutate canonical custody reports");
+ assert.equal(nativeSourceStatusFromCustody(f.automation,{...f.treasury,assets:f.treasury.assets.slice(0,1)}).receivedWeth,"0","Base WETH cannot stand in for canonical Robinhood WETH");
+});
+
+test("unready or stale source custody yields no display source income",()=>{
+ const f=sourceStatusReports(),empty={ready:false,assets:[],receivedWeth:"0",refundedWeth:"0"};
+ for(const property of ["ready","fresh"] as const){
+  assert.deepEqual(nativeSourceStatusFromCustody({...f.automation,[property]:false},f.treasury),empty);
+  assert.deepEqual(nativeSourceStatusFromCustody(f.automation,{...f.treasury,[property]:false}),empty);
+ }
+});
+
+test("asset isolation and withheld provenance keep source status pending while preserving already reported verified raw counts",()=>{
+ const f=sourceStatusReports(),pending={ready:false,...f.counts},failed=(report:CustodyReport)=>({...report,assets:report.assets.map((asset,index)=>index?asset:{...asset,ready:false,reason:"Canonical token balance unavailable; asset attribution withheld"})});
+ assert.deepEqual(nativeSourceStatusFromCustody(failed(f.automation),f.treasury),pending);
+ assert.deepEqual(nativeSourceStatusFromCustody(f.automation,failed(f.treasury)),pending);
+ assert.deepEqual(nativeSourceStatusFromCustody({...f.automation,withheldEventIds:[`${hash(3)}:0`]},f.treasury),pending);
+ assert.deepEqual(nativeSourceStatusFromCustody(f.automation,{...f.treasury,withheldEventIds:[`${hash(4)}:1`]}),pending);
+});
+
 test("undeployed and fork runtime remain unavailable and perform no implicit peer/mainnet journal writes",async()=>{
  const directory=mkdtempSync(join(tmpdir(),"native-fork-")),runtime=runtimeFromEnv(8453,{CHAIN_MODE:"fork",FORK_CHAIN_ID:"8453",DATA_DIR:directory}),store=new Store(runtime.dataDir,31337);
  let peers=0;const ledger=createVaultLedgerRuntime({runtime,store,client:{} as any},{openPeerStore:async()=>{peers++;throw new Error("no peer");}});
  try{assert.equal((await ledger.custody()).ready,false);assert.equal((await ledger.read()).attributionReady,false);assert.equal(peers,0);await assert.rejects(()=>ledger.initialize(),/canonical runtime/);await assert.rejects(()=>ledger.reconcile(),/canonical runtime/);}finally{await ledger.close();store.close();rmSync(directory,{recursive:true,force:true});}
 });
 
-function checkpointRuntimeFixture(t:TestContext,chain:8453|4663,graphDelay=13_000,releasedAt?:bigint){
+function checkpointRuntimeFixture(t:TestContext,chain:8453|4663,graphDelay=13_000,releasedAt?:bigint,readDurationMs?:number){
  const directory=mkdtempSync(join(tmpdir(),"native-checkpoint-operator-")),source=new Store(join(directory,"base"),8453),rh=new Store(join(directory,"robinhood"),4663);
  const runtime=runtimeFromEnv(chain,{CHAIN_MODE:chain===8453?"base":"robinhood",DATA_DIR:directory}),collector=addr(30),automation=addr(31);
  let now=0,sourceGraphs=0,destinationGraphs=0,nativeVerifications=0;t.mock.method(Date,"now",()=>now);
@@ -57,6 +91,7 @@ function checkpointRuntimeFixture(t:TestContext,chain:8453|4663,graphDelay=13_00
   kind:"native_relay",status:"received",updatedAt:1,proof:{sourceHash:hash(7),destinationHash:hash(8)}});
  const ledger=createVaultLedgerRuntime({runtime,store,client:(chain===8453?sourceClient:rhClient) as any},{
   manifest:{status:"deployed_verified",collector:{address:collector},activation:{status:"not_run"}} as any,confirmations:1n,
+  ...(readDurationMs===undefined?{}:{readDurationMs}),
   openPeerStore:async(peer)=>peer.config.chainId===8453?source:rh,createPeerClient:(peer)=>(peer.config.chainId===8453?sourceClient:rhClient) as any,
   verifyCollector:async()=>{sourceGraphs++;now+=graphDelay;return{collector,automationReceiver:automation,runtimeHash:hash(2),manifestFingerprint:hash(3),initialDeploymentBlock:1n,paused:true};},
   verifyRobinhoodGraph:async()=>{destinationGraphs++;return{vault:BASE_BUYBACK_VAULT,weth:BASE_BUYBACK_RH_WETH,swapper:addr(32)};},
@@ -96,6 +131,41 @@ test("operator graph preparation that exceeds its 60-second budget cannot write 
  await assert.rejects(f.ledger.initialize(),/maintenance budget reached/);
  assert.equal(f.source.custodyLedgerState("base_automation"),null);assert.equal(f.rh.custodyLedgerState("robinhood_treasury"),null);assert.equal(f.rh.vaultLedgerState(),null);
  assert.deepEqual(f.scans,[]);assert.equal(f.counts().destinationGraphs,0);
+});
+
+test("an explicit thirty-second host read permits a thirteen-second graph while ordinary twelve-second reads stay bounded",async t=>{
+ const ordinary=checkpointRuntimeFixture(t,8453);
+ await assert.rejects(()=>ordinary.ledger.sourceStatus(),/maintenance budget reached/);
+ assert.equal(ordinary.counts().destinationGraphs,0);
+ const host=checkpointRuntimeFixture(t,8453,13_000,undefined,30_000);
+ const status=await host.ledger.sourceStatus();
+ assert.equal(status.ready,false,"An increased read budget never manufactures checkpoints or fee provenance");
+ assert.equal(host.counts().destinationGraphs,1,"The host must reach the actual destination graph after thirteen seconds");
+ await host.ledger.read();assert.equal(host.counts().destinationGraphs,2);
+ assert.equal((await host.ledger.custody()).ready,false);assert.equal(host.counts().destinationGraphs,3);
+ assert.equal(host.source.custodyLedgerState("base_automation"),null);assert.equal(host.rh.custodyLedgerState("robinhood_treasury"),null);assert.equal(host.rh.vaultLedgerState(),null);
+});
+
+test("a thirty-second host budget still stops an overdue graph before destination validation or journal mutation",async t=>{
+ const f=checkpointRuntimeFixture(t,8453,30_001,undefined,30_000);
+ await assert.rejects(()=>f.ledger.sourceStatus(),/maintenance budget reached/);
+ assert.equal((await f.ledger.read()).attributionReady,false);assert.equal((await f.ledger.custody()).ready,false);
+ assert.equal(f.counts().destinationGraphs,0);assert.deepEqual(f.scans,[]);
+ assert.equal(f.source.custodyLedgerState("base_automation"),null);assert.equal(f.rh.custodyLedgerState("robinhood_treasury"),null);assert.equal(f.rh.vaultLedgerState(),null);
+});
+
+test("invalid read budgets cannot disable the sixty-second ceiling, and zero cannot start graph work",async()=>{
+ const f=nativeRuntimeFixture();let graphs=0;
+ const verify=f.deps.verifyCollector;f.deps.verifyCollector=async(...args:any[])=>{graphs++;return verify(...args);};
+ const retained={source:structuredClone(f.source.custodyLedgerState("base_automation")),treasury:structuredClone(f.rh.custodyLedgerState("robinhood_treasury")),vault:structuredClone(f.rh.vaultLedgerState())};
+ try{
+  for(const value of [-1,0.5,NaN,Infinity,60_001,"30000"]){f.deps.readDurationMs=value;assert.throws(()=>f.create(),/Invalid native custody read budget/);}
+  f.deps.readDurationMs=0;const ledger=f.create();
+  try{await assert.rejects(()=>ledger.sourceStatus(),/maintenance budget reached/);assert.equal((await ledger.custody()).ready,false);assert.equal(graphs,0);
+   assert.deepEqual(f.source.custodyLedgerState("base_automation"),retained.source);assert.deepEqual(f.rh.custodyLedgerState("robinhood_treasury"),retained.treasury);assert.deepEqual(f.rh.vaultLedgerState(),retained.vault);
+  }
+  finally{await ledger.close();}
+ }finally{f.close();}
 });
 
 import { encodeAbiParameters, encodeEventTopics, keccak256, parseAbiItem, stringToHex } from "viem";
@@ -150,6 +220,75 @@ function nativeRuntimeDustFixture(count=120,sender?:Address){
  f.deps.verifyNativeDestinationProvider=async()=>false;
  return{...f,events,proof,counters:()=>({receipts,traces,proofs})};
 }
+
+for(const fair of [false,true])test(`Treasury scan timeout ${fair?"preserves the host Vault quota":"retains the ordinary wall deadline"} without skipping or inventing financial events`,async t=>{
+ const f=nativeRuntimeFixture();let now=0,vaultLogs=0;
+ t.mock.method(Date,"now",()=>now);f.deps.fairMaintenance=fair;
+ const source=structuredClone(f.source.custodyLedgerState("base_automation")),batch=structuredClone(f.source.getBuybackBatch(`native-source:${hash(2)}`)),stored=structuredClone(f.rh.vaultLedgerEventPage());
+ f.rhClient.getBlockNumber=async()=>401n;
+ f.rhClient.readContract=async({functionName,args}:any)=>functionName==="balanceOf"&&sameAddress(args?.[0]??"",BASE_BUYBACK_VAULT)?10n:0n;
+ f.rhClient.getLogs=async({args,fromBlock}:any={})=>{
+  const treasury=sameAddress(args?.to??"",BASE_BUYBACK_TREASURY)||sameAddress(args?.from??"",BASE_BUYBACK_TREASURY);
+  if(treasury&&fromBlock===201n)now=70_000; // A transport can return after both the child and original wall deadlines.
+  if(sameAddress(args?.to??"",BASE_BUYBACK_VAULT)||sameAddress(args?.from??"",BASE_BUYBACK_VAULT))vaultLogs++;
+  return[];
+ };
+ const ledger=f.create();try{
+  const report=await ledger.reconcile(60_000);
+  assert.equal(f.rh.custodyLedgerState("robinhood_treasury")!.cursor.number,"200","A fully checked Treasury page survives its later timeout");
+  assert.equal(f.rh.vaultLedgerState()!.cursor.number,fair?"400":"100");assert.equal(vaultLogs>0,fair);
+  assert.equal(report.attributionReady,false);assert.match(report.reason!,/pending|budget/i);
+  assert.deepEqual(f.rh.vaultLedgerEventPage(),stored,"Only real logs can add events or Base classifications");
+  assert.deepEqual(f.source.custodyLedgerState("base_automation"),source);assert.deepEqual(f.source.getBuybackBatch(`native-source:${hash(2)}`),batch);
+ }finally{await ledger.close();f.close();}
+});
+
+test("host maintenance isolates a Treasury RPC failure while Vault indexes canonical pages and the next round resumes the retained Treasury cursor",async t=>{
+ const f=nativeRuntimeFixture();let unavailable=true;
+ t.mock.method(Date,"now",()=>0);f.deps.fairMaintenance=true;f.rhClient.getBlockNumber=async()=>401n;
+ f.rhClient.readContract=async({functionName,args}:any)=>functionName==="balanceOf"&&sameAddress(args?.[0]??"",BASE_BUYBACK_VAULT)?10n:0n;
+ f.rhClient.getLogs=async({args,fromBlock}:any={})=>{
+  if(unavailable&&fromBlock===201n&&(sameAddress(args?.to??"",BASE_BUYBACK_TREASURY)||sameAddress(args?.from??"",BASE_BUYBACK_TREASURY)))throw new Error("Treasury page RPC unavailable");
+  return[];
+ };
+ const source=structuredClone(f.source.custodyLedgerState("base_automation"));
+ const ledger=f.create();try{
+  f.rhClient.getBlockNumber=async()=>101n;await ledger.reconcile(60_000);
+  const stored=structuredClone(f.rh.vaultLedgerEventPage());assert(stored.every(event=>event.kind==="weth_in"&&event.source==="base"));
+  f.rhClient.getBlockNumber=async()=>401n;
+  const pending=await ledger.reconcile(60_000);
+  assert.equal(pending.attributionReady,false);assert.match(pending.reason!,/Treasury maintenance is incomplete/);
+  assert.equal(f.rh.custodyLedgerState("robinhood_treasury")!.cursor.number,"200");assert.equal(f.rh.vaultLedgerState()!.cursor.number,"400");
+  assert.deepEqual(f.rh.vaultLedgerEventPage(),stored,"Unavailable Treasury provenance cannot create, erase or rewrite a Base fill");
+  unavailable=false;const recovered=await ledger.reconcile(60_000);
+  assert.equal(f.rh.custodyLedgerState("robinhood_treasury")!.cursor.number,"400");assert.equal(recovered.attributionReady,true);assert.equal(recovered.baseReceivedWeth,"10");
+  assert.deepEqual(f.source.custodyLedgerState("base_automation"),source,"Destination maintenance remains a read-only Base peer");
+ }finally{await ledger.close();f.close();}
+});
+
+test("native destination capture cannot consume the host Vault's reserved phase or certify its pending Treasury provenance",async t=>{
+ const f=nativeRuntimeFixture();let now=0,captures=0;
+ t.mock.method(Date,"now",()=>now);f.deps.fairMaintenance=true;f.rhClient.getBlockNumber=async()=>102n;
+ f.rhClient.readContract=async({functionName,args}:any)=>functionName==="balanceOf"&&sameAddress(args?.[0]??"",BASE_BUYBACK_VAULT)?10n:0n;
+ f.deps.verifyNativeDestinationProvider=async()=>{captures++;now=70_000;throw new Error("Destination capture RPC returned after its phase deadline");};
+ const stored=structuredClone(f.rh.vaultLedgerEventPage()),ledger=f.create();try{
+  const pending=await ledger.reconcile(60_000);
+  assert.equal(captures,1);assert.equal(f.rh.custodyLedgerState("robinhood_treasury")!.cursor.number,"101");
+  assert.equal(f.rh.vaultLedgerState()!.cursor.number,"101","The capture timeout cannot suppress an independent real Vault scan");
+  assert.equal(pending.attributionReady,false);assert.equal(pending.baseReceivedWeth,"0");assert.match(pending.reason!,/Treasury maintenance is incomplete/);
+  assert.deepEqual(f.rh.vaultLedgerEventPage(),stored,"A pending capture remains unknown and cannot alter FIFO source evidence");
+ }finally{await ledger.close();f.close();}
+});
+
+test("ordinary destination maintenance still fails closed on a non-timeout Treasury RPC error",async()=>{
+ const f=nativeRuntimeFixture();f.rhClient.getBlockNumber=async()=>102n;f.rhClient.getLogs=async()=>{throw new Error("Ordinary Treasury RPC unavailable");};
+ const source=structuredClone(f.source.custodyLedgerState("base_automation")),ledger=f.create();try{
+  await assert.rejects(()=>ledger.reconcile(60_000),/Ordinary Treasury RPC unavailable/);
+  assert.equal(f.rh.custodyLedgerState("robinhood_treasury")!.cursor.number,"100");assert.equal(f.rh.vaultLedgerState()!.cursor.number,"100");
+  assert.deepEqual(f.source.custodyLedgerState("base_automation"),source);
+ }finally{await ledger.close();f.close();}
+});
+
 test("one unresolved candidate retains the already authenticated proof and cannot stop later candidate authentication",async()=>{
  const f=nativeRuntimeDustFixture(2),batch=f.source.getBuybackBatch(`native-source:${hash(2)}`) as any,seen:Hex[]=[];
  const read=()=>readAuditedNativeRelay({source:f.sourceClient as any,destination:f.rhClient as any,store:f.source,batch,graphFingerprint:"pending-isolation",

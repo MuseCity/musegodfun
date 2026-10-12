@@ -41,7 +41,8 @@ export type BaseNativeRunAcceptance = { version: 1; graphFingerprint: Hex; sourc
 export type BasePauseRollbackAcceptance = { version: 1; graphFingerprint: Hex; pauseHash: Hex; resumeHash: Hex;
   evidenceUri: string; evidenceSha256: Hex; signer: Address; signature: Hex };
 export type VerifiedBaseCollector = { collector: Address; paused: boolean; automationReceiver: Address; runtimeHash: Hex;
-  manifestFingerprint: Hex; initialDeploymentBlock: bigint; canaryAuthorization?: BaseCollectorCanaryAuthorization };
+  manifestFingerprint: Hex; initialDeploymentBlock: bigint; canaryAuthorization?: BaseCollectorCanaryAuthorization;
+  currentSettlementGraph?: { vault: Address; weth: Address; swapper: Address; engineForwarders: Address[] } };
 export const BASE_SPLITS_FACTORY = getAddress("0x8E6Af8Ed94E87B4402D0272C5D6b0D47F0483e7C");
 export const BASE_SPLITS_IMPLEMENTATION = getAddress("0x15ec0Fa66A0D96a64d67C58368641fBE9325F3FA");
 export const BASE_SPLITS_FACTORY_HASH = "0x7320f2779f3b27b8dac66bdbfd7063345cee66aca9aa2d56f1b46ba5a9dcab05" as Hex;
@@ -385,9 +386,19 @@ export async function verifyBaseCanaryAuthorization(client: BaseCollectorClient,
   await signedAuthority(client, manifest, authorization.signer, authorization.signature, baseCollectorCanaryMessage(authorization), head);
   return authorization;
 }
-export async function verifyBaseCollector(client: BaseCollectorClient, candidate: Address, options: {
+type BaseCollectorVerificationOptions = {
   manifest?: BaseCollectorManifest; requireActivation?: boolean | "runtime"; recordActivation?: boolean; allowCanary?: boolean; canaryOrigin?: string; robinhoodClient?: BaseCollectorClient; auditStore?: BaseAuditStore;
-} = {}): Promise<VerifiedBaseCollector> {
+};
+export async function verifyBaseCollector(client: BaseCollectorClient, candidate: Address, options: BaseCollectorVerificationOptions = {}): Promise<VerifiedBaseCollector> {
+  return verifyCollector(client, candidate, options, false);
+}
+/** Explicit offline/operator graph verification retains the complete original
+ * deployment and initialization checks. Production maintenance must use the
+ * completed private record through verifyBaseCollector instead. */
+export async function verifyBaseCollectorForOperator(client: BaseCollectorClient, candidate: Address, options: BaseCollectorVerificationOptions = {}): Promise<VerifiedBaseCollector> {
+  return verifyCollector(client, candidate, options, true);
+}
+async function verifyCollector(client: BaseCollectorClient, candidate: Address, options: BaseCollectorVerificationOptions, operatorVerification: boolean): Promise<VerifiedBaseCollector> {
   // Async verification must bind one immutable copy, including full proof bytes.
   const manifest = structuredClone(options.manifest ?? BASE_COLLECTOR_MANIFEST);
   if (options.recordActivation && (options.allowCanary || options.requireActivation === false || options.requireActivation === "runtime" || !options.auditStore))
@@ -397,8 +408,13 @@ export async function verifyBaseCollector(client: BaseCollectorClient, candidate
   const tip = await client.getBlock({ blockTag: "latest" });
   if (tip.number === null || !tip.hash) throw new Error("The Base canonical head is unavailable");
   const head = tip.number;
-  const runtimeAcceptance = options.requireActivation === "runtime" && !options.allowCanary;
-  if (runtimeAcceptance) {
+  const runtimeAcceptance = options.requireActivation !== false && !options.allowCanary &&
+    !options.recordActivation && !operatorVerification;
+  const maintenanceAcceptance = options.requireActivation === false && !options.allowCanary &&
+    !options.recordActivation && !operatorVerification;
+  const acceptedInitialization = runtimeAcceptance || maintenanceAcceptance;
+  let currentSettlementGraph: VerifiedBaseCollector["currentSettlementGraph"];
+  if (acceptedInitialization) {
     if (!baseActivationAcceptanceReady(manifest) || !options.robinhoodClient || !options.auditStore)
       throw new Error("A finalized operator activation record is required for production operation");
     const destinationTip = await options.robinhoodClient.getBlock({ blockTag: "latest" });
@@ -406,10 +422,14 @@ export async function verifyBaseCollector(client: BaseCollectorClient, candidate
     const destination = { number: destinationTip.number, hash: destinationTip.hash };
     await assertBaseActivationRecord(client, options.robinhoodClient, options.auditStore, manifest, baseCollectorGraphFingerprint(manifest),
       { source: { number: head, hash: tip.hash }, destination });
-    await verifyBaseLiveAcceptanceAuthority(client, manifest, head);
-    await currentBaseSettlementGraph(client, options.robinhoodClient, head);
+    // Receipt recovery remains independent of current signing permission, but
+    // unavailable records stay pending and never trigger old deployment reads.
+    if (runtimeAcceptance) {
+      await verifyBaseLiveAcceptanceAuthority(client, manifest, head);
+      await currentBaseSettlementGraph(client, options.robinhoodClient, head, graph => { currentSettlementGraph = graph; });
+    }
   }
-  await Promise.all([verifyDependency(client, manifest.dependencies.initializer, head, "Base initializer"), verifyDependency(client, manifest.dependencies.rehype, head, "Base Rehype"), verifyBaseAutomationAccount(client, manifest, head, options.auditStore, !runtimeAcceptance)]);
+  await Promise.all([verifyDependency(client, manifest.dependencies.initializer, head, "Base initializer"), verifyDependency(client, manifest.dependencies.rehype, head, "Base Rehype"), verifyBaseAutomationAccount(client, manifest, head, options.auditStore, !acceptedInitialization)]);
   const expected = baseCollectorExpectedRuntime(manifest), code = await client.getCode({ address: candidate, blockNumber: head });
   if (keccak256(expected) !== manifest.collector.runtimeHash || !code || code.toLowerCase() !== expected.toLowerCase()) throw new Error("The Base Collector runtime differs from exact compiler output and immutable bindings");
   const getters = <T>(functionName: string) => client.readContract({ address: candidate, abi, functionName, blockNumber: head }) as Promise<T>;
@@ -419,7 +439,7 @@ export async function verifyBaseCollector(client: BaseCollectorClient, candidate
   if (!sameAddress(initializer, fixed.initializer) || !sameAddress(rehype, fixed.rehype) || !sameAddress(governor, manifest.constants.governor!) ||
     !sameAddress(receiver, manifest.constants.automationReceiver!) || sourceChainId !== 8453n || lpShare !== 228n * 10n ** 15n || hookShare !== 24n * 10n ** 16n || typeof paused !== "boolean")
     throw new Error("The Collector fixed fee recipient, governor or economic shares changed");
-  if (!runtimeAcceptance) {
+  if (!acceptedInitialization) {
   const receipt = await canonicalReceipt(client, manifest.collector.transactionHash!, head);
   const transaction = await client.getTransaction({ hash: receipt.transactionHash });
   if (receipt.blockNumber !== BigInt(manifest.collector.blockNumber!) || !receipt.contractAddress || !sameAddress(receipt.contractAddress, candidate) ||
@@ -428,7 +448,7 @@ export async function verifyBaseCollector(client: BaseCollectorClient, candidate
       args: [fixed.initializer, fixed.rehype, governor, receiver] }).toLowerCase()) throw new Error("The Collector canonical constructor deployment differs from the reviewed native graph");
   }
   const result: VerifiedBaseCollector = { collector: candidate, paused, automationReceiver: receiver, runtimeHash: keccak256(code), initialDeploymentBlock: BigInt(manifest.collector.blockNumber!),
-    manifestFingerprint: baseCollectorGraphFingerprint(manifest) };
+    manifestFingerprint: baseCollectorGraphFingerprint(manifest), ...(currentSettlementGraph ? { currentSettlementGraph } : {}) };
   if (options.allowCanary) {
     if (paused) throw new Error("The Collector is paused");
     result.canaryAuthorization = await verifyBaseCanaryAuthorization(client, manifest, head, options.canaryOrigin);
@@ -673,7 +693,8 @@ async function baseAcceptanceAnchors(source: BaseCollectorClient, destination: B
   })) as EvidenceAnchors;
 }
 
-async function currentBaseSettlementGraph(source: BaseCollectorClient, destination: BaseCollectorClient, sourceHead: bigint): Promise<EvidenceBlock> {
+async function currentBaseSettlementGraph(source: BaseCollectorClient, destination: BaseCollectorClient, sourceHead: bigint,
+  onVerified?: (graph: NonNullable<VerifiedBaseCollector["currentSettlementGraph"]>) => void): Promise<EvidenceBlock> {
   if (await destination.getChainId() !== 4663) throw new Error("Base final settlement requires Robinhood RPC");
   const graph = await verifyFeeEngineRuntime(destination as unknown as Parameters<typeof verifyFeeEngineRuntime>[0], getAddress(robinhoodDeployment.contracts.engine.address));
   const tip = await destination.getBlock({ blockNumber: graph.blockNumber });
@@ -694,6 +715,8 @@ async function currentBaseSettlementGraph(source: BaseCollectorClient, destinati
     const code = await destination.getCode({ address: RELAY_ROUTER, blockNumber: graph.blockNumber });
     if (!code || keccak256(code) !== BUYBACK_CODE_HASHES[RELAY_ROUTER.toLowerCase()]) throw new Error("The latest Robinhood Relay endpoint changed");
   })()]);
+  onVerified?.({ vault: graph.vault, weth: getAddress(robinhoodDeployment.constants.weth), swapper: graph.swapper,
+    engineForwarders: [graph.engine, graph.forwarder] });
   return { number: graph.blockNumber, hash: tip.hash };
 }
 

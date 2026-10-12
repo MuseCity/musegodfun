@@ -1176,5 +1176,145 @@
       "beforeFixtureTypecheck": "failed_TS2322"
     },
     "reviewHandling": "Original independent sourceHashes/reviewers are preserved; no reviewer signature or new independent approval is fabricated. Forty other pinned files and all deployed Solidity/artifact bytes are unchanged. The corrected file emits byte-identical JavaScript. A future --deploy remains subject to exact source-gate rebinding; current activation re-verifies the already deployed graph."
+  },
+  "robinhoodPersistentActivationCloseout": {
+    "recordedAt": "2026-10-11T15:06:32.439387+00:00",
+    "ownerDecision": "Historical Robinhood launch acceptance is verified once and persisted; daily execution trusts configured Splits while retaining actual receipt/burn accounting and financial protections. Code/test only; do not deploy; Base stays paused.",
+    "status": "code_and_local_finalized_record_verified_not_deployed",
+    "baselineCommit": "8990f2bb27b12a3ad8bb4583ea19dd7ede091a34",
+    "branch": "codex/add-base-native-automation",
+    "sourceTreeSha256": "92cc31932a270c6e22928fc783085e9f865089f7d200fbddaf9057fb200c269c",
+    "sourceTreeFiles": 271,
+    "sourceTreeAlgorithm": "sha256 of sorted tracked path + NUL + bytes + NUL for src/server/scripts/tests/contracts/src plus listed manifests/config/package/lock/CI inputs; evidence documents excluded",
+    "sourceTreeExtraFiles": [
+      ".github/workflows/deploy.yml",
+      "contracts/artifacts/base-collector-deployment.json",
+      "contracts/artifacts/buyback-v2-deployment.json",
+      "contracts/buyback.config.json",
+      "package-lock.json",
+      "package.json",
+      "tsconfig.json",
+      "tsconfig.worker.json",
+      "vite.config.ts",
+      "wrangler.jsonc"
+    ],
+    "historicalRecord": {
+      "artifact": "contracts/artifacts/buyback-v2-deployment.json",
+      "field": "activationVerification",
+      "binding": "0xd510c53c7b49cff0e0ae88fd16f4827c99fc677fd96ccba01a47201236337a32",
+      "fingerprint": "0xa8bd28a62cfb751b3aa30bb32f5e3ddc4e51b4035166a3737642c3d42168e607",
+      "activatedAtBlock": "83245176",
+      "finalized": {
+        "number": "85908992",
+        "hash": "0x1541bd2f438f031c7096b78b1cc6f0a68f5a6d6551cd786a7475a3f36d61fd02"
+      },
+      "anchors": 8,
+      "verification": "Full existing historical real-mainnet evidence revalidated read-only; all canonical/finalized/64-confirmation checks before local atomic recording. The artifact is trusted release metadata, not a public proof admission service.",
+      "localManifestOnlyDerivedFieldChanged": true
+    },
+    "dailyPath": {
+      "configQuotesAndKeeper": "verifyFeeEngine -> current verifyFeeEngineRuntime + verifyRecordedBuybackActivation; no automatic historical fallback",
+      "keeperClient": "single chain/RPC-bound client, network checked every round; RPC error or rebinding discards it",
+      "historicalTools": "verifyBuybackActivation / verifyFeeEngineForOperator and explicit --record-activation remain separate operator paths",
+      "missingOrInvalid": "pending; no new signature or automatic full replay"
+    },
+    "retained": "Current financial graph, governor EOA/EIP1271 permission, balances/source finite allowance, price/spot/5m/30m checks, 2% protection, shared 0.01 WETH/300s Vault cap, conversion calldata/window/floor, simulate/profit/gas, nonce/durable journal, actual canonical receipts, reorg/recovery and dead-transfer/FIFO accounting.",
+    "validation": {
+      "unitTests": {
+        "pass": 1394,
+        "fail": 0,
+        "skip": 0
+      },
+      "typecheck": "passed",
+      "workerTypecheck": "passed",
+      "build": "passed",
+      "diffCheck": "passed",
+      "independentReadOnlyReview": "No blocker; separate 88-test historical activation/engine/deployment/cutover check before final finality-race regression, complete final suite passed.",
+      "contracts": "No Solidity/compiler/artifact bytecode changes; prior contract acceptance retained, not rerun this code-only closeout."
+    },
+    "readOnlyColdRuntimeProofs": [
+      {
+        "round": 1,
+        "coldClient": true,
+        "chainId": 4663,
+        "recordBinding": "0xd510c53c7b49cff0e0ae88fd16f4827c99fc677fd96ccba01a47201236337a32",
+        "head": "85920695",
+        "activatedAtBlock": "83245176",
+        "sourceAvailable": "0",
+        "historicalReceipts": 0,
+        "logs": 0,
+        "historicalState": 0,
+        "currentState": 176,
+        "elapsedMs": 3981,
+        "signed": false,
+        "broadcast": false
+      },
+      {
+        "round": 2,
+        "coldClient": true,
+        "chainId": 4663,
+        "recordBinding": "0xd510c53c7b49cff0e0ae88fd16f4827c99fc677fd96ccba01a47201236337a32",
+        "head": "85920736",
+        "activatedAtBlock": "83245176",
+        "sourceAvailable": "0",
+        "historicalReceipts": 0,
+        "logs": 0,
+        "historicalState": 0,
+        "currentState": 176,
+        "elapsedMs": 3154,
+        "signed": false,
+        "broadcast": false
+      }
+    ],
+    "production": {
+      "deployed": false,
+      "committed": false,
+      "pushed": false,
+      "databaseWrites": false,
+      "sourceFinancialTransactions": false,
+      "newFundsOrFees": false,
+      "rulesOrAllowancesChanged": false,
+      "permissionsChanged": false,
+      "newServiceOrPurchase": false,
+      "supervisorStarted": false,
+      "controls": [
+        {
+          "origin": "https://musegod.fun",
+          "chainId": 8453,
+          "writesEnabled": false,
+          "signingPaused": true,
+          "revision": 0
+        },
+        {
+          "origin": "https://musegod.fun",
+          "chainId": 4663,
+          "writesEnabled": true,
+          "signingPaused": false,
+          "revision": 1
+        },
+        {
+          "origin": "https://www.musegod.fun",
+          "chainId": 8453,
+          "writesEnabled": false,
+          "signingPaused": true,
+          "revision": 0
+        },
+        {
+          "origin": "https://www.musegod.fun",
+          "chainId": 4663,
+          "writesEnabled": true,
+          "signingPaused": false,
+          "revision": 1
+        }
+      ]
+    },
+    "scopeBoundary": "Earlier uncommitted Base host-readiness repairs are preserved and covered by the final whole-tree suite; this closeout changes no Base runtime-control flags and opens neither chain permissions.",
+    "rollback": "Current production is unchanged. For any later explicitly authorized publication, restore the verified compatible paused build and preserve the manifest record, existing journals and controls; never resurrect source allowances or erase reservations/history.",
+    "commandOutputs": {
+      "units": ".cache/robinhood-activation-tests-final.log",
+      "build": ".cache/robinhood-activation-build-final.log",
+      "recording": ".cache/robinhood-activation-record.log",
+      "coldRuntime": ".cache/robinhood-activation-cold-read.log"
+    }
   }
 }

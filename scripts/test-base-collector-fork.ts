@@ -15,7 +15,7 @@ import { mainnetRpcUrl, redact } from "../server/config";
 import guardArtifact from "../contracts/artifacts/MusegodLaunchGuard.json";
 import { launchGuardAbi } from "../src/lib/launch-guard";
 import { chainLaunchDependencies } from "../server/launch-guard";
-import { BASE_COLLECTOR_MANIFEST, verifyBaseCollector, type BaseCollectorManifest } from "../server/base-collector";
+import { BASE_COLLECTOR_MANIFEST, verifyBaseCollectorForOperator as verifyBaseCollector, type BaseCollectorManifest } from "../server/base-collector";
 
 // Every signature/transaction is bound to unlocked local Anvil accounts. The upstream proxy only forwards reads.
 const fork=await startChainFork(mainnetRpcUrl(8453),8453,8453);

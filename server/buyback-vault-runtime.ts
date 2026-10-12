@@ -26,6 +26,12 @@ export function assertNativeCustodyReadiness(report:NativeCustodyReadiness) {
   if(!report.ready||!report.automation.ready||!report.automation.fresh||!report.treasury.ready||!report.treasury.fresh||!report.vault.attributionReady||!report.vault.fresh)
     throw new Error(report.reason??"Canonical Base Automation, Robinhood Treasury and Vault checkpoints must all be caught up before fee release");
 }
+export function nativeSourceStatusFromCustody(automation:CustodyReport,treasury:CustodyReport) {
+  if(!automation.ready||!automation.fresh||!treasury.ready||!treasury.fresh)return{ready:false,assets:[],receivedWeth:"0",refundedWeth:"0"};
+  return{ready:automation.assets.every(row=>row.ready)&&treasury.assets.every(row=>row.ready)&&!automation.withheldEventIds.length&&!treasury.withheldEventIds.length,
+    assets:automation.assets.map(row=>({asset:row.asset,pending:row.basePending,verifiedClaimed:row.baseReceived})),
+    receivedWeth:treasury.assets.find(row=>sameAddress(row.asset,BASE_BUYBACK_RH_WETH))?.baseReceived??"0",refundedWeth:"0"};
+}
 export type VaultLedgerRuntime={read():Promise<VaultLedgerReport>;automationPolicy():Promise<"unverified"|"configured"|"paused">;custody():Promise<NativeCustodyReadiness>;
   sourceStatus():Promise<{ready:boolean;assets:{asset:Address;pending:string;verifiedClaimed:string}[];receivedWeth:string;refundedWeth:string}>;
   reconcile(maxDurationMs?:number):Promise<VaultLedgerReport>;initialize():Promise<VaultLedgerReport>;close():void|Promise<void>};
@@ -34,7 +40,10 @@ export type VaultLedgerRuntimeDependencies={manifest?:BaseCollectorManifest;open
   auditStore?:BaseAuditStore;
   createPeerClient?:(runtime:Runtime)=>Client;verifyCollector?:typeof verifyBaseCollector;
   verifyRobinhoodGraph?:(client:Client)=>Promise<{vault:Address;weth:Address;swapper:Address;engineForwarders?:Address[]}>;
-  confirmations?:bigint;maxBlocks?:number;verifyNativeRelay?:typeof verifyBaseNativeRelayProof;verifyRelease?:typeof verifyAdapterRelease;verifyForward?:typeof verifyTreasuryForward;
+  confirmations?:bigint;maxBlocks?:number;readDurationMs?:number;
+  /** Private host maintenance reserves a finite independent Vault phase. Ordinary reads and operators retain their wall deadline. */
+  fairMaintenance?:boolean;
+  verifyNativeRelay?:typeof verifyBaseNativeRelayProof;verifyRelease?:typeof verifyAdapterRelease;verifyForward?:typeof verifyTreasuryForward;
   verifyNativeDestinationProvider?:typeof nativeDestinationHasFixedProvider};
 /** Uses the full keyset journal, never the latest-1000 display list. */
 export async function readCanonicalBaseSourceBatches(store:Pick<SourceStore,"buybackBatchPage">,deadline=Infinity):Promise<BaseFeeBatch[]> {
@@ -75,6 +84,8 @@ export function createVaultLedgerRuntime(input:VaultLedgerRuntimeInput,deps:Vaul
   const auditStore=deps.auditStore??input.store;
   const manifest=deps.manifest??BASE_COLLECTOR_MANIFEST,chain=deploymentChain(input.runtime.config),fork=input.runtime.config.mode==="fork";
   const confirmations=deps.confirmations??64n;const extraStores=new Set<PeerStore>();let closed=false;
+  const readDurationMs=deps.readDurationMs??12_000;
+  if(!Number.isSafeInteger(readDurationMs)||readDurationMs<0||readDurationMs>60_000)throw new Error("Invalid native custody read budget");
   const peers=new Map<number,Promise<{runtime:Runtime;store:PeerStore;client:Client}>>();
   const peer=async(id:8453|4663)=>{
     if(closed||fork)throw new Error("A closed runtime or local fork cannot verify canonical cross-chain custody");
@@ -93,7 +104,8 @@ export function createVaultLedgerRuntime(input:VaultLedgerRuntimeInput,deps:Vaul
     const verified=await verifyFeeEngineRuntime(client as unknown as Parameters<typeof verifyFeeEngineRuntime>[0],getAddress(rhDeployment.contracts.engine.address!));
     if(!sameAddress(verified.vault,BASE_BUYBACK_VAULT))throw new Error("RH Vault differs from fixed Treasury destination");
     return{vault:verified.vault,weth:BASE_BUYBACK_RH_WETH,swapper:verified.swapper,engineForwarders:[verified.engine,verified.forwarder]};};
-  const session=async(deadline=Date.now()+12_000,prewarm=true)=>{
+  const session=async(deadline=Date.now()+readDurationMs,prewarm=true)=>{
+    let evidenceDeadline=deadline,treasuryWithheld=false;
     const checkBudget=()=>{if(Date.now()>=deadline)throw new Error("Native maintenance budget reached; pending");};
     const [source,rh]=await Promise.all([peer(8453),peer(4663)]);checkBudget();const checked=await graph(source,rh.client);checkBudget();const checkedRh=await rhGraph(rh.client);checkBudget();const batches=await readCanonicalBaseSourceBatches(source.store,deadline);checkBudget();
     const relayProofs=batches.filter(batch=>batch.kind==="native_relay"&&batch.proof);
@@ -109,12 +121,12 @@ export function createVaultLedgerRuntime(input:VaultLedgerRuntimeInput,deps:Vaul
     const candidateBudget=await prepareNativeCandidateBudget(auditStore,relayProofs.filter(batch=>["received","awaiting_buyback","attributed"].includes(batch.status)&&!ambiguous.has(batch.id)).map(batch=>batch.id),
       {graph:checked.manifestFingerprint??stable({collector:checked.collector,automation:checked.automationReceiver,runtimeHash:checked.runtimeHash}),checkpoint:(await rh.store.custodyLedgerState("robinhood_treasury"))?.checkpoint},deadline);checkBudget();
     let treasuryEvents:Promise<Awaited<ReturnType<typeof readAllCustodyEvents>>>|undefined;
-    const readTreasuryEvents=()=>treasuryEvents??=readAllCustodyEvents(rh.store,"robinhood_treasury",deadline);
+    const readTreasuryEvents=()=>treasuryEvents??=readAllCustodyEvents(rh.store,"robinhood_treasury",evidenceDeadline);
     const relay=async(batch:BaseFeeBatch)=>{if(!batch.proof||ambiguous.has(batch.id)||!["received","awaiting_buyback","attributed"].includes(batch.status))throw new Error("Native proof missing, ambiguous or awaiting canonical recovery");
      if(!relayCache.has(batch.id))relayCache.set(batch.id,(async()=>{
       const audited=await readAuditedNativeRelay({source:source.client,destination:rh.client,store:auditStore,batch,
        graphFingerprint:checked.manifestFingerprint??stable({collector:checked.collector,automation:checked.automationReceiver,runtimeHash:checked.runtimeHash}),
-       treasuryState:await rh.store.custodyLedgerState("robinhood_treasury"),events:await readTreasuryEvents(),budget:candidateBudget,deadline,
+       treasuryState:await rh.store.custodyLedgerState("robinhood_treasury"),events:await readTreasuryEvents(),budget:candidateBudget,deadline:evidenceDeadline,
        verify:()=>(deps.verifyNativeRelay??verifyBaseNativeRelayProof)(source.client,rh.client,batch.proof!,checked.automationReceiver,{auditStore}),authenticate:deps.verifyNativeDestinationProvider});
       const proof=audited.proof;const [sh,dh]=await Promise.all([source.client.getBlockNumber(),rh.client.getBlockNumber()]);
       if(sh<BigInt(proof.sourceBlockNumber)+confirmations||dh<BigInt(proof.destinationBlockNumber)+confirmations)throw new Error("Native proof lacks confirmed depth");
@@ -133,7 +145,7 @@ export function createVaultLedgerRuntime(input:VaultLedgerRuntimeInput,deps:Vaul
         const code=await source.client.getCode({address:checked.collector,blockNumber:BigInt(event.blockNumber)});
         return!!code&&code!=="0x"&&keccak256(code)===checked.runtimeHash&&stable(actual)===stable(evidence);
       }catch{return false;}}});
-    let sourceReport:Promise<CustodyReport>|undefined;const sourceReady=()=>sourceReport??=automation.read(deadline);
+    let sourceReport:Promise<CustodyReport>|undefined;const sourceReady=()=>sourceReport??=automation.read(evidenceDeadline);
     let evidenceEnabled=prewarm;
     const treasury=new CustodyLedgerService(rh.store,rh.client as unknown as PublicClient,{id:"robinhood_treasury",account:BASE_BUYBACK_TREASURY,initialAssets:[BASE_BUYBACK_RH_WETH],confirmations,maxBlocks:deps.maxBlocks,
       verifyEvidence:async(event,evidence,fragments)=>{try{if(!evidenceEnabled||evidence.kind!=="native_relay")return false;const candidates=relayProofs.filter(batch=>["received","awaiting_buyback","attributed"].includes(batch.status)&&!ambiguous.has(batch.id)&&batch.proof!.sourceHash.toLowerCase()===evidence.relay.sourceTransactionHash.toLowerCase());if(candidates.length!==1)return false;
@@ -141,7 +153,9 @@ export function createVaultLedgerRuntime(input:VaultLedgerRuntimeInput,deps:Vaul
         const ar=await sourceReady();if(!ar.fresh)return false;const consumed=ar.consumptions.find(row=>row.eventId===vaultEventId(proof.sourceTransactionHash,proof.sourceTransferLogIndex));
         return!!consumed&&consumed.amount===proof.sourceAmount&&evidence.sourceEventId===consumed.eventId&&stable(nativeRelayFragments(consumed.fragments,proof,candidates[0].id))===stable(fragments);
       }catch{return false;}}});
-    let treasuryReport:Promise<CustodyReport>|undefined;const treasuryReady=()=>treasuryReport??=treasury.read(deadline);
+    let treasuryReport:Promise<CustodyReport>|undefined;const treasuryReady=()=>treasuryWithheld
+      ?Promise.resolve(emptyCustodyReport("robinhood_treasury",0n,"Treasury maintenance is incomplete; provenance pending"))
+      :treasuryReport??=treasury.read(evidenceDeadline);
     const nativeVaultProof=async(event:VaultLedgerEvent):Promise<VaultBaseFillEvidence|null>=>{
       if(event.kind!=="weth_in"||!sameAddress(event.from,BASE_BUYBACK_TREASURY))return null;const tr=await treasuryReady();if(!tr.ready)return null;
       const consumed=tr.consumptions.find(row=>row.eventId===event.id);if(!consumed)return null;
@@ -151,8 +165,11 @@ export function createVaultLedgerRuntime(input:VaultLedgerRuntimeInput,deps:Vaul
         ...(forward?{forwarderLogIndex:forward.forwarderLogIndex}:{}),fillTransactionHash:event.transactionHash,fillBlockHash:event.blockHash,fillLogIndex:event.logIndex,recipient:BASE_BUYBACK_VAULT,outputToken:BASE_BUYBACK_RH_WETH,outputAmount:event.amount};};
     const vault=new VaultLedgerService(rh.store,rh.client as unknown as PublicClient,{...checkedRh,confirmations,maxBlocks:deps.maxBlocks,resolveBaseFill:nativeVaultProof,verifyBaseFill:async(event,evidence)=>{
       if(!("protocol"in evidence))return false;try{const actual=await nativeVaultProof(event);return!!actual&&matchingNativeVaultProof(actual,evidence);}catch{return false;}}});
-    const readVault=async()=>{const report=await vault.read(deadline);return Date.now()>=deadline?emptyVaultLedgerReport(BigInt(report.confirmedThrough),"Native attribution read budget reached; projection pending"):report;};
-    return{source,rh,checked,batches,relayProofs,relay,automation,treasury,vault,readVault,nativeVaultProof,sourceReady,treasuryReady,enableEvidence:()=>{evidenceEnabled=true;treasuryReport=undefined;},refreshTreasury:()=>{treasuryReport=undefined;}};
+    const readVault=async()=>{const report=await vault.read(evidenceDeadline);return Date.now()>=evidenceDeadline?emptyVaultLedgerReport(BigInt(report.confirmedThrough),"Native attribution read budget reached; projection pending"):report;};
+    return{source,rh,checked,batches,relayProofs,relay,automation,treasury,vault,readVault,nativeVaultProof,sourceReady,treasuryReady,
+      beginEvidencePhase:(nextDeadline:number,withholdTreasury=false)=>{evidenceDeadline=nextDeadline;treasuryWithheld=withholdTreasury;
+        sourceReport=undefined;treasuryReport=undefined;treasuryEvents=undefined;relayCache.clear();},
+      enableEvidence:()=>{evidenceEnabled=true;treasuryReport=undefined;},refreshTreasury:()=>{treasuryReport=undefined;}};
   };
   const custody=async():Promise<NativeCustodyReadiness>=>{try{const work=await session();const [automation,treasury,vault]=await Promise.all([work.sourceReady(),work.treasuryReady(),work.readVault()]);
     const ready=automation.ready&&automation.fresh&&treasury.ready&&treasury.fresh&&vault.attributionReady&&vault.fresh;
@@ -170,24 +187,30 @@ export function createVaultLedgerRuntime(input:VaultLedgerRuntimeInput,deps:Vaul
         return checked.paused?"paused":"configured";
       }catch{return "unverified";}
     },
-    async sourceStatus(){const work=await session(),ar=await work.sourceReady(),tr=await work.treasuryReady();if(!ar.ready||!ar.fresh||!tr.ready||!tr.fresh)return{ready:false,assets:[],receivedWeth:"0",refundedWeth:"0"};
-      return{ready:ar.assets.every(row=>row.ready)&&tr.assets.every(row=>row.ready)&&!ar.withheldEventIds.length&&!tr.withheldEventIds.length,assets:ar.assets.map(row=>({asset:row.asset,pending:row.basePending,verifiedClaimed:row.baseReceived})),receivedWeth:tr.assets.find(row=>sameAddress(row.asset,BASE_BUYBACK_RH_WETH))?.baseReceived??"0",refundedWeth:"0"};},
+    async sourceStatus(){const work=await session(),ar=await work.sourceReady(),tr=await work.treasuryReady();return nativeSourceStatusFromCustody(ar,tr);},
     async initialize(){writer(chain as 8453|4663);const work=await session(Date.now()+60_000,false);const guard=async()=>{
       const initial=BigInt(work.checked.initialDeploymentBlock),head=await work.source.client.getBlockNumber(),event=parseAbiItem("event FeesReleased(address indexed token,address indexed receiver,uint256 amount)");
       for(let from=initial;from<=head;from+=10n)if((await work.source.client.getLogs({address:work.checked.collector,event,fromBlock:from,toBlock:from+9n<head?from+9n:head,strict:true})).length)return false;
       return true;};
       if(chain===8453)await work.automation.establishCheckpoint(guard);
       else{await work.treasury.establishCheckpoint(guard);await work.vault.establishCheckpoint(guard);}return work.readVault();},
-    async reconcile(maxDurationMs=45_000){writer(chain as 8453|4663);const deadline=Date.now()+maxDurationMs,work=await session(deadline,false);if(Date.now()>=deadline)return emptyVaultLedgerReport(0n,"Native maintenance budget reached; pending");
+    async reconcile(maxDurationMs=45_000){writer(chain as 8453|4663);let deadline=Date.now()+maxDurationMs;const work=await session(deadline,false);if(Date.now()>=deadline)return emptyVaultLedgerReport(0n,"Native maintenance budget reached; pending");
       if(chain===8453){await work.automation.reconcile(Math.max(0,deadline-Date.now()));if(Date.now()>=deadline)return emptyVaultLedgerReport(0n,"Native maintenance budget reached; pending");const events=await readAllCustodyEvents(work.source.store,"base_automation",deadline);
         for(const event of events)if(event.kind==="in"&&!event.evidence&&sameAddress(event.from,work.checked.collector)&&Date.now()<deadline){try{const evidence=await(deps.verifyRelease??verifyAdapterRelease)(work.source.client,event,work.checked.collector,work.checked.automationReceiver);await work.automation.classify(event.id,[{batchId:event.id,amount:event.amount}],evidence,deadline);}catch{/* Unknown transfers remain unknown. */}}if(Date.now()<deadline)await observeNativeRelayBatches({source:work.source.client,destination:work.rh.client,store:input.store as StoreBackend,
           collector:work.checked.collector,automation:work.checked.automationReceiver,sourceEvents:events,treasuryEvents:await readAllCustodyEvents(work.rh.store,"robinhood_treasury",deadline),batches:work.batches,deadline,auditStore});
         work.enableEvidence();return Date.now()>=deadline?emptyVaultLedgerReport(0n,"Native maintenance budget reached; pending"):work.readVault();}
-      await work.treasury.reconcile(Math.max(0,deadline-Date.now()));if(Date.now()>=deadline)return emptyVaultLedgerReport(0n,"Native maintenance budget reached; pending");const events=await readAllCustodyEvents(work.rh.store,"robinhood_treasury",deadline);
-      await captureNativeRelayDestinations({destination:work.rh.client,collector:work.checked.collector,treasuryEvents:events,batches:work.batches,deadline,auditStore},{provider:deps.verifyNativeDestinationProvider});
+      const fair=deps.fairMaintenance===true,remaining=Math.max(0,deadline-Date.now()),treasuryBudget=fair?Math.floor(remaining/2):remaining,vaultBudget=remaining-treasuryBudget;
+      const treasuryDeadline=fair?Date.now()+treasuryBudget:deadline;let treasuryIncomplete=false;
+      if(fair)work.beginEvidencePhase(treasuryDeadline);
+      try{
+      await work.treasury.reconcile(Math.max(0,treasuryDeadline-Date.now()));
+      if(Date.now()>=treasuryDeadline){if(!fair)return emptyVaultLedgerReport(0n,"Native maintenance budget reached; pending");treasuryIncomplete=true;}
+      else{
+      const events=await readAllCustodyEvents(work.rh.store,"robinhood_treasury",treasuryDeadline);
+      await captureNativeRelayDestinations({destination:work.rh.client,collector:work.checked.collector,treasuryEvents:events,batches:work.batches,deadline:treasuryDeadline,auditStore},{provider:deps.verifyNativeDestinationProvider});
       work.enableEvidence();
-      const ar=await work.automation.read(deadline);
-      if(ar.ready)for(const batch of work.relayProofs){if(Date.now()>=deadline)break;try{const proof=await work.relay(batch),event=events.find(row=>row.id===vaultEventId(proof.destinationTransactionHash,proof.destinationTransferLogIndex));
+      const ar=await work.automation.read(treasuryDeadline);
+      if(ar.ready)for(const batch of work.relayProofs){if(Date.now()>=treasuryDeadline)break;try{const proof=await work.relay(batch),event=events.find(row=>row.id===vaultEventId(proof.destinationTransactionHash,proof.destinationTransferLogIndex));
         const consumption=ar.consumptions.find(row=>row.eventId===vaultEventId(proof.sourceTransactionHash,proof.sourceTransferLogIndex));
         if(event&&consumption){
           const fragments=nativeRelayFragments(consumption.fragments,proof,batch.id),evidence={kind:"native_relay" as const,relay:proof,sourceRevision:ar.revision,sourceEventId:consumption.eventId};
@@ -197,9 +220,16 @@ export function createVaultLedgerRuntime(input:VaultLedgerRuntimeInput,deps:Vaul
           // rewrite the retained verified classification merely because a peer
           // was temporarily unable to revalidate one of its funding releases.
           if(event.evidence?.kind==="native_relay"&&ar.withheldEventIds.length&&known(fragments)<known(event.fragments))continue;
-          if(!unchanged)await work.treasury.classify(event.id,fragments,evidence,deadline);
+          if(!unchanged)await work.treasury.classify(event.id,fragments,evidence,treasuryDeadline);
         }
       }catch{/* Missing/unsupported/ambiguous provider evidence stays unknown. */}}
+      if(Date.now()>=treasuryDeadline)treasuryIncomplete=true;
+      }
+      }catch(error){if(!fair)throw error;treasuryIncomplete=true;}
+      // A Treasury RPC may return after its soft deadline. Its independent
+      // reserved quota must still let the single writer index real Vault events.
+      if(fair){deadline=Date.now()+vaultBudget;work.beginEvidencePhase(deadline,treasuryIncomplete);}
+      work.enableEvidence();
       work.refreshTreasury();
       await work.vault.reconcile(Math.max(0,deadline-Date.now()));let after:VaultEventCursor|undefined;
       for(;;){const page=await work.rh.store.vaultLedgerEventPage(500,after);for(const event of page)if(event.kind==="weth_in"&&["unknown","base"].includes(event.source)&&Date.now()<deadline){
@@ -209,7 +239,9 @@ export function createVaultLedgerRuntime(input:VaultLedgerRuntimeInput,deps:Vaul
           }else if(event.source==="base"&&sameAddress(event.from,BASE_BUYBACK_TREASURY)&&(await work.treasuryReady()).ready)await work.vault.invalidateBaseFill(event.id,deadline);
           }catch{/* One ambiguous/temporarily unavailable Forwarder receipt withholds that event, not the complete maintenance loop. */}
         }
-        if(page.length<500||Date.now()>=deadline)break;const last=page.at(-1)!;after={blockNumber:last.blockNumber,transactionIndex:last.transactionIndex,logIndex:last.logIndex};}return Date.now()>=deadline?emptyVaultLedgerReport(0n,"Native maintenance budget reached; pending"):work.readVault();},
+        if(page.length<500||Date.now()>=deadline)break;const last=page.at(-1)!;after={blockNumber:last.blockNumber,transactionIndex:last.transactionIndex,logIndex:last.logIndex};}
+      const report=Date.now()>=deadline?emptyVaultLedgerReport(0n,"Native maintenance budget reached; pending"):await work.readVault();
+      return fair&&treasuryIncomplete?{...report,attributionReady:false,reason:"Treasury maintenance is incomplete; canonical Vault events retained, provenance pending"}:report;},
     async close(){closed=true;for(const store of extraStores)await store.close();extraStores.clear();}};
 }
 export async function readNativeCustodyReadiness(input:VaultLedgerRuntimeInput,deps:VaultLedgerRuntimeDependencies={}) {

@@ -476,9 +476,9 @@ export async function runBaseBuybackKeeper(args = process.argv.slice(2)) {
   const canary = runtime.dataScope === "verify-base-canary"; if (canary) assertBaseCanaryStorage(runtime);
   (runtime as Runtime & {canaryOrigin?: string}).canaryOrigin = canary ? origin : undefined;
   const source = baseSourceStore(runtime), service = new LaunchpadService(runtime), collector = BASE_COLLECTOR_MANIFEST.collector.address;
-  const client = createLocalReplayClient(createPublicClient({ chain: base, transport: http(runtime.rpcUrl, { timeout: 30000, retryCount: 0 }) }), { chainId: 8453, rpcUrl: runtime.rpcUrl, auditStore: baseOperatorAuditStore() });
+  const client = createLocalReplayClient(createPublicClient({ chain: base, transport: http(runtime.rpcUrl, { batch: { batchSize: 20, wait: 0 }, timeout: 30000, retryCount: 0 }), batch: { multicall: true } }), { chainId: 8453, rpcUrl: runtime.rpcUrl, auditStore: baseOperatorAuditStore() });
   const destinationRpc = mainnetRpcUrl(4663, runtime.environment);
-  const destination = createPublicClient({ chain: robinhood, transport: http(destinationRpc, { timeout: 30000, retryCount: 0 }) });
+  const destination = createPublicClient({ chain: robinhood, transport: http(destinationRpc, { batch: { batchSize: 20, wait: 0 }, timeout: 30000, retryCount: 0 }), batch: { multicall: true } });
   const audit = createBaseKeeperAudit({ runtime, service, source, sourceClient: client, destinationClient: destination });
   const account = execute ? privateKeyToAccount(process.env.MUSEGOD_KEEPER_PRIVATE_KEY as Hex) : null;
   if (account) assertBaseKeeperRoles(account.address, BASE_COLLECTOR_MANIFEST);
@@ -496,11 +496,15 @@ export async function runBaseBuybackKeeper(args = process.argv.slice(2)) {
       let projectionPublished = false;
       try {
       unlockAudit.assertHeld(); unlock?.assertHeld();
-      const round = await audit.maintainRound({ observedAt, maxDurationMs: 30_000,
-        verifyGraph: () => verifyBaseCollector(client, collector, { requireActivation: false,
+      const round = await audit.maintainRound({ observedAt, maxDurationMs: 60_000,
+        // One complete current verification supplies this maintenance cycle's
+        // graph and authorization. Reconciliation can recover a static graph
+        // separately when authority is revoked; signing gates below stay fresh.
+        verifyGraph: () => verifyBaseCollector(client, collector, { requireActivation: canary || !baseActivationAcceptanceReady(BASE_COLLECTOR_MANIFEST) ? false : "runtime",
           robinhoodClient: destination, auditStore: source }),
         verifyAuthority: async graph => {
           if (!execute && (canary ? graph.paused : !baseActivationAcceptanceReady(BASE_COLLECTOR_MANIFEST))) return false;
+          if (!canary) return baseActivationAcceptanceReady(BASE_COLLECTOR_MANIFEST);
           await verifyBaseCollector(client, collector, { requireActivation: canary ? false : "runtime", allowCanary: canary,
             canaryOrigin: canary ? origin : undefined, robinhoodClient: destination, auditStore: source });
           return true;
