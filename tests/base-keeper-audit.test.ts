@@ -163,6 +163,20 @@ test("canonical journal scopes stay separate from a private canary's launch/cont
   await f.audit.publish(); assert.equal(f.displayStore.counts.auditWrites, 1); assert.equal(f.baseStore.counts.auditWrites, 0); assert.equal(f.rhStore.counts.auditWrites, 0);
 });
 
+test("host phase failures report redacted pending diagnostics without stealing later journal quotas", async t => {
+  const f = fixture(t), errors: string[] = [];
+  t.mock.method(console, "error", (value: string) => { errors.push(value); });
+  f.onReconcile(async chain => { if (chain === 8453) throw new Error("Retryable RPC failure at https://other.invalid/private-path"); });
+  await f.audit.reconcile(60_000);
+  assert.deepEqual(f.calls.filter(call => call.startsWith("reconcile:")), ["reconcile:4663:20000", "reconcile:8453:20000", "reconcile:4663:20000"]);
+  assert.equal(errors.length, 1);
+  const pending = JSON.parse(errors[0]);
+  assert.equal(pending.mode, "maintenance_pending"); assert.equal(pending.chainId, 8453);
+  assert.match(pending.error, /Retryable RPC failure/); assert.match(pending.error, /\[upstream\]/);
+  assert(!pending.error.includes("private-path"));
+  assert.equal(f.baseStore.counts.financialWrites + f.rhStore.counts.financialWrites, 0);
+});
+
 test("the ordered round catches RH incoming funds, then Base source evidence, then RH FIFO without initializing checkpoints", async t => {
   const f = fixture(t); f.onReconcile(async () => { f.advance(20); }); await f.audit.reconcile(100);
   assert.deepEqual(f.calls.filter(call => call.startsWith("reconcile:")), ["reconcile:4663:34", "reconcile:8453:33", "reconcile:4663:33"]);

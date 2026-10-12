@@ -33,6 +33,7 @@ async function mainLoopFixture(t: TestContext) {
   const calls: string[] = [], snapshots: any[] = [], outputs: any[] = [], signed: Hex[] = [], broadcasts: Hex[] = [];
   let onSign: (() => void) | undefined;
   let authority = false, finalLeaseFailure = false, tailAsserts = 0, leaseArmed = false, stopAfterPublications = Infinity;
+  let authorityFailure = "Finalized activation record missing";
   const source = { close() {}, runtimeControl: async () => ({ paused: false, revision: 7 }), tokens: async () => [{
     address: STOCKS[1].address, quoteAddress: STOCKS[0].address, poolId, feePolicy: BASE_AUTOMATION_FEE_POLICY, feeEngine: collector,
   }], custodyLedgerState: async () => null, vaultLedgerState: async () => null,
@@ -66,9 +67,13 @@ async function mainLoopFixture(t: TestContext) {
     automation: { ...emptyCustodyReport("base_automation", 100n), ready: true, fresh: true },
     treasury: { ...emptyCustodyReport("robinhood_treasury", 200n), ready: true, fresh: true }, vault };
   const graph = { collector, automationReceiver: automation, paused: false, runtimeHash: blockHash, manifestFingerprint: blockHash, initialDeploymentBlock: 1n };
-  const verifyCollector = async (_client: any, _address: any, options: any) => {
+  const maintenanceClient = { ...client }, maintenanceDestination = { ...destination };
+  const graphReads: { client: unknown; activation: unknown }[] = [];
+  let clientsCreated = 0;
+  const verifyCollector = async (checkedClient: any, _address: any, options: any) => {
+    graphReads.push({ client: checkedClient, activation: options.requireActivation });
     if (options.requireActivation === false) { assert.equal(options.allowCanary, undefined); calls.push("graph:static"); }
-    else { calls.push("authority:live"); if (!authority) throw new Error("Finalized activation record missing"); }
+    else { calls.push("authority:live"); if (!authority) throw new Error(authorityFailure); }
     return graph;
   };
   const auditDependencies: BaseKeeperAuditDependencies = {
@@ -101,7 +106,9 @@ async function mainLoopFixture(t: TestContext) {
   const key = `__nativeMainLoop${randomUUID().replaceAll("-", "")}`, entryUrl = new URL("../scripts/base-buyback-keeper.ts", import.meta.url);
   entryUrl.searchParams.set("mainLoopTest", key);
   const overrides: Record<string, Record<string, unknown>> = {
-    "viem": { createPublicClient: ({ chain }: any) => chain.id === 8453 ? client : destination, createWalletClient: () => wallet },
+    "viem": { createPublicClient: ({ chain }: any) => (clientsCreated++ % 4) < 2
+      ? chain.id === 8453 ? client : destination : chain.id === 8453 ? maintenanceClient : maintenanceDestination,
+      createWalletClient: () => wallet },
     "node:os": { homedir: () => directory },
     "../server/base-collector": { verifyBaseCollector: verifyCollector, assertBaseKeeperAuthority: async () => { calls.push("authority:roles"); } },
     "../server/config": { loadEnvironment: () => {} },
@@ -133,8 +140,10 @@ async function mainLoopFixture(t: TestContext) {
   });
   const entry = await import(entryUrl.href) as typeof import("../scripts/base-buyback-keeper");
   return { entry, keeper, collector, automation, poolId, blockHash, rows, transactions, calls, snapshots, outputs, signed, broadcasts,
+    client, maintenanceClient, graphReads,
     path: entry.baseCanonicalKeeperLease(collector, keeper.address),
     setAuthority(value: boolean) { authority = value; }, stopAfterPublications(count: number) { stopAfterPublications = count; },
+    setAuthorityFailure(value: string) { authorityFailure = value; },
     afterSign(callback: () => void) { onSign = callback; },
     setFinalLeaseFailure(value: boolean) { finalLeaseFailure = value; tailAsserts = 0; leaseArmed = false; } };
 }
@@ -187,10 +196,13 @@ test("audit-only trusted Splits activation enters the live gate without fabricat
   await f.entry.runBaseBuybackKeeper(["--audit-only", "--once"]);
   assert.equal(f.calls.filter(call => call === "authority:live").length, 1);
   assert.equal(f.outputs.at(-1)?.activationVerified, false);
+  assert.match(f.outputs.at(-1)?.error ?? "", /Finalized activation record missing/,
+    "A failed live gate must report its redacted reason instead of an opaque false readiness flag");
   f.setAuthority(true);
   await f.entry.runBaseBuybackKeeper(["--audit-only", "--once"]);
   assert.equal(f.calls.filter(call => call === "authority:live").length, 2);
   assert.equal(f.outputs.at(-1)?.activationVerified, true);
+  assert.equal(f.outputs.at(-1)?.error, undefined);
   const accepted = manifest.activation.trustedSplitsAcceptance!;
   accepted.signature = "0x";
   await f.entry.runBaseBuybackKeeper(["--audit-only", "--once"]);
@@ -201,6 +213,23 @@ test("audit-only trusted Splits activation enters the live gate without fabricat
   await f.entry.runBaseBuybackKeeper(["--audit-only", "--once"]);
   assert.equal(f.calls.filter(call => call === "authority:live").length, 2, "not_run cannot be authorized by a leftover payload");
   assert.equal(f.outputs.at(-1)?.activationVerified, false);
+  assert.equal(f.signed.length, 0); assert.equal(f.broadcasts.length, 0);
+});
+
+test("audit-only diagnostics redact RPC credentials while failed authority remains non-signing", async t => {
+  const f = await mainLoopFixture(t);
+  installOfflineTrustedAcceptance(f);
+  const key = "offline-provider-credential";
+  process.env.ALCHEMY_API_KEY = key;
+  delete process.env.MUSEGOD_KEEPER_PRIVATE_KEY;
+  f.setAuthorityFailure(`RPC capacity exceeded at https://rpc.invalid/v2/${key}; credential ${key}`);
+  await f.entry.runBaseBuybackKeeper(["--audit-only", "--once"]);
+  const output = f.outputs.at(-1);
+  assert.equal(output.activationVerified, false);
+  assert.match(output.error, /RPC capacity exceeded/);
+  assert.match(output.error, /\[upstream\]/);
+  assert.match(output.error, /\[redacted\]/);
+  assert(!output.error.includes(key)); assert(!output.error.includes("rpc.invalid"));
   assert.equal(f.signed.length, 0); assert.equal(f.broadcasts.length, 0);
 });
 
@@ -215,6 +244,10 @@ test("trusted Splits keeper binding is checked again after signing and before tr
   assert.equal(abandoned.status, "abandoned"); assert.equal(abandoned.abandonedBeforeBroadcast, true);
   assert.doesNotThrow(() => f.entry.assertBaseNoUnknown([...f.rows.values()], f.keeper.address));
   assert.equal(f.entry.baseCanonicalGasSpent([...f.rows.values()], f.keeper.address), 0n);
+  assert(f.graphReads.some(read => read.client === f.maintenanceClient && read.activation === "runtime"),
+    "The maintenance round uses its isolated reader");
+  assert(f.graphReads.filter(read => read.client === f.client && read.activation === "runtime").length >= 2,
+    "Pre-sign and before-broadcast gates independently recheck the original financial reader");
 });
 
 test("execute main loop abandons at its last beforeBroadcast lease check, then restart reuses the unused nonce", async t => {

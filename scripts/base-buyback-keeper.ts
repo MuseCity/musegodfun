@@ -24,6 +24,7 @@ import { createBaseKeeperAudit } from "./base-keeper-audit";
 import { createLocalReplayClient } from "./base-local-replay";
 import { acquireBaseProcessLease, BaseProcessLeaseLostError, type BaseProcessLease } from "./base-process-lease";
 import { baseOperatorAuditStore } from "./base-audit-store";
+import { baseKeeperRpcTransport } from "./base-keeper-rpc";
 
 type Client = PublicClient<Transport, any>;
 export type BaseKeeperJournal = { version: 2; collector: Address; keeper: Address; batches: BaseFeeBatch[] };
@@ -480,6 +481,14 @@ export async function runBaseBuybackKeeper(args = process.argv.slice(2)) {
   const destinationRpc = mainnetRpcUrl(4663, runtime.environment);
   const destination = createPublicClient({ chain: robinhood, transport: http(destinationRpc, { batch: { batchSize: 20, wait: 0 }, timeout: 30000, retryCount: 0 }), batch: { multicall: true } });
   const audit = createBaseKeeperAudit({ runtime, service, source, sourceClient: client, destinationClient: destination });
+  // Maintenance metadata does not need archive capacity. Keep this reader
+  // separate from every original pre-sign/broadcast financial client below.
+  const maintenanceClient = createLocalReplayClient(createPublicClient({ chain: base,
+    transport: baseKeeperRpcTransport(8453, runtime.environment ?? {}, runtime.rpcUrl), batch: { multicall: true } }),
+    { chainId: 8453, rpcUrl: runtime.rpcUrl, auditStore: baseOperatorAuditStore() });
+  const maintenanceDestination = createPublicClient({ chain: robinhood,
+    transport: baseKeeperRpcTransport(4663, runtime.environment ?? {}, destinationRpc), batch: { multicall: true } });
+  const maintenanceAudit = createBaseKeeperAudit({ runtime, service, source, sourceClient: maintenanceClient, destinationClient: maintenanceDestination });
   const account = execute ? privateKeyToAccount(process.env.MUSEGOD_KEEPER_PRIVATE_KEY as Hex) : null;
   if (account) assertBaseKeeperRoles(account.address, BASE_COLLECTOR_MANIFEST);
   const path = account ? baseCanonicalKeeperLease(collector, account.address) : null;
@@ -496,26 +505,28 @@ export async function runBaseBuybackKeeper(args = process.argv.slice(2)) {
       let projectionPublished = false;
       try {
       unlockAudit.assertHeld(); unlock?.assertHeld();
-      const round = await audit.maintainRound({ observedAt, maxDurationMs: 60_000,
+      const round = await maintenanceAudit.maintainRound({ observedAt, maxDurationMs: 60_000,
         // One complete current verification supplies this maintenance cycle's
         // graph and authorization. Reconciliation can recover a static graph
         // separately when authority is revoked; signing gates below stay fresh.
-        verifyGraph: () => verifyBaseCollector(client, collector, { requireActivation: canary || !baseActivationAcceptanceReady(BASE_COLLECTOR_MANIFEST) ? false : "runtime",
-          robinhoodClient: destination, auditStore: source }),
+        verifyGraph: () => verifyBaseCollector(maintenanceClient, collector, { requireActivation: canary || !baseActivationAcceptanceReady(BASE_COLLECTOR_MANIFEST) ? false : "runtime",
+          robinhoodClient: maintenanceDestination, auditStore: source }),
         verifyAuthority: async graph => {
           if (!execute && (canary ? graph.paused : !baseActivationAcceptanceReady(BASE_COLLECTOR_MANIFEST))) return false;
           if (!canary) return baseActivationAcceptanceReady(BASE_COLLECTOR_MANIFEST);
-          await verifyBaseCollector(client, collector, { requireActivation: canary ? false : "runtime", allowCanary: canary,
-            canaryOrigin: canary ? origin : undefined, robinhoodClient: destination, auditStore: source });
+          await verifyBaseCollector(maintenanceClient, collector, { requireActivation: canary ? false : "runtime", allowCanary: canary,
+            canaryOrigin: canary ? origin : undefined, robinhoodClient: maintenanceDestination, auditStore: source });
           return true;
         },
       });
+      audit.setVerifiedGraph(round.graph, round.activationVerified);
       unlockAudit.assertHeld(); unlock?.assertHeld();
       projectionPublished = !!round.snapshot;
       const graph = round.graph;
       if (auditOnly) {
         console.log(JSON.stringify({ mode: "audit_only", chainId: 8453, custody: round.snapshot?.custody ?? null,
-          activationVerified: round.activationVerified, published: projectionPublished }));
+          activationVerified: round.activationVerified, published: projectionPublished,
+          ...(round.error ? { error: redact(round.error) } : {}) }));
         if (!args.includes("--once") && !stopping) await new Promise(resolve => setTimeout(resolve, interval));
         continue;
       }
@@ -633,7 +644,7 @@ export async function runBaseBuybackKeeper(args = process.argv.slice(2)) {
         }
       }
       } catch (error) {
-        if (!projectionPublished) await audit.publishFailure(observedAt).catch(() => {});
+        if (!projectionPublished) await maintenanceAudit.publishFailure(observedAt).catch(() => {});
         if (error instanceof BaseProcessLeaseLostError || !auditOnly || args.includes("--once")) throw error;
         // Audit-only has no nonce or signature outcome. Persisted complete
         // pages survive temporary provider errors and resume next round.
@@ -641,7 +652,7 @@ export async function runBaseBuybackKeeper(args = process.argv.slice(2)) {
       }
       if (!args.includes("--once") && !stopping) await new Promise(resolve => setTimeout(resolve, interval));
     } while (!args.includes("--once") && !stopping);
-  } finally { try { await audit.close(); await source.close(); await service.store.close(); }
+  } finally { try { await maintenanceAudit.close(); await audit.close(); await source.close(); await service.store.close(); }
     finally { try { await unlock?.(); } finally { await unlockAudit?.(); } } }
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href)

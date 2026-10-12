@@ -41,8 +41,10 @@ export type VaultLedgerRuntimeDependencies={manifest?:BaseCollectorManifest;open
   createPeerClient?:(runtime:Runtime)=>Client;verifyCollector?:typeof verifyBaseCollector;
   verifyRobinhoodGraph?:(client:Client)=>Promise<{vault:Address;weth:Address;swapper:Address;engineForwarders?:Address[]}>;
   confirmations?:bigint;maxBlocks?:number;readDurationMs?:number;
-  /** Private host maintenance reserves a finite independent Vault phase. Ordinary reads and operators retain their wall deadline. */
+  /** Private host maintenance bounds preparation separately and reserves finite scan phases. Ordinary reads and operators retain their wall deadline. */
   fairMaintenance?:boolean;
+  /** The host's public metadata RPC supports wide, proven-empty RH intervals. */
+  fastEmptyRanges?:boolean;
   verifyNativeRelay?:typeof verifyBaseNativeRelayProof;verifyRelease?:typeof verifyAdapterRelease;verifyForward?:typeof verifyTreasuryForward;
   verifyNativeDestinationProvider?:typeof nativeDestinationHasFixedProvider};
 /** Uses the full keyset journal, never the latest-1000 display list. */
@@ -136,9 +138,17 @@ export function createVaultLedgerRuntime(input:VaultLedgerRuntimeInput,deps:Vaul
     // projection. A slow old run cannot always be first after a Worker deadline.
     if(prewarm)for(const id of candidateBudget.order??[]){checkBudget();const batch=relayProofs.find(row=>row.id===id)!;try{await relay(batch);}catch{/* Withhold only this run; later selected runs retain their reserved share. */}}
     const automation=new CustodyLedgerService(source.store,source.client as unknown as PublicClient,{id:"base_automation",account:checked.automationReceiver,initialAssets:[...STOCKS.map(stock=>stock.address),BASE_BUYBACK_WETH],confirmations,maxBlocks:deps.maxBlocks,
-      discoverAssets:async(from,to,deadline)=>{const assets:Address[]=[];for(let start=from;start<=to;start+=10n){if(Date.now()>=deadline)throw new Error("Native maintenance budget reached; pending");const end=start+9n<to?start+9n:to;
-        const groups=await Promise.all([parseAbiItem("event FeesReleased(address indexed token,address indexed receiver,uint256 amount)"),parseAbiItem("event UntrackedReleased(address indexed token,address indexed receiver,uint256 amount)")].map(event=>source.client.getLogs({address:checked.collector,event,fromBlock:start,toBlock:end,strict:true})));
-        for(const log of groups.flat())if(log.args&&"token"in log.args&&"receiver"in log.args&&"amount"in log.args&&sameAddress(log.args.receiver as Address,checked.automationReceiver)&&BigInt(log.args.amount as bigint)>0n)assets.push(log.args.token as Address);
+      discoverAssets:async(from,to,deadline)=>{const assets:Address[]=[],events=[parseAbiItem("event FeesReleased(address indexed token,address indexed receiver,uint256 amount)"),parseAbiItem("event UntrackedReleased(address indexed token,address indexed receiver,uint256 amount)")];
+      for(let start=from;start<=to;start+=100n){if(Date.now()>=deadline)throw new Error("Native maintenance budget reached; pending");const end=start+99n<to?start+99n:to;
+        // Ten ten-block ranges, with both release events, bound each group to
+        // twenty requests. Await every result before returning assets or failing.
+        const groups=await Promise.allSettled(Array.from({length:Number((end-start)/10n)+1},(_,index)=>{
+          const lower=start+BigInt(index)*10n,upper=lower+9n<end?lower+9n:end;
+          return events.map(event=>source.client.getLogs({address:checked.collector,event,fromBlock:lower,toBlock:upper,strict:true}));
+        }).flat());
+        if(Date.now()>=deadline)throw new Error("Native maintenance budget reached; pending");
+        for(const group of groups)if(group.status==="rejected")throw group.reason;
+        for(const group of groups)if(group.status==="fulfilled")for(const log of group.value)if(log.args&&"token"in log.args&&"receiver"in log.args&&"amount"in log.args&&sameAddress(log.args.receiver as Address,checked.automationReceiver)&&BigInt(log.args.amount as bigint)>0n)assets.push(log.args.token as Address);
       }return assets;},
       verifyEvidence:async(event,evidence,fragments)=>{try{if(evidence.kind!=="adapter_release"||stable(fragments)!==stable([{batchId:event.id,amount:event.amount}]))return false;
         const actual=await(deps.verifyRelease??verifyAdapterRelease)(source.client,event,checked.collector,checked.automationReceiver);
@@ -147,7 +157,7 @@ export function createVaultLedgerRuntime(input:VaultLedgerRuntimeInput,deps:Vaul
       }catch{return false;}}});
     let sourceReport:Promise<CustodyReport>|undefined;const sourceReady=()=>sourceReport??=automation.read(evidenceDeadline);
     let evidenceEnabled=prewarm;
-    const treasury=new CustodyLedgerService(rh.store,rh.client as unknown as PublicClient,{id:"robinhood_treasury",account:BASE_BUYBACK_TREASURY,initialAssets:[BASE_BUYBACK_RH_WETH],confirmations,maxBlocks:deps.maxBlocks,
+    const treasury=new CustodyLedgerService(rh.store,rh.client as unknown as PublicClient,{id:"robinhood_treasury",account:BASE_BUYBACK_TREASURY,initialAssets:[BASE_BUYBACK_RH_WETH],confirmations,maxBlocks:deps.maxBlocks??(deps.fastEmptyRanges?10_000:undefined),fastEmptyRanges:deps.fastEmptyRanges,
       verifyEvidence:async(event,evidence,fragments)=>{try{if(!evidenceEnabled||evidence.kind!=="native_relay")return false;const candidates=relayProofs.filter(batch=>["received","awaiting_buyback","attributed"].includes(batch.status)&&!ambiguous.has(batch.id)&&batch.proof!.sourceHash.toLowerCase()===evidence.relay.sourceTransactionHash.toLowerCase());if(candidates.length!==1)return false;
         const proof=await relay(candidates[0]);if(stable(proof)!==stable(evidence.relay)||event.id!==vaultEventId(proof.destinationTransactionHash,proof.destinationTransferLogIndex)||event.amount!==proof.outputAmount||event.blockHash!==proof.destinationBlockHash)return false;
         const ar=await sourceReady();if(!ar.fresh)return false;const consumed=ar.consumptions.find(row=>row.eventId===vaultEventId(proof.sourceTransactionHash,proof.sourceTransferLogIndex));
@@ -163,7 +173,7 @@ export function createVaultLedgerRuntime(input:VaultLedgerRuntimeInput,deps:Vaul
       const forward=await(deps.verifyForward??verifyTreasuryForward)(rh.client,actual,event);
       return{protocol:BASE_BUYBACK_PROTOCOL,treasury:BASE_BUYBACK_TREASURY,treasuryEventId:event.id,treasuryRevision:tr.revision,fragments:consumed.fragments,
         ...(forward?{forwarderLogIndex:forward.forwarderLogIndex}:{}),fillTransactionHash:event.transactionHash,fillBlockHash:event.blockHash,fillLogIndex:event.logIndex,recipient:BASE_BUYBACK_VAULT,outputToken:BASE_BUYBACK_RH_WETH,outputAmount:event.amount};};
-    const vault=new VaultLedgerService(rh.store,rh.client as unknown as PublicClient,{...checkedRh,confirmations,maxBlocks:deps.maxBlocks,resolveBaseFill:nativeVaultProof,verifyBaseFill:async(event,evidence)=>{
+    const vault=new VaultLedgerService(rh.store,rh.client as unknown as PublicClient,{...checkedRh,confirmations,maxBlocks:deps.maxBlocks??(deps.fastEmptyRanges?10_000:undefined),fastEmptyRanges:deps.fastEmptyRanges,resolveBaseFill:nativeVaultProof,verifyBaseFill:async(event,evidence)=>{
       if(!("protocol"in evidence))return false;try{const actual=await nativeVaultProof(event);return!!actual&&matchingNativeVaultProof(actual,evidence);}catch{return false;}}});
     const readVault=async()=>{const report=await vault.read(evidenceDeadline);return Date.now()>=evidenceDeadline?emptyVaultLedgerReport(BigInt(report.confirmedThrough),"Native attribution read budget reached; projection pending"):report;};
     return{source,rh,checked,batches,relayProofs,relay,automation,treasury,vault,readVault,nativeVaultProof,sourceReady,treasuryReady,
@@ -195,6 +205,9 @@ export function createVaultLedgerRuntime(input:VaultLedgerRuntimeInput,deps:Vaul
       if(chain===8453)await work.automation.establishCheckpoint(guard);
       else{await work.treasury.establishCheckpoint(guard);await work.vault.establishCheckpoint(guard);}return work.readVault();},
     async reconcile(maxDurationMs=45_000){writer(chain as 8453|4663);let deadline=Date.now()+maxDurationMs;const work=await session(deadline,false);if(Date.now()>=deadline)return emptyVaultLedgerReport(0n,"Native maintenance budget reached; pending");
+      // A slow but successful graph/session preparation cannot consume the
+      // host's independent journal quotas. Preparation itself remains bounded.
+      if(deps.fairMaintenance===true){deadline=Date.now()+maxDurationMs;work.beginEvidencePhase(deadline);}
       if(chain===8453){await work.automation.reconcile(Math.max(0,deadline-Date.now()));if(Date.now()>=deadline)return emptyVaultLedgerReport(0n,"Native maintenance budget reached; pending");const events=await readAllCustodyEvents(work.source.store,"base_automation",deadline);
         for(const event of events)if(event.kind==="in"&&!event.evidence&&sameAddress(event.from,work.checked.collector)&&Date.now()<deadline){try{const evidence=await(deps.verifyRelease??verifyAdapterRelease)(work.source.client,event,work.checked.collector,work.checked.automationReceiver);await work.automation.classify(event.id,[{batchId:event.id,amount:event.amount}],evidence,deadline);}catch{/* Unknown transfers remain unknown. */}}if(Date.now()<deadline)await observeNativeRelayBatches({source:work.source.client,destination:work.rh.client,store:input.store as StoreBackend,
           collector:work.checked.collector,automation:work.checked.automationReceiver,sourceEvents:events,treasuryEvents:await readAllCustodyEvents(work.rh.store,"robinhood_treasury",deadline),batches:work.batches,deadline,auditStore});

@@ -6,7 +6,7 @@ import { baseActivationAcceptanceReady } from "../server/base-activation-record"
 import { BaseFeeQuoteReader, type BaseFeeDependencies } from "../server/base-buyback";
 import { publishBaseAuditSnapshot, publishBaseAuditFailure, type BaseAuditSnapshotContents } from "../server/buyback-audit-snapshot";
 import { createVaultLedgerRuntime, readCanonicalBaseSourceBatches, nativeSourceStatusFromCustody, type VaultLedgerRuntime, type VaultLedgerRuntimeDependencies } from "../server/buyback-vault-runtime";
-import { runtimeFromEnv, type Runtime } from "../server/config";
+import { redact, runtimeFromEnv, type Runtime } from "../server/config";
 import type { LaunchpadService } from "../server/service";
 import { SupabaseStore, type StoreBackend } from "../server/supabase-store";
 import { Store } from "../server/store";
@@ -108,7 +108,7 @@ export function createBaseKeeperAudit(input: BaseKeeperAuditInput, deps: BaseKee
         swapper: verified.swapper, engineForwarders: [verified.engine, verified.forwarder] };
     })();
     const scopedDependencies = { ...dependencies, manifest, verifyCollector: verifyStatic,
-      verifyRobinhoodGraph: verifyDestination, fairMaintenance: true };
+      verifyRobinhoodGraph: verifyDestination, fairMaintenance: true, fastEmptyRanges: true };
     const base = create({ runtime: baseRuntime, client: input.sourceClient, store: input.source }, scopedDependencies);
     const rh = create({ runtime: rhRuntime, client: destinationClient, store: destinationStore }, scopedDependencies);
     return { base, rh, verifyStatic, getChecked: () => checked,
@@ -129,7 +129,10 @@ export function createBaseKeeperAudit(input: BaseKeeperAuditInput, deps: BaseKee
       const stages = [readers.rh, readers.base, readers.rh];
       for (let index = 0; index < stages.length; index++) {
         const budget = Math.floor(maxDurationMs / 3) + (index < maxDurationMs % 3 ? 1 : 0);
-        if (budget) await stages[index].reconcile(budget).catch(() => {});
+        if (budget) await stages[index].reconcile(budget).catch(error => {
+          console.error(JSON.stringify({ mode: "maintenance_pending", chainId: index === 1 ? 8453 : 4663,
+            stage: index, error: redact(error, environment) }));
+        });
       }
     })(); maintenance = operation;
     try { await operation; } finally { if (maintenance === operation) maintenance = undefined; }

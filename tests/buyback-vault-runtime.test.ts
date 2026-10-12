@@ -221,6 +221,117 @@ function nativeRuntimeDustFixture(count=120,sender?:Address){
  return{...f,events,proof,counters:()=>({receipts,traces,proofs})};
 }
 
+function baseDiscoveryFixture(t:TestContext){
+ const f=nativeRuntimeFixture(),runtime=runtimeFromEnv(8453,{CHAIN_MODE:"base",DATA_DIR:f.directory});
+ f.deps.maxBlocks=100;f.deps.openPeerStore=async()=>f.rh;f.deps.createPeerClient=()=>f.rhClient;f.sourceClient.getBlockNumber=async()=>201n;
+ const ledger=createVaultLedgerRuntime({runtime,store:f.source,client:f.sourceClient as any},f.deps);
+ t.after(async()=>{await ledger.close();f.source.close();rmSync(f.directory,{recursive:true,force:true});});
+ return{...f,sourceClient:f.sourceClient as any,ledger};
+}
+
+test("Base release discovery awaits twenty bounded queries per page and preserves range/event order while tracking newly released assets",async t=>{
+ const f=baseDiscoveryFixture(t),collector=addr(30),automation=addr(31),ignored=addr(1099),zero=addr(1098);
+ const entries=[{token:addr(1001),height:101,amount:5n,event:"FeesReleased",tx:500},{token:addr(1002),height:111,amount:7n,event:"UntrackedReleased",tx:501},{token:addr(1003),height:291,amount:9n,event:"FeesReleased",tx:502}];
+ f.deps.maxBlocks=200;f.sourceClient.getBlockNumber=async()=>301n;
+ const transfer=parseAbiItem("event Transfer(address indexed from,address indexed to,uint256 value)"),log=(entry:typeof entries[number])=>({address:entry.token,blockNumber:BigInt(entry.height),blockHash:hash(entry.height+1000),transactionHash:hash(entry.tx),transactionIndex:0,logIndex:0,removed:false,
+  topics:encodeEventTopics({abi:[transfer],eventName:"Transfer",args:{from:collector,to:automation}}),data:encodeAbiParameters([{type:"uint256"}],[entry.amount])});
+ let active=0,peak=0;const started:{event:string;from:bigint;to:bigint}[]=[],finished:bigint[]=[];
+ f.sourceClient.getLogs=async({address,event,fromBlock,toBlock,args}:any)=>{
+  if(address===collector){started.push({event:event.name,from:fromBlock,to:toBlock});active++;peak=Math.max(peak,active);
+   try{await new Promise<void>(resolve=>setImmediate(resolve));if(fromBlock===101n)await new Promise<void>(resolve=>setImmediate(resolve));
+    const rows=entries.filter(entry=>entry.event===event.name&&BigInt(entry.height)>=fromBlock&&BigInt(entry.height)<=toBlock).map(entry=>({args:{token:entry.token,receiver:automation,amount:entry.amount}}));
+    if(fromBlock===131n)rows.push({args:{token:ignored,receiver:addr(99),amount:1n}});
+    if(fromBlock===141n)rows.push({args:{token:zero,receiver:automation,amount:0n}});
+    return rows;
+   }finally{active--;finished.push(fromBlock);}
+  }
+  assert.ok(Array.isArray(address));return sameAddress(args?.to??"",automation)?entries.filter(entry=>address.includes(entry.token)&&BigInt(entry.height)>=fromBlock&&BigInt(entry.height)<=toBlock).map(log):[];
+ };
+ f.sourceClient.readContract=async({address,blockNumber}:any)=>entries.find(entry=>sameAddress(entry.token,address)&&BigInt(entry.height)<=blockNumber)?.amount??0n;
+ Object.assign(f.sourceClient,{getTransactionReceipt:async({hash:tx}:any)=>{const entry=entries.find(entry=>hash(entry.tx)===tx)!;return{status:"success",from:addr(90),to:collector,transactionHash:tx,blockNumber:BigInt(entry.height),blockHash:hash(entry.height+1000),transactionIndex:0,logs:[log(entry)]};}});
+ const verifyRelease=f.deps.verifyRelease;f.deps.verifyRelease=async(_client:any,event:CustodyEvent)=>{if(event.asset===entries[1].token)throw new Error("Untracked releases stay separate from verified fee provenance");
+  if(entries.some(entry=>entry.token===event.asset))return{kind:"adapter_release",collector,releaseLogIndex:1,transactionHash:event.transactionHash,blockHash:event.blockHash};return verifyRelease();};
+ const beforeRh={treasury:structuredClone(f.rh.custodyLedgerState("robinhood_treasury")),vault:structuredClone(f.rh.vaultLedgerState())};
+ await f.ledger.reconcile(60_000);
+ assert.equal(peak,20);assert.equal(active,0);assert.equal(finished.length,40);assert.notEqual(finished[0],101n,"Out-of-order RPC completion cannot reorder asset discovery");
+ assert.deepEqual(started,Array.from({length:20},(_,index)=>["FeesReleased","UntrackedReleased"].map(event=>({event,from:101n+BigInt(index)*10n,to:110n+BigInt(index)*10n}))).flat());
+ const state=f.source.custodyLedgerState("base_automation")!;assert.equal(state.cursor.number,"300");assert.deepEqual(state.releasedAssets,entries.map(entry=>entry.token));
+ assert.equal(Object.hasOwn(state.openingBalances,ignored),false);assert.equal(Object.hasOwn(state.openingBalances,zero),false);
+ const received=f.source.custodyLedgerEventPage("base_automation").filter(event=>entries.some(entry=>entry.token===event.asset));
+ assert.deepEqual(received.map(event=>[event.asset,event.amount]),entries.map(entry=>[entry.token,String(entry.amount)]));assert.equal(received[1].evidence,undefined,"Discovery of unknown recovered funds cannot label them as genuine fees");
+ assert.deepEqual(f.rh.custodyLedgerState("robinhood_treasury"),beforeRh.treasury);assert.deepEqual(f.rh.vaultLedgerState(),beforeRh.vault);
+});
+
+test("a failed Base discovery query waits for the complete bounded group, writes no partial asset list and retries its late results",async t=>{
+ const f=baseDiscoveryFixture(t),collector=addr(30),automation=addr(31),early=addr(1201),late=addr(1202);let fail=true,started=0,completed=0,transferReads=0;
+ const before=structuredClone(f.source.custodyLedgerState("base_automation"));
+ f.sourceClient.getLogs=async({address,event,fromBlock}:any)=>{
+  if(address!==collector){transferReads++;return[];}started++;
+  try{await new Promise<void>(resolve=>setImmediate(resolve));if(fail&&fromBlock===151n&&event.name==="UntrackedReleased")throw new Error("Late discovery RPC failed");
+   return event.name==="FeesReleased"&&(fromBlock===101n||fromBlock===191n)?[{args:{token:fromBlock===101n?early:late,receiver:automation,amount:1n}}]:[];
+  }finally{completed++;}
+ };
+ await assert.rejects(()=>f.ledger.reconcile(60_000),/Late discovery RPC failed/);assert.equal(started,20);assert.equal(completed,20);assert.equal(transferReads,0);assert.deepEqual(f.source.custodyLedgerState("base_automation"),before);
+ fail=false;await f.ledger.reconcile(60_000);assert.equal(started,40);assert.equal(completed,40);assert.equal(f.source.custodyLedgerState("base_automation")!.cursor.number,"200");assert.deepEqual(f.source.custodyLedgerState("base_automation")!.releasedAssets,[early,late]);
+});
+
+test("a Base discovery group returned after its deadline is fully awaited but cannot begin transfer collection or commit assets",async t=>{
+ const f=baseDiscoveryFixture(t),collector=addr(30),automation=addr(31);let now=0,completed=0,transferReads=0;
+ t.mock.method(Date,"now",()=>now);const before=structuredClone(f.source.custodyLedgerState("base_automation"));
+ f.sourceClient.getLogs=async({address}:any)=>{if(address!==collector){transferReads++;return[];}try{await new Promise<void>(resolve=>setImmediate(resolve));now=20_001;return[{args:{token:addr(1301),receiver:automation,amount:1n}}];}finally{completed++;}};
+ assert.equal((await f.ledger.reconcile(20_000)).attributionReady,false);assert.equal(completed,20);assert.equal(transferReads,0);assert.deepEqual(f.source.custodyLedgerState("base_automation"),before);
+});
+
+test("Base discovery clips every ten-block query to the confirmed page end without omitting either release event",async t=>{
+ const f=baseDiscoveryFixture(t),collector=addr(30),queries:{event:string;from:bigint;to:bigint}[]=[];f.sourceClient.getBlockNumber=async()=>168n;
+ f.sourceClient.getLogs=async({address,event,fromBlock,toBlock}:any)=>{if(address===collector){queries.push({event:event.name,from:fromBlock,to:toBlock});await new Promise<void>(resolve=>setImmediate(resolve));}return[];};
+ await f.ledger.reconcile(60_000);assert.equal(f.source.custodyLedgerState("base_automation")!.cursor.number,"167");
+ assert.deepEqual(queries,Array.from({length:7},(_,index)=>["FeesReleased","UntrackedReleased"].map(event=>({event,from:101n+BigInt(index)*10n,to:index===6?167n:110n+BigInt(index)*10n}))).flat());
+});
+
+for(const chain of [8453,4663] as const)for(const fair of [false,true])test(`${chain} ${fair?"host reserves full scan quotas":"ordinary maintenance retains its wall budget"} after preparation consumes almost its whole budget`,async t=>{
+ const f=nativeRuntimeFixture();let now=0;const scans=new Set<string>(),verify=f.deps.verifyCollector;
+ t.mock.method(Date,"now",()=>now);f.deps.fairMaintenance=fair;f.deps.verifyCollector=async(...args:any[])=>{now+=19_999;return verify(...args);};
+ f.sourceClient.getBlockNumber=async()=>201n;f.rhClient.getBlockNumber=async()=>201n;
+ f.rhClient.readContract=async({functionName,args}:any)=>functionName==="balanceOf"&&sameAddress(args?.[0]??"",BASE_BUYBACK_VAULT)?10n:0n;
+ const delay=(id:string,milliseconds:number)=>{if(!scans.has(id)){scans.add(id);now+=milliseconds;}};
+ f.sourceClient.getLogs=async()=>{delay("automation",15_000);return[];};
+ f.rhClient.getLogs=async({args}:any={})=>{
+  if(sameAddress(args?.to??"",BASE_BUYBACK_TREASURY)||sameAddress(args?.from??"",BASE_BUYBACK_TREASURY))delay("treasury",8_000);
+  if(sameAddress(args?.to??"",BASE_BUYBACK_VAULT)||sameAddress(args?.from??"",BASE_BUYBACK_VAULT))delay("vault",8_000);
+  return[];
+ };
+ const before={source:structuredClone(f.source.custodyLedgerState("base_automation")),treasury:structuredClone(f.rh.custodyLedgerState("robinhood_treasury")),
+  vault:structuredClone(f.rh.vaultLedgerState()),sourceEvents:structuredClone(f.source.custodyLedgerEventPage("base_automation")),vaultEvents:structuredClone(f.rh.vaultLedgerEventPage())};
+ const runtime=chain===8453?runtimeFromEnv(8453,{CHAIN_MODE:"base",DATA_DIR:f.directory}):f.runtime;
+ f.deps.openPeerStore=async()=>chain===8453?f.rh:f.source;f.deps.createPeerClient=()=>chain===8453?f.rhClient:f.sourceClient;
+ const ledger=createVaultLedgerRuntime({runtime,store:chain===8453?f.source:f.rh,client:(chain===8453?f.sourceClient:f.rhClient) as any},f.deps);
+ try{
+  await ledger.reconcile(20_000);
+  if(chain===8453){assert.equal(f.source.custodyLedgerState("base_automation")!.cursor.number,fair?"200":"100");
+   assert.deepEqual(f.rh.custodyLedgerState("robinhood_treasury"),before.treasury);assert.deepEqual(f.rh.vaultLedgerState(),before.vault);
+  }else{assert.equal(f.rh.custodyLedgerState("robinhood_treasury")!.cursor.number,fair?"200":"100");assert.equal(f.rh.vaultLedgerState()!.cursor.number,fair?"200":"100");
+   assert.equal(scans.has("vault"),fair,"A successful preparation cannot consume the host Vault reserve");assert.deepEqual(f.source.custodyLedgerState("base_automation"),before.source);
+  }
+  assert.deepEqual(f.source.custodyLedgerEventPage("base_automation"),before.sourceEvents,"A larger host scan quota cannot invent fees or source evidence");
+  assert.deepEqual(f.rh.vaultLedgerEventPage().map(event=>({...event,source:"unknown",baseFill:undefined})),before.vaultEvents.map(event=>({...event,source:"unknown",baseFill:undefined})),"The existing real transfers and raw amounts are retained");
+ }finally{await ledger.close();try{f.close();}catch{try{f.source.close();}catch{}rmSync(f.directory,{recursive:true,force:true});}}
+});
+
+for(const chain of [8453,4663] as const)for(const preparation of [20_000,20_001])test(`${chain} host preparation ${preparation===20_000?"at":"past"} its deadline cannot obtain scan quotas or write a financial journal`,async t=>{
+ const f=nativeRuntimeFixture();let now=0,scans=0,destinationGraphs=0;const verify=f.deps.verifyCollector;
+ t.mock.method(Date,"now",()=>now);f.deps.fairMaintenance=true;f.deps.verifyCollector=async(...args:any[])=>{now+=preparation;return verify(...args);};
+ const verifyRh=f.deps.verifyRobinhoodGraph;f.deps.verifyRobinhoodGraph=async(...args:any[])=>{destinationGraphs++;return verifyRh(...args);};
+ f.sourceClient.getLogs=f.rhClient.getLogs=async()=>{scans++;return[];};
+ const before={source:structuredClone(f.source.custodyLedgerState("base_automation")),treasury:structuredClone(f.rh.custodyLedgerState("robinhood_treasury")),vault:structuredClone(f.rh.vaultLedgerState())};
+ const runtime=chain===8453?runtimeFromEnv(8453,{CHAIN_MODE:"base",DATA_DIR:f.directory}):f.runtime;
+ f.deps.openPeerStore=async()=>chain===8453?f.rh:f.source;f.deps.createPeerClient=()=>chain===8453?f.rhClient:f.sourceClient;
+ const ledger=createVaultLedgerRuntime({runtime,store:chain===8453?f.source:f.rh,client:(chain===8453?f.sourceClient:f.rhClient) as any},f.deps);
+ try{await assert.rejects(()=>ledger.reconcile(20_000),/maintenance budget reached/);assert.equal(scans,0);assert.equal(destinationGraphs,0);
+  assert.deepEqual(f.source.custodyLedgerState("base_automation"),before.source);assert.deepEqual(f.rh.custodyLedgerState("robinhood_treasury"),before.treasury);assert.deepEqual(f.rh.vaultLedgerState(),before.vault);
+ }finally{await ledger.close();try{f.close();}catch{try{f.source.close();}catch{}rmSync(f.directory,{recursive:true,force:true});}}
+});
+
 for(const fair of [false,true])test(`Treasury scan timeout ${fair?"preserves the host Vault quota":"retains the ordinary wall deadline"} without skipping or inventing financial events`,async t=>{
  const f=nativeRuntimeFixture();let now=0,vaultLogs=0;
  t.mock.method(Date,"now",()=>now);f.deps.fairMaintenance=fair;

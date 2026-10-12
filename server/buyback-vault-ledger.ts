@@ -20,6 +20,8 @@ const equal = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 export type VaultLedgerOptions = {
   vault: Address; weth: Address; swapper: Address; engineForwarders?: Address[];
   confirmations?: bigint; maxBlocks?: number;
+  /** Private host scans may prove empty ranges using guarded canonical boundary headers. */
+  fastEmptyRanges?: boolean;
   verifyBaseFill?: (event: VaultLedgerEvent, evidence: VaultBaseFillEvidence) => Promise<boolean>;
   /** Rebuild current native FIFO fragments without discarding healthy lots in a shared transfer. Read projection only. */
   resolveBaseFill?: (event: VaultLedgerEvent) => Promise<VaultBaseFillEvidence | null>;
@@ -32,7 +34,7 @@ export class VaultLedgerService {
   constructor(private readonly store: VaultLedgerStore, private readonly client: LedgerClient, private readonly options: VaultLedgerOptions) {
     this.confirmations = options.confirmations ?? 64n;
     this.maxBlocks = options.maxBlocks ?? 1000;
-    if (this.confirmations < 1n || !Number.isSafeInteger(this.maxBlocks) || this.maxBlocks < 1 || this.maxBlocks > 1000)
+    if (this.confirmations < 1n || !Number.isSafeInteger(this.maxBlocks) || this.maxBlocks < 1 || this.maxBlocks > (options.fastEmptyRanges === true ? 10_000 : 1000))
       throw new Error("Invalid vault ledger confirmation or scan bound");
   }
   private async confirmedHead() {
@@ -48,12 +50,14 @@ export class VaultLedgerService {
     if (!equal(state.vault, this.options.vault) || !equal(state.weth, this.options.weth) || !equal(state.swapper, this.options.swapper))
       throw new Error("Vault ledger graph differs from runtime configuration");
   }
-  private async balances(number: bigint) {
+  private async balances(number: bigint, requireBigInts = false) {
     const [balance, spent, burned] = await Promise.all([
       this.client.readContract({ address: this.options.weth, abi: erc20Abi, functionName: "balanceOf", args: [this.options.vault], blockNumber: number }),
       this.client.readContract({ address: this.options.vault, abi: vaultAbi, functionName: "totalSpent", blockNumber: number }),
       this.client.readContract({ address: this.options.vault, abi: vaultAbi, functionName: "totalBurned", blockNumber: number }),
     ]);
+    if (requireBigInts && [balance, spent, burned].some(value => typeof value !== "bigint" || value < 0n))
+      throw new Error("Invalid canonical Vault balance or execution total");
     return { observedBalance: String(balance), observedTotalSpent: String(spent), observedTotalBurned: String(burned) };
   }
   private async events(deadline=Infinity) {
@@ -148,6 +152,39 @@ export class VaultLedgerService {
     // timeouts can overrun the soft deadline; never abandon or partly commit it.
     while (BigInt(state.cursor.number) < head && scanned < this.maxBlocks && !state.blockedReason && Date.now() < deadline) {
       const from = BigInt(state.cursor.number) + 1n;
+      if (this.options.fastEmptyRanges === true) {
+        const count = Math.min(1000, this.maxBlocks - scanned);
+        const to = from + BigInt(count - 1) < head ? from + BigInt(count - 1) : head;
+        const [anchor, first, before] = await Promise.all([this.block(BigInt(state.cursor.number)), this.block(from), this.block(to)]);
+        if (!equal(anchor.hash, state.cursor.hash) || !equal(first.parentHash, anchor.hash))
+          throw new Error("Vault empty range anchor changed during collection");
+        if (Date.now() >= deadline) break;
+        let empty = false;
+        try {
+          const logs = await Promise.all([
+            this.client.getLogs({ address: this.options.weth, event: transferEvent, args: { to: this.options.vault }, fromBlock: from, toBlock: to, strict: true }),
+            this.client.getLogs({ address: this.options.weth, event: transferEvent, args: { from: this.options.vault }, fromBlock: from, toBlock: to, strict: true }),
+            this.client.getLogs({ address: this.options.vault, event: executionEvent, fromBlock: from, toBlock: to, strict: true }),
+          ]);
+          empty = logs.every(rows => rows.length === 0);
+        } catch { /* Unsupported wide log ranges retain the complete ordinary scan. */ }
+        if (Date.now() >= deadline) break;
+        if (empty) {
+          const observed = await this.balances(to, true);
+          if (observed.observedBalance === state.observedBalance && observed.observedTotalSpent === state.observedTotalSpent &&
+            observed.observedTotalBurned === state.observedTotalBurned) {
+            const [afterAnchor, afterFirst, afterEnd] = await Promise.all([this.block(BigInt(state.cursor.number)), this.block(from), this.block(to)]);
+            if (!equal(afterAnchor.hash, anchor.hash) || !equal(afterFirst.hash, first.hash) || !equal(afterFirst.parentHash, anchor.hash) ||
+              !equal(afterEnd.hash, before.hash)) throw new Error("Vault empty range changed before commit");
+            if (Date.now() >= deadline) break;
+            state = await this.store.commitVaultLedger({ expectedRevision: state.revision,
+              state: { ...state, cursor: before, ...observed, revision: state.revision + 1, updatedAt: Date.now() },
+              blocks: first.number === before.number ? [first] : [first, before], events: [] });
+            scanned += Number(to - from + 1n);
+            continue;
+          }
+        }
+      }
       const count = Math.min(100, this.maxBlocks - scanned);
       const to = from + BigInt(count - 1) < head ? from + BigInt(count - 1) : head;
       const before = await this.block(to);

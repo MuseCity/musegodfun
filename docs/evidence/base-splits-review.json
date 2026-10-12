@@ -18877,7 +18877,7 @@
     "contractTests": "not_repeated_locally_no_Solidity_or_compiler_change_CI_requires_full_contract_validation",
     "scope": "Signed trusted-Splits formal manifest plus isolated offline fixtures and initialization-only 60-second preparation budget; ordinary read/reconcile/signing budgets unchanged"
   },
-  "latestCodeValidation": "baseMaintenanceCloseout",
+  "latestCodeValidation": "pausedHostQuotaCloseout",
   "baseMaintenanceCloseout": {
     "recordedAt": "2026-10-11T16:02:08.310516+00:00",
     "ownerDecision": "Save historical Base acceptance once; no daily historical fallback; deduplicate each maintenance round; fix budget starvation. Keep fresh pre-sign/pre-broadcast authorization, real arrival/burn accounting and financial protections. Code/test only, do not deploy; public Base remains paused.",
@@ -19023,5 +19023,94 @@
       "productionPerformance": "not_measured; missing peer RPC/storage or checkpoints remains pending",
       "rollback": "stop prior host writer; retain journals, acceptance, signed hashes and nonce/gas reservations; use paused protocol-7/destination-v3 compatible record-only runtime"
     }
+  },
+  "pausedHostQuotaCloseout": {
+    "recordedAt": "2026-10-12T02:16:29.904351+00:00",
+    "ownerScope": "Commit and merge to master, publish paused version, start existing host maintenance/keeper with previous gas ceilings; preserve Robinhood, no paid services; inspect unnecessary recurring validation. Public Base remains paused.",
+    "baselineCommit": "5dc876f7aa15bfd6d1eabce26ef58d627ad9075e",
+    "sourceTreeSha256": "9f56b0062c37037bd9f41c22f69c45ed597a496a12187b0acfd8ed2af8bfb712",
+    "sourceTreeFiles": 273,
+    "sourceTreeAlgorithm": "sha256 of sorted tracked path + NUL + bytes + NUL for src/server/scripts/tests/contracts/src plus listed manifests/config/package/lock/CI inputs; evidence documents excluded",
+    "sourceTreeExtraFiles": [
+      ".github/workflows/deploy.yml",
+      "contracts/artifacts/base-collector-deployment.json",
+      "contracts/artifacts/buyback-v2-deployment.json",
+      "contracts/buyback.config.json",
+      "package-lock.json",
+      "package.json",
+      "tsconfig.json",
+      "tsconfig.worker.json",
+      "vite.config.ts",
+      "wrangler.jsonc"
+    ],
+    "validation": {
+      "unitTests": {
+        "tests": 1501,
+        "pass": 1501,
+        "fail": 0,
+        "skipped": 0,
+        "cancelled": 0
+      },
+      "independentTargetedTests": {
+        "tests": 200,
+        "pass": 200,
+        "fail": 0,
+        "skipped": 0
+      },
+      "typecheck": "passed_as_build_prerequisite",
+      "build": "passed",
+      "diffCheck": "passed",
+      "contracts": "unchanged; prior 171/171 CI evidence retained; next paused publication runs contract suite",
+      "logs": [
+        {
+          "path": ".cache/base-paused-release-2026-10-12/final-tests.log",
+          "sha256": "5fb71a816f1c188295c6fa91aa37e3f4d96e37efeed6df66465f03f7694119ed"
+        },
+        {
+          "path": ".cache/base-paused-release-2026-10-12/final-build.log",
+          "sha256": "80e0931130d73914373cdc3470faade3a2f2d8e55b45505d5a2036f1a25adbb1"
+        }
+      ]
+    },
+    "historicalAcceptance": "durable accepted Base/RH records; no normal replay or automatic fallback",
+    "recurringWorkInspection": {
+      "unusedLocalApi": "October-8 localhost:8798 API stopped; no evidence of active traffic or CU causation",
+      "extraAuditOrForkDaemons": "none observed",
+      "fixedRhIdentityCacheMs": 300000,
+      "currentAuthorityAndCanonicalAnchors": "retained"
+    },
+    "maintenanceOnlyChanges": {
+      "metadataTransport": "existing chain public RPC; Base logs/all state retain existing archive; fixed historical state bound to matching chain/block hash; no fallback/retry or new paid service",
+      "sourceRateLimit": "Base public dispatch interval at least 60ms per single host transport",
+      "baseAssetDiscovery": "ten-block release ranges, at most 20 queries concurrently, wait all, no partial assets on failure/deadline",
+      "reservedBudgets": "bounded session preparation does not consume independent scan quotas",
+      "fixedWethEmptyIntervals": "RH Treasury/Vault only, at most 1000 blocks per interval/10000 per bounded host phase, strict raw-log/balance/counter/anchor/deadline/CAS proof; fallback for unsupported/nonempty intervals",
+      "financialClientsAndFreshGates": "original signing/before-broadcast clients, current roles/controls/custody/nonce/gas checks unchanged"
+    },
+    "operation": {
+      "priorPausedPublication": {
+        "commit": "5dc876f7aa15bfd6d1eabce26ef58d627ad9075e",
+        "build": "build-38187812900-1",
+        "workflow": "https://github.com/MuseCity/musegodfun/actions/runs/38187812900"
+      },
+      "host": "audit_only; no wallet key in child; singleton lease; catchup pending",
+      "basePublic": {
+        "writesEnabled": false,
+        "signingPaused": true,
+        "revision": 0
+      },
+      "robinhoodPublic": {
+        "writesEnabled": true,
+        "signingPaused": false,
+        "revision": 1
+      },
+      "genuineKeeperGasCapWei": "16000000000000",
+      "unknownRecoveryEnabled": false,
+      "mainnetTransactionsThisPhase": 0,
+      "gasSpentThisPhaseWei": "0",
+      "manufacturedFeeGate": "cancelled by owner",
+      "catchupAndSustainedFreshness": "pending; ready alone is not fresh"
+    },
+    "rollback": "Stop/drain singleton writer; retain checkpoints, canonical journal, private acceptance, signed hashes and nonce/gas; use published compatible paused 5dc876f, protocol7/destination-policy3."
   }
 }

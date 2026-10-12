@@ -1,13 +1,14 @@
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Store } from "../server/store";
-import { readAllCustodyEvents } from "../server/buyback-custody-ledger";
-import { convertCustodyFragments, replayCustodyLedger, type CustodyEvent, type CustodyState } from "../src/lib/buyback-custody-ledger";
+import { CustodyLedgerService, readAllCustodyEvents, type CustodyOptions } from "../server/buyback-custody-ledger";
+import { convertCustodyFragments, replayCustodyLedger, type CustodyCommit, type CustodyEvent, type CustodyState } from "../src/lib/buyback-custody-ledger";
 import { vaultEventId } from "../src/lib/buyback-vault-ledger";
 import type { Address, Hex } from "viem";
+import { BASE_BUYBACK_RH_WETH } from "../src/lib/base-buyback";
 const addr=(n:number)=>`0x${n.toString(16).padStart(40,"0")}` as Address,hash=(n:number)=>`0x${n.toString(16).padStart(64,"0")}` as Hex;
 const block=(n:number)=>({number:String(n),hash:hash(100+n),parentHash:hash(99+n)}),account=addr(1),asset=addr(2);
 const state=(balance="0"):CustodyState=>({version:1,id:"base_automation",chainId:8453,account,revision:1,checkpoint:block(0),cursor:block(1),openingBalances:{[asset]:"3"},observedBalances:{[asset]:balance},updatedAt:1,blockedReason:null});
@@ -291,3 +292,248 @@ test("new Treasury events capture transaction context only from their canonical 
   const recovered=await new CustodyLedgerService(legacy,f.client,{id:"robinhood_treasury",account,initialAssets:[asset],confirmations:1n}).reconcile();assert.equal(recovered.ready,true);assert.equal(legacy.custodyLedgerEventPage("robinhood_treasury").length,1,"Canonical reobservation tolerates absent legacy context without duplicating or rewriting financial rows");
  }finally{legacy?.close();store.close();rmSync(directory,{recursive:true,force:true});}
 });
+
+const treasuryWeth = BASE_BUYBACK_RH_WETH.toLowerCase() as Address;
+async function emptyTreasuryFixture(t: TestContext, scan: Partial<Pick<CustodyOptions, "fastEmptyRanges" | "maxBlocks">> = { fastEmptyRanges: true }) {
+  const directory = mkdtempSync(join(tmpdir(), "custody-empty-treasury-")), f = custodyFixture("robinhood_treasury");
+  let store = new Store(directory, 4663);
+  const options: CustodyOptions = { id: "robinhood_treasury", account, initialAssets: [treasuryWeth], confirmations: 1n, ...scan };
+  const headers: bigint[] = [], balances: bigint[] = [], receipts: Hex[] = [], commits: { cursor: string; events: number; blocks: string[] }[] = [];
+  const getBlock = f.client.getBlock, readContract = f.client.readContract, receipt = f.client.getTransactionReceipt;
+  f.client.getBlock = async (input: any) => { headers.push(input.blockNumber); return getBlock(input); };
+  f.client.readContract = async (input: any) => { balances.push(input.blockNumber); return readContract(input); };
+  f.client.getTransactionReceipt = async (input: any) => { receipts.push(input.hash); return receipt(input); };
+  const observe = () => {
+    const commit = store.commitCustodyLedger.bind(store);
+    t.mock.method(store, "commitCustodyLedger", (input: CustodyCommit) => {
+      commits.push({ cursor: input.state.cursor.number, events: input.events.length, blocks: input.blocks.map(row => row.number) });
+      return commit(input);
+    });
+  };
+  observe();
+  const service = new CustodyLedgerService(store, f.client, options);
+  await service.establishCheckpoint(async () => true);
+  const reset = () => { headers.length = 0; balances.length = 0; receipts.length = 0; commits.length = 0; f.queries.length = 0; };
+  reset();
+  t.after(() => { store.close(); rmSync(directory, { recursive: true, force: true }); });
+  return { ...f, service, options, headers, balances, receipts, commits, reset,
+    get store() { return store; },
+    blocks() {
+      const rows: ReturnType<Store["custodyLedgerBlockPage"]> = []; let before: string | undefined;
+      for (;;) {
+        const page = store.custodyLedgerBlockPage("robinhood_treasury", 500, before); rows.push(...page);
+        if (page.length < 500) return rows;
+        before = page.at(-1)!.number;
+      }
+    },
+    reopen() { store.close(); store = new Store(directory, 4663); observe(); return new CustodyLedgerService(store, f.client, options); },
+    movement(n: number, kind: "in" | "out", amount: string, height: number, overrides: Partial<CustodyEvent> = {}) {
+      const row = { ...event(n, kind, amount), asset: treasuryWeth, blockNumber: String(height), blockHash: block(height).hash, ...overrides };
+      f.events.push(row); return row;
+    } };
+}
+
+test("fixed RH WETH fast empty Treasury pages retain only first/end anchors for 1000 real blocks", async t => {
+  const f = await emptyTreasuryFixture(t); f.setHead(1001n);
+  const report = await f.service.reconcile();
+  assert.equal(report.ready, true); assert.equal(report.caughtUp, true); assert.equal(report.indexedThrough, "1000");
+  assert.deepEqual(f.store.custodyLedgerBlockPage("robinhood_treasury").map(row => row.number).sort((a, b) => Number(a) - Number(b)), ["0", "1", "1000"]);
+  assert.deepEqual(f.commits, [{ cursor: "1000", events: 0, blocks: ["1", "1000"] }]);
+  assert.equal(f.queries.length, 2);
+  for (const query of f.queries) {
+    assert.equal(query.address.toLowerCase(), treasuryWeth); assert.equal(query.fromBlock, 1n); assert.equal(query.toBlock, 1000n);
+    assert.equal(query.strict, true);
+  }
+  assert(f.headers.every(number => [0n, 1n, 1000n].includes(number)), "no synthetic interior header is stored or queried");
+  assert.deepEqual(f.balances, [1000n]); assert.equal(f.receipts.length, 0);
+  const reopened = f.reopen(); assert.equal((await reopened.read()).ready, true);
+  assert.equal(f.store.custodyLedgerState("robinhood_treasury")!.cursor.number, "1000");
+});
+
+for (const fastEmptyRanges of [undefined, false]) {
+  test(`Treasury ${fastEmptyRanges === false ? "explicit false" : "default"} keeps complete headers and ten-block log ranges`, async t => {
+    const f = await emptyTreasuryFixture(t, { fastEmptyRanges }); f.setHead(1001n);
+    const report = await f.service.reconcile();
+    assert.equal(report.indexedThrough, "1000"); assert.equal(report.ready, true);
+    assert.equal(f.blocks().length, 1001);
+    assert.equal(new Set(f.headers.filter(number => number > 0n)).size, 1000);
+    assert.equal(f.commits.length, 10);
+    assert(f.commits.every(commit => commit.blocks.length === 100));
+    assert(f.queries.every(query => query.toBlock - query.fromBlock < 10n));
+  });
+}
+
+test("Treasury fast mode defaults to 1000 per turn and only explicit host fast mode admits 10000", async t => {
+  const normal = await emptyTreasuryFixture(t); normal.setHead(20001n);
+  assert.equal((await normal.service.reconcile()).indexedThrough, "1000");
+  const fast = await emptyTreasuryFixture(t, { fastEmptyRanges: true, maxBlocks: 10_000 }); fast.setHead(20001n);
+  assert.equal((await fast.service.reconcile()).indexedThrough, "10000"); assert.equal(fast.commits.length, 10);
+  assert(fast.queries.every(query => BigInt(query.toBlock) - BigInt(query.fromBlock) === 999n));
+  for (const options of [{ ...fast.options, maxBlocks: 10001 }, { ...fast.options, fastEmptyRanges: false, maxBlocks: 1001 },
+    { ...fast.options, fastEmptyRanges: undefined, maxBlocks: 1001 }])
+    assert.throws(() => new CustodyLedgerService(fast.store, fast.client, options), /Invalid custody scan bound/);
+  for (const options of [{ ...normal.options, id: "base_automation" as const }, { ...normal.options, initialAssets: [asset] },
+    { ...normal.options, initialAssets: [] }, { ...normal.options, initialAssets: [treasuryWeth, asset] }])
+    assert.throws(() => new CustodyLedgerService(normal.store, normal.client, options), /fixed Robinhood WETH/);
+});
+
+for (const movement of ["positive", "zero", "self", "equal-in-out"] as const) {
+  test(`a ${movement} WETH log disables the sparse shortcut and preserves normal receipts/FIFO`, async t => {
+    const f = await emptyTreasuryFixture(t); f.setHead(1001n);
+    if (movement === "positive") f.movement(1001, "in", "5", 25);
+    if (movement === "zero") f.movement(1001, "out", "0", 25);
+    if (movement === "self") f.movement(1001, "in", "7", 25, { from: account, to: account });
+    if (movement === "equal-in-out") { f.movement(1001, "in", "5", 25); f.movement(1002, "out", "5", 26); }
+    const report = await f.service.reconcile();
+    assert.equal(report.ready, true); assert.equal(report.indexedThrough, "1000");
+    assert.equal(f.commits[0].cursor, "100"); assert.equal(f.commits[0].blocks.length, 100);
+    for (let height = 1n; height <= 100n; height++) assert(f.headers.includes(height));
+    assert(f.queries.some(query => query.fromBlock === 1n && query.toBlock === 1000n));
+    assert(f.queries.some(query => query.fromBlock === 1n && query.toBlock === 10n));
+    const rows = f.store.custodyLedgerEventPage("robinhood_treasury");
+    assert.equal(rows.length, movement === "positive" ? 1 : movement === "equal-in-out" ? 2 : 0);
+    assert.equal(f.receipts.length, rows.length, "zero/self logs still obey the existing no-receipt policy");
+    assert.equal(report.assets[0].pending, movement === "positive" ? "5" : "0");
+    if (movement === "equal-in-out") assert.deepEqual(report.consumptions[0].fragments, [{ batchId: null, amount: "5" }]);
+  });
+}
+
+test("nonempty Treasury fallback still rejects a forged receipt before any financial commit", async t => {
+  const f = await emptyTreasuryFixture(t); f.setHead(1001n); f.movement(1001, "in", "5", 25);
+  const receipt = f.client.getTransactionReceipt;
+  f.client.getTransactionReceipt = async (input: any) => ({ ...await receipt(input), blockHash: hash(99999) });
+  await assert.rejects(f.service.reconcile(), /canonical successful receipt/);
+  assert.equal(f.store.custodyLedgerState("robinhood_treasury")!.cursor.number, "0");
+  assert.equal(f.store.custodyLedgerEventPage("robinhood_treasury").length, 0);
+});
+
+test("a provider that refuses broad WETH logs falls back to the unchanged bounded scan", async t => {
+  const f = await emptyTreasuryFixture(t); f.setHead(1001n);
+  const logs = f.client.getLogs;
+  let broadFailures = 0;
+  f.client.getLogs = async (input: any) => {
+    if (input.toBlock - input.fromBlock >= 10n) { broadFailures++; throw new Error("range exceeds provider limit"); }
+    return logs(input);
+  };
+  const report = await f.service.reconcile();
+  assert.equal(report.ready, true); assert.equal(report.indexedThrough, "1000"); assert(broadFailures > 0);
+  assert(f.queries.every(query => query.toBlock - query.fromBlock < 10n));
+  assert.equal(f.blocks().length, 1001);
+  assert(f.commits.every(commit => commit.blocks.length === 100));
+});
+
+test("a balance change without matching logs cannot fast-forward a Treasury range", async t => {
+  const f = await emptyTreasuryFixture(t); f.setHead(1001n);
+  const read = f.client.readContract;
+  f.client.readContract = async (input: any) => input.blockNumber === 1000n ? 1n : read(input);
+  const report = await f.service.reconcile();
+  assert.equal(report.ready, false); assert.equal(report.assets[0].basePending, "0");
+  assert.equal(f.commits.length, 10); assert(f.commits.every(commit => commit.blocks.length === 100));
+  assert.equal(f.blocks().length, 1001);
+});
+
+test("empty-range balance RPC failure retains the funded cursor/events and is retryable", async t => {
+  const f = await emptyTreasuryFixture(t); f.setHead(1001n); const incoming = f.movement(1001, "in", "5", 25);
+  await f.service.reconcile(); f.reset(); f.setHead(2001n);
+  const before = f.store.custodyLedgerState("robinhood_treasury")!, rows = f.store.custodyLedgerEventPage("robinhood_treasury");
+  const read = f.client.readContract;
+  f.client.readContract = async (input: any) => { if (input.blockNumber === 2000n) throw new Error("archive capacity unavailable"); return read(input); };
+  await assert.rejects(f.service.reconcile(), /empty range state unavailable/);
+  assert.deepEqual(f.store.custodyLedgerState("robinhood_treasury"), before); assert.deepEqual(f.store.custodyLedgerEventPage("robinhood_treasury"), rows);
+  f.client.readContract = read;
+  const recovered = await f.reopen().reconcile();
+  assert.equal(recovered.ready, true); assert.equal(recovered.assets[0].pending, "5");
+  assert.equal(f.store.custodyLedgerEventPage("robinhood_treasury")[0].id, incoming.id);
+});
+
+for (const race of ["cursor", "first-parent", "first-hash", "end-hash"] as const) {
+  test(`empty Treasury ${race} changes cannot append an unverified sparse page`, async t => {
+    const f = await emptyTreasuryFixture(t); f.setHead(1001n);
+    const before = f.store.custodyLedgerState("robinhood_treasury")!, getBlock = f.client.getBlock;
+    const seen = new Map<bigint, number>();
+    f.client.getBlock = async (input: any) => {
+      const height = input.blockNumber as bigint, count = (seen.get(height) ?? 0) + 1; seen.set(height, count);
+      const row = await getBlock(input);
+      if (race === "cursor" && height === 0n && count > 1) return { ...row, hash: hash(99000) };
+      if (race === "first-parent" && height === 1n) return { ...row, parentHash: hash(99000) };
+      if (race === "first-hash" && height === 1n && count > 1) return { ...row, hash: hash(99001) };
+      if (race === "end-hash" && height === 1000n && count > 1) return { ...row, hash: hash(991000) };
+      return row;
+    };
+    await assert.rejects(f.service.reconcile(), /empty range ancestry changed|empty range changed during collection/);
+    assert.deepEqual(f.store.custodyLedgerState("robinhood_treasury"), before);
+    assert.equal(f.store.custodyLedgerBlockPage("robinhood_treasury").length, 1);
+    assert.equal(f.commits.length, 0);
+  });
+}
+
+test("empty-range deadline expires before commit without changing persistent financial state", async t => {
+  const f = await emptyTreasuryFixture(t); let now = 1000; t.mock.method(Date, "now", () => now);
+  f.setHead(1001n); const before = f.store.custodyLedgerState("robinhood_treasury")!, logs = f.client.getLogs;
+  f.client.getLogs = async (input: any) => { const rows = await logs(input); now += 60; return rows; };
+  const report = await f.service.reconcile(50);
+  assert.equal(report.ready, false); assert.match(report.reason!, /budget reached/);
+  assert.deepEqual(f.store.custodyLedgerState("robinhood_treasury"), before); assert.equal(f.commits.length, 0);
+});
+
+test("a completed sparse page survives a later empty-range deadline", async t => {
+  const f = await emptyTreasuryFixture(t, { fastEmptyRanges: true, maxBlocks: 2000 });
+  let now = 1000; t.mock.method(Date, "now", () => now); f.setHead(2001n);
+  const logs = f.client.getLogs;
+  f.client.getLogs = async (input: any) => { const rows = await logs(input); if (input.fromBlock > 1000n) now += 60; return rows; };
+  const report = await f.service.reconcile(50);
+  assert.equal(report.ready, false); assert.match(report.reason!, /budget reached/);
+  assert.equal(f.store.custodyLedgerState("robinhood_treasury")!.cursor.number, "1000");
+  assert.deepEqual(f.commits.map(commit => commit.cursor), ["1000"]);
+});
+
+test("a sparse-page CAS conflict cannot overwrite another revision or erase prior real funds", async t => {
+  const f = await emptyTreasuryFixture(t); f.setHead(1001n); f.movement(1001, "in", "5", 25);
+  await f.service.reconcile(); f.reset(); f.setHead(2001n);
+  const before = f.store.custodyLedgerState("robinhood_treasury")!, rows = f.store.custodyLedgerEventPage("robinhood_treasury");
+  const commit = f.store.commitCustodyLedger.bind(f.store); let conflicted = false;
+  t.mock.method(f.store, "commitCustodyLedger", (input: CustodyCommit) => {
+    if (!conflicted) { conflicted = true; commit({ expectedRevision: before.revision, state: { ...before, revision: before.revision + 1, updatedAt: Date.now() }, blocks: [], events: [] }); }
+    return commit(input);
+  });
+  await assert.rejects(f.service.reconcile(), /revision/);
+  assert.equal(f.store.custodyLedgerState("robinhood_treasury")!.revision, before.revision + 1);
+  assert.equal(f.store.custodyLedgerState("robinhood_treasury")!.cursor.number, before.cursor.number);
+  assert.deepEqual(f.store.custodyLedgerEventPage("robinhood_treasury"), rows);
+  assert.equal((await f.service.read()).assets[0].pending, "5");
+});
+
+for (const forkAt of [2500n, 1500n]) {
+  test(`restart replays a ${forkAt === 2500n ? "shallow" : "deep"} sparse-anchor reorg without losing canonical money`, async t => {
+    const f = await emptyTreasuryFixture(t, { fastEmptyRanges: true, maxBlocks: 6000 });
+    f.setHead(6001n); const incoming = f.movement(1001, "in", "5", 25);
+    await f.service.reconcile();
+    const cursor = f.store.custodyLedgerState("robinhood_treasury")!.cursor.number;
+    assert.equal(cursor, "6000"); const rows = f.store.custodyLedgerEventPage("robinhood_treasury");
+    const getBlock = f.client.getBlock;
+    f.client.getBlock = async (input: any) => {
+      const height = input.blockNumber as bigint, row = await getBlock(input);
+      return height >= forkAt ? { ...row, hash: hash(100000 + Number(height)), parentHash: height === forkAt ? block(Number(height - 1n)).hash : hash(99999 + Number(height)) } : row;
+    };
+    const reopened = f.reopen(), recovered = await reopened.reconcile();
+    assert.equal(recovered.ready, true); assert.equal(recovered.assets[0].pending, "5"); assert.equal(recovered.indexedThrough, "6000");
+    assert.deepEqual(f.store.custodyLedgerEventPage("robinhood_treasury"), rows);
+    assert.equal(f.store.custodyLedgerEventPage("robinhood_treasury").filter(row => row.id === incoming.id).length, 1);
+    assert.equal(f.store.custodyLedgerState("robinhood_treasury")!.cursor.hash, hash(106000));
+  });
+}
+
+for (const lag of [50n, 4100n]) {
+  test(`a restarted sparse Treasury ledger with RPC lag ${lag} preserves all funds and anchors`, async t => {
+    const f = await emptyTreasuryFixture(t, { fastEmptyRanges: true, maxBlocks: 6000 });
+    f.setHead(6001n); f.movement(1001, "in", "5", 25); await f.service.reconcile();
+    const before = f.store.custodyLedgerState("robinhood_treasury")!, rows = f.store.custodyLedgerEventPage("robinhood_treasury"), anchors = f.store.custodyLedgerBlockPage("robinhood_treasury");
+    f.setHead(6001n - lag); f.reset();
+    const reopened = f.reopen(), report = await reopened.reconcile();
+    assert.equal(report.ready, false); assert.match(report.reason!, /RPC is behind/);
+    assert.deepEqual(f.store.custodyLedgerState("robinhood_treasury"), before);
+    assert.deepEqual(f.store.custodyLedgerEventPage("robinhood_treasury"), rows);
+    assert.deepEqual(f.store.custodyLedgerBlockPage("robinhood_treasury"), anchors); assert.equal(f.queries.length, 0);
+    f.setHead(6001n); assert.equal((await reopened.read()).assets[0].pending, "5");
+  });
+}
