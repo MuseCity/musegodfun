@@ -4877,5 +4877,1574 @@
       "logSha256": "bbf65b3692c55f866519e5d9d7620fa0fb25f80f8b568f3344f117023c24a3a2",
       "scope": "accepted runtime source unchanged; authorization documentation added afterward; final committed-tree tests repeat in required CI"
     }
+  },
+  "round12": {
+    "recordedAt": "2026-10-12T12:18:22.181089+00:00",
+    "status": "round12_local_acceptance_passed_not_committed_not_deployed",
+    "ownerDecision": "Base 的累计上限应该和 Robinhood 的一致。",
+    "ownerRequest": "第 12 轮：Base keeper 的 gas 规则改成与 Robinhood 一致（共享 KEEPER_TASK_RETRY_POLICY），取消 0.000016 ETH 终身上限，两个 keeper 都加余额告警。不提交、不部署。",
+    "reviewRequest": "/Volumes/code/opc/musegodfun/.claude/worktrees/base-blocking-issues-fix-9d9962/review/base-gas-policy-round12-2026-10-12.md",
+    "reviewFileSha256": "1200d2cc0a168853c8155d71541b24031d1879f5b68cd8a5ad43252c31826e30",
+    "sourceBaseline": "f20d04031fb487ad060832e697dddc71185c68f4",
+    "branch": "master",
+    "sourceTreeSha256": "57ba41f5d403e41bf96b94033e05d9ea780be0d5c3b592803c5c2d54a6a05538",
+    "sourceFileCount": 302,
+    "sourceHashAlgorithm": "SHA256 of lexicographically sorted UTF-8 path + NUL + per-file SHA256 + LF. Existing round11 source scope plus new shared keeper policy/monitor/tests and annotated owner proposal. Generated acceptance evidence/logs/secrets/unrelated redesign excluded. Source inputs below describe the final local tree, not the deployed baseline.",
+    "sourceInputs": [
+      {
+        "path": ".env.example",
+        "sha256": "0c544d2cec836ab9577d0ac4c7be632ffa3d3ae6ec82f03bae7f1af6ba438a72"
+      },
+      {
+        "path": ".github/workflows/deploy.yml",
+        "sha256": "0d3c3d6b78c37f2867173e3a720b1bceff3dbf42630285f156f367fa929bd568"
+      },
+      {
+        "path": "README.md",
+        "sha256": "293cf2a966d7484e16de821571bde617ada74eeb4a4926a771b8def4dd2ce2a0"
+      },
+      {
+        "path": "contracts/README.md",
+        "sha256": "55e7345d9fae33fa8742556dfadda8b36b684d47ed77e05692b9287c5e4dbbc2"
+      },
+      {
+        "path": "contracts/artifacts/MusegodBuybackExecutor.compiler-input.json",
+        "sha256": "ba2660e0fd4130afe3537fd80efee15425af1ea36ad281ff996fd57d5a267b89"
+      },
+      {
+        "path": "contracts/artifacts/MusegodBuybackExecutor.json",
+        "sha256": "e44156799583795ba9bdefb5ad8c3a0f2a74118fb2b799b02d7d1ef8ac7f1640"
+      },
+      {
+        "path": "contracts/artifacts/MusegodBuybackOracle.compiler-input.json",
+        "sha256": "02fb498c616c503c0649f9771a2a6820c2d9f391368b0273d752fa0c0f97c515"
+      },
+      {
+        "path": "contracts/artifacts/MusegodBuybackOracle.json",
+        "sha256": "aa755d7bd5bc35fcedfe043bc0ecd551b6791077e0f6ea7e8c0285e8db224bb5"
+      },
+      {
+        "path": "contracts/artifacts/MusegodLaunchGuard.compiler-input.json",
+        "sha256": "c300fe6c43d43ac7bf98a8a8383972f93d3f9b5649a00175199b17df45631d3a"
+      },
+      {
+        "path": "contracts/artifacts/MusegodLaunchGuard.json",
+        "sha256": "c0c0faeffbefd973e717c3c93c0be15b0d0dbec58acf85d3792350946ef0ad8a"
+      },
+      {
+        "path": "contracts/artifacts/MusegodLaunchGuardLegacy.compiler-input.json",
+        "sha256": "e2f63905883be445d2c8fe0ebea913fedf8046d85aa30e290aab8e638af98ff6"
+      },
+      {
+        "path": "contracts/artifacts/MusegodLaunchGuardLegacy.json",
+        "sha256": "520657031eebf6cee17ef3bd3ae63785857c609ca1798c1e57e8705bb29d570a"
+      },
+      {
+        "path": "contracts/artifacts/base-collector-deployment.json",
+        "sha256": "94671d5bbf283c9b2162830f72b544ed940e3789aa5a2f37216ff263ab20478a"
+      },
+      {
+        "path": "contracts/artifacts/base-collector-preflight.json",
+        "sha256": "db64a450d79a9a7fa125a637855285e8e69b6a43220b42324d7c7eca8911e085"
+      },
+      {
+        "path": "contracts/artifacts/base-collector/MusegodBaseFeeCollector.compiler-input.json",
+        "sha256": "873e380891f940264e730a02d021aee9c46e608b6514ee900bfd6b8ac298b9a2"
+      },
+      {
+        "path": "contracts/artifacts/base-collector/MusegodBaseFeeCollector.json",
+        "sha256": "53241538b2d8474cd0927544fdda9887fd9500d4e49bf8283ff2801b25ee5b4d"
+      },
+      {
+        "path": "contracts/artifacts/base-collector/splits-base-code.json",
+        "sha256": "e1537b56f5cf4f2fc31790e55c0d19cb532e203e8c1ca23114f2a7e176bddcd7"
+      },
+      {
+        "path": "contracts/artifacts/buyback-deployment.json",
+        "sha256": "dd6272550a98b92080297becdfa4b08e32d7348ea5e297b59ff2ae709f08077a"
+      },
+      {
+        "path": "contracts/artifacts/buyback-v2-deployment.json",
+        "sha256": "c6cb54fa33c1d856d4bc989ac207c1b091c12d4168d073b80f01e61265d9a372"
+      },
+      {
+        "path": "contracts/artifacts/buyback-v2/MusegodAssetFeedOracle.compiler-input.json",
+        "sha256": "19511040cb3e0f882152c2ff2bb74115b69516b1339aea9cf88263c7c2c66c80"
+      },
+      {
+        "path": "contracts/artifacts/buyback-v2/MusegodAssetFeedOracle.json",
+        "sha256": "677ac2d82a59de249d0d04c65253ebf8fd65792318ca0675bf1d55d39cd998a1"
+      },
+      {
+        "path": "contracts/artifacts/buyback-v2/MusegodBuybackBudgetVault.compiler-input.json",
+        "sha256": "fc2782084b52a6315b765e5821482fd66dee3856ab05c49dadbb619447ef26e1"
+      },
+      {
+        "path": "contracts/artifacts/buyback-v2/MusegodBuybackBudgetVault.json",
+        "sha256": "07a6e1c29b00a4fef346ba98519af167e24a6fc44345b634ae15c0ce55161ef8"
+      },
+      {
+        "path": "contracts/artifacts/buyback-v2/MusegodFeeEngine.compiler-input.json",
+        "sha256": "d04b46da2f7cbee0d007c764165730fe0e15658d763e7c9f92f9c95b46dbce19"
+      },
+      {
+        "path": "contracts/artifacts/buyback-v2/MusegodFeeEngine.json",
+        "sha256": "f72c83e71482dfeaf88ccbe0e3e08c7a283f1ecacec711fc70a8ab52d25a0546"
+      },
+      {
+        "path": "contracts/artifacts/buyback-v2/MusegodWethForwarder.compiler-input.json",
+        "sha256": "21061ff16dd65816e58cea8a65f82c93b9298d39035cef360a87432eb1bebeea"
+      },
+      {
+        "path": "contracts/artifacts/buyback-v2/MusegodWethForwarder.json",
+        "sha256": "f03d53095dcfc329527a86b08c5b3f8d095dccedc772fa41519f8db39535f4e4"
+      },
+      {
+        "path": "contracts/artifacts/dependency-verification.json",
+        "sha256": "f272759cd08f37ddfa4a60ccb7ca5bdb6f43fe017691ba992e9c22d45305d775"
+      },
+      {
+        "path": "contracts/buyback.config.json",
+        "sha256": "dbc667ccfae630298336172414fd7ba1c17e47307b58bb229f730f327faa6621"
+      },
+      {
+        "path": "contracts/export-artifact.mjs",
+        "sha256": "b4a5209adedf22c93ef38c4244c598fb68a165d49eb9d53de7f3238d9935fc4d"
+      },
+      {
+        "path": "contracts/foundry.toml",
+        "sha256": "b6a85302f02f4fe913d8226d10b1509a62fd9869897c7e6f439f1be608c73ca1"
+      },
+      {
+        "path": "contracts/lib/openzeppelin-contracts/LICENSE",
+        "sha256": "20aebc68b11c063133aa2af0ef4bb29875477c6d16d715718f0daec563938b84"
+      },
+      {
+        "path": "contracts/lib/openzeppelin-contracts/dependency-lock.json",
+        "sha256": "5d9f3c317c73466cfb880e6982b0a12f70dbcc91d5c55eae8a0d6734786796da"
+      },
+      {
+        "path": "contracts/lib/openzeppelin-contracts/interfaces/IERC1363.sol",
+        "sha256": "9c3a75a925a6dac9e88b03cddc58d42fe3131b0aaaad84408521f3f7af2f991b"
+      },
+      {
+        "path": "contracts/lib/openzeppelin-contracts/interfaces/IERC165.sol",
+        "sha256": "dfb3f56fa928a7c6cae41a7ce2c86b9210fa18d33fa26389099d66a0fa790368"
+      },
+      {
+        "path": "contracts/lib/openzeppelin-contracts/interfaces/IERC20.sol",
+        "sha256": "0158e2d3e0e28bedd99eec13dcf1a8aa3a70a5b7e4bb2ad709609c95fcc740d1"
+      },
+      {
+        "path": "contracts/lib/openzeppelin-contracts/interfaces/IERC20Metadata.sol",
+        "sha256": "0ef8d844d8e066abd5c0d8cc1c550c89f2628a4ea9c9bb16c7593d4207800ca8"
+      },
+      {
+        "path": "contracts/lib/openzeppelin-contracts/token/ERC20/IERC20.sol",
+        "sha256": "01b6f5c4fa45fd38822b286ecef6daf983d27306dd6362496fa71b3e4600b72c"
+      },
+      {
+        "path": "contracts/lib/openzeppelin-contracts/token/ERC20/extensions/IERC20Metadata.sol",
+        "sha256": "0b7132f17d14d1d84b41b0bb429be62dafdff00fd3470f68724d8018eb07f57a"
+      },
+      {
+        "path": "contracts/lib/openzeppelin-contracts/token/ERC20/utils/SafeERC20.sol",
+        "sha256": "93685e4e976be584a5e6abfc37376fe17c99bee53e07610efcc1ce51868e90d1"
+      },
+      {
+        "path": "contracts/lib/openzeppelin-contracts/utils/ReentrancyGuard.sol",
+        "sha256": "94e409e8f6e3184236651a6cc2b1a6a3ea0f0a25eb85b71e524ad5791bb2fbc8"
+      },
+      {
+        "path": "contracts/lib/openzeppelin-contracts/utils/StorageSlot.sol",
+        "sha256": "75704538dcb223239280c6726d9a31cf769a7816718517c997fc7d63bdb70778"
+      },
+      {
+        "path": "contracts/lib/openzeppelin-contracts/utils/introspection/IERC165.sol",
+        "sha256": "9055c2994b37dea1a41b7b7926dcb510f05dbe2540b0aafc5fbee9558fffd0ca"
+      },
+      {
+        "path": "contracts/src/MusegodAssetFeedOracle.sol",
+        "sha256": "d7839f50e57ced82e63300e69b4a46cff2941ea7e77c60b073afd82b6a6a0566"
+      },
+      {
+        "path": "contracts/src/MusegodBaseFeeCollector.sol",
+        "sha256": "b39a87a12777d92201ed13e9b9c88a31495a761b13c359593281b1def07c337b"
+      },
+      {
+        "path": "contracts/src/MusegodBuybackBudgetVault.sol",
+        "sha256": "cf7a679770e25fbb797cea330eb393bd44d2a1dde4c88136bc7b62f9658ea98d"
+      },
+      {
+        "path": "contracts/src/MusegodBuybackExecutor.sol",
+        "sha256": "802a5235a8e9cf430a75da41bf2bf3a7dd334c000e3d6a15d09c0c61ed319f41"
+      },
+      {
+        "path": "contracts/src/MusegodBuybackOracle.sol",
+        "sha256": "736947a245ba53abeb51b2b21b10c83e80b736fe533afa6ef14fa91a8f77fb6b"
+      },
+      {
+        "path": "contracts/src/MusegodFeeEngine.sol",
+        "sha256": "0f7fdff409b9cfba8d3e4a248feaab6e0bc0401d6621fb38cc7bd544e5d511ff"
+      },
+      {
+        "path": "contracts/src/MusegodLaunchGuard.sol",
+        "sha256": "2d12723c66c8bcd7f7d678b653c0614b657ce81ab29a0130683656c39fc84cd1"
+      },
+      {
+        "path": "contracts/src/MusegodWethForwarder.sol",
+        "sha256": "d48851a873e5608791e9c6d2fb38f7b9dcce202a10c6a5ca96fd21f87c1abe69"
+      },
+      {
+        "path": "contracts/src/interfaces/IDopplerBundler.sol",
+        "sha256": "e9bf47f65286efe51ff8f2b2b56e2afaa738fbaccb2c2458570f40395b5f13e8"
+      },
+      {
+        "path": "contracts/test/MusegodAssetFeedOracle.t.sol",
+        "sha256": "1dd5509312325875168ab980095780f05d13d6044197b173251e672b2a41692b"
+      },
+      {
+        "path": "contracts/test/MusegodBaseFeeCollector.t.sol",
+        "sha256": "d0bf256f19dce28afdbfe68fb8f26fc59ea6b05d6f4654ccfc1d462d135e1420"
+      },
+      {
+        "path": "contracts/test/MusegodBuybackBudgetVault.t.sol",
+        "sha256": "55a680417538e7a582f693084c04fbbc41994c0a04f550e07b4fca8990ec3c40"
+      },
+      {
+        "path": "contracts/test/MusegodBuybackExecutor.t.sol",
+        "sha256": "9f23354be5d9dbbe044309e87eed1c5bc1ef6d939032a784841b4bb75bbdfa3d"
+      },
+      {
+        "path": "contracts/test/MusegodBuybackOracle.t.sol",
+        "sha256": "2ca37500d2c7957a0c4036e980c10bf983bea1e6cef33ba8d57333b946ba9cf9"
+      },
+      {
+        "path": "contracts/test/MusegodFeeEngine.t.sol",
+        "sha256": "6aedcbf06755dd876e017b93c92bbe6a5c15cc825a41a311c6ad58990391b515"
+      },
+      {
+        "path": "contracts/test/MusegodLaunchGuard.t.sol",
+        "sha256": "4c6ee439168ed1ba4b8ccbc97e5126965950b99bab7b415451a3e7ae78a5a699"
+      },
+      {
+        "path": "contracts/test/MusegodWethForwarder.t.sol",
+        "sha256": "89a78bab49a8ff321abafcd46a1b75f43177f54fe4cc5c16df26f92febba3b92"
+      },
+      {
+        "path": "docs/SPEC.md",
+        "sha256": "20714c6e67391c41e74e409ffa60fa187a6166f45965a3e5f9c801c4bd568a8c"
+      },
+      {
+        "path": "docs/evidence/base-owner-proposal.json",
+        "sha256": "cfd486bef821234e95fad7ed2fe979150ea54cb77b173401f70f19fded69064a"
+      },
+      {
+        "path": "docs/evidence/buyback-v2-vault-fixture.json",
+        "sha256": "12aa29afcca5cd7212001663ef2550714cd6e49724985ec6e0c15d9cda326068"
+      },
+      {
+        "path": "package-lock.json",
+        "sha256": "035a2dc8d67c99e01b12365550ec45b3f57f0c4aca558ec487bcfec6dc05c1c6"
+      },
+      {
+        "path": "package.json",
+        "sha256": "d63784c7cba4c1ec13d1a8c3f83da9c99d81cdc3c29b92a857032b50e2606bf3"
+      },
+      {
+        "path": "scripts/base-audit-store.ts",
+        "sha256": "260549d979914c55e64a9ad42cae2b171b8ecdb968d1f9caee5cd295758fac0e"
+      },
+      {
+        "path": "scripts/base-buyback-keeper.ts",
+        "sha256": "902b4bd96a05cb0f760fcb772049a5f7013bd11029a0a4f41ab6d93c80173ea2"
+      },
+      {
+        "path": "scripts/base-keeper-wrapper.mjs",
+        "sha256": "6ccb8eb7bef8053d9424276cbe7090a6eaf81b52e7e43683d1fda4a192a9b655"
+      },
+      {
+        "path": "scripts/base-process-lease.ts",
+        "sha256": "3d81c415b99b0c342daceade042a07d7792cc673c1c21760d3e55a86e2d9940b"
+      },
+      {
+        "path": "scripts/build-base-collector.ts",
+        "sha256": "faa64148af951a3c3c276b603b3326860135a06d56b420951dd27fdfed8f1e49"
+      },
+      {
+        "path": "scripts/build-buyback-artifacts.ts",
+        "sha256": "57ef7b3889f1e9a55b6cf9138d0a891b1e8e81e75dac82357c6cf02cbd60f397"
+      },
+      {
+        "path": "scripts/build-info.ts",
+        "sha256": "ccbecde80b26ca74da7088a7c074c4dba024c18bceebf0890921c72244366988"
+      },
+      {
+        "path": "scripts/buyback-keeper.ts",
+        "sha256": "d5bf61752c20505a2972754588cf6eaf7797676c83d79ed38da1db79eb2b4a25"
+      },
+      {
+        "path": "scripts/database.ts",
+        "sha256": "7790a3ae21bd6de92911fb7a5cc8a71b744fc1c3156034ba6e391d9d5a09679e"
+      },
+      {
+        "path": "scripts/deploy-base-collector.ts",
+        "sha256": "1ed1401269df439456c6ba08de23da085ddd29a51b15745e0a7264645f56efbe"
+      },
+      {
+        "path": "scripts/deploy-buyback-engine.ts",
+        "sha256": "c483f52ccd8fc389d8302d4dbd2e7152a62eb65544804c54cc8ce0790b680148"
+      },
+      {
+        "path": "scripts/deploy-launch-guard.ts",
+        "sha256": "8dc76455c48b087cc2d1460e237280ba1d1c29ea19039d2cc4042b3468c865d1"
+      },
+      {
+        "path": "scripts/deployment-verification.ts",
+        "sha256": "b5d47d782fee588670a227418fe8ba9545d7c4e905b81cf3ecd0c1f814bc3120"
+      },
+      {
+        "path": "scripts/keeper-balance-alerts.ts",
+        "sha256": "5ae1cfc258c0c6f812778155b4cbb38aeacba0717d1a809432a9f1fbc7a2a4cd"
+      },
+      {
+        "path": "scripts/keeper-task-policy.ts",
+        "sha256": "1b0519d277d915e30d986f99d289f55f30293ca1b23c1aa6c19b591ac888b2b7"
+      },
+      {
+        "path": "scripts/record-engine-cutover.ts",
+        "sha256": "39d63e49e504842e468ccc54d370cc34a131d8ce6a5e6e810d7bfc2b30de75ed"
+      },
+      {
+        "path": "scripts/release-policy.ts",
+        "sha256": "751f874c9936ce803225f04941ebee86eb40916738e2732fa56a1d1a95dfd046"
+      },
+      {
+        "path": "scripts/release.ts",
+        "sha256": "cdb2cc858806bae4afcc14725b15cdcd2bf85b655b29ebbf9fe91debae31ee18"
+      },
+      {
+        "path": "scripts/rh-keeper-wrapper.mjs",
+        "sha256": "acdb92d59a17c6c9e54860cdc02aae0dee940b35580167938d65f248aff698c9"
+      },
+      {
+        "path": "scripts/robinhood-fork.ts",
+        "sha256": "98d4f4ffc84929cf8b468e426babceda0848d8f93f59f456d58c7b52da1f102d"
+      },
+      {
+        "path": "scripts/run.ts",
+        "sha256": "5fe995ecea0b590b8efc8376e463535123a02e27f5869798da89aed25f967aea"
+      },
+      {
+        "path": "scripts/runtime-control.ts",
+        "sha256": "c4c60756afc4cec57a9a01aa894a377a7bc4b7cfa91d29017f935c3e977d1eea"
+      },
+      {
+        "path": "scripts/test-base-collector-fork.ts",
+        "sha256": "618886d7ac831601e8c2fcdbb72088b4a853ec6718ab02b485f73ddf2c8d7c4a"
+      },
+      {
+        "path": "scripts/test-buyback-engine-fork.ts",
+        "sha256": "8716049a1c82ed30b924831efa33129f54176c8a291634079b4474fe22047322"
+      },
+      {
+        "path": "scripts/test-buyback-http.ts",
+        "sha256": "1e06f0c7bed2db33df21189d2f359c7d596ee56fcd12e133a0d6779779ca466f"
+      },
+      {
+        "path": "scripts/test-buyback-vault-fork.ts",
+        "sha256": "854efc4775023b185c1d4043d0b24c0146e23bd1c0270a6638aa048bdebfd116"
+      },
+      {
+        "path": "scripts/test-first-buy-payment-fork.ts",
+        "sha256": "4b6519e50686489cb7f67acf5595f9f7d6fdbefbf05f221f468b1749c2b7ab23"
+      },
+      {
+        "path": "scripts/test-http.ts",
+        "sha256": "c6343dc59352035542003f31cf7a88d3576c01cbe841eaa7fbd142f910feaf6b"
+      },
+      {
+        "path": "scripts/test-launch-browser.mjs",
+        "sha256": "1ae5ae836ec8d355330a582cd85a1297b13f8ba273bc52d76c5a62cb71e7894b"
+      },
+      {
+        "path": "scripts/test-launch-curve-fork.ts",
+        "sha256": "cf5ddcc588dddc69141d956b7a6ae4dfa06ad1c4ea1dbaa191eb43f16c0bcb05"
+      },
+      {
+        "path": "scripts/test-launch-fork-browser.mjs",
+        "sha256": "909b0f687525ac82fd42b8790f6e34515af45f7a5a03be056c824e9208a0bcab"
+      },
+      {
+        "path": "scripts/test-market-http.ts",
+        "sha256": "95f1852fa0f2c7c5f5460eaeed84e35d33bbac9530913bdcac904ccb4d3222cb"
+      },
+      {
+        "path": "scripts/test-musegod-fork.ts",
+        "sha256": "742073eba700265443d61adb268682286f6791cb54cf5f127081e0a10ccd8a67"
+      },
+      {
+        "path": "scripts/test-musegod-http.ts",
+        "sha256": "7d202184b6741af6ecf564bff4782258f44b4f8f5a36480c7459f1346ddd4d27"
+      },
+      {
+        "path": "scripts/test-robinhood-fork.ts",
+        "sha256": "5efec0aeee12bb6b0f479bb3441321d28949a654d3e9b864ebe303249b9f9cdd"
+      },
+      {
+        "path": "scripts/test-runtime-http.ts",
+        "sha256": "b55345da123f120a840ab597a6900a6f8ef1d31f14af668dbb7d41a34f330e3c"
+      },
+      {
+        "path": "scripts/test-trading-fee-fork.ts",
+        "sha256": "d64594b6ed8ed130e94a8040134f5de7c76c675860157d791f35f9f3a840f6c6"
+      },
+      {
+        "path": "scripts/verify-asset-logos.ts",
+        "sha256": "ddee42d1f3544bc898f9b68e5344692bbe470458480f81178ca0a26edd809049"
+      },
+      {
+        "path": "scripts/verify-base-first-flow.ts",
+        "sha256": "d8a7dfa8b3debcd98836c872dd9af576e1b94b96d11705e19e3e956afc7f7d2e"
+      },
+      {
+        "path": "scripts/verify-base.ts",
+        "sha256": "189dde0870de1be891d48457076a9e6006abf7fb3d5d9e23e9a6ec5f0fff95ba"
+      },
+      {
+        "path": "scripts/verify-buyback-source-fork.ts",
+        "sha256": "bbbd22496ddfb71cf62f997965f7768dc9e50462cb93d6652456cf0efe8efc5e"
+      },
+      {
+        "path": "scripts/verify-database.ts",
+        "sha256": "3de0e7988f9bb59983af400104e188a7da9e52d76e38de12ea2b16bd144c9b01"
+      },
+      {
+        "path": "scripts/verify-deployment.ts",
+        "sha256": "2aa0ae270d28ef28a0c93a9ca8b3cf8047a879f90b9b86a1c52a417be41e7594"
+      },
+      {
+        "path": "scripts/verify-robinhood.ts",
+        "sha256": "9eb7243107e9052aac5ade3d6aa0313edff11dc8525493dd8dd705619f4e5690"
+      },
+      {
+        "path": "server/abuse.ts",
+        "sha256": "48f59d2338685f486197fdb2f56a0e5841ac35f10ae42fcc13b28d6fadc300bb"
+      },
+      {
+        "path": "server/alchemy-rpc.ts",
+        "sha256": "6c16b8d5963c95a94388fa1f4191f6e20f7670346905056c5e0d0467940ba91d"
+      },
+      {
+        "path": "server/app.ts",
+        "sha256": "eae651c048377f14573f6353855e58929d9e72a60cdcd65fda8ab6c3a0f72e7b"
+      },
+      {
+        "path": "server/base-activation-record.ts",
+        "sha256": "9de11a7b56cdc525e17abcc0ef10692ded1977ff1d1187d326b9f2b014a7a8ba"
+      },
+      {
+        "path": "server/base-buyback.ts",
+        "sha256": "b052ba14a68dd8f9da47bb03c19b94861394e1edb8cb6a96f68f6cf10bf867e1"
+      },
+      {
+        "path": "server/base-collector.ts",
+        "sha256": "89f0b27cf4bd8f56f41649d17671eff6773c7eb6c84ecb68534b99540f7ded33"
+      },
+      {
+        "path": "server/buyback-activation.ts",
+        "sha256": "a819c1493a8b9e1bb13d67789f314659c0f9f001f20b3711117fd63eb06671e4"
+      },
+      {
+        "path": "server/buyback-batches.ts",
+        "sha256": "4594767c2261558e44b3af527f8cdc67c5dd48dd2ed7f90bddc69461628470ec"
+      },
+      {
+        "path": "server/buyback-engine.ts",
+        "sha256": "7bd2432cd052bbfe136b3fe5334f8adbba9ea58447f0959922ddcb69a080185b"
+      },
+      {
+        "path": "server/buyback.ts",
+        "sha256": "1b0426b0f435cc62b869bf5ddc55bd9f397b86d6473350518e36bc7b6c0a3e4c"
+      },
+      {
+        "path": "server/config.ts",
+        "sha256": "45d945f4ef8a893f7f7a16533f85a18c42764a225427e9e5cece44875bf7b7e0"
+      },
+      {
+        "path": "server/contract-identity.ts",
+        "sha256": "029ba229850149e7d28df99f7554887e0e300e0754a0ccdf318938fef3d311ee"
+      },
+      {
+        "path": "server/first-buy-lock-status.ts",
+        "sha256": "3290c7f4e1bf372cb949cac002be524c5021353a109debedd3f8a1cfd5078f7c"
+      },
+      {
+        "path": "server/http-security.ts",
+        "sha256": "b6e20fce1389ea42f1f7886ff4c28f5401593cdc5572ac69e1b65d8b3e15de17"
+      },
+      {
+        "path": "server/index.ts",
+        "sha256": "daac275fb67aa9d6ae6cf1282d59835a52d5db53363fc73dd7cbe189e5ed514d"
+      },
+      {
+        "path": "server/launch-guard.ts",
+        "sha256": "6958652545ab71f4bc52f2876fb99ede613b57fd800aa3595abef0da4543137f"
+      },
+      {
+        "path": "server/launch-policy-registry.ts",
+        "sha256": "d03a4f08e961dad9cc3a3940081ed5c9f5e8905275f00b222f869e84b78e3a27"
+      },
+      {
+        "path": "server/launch-verification.ts",
+        "sha256": "cd1c8f7df9a4eaa5560585701d4ef8f177d47843d87274577c56029fd35c9a2e"
+      },
+      {
+        "path": "server/lifi.ts",
+        "sha256": "38784deb7a193d8eb7b268d562ee614b5985ed8b9046e36c3376262b21217c25"
+      },
+      {
+        "path": "server/market.ts",
+        "sha256": "e3651956295f49070c17b892629f3431d2313d9992c8e6bee12b37608d3668cf"
+      },
+      {
+        "path": "server/musegod-market.ts",
+        "sha256": "f1f755af4d72d359dc35da292bcb83ca981f9fdd4da481f36a0415c07e87c1f7"
+      },
+      {
+        "path": "server/musegod.ts",
+        "sha256": "14be35bb288933149170cf5dd126dc7bff8e558951d1fa9ce20dd0b0311f0c53"
+      },
+      {
+        "path": "server/opening-price.ts",
+        "sha256": "4ed68c69c3012202a01bea6df8ae20a8ab790a5277596d8e823f2fea8617184b"
+      },
+      {
+        "path": "server/plan-attestation.ts",
+        "sha256": "19372c08578d1b2c825aa3eabb03e4dd7d8301e524d597f0b44143b372918d93"
+      },
+      {
+        "path": "server/plan-storage.ts",
+        "sha256": "973e04d63bc68c6577e91ad587c8a85666d0ddd2707a55d8b8cea31f0c14ed14"
+      },
+      {
+        "path": "server/runtime-policy.ts",
+        "sha256": "7dcf1cbf8f222113ad867d55190f99c62e54d91c06742be1c338b97a84ced37b"
+      },
+      {
+        "path": "server/service.ts",
+        "sha256": "afc3a30888ed77ea4e43165455eb4f5e0616221582f18665cfdcfdb92d9c462e"
+      },
+      {
+        "path": "server/snapshots.ts",
+        "sha256": "be60c5fd1ad23edea31e606828103b8f06a0e8f9c69b5969245fd8bc5c24c0e9"
+      },
+      {
+        "path": "server/store.ts",
+        "sha256": "e102e5693256fcc0cfb60a4652dfbacfa252903b842f57d5e3b25eac3a09fae0"
+      },
+      {
+        "path": "server/supabase-store.ts",
+        "sha256": "5d9f1a86ba1a937c55f61c7227f871c376db35aebc57493d7d18e433c9d9d302"
+      },
+      {
+        "path": "server/token-images.ts",
+        "sha256": "c0654b1eceba6a47aa61408dde6c3b0f22f13ed22d05f8d85806bede1ded1589"
+      },
+      {
+        "path": "src/App.tsx",
+        "sha256": "1308ffb02d9798c278a5a807ec57408c846e310a82d55d10a048a94e1e4299f6"
+      },
+      {
+        "path": "src/components/BaseBuyback.tsx",
+        "sha256": "cd6a443005a6192b4d9dff759aeda2c04fd259795f074abcc7b516510da63a1d"
+      },
+      {
+        "path": "src/components/BuybackEngine.tsx",
+        "sha256": "e7502aa8a5c96dc3abd8458f98ec48286b716038c03b8905eba8d3ba8a49a8a0"
+      },
+      {
+        "path": "src/components/BuybackPage.tsx",
+        "sha256": "79add8b38c7a6a89b51220860fb2efef62c683f65fca3b0369bb627ac65c6307"
+      },
+      {
+        "path": "src/components/ErrorBoundary.tsx",
+        "sha256": "b4efb5e03f9690ad4f862860b0b6be88a8cf11d22cdefa2e65049d758baaab54"
+      },
+      {
+        "path": "src/components/FeeBreakdown.tsx",
+        "sha256": "285c2c069ded872a3bdbd4476d2efc1de3082f3739aa184f4f6136d57acb2518"
+      },
+      {
+        "path": "src/components/FirstBuy.tsx",
+        "sha256": "1ea7822f0f0b963b221b8d300723c72ad9c9eb5f4f2330587fca6daee6e1d114"
+      },
+      {
+        "path": "src/components/FirstBuyLock.tsx",
+        "sha256": "62119356a93ca5a731ca7deceff63220634b4cedb32ee6cc6a91600b8e7c1f4d"
+      },
+      {
+        "path": "src/components/LaunchCurve.tsx",
+        "sha256": "4d3ee1d0d2761d21da13e0f83b3ef1cbccf191e8cd4d80f9a7c19288bc3ccc6c"
+      },
+      {
+        "path": "src/components/LockRecovery.tsx",
+        "sha256": "51ad9f416dd24f892ee04533a16b8edd6b09bad5f16501f4b2069c75183a2888"
+      },
+      {
+        "path": "src/components/MusegodPage.tsx",
+        "sha256": "c7f9b722f598a50d419d14c64a492ebae0c0490626a1b5175d48b097f5ff5159"
+      },
+      {
+        "path": "src/components/PriceChart.tsx",
+        "sha256": "d9b7906fd886e753c202babcbb342617a58605a857189f975754fb5e2566d3f4"
+      },
+      {
+        "path": "src/components/ShareDialog.tsx",
+        "sha256": "d34d6b0ac256af6ae86993ba2d0380ef4def04b620429634577aca3cc5222386"
+      },
+      {
+        "path": "src/components/SlippageControl.tsx",
+        "sha256": "c353e5231b25b9bfcd6d3bb6dca9207346b79082fbb2c5f9d2c8b30de9dd6ad1"
+      },
+      {
+        "path": "src/components/TokenCard.tsx",
+        "sha256": "9fcead71481aae792f82d68f2140af1e4a968d5153d672128bd28b4752ef9afa"
+      },
+      {
+        "path": "src/components/TokenMarket.tsx",
+        "sha256": "2c0d2cc1524df7566b39452f5afbfe7211104e68cdee7338fc0c52d6d4b6d7d3"
+      },
+      {
+        "path": "src/components/TransactionHistory.tsx",
+        "sha256": "3c7b3cb74165cf36924d781770fea7617678b8e184a111f47d8d634c1c7b0811"
+      },
+      {
+        "path": "src/components/TurnstileGate.tsx",
+        "sha256": "d53c4d1ed6c5728af9e16d604c9795a2789a1e70c09fe41556299efff8068a1a"
+      },
+      {
+        "path": "src/lib/api.ts",
+        "sha256": "8b3487834ea86e59111a611480bf830a5400c3ba406834605c653c7b9d264712"
+      },
+      {
+        "path": "src/lib/asset-categories.ts",
+        "sha256": "daec38bac45ea3232dcbab3ddca9ddb7a2c554fa49f18972e887b557b4545112"
+      },
+      {
+        "path": "src/lib/asset-logos.json",
+        "sha256": "44431bd210e0066c3708ce0537107e804bee4068038d39be2a52a671ca17a936"
+      },
+      {
+        "path": "src/lib/base-buyback.ts",
+        "sha256": "9519499fc59d26c08f08de400e80a06f2e760e8238449cec199311ce246913cb"
+      },
+      {
+        "path": "src/lib/build-info.ts",
+        "sha256": "43eaad6e5ee87407d703d2a73ab204f005ff414ebfd579287e9d75dca7af5dcd"
+      },
+      {
+        "path": "src/lib/buyback-engine.ts",
+        "sha256": "f91665f30d2720db9ff839b2e465b362718b7217cbb0f8fce8dd8ff856c37dc8"
+      },
+      {
+        "path": "src/lib/buyback.ts",
+        "sha256": "29865b176547db63163041d3bf33d47025d8db89c820829327de593d3580109a"
+      },
+      {
+        "path": "src/lib/config.ts",
+        "sha256": "c2ed0d9649c8afc3556fa6a889dbcf881ac8f725aba14b1464216143c5bed503"
+      },
+      {
+        "path": "src/lib/doppler.ts",
+        "sha256": "42808e7a2deaa3882adcfedbc9579ed0676c3e32729d69ba9eccf37cdd18036b"
+      },
+      {
+        "path": "src/lib/fee-policy.ts",
+        "sha256": "db09887448be798bffb6727292ccefb5003ebeb66e6b06123c380165ab01c3a8"
+      },
+      {
+        "path": "src/lib/first-buy-input.ts",
+        "sha256": "316fd9fa1631bcf67507a96d1e262a2782804fdee8fb5d5212e3bd01eccfd3cb"
+      },
+      {
+        "path": "src/lib/first-buy-lock.ts",
+        "sha256": "1f0022956ff21af92efe9c85afd1abde94d416289431d23a24c963f236a70f83"
+      },
+      {
+        "path": "src/lib/first-buy-payment.ts",
+        "sha256": "a085e28b65cc77910df0c5521ff82fdc0bec113ea3c5c1a42d24229d9e434883"
+      },
+      {
+        "path": "src/lib/first-buy-recovery.ts",
+        "sha256": "d953a4461bc5f1b10ff2775e4fc92b82cae4d50471c239e0c64e52ea6d2823b5"
+      },
+      {
+        "path": "src/lib/first-buy-wallet.ts",
+        "sha256": "109dfefad5e1b910f7d5cb20e5b5b4693f0e9377a0d3f7cd627ff959da0a6d48"
+      },
+      {
+        "path": "src/lib/format.ts",
+        "sha256": "da2b54b9e0670fb3aa35cfd12756cdbb3caaf2187b027edfb53e8c09f9641443"
+      },
+      {
+        "path": "src/lib/image-upload.ts",
+        "sha256": "8c52bc370d7d9388090858b288f6cd30872059cbc9ec037894dba132987aaa53"
+      },
+      {
+        "path": "src/lib/launch-curve.ts",
+        "sha256": "774791278c2f38c10e011b47d65a94069dd291e4d9a8bfed2163c46fdb35f8e5"
+      },
+      {
+        "path": "src/lib/launch-draft.ts",
+        "sha256": "c0514c0ae32e5927ed62795447a9be8fb4139bd490b460658e79cc257f5a5eec"
+      },
+      {
+        "path": "src/lib/launch-guard.ts",
+        "sha256": "8b9ac47c522f42656f2af792137718df8a0eab9c46e6c6244bc452aba56a0a2f"
+      },
+      {
+        "path": "src/lib/launch-intent.ts",
+        "sha256": "cfcfbb8f3d48650cf9de25690452cb5f1b8baa6b20ce18e3268dd6395fc0e2af"
+      },
+      {
+        "path": "src/lib/launch-plan.ts",
+        "sha256": "481834f461a92cf1677206c6937f639dce54462baf6af8f8feb498e0729b00a7"
+      },
+      {
+        "path": "src/lib/launch-wallet.ts",
+        "sha256": "fea7ff36390d580d364be9444c964be99e1afe852d01d632b8f53f0f3e9ab342"
+      },
+      {
+        "path": "src/lib/lifi-launch-assets.json",
+        "sha256": "5ad7c77b05126ffe45d5397f428feb30c5fe83aea5030b13dfb3f3ee4dc97d09"
+      },
+      {
+        "path": "src/lib/market.ts",
+        "sha256": "9889d9808e6ad1ff03174e9b9da0307b1f2ba7007177483ee51e7b38a318426f"
+      },
+      {
+        "path": "src/lib/musegod-burn.ts",
+        "sha256": "5a735f59e366b007477d443be06da3cc781d23bf2e1eafd68064f22dfcc926d4"
+      },
+      {
+        "path": "src/lib/musegod-recovery.ts",
+        "sha256": "227dc2e51c29bb9c60c8c9f8021a3a8462602ca4b2e359c721453b9623a77c5a"
+      },
+      {
+        "path": "src/lib/musegod-trade.ts",
+        "sha256": "3d9cccfcceaf8175da0711483b6c7621c95048ae789b4ca50cde64e95d099038"
+      },
+      {
+        "path": "src/lib/musegod.ts",
+        "sha256": "bc58fba772097db078d050819ca0a49b5a12919e34468ab396189c57d8b33ab7"
+      },
+      {
+        "path": "src/lib/network.tsx",
+        "sha256": "6273d7c5d6c1a6528875ed71292561c63251759fa255a2f2628e6f941bf04e2f"
+      },
+      {
+        "path": "src/lib/opening-valuation.ts",
+        "sha256": "df2169efb90f92c71e0438fbd2aefbc9b2d8fd417a00443b8c8020e4d366d3b2"
+      },
+      {
+        "path": "src/lib/protocol.ts",
+        "sha256": "ee0151c6edeb4976e770cc88afe06c1a6b36283689bf8d7739383c301d266fd6"
+      },
+      {
+        "path": "src/lib/quote-clock.ts",
+        "sha256": "3d00b308d7f107b82f70f8c8c1656740bb6d3b8f2c1d18ac71b6b9cf90a2a4cf"
+      },
+      {
+        "path": "src/lib/recovery-backoff.ts",
+        "sha256": "97846c6952320e356f92cb00ad8d394c5a5dec81d3b6ecb4c47890bac61a552d"
+      },
+      {
+        "path": "src/lib/robinhood-assets.json",
+        "sha256": "3ce519759ed0672463641474794e70970e6343a58893dadd597762e1e8e40fae"
+      },
+      {
+        "path": "src/lib/stocks.json",
+        "sha256": "5a2a979652cc52aa8a32ce8cb6359fd36a7858db78811a480956d6d4121b4804"
+      },
+      {
+        "path": "src/lib/theme.ts",
+        "sha256": "d754923118e05c410368cb6b35a69740cc0e55973e612d0daaa939650a0e95b1"
+      },
+      {
+        "path": "src/lib/token-card-market.ts",
+        "sha256": "95480434d9fe80a441cd306cc98315c145f665e4882e75ca6f42bffe607b93ac"
+      },
+      {
+        "path": "src/lib/token-catalog.ts",
+        "sha256": "98fe5b6e3dc05c0c85e8577354e87c182b7af5aaa980db222b5b4172a61d463d"
+      },
+      {
+        "path": "src/lib/token-image.ts",
+        "sha256": "bccd8fc372bb1ce49348c53b5270062e7a1b863fa6fc0b74b82bbae534cd9080"
+      },
+      {
+        "path": "src/lib/trading-fee.ts",
+        "sha256": "cfb2e6ff31152ab3a3259cd982d1940a98ee634ccd4b5b05af8589e76591b8ce"
+      },
+      {
+        "path": "src/lib/transactions.ts",
+        "sha256": "83e79968a66163e306f4f3ea445d9c6ec3b891c8fc9c3087dec3843331d3751d"
+      },
+      {
+        "path": "src/lib/validation.ts",
+        "sha256": "38a7933c71fc1b1ac53eb6f7005e4160d08ee7f614a6213b0ab58ff9958a4278"
+      },
+      {
+        "path": "src/lib/wallet-connection.ts",
+        "sha256": "39c8cb2a559910a5bf7db74cbab3764dbffb2b9b3ed300776e3063e505a6f281"
+      },
+      {
+        "path": "src/lib/wallet.tsx",
+        "sha256": "9d337dc299006f0864c2bed65c0be923d7a69691735e6e5e6ee843b8a43e985b"
+      },
+      {
+        "path": "src/main.tsx",
+        "sha256": "b087a1d65227ae4dc3a712ef6254a92d1c5a41b3f3c75cd9e87cbc183e18984a"
+      },
+      {
+        "path": "src/styles.css",
+        "sha256": "251eeaa13e944a4359bbfa4588046870563240665382ab11372846fd65cbf0a4"
+      },
+      {
+        "path": "supabase/migrations/20261005000537_musegod_store.sql",
+        "sha256": "76f3b9bffab9f4fc694036582eed9792457caa2ffaa802bfec4fa04fced4cf83"
+      },
+      {
+        "path": "supabase/migrations/20261007094402_runtime_safety_controls.sql",
+        "sha256": "5da5b3a18bba1e8878aca48afc4da5794f781fd407dc02b419d3c5f770988258"
+      },
+      {
+        "path": "supabase/migrations/20261009050807_buyback_vault_ledger.sql",
+        "sha256": "6bc45b408930ed1bbaf3f9df1f18977388e93d1c6d399d5ee6dfda5db489d72f"
+      },
+      {
+        "path": "supabase/migrations/20261009125045_buyback_native_custody_ledger.sql",
+        "sha256": "6960af2a77fd5c67cf5b77a719ff27ce559b8edb23db850054cb3868d98e5637"
+      },
+      {
+        "path": "supabase/migrations/20261009221226_buyback_stable_pagination_and_anchors.sql",
+        "sha256": "2cef02965d1d6343afc66c4057dda467859621701504d544596c40ed3ecad90a"
+      },
+      {
+        "path": "tests/alchemy-rpc.test.ts",
+        "sha256": "db77c460cf82a8177993afdc53e8429967d832576298c0b561bc3e22a4257de8"
+      },
+      {
+        "path": "tests/base-activation-record.test.ts",
+        "sha256": "52ce6b912660d04d7c149cddfe6bd82de393b1187f9c1f6f6be8fd95121e932d"
+      },
+      {
+        "path": "tests/base-buyback-keeper.test.ts",
+        "sha256": "0146ef7085cdc9c68ba455c704e860591f27ce86226c1259e875f5fcddb74564"
+      },
+      {
+        "path": "tests/base-buyback.test.ts",
+        "sha256": "edae26cc988da401e73d57658863805a39e5e0917e3ad4c028a921b2c70f1703"
+      },
+      {
+        "path": "tests/base-collector-verification.test.ts",
+        "sha256": "fc7179fd80b92b4839e9ed8bcc9dfbff79ec7d52b1bcd70c996e4b7b878155f6"
+      },
+      {
+        "path": "tests/base-fee-policy.test.ts",
+        "sha256": "b64f8f63bd4044f9ee124fc71ce407aba754574eb5aea42360b59eae97049b81"
+      },
+      {
+        "path": "tests/base-first-flow.test.ts",
+        "sha256": "c6f86c614a8e78ef0defb08721cd3477a338a3e7d1e20bc4ec4f81eb55cbb1ac"
+      },
+      {
+        "path": "tests/base-integration.test.ts",
+        "sha256": "88e66436087e6870f189bb58ec5d193c8ca0ec100fcb283722dc5b78fc40bc74"
+      },
+      {
+        "path": "tests/base-keeper-lightweight.test.ts",
+        "sha256": "4d3fee63189ed7154e57e1d76c208bc2de447f16f0b441821d3527813bbea6b8"
+      },
+      {
+        "path": "tests/base-keeper-wrapper.test.ts",
+        "sha256": "d86cb51f15ed91e8d818a1a2f3968533cddb5861968737e4d8dba0f31cc71e83"
+      },
+      {
+        "path": "tests/base-launch-qualification.test.ts",
+        "sha256": "9c0759f86d853cf5024d0f5ccd7faab6ba397f3090b059e81b76490237f3763a"
+      },
+      {
+        "path": "tests/base-process-lease.test.ts",
+        "sha256": "d4c8dd601910d1e76bca7969447912bf9fe43f2fdd59c134386a4ec105e0e7f4"
+      },
+      {
+        "path": "tests/build-info.test.ts",
+        "sha256": "8343b5bfc70f2f1cc12736d92bce231cd78cc29e9c3dcf052d3207bb8605174d"
+      },
+      {
+        "path": "tests/buyback-activation.test.ts",
+        "sha256": "737ed073fcf6af9110b8a49197af865ddadd5e2728886fc42902a2635531e6d4"
+      },
+      {
+        "path": "tests/buyback-deployment.test.ts",
+        "sha256": "d6a17c0bd7fcb5baa4860f69a89104528f38738521026490f2bf84f8dd7334c0"
+      },
+      {
+        "path": "tests/buyback-engine.test.ts",
+        "sha256": "4d0b3431d8150f6ec71d28357f4906ede1302263ff9cd0124889e122b81479ec"
+      },
+      {
+        "path": "tests/buyback-keeper-live-authority.test.ts",
+        "sha256": "45161aa12bd75600dc9fb6d6ac53b4710e2771645a38ac034ae71ce118455e79"
+      },
+      {
+        "path": "tests/buyback-keeper.test.ts",
+        "sha256": "7c7709075e91936c58030291f58113e4cf90538180fa2d80320c1028841761cc"
+      },
+      {
+        "path": "tests/buyback-security-review.test.ts",
+        "sha256": "ed950c3865f4bb2931f75421f15a622385785444d5dee11a37c1082365611592"
+      },
+      {
+        "path": "tests/buyback-store.test.ts",
+        "sha256": "a60b441b6e3061ca96081026a4cd47053d739088affe0ead17402a1df57da99f"
+      },
+      {
+        "path": "tests/buyback-summary.test.ts",
+        "sha256": "5d7a81a9868b388efa5616f56a774ab5729360c6c13515e56053217f6a81973b"
+      },
+      {
+        "path": "tests/buyback-wallet.test.ts",
+        "sha256": "c6e54f0f70fefb9bc56b33ed228537a9e68dc8ab78d45389c60f43905045f7f7"
+      },
+      {
+        "path": "tests/buyback.test.ts",
+        "sha256": "05eab9eff2cb5e23eaec65c56af7804685744757138eeec06b2738cfc78a98e5"
+      },
+      {
+        "path": "tests/client-recovery-backoff.test.ts",
+        "sha256": "984ef7f5d450155b2233eb213e08520f33bbb10c560c6621b58112ad1f0080c3"
+      },
+      {
+        "path": "tests/contract-identity.test.ts",
+        "sha256": "baaeecd4f74b23f73a1a58738a7ac89c2f6f0849ad663b79eff59383447e6925"
+      },
+      {
+        "path": "tests/core.test.ts",
+        "sha256": "e93c1266b6ca8aa41397ce8200cb4709eccc45cb1f12d222bdf51ccd47a1706a"
+      },
+      {
+        "path": "tests/database-audit-checks.test.ts",
+        "sha256": "c8ab3bf9af04a2c369adfda2dc6418d5181e00ee6ca03bbfee80105b1a69ae57"
+      },
+      {
+        "path": "tests/deployment-verification.test.ts",
+        "sha256": "439ce71200f09034d468fb34ab07e666c455e3ac8de9d6b046a383001a2739c0"
+      },
+      {
+        "path": "tests/dualchain-runtime.test.ts",
+        "sha256": "1d313a2eab4a422bfb75e1ef828b7114b286f8fdbcfb03ac3fd0f496b9a7ab5b"
+      },
+      {
+        "path": "tests/engine-manifest-fixture.ts",
+        "sha256": "3a4fca9c1b56b4e3b9b5bc3eedf3ad98ccfbec7f61786dd3648dadcd8050349e"
+      },
+      {
+        "path": "tests/fee-display.test.ts",
+        "sha256": "efa946e4fe99d7a36fc22109168e81cdbdd6b2e70df50ff2d23e648d941d0bdf"
+      },
+      {
+        "path": "tests/fee-policy.test.ts",
+        "sha256": "8f630e65231f577a55ee73bd7b756d668485bc3e6d0d986726fab0e80e75e482"
+      },
+      {
+        "path": "tests/first-buy-input.test.ts",
+        "sha256": "4c0a6e05f735d53bb0f86cebd485ed82eab0c420c58cbb441ec6bb58761eddc4"
+      },
+      {
+        "path": "tests/first-buy-payment.test.ts",
+        "sha256": "5d3f9fc72ad5c7602e799c98a9fda71a464a8b88ddcc6e9b1f3de0b0458ea1c4"
+      },
+      {
+        "path": "tests/first-buy-recovery.test.ts",
+        "sha256": "38447bcc58c2684778a75d530a4f327aa21e7195058e52e977e935b0b2582c2f"
+      },
+      {
+        "path": "tests/first-buy-wallet.test.ts",
+        "sha256": "6251dd588ed2aa74738ec1590ee6fdf483350431b46b23b1a5dff0eafb7272f4"
+      },
+      {
+        "path": "tests/fixtures.ts",
+        "sha256": "558d1ec12dbd3d5680a9f5c5677482988692fe7d6d87eeff954bc46f7657639d"
+      },
+      {
+        "path": "tests/fixtures/buyback-oracle.runtime.hex",
+        "sha256": "102435abaae9a0fdb8f37c40d105e17d1e4dd2f7c53aa698f03eaf101d35ca55"
+      },
+      {
+        "path": "tests/fixtures/engine-cutover-manifest.json",
+        "sha256": "b4ef1d2c2a0b5fd6367a0d05c5b5dea8f7c568d7908fa0f4a5ea3f242f6e8d48"
+      },
+      {
+        "path": "tests/fixtures/governor-control-manifest.json",
+        "sha256": "3b6a8d91d158c5167969be406d4749f9fc39b509c9fb7f7ac8c2fe99eb47229a"
+      },
+      {
+        "path": "tests/fixtures/lifi-4663-runtime.json",
+        "sha256": "0c99e6566bdb10b4c5a195815c3d3866e4a79c5299b94578549d03a4ca0e5f4d"
+      },
+      {
+        "path": "tests/fixtures/lifi-8453-runtime.json",
+        "sha256": "f40fc716c27213f96a5bfb7232ef367eef5f6661369c4a773cb2384dda0a56e4"
+      },
+      {
+        "path": "tests/fixtures/robinhood-bundler.runtime.hex",
+        "sha256": "0e7298487be7f76367a068a8bf58b42e5c5a540e64ab5b594385c8e7c06c637b"
+      },
+      {
+        "path": "tests/go-live-regressions.test.ts",
+        "sha256": "a663b9d69d08ea89f94844efba915ad8cc1f16469044ff6047c6be30e4ed9223"
+      },
+      {
+        "path": "tests/keeper-balance-alerts.test.ts",
+        "sha256": "be3110acb40236b9f689a0f4aac7a976351942f817f6e4c0466a2486f975b3c2"
+      },
+      {
+        "path": "tests/keeper-gas-policy.test.ts",
+        "sha256": "a94224e4c00ad6d3b097382864c33f7314480be2376c188e66a648e18a920f6b"
+      },
+      {
+        "path": "tests/launch-curve.test.ts",
+        "sha256": "6c4bd30146c63b2b49d7ea6cef64f6f999eec3cdbd619e663fa44209aaad5fff"
+      },
+      {
+        "path": "tests/launch-draft.test.ts",
+        "sha256": "413affe985ea6e20ad5dcb0c5814b9e3c96f43e70327de0953474625efe80080"
+      },
+      {
+        "path": "tests/launch-intent-lock.test.ts",
+        "sha256": "8cc84111021d58c7fcee087d112d833ee3a02f45b0edbb667454afe6d0d7387e"
+      },
+      {
+        "path": "tests/launch-policy-registry.test.ts",
+        "sha256": "fc6a542800f41f9e8439849f424cc7202bbf9b9484f8d5302a75ad5d0b8be07a"
+      },
+      {
+        "path": "tests/launch-resilience.test.ts",
+        "sha256": "0a4060c20a9383338ada838d9153963f2909d755bb6f5ebfafdd964f994e52dd"
+      },
+      {
+        "path": "tests/launch-service.test.ts",
+        "sha256": "81459a379c990a91514f41d26d7ef4e4ed39d34f1d8c322505c366df14c7872e"
+      },
+      {
+        "path": "tests/launch-wallet.test.ts",
+        "sha256": "c7f34ef3a22e21e3290d5e2f0dee2ffadb86c60990173ef68da7ab3e9f4ed520"
+      },
+      {
+        "path": "tests/lightweight-production-boundary.test.ts",
+        "sha256": "f260ed98fce0c34e6eb23ddc441ecab7b729e18f415e4d42dec442b8b68551dd"
+      },
+      {
+        "path": "tests/lightweight-round11-cleanup.test.ts",
+        "sha256": "eae2af3b59d0b3b4bbed4b41e38843c23b2870e7ca89372042d1bde430c8ccce"
+      },
+      {
+        "path": "tests/market.test.ts",
+        "sha256": "62de82c5ae96ac409a92fd863bbee1c7296ced2ccb2ff71899779150b24a3576"
+      },
+      {
+        "path": "tests/musegod-explore.test.ts",
+        "sha256": "bfadebc7dcbc6f2a6c3745ac448f80042c8783601a54962e8d2e009c20aa363c"
+      },
+      {
+        "path": "tests/musegod-market.test.ts",
+        "sha256": "89c94002ffb6f9bfd04c92fb58f94ae82763f487469da1fca6771571d7315735"
+      },
+      {
+        "path": "tests/musegod-recovery.test.ts",
+        "sha256": "ea39c1dcc02c83650ef96500289419809801902337afcf94be432d2b7dfa72c1"
+      },
+      {
+        "path": "tests/musegod-worker-market.test.ts",
+        "sha256": "d3ab1716a567f64f9a11ad3862fb6c56504ba7f2d971a3faff4b683460edba48"
+      },
+      {
+        "path": "tests/musegod.test.ts",
+        "sha256": "4676deeb4391f5f37561cac61f078d36ff9d16bed71bf8c674d4b36e53b09771"
+      },
+      {
+        "path": "tests/network.test.ts",
+        "sha256": "0f5481398df6848f025d6cd363b1e847451b68e30c8d1d936ed739811388a682"
+      },
+      {
+        "path": "tests/opening-price.test.ts",
+        "sha256": "372bbc6aebfe3363f29f8d7b833287a046a2eb5b9bfc9d30734d71ccf8f35977"
+      },
+      {
+        "path": "tests/quote-clock.test.ts",
+        "sha256": "bad3a656eedee89aefc84497f78ec2cdb5c101ed03760791edb21b717cfd0d70"
+      },
+      {
+        "path": "tests/readonly.test.ts",
+        "sha256": "a78a5e7318ee3f4b4e59359fe297ad9d8c25cf45a0ca6deea1416b5b410a7f53"
+      },
+      {
+        "path": "tests/reconcile-budget.test.ts",
+        "sha256": "e51055a3597851e8a15f5d0885f6d5005db999f5371fdf41629592af26b0f0a0"
+      },
+      {
+        "path": "tests/record-engine-cutover.test.ts",
+        "sha256": "5031fb3d7b1b318e52d4eae0626a1e89fa957b7b5741678021249ffb133c5ef6"
+      },
+      {
+        "path": "tests/recovery-http-size.test.ts",
+        "sha256": "e48d44b746557c7a5403d3341027c60eca9db5db4a24448d6bbc0f8b3306fde8"
+      },
+      {
+        "path": "tests/release-policy.test.ts",
+        "sha256": "fedb6664ee4a92df4a8a9db333a9fc5d5a56c8b77f41196d245cccac15a92348"
+      },
+      {
+        "path": "tests/release-retry.test.ts",
+        "sha256": "457bb0ee135def06e58b85f2b1893330d7d50c3489241f939a8c4e214de1388f"
+      },
+      {
+        "path": "tests/review-regressions.test.ts",
+        "sha256": "0e55311f6945353052a105a316d0475e5ed9fd74eede77f9d405ce0935df1e2f"
+      },
+      {
+        "path": "tests/rh-keeper-wrapper.test.ts",
+        "sha256": "27872d47d127bf45f4e590ff549581b89767ad778a931742d7bc6f4de11423fc"
+      },
+      {
+        "path": "tests/robinhood-market.test.ts",
+        "sha256": "701c82b015a03a39de039177d46ff9fe5d193a53c38fbc8ce9cc8a68c90d0601"
+      },
+      {
+        "path": "tests/robinhood-router.test.ts",
+        "sha256": "b7221676999428f5779f73f3efae5e689d672e2e38f6e95ca439e2a0d64aeaea"
+      },
+      {
+        "path": "tests/robinhood-worker-market.test.ts",
+        "sha256": "2d9d8bf54e30734b2e768289141010973423e462256c871f2041e6d48775b93c"
+      },
+      {
+        "path": "tests/round11-identity-cleanup.test.ts",
+        "sha256": "0d8eaac19ded9e00282e4d6489e20fd28a8e271c67551b7f7305ba99dfb961ca"
+      },
+      {
+        "path": "tests/round11-worker-regressions.test.ts",
+        "sha256": "a2bbdc3d8954f642040fcc4e61e81893826c0184fe06cb5a7a6af3484a6bb665"
+      },
+      {
+        "path": "tests/runtime-database.test.ts",
+        "sha256": "a431c64c6d780735d52ba38dd25dbea8ce37436533a7fe5caf122dccadfec912"
+      },
+      {
+        "path": "tests/runtime-safety.test.ts",
+        "sha256": "af099d7f3bb5d26abd41df88cb39e06eb0510fb3573ab3f6783adcbf105487a6"
+      },
+      {
+        "path": "tests/runtime-worker.test.ts",
+        "sha256": "7814f0a26f62b2817bf17b53865b27c8f1e6f9ddc243df2ce5064a4e6d20a931"
+      },
+      {
+        "path": "tests/token-card-market.test.ts",
+        "sha256": "dcd1572a3f7b5cda9bbe09aaf9bb97ad31bda024392cfb1e88f9eb49a42b06ec"
+      },
+      {
+        "path": "tests/token-card.test.ts",
+        "sha256": "5096b72fea0535f80e24d5fe78fe60382385dff106502d09075c06efabcf49ac"
+      },
+      {
+        "path": "tests/token-images.test.ts",
+        "sha256": "42799de4ba917b86321b6d9541f70601304b840f2637ea299f895d97fdb23c25"
+      },
+      {
+        "path": "tests/token-market-network.test.ts",
+        "sha256": "8a8f3a7fd29fb1a0978b4fc47e2ff02e1596e594f29957af66ab93d86b69e805"
+      },
+      {
+        "path": "tests/transaction-history-network.test.ts",
+        "sha256": "75b3b06ac5c4556d93886f64d59efa1396f411ce8fee24d7891586d2da372423"
+      },
+      {
+        "path": "tests/wallet-robinhood.test.ts",
+        "sha256": "e3b4d1a76f7e3806f3818b3993e5e4ea9aaa342a7872f95b7d9d6c2948cd7601"
+      },
+      {
+        "path": "tsconfig.json",
+        "sha256": "b5e3e9786d2b38f0759ce1ecf92475b8a60f4cc25aecf784fd4ab117ac2d8b29"
+      },
+      {
+        "path": "tsconfig.worker.json",
+        "sha256": "b8c04a34f7930885a7d951467a1e0de004ce53fd629ca7af7c6e85b11cfb106f"
+      },
+      {
+        "path": "vite.config.ts",
+        "sha256": "ee251c6f08986c68a2d3b32acb5f36d4363c8c27b10cbb5404aa1b2f36fcf6cf"
+      },
+      {
+        "path": "worker/cloudflare.d.ts",
+        "sha256": "be9821c6d0b84b9960a9cf11e7f834eadbd2e3f762ba84a193e83daaccd34629"
+      },
+      {
+        "path": "worker/index.ts",
+        "sha256": "8db9a0e2a1681fc0d381bbe4d65a0ef2191596aecff81d8bd3c45d732df2ce69"
+      },
+      {
+        "path": "wrangler.jsonc",
+        "sha256": "97d16300ce5abb0bbf85c277b778ccb32d8706d5389984f9930c61678ce00139"
+      }
+    ],
+    "policy": {
+      "sharedModule": "scripts/keeper-task-policy.ts",
+      "sameObjectImportedByBothKeepers": true,
+      "publishedRobinhoodConstantLiteralPreserved": true,
+      "maximumAttemptGasWei": "2000000000000000",
+      "maximumFailedGasWei": "1000000000000000",
+      "gasWindowMs": 86400000,
+      "initialBackoffMs": 120000,
+      "maximumBackoffMs": 3600000,
+      "attemptWindowMs": 3600000,
+      "maximumRevertsPerWindow": 3,
+      "gasRetryMs": 60000,
+      "genuineBaseKeeperLifetimeGasCeiling": null,
+      "supersededHistoricalLifetimeGasWei": "16000000000000",
+      "unknownRecoveryDefaultBudgetWei": "0",
+      "boundary": "Per-task failed-gas threshold may be exceeded by the final allowed single attempt. It is neither a keeper-wide total budget nor a hard economic-loss ceiling."
+    },
+    "acceptance": {
+      "unit": {
+        "tests": 960,
+        "pass": 960,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0,
+        "todo": 0
+      },
+      "contract": {
+        "tests": 171,
+        "pass": 171,
+        "fail": 0,
+        "skipped": 0
+      },
+      "typecheck": "passed both TypeScript projects inside final npm run build",
+      "build": "passed npm run build",
+      "workerDryRun": "passed WRANGLER_SEND_METRICS=false npx --no-install wrangler versions upload --dry-run only; no upload or deployment",
+      "diffCheck": "passed",
+      "contractsSourceTestsArtifactsChanged": false,
+      "migrationsChanged": false,
+      "workerReleaseConfigChanged": false,
+      "indexHasStagedChanges": false
+    },
+    "items": [
+      {
+        "id": "R12-1",
+        "resolution": "Removed the genuine Base CLI lifetime ceiling and wrapper injection. Existing nonce/gas journals continue recovery without clearing original bytes. Historical successful spending above 16000000000000 wei no longer prevents genuine execution. Explicit unknown recovery remains independently capped and defaults disabled.",
+        "tests": "tests/base-keeper-lightweight.test.ts and tests/base-keeper-wrapper.test.ts; new regressions fail the original published Base implementation/wrapper then pass."
+      },
+      {
+        "id": "R12-2",
+        "resolution": "Both entrypoints import and re-export the exact same shared constant object. Complete Base execution/L1/operator reservation above 0.002 ETH defers before signing, including any explicitly enabled unknown task. Genuine claim:<pool> and release:<asset> share Robinhood task retry helpers, canonical actual fees and caller/nonce deduplication.",
+        "tests": "tests/keeper-gas-policy.test.ts, tests/base-buyback-keeper.test.ts and tests/base-keeper-lightweight.test.ts cover shared references, full fee cap, failed-gas threshold, other healthy assets proceeding, window expiry and hourly/consecutive backoff."
+      },
+      {
+        "id": "R12-2-outcome-clock",
+        "resolution": "Optional sourceOutcome binds first complete canonical observation to transaction hash/block/hash. Same-tuple restart, finalization, recheck or temporary reorg recovery cannot restart a 24-hour window. Legacy duplicate rows merge the earliest same-tuple time before window filtering; expired incomplete/different-tuple historical evidence cannot newly stop healthy tasks, active conflicting evidence still fails closed.",
+        "tests": "Same tuple/new tuple/bad binding, reorg/restart/finalization and exact expiry tests; old filter-before-dedup fails red-expiry-alias.log."
+      },
+      {
+        "id": "R12-3",
+        "resolution": "K2 deferral/continue, K3 paired-value greater than full reservation and release-first ordering remain; live pause/governor/Automation/control/nonce checks before sign and broadcast, unknown fail-stop and never-broadcast abandonment retain their financial meaning. Unknown wallet reserve retains one genuine single-attempt allowance independently of historical spending.",
+        "tests": "Existing K2/K3, live-authority, nonce, unknown, abandonment and profitability regressions pass in the final full suite."
+      },
+      {
+        "id": "R12-4",
+        "resolution": "Shared observational monitor warns strictly below three current or last actual measured reservations, to stdout and mode-0600 private alert files. Successful append precedes delivery marker; persisted low episodes deduplicate, recovery re-enables notification, failed IO stays retryable without financial authority. Existing execution balance reads reused; idle uses only genuine journal or same-chain/same-keeper positive measured cache and at most one balance read. No fabricated fee quote or policy maximum is used as a typical reservation.",
+        "tests": "tests/keeper-balance-alerts.test.ts, both real keeper entrypoint fixtures and Base cache-only idle regressions. Original published RH entrypoint lacks warnings and fails both new red tests. No cache/history, wrong identity, zero and overflow add zero Base idle balance RPC."
+      },
+      {
+        "id": "R12-5",
+        "resolution": "README/SPEC document local shared policy and unchanged host authority. Owner proposal annotates only the historical keeper lifetime amount as superseded; stripping the new policy and three annotation fields produces the exact previous parsed JSON.",
+        "historicalProposalPreserved": true,
+        "annotationPaths": [
+          ".trustedSplitsLaunchPreparation.initialOperationalGasProposal.keeperLifetimeCeilingStatus",
+          ".trustedSplitsLaunchPreparation.initialOperationalGasProposal.keeperCumulativeWeiInterpretation",
+          ".trustedSplitsLaunchExecution.keeperGasBudgetStatus"
+        ]
+      },
+      {
+        "id": "R12-6/7",
+        "resolution": "Final tree full unit/contract/type/build/dry-run all pass without failed/skipped tests. Contract source, tests, artifacts, SQL migrations, Worker release config and production controls are untouched."
+      }
+    ],
+    "focusedReadOnlyCrossReview": {
+      "scope": "In-thread read-only peer review of RH financial path/alerts and Base full-fee/nonce/epoch/history/idle behavior; not an external Claude acceptance or mainnet proof.",
+      "findingsClosed": [
+        "Legacy same-tuple aliases no longer extend exact 24-hour expiry.",
+        "Cache-only Base idle warnings use a real same-identity persisted reserve without generating task/quote."
+      ],
+      "result": "No remaining blocking finding reported in this local scope."
+    },
+    "costEvidence": {
+      "newMainnetOrProviderMeasurement": "not_run",
+      "executionWarnings": "reuse balances already required by financial gate; warning module performs no RPC",
+      "idleBase": "up to one metered getBalance only each due existing 15-minute monitor when genuine historical/cache reservation exists; no reservation adds zero balance calls",
+      "idleRobinhood": "up to one observational getBalance per existing round with retained reservation fallback; no additional quote or simulation task is created",
+      "existingRound10BudgetFixtures": "remain passing; historical CU observations are not relabeled as new live measurements"
+    },
+    "preservation": {
+      "contracts": "no tracked differences",
+      "migrations": "no tracked differences",
+      "workerReleaseConfig": "no tracked differences",
+      "historicalProposalParsedJson": "equal to baseline after stripping round12 annotations only",
+      "priorAcceptanceRecords": "preserved as historical records; round12 appended separately",
+      "unrelatedRedesign": {
+        "path": "musegod.fun redesign.html",
+        "sha256": "0028b5492adf9f68910a6c1cb357fcba2d9772df02c596888e2dad7ebdd35ccf",
+        "preservedBytes": true,
+        "tracked": false
+      }
+    },
+    "production": {
+      "commit": "not_run",
+      "push": "not_run",
+      "deployment": "not_run",
+      "newContract": "not_run",
+      "databaseMutation": "not_run",
+      "keeperInstall": "not_run",
+      "keeperStart": "not_run",
+      "keeperRestart": "not_run",
+      "keeperArming": "not_run",
+      "hostExecutionMode": "unchanged by this task; current mode not queried or asserted",
+      "privateOperatorConfig": "not_read_or_modified",
+      "financialJournals": "real host files not reset or modified",
+      "publicControlMutation": false,
+      "mainnetTransaction": "not_run",
+      "walletTopUp": "not_run",
+      "newPaidService": false,
+      "newPolicyActiveInProduction": false
+    },
+    "rollbackPoint": "Published master f20d04031fb487ad060832e697dddc71185c68f4 is unchanged; review or discard only this local uncommitted patch. Operational rollback remains the existing exact released checkout/private config workflow after separate publication authority.",
+    "remainingSequence": "Review this local repair. Commit/release and reviewer-controlled exact-tag host upgrade/restart require later authority; none performed now.",
+    "logs": [
+      {
+        "path": ".cache/round12/tests-final.log",
+        "sha256": "ff54cd1b972175207ed141ba21e17d45e0adddc7fdd9651ea8990964460e9a7d",
+        "scope": "local ignored verification output, not deployment/mainnet execution evidence"
+      },
+      {
+        "path": ".cache/round12/contracts-final.log",
+        "sha256": "8db6d09d8633fc25008010e19d15cc5f1cab5ac4263af55aab6a319d426dbed6",
+        "scope": "local ignored verification output, not deployment/mainnet execution evidence"
+      },
+      {
+        "path": ".cache/round12/build-final.log",
+        "sha256": "9e5ff27eb07d65bdd671a1fc12a0b0d7d0541f1c478641bb1346598e975bf9f4",
+        "scope": "local ignored verification output, not deployment/mainnet execution evidence"
+      },
+      {
+        "path": ".cache/round12/worker-dry-run.log",
+        "sha256": "4a169dd3c300931eb12b88b05846e054b8b6f80bd0251f73fc35b0dd95c844ab",
+        "scope": "local ignored verification output, not deployment/mainnet execution evidence"
+      },
+      {
+        "path": ".cache/round12-base/red-no-lifetime-cap.log",
+        "sha256": "b77d4f84370fab47c9939f74ef27ba9d39ff387340045d1017fbac2d9fc5913f",
+        "scope": "local ignored verification output, not deployment/mainnet execution evidence"
+      },
+      {
+        "path": ".cache/round12-base/red-expiry-alias.log",
+        "sha256": "64028d64e820d96fca02183045a232941c0c6a93d9729f8a67b07a69e0ce6919",
+        "scope": "local ignored verification output, not deployment/mainnet execution evidence"
+      },
+      {
+        "path": ".cache/round12-base/green-expiry-alias.log",
+        "sha256": "8fc8b2a087928e534cd8b466efc000c0f08767f48b9c1771dc3568b924669d0b",
+        "scope": "local ignored verification output, not deployment/mainnet execution evidence"
+      },
+      {
+        "path": ".cache/round12-base/red-idle-balance-cache.log",
+        "sha256": "3a37ca1be4747af9d2a47a9faa24fe9b726c749ccd34230285ff9acd909ca381",
+        "scope": "local ignored verification output, not deployment/mainnet execution evidence"
+      },
+      {
+        "path": ".cache/round12-base/green-idle-balance-cache-final.log",
+        "sha256": "a9651f68e7ef1f58f1c6cb5e9af893774da0b80005e79583af10b256b10df99b",
+        "scope": "local ignored verification output, not deployment/mainnet execution evidence"
+      },
+      {
+        "path": ".cache/round12-base/typecheck-idle-balance-cache.log",
+        "sha256": "66c052bad352db513ca7b44fe8ba3ddb0b98a1ce2bff90c0f49e961385b6116a",
+        "scope": "local ignored verification output, not deployment/mainnet execution evidence"
+      },
+      {
+        "path": ".cache/round12/rh-alert-red.log",
+        "sha256": "6f6afa0145ff1601288d318450175a819c245032f1f6883c379913a3b8340475",
+        "scope": "local ignored verification output, not deployment/mainnet execution evidence"
+      },
+      {
+        "path": ".cache/round12/rh-targeted.log",
+        "sha256": "df1e372e315385da8c5920f9e94055dc171b39b521aeae193c92d2da63c8ec17",
+        "scope": "local ignored verification output, not deployment/mainnet execution evidence"
+      },
+      {
+        "path": ".cache/round12/root-targeted.log",
+        "sha256": "7f80932993b077670ddbe26720d8c5e4a1bd791fa978bed603dca45130abdb27",
+        "scope": "local ignored verification output, not deployment/mainnet execution evidence"
+      },
+      {
+        "path": ".cache/round12/boundary-targeted.log",
+        "sha256": "d156816eaf26f7cf80e0d8be561d18c57c0df285ce6bbbae3e9c1a4029c87ad2",
+        "scope": "local ignored verification output, not deployment/mainnet execution evidence"
+      },
+      {
+        "path": ".cache/round12-wrapper/red.log",
+        "sha256": "b33b046123fb22b46148f46a31d59372aa6b562e287756116bdaad2b899e50f7",
+        "scope": "local ignored verification output, not deployment/mainnet execution evidence"
+      },
+      {
+        "path": ".cache/round12-wrapper/green.log",
+        "sha256": "acefdf63f76e26fff4e9dde1f3f3d88f9c0cfd33cc8d9eeaf24f439017e6ff73",
+        "scope": "local ignored verification output, not deployment/mainnet execution evidence"
+      },
+      {
+        "path": ".cache/round12-balance-alerts-tests.log",
+        "sha256": "b4947f6a84e8504dec75f035f4e7ffccd2cf54dd71dc25e522c209224f1ffccc",
+        "scope": "local ignored verification output, not deployment/mainnet execution evidence"
+      }
+    ]
+  },
+  "round12PublicationAuthorization": {
+    "authorizedAt": "2026-10-12T12:40:02.245694+00:00",
+    "authorizationSource": "Explicit owner message in this task: 第 12 轮已通过 Claude 复核，owner 授权提交到 master 并发布；不改动现有控制状态。",
+    "reviewRequest": "/Volumes/code/opc/musegodfun/.claude/worktrees/base-blocking-issues-fix-9d9962/review/base-gas-policy-round12-review-2026-10-12.md",
+    "reviewFileSha256": "2229c71784fadb8920d5c201c59980c35d60b8461eb4daadc5684bed33543347",
+    "reviewOutcome": "Claude acceptance: 960/960 unit tests,171/171 contracts,typecheck/build passed; can commit/publish.",
+    "acceptedImplementationSourceSha256": "57ba41f5d403e41bf96b94033e05d9ea780be0d5c3b592803c5c2d54a6a05538",
+    "publicationSourceTreeSha256": "a3040c4492ea23f96a9549a8716122a280ebb0996470a75fe60448e04e78abae",
+    "publicationSourceInputs": "round12.sourceInputs with documentationOverrides below; accepted runtime/test/config bytes unchanged",
+    "documentationOverrides": [
+      {
+        "path": "README.md",
+        "sha256": "23205f9e661784a1b3488c6ebae48a6e7b63110f9ce06ad39d567b160e048ca5"
+      },
+      {
+        "path": "docs/SPEC.md",
+        "sha256": "793510d161c8f34e81a8caace7dc28308b0e9371428c80ce515217cb7bd4fd87"
+      }
+    ],
+    "sourceBaseline": "f20d04031fb487ad060832e697dddc71185c68f4",
+    "branch": "master",
+    "scope": "Commit approved Round12 keeper gas policy/balance alerts and publish through existing GitHub/Cloudflare immutable-release workflow. Preserve both chains persistent controls, contract graph and roles; no host keeper upgrade/restart/arming, journal handoff, DB migration or wallet transaction.",
+    "productionControlsBefore": {
+      "checkedAt": "2026-10-12T12:39:01.184Z",
+      "rows": [
+        {
+          "origin": "https://musegod.fun",
+          "requestedChainId": 8453,
+          "mode": "base",
+          "chainId": 8453,
+          "deploymentChainId": 8453,
+          "writesEnabled": true,
+          "signingPaused": false,
+          "controlRevision": 1,
+          "securityProtocol": 1,
+          "feeEngine": "0x3B6d01e627Fe6e06C831E0f9f57aC976a88309Ff",
+          "feePolicy": "creator-70-musegod-base-automation-v1",
+          "launchGuard": "0x376DcBb32DF3B033547f3d9024b2e4E88b973BF7",
+          "launchLockAvailable": true,
+          "treasury": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A"
+        },
+        {
+          "origin": "https://musegod.fun",
+          "requestedChainId": 4663,
+          "mode": "robinhood",
+          "chainId": 4663,
+          "deploymentChainId": 4663,
+          "writesEnabled": true,
+          "signingPaused": false,
+          "controlRevision": 1,
+          "securityProtocol": 1,
+          "feeEngine": "0x9caefd217ea5a039BbA77Ae5b0626733eA093769",
+          "feePolicy": "creator-70-musegod-swapper-v3",
+          "launchGuard": "0x531417dD153A72AA780DE27E502618a1F74AA409",
+          "launchLockAvailable": true,
+          "treasury": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A"
+        },
+        {
+          "origin": "https://www.musegod.fun",
+          "requestedChainId": 8453,
+          "mode": "base",
+          "chainId": 8453,
+          "deploymentChainId": 8453,
+          "writesEnabled": true,
+          "signingPaused": false,
+          "controlRevision": 1,
+          "securityProtocol": 1,
+          "feeEngine": "0x3B6d01e627Fe6e06C831E0f9f57aC976a88309Ff",
+          "feePolicy": "creator-70-musegod-base-automation-v1",
+          "launchGuard": "0x376DcBb32DF3B033547f3d9024b2e4E88b973BF7",
+          "launchLockAvailable": true,
+          "treasury": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A"
+        },
+        {
+          "origin": "https://www.musegod.fun",
+          "requestedChainId": 4663,
+          "mode": "robinhood",
+          "chainId": 4663,
+          "deploymentChainId": 4663,
+          "writesEnabled": true,
+          "signingPaused": false,
+          "controlRevision": 1,
+          "securityProtocol": 1,
+          "feeEngine": "0x9caefd217ea5a039BbA77Ae5b0626733eA093769",
+          "feePolicy": "creator-70-musegod-swapper-v3",
+          "launchGuard": "0x531417dD153A72AA780DE27E502618a1F74AA409",
+          "launchLockAvailable": true,
+          "treasury": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A"
+        }
+      ]
+    },
+    "previousPublication": [
+      {
+        "origin": "https://musegod.fun",
+        "commit": "f20d04031fb487ad060832e697dddc71185c68f4",
+        "buildId": "build-38239400644-1",
+        "workerVersion": "2d563ad7-e641-496b-8cfb-eb7be2911d2f",
+        "sourceCommit": "f20d04031fb487ad060832e697dddc71185c68f4"
+      },
+      {
+        "origin": "https://www.musegod.fun",
+        "commit": "f20d04031fb487ad060832e697dddc71185c68f4",
+        "buildId": "build-38239400644-1",
+        "workerVersion": "2d563ad7-e641-496b-8cfb-eb7be2911d2f",
+        "sourceCommit": "f20d04031fb487ad060832e697dddc71185c68f4"
+      }
+    ],
+    "keeperHostUpgradeAuthorized": false,
+    "keeperRestartAuthorized": false,
+    "keeperArmingAuthorized": false,
+    "mainnetFundTransactionsAuthorized": false,
+    "excludedRedesign": true,
+    "productionResultLocation": "GitHub immutable build Release and production Deployment status; post-publication receipt saved locally outside source commit.",
+    "preCommitAcceptance": {
+      "unit": {
+        "tests": 960,
+        "pass": 960,
+        "fail": 0,
+        "skipped": 0,
+        "cancelled": 0
+      },
+      "unitLogSha256": "8d9a622a4df6621fdd9d4aef0985f55995d02da6e2298e90afbf651c1b8b6510",
+      "typecheckBuild": "passed npm run build, includes both TypeScript projects",
+      "buildLogSha256": "9964a25b70fefe351cdcf0ea91b08209bf9785e2df5ad506360bfafc82afebce",
+      "contracts": "171/171 passed during local acceptance; unchanged contracts and reproducible artifacts repeated by required CI",
+      "scope": "Final accepted runtime/test/config and publication documentation tested before commit; authorization evidence only added afterward. Exact committed tree is retested by required CI."
+    }
   }
 }

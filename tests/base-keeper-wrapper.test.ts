@@ -47,9 +47,11 @@ test("actual tagged audit-only child has no signing key and no automatic arming"
   const f = await fixture(t); const result = await f.run(); assert.match(result.stdout, /audit_only/);
   const rows = await f.rows(); assert.equal(rows.length, 1); assert.equal(rows[0].hasWallet, false); assert.equal(rows[0].enabled, "false"); assert(rows[0].args.includes("--audit-only")); assert(rows[0].args.includes("--interval=300000")); assert.equal(rows[0].home, process.env.HOME);
 });
-test("two explicit owner switches require a successful one-time seal before the fixed-cap dedicated signer child", async t => {
+test("round12 owner switches and startup seal launch the dedicated signer without a lifetime gas ceiling or unknown recovery", async t => {
   const f = await fixture(t, true); await f.run(); const rows = await f.rows(); assert.equal(rows.length, 2);
-  assert(rows[0].args.includes("--once")); assert.equal(rows[0].hasWallet, false); assert.equal(rows[1].hasWallet, true); assert.equal(rows[1].enabled, "true"); assert(rows[1].args.includes("--execute")); assert(rows[1].args.includes("--max-gas-wei=16000000000000")); assert(!rows[1].args.some((arg: string) => arg.startsWith("--max-untracked")));
+  assert(rows[0].args.includes("--once")); assert.equal(rows[0].hasWallet, false); assert.equal(rows[1].hasWallet, true); assert.equal(rows[1].enabled, "true"); assert(rows[1].args.includes("--execute"));
+  assert(rows.every(row=>!row.args.some((arg:string)=>arg.startsWith("--max-gas-wei"))),"Neither startup nor execution injects the superseded lifetime ceiling");
+  assert(rows.every(row=>!row.args.some((arg:string)=>arg.startsWith("--max-untracked"))),"Unknown recovery remains disabled in both children");
 });
 test("a missing startup seal never starts execution even if its read-only CLI exits zero", async t => {
   const f = await fixture(t, true, false); await assert.rejects(f.run(), /seal is pending/); const rows = await f.rows(); assert.equal(rows.length, 1); assert.equal(rows[0].hasWallet, false);

@@ -53,6 +53,9 @@ export type BaseFeeBatch = {
   replacements?: { hash: Hex; cancelled: boolean; blockNumber: string; blockHash: Hex }[];
   error?: string;
   gasReservation?: BaseGasReservation; actualGas?: BaseTransactionFee;
+  /** First complete canonical outcome observation, separate from mutable row
+   * updatedAt so a recheck cannot restart its task's failed-gas window. */
+  sourceOutcome?: { at: number; transactionHash: Hex; blockNumber: string; blockHash: Hex };
 };
 export type BaseCollectorStatus = {
   kind: "base_splits_native"; protocol: typeof BASE_NATIVE_BUYBACK_PROTOCOL; chainId: 8453;

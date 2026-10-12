@@ -17,7 +17,10 @@ import { SupabaseStore, type StoreBackend } from "../server/supabase-store";
 import { FirstBuyPaymentReader } from "../server/lifi";
 import { alchemyRpcTransport, createRpcMetrics } from "../server/alchemy-rpc";
 import { DopplerSDK } from "@whetstone-research/doppler-sdk/evm";
-import { assertKeeperNonceReady } from "./buyback-keeper";
+import { assertKeeperNonceReady, keeperTaskWait, recordKeeperTaskOutcome, type KeeperJournal, type KeeperTaskStateFile } from "./buyback-keeper";
+import { KEEPER_TASK_RETRY_POLICY } from "./keeper-task-policy";
+export { KEEPER_TASK_RETRY_POLICY } from "./keeper-task-policy";
+import { monitorKeeperBalance } from "./keeper-balance-alerts";
 import { acquireBaseProcessLease, BaseProcessLeaseLostError, type BaseProcessLease } from "./base-process-lease";
 
 type Client = PublicClient<Transport, any>;
@@ -193,6 +196,22 @@ function claimReceiptOutcome(receipt: Awaited<ReturnType<typeof canonicalBaseRec
 export const BASE_EVIDENCE_RETRY_MS = 30_000;
 export const BASE_ASSET_RETRY_MS = 300_000;
 class BaseClaimRuntimeUnavailable extends Error {}
+function hasBaseActualGasBinding(batch: BaseFeeBatch) {
+  return !!batch.actualGas && batch.actualGas.transactionHash === batch.sourceHash &&
+    batch.actualGas.blockNumber === batch.sourceBlockNumber && batch.actualGas.blockHash === batch.sourceBlockHash;
+}
+function baseSourceUpdatedAt(batch: BaseFeeBatch, now = Date.now()) {
+  return Math.max(now, batch.updatedAt + 1);
+}
+function baseSourceOutcomeAt(batch: BaseFeeBatch) {
+  const outcome = batch.sourceOutcome;
+  if (outcome && (!Number.isSafeInteger(outcome.at) || outcome.at <= 0 || outcome.transactionHash !== batch.sourceHash ||
+    outcome.blockNumber !== batch.sourceBlockNumber || outcome.blockHash !== batch.sourceBlockHash || !hasBaseActualGasBinding(batch)))
+    throw new Error("Canonical task outcome time is not bound to its actual gas receipt");
+  const at = outcome?.at ?? batch.updatedAt;
+  if (!Number.isSafeInteger(at) || at <= 0) throw new Error("Canonical task outcome time is invalid");
+  return at;
+}
 export async function reconcileBaseFeeBatch(batch: BaseFeeBatch, client: Client, replacement?: Hex,
   expectedRuntimeHash = BASE_COLLECTOR_MANIFEST.collector.runtimeHash): Promise<BaseFeeBatch> {
   if (batch.status === "abandoned") return isBaseAbandonedTask(batch) ? batch : { ...batch,status: "unknown",error: "Abandoned source marker is incomplete; signing remains stopped." };
@@ -213,8 +232,11 @@ export async function reconcileBaseFeeBatch(batch: BaseFeeBatch, client: Client,
     }
     const retained = hash === batch.sourceHash && ["claimed","synced","released","reverted","cancelled","asset_failed","evidence_pending"].includes(batch.status) ? batch.actualGas : undefined;
     const actualGas = await readCanonicalBaseTransactionFee(client, receipt,retained);
+    const retainedOutcome = hasBaseActualGasBinding(batch) && batch.sourceHash === hash &&
+      batch.sourceBlockNumber === String(receipt.blockNumber) && batch.sourceBlockHash === receipt.blockHash;
     const next: BaseFeeBatch = { ...batch, sourceHash: hash, sourceBlockNumber: String(receipt.blockNumber), sourceBlockHash: receipt.blockHash,
-      actualGas, updatedAt: Date.now(), error: undefined,evidenceRetryAt: undefined,sourceFinalized: undefined,
+      actualGas, updatedAt: baseSourceUpdatedAt(batch), error: undefined,evidenceRetryAt: undefined,sourceFinalized: undefined,
+      sourceOutcome: { at: retainedOutcome ? baseSourceOutcomeAt(batch) : Date.now(), transactionHash: hash, blockNumber: String(receipt.blockNumber), blockHash: receipt.blockHash },
       status: cancellation ? "cancelled" : receipt.status === "reverted" ? "reverted" : batch.kind === "claim" ? "claimed" : batch.kind === "sync_untracked" ? "synced" : "released" };
     if (!cancellation && receipt.status === "success") try {
       if (batch.kind === "claim") {
@@ -245,7 +267,13 @@ export async function reconcileBaseFeeBatch(batch: BaseFeeBatch, client: Client,
     }
     if (replacement) next.replacements = [...(batch.replacements ?? []).filter(row => row.hash !== hash), { hash, cancelled: !!cancellation, blockNumber: String(receipt.blockNumber), blockHash: receipt.blockHash }];
     return next;
-  } catch { return { ...batch, sourceFinalized: undefined,status: batch.sourceBlockHash ? "reorg" : "unknown", error: "Source transaction or fee evidence remains unresolved.", updatedAt: Date.now() }; }
+  } catch {
+    // Preserve the old proven tuple's time through a transport outage. This
+    // metadata cannot settle an outcome: status remains globally unresolved.
+    let sourceOutcome = batch.sourceOutcome;
+    if (!sourceOutcome && hasBaseActualGasBinding(batch)) sourceOutcome = { at: baseSourceOutcomeAt(batch), transactionHash: batch.sourceHash!, blockNumber: batch.sourceBlockNumber!, blockHash: batch.sourceBlockHash! };
+    return { ...batch, ...(sourceOutcome ? { sourceOutcome } : {}), sourceFinalized: undefined,status: batch.sourceBlockHash ? "reorg" : "unknown", error: "Source transaction or fee evidence remains unresolved.", updatedAt: baseSourceUpdatedAt(batch) };
+  }
 }
 /** Full history remains durable; RPC revalidation is bounded and never rewrites finalized terminal outcomes on a transient read error. */
 export async function reconcileBaseKeeperHistory(journal: BaseKeeperJournal,history: BaseFeeBatch[],client: Client,expectedRuntimeHash: Hex | null,
@@ -287,7 +315,7 @@ export async function reconcileBaseKeeperHistory(journal: BaseKeeperJournal,hist
     // outage while rechecking evidence cannot erase that fact; genuine source reorgs still become global blockers.
     if (!replacement&&retainedCanonical&&["unknown","reorg"].includes(result.status)&&
       (await client.getBlock({ blockNumber: BigInt(batch.sourceBlockNumber!) })).hash===batch.sourceBlockHash)
-      result = { ...batch,status: "evidence_pending",evidenceRetryAt: now+BASE_EVIDENCE_RETRY_MS,updatedAt: now,error: "Retained mined source is canonical; asset evidence RPC remains pending." };
+      result = { ...batch,sourceOutcome: result.sourceOutcome ?? batch.sourceOutcome,status: "evidence_pending",evidenceRetryAt: now+BASE_EVIDENCE_RETRY_MS,updatedAt: baseSourceUpdatedAt(batch, now),error: "Retained mined source is canonical; asset evidence RPC remains pending." };
     if (knownMined(result)&&result.sourceBlockNumber&&result.sourceBlockHash&&result.actualGas&&BigInt(result.sourceBlockNumber)<=finalized.number) result.sourceFinalized=true;
     results.push(result);
   }
@@ -347,9 +375,8 @@ export async function assertCanonicalBaseUntrackedBudget(journal: BaseKeeperJour
   if (baseCanonicalGasSpent(all,journal.keeper,true) + integer(next.gasReservation.totalWei,true) > maxGas) return false;
   return true;
 }
-export function baseUntrackedWalletHasReserve(balance: bigint,reservation: string,genuineCap: bigint,history: BaseFeeBatch[],keeper: Address) {
-  const spent = baseCanonicalGasSpent(history,keeper),remaining = genuineCap > spent ? genuineCap - spent : 0n;
-  return balance >= integer(reservation,true) + remaining;
+export function baseUntrackedWalletHasReserve(balance: bigint,reservation: string) {
+  return balance >= integer(reservation,true) + KEEPER_TASK_RETRY_POLICY.maximumAttemptGasWei;
 }
 class BaseFeeAssetUnavailable extends Error {}
 /** No signature/hash exists at this point. Simulation/asset errors may skip one task; unresolved wallet nonces still stop everything. */
@@ -365,12 +392,76 @@ export async function prepareBaseFeeTask(task: BaseFeeBatch,client: Client,keepe
     return { ...task,gasReservation: reservation,journal: { caller: keeper,nonce: latest,to: task.collector,dataHash: keccak256(transaction.data),hash: `0x${"00".repeat(32)}`,gasLimit: String(gas),maxFeePerGas: String(fees.maxFeePerGas),signedAt: now } };
   } catch { return null; }
 }
-export async function assertCanonicalBaseGasBudget(journal: BaseKeeperJournal, next: BaseFeeBatch,
-  store: Pick<StoreBackend, "buybackBatchPage">, maxGas: bigint) {
+export function baseKeeperTaskKey(task: BaseFeeBatch) {
+  baseFeeTransaction(task);
+  if (isBaseUntrackedTask(task)) throw new Error("The genuine-fee task policy does not permit unknown recovery");
+  return task.kind === "claim" ? `claim:${task.poolId!.toLowerCase()}` : `release:${task.inputAsset!.address.toLowerCase()}`;
+}
+/** The original journals remain the retry ledger. A new file or random batch
+ * identifier cannot reset a pool/asset's canonical failed-gas window. */
+export function baseKeeperTaskState(history: BaseFeeBatch[], keeper: Address, now = Date.now()): KeeperTaskStateFile {
+  let state: KeeperTaskStateFile = { schemaVersion: 1, chainId: 8453, caller: keeper, tasks: {} };
+  const cutoff = now - KEEPER_TASK_RETRY_POLICY.gasWindowMs;
+  const outcomes = new Map<string, { batch: BaseFeeBatch; at: number }>();
+  for (const batch of history) {
+    if (batch.protocol !== BASE_BUYBACK_PROTOCOL || batch.sourceChainId !== 8453 || !isBaseSourceTask(batch) || isBaseUntrackedTask(batch) ||
+      !batch.journal || !sameAddress(batch.journal.caller, keeper) || !["claimed", "released", "reverted", "cancelled", "asset_failed"].includes(batch.status)) continue;
+    const hint = batch.sourceOutcome?.at ?? batch.updatedAt;
+    const expired = Number.isSafeInteger(hint) && hint > 0 && hint <= cutoff;
+    let at: number;
+    try {
+      at = baseSourceOutcomeAt(batch);
+      const fee = batch.actualGas;
+      if (!fee || fee.transactionHash !== batch.sourceHash || fee.blockNumber !== batch.sourceBlockNumber || fee.blockHash !== batch.sourceBlockHash ||
+        !batch.sourceHash || !batch.sourceBlockNumber || !batch.sourceBlockHash || integer(fee.totalWei, true) !==
+        integer(fee.executionWei, true) + integer(fee.l1Wei, true) + integer(fee.operatorWei, true)) throw new Error("Canonical task outcome lacks complete actual gas evidence");
+      if (!Number.isSafeInteger(batch.journal.nonce) || batch.journal.nonce < 0) throw new Error("Canonical task outcome nonce is invalid");
+      baseKeeperTaskKey(batch);
+    } catch (error) { if (expired) continue; throw error; }
+    // Keep valid older aliases until their shared canonical tuple has its
+    // earliest time. Filtering them first would extend legacy retry windows.
+    const key = JSON.stringify([keeper.toLowerCase(), batch.journal.nonce, batch.sourceHash, batch.sourceBlockNumber, batch.sourceBlockHash]);
+    const prior = outcomes.get(key);
+    if (prior && (prior.batch.actualGas!.totalWei !== batch.actualGas!.totalWei || baseKeeperTaskKey(prior.batch) !== baseKeeperTaskKey(batch))) {
+      // An expired conflicting payload cannot invalidate or move the current
+      // task's valid window. Active conflicting financial evidence fails closed.
+      if (at <= cutoff) continue;
+      if (prior.at > cutoff) throw new Error("Canonical task nonce has conflicting outcomes");
+      outcomes.set(key,{batch,at});continue;
+    }
+    outcomes.set(key,{ batch: prior && prior.batch.updatedAt > batch.updatedAt ? prior.batch : batch, at: Math.min(prior?.at ?? at, at) });
+  }
+  const active = [...outcomes.values()].filter(row => row.at > cutoff);
+  const nonces = new Set<number>();
+  for (const {batch,at} of active.sort((a, b) => a.at - b.at || a.batch.journal!.nonce - b.batch.journal!.nonce)) {
+    if (nonces.has(batch.journal!.nonce)) throw new Error("Canonical task nonce has conflicting outcomes");
+    nonces.add(batch.journal!.nonce);
+    const journal: KeeperJournal = { schemaVersion: 1, chainId: 8453, caller: keeper, nonce: batch.journal!.nonce,
+      taskId: baseKeeperTaskKey(batch), hash: batch.sourceHash!, to: batch.collector, dataHash: batch.journal!.dataHash, value: "0",
+      gasLimit: batch.journal!.gasLimit, gasPrice: batch.journal!.maxFeePerGas, signedAt: batch.journal!.signedAt,
+      status: ["claimed", "released"].includes(batch.status) ? "confirmed" : "reverted", blockNumber: batch.sourceBlockNumber,
+      blockHash: batch.sourceBlockHash, gasSpent: batch.actualGas!.totalWei, resolvedAt: at };
+    state = recordKeeperTaskOutcome(state, journal);
+  }
+  return state;
+}
+export function baseKeeperAttemptWait(reservation: BaseGasReservation, keeper: Address, now = Date.now()) {
+  if (!reservation || integer(reservation.totalWei, true) !== integer(reservation.executionWei, true) +
+    integer(reservation.l1Wei, true) + integer(reservation.operatorWei, true)) throw new Error("The task gas reservation is incomplete or inconsistent");
+  return keeperTaskWait({schemaVersion:1,chainId:8453,caller:keeper,tasks:{}},"attempt",integer(reservation.totalWei,true),now);
+}
+export function baseKeeperTaskWait(history: BaseFeeBatch[], task: BaseFeeBatch, keeper: Address, now = Date.now()) {
+  if (!task.gasReservation) throw new Error("A complete task gas reservation is required");
+  const attempt = baseKeeperAttemptWait(task.gasReservation,keeper,now);
+  if (attempt) return attempt;
+  return keeperTaskWait(baseKeeperTaskState(history, keeper, now), baseKeeperTaskKey(task), integer(task.gasReservation.totalWei, true), now);
+}
+export async function assertCanonicalBaseTaskGasPolicy(journal: BaseKeeperJournal, next: BaseFeeBatch,
+  store: Pick<StoreBackend, "buybackBatchPage">, now = Date.now()) {
   const all = unionBatches(journal.batches, await allBaseFeeBatches(store), true).filter(batch => batch.id !== next.id);
-  if (isBaseUntrackedTask(next)) throw new Error("The genuine-fee budget does not permit unknown recovery");
-  if (!next.gasReservation || baseCanonicalGasSpent(all, journal.keeper) + integer(next.gasReservation.totalWei, true) > maxGas)
-    throw new Error("The cumulative canonical Base gas budget is exhausted");
+  assertBaseNoUnknown(all, journal.keeper);
+  const wait = baseKeeperTaskWait(all, next, journal.keeper, now);
+  if (wait) throw new Error(`${wait.reason}; nextAttemptAt=${wait.nextAttemptAt}`);
 }
 /** Unknown recovery retains its independent explicit gas ceiling and cooldown. */
 export const BASE_UNTRACKED_COOLDOWN_MS = 3_600_000;
@@ -492,10 +583,10 @@ export async function pendingPairedFees(sdk: DopplerSDK<8453>, token: TokenRecor
 export async function runBaseBuybackKeeper(args = process.argv.slice(2)) {
   const execute = args.includes("--execute"), auditOnly = args.includes("--audit-only");
   if (execute && auditOnly) throw new Error("Audit-only mode cannot sign or broadcast");
-  const names = ["interval", "operator-dir", "max-gas-wei", "max-untracked-gas-wei", "replacement"];
+  const names = ["interval", "operator-dir", "max-untracked-gas-wei", "replacement"];
   if (args.some(arg => !["--execute", "--audit-only", "--once", "--help"].includes(arg) && !names.some(name => arg.startsWith(`--${name}=`)))) throw new Error("Unsupported Base keeper option");
   for (const name of names) if (args.filter(arg => arg.startsWith(`--${name}=`)).length > 1) throw new Error(`Select only one --${name} value`);
-  if (args.includes("--help")) { console.log("Base fee keeper: --audit-only [--once] [--interval=300000] [--operator-dir=/private/path]. Five-minute counters and fee tasks only; no custody, tracing, observer or source attribution. Startup verification is persisted once. --execute additionally requires an isolated keeper key, live owner/control permission and explicit --max-gas-wei. Optional --max-untracked-gas-wei is a separate unknown recovery cap; omission disables it. --replacement=<batchId>:<hash> recovers one retained same-nonce transaction. No local swap or bridge signing."); return; }
+  if (args.includes("--help")) { console.log("Base fee keeper: --audit-only [--once] [--interval=300000] [--operator-dir=/private/path]. Five-minute counters and fee tasks only; no custody, tracing, observer or source attribution. Startup verification is persisted once. --execute additionally requires an isolated keeper key and live owner/control permission. Genuine fees use the shared single-attempt and rolling failed-gas policy, with no lifetime ceiling. Optional --max-untracked-gas-wei is a separate unknown recovery cap; omission disables it. --replacement=<batchId>:<hash> recovers one retained same-nonce transaction. No local swap or bridge signing."); return; }
   if (!BASE_COLLECTOR_MANIFEST.collector.address || BASE_COLLECTOR_MANIFEST.status !== "deployed_verified") {
     if (execute) throw new Error("Base fee adapter is not deployed; no transaction was signed");
     console.log(JSON.stringify({ mode: "audit_only", state: "not_deployed", chainId: 8453 })); return;
@@ -503,8 +594,6 @@ export async function runBaseBuybackKeeper(args = process.argv.slice(2)) {
   if (!execute) loadEnvironment(); else assertBaseRoleSecrets(process.env);
   const interval = Number(args.find(arg => arg.startsWith("--interval="))?.slice(11) ?? BASE_KEEPER_INTERVAL_MS);
   if (!Number.isSafeInteger(interval) || interval < BASE_KEEPER_INTERVAL_MS || interval > 3_600_000) throw new Error("Keeper interval must be at least five minutes");
-  const rawCap = args.find(arg => arg.startsWith("--max-gas-wei="))?.slice(14);
-  if (execute && (!rawCap || !/^[1-9]\d{0,77}$/.test(rawCap))) throw new Error("An explicit cumulative --max-gas-wei ceiling is required");
   const rawUntrackedCap = args.find(arg => arg.startsWith("--max-untracked-gas-wei="))?.slice("--max-untracked-gas-wei=".length);
   const untrackedCap = rawUntrackedCap === undefined ? 0n : integer(rawUntrackedCap);
   const hint = args.find(arg => arg.startsWith("--replacement="))?.slice(14), replacementHint = hint?.match(/^([^:]{1,200}):(0x[\da-f]{64})$/i);
@@ -560,6 +649,7 @@ export async function runBaseBuybackKeeper(args = process.argv.slice(2)) {
         const round = await readBaseKeeperFeeRound(reader!, tokens, collector, observations.poolCursor, token => pendingPairedFees(sdk, token, collector));
         const status = round.status;
         for (const failure of round.failures) deferred(failure);
+        const current = unionBatches(journal.batches, execute ? await allBaseFeeBatches(source) : [], true);
         if (observedAt - observations.lastReadAt >= BASE_STUCK_MONITOR_INTERVAL_MS) {
           try {
             if (!status.assetsComplete) throw new Error("Automation balances are incomplete");
@@ -571,11 +661,26 @@ export async function runBaseBuybackKeeper(args = process.argv.slice(2)) {
             readings.push({ key: `4663:${BASE_BUYBACK_RH_WETH.toLowerCase()}`, amount: String(treasury), threshold: BASE_RECOVERY_FIXED_ASSETS.find(asset => sameAddress(asset.address, BASE_BUYBACK_WETH))!.minimumRaw });
             const changed = updateBaseStuckMonitor(observations, readings, observedAt);
             for (const alert of changed.alerts) await appendFundAlert(alertPath, { at: new Date(observedAt).toISOString(), state: "funds_stuck", ...alert });
+            // Idle monitoring reuses a real retained reservation; it never
+            // manufactures a task, fee quote or archive scan for an alert.
+            const retainedJournal = execute ? journal : await readBasePublicJson<BaseKeeperJournal>(path);
+            const history = retainedJournal && sameAddress(retainedJournal.collector, collector) && sameAddress(retainedJournal.keeper, keeper)
+              ? unionBatches(retainedJournal.batches, current) : current;
+            const typical = history.filter(row => row.journal && sameAddress(row.journal.caller, keeper) && !isBaseUntrackedTask(row) && row.gasReservation)
+              .sort((a,b) => b.journal!.signedAt - a.journal!.signedAt)[0]?.gasReservation;
+            let cachedReservation = false;
+            if (!typical) try {
+              const cached = await readBasePublicJson<Record<string, unknown>>(`${alertPath}.balance.json`);
+              cachedReservation = !!cached && cached.version === 1 && cached.chainId === 8453 && typeof cached.keeper === "string" && sameAddress(cached.keeper, keeper) &&
+                typeof cached.low === "boolean" && Number.isSafeInteger(cached.updatedAt) && Number(cached.updatedAt) >= 0 &&
+                typeof cached.typicalReservationWei === "string" && /^[1-9]\d{0,77}$/.test(cached.typicalReservationWei) && integer(cached.typicalReservationWei) > 0n;
+            } catch { console.log(JSON.stringify({mode:"monitor_pending",reason:"Private balance reservation cache is unavailable; financial execution is unchanged."})); }
+            if (typical || cachedReservation) await monitorKeeperBalance({ path: alertPath, chainId: 8453, keeper,
+              balanceWei: await client.getBalance({ address: keeper, blockTag: "latest" }), typicalReservationWei: typical ? integer(typical.totalWei, true) : 0n, now: observedAt });
             await writeBasePublicJson(observationPath, changed.state);
             observations = changed.state;
           } catch (error) { console.log(JSON.stringify({ mode: "monitor_pending", reason: redact(error, runtime.environment) })); }
         }
-        const current = unionBatches(journal.batches, execute ? await allBaseFeeBatches(source) : [], true);
         if (execute) for (const resolved of await reconcileBaseKeeperHistory(journal, current, client, graph.runtimeHash,
           replacementHint ? [replacementHint[1], replacementHint[2] as Hex] : undefined)) { await persistLocal(resolved); await persistPublic(resolved); }
         const seed = (kind: BaseFeeBatch["kind"]): BaseFeeBatch => ({ id: `base-native-${randomUUID()}`, protocol: BASE_BUYBACK_PROTOCOL, sourceChainId: 8453, destinationChainId: 4663,
@@ -602,6 +707,8 @@ export async function runBaseBuybackKeeper(args = process.argv.slice(2)) {
               const transaction = baseFeeTransaction(prepared), nonce = prepared.journal!.nonce, gas = BigInt(prepared.journal!.gasLimit), maxFeePerGas = BigInt(prepared.journal!.maxFeePerGas), reservation = prepared.gasReservation!;
               const gate = async (alreadyReserved = false) => {
                 unlock!.assertHeld(); if (stopping) throw new Error("Keeper stopped before transport");
+                const attempt = baseKeeperAttemptWait(reservation,account.address);
+                if (attempt) throw new Error(`${attempt.reason}; nextAttemptAt=${attempt.nextAttemptAt}`);
                 await assertBaseKeeperLiveAuthority(client, BASE_COLLECTOR_MANIFEST, account.address);
                 assertBaseKeeperRoles(account.address, BASE_COLLECTOR_MANIFEST, runtime.config.treasury);
                 await assertBaseOperationalControl(source, runtime, collector);
@@ -609,16 +716,18 @@ export async function runBaseBuybackKeeper(args = process.argv.slice(2)) {
                 if (prepared.kind === "release" || prepared.kind === "release_untracked") await assertBaseSelectedReleaseReadiness(client, prepared);
                 const budgetJournal = alreadyReserved ? { ...journal, batches: journal.batches.filter(row => row.id !== prepared.id) } : journal;
                 const balance = await client.getBalance({ address: account.address, blockTag: "latest" });
+                await monitorKeeperBalance({ path: alertPath, chainId: 8453, keeper: account.address, balanceWei: balance,
+                  typicalReservationWei: BigInt(reservation.totalWei), now: Date.now() });
                 if (isBaseUntrackedTask(prepared)) {
                   if (!await assertCanonicalBaseUntrackedBudget(budgetJournal, prepared, source, untrackedCap)) throw new Error("Independent unknown gas budget exhausted");
-                  if (!baseUntrackedWalletHasReserve(balance, reservation.totalWei, BigInt(rawCap!), unionBatches(budgetJournal.batches, current), account.address)) throw new Error("Unknown recovery cannot consume genuine fee gas");
+                  if (!baseUntrackedWalletHasReserve(balance, reservation.totalWei)) throw new Error("Unknown recovery cannot consume genuine fee gas");
                   const policy = policyFor(prepared.inputAsset!.address)!;
                   const liveAmount = await client.readContract({ address: collector, abi: baseCollectorAbi, functionName: prepared.kind === "release_untracked" ? "pendingUntracked" : "untrackedBalance", args: [policy.address] });
                   if (typeof liveAmount !== "bigint" || liveAmount < integer(policy.minimumRaw) || baseUntrackedAssetCooling(policy.address,
                     prepared.kind === "release_untracked" ? "release_untracked" : "sync_untracked", { ...recoveryContext, history: unionBatches(budgetJournal.batches, current), now: Date.now() })) throw new Error("Unknown recovery minimum or cooldown no longer qualifies");
                 } else {
                   if (balance < integer(reservation.totalWei, true)) throw new Error("Keeper wallet cannot fund this task's gas reserve");
-                  await assertCanonicalBaseGasBudget(budgetJournal, prepared, source, BigInt(rawCap!));
+                  await assertCanonicalBaseTaskGasPolicy(budgetJournal, prepared, source);
                 }
                 if (prepared.kind === "claim") {
                   const claim = claims.get(task.id)!;

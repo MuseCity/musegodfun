@@ -11,6 +11,9 @@ import { BUYBACK_WETH, BUYBACK_FORWARDER_ALLOWANCE_CAP, buybackAmountCandidates,
 import { sameAddress, type RuntimeConfig } from "../src/lib/config";
 import { alchemyRpcTransport, createRpcMetrics, requireAlchemyRpc, type RpcMetrics } from "../server/alchemy-rpc";
 import { ENGINE_FEE_POLICY, MUSEGOD_BUYBACK } from "../src/lib/fee-policy";
+import { KEEPER_TASK_RETRY_POLICY } from "./keeper-task-policy";
+import { monitorKeeperBalance } from "./keeper-balance-alerts";
+export { KEEPER_TASK_RETRY_POLICY } from "./keeper-task-policy";
 
 export type KeeperTask = { id: string; action: EngineAction; label: string } | { id: string; token: Address; amount: string; kind: "conversion"; label: string };
 export function keeperApiOrigin(raw: string): string {
@@ -162,19 +165,6 @@ export class KeeperSubmissionBarrier {
     catch (error) { if (error instanceof KeeperSigningStopped) this.stopped = true; throw error; }
   }
 }
-// These are keeper gas protections, independent of user transaction limits and
-// the Vault's WETH budget. A resolved revert isolates only its own task.
-export const KEEPER_TASK_RETRY_POLICY = {
-  initialBackoffMs: 120_000, maximumBackoffMs: 3_600_000,
-  attemptWindowMs: 3_600_000, maximumRevertsPerWindow: 3,
-  // Per task, not keeper-wide: once a task's reverted gas in the rolling
-  // window reaches this, that task stops until the window rolls.
-  gasWindowMs: 86_400_000, maximumFailedGasWei: 10n ** 15n,
-  // Worst-case cost of one signed attempt (buffered gas limit × gas price).
-  // Separate from failure history, so an unaffordable attempt says so itself;
-  // a task's failed gas in one window stays below maximumFailedGasWei + this.
-  maximumAttemptGasWei: 2n * 10n ** 15n, gasRetryMs: 60_000,
-} as const;
 type KeeperTaskFailure = { hash: Hash; at: number; gasWei: string };
 export type KeeperTaskRetryState = { consecutiveReverts: number; nextAttemptAt: number; lastOutcomeHash: Hash; lastOutcomeStatus: "confirmed" | "reverted"; lastOutcomeBlockHash?: Hash; lastOutcomeAt: number; failures: KeeperTaskFailure[] };
 export type KeeperTaskStateFile = { schemaVersion: 1; chainId: number; caller: Address; tasks: Record<string, KeeperTaskRetryState> };
@@ -463,6 +453,23 @@ export async function runKeeper(args: string[] = process.argv.slice(2)) {
         // Dry runs never create a signing wallet. A public stand-in address is
         // sufficient to simulate permissionless claims and Swapper execution.
         const caller = account?.address || "0x0000000000000000000000000000000000000001" as Address;
+        // A keyless production dry-run observes the approved D3 wallet, while
+        // permissionless simulations keep their existing public stand-in.
+        const balanceKeeper = account?.address ?? (config.chainId === 31337 ? caller : "0xd3f11a4DDcED57aC4E41F8CE7fD323959667e278" as Address);
+        const balanceAlertsPath = resolve(".cache/buyback-keeper", `${config.chainId}-${balanceKeeper.toLowerCase()}.alerts.jsonl`);
+        let balanceObserved = false, previousReservation = 0n, monitoredBalance: bigint | undefined;
+        const observeBalance = async (typicalReservationWei: bigint, knownBalance?: bigint) => {
+          balanceObserved = true;
+          try {
+            const balanceWei = knownBalance ?? monitoredBalance ?? await client.getBalance({ address: balanceKeeper, blockTag: "pending" });
+            monitoredBalance = balanceWei;
+            await monitorKeeperBalance({ path: balanceAlertsPath, chainId: config.chainId, keeper: balanceKeeper, balanceWei, typicalReservationWei });
+          } catch {
+            // Monitoring is observational. A failed read never blocks or
+            // authorizes a signature; the financial balance gate stays below.
+            console.log(JSON.stringify({ state: "keeper_balance_alert_pending", chainId: config.chainId, keeper: balanceKeeper }));
+          }
+        };
         const tasks = selectKeeperTasks(status);
         console.log(JSON.stringify({ mode: execute ? "execute" : "dry_run", chainId: config.chainId, tasks: tasks.length, blockNumber: String(graph.blockNumber) }));
         const wallet = execute && account ? createWalletClient({ account, chain, transport: config.chainId === 31337 ? http(rpcUrl, { timeout: 30_000, retryCount: 0 }) : alchemyRpcTransport(4663, process.env, { metrics }) }) : null;
@@ -486,7 +493,7 @@ export async function runKeeper(args: string[] = process.argv.slice(2)) {
           taskStatePath = `${selectedPath}.tasks.json`;
           taskState = await readKeeperTaskState(taskStatePath, config.chainId, caller);
           const previous = await readKeeperJournal(journalPath, config.chainId, caller);
-          if (previous) { await reconcile(previous); attempted.set(previous.taskId, Math.max(attempted.get(previous.taskId) ?? 0, previous.signedAt)); }
+          if (previous) { await reconcile(previous); attempted.set(previous.taskId, Math.max(attempted.get(previous.taskId) ?? 0, previous.signedAt)); previousReservation = keeperGasCost(BigInt(previous.gasLimit), BigInt(previous.gasPrice)); }
         }
         const profitPath = resolve(".cache/buyback-keeper", `${config.chainId}-${caller.toLowerCase()}.profit.json`);
         let profitState = await readKeeperProfitState(profitPath, config.chainId, caller);
@@ -550,18 +557,22 @@ export async function runKeeper(args: string[] = process.argv.slice(2)) {
               // the complete trade with that final threshold before submission.
               await client.call({ account: caller, ...tx });
             }
-            if (!wallet) { console.log(JSON.stringify({ task: task.id, state: "simulated", gas: String(gas), estimatedGasWei: String(keeperGasCost(gas, gasPrice)) })); continue; }
+            const gasLimit = (gas * 125n + 99n) / 100n;
+            const attemptReservation = keeperGasCost(gasLimit, gasPrice);
+            if (!wallet) { await observeBalance(attemptReservation); console.log(JSON.stringify({ task: task.id, state: "simulated", gas: String(gas), estimatedGasWei: String(keeperGasCost(gas, gasPrice)) })); continue; }
             const current = await readApi<RuntimeConfig>(origin, "/config");
             assertKeeperSubmissionRuntime(current, config, status);
             assertKeeperAccount(caller, current);
             engineTransaction(action, current); // Recheck every expiry immediately before signing.
-            const gasLimit = (gas * 125n + 99n) / 100n;
             const [latestNonce, pendingNonce] = await Promise.all([
               client.getTransactionCount({ address: caller, blockTag: "latest" }),
               client.getTransactionCount({ address: caller, blockTag: "pending" }),
             ]);
             assertKeeperNonceReady(latestNonce, pendingNonce);
-            if (await client.getBalance({ address: caller, blockTag: "pending" }) < keeperGasCost(gasLimit, gasPrice)) throw new Error("The dedicated keeper wallet has insufficient gas funds");
+            balanceObserved = true;
+            const walletBalance = await client.getBalance({ address: caller, blockTag: "pending" });
+            await observeBalance(attemptReservation, walletBalance);
+            if (walletBalance < attemptReservation) throw new Error("The dedicated keeper wallet has insufficient gas funds");
             await client.call({ account: caller, ...tx });
             if (stopping) throw new Error("The keeper stopped before signing");
             const previous = await readKeeperJournal(journalPath!, config.chainId, caller);
@@ -600,6 +611,7 @@ export async function runKeeper(args: string[] = process.argv.slice(2)) {
             console.log(JSON.stringify({ task: task.id, state: "skipped", reason: safeError(error) }));
           }
         }
+        if (!balanceObserved) await observeBalance(previousReservation);
       }
     } catch (error) {
       if (error instanceof KeeperSigningStopped) { stopSigning(error); return; }

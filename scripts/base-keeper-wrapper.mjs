@@ -95,7 +95,6 @@ export async function runBaseKeeperWrapper(args = process.argv.slice(2)) {
       for (const key of ["nodePath", "checkout", "environmentFile", "operatorDirectory", "releaseTag", "expectedCommit"]) if (fresh.config[key] !== prepared.config[key]) throw new Error("The release or private journal binding changed during startup; restart explicitly");
       if (!fresh.executionEnvironment) { await launch(fresh.args, fresh.environment); return; }
       const executionArgs = fresh.args.map(arg => arg === "--audit-only" ? "--execute" : arg);
-      executionArgs.push("--max-gas-wei=16000000000000"); // Unknown recovery remains disabled.
       await launch(executionArgs, fresh.executionEnvironment);
     } else await launch(prepared.args, prepared.environment);
   } finally { process.removeListener("SIGINT", stop); process.removeListener("SIGTERM", stop); }

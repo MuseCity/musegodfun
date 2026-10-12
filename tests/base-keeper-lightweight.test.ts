@@ -10,7 +10,7 @@ import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { encodeAbiParameters, encodeEventTopics, keccak256, parseTransaction, type Address, type Hex } from "viem";
 import { BASE_COLLECTOR_MANIFEST } from "../server/base-collector";
 import { BASE_RECOVERY_FIXED_ASSETS } from "../server/base-buyback";
-import { BASE_BUYBACK_WETH, baseCollectorAbi, type BaseFeeBatch } from "../src/lib/base-buyback";
+import { BASE_BUYBACK_PROTOCOL, BASE_BUYBACK_WETH, baseCollectorAbi, type BaseFeeBatch } from "../src/lib/base-buyback";
 import { STOCKS, type TokenRecord } from "../src/lib/config";
 import { BASE_AUTOMATION_FEE_POLICY } from "../src/lib/fee-policy";
 import { baseKeeperPolicies, baseClaimCoversGas, baseClaimValueWeth, readBaseKeeperFeeRound, sortBaseKeeperTasks, assertBaseNoUnknown, updateBaseStuckMonitor, BASE_STUCK_MONITOR_INTERVAL_MS, BASE_STUCK_AFTER_MS } from "../scripts/base-buyback-keeper";
@@ -57,11 +57,12 @@ const baseline = process.env.KEEPER_REVIEW_BASELINE_DIR;
 async function mainFixture(t: TestContext) {
   const directory = await mkdtemp(join(tmpdir(), "light-base-main-")), environment = process.env, original = structuredClone(BASE_COLLECTOR_MANIFEST);
   const key = generatePrivateKey(), keeper = privateKeyToAccount(key), calls: string[] = [], outputs: any[] = [], rows = new Map<string, BaseFeeBatch>(), transactions = new Map<string, any>();
+  let maximumFee = 100n, l1Fee = 1000n, operatorFee = 1000n;
   let failObservations = false, failAlerts = false, nonce = 7, afterSign: (() => void) | undefined;
   let paused = false, failAuthority = false, balance = 10n ** 18n, startup = true, statusReads = 0, stopAfter = Infinity;
   const graph = { collector, automationReceiver: automation, paused: false, runtimeHash: hash }, assets = STOCKS.slice(0, 2).map(stock => ({ ...stock, chainId: 8453, pending: "100", untracked: "0", pendingUntracked: "0", totalClaimed: "100", totalReleased: "0", automationBalance: "0", verifiedAsset: true }));
-  const client = { getChainId: async () => 8453, getBlockNumber: async () => 100n, getBlock: async ({ blockNumber }: any = {}) => ({ number: blockNumber ?? 100n, hash }), getTransactionCount: async () => nonce, call: async () => {}, estimateGas: async () => 80000n, estimateFeesPerGas: async () => ({ maxFeePerGas: 100n }), getBalance: async () => balance,
-    readContract: async ({ functionName }: any) => functionName === "verifiedAssets" ? true : 1000n,
+  const client = { getChainId: async () => 8453, getBlockNumber: async () => 100n, getBlock: async ({ blockNumber }: any = {}) => ({ number: blockNumber ?? 100n, hash }), getTransactionCount: async () => nonce, call: async () => {}, estimateGas: async () => 80000n, estimateFeesPerGas: async () => ({ maxFeePerGas: maximumFee }), getBalance: async () => { calls.push("balance"); return balance; },
+    readContract: async ({ functionName }: any) => functionName === "verifiedAssets" ? true : functionName === "getOperatorFee" ? operatorFee : functionName.startsWith("getL1Fee") ? l1Fee : 1000n,
     getTransaction: async ({ hash: id }: any) => transactions.get(id), getTransactionReceipt: async ({ hash: id }: any) => { const tx = transactions.get(id), asset = assets.find(row => tx.input.toLowerCase().includes(row.address.slice(2).toLowerCase()))!; return { transactionHash: id, from: keeper.address, status: "success", blockHash: hash, blockNumber: 99n, gasUsed: 21000n, effectiveGasPrice: 100n, logs: [{ address: collector, data: encodeAbiParameters([{ type: "uint256" }], [100n]), topics: encodeEventTopics({ abi: baseCollectorAbi, eventName: "FeesReleased", args: { token: asset.address, receiver: automation } }) }, { address: asset.address, data: encodeAbiParameters([{ type: "uint256" }], [100n]), topics: [`0x${"ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"}`, `0x${collector.slice(2).padStart(64, "0")}`, `0x${automation.slice(2).padStart(64, "0")}`] }] }; },
     request: async ({ params }: any) => ({ transactionHash: params[0], blockHash: hash, blockNumber: "0x63", gasUsed: "0x5208", effectiveGasPrice: "0x64", l1Fee: "0x3e8" }), waitForTransactionReceipt: async () => {} };
   const source = { close: async () => {}, runtimeControl: async () => ({ paused, revision: 1 }), tokens: async () => [], buybackBatchPage: async () => [...rows.values()].map((row, index) => ({ ...row, sequence: String(index + 1) })), saveBuybackBatch: async (row: BaseFeeBatch) => { rows.set(row.id, row); } };
@@ -80,11 +81,11 @@ async function mainFixture(t: TestContext) {
   };
   Reflect.set(globalThis, id, overrides); const hooks = registerHooks({ resolve(specifier, context, next) { if (context.parentURL !== entry.href || !overrides[specifier]) return next(specifier, context); const original = specifier.startsWith(".") ? new URL(`${specifier}.ts`, entry).href : import.meta.resolve(specifier); return { shortCircuit: true, url: `data:text/javascript,${encodeURIComponent(`export * from ${JSON.stringify(original)};\n${Object.keys(overrides[specifier]).map(name => `export const ${name}=globalThis[${JSON.stringify(id)}][${JSON.stringify(specifier)}][${JSON.stringify(name)}];`).join("\n")}`)}` }; } });
   t.after(async () => { hooks.deregister(); Reflect.deleteProperty(globalThis, id); process.env = environment; Object.assign(BASE_COLLECTOR_MANIFEST, original); await rm(directory, { recursive: true, force: true }); });
-  return { entry: await import(entry.href), directory, outputs, calls, rows, assets, keeper, setObservationFailure: (value: boolean) => { failObservations = value; }, setAlertFailure: (value: boolean) => { failAlerts = value; }, afterSign: (callback: () => void) => { afterSign = callback; }, setPaused: (value: boolean) => { paused = value; }, setAuthority: (value: boolean) => { failAuthority = !value; }, setBalance: (value: bigint) => { balance = value; }, setStartup: (value: boolean) => { startup = value; }, stopAfter: (count: number) => { stopAfter = count; } };
+  return { entry: await import(entry.href), directory, outputs, calls, rows, assets, keeper, setObservationFailure: (value: boolean) => { failObservations = value; }, setAlertFailure: (value: boolean) => { failAlerts = value; }, afterSign: (callback: () => void) => { afterSign = callback; }, setPaused: (value: boolean) => { paused = value; }, setAuthority: (value: boolean) => { failAuthority = !value; }, setBalance: (value: bigint) => { balance = value; }, setMaximumFee: (value: bigint) => { maximumFee = value; }, setExtraFees: (l1: bigint, operator: bigint) => { l1Fee = l1; operatorFee = operator; }, setStartup: (value: boolean) => { startup = value; }, stopAfter: (count: number) => { stopAfter = count; } };
 }
 for (const failure of ["pause", "authority", "balance", "gas"] as const) test(`real lightweight main loop defers ${failure} without exiting or blocking the next task`, async t => {
-  const f = await mainFixture(t); if (failure === "pause") f.setPaused(true); if (failure === "authority") f.setAuthority(false); if (failure === "balance") f.setBalance(0n);
-  await f.entry.runBaseBuybackKeeper(["--execute", "--once", `--operator-dir=${f.directory}`, `--max-gas-wei=${failure === "gas" ? "1" : "16000000000000"}`]);
+  const f = await mainFixture(t); if (failure === "pause") f.setPaused(true); if (failure === "authority") f.setAuthority(false); if (failure === "balance") f.setBalance(0n); if (failure === "gas") f.setMaximumFee(20_000_000_000n);
+  await f.entry.runBaseBuybackKeeper(["--execute", "--once", `--operator-dir=${f.directory}`]);
   assert.equal(f.calls.filter(call => call === "sign").length, 0); assert.equal(f.calls.filter(call => call === "broadcast").length, 0); assert.equal(f.outputs.filter(row => row.state === "signing_deferred" && row.taskId).length, 2); assert.equal(f.calls.filter(call => call === "startup").length, 1);
 });
 test("audit-only main loop never creates a wallet and missing startup remains retryable without fee signing", async t => {
@@ -101,29 +102,128 @@ test("an ongoing audit-only process reuses startup verification on the next retr
 
 test("live authority revoked after signing safely abandons before transport and does not fabricate an unknown source spend", async t => {
   const f = await mainFixture(t); f.afterSign(() => f.setAuthority(false));
-  await f.entry.runBaseBuybackKeeper(["--execute", "--once", `--operator-dir=${f.directory}`, "--max-gas-wei=16000000000000"]);
+  await f.entry.runBaseBuybackKeeper(["--execute", "--once", `--operator-dir=${f.directory}`]);
   assert.equal(f.calls.filter(call => call === "sign").length, 1, JSON.stringify(f.outputs)); assert.equal(f.calls.includes("broadcast"), false);
   const retained = [...f.rows.values()]; assert.equal(retained.length, 1, JSON.stringify(f.outputs)); assert.equal(retained[0].status, "abandoned"); assert.equal(retained[0].abandonedBeforeBroadcast, true); assert.doesNotThrow(() => assertBaseNoUnknown(retained, f.keeper.address));
   assert.equal(f.outputs.filter(row => row.state === "signing_deferred" && row.taskId).length, 2);
 });
 test("default zero unknown cap leaves unregistered donations pending and never manufactures a registration claim", async t => {
   const f = await mainFixture(t); for (const row of f.assets) { row.pending = "0"; row.untracked = "100000000"; row.verifiedAsset = false; }
-  await f.entry.runBaseBuybackKeeper(["--execute", "--once", `--operator-dir=${f.directory}`, "--max-gas-wei=16000000000000"]);
+  await f.entry.runBaseBuybackKeeper(["--execute", "--once", `--operator-dir=${f.directory}`]);
   assert.equal(f.calls.includes("sign"), false); assert.equal(f.calls.includes("live"), false); assert.deepEqual(f.outputs.find(row => row.mode === "execute" && row.startupVerified).tasks, []);
 });
 
 test("successful lightweight tasks keep exact durable hashes, distinct nonces, live gates and actual canonical gas without any custody service", async t => {
   const f = await mainFixture(t);
-  await f.entry.runBaseBuybackKeeper(["--execute", "--once", `--operator-dir=${f.directory}`, "--max-gas-wei=16000000000000"]);
+  await f.entry.runBaseBuybackKeeper(["--execute", "--once", `--operator-dir=${f.directory}`]);
   assert.equal(f.calls.filter(call => call === "sign").length, 2); assert.equal(f.calls.filter(call => call === "broadcast").length, 2); assert.equal(f.calls.filter(call => call === "live").length, 4);
   const retained = [...f.rows.values()]; assert.deepEqual(retained.map(row => row.journal!.nonce), [7, 8]); assert(retained.every(row => row.status === "released" && row.sourceHash && row.actualGas?.totalWei)); assert(retained.every(row => !Object.hasOwn(row.inputAsset!, "minimumRaw"))); assert.doesNotThrow(() => assertBaseNoUnknown(retained, f.keeper.address));
+});
+
+test("round12 execution needs no lifetime gas CLI ceiling and keeps settled history beyond the retired cap", async t => {
+  const f = await mainFixture(t);
+  const old = { id: "historical-genuine-spend", protocol: BASE_BUYBACK_PROTOCOL, sourceChainId: 8453, destinationChainId: 4663, collector,
+    kind: "release", status: "released", createdAt: 1, updatedAt: 2, amountIn: "100", receivedAmount: "0", refundedAmount: "0", burnedAmount: "0", claimHashes: [],
+    inputAsset: STOCKS[0], release: { token: STOCKS[0].address, amount: "100", automation }, sourceHash: hash, sourceBlockNumber: "1", sourceBlockHash: hash, sourceFinalized: true,
+    journal: { caller: f.keeper.address, nonce: 6, to: collector, dataHash: hash, hash, gasLimit: "21000", maxFeePerGas: "100", signedAt: 1 },
+    actualGas: { transactionHash: hash, blockNumber: "1", blockHash: hash, executionWei: "17000000000000", l1Wei: "1000", operatorWei: "0", totalWei: "17000000001000" } } as unknown as BaseFeeBatch;
+  // The private journal and canonical store retain the original public rows.
+  f.rows.set(old.id, old);
+  await f.entry.runBaseBuybackKeeper(["--execute", "--once", `--operator-dir=${f.directory}`]);
+  assert.equal(f.calls.filter(call => call === "sign").length, 2, JSON.stringify(f.outputs));
+  assert.deepEqual(f.rows.get(old.id), old);
+});
+test("round12 complete L1 and operator fees can defer both tasks without a lifetime budget or signature", async t => {
+  const f = await mainFixture(t); f.setExtraFees(500_000_000_000_000n,500_000_000_000_000n);
+  await f.entry.runBaseBuybackKeeper(["--execute","--once",`--operator-dir=${f.directory}`]);
+  assert.equal(f.calls.includes("sign"),false); assert.equal(f.calls.includes("broadcast"),false);
+  assert.equal(f.outputs.filter(row=>row.state==="signing_deferred"&&/single-attempt cap/.test(row.reason)).length,2);
+});
+test("round12 an explicitly budgeted unknown release still cannot bypass the shared single-attempt cap", async t => {
+  const f=await mainFixture(t);for(const asset of f.assets){asset.pending="0";asset.pendingUntracked=BASE_RECOVERY_FIXED_ASSETS.find(policy=>policy.address.toLowerCase()===asset.address.toLowerCase())!.minimumRaw;}
+  f.setExtraFees(500_000_000_000_000n,500_000_000_000_000n);
+  await f.entry.runBaseBuybackKeeper(["--execute","--once",`--operator-dir=${f.directory}`,"--max-untracked-gas-wei=1000000000000000000"]);
+  assert.equal(f.calls.includes("sign"),false);assert.equal(f.calls.includes("broadcast"),false);
+  assert.equal(f.outputs.filter(row=>row.kind==="release_untracked"&&row.state==="signing_deferred"&&/single-attempt cap/.test(row.reason)).length,2);
+});
+test("round12 a canonical failed asset uses the rolling policy while a healthy asset signs, and expiry restores it", async t => {
+  let now = 100_000_000; t.mock.method(Date,"now",()=>now);const f=await mainFixture(t),asset=f.assets[0];
+  const failure={id:"prior-failed-release",protocol:BASE_BUYBACK_PROTOCOL,sourceChainId:8453,destinationChainId:4663,collector,
+    kind:"release",status:"reverted",createdAt:now-3_601_000,updatedAt:now-3_600_000,amountIn:"100",receivedAmount:"0",refundedAmount:"0",burnedAmount:"0",claimHashes:[],
+    inputAsset:asset,release:{token:asset.address,amount:"100",automation},sourceHash:hash,sourceBlockNumber:"1",sourceBlockHash:hash,sourceFinalized:true,
+    journal:{caller:f.keeper.address,nonce:6,to:collector,dataHash:hash,hash,gasLimit:"21000",maxFeePerGas:"100",signedAt:now-3_601_000},
+    actualGas:{transactionHash:hash,blockNumber:"1",blockHash:hash,executionWei:"999999999999000",l1Wei:"900",operatorWei:"100",totalWei:"1000000000000000"}} as unknown as BaseFeeBatch;
+  f.rows.set(failure.id,failure);
+  await f.entry.runBaseBuybackKeeper(["--execute","--once",`--operator-dir=${f.directory}`]);
+  assert.equal(f.calls.filter(row=>row==="sign").length,1,JSON.stringify(f.outputs));
+  assert(f.outputs.some(row=>row.state==="signing_deferred"&&/24-hour failed-gas/.test(row.reason)));
+  assert.deepEqual(f.rows.get(failure.id),failure);
+  now+=f.entry.KEEPER_TASK_RETRY_POLICY.gasWindowMs;
+  await f.entry.runBaseBuybackKeeper(["--execute","--once",`--operator-dir=${f.directory}`]);
+  assert.equal(f.calls.filter(row=>row==="sign").length,3,JSON.stringify(f.outputs));
+  assert.deepEqual(f.rows.get(failure.id),failure);
+});
+test("round12 low balance alerts reuse gate balances and leave affordable execution and permissions unchanged", async t => {
+  const f=await mainFixture(t);f.setBalance(20_000_000n);
+  await f.entry.runBaseBuybackKeeper(["--execute","--once",`--operator-dir=${f.directory}`]);
+  assert.equal(f.calls.filter(row=>row==="balance").length,4,"The two signing/broadcast gates reuse their own balance readings");
+  assert.equal(f.calls.filter(row=>row==="sign").length,2);
+  const alert=f.outputs.find(row=>row.state==="keeper_balance_low");assert(alert);
+  const saved=(await readFile(join(f.directory,"base-keeper-alerts.jsonl"),"utf8")).trim().split("\n").map(row=>JSON.parse(row));
+  assert.equal(saved.filter(row=>row.state==="keeper_balance_low").length,1);assert.equal(alert.thresholdWei,"30012000");
+});
+test("round12 alert IO failure never prevents an affordable Base task from signing", async t => {
+  const f=await mainFixture(t);f.setBalance(20_000_000n);
+  const {mkdir}=await import("node:fs/promises");await mkdir(join(f.directory,"base-keeper-alerts.jsonl"));
+  await f.entry.runBaseBuybackKeeper(["--execute","--once",`--operator-dir=${f.directory}`]);
+  assert.equal(f.calls.filter(row=>row==="sign").length,2);assert(f.outputs.some(row=>row.state==="keeper_balance_alert_pending"));
+});
+test("round12 idle audit only reads a retained typical reservation and leaves historical journal bytes untouched", async t => {
+  const f=await mainFixture(t);for(const asset of f.assets)asset.pending="0";f.setBalance(1n);
+  const journal={version:2,collector,keeper:f.keeper.address,batches:[{protocol:BASE_BUYBACK_PROTOCOL,sourceChainId:8453,destinationChainId:4663,
+    id:"historical-fee",collector,kind:"release",createdAt:1,updatedAt:1,journal:{caller:f.keeper.address,signedAt:1,nonce:1},gasReservation:{totalWei:"8004000"}}]};
+  const path=f.entry.baseCanonicalKeeperLease(collector,f.keeper.address),{mkdir}=await import("node:fs/promises");
+  await mkdir(join(path,".."),{recursive:true});const raw=JSON.stringify(journal,null,3)+"\n";await writeFile(path,raw);
+  await f.entry.runBaseBuybackKeeper(["--audit-only","--once",`--operator-dir=${f.directory}`]);
+  assert.equal(await readFile(path,"utf8"),raw);assert.equal(f.calls.filter(row=>row==="balance").length,1);
+  assert(f.outputs.some(row=>row.state==="keeper_balance_low"));assert.equal(f.calls.includes("sign"),false);
+});
+test("round12 idle balance cache alone reuses a real same-keeper reservation without a financial journal", async t => {
+  const f=await mainFixture(t);for(const asset of f.assets)asset.pending="0";f.setBalance(1n);
+  const cache={version:1,chainId:8453,keeper:f.keeper.address,low:false,typicalReservationWei:"10004000",updatedAt:1};
+  await writeFile(join(f.directory,"base-keeper-alerts.jsonl.balance.json"),JSON.stringify(cache));
+  await f.entry.runBaseBuybackKeeper(["--audit-only","--once",`--operator-dir=${f.directory}`]);
+  assert.equal(f.calls.filter(row=>row==="balance").length,1);
+  assert(f.outputs.some(row=>row.state==="keeper_balance_low"&&row.typicalReservationWei===cache.typicalReservationWei));
+  assert.equal(f.calls.includes("sign"),false);assert.equal(f.calls.includes("live"),false);
+});
+test("round12 a wholly unmeasured idle keeper adds no balance RPC or synthetic reservation", async t => {
+  const f=await mainFixture(t);for(const asset of f.assets)asset.pending="0";
+  await f.entry.runBaseBuybackKeeper(["--audit-only","--once",`--operator-dir=${f.directory}`]);
+  assert.equal(f.calls.filter(row=>row==="balance").length,0);
+  assert(!f.outputs.some(row=>row.state==="keeper_balance_low"));assert.equal(f.calls.includes("sign"),false);
+});
+for (const invalid of ["chain","keeper","zero","overflow"] as const) test(`round12 an invalid ${invalid} idle balance cache adds no balance RPC`, async t => {
+  const f=await mainFixture(t);for(const asset of f.assets)asset.pending="0";
+  const cache={version:1,chainId:invalid==="chain"?4663:8453,keeper:invalid==="keeper"?automation:f.keeper.address,low:false,
+    typicalReservationWei:invalid==="zero"?"0":invalid==="overflow"?String(2n**256n):"10004000",updatedAt:1};
+  await writeFile(join(f.directory,"base-keeper-alerts.jsonl.balance.json"),JSON.stringify(cache));
+  await f.entry.runBaseBuybackKeeper(["--audit-only","--once",`--operator-dir=${f.directory}`]);
+  assert.equal(f.calls.filter(row=>row==="balance").length,0);assert(!f.outputs.some(row=>row.state==="keeper_balance_low"));
+});
+test("round12 idle balance cache IO failure cannot stop affordable execution", async t => {
+  const f=await mainFixture(t),{mkdir}=await import("node:fs/promises");
+  await mkdir(join(f.directory,"base-keeper-alerts.jsonl.balance.json"));
+  await f.entry.runBaseBuybackKeeper(["--execute","--once",`--operator-dir=${f.directory}`]);
+  assert.equal(f.calls.filter(row=>row==="sign").length,2);
+  assert(f.outputs.some(row=>row.mode==="monitor_pending"&&/reservation cache/.test(row.reason)));
 });
 
 test("a live permission failure defers one round and the same executing daemon still reaches its next five-minute round", async t => {
   const f = await mainFixture(t); f.setAuthority(false); f.stopAfter(2);
   const ordinaryTimeout = globalThis.setTimeout;
   t.mock.method(globalThis, "setTimeout", ((done: () => void, delay: number, ...args: any[]) => { if (delay === 300_000) { queueMicrotask(done); return 1; } return ordinaryTimeout(done, delay, ...args); }) as any);
-  await f.entry.runBaseBuybackKeeper(["--execute", `--operator-dir=${f.directory}`, "--max-gas-wei=16000000000000"]);
+  await f.entry.runBaseBuybackKeeper(["--execute", `--operator-dir=${f.directory}`]);
   assert.equal(f.calls.filter(call => call === "startup").length, 1); assert.equal(f.outputs.filter(row => row.mode === "execute" && row.startupVerified).length, 2); assert.equal(f.outputs.filter(row => row.state === "signing_deferred" && row.taskId).length, 2); assert.equal(f.calls.includes("sign"), false); assert.equal(f.calls.includes("broadcast"), false);
 });
 

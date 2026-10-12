@@ -12,7 +12,8 @@ import { CONTRACTS, STOCKS } from "../src/lib/config";
 import { BASE_AUTOMATION_FEE_POLICY } from "../src/lib/fee-policy";
 import { allBaseFeeBatches, assertBaseNoUnknown, assertBaseOperationalControl, baseSourceStore,
   baseCanonicalKeeperLease, writeBasePublicJson, readBasePublicJson, baseFeeTransaction, submitBaseFeeBatch, reconcileBaseFeeBatch, reserveBaseGas,
-  assertBaseGasReservationCurrent, assertCanonicalBaseGasBudget, assertBaseRoleSecrets, assertBaseKeeperRoles, assertBaseSelectedReleaseReadiness, baseUntrackedRecoveryTasks, BASE_UNTRACKED_COOLDOWN_MS, baseCanonicalGasSpent, baseUntrackedWalletHasReserve, assertCanonicalBaseUntrackedBudget, baseTaskIsolated, prepareBaseFeeTask, reconcileBaseKeeperHistory, type BaseKeeperJournal } from "../scripts/base-buyback-keeper";
+  assertBaseGasReservationCurrent, assertCanonicalBaseTaskGasPolicy, baseKeeperTaskKey, baseKeeperTaskState, baseKeeperTaskWait, baseKeeperAttemptWait, KEEPER_TASK_RETRY_POLICY, assertBaseRoleSecrets, assertBaseKeeperRoles, assertBaseSelectedReleaseReadiness, baseUntrackedRecoveryTasks, BASE_UNTRACKED_COOLDOWN_MS, baseCanonicalGasSpent, baseUntrackedWalletHasReserve, assertCanonicalBaseUntrackedBudget, baseTaskIsolated, prepareBaseFeeTask, reconcileBaseKeeperHistory, type BaseKeeperJournal } from "../scripts/base-buyback-keeper";
+import { KEEPER_TASK_RETRY_POLICY as RH_KEEPER_TASK_RETRY_POLICY } from "../scripts/buyback-keeper";
 import { runtimeFromEnv } from "../server/config";
 import { BASE_RECOVERY_FIXED_ASSETS } from "../server/base-buyback";
 import { acquireBaseProcessLease } from "../scripts/base-process-lease";
@@ -26,6 +27,72 @@ function batch(kind: "claim" | "release" = "claim"): BaseFeeBatch {
   const tx = baseFeeTransaction(initial);
   return { ...initial, journal: {caller:account.address,nonce:7,to:collector,dataHash:keccak256(tx.data),hash,gasLimit:"100000",maxFeePerGas:"100",signedAt:1} };
 }
+function settledTask(at: number, nonce: number, gasWei: bigint, status: "reverted" | "claimed" | "released" = "reverted", task = batch()): BaseFeeBatch {
+  const sourceHash = `0x${(nonce + 1000).toString(16).padStart(64, "0")}` as Hex;
+  return { ...task, id: `settled-${nonce}`, status, createdAt: at - 1000, updatedAt: at, sourceHash, sourceBlockNumber: String(nonce + 1),
+    sourceBlockHash: hash, sourceFinalized: true, journal: { ...task.journal!, nonce, hash: sourceHash },
+    actualGas: { transactionHash: sourceHash, blockNumber: String(nonce + 1), blockHash: hash,
+      executionWei: String(gasWei - 150n), l1Wei: "100", operatorWei: "50", totalWei: String(gasWei) } };
+}
+test("round12 both keepers use the same policy and complete L1/operator reservation determines the single-attempt limit", () => {
+  assert.equal(KEEPER_TASK_RETRY_POLICY, RH_KEEPER_TASK_RETRY_POLICY);
+  const task = batch(), cap = KEEPER_TASK_RETRY_POLICY.maximumAttemptGasWei;
+  task.gasReservation = { ...task.gasReservation!, executionWei: String(cap - 150n), l1Wei: "100", operatorWei: "50", totalWei: String(cap) };
+  assert.equal(baseKeeperTaskWait([], task, account.address, 1000), null);
+  task.gasReservation.operatorWei = "51"; task.gasReservation.totalWei = String(cap + 1n);
+  assert.match(baseKeeperTaskWait([], task, account.address, 1000)!.reason, /single-attempt cap/);
+  assert.match(baseKeeperAttemptWait(task.gasReservation,account.address,1000)!.reason,/single-attempt cap/,"An explicit unknown task must pass the same complete-cost ceiling first");
+  assert.throws(() => baseKeeperTaskWait([], { ...task, gasReservation: { ...task.gasReservation!, totalWei: "1" } }, account.address), /incomplete/);
+});
+test("round12 stable pool and asset keys retain failed gas across restart and expire within the shared 24-hour window", async () => {
+  const now = 100_000_000, task = batch(), cap = KEEPER_TASK_RETRY_POLICY.maximumFailedGasWei;
+  const first = settledTask(now - 7_200_000, 1, cap / 2n), second = settledTask(now - 5_400_000, 2, cap / 2n);
+  assert.equal(baseKeeperTaskKey(task), `claim:${hash}`);
+  assert.equal(baseKeeperTaskKey(batch("release")), `release:${STOCKS[0].address.toLowerCase()}`);
+  const history = JSON.parse(JSON.stringify([first, second])) as BaseFeeBatch[];
+  const wait = baseKeeperTaskWait(history, { ...task, id: "new-random-id" }, account.address, now)!;
+  assert.match(wait.reason, /24-hour failed-gas/); assert.equal(wait.nextAttemptAt, first.updatedAt + KEEPER_TASK_RETRY_POLICY.gasWindowMs);
+  assert.equal(baseKeeperTaskWait(history, { ...task, poolId: replacement }, account.address, now), null);
+  assert.equal(baseKeeperTaskWait(history, batch("release"), account.address, now), null);
+  assert.equal(baseKeeperTaskWait(history, task, account.address, now + KEEPER_TASK_RETRY_POLICY.gasWindowMs), null);
+  const journal: BaseKeeperJournal = { version: 2, collector, keeper: account.address, batches: [] };
+  await assert.rejects(assertCanonicalBaseTaskGasPolicy(journal, task, {buybackBatchPage:async()=>history.map((row,index)=>({...row,sequence:String(index+1)}))}, now), /24-hour failed-gas/);
+});
+test("round12 own canonical failures are deduplicated and other callers or unknown recovery cannot spend the genuine budget", () => {
+  const now = 100_000_000, first = settledTask(now - 7_200_000, 1, 500_000_000_000_000n), duplicate = { ...first, id: "canonical-alias", updatedAt: first.updatedAt + 1000 };
+  const other = { ...settledTask(now - 5_400_000, 2, 500_000_000_000_000n), journal: {...batch().journal!, caller: automation, nonce: 2} };
+  const recovery = { ...settledTask(now - 5_400_000, 3, 500_000_000_000_000n), recoveryRegistration: true };
+  const state = baseKeeperTaskState([first, duplicate, other, recovery], account.address, now);
+  assert.equal(state.tasks[baseKeeperTaskKey(first)].failures.length, 1);
+  assert.equal(state.tasks[baseKeeperTaskKey(first)].failures[0].at, first.updatedAt);
+  assert.equal(baseKeeperTaskWait([first, duplicate, other, recovery], batch(), account.address, now), null);
+  assert.throws(() => baseKeeperTaskState([{...first, actualGas:{...first.actualGas!,operatorWei:"0"}}], account.address, now), /complete actual gas/);
+  assert.throws(() => baseKeeperTaskState([{...first, sourceBlockHash:replacement}], account.address, now), /complete actual gas/);
+  assert.throws(() => baseKeeperTaskState([first, {...duplicate, sourceHash:replacement, actualGas:{...first.actualGas!,transactionHash:replacement}}], account.address, now), /conflicting/);
+});
+test("round12 legacy aliases merge their earliest canonical time before crossing the rolling expiry boundary", () => {
+  const at = 100_000_000, original = settledTask(at,1,KEEPER_TASK_RETRY_POLICY.maximumFailedGasWei);
+  const alias = { ...original,id:"later-legacy-alias",updatedAt:at+1000 }, expiry = at+KEEPER_TASK_RETRY_POLICY.gasWindowMs;
+  assert.match(baseKeeperTaskWait([original,alias],batch(),account.address,expiry-1)!.reason,/24-hour failed-gas/);
+  assert.equal(baseKeeperTaskWait([original,alias],batch(),account.address,expiry),null,"A late legacy alias cannot add a thousand milliseconds to the original failure window");
+  assert.equal(baseKeeperTaskWait([alias,original],batch(),account.address,expiry),null,"Input ordering cannot reset canonical expiry");
+});
+test("round12 expired incomplete or different-tuple records never freeze a healthy current task", () => {
+  const at=100_000_000,now=at+KEEPER_TASK_RETRY_POLICY.gasWindowMs;
+  const old=settledTask(at-1000,1,1000n),current=settledTask(now-600_000,1,1000n,"claimed");
+  const partial={...old,actualGas:undefined},otherTuple={...old,sourceHash:replacement,actualGas:{...old.actualGas!,transactionHash:replacement}};
+  const mismatchedOld={...old,sourceBlockHash:replacement};
+  assert.equal(baseKeeperTaskWait([partial,otherTuple,mismatchedOld,current],batch(),account.address,now),null);
+});
+test("round12 successful fees have no lifetime cap while canonical revert count and exponential task backoff remain active", () => {
+  const now = 100_000_000, success = settledTask(now - 1000, 1, 17_000_000_001_000n, "claimed");
+  assert.equal(baseKeeperTaskWait([success], batch(), account.address, now), null);
+  const failures = [1,2,3].map((nonce,index)=>settledTask(now-1_000_000+index*1000,nonce,1000n));
+  assert.match(baseKeeperTaskWait(failures, batch(), account.address, now)!.reason,/repeated canonical reverts/);
+  assert.match(baseKeeperTaskWait([settledTask(now-1000,1,1000n)], batch(), account.address, now)!.reason,/backing off/);
+  const recovered = settledTask(now-500, 4, 1000n, "claimed");
+  assert.equal(baseKeeperTaskState([failures[0], recovered],account.address,now).tasks[baseKeeperTaskKey(recovered)].consecutiveReverts,0);
+});
 async function signed(prepared = batch()) { return account.signTransaction({ ...baseFeeTransaction(prepared),chainId:8453,nonce:7,gas:100000n,maxFeePerGas:100n,maxPriorityFeePerGas:1n,type:"eip1559" }); }
 test("a lost Base lease before transport abandons safely; loss after broadcaster entry retains unknown reservations", async () => {
   const directory=await mkdtemp(join(tmpdir(),"native-lease-submit-")),path=join(directory,"audit.json"),raw=await signed();
@@ -64,7 +131,7 @@ test("a beforeBroadcast failure durably abandons an unsubmitted signature and pe
  const directory=await mkdtemp(join(tmpdir(),"base-abandoned-restart-"));try{
   const path=join(directory,"journal.json");await writeBasePublicJson(path,{version:2,collector,keeper:account.address,batches:[abandoned]});
   const restored=(await readBasePublicJson(path)) as BaseKeeperJournal,next={...batch(),id:"same-nonce-next"},store={buybackBatchPage:async()=>[{...publicRows.get(first.id)!,sequence:"1"}]};
-  await assertCanonicalBaseGasBudget(restored,next,store,BigInt(next.gasReservation!.totalWei));
+  await assertCanonicalBaseTaskGasPolicy(restored,next,store);
   const noRpc={getBlock:async()=>{throw Error("An abandoned task has no chain outcome to reconcile")},getTransactionReceipt:async()=>{throw Error("An abandoned hash must never get revived")}} as any;
   assert.deepEqual(await reconcileBaseFeeBatch(restored.batches[0],noRpc),abandoned);assert.deepEqual(await reconcileBaseKeeperHistory(restored,restored.batches,noRpc,hash),[]);
   const submitted=await submitBaseFeeBatch(next,deps);assert.equal(submitted.status,"broadcast");assert.equal(submitted.journal?.nonce,7);assert.equal(broadcasts,1);assert.equal(submitted.sourceHash,abandoned.sourceHash,"A later intentional submission may sign identical bytes without resurrecting the abandoned task");
@@ -81,7 +148,7 @@ test("half-written abandonment and legacy signed unknown remain reserved after r
    persistPublic:async row=>{if(phase==="public_complete"&&row.status==="abandoned")throw Error("public durability failed");canonical=structuredClone(row)},broadcast:async()=>{broadcasts++;return keccak256(raw)}}),/durability failed/);
   assert.equal(broadcasts,0);assert.equal(local!.status,"unknown");assert.equal(local!.sourceHash,keccak256(raw));assert.throws(()=>assertBaseNoUnknown([local!],account.address),/unresolved/);
   const journal:BaseKeeperJournal=JSON.parse(JSON.stringify({version:2,collector,keeper:account.address,batches:[local]})),store={buybackBatchPage:async()=>[{...canonical!,sequence:"1"}]};
-  await assert.rejects(assertCanonicalBaseGasBudget(journal,next,store,cap),/cumulative/);
+  await assert.rejects(assertCanonicalBaseTaskGasPolicy(journal,next,store),/unresolved/);
  }
  let failedOnce=false,local:BaseFeeBatch|undefined,canonical:BaseFeeBatch|undefined;
  const recovered=await submitBaseFeeBatch(first,{sign:async()=>raw,persistLocal:async row=>{local=structuredClone(row)},persistPublic:async row=>{if(!failedOnce){failedOnce=true;throw Error("one-shot initial persistence failure")};canonical=structuredClone(row)},broadcast:async()=>{throw Error("broadcast must not run")}});
@@ -118,6 +185,36 @@ test("canonical reverted source receipt consumes its nonce and includes L1/opera
   mock.set({l1:null});assert.equal((await reconcileBaseFeeBatch(prepared,mock.client)).status,"unknown");
   mock.set({l1:"0x3e8",canonical:false});assert.equal((await reconcileBaseFeeBatch({...prepared,sourceBlockHash:hash},mock.client)).status,"reorg");
 });
+test("round12 canonical rechecks, transient errors and restart preserve the original failed-gas window time", async t => {
+  let now = 100_000_000; t.mock.method(Date,"now",()=>now);
+  const prepared = { ...batch(), sourceHash: hash }, rpc = clientFor(prepared,"reverted");
+  const first = await reconcileBaseFeeBatch(prepared,rpc.client);
+  assert.equal(first.updatedAt, now);
+  now += 3_600_000;
+  const restored = JSON.parse(JSON.stringify(first)) as BaseFeeBatch;
+  const rechecked = await reconcileBaseFeeBatch(restored,rpc.client);
+  assert.equal(rechecked.sourceOutcome!.at,first.updatedAt);assert(rechecked.updatedAt>first.updatedAt);
+  const receipt = rpc.client.getTransactionReceipt; rpc.client.getTransactionReceipt = async () => { throw Error("RPC 429"); };
+  const pending = await reconcileBaseFeeBatch(restored,rpc.client); assert.equal(pending.status,"reorg"); assert(pending.updatedAt>first.updatedAt);assert.equal(pending.sourceOutcome!.at,first.updatedAt);
+  const local:BaseKeeperJournal={version:2,collector,keeper:account.address,batches:[pending]};
+  await assert.rejects(assertCanonicalBaseTaskGasPolicy(local,{...batch(),id:"fresh"},{buybackBatchPage:async()=>[{...first,sequence:"1"}]},now),/unresolved/);
+  rpc.client.getTransactionReceipt = receipt;
+  const retried = await reconcileBaseFeeBatch(JSON.parse(JSON.stringify(pending)),rpc.client);
+  assert(retried.updatedAt>pending.updatedAt);assert.equal(retried.sourceOutcome!.at,first.updatedAt);
+  assert.equal(baseKeeperTaskState([retried],account.address,now).tasks[baseKeeperTaskKey(retried)].failures[0].at,first.updatedAt);
+  const journal:BaseKeeperJournal={version:2,collector,keeper:account.address,batches:[retried]};
+  const finalized = await reconcileBaseKeeperHistory(journal,[retried],rpc.client,hash,undefined,64,now);
+  assert(finalized.every(row => row.sourceOutcome!.at === first.updatedAt));
+  const legacy={...first,sourceOutcome:undefined},legacyFailure=await reconcileBaseFeeBatch(legacy,rpc.client);
+  assert.equal(legacyFailure.sourceOutcome!.at,first.updatedAt,"Legacy payloads bind their original complete outcome without a migration");
+  rpc.client.getTransactionReceipt=async()=>{throw Error("RPC 429");};
+  const legacyPending=await reconcileBaseFeeBatch(legacy,rpc.client);assert.equal(legacyPending.sourceOutcome!.at,first.updatedAt);
+  rpc.client.getTransactionReceipt=receipt;now+=1000;rpc.set({useReplacement:true});
+  const moved=await reconcileBaseFeeBatch(retried,rpc.client,replacement);
+  assert.equal(moved.sourceOutcome!.transactionHash,replacement);assert.equal(moved.sourceOutcome!.at,now,"A new canonical tuple starts its own conservative window");
+  const invalid={...first,sourceOutcome:{...first.sourceOutcome!,blockHash:replacement}};
+  assert.throws(()=>baseKeeperTaskState([invalid],account.address,now),/not bound/);
+});
 test("success claim requires actual manager credit, and cancellation requires an empty undelegated same-nonce self transfer",async()=>{
   const prepared={...batch(),sourceHash:hash};const mock=clientFor(prepared,"success");
   assert.equal((await reconcileBaseFeeBatch(prepared,mock.client)).status,"asset_failed");
@@ -127,13 +224,13 @@ test("success claim requires actual manager credit, and cancellation requires an
   mock.set({cancellation:true,logs:[]});assert.equal((await reconcileBaseFeeBatch(prepared,mock.client,replacement)).status,"cancelled");
   for(const option of [{delegated:true},{auth:true},{logs:[{}]}]){mock.set({delegated:false,auth:false,logs:[],...option});assert.equal((await reconcileBaseFeeBatch(prepared,mock.client,replacement)).status,"unknown")}
 });
-test("complete pagination sees unresolved older than 1000, and journal paths cannot reset canonical gas ceilings",async()=>{
+test("complete pagination sees unresolved older than 1000, and settled gas history has no lifetime ceiling",async()=>{
   const prior={...batch(),id:"old",status:"reverted" as const,sourceHash:hash};let calls=0;
   const rows=Array.from({length:1101},(_,index)=>({...prior,id:`row-${index}`,sequence:String(1101-index),updatedAt:1101-index,status:index===1100?"unknown":"reverted"}));
   const store={buybackBatchPage:async(limit=100,before?:{sequence:string})=>{calls++;rows.at(-1)!.updatedAt=Date.now();return rows.filter(row=>!before||BigInt(row.sequence)<BigInt(before.sequence)).slice(0,limit)}};
   const all=await allBaseFeeBatches(store);assert.equal(all.length,1101);assert.equal(calls,12);assert.throws(()=>assertBaseNoUnknown(all,account.address),/unresolved/);
   const journal:BaseKeeperJournal={version:2,collector,keeper:account.address,batches:[]};const simple={buybackBatchPage:async()=>[{...prior,sequence:"1"}]};const rpc={async readContract(){return 100n}} as unknown as PublicClient<Transport,any>;
-  await assert.rejects(assertCanonicalBaseGasBudget(journal,{...batch(),id:"new"},simple,10001000n),/cumulative/);
+  await assertCanonicalBaseTaskGasPolicy(journal,{...batch(),id:"new"},simple);
   assert.equal(baseCanonicalKeeperLease(collector,account.address),baseCanonicalKeeperLease(collector,account.address));
 });
 test("fresh Base GPO reservation includes signed-size L1 upper bound and operator margin, and increased fees stop execution",async()=>{
@@ -182,8 +279,9 @@ test("multiple retained cancellations preserve separate nonces and cumulative ac
  assert.doesNotThrow(()=>assertBaseNoUnknown(cancelled,account.address));
  const journal:BaseKeeperJournal={version:2,collector,keeper:account.address,batches:cancelled},next={...batch(),id:"next"};
  const store={buybackBatchPage:async()=>cancelled.map((row,index)=>({...row,sequence:String(index+1)}))};
- await assert.rejects(assertCanonicalBaseGasBudget(journal,next,store,BigInt(next.gasReservation!.totalWei)+4202050n-1n),/cumulative/);
- await assertCanonicalBaseGasBudget(journal,next,store,BigInt(next.gasReservation!.totalWei)+4202050n);
+ await assert.rejects(assertCanonicalBaseTaskGasPolicy(journal,next,store),/backing off/);
+ await assertCanonicalBaseTaskGasPolicy(journal,{...batch("release"),id:"healthy-other-task"},store);
+ assert.equal(baseCanonicalGasSpent(cancelled,account.address),4202050n);
 });
 
 test("keeper execution rejects governance, treasury and Automation role reuse",()=>{
@@ -220,10 +318,10 @@ test("unknown recovery progresses independently over repeated sync/release cycle
  releaseMock.set({logs:[transfer,event]});const receipt=await reconcileBaseFeeBatch(released,releaseMock.client);assert.equal(receipt.status,"released");assert.equal(receipt.claimCredits,undefined);assert.equal(receipt.burnedAmount,"0");
  const restored=await reconcileBaseFeeBatch(JSON.parse(JSON.stringify(receipt)),releaseMock.client);assert.equal(restored.status,"released");assert.equal(restored.sourceHash,receipt.sourceHash);assert.deepEqual(restored.release,receipt.release);
  const journal:BaseKeeperJournal={version:2,collector,keeper:account.address,batches:[synced,receipt]},store={buybackBatchPage:async()=>[]};
- await assertCanonicalBaseGasBudget(journal,{...batch(),id:"fresh"},store,BigInt(batch().gasReservation!.totalWei));
+ await assertCanonicalBaseTaskGasPolicy(journal,{...batch(),id:"fresh"},store);
  assert.equal(await assertCanonicalBaseUntrackedBudget(journal,{...released,id:"fresh-recovery"},store,BigInt(released.gasReservation!.totalWei)+4202050n-1n),false);
- await assertCanonicalBaseGasBudget(journal,{...batch(),id:"fresh"},store,100000000n);
- for(const next of [sync,released]) await assert.rejects(assertCanonicalBaseGasBudget(journal,next,store,100000000n),/does not permit unknown recovery/);
+ await assertCanonicalBaseTaskGasPolicy(journal,{...batch(),id:"fresh"},store);
+ for(const next of [sync,released]) await assert.rejects(assertCanonicalBaseTaskGasPolicy(journal,next,store),/does not permit unknown recovery/);
  asset.pendingUntracked="0";asset.untracked="1000000";assert.deepEqual(baseUntrackedRecoveryTasks(status,seed,ctx).map(row=>row.kind),["sync_untracked"]);
  assert.deepEqual(baseUntrackedRecoveryTasks({...status,paused:true},seed,ctx),[]);assert.deepEqual(baseUntrackedRecoveryTasks({...status,paused:true},seed,ctx),[]);
  asset.verifiedAsset=false;assert.deepEqual(baseUntrackedRecoveryTasks(status,seed,ctx),[]);
@@ -325,13 +423,13 @@ test("an exhausted unknown-only gas ceiling and recovery registration never cons
  const journal:BaseKeeperJournal={version:2,collector,keeper:account.address,batches:[old,registration]},store={buybackBatchPage:async()=>[]},next={...batch("release"),kind:"release_untracked" as const,id:"new-unknown"};
  assert.equal(baseCanonicalGasSpent(journal.batches,account.address),0n);assert.equal(baseCanonicalGasSpent(journal.batches,account.address,true),110000999n);
  assert.equal(await assertCanonicalBaseUntrackedBudget(journal,next,store,110000999n),false);
- const genuineCap=BigInt(batch().gasReservation!.totalWei),unknownReservation=next.gasReservation!.totalWei;
- assert.equal(baseUntrackedWalletHasReserve(BigInt(unknownReservation)+genuineCap-1n,unknownReservation,genuineCap,journal.batches,account.address),false,"Independent book ceilings cannot consume the same EOA's reserved genuine ETH");
- assert.equal(baseUntrackedWalletHasReserve(BigInt(unknownReservation)+genuineCap,unknownReservation,genuineCap,journal.batches,account.address),true);
+ const genuineReserve=KEEPER_TASK_RETRY_POLICY.maximumAttemptGasWei,unknownReservation=next.gasReservation!.totalWei;
+ assert.equal(baseUntrackedWalletHasReserve(BigInt(unknownReservation)+genuineReserve-1n,unknownReservation),false,"Unknown recovery cannot consume one genuine task's gas reservation");
+ assert.equal(baseUntrackedWalletHasReserve(BigInt(unknownReservation)+genuineReserve,unknownReservation),true);
  const genuineSpent={...batch(),id:"genuine-spent",status:"reverted" as const,actualGas:{totalWei:"4000"} as any};genuineSpent.journal={...genuineSpent.journal!,nonce:9};
- assert.equal(baseUntrackedWalletHasReserve(BigInt(unknownReservation)+genuineCap-4000n,unknownReservation,genuineCap,[...journal.batches,genuineSpent],account.address),true,"Only actual genuine gas consumption releases its ETH reservation");
- await assertCanonicalBaseGasBudget(journal,{...batch("release"),id:"genuine"},store,BigInt(batch().gasReservation!.totalWei));
- await assert.rejects(assertCanonicalBaseGasBudget(journal,registration,store,10n**18n),/does not permit unknown recovery/);
+ assert.equal(baseUntrackedWalletHasReserve(BigInt(unknownReservation)+genuineReserve-4000n,unknownReservation),false,"Historical genuine spending never releases the unknown-only protected wallet reserve");
+ await assertCanonicalBaseTaskGasPolicy(journal,{...batch("release"),id:"genuine"},store);
+ await assert.rejects(assertCanonicalBaseTaskGasPolicy(journal,registration,store),/does not permit unknown recovery/);
  const unsignedPending={...next,status:"unknown" as const};assert.throws(()=>assertBaseNoUnknown([unsignedPending],account.address),/unresolved/);
 });
 test("canonical mined asset-event failure consumes its nonce and gas without poisoning healthy assets or counterfeiting income",async()=>{
