@@ -137,7 +137,7 @@ export function createVaultLedgerRuntime(input:VaultLedgerRuntimeInput,deps:Vaul
     // Rotated selected runs get their bounded share before chronological journal
     // projection. A slow old run cannot always be first after a Worker deadline.
     if(prewarm)for(const id of candidateBudget.order??[]){checkBudget();const batch=relayProofs.find(row=>row.id===id)!;try{await relay(batch);}catch{/* Withhold only this run; later selected runs retain their reserved share. */}}
-    const automation=new CustodyLedgerService(source.store,source.client as unknown as PublicClient,{id:"base_automation",account:checked.automationReceiver,initialAssets:[...STOCKS.map(stock=>stock.address),BASE_BUYBACK_WETH],confirmations,maxBlocks:deps.maxBlocks,
+    const automation=new CustodyLedgerService(source.store,source.client as unknown as PublicClient,{id:"base_automation",account:checked.automationReceiver,initialAssets:[...STOCKS.map(stock=>stock.address),BASE_BUYBACK_WETH],confirmations,maxBlocks:deps.maxBlocks,fastEmptyRanges:deps.fastEmptyRanges,
       discoverAssets:async(from,to,deadline)=>{const assets:Address[]=[],events=[parseAbiItem("event FeesReleased(address indexed token,address indexed receiver,uint256 amount)"),parseAbiItem("event UntrackedReleased(address indexed token,address indexed receiver,uint256 amount)")];
       for(let start=from;start<=to;start+=100n){if(Date.now()>=deadline)throw new Error("Native maintenance budget reached; pending");const end=start+99n<to?start+99n:to;
         // Ten ten-block ranges, with both release events, bound each group to

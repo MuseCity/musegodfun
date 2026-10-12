@@ -1,7 +1,7 @@
 {
   "schemaVersion": 3,
   "recordedAt": "2026-10-11T04:05:15.032438+00:00",
-  "status": "base_maintenance_closed_locally_public_base_paused_not_deployed",
+  "status": "paused_host_maintenance_validated_public_base_paused_catchup_pending",
   "ownerDecision": "OK, implement Base Splits Treasury plus native Automation",
   "architecture": "splits-treasury-native-automation",
   "sourceBaseline": "f7c1264b2995c2c243c7f95419254a3e45d118f2",
@@ -18877,7 +18877,7 @@
     "contractTests": "not_repeated_locally_no_Solidity_or_compiler_change_CI_requires_full_contract_validation",
     "scope": "Signed trusted-Splits formal manifest plus isolated offline fixtures and initialization-only 60-second preparation budget; ordinary read/reconcile/signing budgets unchanged"
   },
-  "latestCodeValidation": "pausedHostQuotaCloseout",
+  "latestCodeValidation": "pausedHostEmptyHistoryCloseout",
   "baseMaintenanceCloseout": {
     "recordedAt": "2026-10-11T16:02:08.310516+00:00",
     "ownerDecision": "Save historical Base acceptance once; no daily historical fallback; deduplicate each maintenance round; fix budget starvation. Keep fresh pre-sign/pre-broadcast authorization, real arrival/burn accounting and financial protections. Code/test only, do not deploy; public Base remains paused.",
@@ -19112,5 +19112,88 @@
       "catchupAndSustainedFreshness": "pending; ready alone is not fresh"
     },
     "rollback": "Stop/drain singleton writer; retain checkpoints, canonical journal, private acceptance, signed hashes and nonce/gas; use published compatible paused 5dc876f, protocol7/destination-policy3."
+  },
+  "pausedHostEmptyHistoryCloseout": {
+    "recordedAt": "2026-10-12T02:40:59.027848+00:00",
+    "baselineCommit": "d8bb4a754eceb9f0a9aaba9bcbd409130cc9a4be",
+    "sourceTreeSha256": "6694d8a31a252edd045457aa0255cc43d409140c1111667341041bcde0ea6792",
+    "sourceTreeFiles": 273,
+    "sourceTreeAlgorithm": "sha256 of sorted tracked path + NUL + bytes + NUL for src/server/scripts/tests/contracts/src plus listed manifests/config/package/lock/CI inputs; evidence documents excluded",
+    "sourceTreeExtraFiles": [
+      ".github/workflows/deploy.yml",
+      "contracts/artifacts/base-collector-deployment.json",
+      "contracts/artifacts/buyback-v2-deployment.json",
+      "contracts/buyback.config.json",
+      "package-lock.json",
+      "package.json",
+      "tsconfig.json",
+      "tsconfig.worker.json",
+      "vite.config.ts",
+      "wrangler.jsonc"
+    ],
+    "validation": {
+      "unitTests": {
+        "tests": 1547,
+        "pass": 1547,
+        "fail": 0,
+        "skipped": 0
+      },
+      "independentCustodyTests": {
+        "tests": 93,
+        "pass": 93,
+        "fail": 0,
+        "skipped": 0
+      },
+      "independentCounterfactual": "fast=true/default scanning both cursor100, one isolated asset,36healthy; restored reads recover37; genuine lots conserved",
+      "typecheck": "passed_as_build_prerequisite",
+      "build": "passed",
+      "diffCheck": "passed",
+      "logs": [
+        {
+          "path": ".cache/base-paused-release-2026-10-12/base-empty-final-tests.log",
+          "sha256": "fdf787ac6f7f773782499bb4aa0b49a90a128ed623e93595de97eff026b581c1"
+        },
+        {
+          "path": ".cache/base-paused-release-2026-10-12/base-empty-final-build.log",
+          "sha256": "3bd3820c3c7ea209f9a5d04d92f06c55eb78e7713d30f27ca0b3c499a7ecfd82"
+        }
+      ]
+    },
+    "baseEmptyPages": {
+      "hostOnly": true,
+      "maximumBlocks": 100,
+      "maximumScanBlocks": 1000,
+      "exactAssets": "36 configured B20 plus canonical Base WETH, unique exact set",
+      "eligibility": "no released assets/errors/cursors/backfill; exact opening/observed keys; complete empty discovery",
+      "coverage": "cursor/start/end captured before discovery and checked after; ten-block raw filtered in/out logs all empty,37 exact unchanged canonical balances, finite deadline and CAS",
+      "fallback": "new asset/raw event/balance change/read failure => full page; single balance failure retains original per-asset isolation; no synthetic zero",
+      "hardPending": "incomplete discovery/log coverage or canonical boundary/CAS failure cannot advance",
+      "activePeriodLimitation": "first real release disables restrictive optimization; no active trading throughput claim"
+    },
+    "publicRpcPacingMs": {
+      "base": 60,
+      "robinhood": 100,
+      "scope": "one transport for the singleton maintenance writer; no retry/fallback/new service"
+    },
+    "operator": {
+      "dailyAuditIntervalMs": 30000,
+      "oneTimeCatchup": "separate finite operator job; durable progress resumes, no checkpoint reset or reacceptance",
+      "childWalletKeyPassed": false,
+      "gasSpentThisPhaseWei": "0",
+      "publicBasePaused": true,
+      "sustainedFreshness": "pending"
+    },
+    "previousPausedRelease": {
+      "commit": "d8bb4a754eceb9f0a9aaba9bcbd409130cc9a4be",
+      "build": "build-38195163540-1",
+      "workerVersion": "9a2c199c-53e9-445a-8941-f78f66f7e304",
+      "ci": "https://github.com/MuseCity/musegodfun/actions/runs/38195163540",
+      "bothOriginsReadBack": true,
+      "baseRevision": 0,
+      "robinhoodRevision": 1,
+      "ciContractTests": 171
+    },
+    "authorityChanges": "none; original financial clients/sign/before-broadcast/nonce/gas/roles intact",
+    "rollback": "Drain singleton writer, preserve all journals/private acceptance/nonce/gas and use compatible published paused d8bb4a7."
   }
 }

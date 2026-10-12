@@ -8,7 +8,8 @@ import { CustodyLedgerService, readAllCustodyEvents, type CustodyOptions } from 
 import { convertCustodyFragments, replayCustodyLedger, type CustodyCommit, type CustodyEvent, type CustodyState } from "../src/lib/buyback-custody-ledger";
 import { vaultEventId } from "../src/lib/buyback-vault-ledger";
 import type { Address, Hex } from "viem";
-import { BASE_BUYBACK_RH_WETH } from "../src/lib/base-buyback";
+import { BASE_BUYBACK_RH_WETH, BASE_BUYBACK_WETH } from "../src/lib/base-buyback";
+import { STOCKS } from "../src/lib/config";
 const addr=(n:number)=>`0x${n.toString(16).padStart(40,"0")}` as Address,hash=(n:number)=>`0x${n.toString(16).padStart(64,"0")}` as Hex;
 const block=(n:number)=>({number:String(n),hash:hash(100+n),parentHash:hash(99+n)}),account=addr(1),asset=addr(2);
 const state=(balance="0"):CustodyState=>({version:1,id:"base_automation",chainId:8453,account,revision:1,checkpoint:block(0),cursor:block(1),openingBalances:{[asset]:"3"},observedBalances:{[asset]:balance},updatedAt:1,blockedReason:null});
@@ -374,7 +375,7 @@ test("Treasury fast mode defaults to 1000 per turn and only explicit host fast m
     assert.throws(() => new CustodyLedgerService(fast.store, fast.client, options), /Invalid custody scan bound/);
   for (const options of [{ ...normal.options, id: "base_automation" as const }, { ...normal.options, initialAssets: [asset] },
     { ...normal.options, initialAssets: [] }, { ...normal.options, initialAssets: [treasuryWeth, asset] }])
-    assert.throws(() => new CustodyLedgerService(normal.store, normal.client, options), /fixed Robinhood WETH/);
+    assert.throws(() => new CustodyLedgerService(normal.store, normal.client, options), /fixed Robinhood WETH|exact 36 B20 and WETH/);
 });
 
 for (const movement of ["positive", "zero", "self", "equal-in-out"] as const) {
@@ -537,3 +538,292 @@ for (const lag of [50n, 4100n]) {
     f.setHead(6001n); assert.equal((await reopened.read()).assets[0].pending, "5");
   });
 }
+
+const baseProofAssets = [...STOCKS.map(stock => stock.address), BASE_BUYBACK_WETH].map(asset => asset.toLowerCase()) as Address[];
+async function emptyBaseFixture(t: TestContext, scan: Partial<Pick<CustodyOptions, "fastEmptyRanges" | "maxBlocks">> = { fastEmptyRanges: true }, opening: Record<string, bigint> = {}) {
+  const directory = mkdtempSync(join(tmpdir(), "custody-empty-base-")), f = custodyFixture();
+  let store = new Store(directory, 8453), discover: CustodyOptions["discoverAssets"] = async () => [];
+  const discoveries: { from: bigint; to: bigint }[] = [], headers: bigint[] = [], balances: { asset: string; height: bigint }[] = [];
+  const receipts: Hex[] = [], commits: CustodyCommit[] = [];
+  const options: CustodyOptions = { id: "base_automation", account, initialAssets: baseProofAssets, confirmations: 1n, ...scan,
+    discoverAssets: async (from, to, deadline) => { discoveries.push({ from, to }); return discover!(from, to, deadline); } };
+  const getBlock = f.client.getBlock, read = f.client.readContract, receipt = f.client.getTransactionReceipt;
+  f.client.getBlock = async (input: any) => { headers.push(input.blockNumber); return getBlock(input); };
+  f.client.readContract = async (input: any) => { balances.push({ asset: input.address.toLowerCase(), height: input.blockNumber }); return await read(input) + (opening[input.address.toLowerCase()] ?? 0n); };
+  f.client.getTransactionReceipt = async (input: any) => { receipts.push(input.hash); return receipt(input); };
+  const observe = () => {
+    const commit = store.commitCustodyLedger.bind(store);
+    t.mock.method(store, "commitCustodyLedger", (input: CustodyCommit) => { commits.push(structuredClone(input)); return commit(input); });
+  };
+  observe();
+  const service = new CustodyLedgerService(store, f.client, options);
+  await service.establishCheckpoint(async () => true);
+  const reset = () => { discoveries.length = 0; headers.length = 0; balances.length = 0; receipts.length = 0; commits.length = 0; f.queries.length = 0; };
+  reset(); t.after(() => { store.close(); rmSync(directory, { recursive: true, force: true }); });
+  return { ...f, service, options, discoveries, headers, balances, receipts, commits, reset,
+    get store() { return store; },
+    discoverWith(callback: NonNullable<CustodyOptions["discoverAssets"]>) { discover = callback; },
+    reopen() { store.close(); store = new Store(directory, 8453); observe(); return new CustodyLedgerService(store, f.client, options); },
+    movement(n: number, token: Address, amount: string, height: number, kind: "in" | "out" = "in", overrides: Partial<CustodyEvent> = {}) {
+      const row = { ...event(n, kind, amount), asset: token.toLowerCase() as Address, blockNumber: String(height), blockHash: block(height).hash, ...overrides };
+      f.events.push(row); return row;
+    } };
+}
+
+test("Base fast proof requires the exact unique 36 B20/WETH set and an actual discovery callback", async t => {
+  const f = await emptyBaseFixture(t);
+  assert.equal(baseProofAssets.length, 37);
+  for (const initialAssets of [baseProofAssets.slice(0, 36), [...baseProofAssets, asset],
+    [...baseProofAssets.slice(0, 36), baseProofAssets[0]], [...baseProofAssets.slice(0, 36), treasuryWeth],
+    [asset, ...baseProofAssets.slice(1)]])
+    assert.throws(() => new CustodyLedgerService(f.store, f.client, { ...f.options, initialAssets }), /exact 36 B20 and WETH/);
+  assert.throws(() => new CustodyLedgerService(f.store, f.client, { ...f.options, discoverAssets: undefined }), /release discovery/);
+  assert.throws(() => new CustodyLedgerService(f.store, f.client, { ...f.options, maxBlocks: 1001 }), /Invalid custody scan bound/);
+  assert.doesNotThrow(() => new CustodyLedgerService(f.store, f.client, { ...f.options, initialAssets: [...baseProofAssets].reverse().map(asset => `0x${asset.slice(2).toUpperCase()}` as Address) }));
+  assert.doesNotThrow(() => new CustodyLedgerService(f.store, f.client, { ...f.options, fastEmptyRanges: false, initialAssets: [asset], discoverAssets: undefined }));
+});
+
+test("Base empty100 proof reads all37 balances and all20 directional log ranges, storing only real boundary headers", async t => {
+  const f = await emptyBaseFixture(t); f.setHead(101n);
+  const report = await f.service.reconcile();
+  assert.equal(report.ready, true); assert.equal(report.caughtUp, true); assert.equal(report.indexedThrough, "100");
+  assert.deepEqual(f.discoveries, [{ from: 1n, to: 100n }]); assert.equal(f.queries.length, 20);
+  assert.equal(f.balances.length, 37); assert.equal(new Set(f.balances.map(row => row.asset)).size, 37);
+  assert(f.balances.every(row => row.height === 100n));
+  for (const query of f.queries) {
+    assert.deepEqual(new Set(query.address), new Set(baseProofAssets)); assert(query.toBlock - query.fromBlock < 10n);
+    assert.equal(query.strict, true);
+  }
+  assert.deepEqual(f.commits.map(input => input.blocks.map(row => row.number)), [["1", "100"]]);
+  assert.equal(f.commits[0].events.length, 0); assert(f.headers.every(height => [0n, 1n, 100n].includes(height)));
+  assert.deepEqual(f.store.custodyLedgerBlockPage("base_automation").map(row => row.number).sort((a, b) => Number(a) - Number(b)), ["0", "1", "100"]);
+  assert.equal((await f.reopen().read()).ready, true);
+});
+
+for (const fastEmptyRanges of [undefined, false]) test(`Base ${fastEmptyRanges === false ? "false" : "default"} scan still keeps100 complete headers`, async t => {
+  const f = await emptyBaseFixture(t, { fastEmptyRanges }); f.setHead(101n);
+  assert.equal((await f.service.reconcile()).ready, true);
+  assert.deepEqual(f.discoveries, [{ from: 1n, to: 100n }]); assert.equal(f.commits[0].blocks.length, 100);
+  assert.equal(new Set(f.headers.filter(height => height > 0n)).size, 100);
+});
+
+test("Base fast mode retains the1000-per-turn bound and discovers each separate100 page exactly once", async t => {
+  const f = await emptyBaseFixture(t); f.setHead(2001n);
+  assert.equal((await f.service.reconcile()).indexedThrough, "1000"); assert.equal(f.commits.length, 10);
+  assert.deepEqual(f.discoveries, Array.from({ length: 10 }, (_, index) => ({ from: BigInt(index * 100 + 1), to: BigInt((index + 1) * 100) })));
+  assert(f.commits.every(input => input.blocks.length === 2 && input.events.length === 0));
+});
+
+test("failed or malformed Base discovery never becomes an empty proof and remains retryable", async t => {
+  const f = await emptyBaseFixture(t); f.setHead(101n); const before = f.store.custodyLedgerState("base_automation")!;
+  for (const callback of [async () => { throw new Error("release logs RPC unavailable"); }, async () => undefined as any]) {
+    f.reset(); f.discoverWith(callback);
+    await assert.rejects(f.service.reconcile(), /RPC unavailable|release discovery unavailable/);
+    assert.equal(f.discoveries.length, 1); assert.equal(f.queries.length, 0); assert.equal(f.commits.length, 0);
+    assert.deepEqual(f.store.custodyLedgerState("base_automation"), before);
+  }
+  f.discoverWith(async () => []); assert.equal((await f.service.reconcile()).ready, true);
+});
+
+for (const name of ["meme fee", "untracked release"]) test(`a newly discovered ${name} preserves the full path and actual transfer`, async t => {
+  const f = await emptyBaseFixture(t), meme = addr(name === "meme fee" ? 4001 : 4002); f.setHead(101n); f.undeployed.add(meme);
+  f.discoverWith(async () => [meme]); const row = f.movement(1001, meme, "7", 25);
+  await f.service.reconcile();
+  assert.equal(f.discoveries.length, 1); assert.equal(f.commits[0].blocks.length, 100);
+  assert(f.queries.every(query => query.address.includes(meme)), "discovered token participates in the ordinary canonical scan");
+  assert.equal(f.store.custodyLedgerEventPage("base_automation").filter(event => event.id === row.id).length, 1);
+  assert(f.store.custodyLedgerState("base_automation")!.releasedAssets!.includes(meme));
+});
+
+for (const height of [1, 55, 100]) for (const noop of [false, true]) test(`Base raw ${noop ? "zero" : "positive"} log at${height} disables empty proof and reuses discovery`, async t => {
+  const f = await emptyBaseFixture(t); f.setHead(101n); f.movement(1001, baseProofAssets[0], noop ? "0" : "5", height);
+  const report = await f.service.reconcile();
+  assert.equal(report.ready, true); assert.equal(f.discoveries.length, 1); assert.equal(f.commits[0].blocks.length, 100);
+  assert.equal(f.store.custodyLedgerEventPage("base_automation").length, noop ? 0 : 1); assert.equal(f.receipts.length, noop ? 0 : 1);
+  assert.equal(report.assets.find(row => row.asset === baseProofAssets[0])!.pending, noop ? "0" : "5");
+});
+
+test("Base self-transfers also force the complete scan while remaining economic noops", async t => {
+  const f = await emptyBaseFixture(t); f.setHead(101n); f.movement(1001, baseProofAssets[0], "8", 55, "in", { from: account, to: account });
+  assert.equal((await f.service.reconcile()).ready, true); assert.equal(f.discoveries.length, 1);
+  assert.equal(f.commits[0].blocks.length, 100); assert.equal(f.store.custodyLedgerEventPage("base_automation").length, 0);
+});
+
+for (const tokenIndex of [0, 18, 36]) test(`Base asset${tokenIndex} balance difference forces complete headers and withholds only that asset`, async t => {
+  const f = await emptyBaseFixture(t); f.setHead(101n); const read = f.client.readContract;
+  f.client.readContract = async (input: any) => input.address.toLowerCase() === baseProofAssets[tokenIndex] && input.blockNumber === 100n ? 1n : read(input);
+  const report = await f.service.reconcile();
+  assert.equal(f.discoveries.length, 1); assert.equal(f.commits[0].blocks.length, 100);
+  assert.equal(report.assets.find(row => row.asset === baseProofAssets[tokenIndex])!.ready, false);
+  assert.equal(report.assets.find(row => row.asset === baseProofAssets[(tokenIndex + 1) % 37])!.ready, true);
+});
+
+for (const { tokenIndex, invalid } of [
+  { tokenIndex: 0, invalid: "rpc" }, { tokenIndex: 18, invalid: "rpc" }, { tokenIndex: 36, invalid: "rpc" },
+  { tokenIndex: 18, invalid: 0 }, { tokenIndex: 18, invalid: "0" }, { tokenIndex: 18, invalid: -1n },
+]) test(`Base asset${tokenIndex} ${typeof invalid}:${String(invalid)} proof failure falls back to complete isolated accounting and recovers`, async t => {
+  const bad = baseProofAssets[tokenIndex], healthy = baseProofAssets[(tokenIndex + 1) % 37];
+  const f = await emptyBaseFixture(t, { fastEmptyRanges: true }, { [bad]: 3n, [healthy]: 7n }); f.setHead(101n);
+  const read = f.client.readContract;
+  // Genuine offline opening lots, not transfers hidden in the page: the proof
+  // reaches all37 balance reads before the bad result forces the full scan.
+  const failedRead = (reader: typeof read) => async (input: any) => {
+    if (input.address.toLowerCase() === bad && input.blockNumber === 100n) {
+      if (invalid === "rpc") throw new Error("one archive state unavailable"); return invalid;
+    }
+    return reader(input);
+  };
+  f.client.readContract = failedRead(read);
+  const report = await f.service.reconcile(), stored = f.store.custodyLedgerState("base_automation")!;
+  assert.equal(report.ready, true); assert.equal(report.indexedThrough, "100"); assert.equal(f.discoveries.length, 1);
+  assert.equal(f.commits[0].blocks.length, 100); assert.equal(f.queries.length, 40, "proof logs then complete canonical fallback, with no repeated discovery");
+  assert.equal(report.assets.filter(row => row.ready).length, 36); assert.equal(report.assets.find(row => row.asset === bad)!.ready, false);
+  assert.equal(report.assets.find(row => row.asset === healthy)!.pending, "7"); assert.equal(report.assets.find(row => row.asset === bad)!.pending, "3");
+  assert.deepEqual(Object.keys(stored.assetErrors!), [bad]); assert.equal(stored.openingBalances[bad], "3");
+  assert.equal(stored.observedBalances[bad], undefined, "invalid/RPC output is never stored as zero");
+  assert.equal(report.assets.reduce((sum, row) => sum + BigInt(row.pending), 0n), 10n);
+  const ordinary = await emptyBaseFixture(t, { fastEmptyRanges: false }, { [bad]: 3n, [healthy]: 7n }); ordinary.setHead(101n);
+  ordinary.client.readContract = failedRead(ordinary.client.readContract);
+  const control = await ordinary.service.reconcile();
+  assert.deepEqual(report.assets, control.assets, "the optimization failure has the exact same per-asset accounting as the complete scan");
+  assert.equal(report.ready, control.ready); assert.deepEqual(report.consumptions, control.consumptions);
+  f.client.readContract = read;
+  const recovered = await f.service.reconcile(), recoveredState = f.store.custodyLedgerState("base_automation")!;
+  assert.equal(recovered.assets.filter(row => row.ready).length, 37); assert.deepEqual(recoveredState.assetErrors, {});
+  assert.equal(recoveredState.observedBalances[bad], "3");
+  assert.equal(recovered.assets.reduce((sum, row) => sum + BigInt(row.pending), 0n), 10n);
+  f.reset(); f.setHead(201n);
+  const normal = await f.service.reconcile();
+  assert.equal(normal.ready, true); assert.equal(normal.indexedThrough, "200");
+  assert.deepEqual(f.commits[0].blocks.map(row => row.number), ["101", "200"], "successful canonical balances permit the normal empty proof again");
+  assert.equal(normal.assets.reduce((sum, row) => sum + BigInt(row.pending), 0n), 10n);
+});
+
+test("Base proof awaits every directional query before reporting a single log RPC failure", async t => {
+  const f = await emptyBaseFixture(t); f.setHead(101n);
+  let release!: () => void, started!: () => void, calls = 0, finished = 0;
+  const held = new Promise<void>(resolve => { release = resolve; }), allStarted = new Promise<void>(resolve => { started = resolve; });
+  const logs = f.client.getLogs;
+  f.client.getLogs = async (input: any) => {
+    const number = ++calls; if (calls === 20) started();
+    if (number === 2) await held;
+    finished++; if (number === 1) throw new Error("first range temporarily unavailable"); return logs(input);
+  };
+  let settled = false;
+  const rejected = assert.rejects(f.service.reconcile().finally(() => { settled = true; }), /empty range logs unavailable/);
+  await allStarted; await Promise.resolve(); assert.equal(settled, false);
+  release(); await rejected;
+  assert.equal(finished, 20); assert.equal(f.commits.length, 0); assert.equal(f.store.custodyLedgerState("base_automation")!.cursor.number, "0");
+});
+
+for (const dirty of ["released", "cursor", "backfill", "extra-opening", "missing-observed"] as const) test(`Base ${dirty} state cannot use the initial37-only shortcut`, async t => {
+  const f = await emptyBaseFixture(t); f.setHead(101n); const before = f.store.custodyLedgerState("base_automation")!;
+  const next: CustodyState = { ...before, revision: before.revision + 1 };
+  if (dirty === "released") next.releasedAssets = [baseProofAssets[0]];
+  if (dirty === "cursor") next.assetCursors = { [baseProofAssets[0]]: block(0) };
+  if (dirty === "backfill") next.assetBackfillAt = { [baseProofAssets[0]]: 1 };
+  if (dirty === "extra-opening") next.openingBalances = { ...before.openingBalances, [asset]: "0" };
+  if (dirty === "missing-observed") { next.observedBalances = { ...before.observedBalances }; delete next.observedBalances[baseProofAssets[0]]; }
+  f.store.commitCustodyLedger({ expectedRevision: before.revision, state: next, blocks: [], events: [] }); f.reset();
+  await f.service.reconcile(); assert.equal(f.discoveries.length, 1); assert.equal(f.commits[0].blocks.length, 100);
+});
+
+for (const discovered of [false, true]) test(`Base reorg during ${discovered ? "new-asset" : "empty"} discovery cannot advance or reuse old evidence on the new branch`, async t => {
+  const f = await emptyBaseFixture(t); f.setHead(101n); const before = f.store.custodyLedgerState("base_automation")!, getBlock = f.client.getBlock;
+  let forked = false;
+  f.client.getBlock = async (input: any) => {
+    const row = await getBlock(input), height = Number(input.blockNumber);
+    return forked && height > 0 ? { ...row, hash: hash(80000 + height), parentHash: height === 1 ? block(0).hash : hash(79999 + height) } : row;
+  };
+  f.discoverWith(async () => { forked = true; return discovered ? [baseProofAssets[0]] : []; });
+  await assert.rejects(f.service.reconcile(), /empty range changed during collection|page anchor changed before commit/);
+  assert.equal(f.discoveries.length, 1); assert.equal(f.commits.length, 0);
+  assert.deepEqual(f.store.custodyLedgerState("base_automation"), before);
+});
+
+for (const race of ["cursor", "first-parent", "first-hash", "end-hash"] as const) test(`Base empty-proof ${race} race cannot commit boundary shortcuts`, async t => {
+  const f = await emptyBaseFixture(t); f.setHead(101n); const before = f.store.custodyLedgerState("base_automation")!, getBlock = f.client.getBlock;
+  const reads = new Map<bigint, number>();
+  f.client.getBlock = async (input: any) => {
+    const height = input.blockNumber as bigint, count = (reads.get(height) ?? 0) + 1; reads.set(height, count); const row = await getBlock(input);
+    if (race === "cursor" && height === 0n && count > 1) return { ...row, hash: hash(99000) };
+    if (race === "first-parent" && height === 1n) return { ...row, parentHash: hash(99000) };
+    if (race === "first-hash" && height === 1n && count > 1) return { ...row, hash: hash(99001) };
+    if (race === "end-hash" && height === 100n && count > 1) return { ...row, hash: hash(99100) };
+    return row;
+  };
+  await assert.rejects(f.service.reconcile(), /empty range ancestry changed|empty range changed during collection/);
+  assert.deepEqual(f.store.custodyLedgerState("base_automation"), before); assert.equal(f.commits.length, 0);
+});
+
+test("Base discovery deadline retains the prior state without starting Transfer or balance work", async t => {
+  const f = await emptyBaseFixture(t); f.setHead(101n); let now = 1000; t.mock.method(Date, "now", () => now);
+  const before = f.store.custodyLedgerState("base_automation")!;
+  f.discoverWith(async () => { now += 60; return []; });
+  const report = await f.service.reconcile(50);
+  assert.equal(report.ready, false); assert.match(report.reason!, /budget reached/);
+  assert.deepEqual(f.store.custodyLedgerState("base_automation"), before); assert.equal(f.commits.length, 0); assert.equal(f.queries.length, 0);
+});
+
+test("Base empty-proof CAS collision preserves prior actual token funds", async t => {
+  const f = await emptyBaseFixture(t); f.setHead(101n); f.movement(1001, baseProofAssets[0], "5", 25); await f.service.reconcile();
+  f.reset(); f.setHead(201n); const before = f.store.custodyLedgerState("base_automation")!, rows = f.store.custodyLedgerEventPage("base_automation");
+  const commit = f.store.commitCustodyLedger.bind(f.store); let conflicted = false;
+  t.mock.method(f.store, "commitCustodyLedger", (input: CustodyCommit) => {
+    if (!conflicted) { conflicted = true; commit({ expectedRevision: before.revision, state: { ...before, revision: before.revision + 1 }, blocks: [], events: [] }); }
+    return commit(input);
+  });
+  await assert.rejects(f.service.reconcile(), /revision/);
+  assert.equal(f.store.custodyLedgerState("base_automation")!.cursor.number, "100");
+  assert.deepEqual(f.store.custodyLedgerEventPage("base_automation"), rows);
+  assert.equal((await f.service.read()).assets.find(row => row.asset === baseProofAssets[0])!.pending, "5");
+});
+
+for (const lag of [50n, 4100n]) test(`Base sparse restart with RPC lag${lag} never rolls back actual fees`, async t => {
+  const f = await emptyBaseFixture(t); f.setHead(5001n); f.movement(1001, baseProofAssets[0], "5", 25);
+  for (let turn = 0; turn < 5; turn++) await f.service.reconcile();
+  const before = f.store.custodyLedgerState("base_automation")!, rows = f.store.custodyLedgerEventPage("base_automation"), anchors = f.store.custodyLedgerBlockPage("base_automation");
+  assert.equal(before.cursor.number, "5000"); f.setHead(5001n - lag); f.reset();
+  const report = await f.reopen().reconcile();
+  assert.equal(report.ready, false); assert.match(report.reason!, /RPC is behind/);
+  assert.deepEqual(f.store.custodyLedgerState("base_automation"), before); assert.deepEqual(f.store.custodyLedgerEventPage("base_automation"), rows);
+  assert.deepEqual(f.store.custodyLedgerBlockPage("base_automation"), anchors); assert.equal(f.discoveries.length, 0); assert.equal(f.queries.length, 0);
+});
+
+test("Base proof cannot commit partial37-asset balances when the maintenance deadline expires", async t => {
+  const f = await emptyBaseFixture(t); f.setHead(101n); let now = 1000; t.mock.method(Date, "now", () => now);
+  const before = f.store.custodyLedgerState("base_automation")!, read = f.client.readContract;
+  f.client.readContract = async (input: any) => { const result = await read(input); now += 5; return result; };
+  const report = await f.service.reconcile(50);
+  assert.equal(report.ready, false); assert.match(report.reason!, /budget reached/);
+  assert.deepEqual(f.store.custodyLedgerState("base_automation"), before); assert.equal(f.commits.length, 0);
+});
+
+test("Base existing asset errors remain on the complete isolated accounting path", async t => {
+  const f = await emptyBaseFixture(t); f.setHead(101n); const before = f.store.custodyLedgerState("base_automation")!;
+  f.store.commitCustodyLedger({ expectedRevision: before.revision, state: { ...before, revision: before.revision + 1,
+    assetErrors: { [baseProofAssets[0]]: "Canonical token balance unavailable" } }, blocks: [], events: [] });
+  f.fail.add(baseProofAssets[0]); f.reset();
+  const report = await f.service.reconcile();
+  assert.equal(f.discoveries.length, 1); assert.equal(f.commits.find(input => input.blocks.length)!.blocks.length, 100);
+  assert.equal(report.assets.find(row => row.asset === baseProofAssets[0])!.ready, false);
+  assert.equal(report.assets.find(row => row.asset === baseProofAssets[1])!.ready, true);
+});
+
+for (const forkAt of [4900n, 500n]) test(`Base ${forkAt === 4900n ? "shallow" : "deep"} sparse reorg after restart replays actual funds without duplication`, async t => {
+  const f = await emptyBaseFixture(t); f.setHead(5001n); const incoming = f.movement(1001, baseProofAssets[0], "5", 25);
+  for (let turn = 0; turn < 5; turn++) await f.service.reconcile();
+  const rows = f.store.custodyLedgerEventPage("base_automation"), getBlock = f.client.getBlock;
+  f.client.getBlock = async (input: any) => {
+    const row = await getBlock(input), height = input.blockNumber as bigint;
+    return height >= forkAt ? { ...row, hash: hash(100000 + Number(height)), parentHash: height === forkAt ? block(Number(height - 1n)).hash : hash(99999 + Number(height)) } : row;
+  };
+  const reopened = f.reopen();
+  for (let turn = 0; turn < 5; turn++) await reopened.reconcile();
+  const report = await reopened.read();
+  assert.equal(report.ready, true); assert.equal(report.caughtUp, true); assert.equal(report.indexedThrough, "5000");
+  assert.equal(report.assets.find(row => row.asset === baseProofAssets[0])!.pending, "5");
+  assert.deepEqual(f.store.custodyLedgerEventPage("base_automation"), rows);
+  assert.equal(f.store.custodyLedgerEventPage("base_automation").filter(row => row.id === incoming.id).length, 1);
+  assert.equal(f.store.custodyLedgerState("base_automation")!.cursor.hash, hash(105000));
+});

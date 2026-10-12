@@ -64,12 +64,17 @@ export function baseKeeperRpcTransport(chainId: DeploymentChainId, environment: 
       return redact(detail.replace(/^(?:Request body|Request params|Params):.*$/gim, ""), environment).replace(/\s+/g, " ").trim();
     }
     const raw = async (provider: Provider, request: Request): Promise<unknown> => {
-      if (chainId === 8453 && provider === publicRpc) {
-        // The existing Base public endpoint permits 25 RPCs/second. Reserve
-        // slots for all metadata/guard requests, leaving room for other reads.
+      if (provider === publicRpc) {
+        // Share slots across metadata, logs and guards within this transport.
+        // Base retains 60ms; RH uses 100ms to reduce public request bursts.
         const slot=publicSlot.then(async()=>{
-          const wait=Math.max(0,60-(performance.now()-lastPublicRequest));
-          if(wait)await new Promise(resolve=>setTimeout(resolve,wait));
+          const interval=chainId===8453?60:100;
+          let wait=Math.max(0,interval-(performance.now()-lastPublicRequest));
+          while(wait>0){
+            await new Promise(resolve=>setTimeout(resolve,chainId===8453?wait:Math.ceil(wait)));
+            if(chainId===8453)break;
+            wait=Math.max(0,interval-(performance.now()-lastPublicRequest));
+          }
           lastPublicRequest=performance.now();
         });
         publicSlot=slot;await slot;

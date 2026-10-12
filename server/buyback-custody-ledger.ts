@@ -2,7 +2,8 @@ import { AbiDecodingZeroDataError, BaseError, ContractFunctionZeroDataError, dec
 import { emptyCustodyReport, replayCustodyLedger, type CustodyCommit, type CustodyEvent, type CustodyEvidence, type CustodyFragment,
   type CustodyLedgerId, type CustodyReport, type CustodyState } from "../src/lib/buyback-custody-ledger";
 import { vaultEventId, type VaultEventCursor, type VaultLedgerBlock } from "../src/lib/buyback-vault-ledger";
-import { BASE_BUYBACK_RH_WETH } from "../src/lib/base-buyback";
+import { BASE_BUYBACK_RH_WETH, BASE_BUYBACK_WETH } from "../src/lib/base-buyback";
+import { STOCKS } from "../src/lib/config";
 export type CustodyLedgerStore = {
   custodyLedgerState(id: CustodyLedgerId): CustodyState | null | Promise<CustodyState | null>;
   custodyLedgerEventPage(id: CustodyLedgerId, limit?: number, after?: VaultEventCursor): CustodyEvent[] | Promise<CustodyEvent[]>;
@@ -13,8 +14,9 @@ type Client = Pick<PublicClient, "getChainId" | "getBlockNumber" | "getBlock" | 
 const nativeMovement = parseAbiItem("event FundsMovement(address from,address to,address currency,uint256 amount,bytes metadata)");
 const transfer = parseAbiItem("event Transfer(address indexed from,address indexed to,uint256 value)");
 const eq = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+const baseEmptyAssets = new Set([...STOCKS.map(stock => stock.address), BASE_BUYBACK_WETH].map(asset => asset.toLowerCase()));
 export type CustodyOptions = { id: CustodyLedgerId; account: Address; initialAssets: Address[]; confirmations?: bigint; maxBlocks?: number;
-  /** Host-only fixed-WETH empty intervals; real movements retain the full scan. */
+  /** Host-only fixed-asset empty intervals; real movements retain the full scan. */
   fastEmptyRanges?: boolean;
   /** Only actual releases at the immutable adapter can introduce a newly launched asset. */
   discoverAssets?: (from: bigint, to: bigint,deadline:number) => Promise<Address[]>;
@@ -35,8 +37,14 @@ export class CustodyLedgerService {
   private readonly confirmations: bigint; private readonly maxBlocks: number; private readonly chain: 8453 | 4663;
   constructor(private readonly store: CustodyLedgerStore, private readonly client: Client, private readonly options: CustodyOptions) {
     this.confirmations = options.confirmations ?? 64n; this.maxBlocks = options.maxBlocks ?? 1000; this.chain = options.id === "base_automation" ? 8453 : 4663;
-    if (this.confirmations < 1n || !Number.isSafeInteger(this.maxBlocks) || this.maxBlocks < 1 || this.maxBlocks > (options.fastEmptyRanges ? 10_000 : 1000)) throw new Error("Invalid custody scan bound");
-    if (options.fastEmptyRanges && (options.id !== "robinhood_treasury" || options.initialAssets.length !== 1 || !eq(options.initialAssets[0],BASE_BUYBACK_RH_WETH))) throw new Error("Empty-range scanning requires fixed Robinhood WETH");
+    if (this.confirmations < 1n || !Number.isSafeInteger(this.maxBlocks) || this.maxBlocks < 1 || this.maxBlocks > (options.fastEmptyRanges && this.chain === 4663 ? 10_000 : 1000)) throw new Error("Invalid custody scan bound");
+    if (options.fastEmptyRanges) {
+      if (this.chain === 4663 && (options.initialAssets.length !== 1 || !eq(options.initialAssets[0],BASE_BUYBACK_RH_WETH))) throw new Error("Empty-range scanning requires fixed Robinhood WETH");
+      if (this.chain === 8453 && (baseEmptyAssets.size !== 37 || options.initialAssets.length !== 37 ||
+        new Set(options.initialAssets.map(asset => asset.toLowerCase())).size !== 37 ||
+        options.initialAssets.some(asset => !baseEmptyAssets.has(asset.toLowerCase())) || typeof options.discoverAssets !== "function"))
+        throw new Error("Base empty-range scanning requires the exact 36 B20 and WETH set with release discovery");
+    }
   }
   private async head() { if (await this.client.getChainId() !== this.chain) throw new Error("Custody RPC chain mismatch"); const head = await this.client.getBlockNumber(); return head > this.confirmations ? head - this.confirmations : 0n; }
   private async block(number: bigint): Promise<VaultLedgerBlock> {
@@ -146,22 +154,45 @@ export class CustodyLedgerService {
     return events.filter(event=>{const old=existing.get(event.id);if(!old)return true;const raw=(row:CustodyEvent)=>[row.id,row.blockNumber,row.blockHash,row.transactionHash,row.transactionIndex,row.logIndex,row.asset,row.kind,row.from,row.to,row.amount];
       if(JSON.stringify(raw(old))!==JSON.stringify(raw(event))||old.nativeRequestMetadata!==undefined&&old.nativeRequestMetadata.toLowerCase()!==event.nativeRequestMetadata?.toLowerCase()||old.nativeTransactionFrom!==undefined&&old.nativeTransactionFrom.toLowerCase()!==event.nativeTransactionFrom?.toLowerCase()||old.nativeTransactionTo!==undefined&&old.nativeTransactionTo.toLowerCase()!==event.nativeTransactionTo?.toLowerCase())throw new Error("Conflicting canonical custody event; reconcile first");return false;});
   }
-  private async emptyRange(state:CustodyState,head:bigint,remaining:number,deadline:number) {
-    if (!this.options.fastEmptyRanges || Object.keys(state.assetErrors??{}).length || state.releasedAssets?.length || Object.keys(state.assetCursors??{}).length || Object.keys(state.assetBackfillAt??{}).length) return null;
-    const asset=this.options.initialAssets[0],key=asset.toLowerCase();
-    if(Object.keys(state.observedBalances).length!==1||state.observedBalances[key]===undefined||Object.keys(state.openingBalances).length!==1||state.openingBalances[key]===undefined)return null;
-    const from=BigInt(state.cursor.number)+1n,to=from+BigInt(Math.min(1000,remaining)-1)<head?from+BigInt(Math.min(1000,remaining)-1):head;
-    if(to<=from||Date.now()>=deadline)return null;
+  private async emptyAnchors(state:CustodyState,from:bigint,to:bigint) {
     const [anchor,first,before]=await Promise.all([this.block(BigInt(state.cursor.number)),this.block(from),this.block(to)]);
     if(!eq(anchor.hash,state.cursor.hash)||!eq(first.parentHash,anchor.hash))throw new Error("Custody empty range ancestry changed");
+    return {anchor,first,before};
+  }
+  private async emptyRange(state:CustodyState,head:bigint,remaining:number,deadline:number,discovered?:Address[],captured?:Awaited<ReturnType<CustodyLedgerService["emptyAnchors"]>>) {
+    if (!this.options.fastEmptyRanges || Object.keys(state.assetErrors??{}).length || state.releasedAssets?.length || Object.keys(state.assetCursors??{}).length || Object.keys(state.assetBackfillAt??{}).length) return null;
+    const base=this.chain===8453,assets=this.options.initialAssets.map(asset=>asset.toLowerCase());
+    if(base&&(!Array.isArray(discovered)||discovered.length))return null;
+    const exactKeys=(values:Record<string,string>)=>Object.keys(values).length===assets.length&&assets.every(asset=>Object.hasOwn(values,asset))&&
+      (!base||Object.keys(values).every(asset=>baseEmptyAssets.has(asset)));
+    if(!exactKeys(state.observedBalances)||!exactKeys(state.openingBalances))return null;
+    const from=BigInt(state.cursor.number)+1n,to=from+BigInt(Math.min(base?100:1000,remaining)-1)<head?from+BigInt(Math.min(base?100:1000,remaining)-1):head;
+    if(to<=from||Date.now()>=deadline)return null;
+    const {anchor,first,before}=captured??await this.emptyAnchors(state,from,to);
     let logs:Awaited<ReturnType<Client["getLogs"]>>[];
-    try { logs=await Promise.all([this.client.getLogs({address:asset,event:transfer,args:{to:this.options.account},fromBlock:from,toBlock:to,strict:true}),
-      this.client.getLogs({address:asset,event:transfer,args:{from:this.options.account},fromBlock:from,toBlock:to,strict:true})]); }
-    catch { return null; } // A provider without wide logs retains the normal bounded path.
+    if(base){
+      const groups=await Promise.allSettled(Array.from({length:Number((to-from)/10n)+1},(_,index)=>{
+        const lower=from+BigInt(index)*10n,upper=lower+9n<to?lower+9n:to;
+        return [this.client.getLogs({address:assets as Address[],event:transfer,args:{to:this.options.account},fromBlock:lower,toBlock:upper,strict:true}),
+          this.client.getLogs({address:assets as Address[],event:transfer,args:{from:this.options.account},fromBlock:lower,toBlock:upper,strict:true})];
+      }).flat());
+      if(groups.some(group=>group.status!=="fulfilled"||!Array.isArray(group.value)))throw new Error("Custody empty range logs unavailable; pending");
+      logs=groups.flatMap(group=>group.status==="fulfilled"?[group.value]:[]);
+    }else{
+      const asset=this.options.initialAssets[0];
+      try { logs=await Promise.all([this.client.getLogs({address:asset,event:transfer,args:{to:this.options.account},fromBlock:from,toBlock:to,strict:true}),
+        this.client.getLogs({address:asset,event:transfer,args:{from:this.options.account},fromBlock:from,toBlock:to,strict:true})]); }
+      catch { return null; } // A provider without wide logs retains the normal bounded path.
+    }
     if(logs.some(rows=>rows.length)||Date.now()>=deadline)return null;
-    const observed=await this.balances([asset],to,false,deadline);
-    if(Object.keys(observed.errors).length)throw new Error("Custody empty range state unavailable; pending");
-    if(observed.values[key]!==state.observedBalances[key])return null;
+    const observed=await this.balances(assets,to,false,deadline);
+    if(Object.keys(observed.errors).length){
+      // Base's full page retains healthy balances and isolates only the failed
+      // asset. A failed optimization must not turn that into global downtime.
+      if(base)return null;
+      throw new Error("Custody empty range state unavailable; pending");
+    }
+    if(!exactKeys(observed.values)||assets.some(asset=>observed.values[asset]!==state.observedBalances[asset]))return null;
     const [afterAnchor,afterFirst,afterEnd]=await Promise.all([this.block(BigInt(state.cursor.number)),this.block(from),this.block(to)]);
     if(!eq(afterAnchor.hash,anchor.hash)||!eq(afterFirst.hash,first.hash)||!eq(afterEnd.hash,before.hash))throw new Error("Custody empty range changed during collection");
     if(Date.now()>=deadline)return null;
@@ -223,11 +254,19 @@ export class CustodyLedgerService {
     // Keep ordinary accounting current first. New asset registration is committed
     // with this canonical page; historical asset work gets its own later commits.
     while(BigInt(state.cursor.number)<head&&scanned<this.maxBlocks&&!state.blockedReason&&Date.now()<deadline){
-      const empty=await this.emptyRange(state,head,this.maxBlocks-scanned,deadline);
+      const from=BigInt(state.cursor.number)+1n,count=Math.min(100,this.maxBlocks-scanned),to=from+BigInt(count-1)<head?from+BigInt(count-1):head;
+      const baseFast=this.chain===8453&&this.options.fastEmptyRanges;
+      // Bind discovery itself to the same page: a reorg between discovery and
+      // Transfer queries must not hide a newly released meme asset.
+      const captured=baseFast?await this.emptyAnchors(state,from,to):undefined;
+      if(Date.now()>=deadline)return pending();
+      let discovered:Address[]|undefined;
+      if(baseFast){discovered=await this.options.discoverAssets!(from,to,deadline);if(!Array.isArray(discovered))throw new Error("Custody release discovery unavailable; pending");}
+      const empty=await this.emptyRange(state,head,this.maxBlocks-scanned,deadline,discovered,captured);
       if(empty){state=await this.store.commitCustodyLedger({expectedRevision:state.revision,state:{...state,cursor:empty.before,revision:state.revision+1,updatedAt:Date.now()},blocks:empty.blocks,events:[]});scanned+=empty.count;continue;}
       if(Date.now()>=deadline)return pending();
-      const from=BigInt(state.cursor.number)+1n,count=Math.min(100,this.maxBlocks-scanned),to=from+BigInt(count-1)<head?from+BigInt(count-1):head;
-      const discovered=await this.options.discoverAssets?.(from,to,deadline)??[],opening={...state.openingBalances},assetCursors={...state.assetCursors};
+      discovered??=await this.options.discoverAssets?.(from,to,deadline)??[];
+      const opening={...state.openingBalances},assetCursors={...state.assetCursors};
       const releasedAssets=[...new Set([...(state.releasedAssets??[]),...discovered].map(asset=>asset.toLowerCase()))] as Address[];
       const assets=[...new Set([...this.options.initialAssets,...releasedAssets].map(asset=>asset.toLowerCase()))];
       const missing=assets.filter(asset=>!(asset in opening)),added=await this.balances(missing,BigInt(state.checkpoint.number),true,deadline);Object.assign(opening,added.values);
@@ -237,7 +276,7 @@ export class CustodyLedgerService {
         else assetCursors[asset]=await this.block(found.start-1n);}
       const page=await this.collect(from,to,assets,deadline,state.cursor),observed=await this.balances(assets,to,false,deadline),events=await uniqueEvents(page.events);
       for(const asset of Object.keys(assetCursors))if(!originErrors[asset]&&assetCursors[asset].number===state.cursor.number&&eq(assetCursors[asset].hash,state.cursor.hash))assetCursors[asset]=page.before;
-      if(!eq((await this.block(BigInt(state.cursor.number))).hash,state.cursor.hash)||!eq((await this.block(BigInt(page.before.number))).hash,page.before.hash))throw new Error("Custody page anchor changed before commit");
+      if(!eq((await this.block(BigInt(state.cursor.number))).hash,state.cursor.hash)||!eq((await this.block(BigInt(page.before.number))).hash,page.before.hash)||captured&&!eq(page.before.hash,captured.before.hash))throw new Error("Custody page anchor changed before commit");
       if(Date.now()>=deadline)return pending();
       state=await this.store.commitCustodyLedger({expectedRevision:state.revision,state:{...state,cursor:page.before,openingBalances:opening,releasedAssets,assetCursors,observedBalances:observed.values,assetErrors:{...added.errors,...observed.errors,...originErrors},revision:state.revision+1,updatedAt:Date.now()},blocks:page.blocks,events});
       committed(events);scanned+=Number(to-from+1n);

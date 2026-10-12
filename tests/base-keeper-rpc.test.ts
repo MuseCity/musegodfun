@@ -73,6 +73,36 @@ test("concurrent Base metadata dispatch remains below the public request limit",
   assert.equal(f.calls.some(call=>call.provider==="archive"),false);
 });
 
+test("concurrent Robinhood metadata, logs, network probes and historical guards share a hundred-millisecond dispatch queue",async t=>{
+  const f=fixture(t,4663),times:number[]=[],methods:string[]=[];let active=0,peak=0;
+  f.respond(async call=>{if(call.provider!=="public")return undefined;times.push(performance.now());methods.push(call.method);active++;peak=Math.max(peak,active);
+    try{await new Promise<void>(resolve=>setImmediate(resolve));return undefined;}finally{active--;}
+  });
+  const selector={blockHash:hash(),requireCanonical:true};
+  await Promise.all([
+    f.request("eth_chainId"),f.request("eth_blockNumber"),f.request("eth_getBlockByNumber",["0x20",false]),
+    f.request("eth_getTransactionReceipt",[hash()]),f.request("eth_getTransactionByHash",[hash()]),
+    f.request("eth_getLogs",[{fromBlock:"0x1",toBlock:"0x400",address}]),
+    f.request("eth_getCode",[address,"0x10"]),f.request("eth_call",[{to:address,data:"0x1234"},selector]),
+  ]);
+  assert.equal(active,0);assert.equal(peak,1,"Fast public responses cannot be dispatched as a concurrent burst");
+  assert.equal(times.length,10,"Both direct/shared probes and each numeric/hash/canonical guard use the public queue");
+  assert(times.at(-1)!-times[0]>=(times.length-1)*100,"The complete mixed public dispatch span reserves at least 100ms per slot");
+  for(const method of ["eth_chainId","eth_blockNumber","eth_getBlockByNumber","eth_getBlockByHash","eth_getTransactionReceipt","eth_getTransactionByHash","eth_getLogs"])assert(methods.includes(method));
+  assert.equal(f.count("public","eth_getCode"),0);assert.equal(f.count("public","eth_call"),0);
+  assert.deepEqual(f.calls.find(call=>call.provider==="archive"&&call.method==="eth_getCode")?.params,[address,"0x10"]);
+  assert.deepEqual(f.calls.find(call=>call.provider==="archive"&&call.method==="eth_call")?.params,[{to:address,data:"0x1234"},selector]);
+  assert.equal(f.count("archive","eth_getLogs"),0);assert.equal(f.transport.config.retryCount,0);
+});
+
+test("a Robinhood public log HTTP 403 stays pending without retry, archive fallback or a state-provider change",async t=>{
+  const f=fixture(t,4663);await f.request("eth_chainId");
+  f.fail(call=>call.provider==="public"&&call.method==="eth_getLogs"?403:undefined);
+  await assert.rejects(f.request("eth_getLogs",[{fromBlock:"0x1",toBlock:"0x400"}]),/Host RPC pending.*public eth_getLogs request unavailable.*HTTP 403/);
+  assert.equal(f.count("public","eth_getLogs"),1);assert.equal(f.count("archive","eth_getLogs"),0);
+  assert.equal(await f.request("eth_getCode",[address,"latest"]),"0xab");assert.equal(f.count("archive","eth_getCode"),1);assert.equal(f.count("public","eth_getCode"),0);
+});
+
 test("current and default state use archive with no historical or public probes", async t => {
   const f = fixture(t);
   for (const selector of [undefined, "latest", "pending", "safe", "finalized"]) {
