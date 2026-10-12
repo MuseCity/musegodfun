@@ -1,7 +1,7 @@
 {
   "schemaVersion": 3,
   "recordedAt": "2026-10-11T04:05:15.032438+00:00",
-  "status": "paused_host_maintenance_validated_public_base_paused_catchup_pending",
+  "status": "public_base_activation_authorized_release_pending_keeper_catchup_pending",
   "ownerDecision": "OK, implement Base Splits Treasury plus native Automation",
   "architecture": "splits-treasury-native-automation",
   "sourceBaseline": "f7c1264b2995c2c243c7f95419254a3e45d118f2",
@@ -3225,7 +3225,38 @@
   },
   "mainnetDeployment": "not_run",
   "nativeAccountAndRuleCreation": "not_run",
-  "publicBaseActivation": "not_run",
+  "publicBaseActivation": {
+    "recordedAt": "2026-10-12T04:00:40.622528+00:00",
+    "ownerAuthorized": true,
+    "publicFlag": true,
+    "persistentControlBeforePublication": {
+      "scope": "base",
+      "paused": true,
+      "revision": 0
+    },
+    "controlAction": "Read latest revision after release verification, then resume Base through scoped CAS",
+    "robinhoodControlChange": false,
+    "sourceSha256": "796b3758e78e89a71a441d50da4696aea3f229eb084cabd0ccb2937b84be93ea",
+    "sourceFileCount": 273,
+    "localValidation": {
+      "unit": {
+        "passed": 1547,
+        "failed": 0,
+        "skipped": 0
+      },
+      "typecheck": "passed",
+      "build": "passed",
+      "diffCheck": "passed"
+    },
+    "keeper": {
+      "switch": "Existing singleton host schedules execution only after current local maintenance readiness; financial gates remain fresh before signing and broadcasting",
+      "cumulativeGenuineGasCapWei": "16000000000000",
+      "unknownRecoveryEnabled": false,
+      "resetGasOrNonceHistory": false
+    },
+    "newPaidServices": false,
+    "runtimeAndTransactionEvidence": "Observed separately after publication; tests are not mainnet settlement"
+  },
   "productionMutation": false,
   "sources": [
     "https://splits.org/docs/solutions/revenue-automation",
