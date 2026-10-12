@@ -55,11 +55,11 @@ import { Store, type LaunchPlan } from "./store";
 import { CURVE_POLICY } from "../src/lib/launch-curve";
 import { launchGuardAbi } from "../src/lib/launch-guard";
 import { assertLaunchPlanValidity, LAUNCH_SIGNING_TTL, restorePrepared, serializePrepared, type FirstBuyLockStatus, type LaunchPrepareOptions } from "../src/lib/launch-plan";
-import { chainLaunchDependencies, LaunchGuardMismatch, verifyLaunchGuard } from "./launch-guard";
+import { chainLaunchDependencies, LaunchGuardMismatch, verifyLaunchGuard, verifyLaunchGuardIdentity } from "./launch-guard";
 import { assertLaunchTradingFee, assertPlanIntegrity, assertRecoveryPlan, verifiedFirstBuyLock, verifyCreationAccounting, verifyGuardedReceipt } from "./launch-verification";
 import { verifyFeeEngine } from "./buyback-engine";
+import { alchemyRpcTransport } from "./alchemy-rpc";
 import { BASE_COLLECTOR_MANIFEST, baseCollectorGraphFingerprint, verifyBaseCollector } from "./base-collector";
-import type { createVaultLedgerRuntime } from "./buyback-vault-runtime";
 import { hasBaseLaunchActivationRecord } from "./base-activation-record";
 import { assertTrustedLaunchPolicy, engineLaunchCutover, ENGINE_MANIFEST, trustedLaunchPolicies, type EngineLaunchCutover } from "./launch-policy-registry";
 import { planAttestation, verifyPlanAttestation } from "./plan-attestation";
@@ -76,17 +76,13 @@ export class LaunchpadService {
   get contracts() { return contractsFor(this.runtime.config); }
   get assets() { return assetsFor(this.runtime.config); }
   readonly store: StoreBackend;
-  vaultLedgerRuntime?: ReturnType<typeof createVaultLedgerRuntime>;
-  // Public Node/Worker apps consume private host projections. CLI verification
-  // services retain their canonical audit path and explicit writer authority.
-  financialAuditReadOnly = false;
   private readonly guardCandidate: Address | null;
   private readonly firstBuyGuardCandidate: Address | null;
   private readonly feeEngineCandidate: Address | null;
   private baseDestinationClient?: ReturnType<typeof createPublicClient>;
   private stocksCache?: { at: number; ttl?: number; value: StockStatus[] };
   private stocksPromise?: Promise<StockStatus[]>;
-  private guardCache?: Map<string, {at: number; value: Awaited<ReturnType<typeof verifyLaunchGuard>> | null}>;
+  private guardCache?: Map<string, {at: number; ttl: number; failures: number; value: Awaited<ReturnType<typeof verifyLaunchGuard>> | null}>;
   private guardRequests?: Map<string, Promise<Awaited<ReturnType<typeof verifyLaunchGuard>> | null>>;
   private tokensCache?: {at: number; value: TokenRecord[]};
   private tokensPromise?: Promise<TokenRecord[]>;
@@ -100,6 +96,9 @@ export class LaunchpadService {
   private recoveryChecks?: Map<string, RememberedCheck>;
   private anchorChecks?: Map<string, RememberedCheck>;
   private guardMismatches?: Map<string, number>;
+  private displayConfigCache?: { at: number; value: RuntimeConfig };
+  private displayConfigPromise?: Promise<RuntimeConfig>;
+  private stockFailures = 0;
   constructor(readonly runtime: ReturnType<typeof runtimeFromEnv>) {
     this.guardCandidate = runtime.launchGuardCandidate;
     this.firstBuyGuardCandidate = runtime.firstBuyGuardCandidate;
@@ -107,7 +106,7 @@ export class LaunchpadService {
     const chainId = deploymentChain(runtime.config);
     this.client = createPublicClient({
       chain: { ...base, id: runtime.config.chainId, name: networkName(runtime.config) },
-      transport: http(runtime.rpcUrl, {
+      transport: runtime.config.mode !== "fork" && runtime.environment?.NODE_ENV === "production" ? alchemyRpcTransport(chainId,runtime.environment,{timeout:25_000}) : http(runtime.rpcUrl, {
         // Multicall combines eth_call only. Batch the remaining read-only RPC
         // methods too, so a cold verification fits the Worker fetch budget.
         batch: { batchSize: 20, wait: 0 },
@@ -147,6 +146,8 @@ export class LaunchpadService {
     }
   }
   async rpcRequest(method: string, params: unknown[]) {
+    if (this.runtime.config.mode !== "fork" && this.runtime.environment?.NODE_ENV === "production")
+      return this.client.request({ method, params } as any);
     const response = await fetch(this.runtime.rpcUrl, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -209,13 +210,19 @@ export class LaunchpadService {
         );
       // Known warnings are useful results, not reasons to hammer every asset.
       // Cache partial failures briefly without renewing the original block/time.
+      this.stockFailures = statuses.every(s => s.verified) ? 0 : Math.min((this.stockFailures ?? 0) + 1, 5);
       const ttl = statuses.every(s => s.verified && !s.availabilityWarning) ? 300_000
-        : statuses.every(s => s.verified) ? 30_000 : 5_000;
+        : statuses.every(s => s.verified) ? 60_000 : 60_000 * 2 ** (this.stockFailures - 1);
       this.stocksCache = { at: Date.now(), ttl, value: statuses };
       return statuses;
     })();
     try {
       return await this.stocksPromise;
+    } catch(error) {
+      this.stockFailures=Math.min((this.stockFailures??0)+1,5);
+      const value=this.assets.map(stock=>({...stock,verified:false,blockNumber:"unavailable",totalSupply:null,multiplierWad:null,error:`Asset verification is temporarily unavailable. ${redact(error,this.runtime.environment)}`}));
+      this.stocksCache={at:Date.now(),ttl:60_000*2**(this.stockFailures-1),value};
+      return value;
     } finally {
       this.stocksPromise = undefined;
     }
@@ -224,15 +231,46 @@ export class LaunchpadService {
     const chainId = deploymentChain(this.runtime.config), key = `${chainId}:${address.toLowerCase()}:${requiredVersion ?? "any"}`;
     const cache = this.guardCache ??= new Map(), requests = this.guardRequests ??= new Map();
     const cached = cache.get(key);
-    if (cached && Date.now() - cached.at < (cached.value ? 300_000 : 3_000)) return cached.value;
+    if (cached && Date.now() - cached.at < cached.ttl) return cached.value;
     if (requests.has(key)) return requests.get(key)!;
-    const request = verifyLaunchGuard(this.client, address, chainId, requiredVersion).then(value => {
-      cache.set(key, {at: Date.now(), value}); return value;
-    }, () => { cache.set(key, {at: Date.now(), value: null}); return null; });
+    const request = verifyLaunchGuardIdentity(this.client,address,chainId,requiredVersion,this.runtime.config.mode==="fork"?undefined:this.store).then(value => {
+      cache.set(key, {at: Date.now(),ttl:Infinity,failures:0,value}); return value;
+    }, () => {const failures=Math.min((cached?.failures??0)+1,5);cache.set(key,{at:Date.now(),ttl:60_000*2**(failures-1),failures,value:null});return null;});
     requests.set(key, request);
     try { return await request; } finally { requests.delete(key); }
   }
-  async config(): Promise<RuntimeConfig> {
+  async config(fresh=false): Promise<RuntimeConfig> {
+    let config:RuntimeConfig;
+    if(fresh){
+      config=await this.readConfig(true);
+      this.displayConfigCache={at:Date.now(),value:config};
+    }
+    else if(this.displayConfigCache&&Date.now()-this.displayConfigCache.at<60_000) config=this.displayConfigCache.value;
+    else {
+      const previous=this.displayConfigCache;
+      this.displayConfigPromise??=this.readConfig(false).then(value=>{
+        // A financial read may finish while this older display request is
+        // pending. Never replace its newer verified snapshot with that result.
+        if(this.displayConfigCache===previous)this.displayConfigCache={at:Date.now(),value};
+        return value;
+      }).finally(()=>{this.displayConfigPromise=undefined;});
+      config=await this.displayConfigPromise;
+    }
+    // Cache the RPC graph only. Wallet requests and readiness reports must see
+    // the current signing control once per caller, including cache hits.
+    return this.currentSigningControl(structuredClone(config));
+  }
+  private async currentSigningControl(config:RuntimeConfig):Promise<RuntimeConfig> {
+    if(this.runtime.config.mode==="fork")return config;
+    try {
+      const control=await this.store.runtimeControl();
+      return {...config,controlRevision:control.revision,signingPaused:control.paused,
+        ...(control.paused?{writesEnabled:false,blockReason:control.reason||"New signing is temporarily paused."}:{})};
+    } catch {
+      return {...config,signingPaused:true,writesEnabled:false,blockReason:"Signing controls are temporarily unavailable."};
+    }
+  }
+  private async readConfig(fresh:boolean): Promise<RuntimeConfig> {
     // Fail closed for first buys, while ordinary issuance and receipt recovery
     // remain available when a guard is missing or temporarily unverifiable.
     let launchGuard: Address | null = null;
@@ -261,7 +299,7 @@ export class LaunchpadService {
     if (this.feeEngineCandidate && deploymentChain(this.runtime.config) === 4663) {
       try {
         await this.assertNetwork();
-        const verified = await verifyFeeEngine(this.client, this.feeEngineCandidate);
+        const verified = await verifyFeeEngine(this.client, this.feeEngineCandidate,undefined,{identityStore:this.store,fresh});
         if (this.runtime.config.treasury && sameAddress(this.runtime.config.treasury, verified.operationsTreasury)) {
           automationReceiver = verified.automationReceiver;
           automationTreasury = verified.automationTreasury;
@@ -277,8 +315,7 @@ export class LaunchpadService {
     }
     if (this.feeEngineCandidate && deploymentChain(this.runtime.config) === 8453) {
       try {
-        const canary = this.runtime.environment?.NODE_ENV !== "production" && this.runtime.dataScope === "verify-base-canary";
-        if (!canary && this.runtime.config.mode !== "fork") {
+        if (this.runtime.config.mode !== "fork") {
           const manifest = BASE_COLLECTOR_MANIFEST, treasury = manifest.constants.operationsTreasury;
           const fingerprint = baseCollectorGraphFingerprint(manifest);
           if (this.runtime.dataScope === "base" && manifest.collector.address && sameAddress(this.feeEngineCandidate, manifest.collector.address) &&
@@ -293,8 +330,7 @@ export class LaunchpadService {
           const destination = this.baseDestinationClient ??= createPublicClient({ chain: robinhood, transport: http(mainnetRpcUrl(4663, this.runtime.environment), {
             batch: { batchSize: 20, wait: 0 }, timeout: 25_000, retryCount: 1,
           }), batch: { multicall: true } });
-          const verified = await verifyBaseCollector(this.client, this.feeEngineCandidate, { requireActivation: "runtime", allowCanary: canary,
-            canaryOrigin: this.runtime.canaryOrigin, robinhoodClient: destination,auditStore:this.store });
+          const verified = await verifyBaseCollector(this.client, this.feeEngineCandidate, { requireActivation: "runtime", robinhoodClient: destination,auditStore:this.store });
           const treasury = BASE_COLLECTOR_MANIFEST.constants.operationsTreasury;
           if (this.runtime.config.treasury && treasury && sameAddress(this.runtime.config.treasury, treasury)) {
             feeEngine = verified.collector;
@@ -308,14 +344,6 @@ export class LaunchpadService {
     if (deploymentChain(this.runtime.config) === 8453 && !baseCollectorReady) {
       writesEnabled = false;
       blockReason = "Base issuance awaits its verified fee adapter, native Automation configuration and owner activation confirmation.";
-    }
-    if (this.runtime.config.mode !== "fork") {
-      try {
-        const control = await this.store.runtimeControl();
-        controlRevision = control.revision;
-        signingPaused = control.paused;
-        if (control.paused) { writesEnabled = false; blockReason = control.reason || "New signing is temporarily paused."; }
-      } catch { signingPaused = true; writesEnabled = false; blockReason = "Signing controls are temporarily unavailable."; }
     }
     return { ...this.runtime.config, writesEnabled, blockReason, controlRevision, signingPaused, securityProtocol: 1,
       curvePolicy: CURVE_POLICY, launchGuard, launchLockAvailable, feeEngine, buybackExecutor, automationReceiver, automationTreasury, wethForwarder, assetFeedOracle, buybackVault };
@@ -350,7 +378,7 @@ export class LaunchpadService {
       throw new Error("This asset is unavailable for a new launch because it is not in the verified LI.FI opening-price pairing list.");
     await this.assertNetwork();
     if (options?.account) await this.assertCreatorAccount(options.account);
-    const config = await this.config();
+    const config = await this.config(true);
     this.assertLaunchPolicyCurrent(launchFeePolicy(config));
     if (isEngineFeePolicy(launchFeePolicy(config)) && !config.feeEngine)
       throw new Error("The configured fee engine could not be verified. Try again after deployment verification.");
@@ -392,7 +420,7 @@ export class LaunchpadService {
     await this.assertCreatorAccount(creator);
     // The HTTP route already checked this request's live configuration. Reuse it
     // for read-only preparation; the actual signing validation reads it afresh.
-    const launchConfig = checkedConfig ?? await this.config();
+    const launchConfig = checkedConfig ?? await this.config(true);
     const feePolicy = launchFeePolicy(launchConfig);
     this.assertLaunchPolicyCurrent(feePolicy);
     if (isEngineFeePolicy(feePolicy) && !launchConfig.feeEngine)
@@ -484,7 +512,7 @@ export class LaunchpadService {
     assertLaunchPlanValidity(plan, deploymentChain(this.runtime.config));
     if (plan.requiresReconfirmation) throw new Error("The refreshed price is below your accepted minimum. Review the changed price before signing.");
     assertPlanIntegrity(plan, this.contracts);
-    const config = await this.config();
+    const config = await this.config(true);
     assertSigningEnabled(config);
     if (plan.firstBuy || isEngineFeePolicy(plan.feePolicy)) {
       if (isEngineFeePolicy(plan.feePolicy) && (!config.feeEngine || !plan.feeEngine || !sameAddress(config.feeEngine, plan.feeEngine)))
@@ -653,7 +681,7 @@ export class LaunchpadService {
         // Advisory, like the review-time warning; provenance is decided by attestation.
         if (reference && reference.divergenceBps > LIFI_OPENING_MAX_DIVERGENCE_BPS)
           console.warn(JSON.stringify({ event: "recovery_reference_divergence", transactionHash: hash, token: plan.tokenAddress, divergenceBps: reference.divergenceBps }));
-        if (guard) await verifyLaunchGuard(this.client, guard.address, chainId, guard.version).catch((error: unknown) => {
+        if (guard) await verifyLaunchGuardIdentity(this.client, guard.address, chainId, guard.version,this.runtime.config.mode==="fork"?undefined:this.store).catch((error: unknown) => {
           // Every transaction through a guard that is not the pinned runtime
           // shares this verdict, refused before the budget from now on.
           if (error instanceof LaunchGuardMismatch) {
@@ -835,32 +863,17 @@ export class LaunchpadService {
     return await this.store.tokenByTxHash(hash) ?? token;
   }
   private reconciling = false;
-  private ledgerReconciling?: Promise<unknown>;
   private reconcileCursor?: Hex;
   async reconcile(maxDurationMs = 60_000) {
     if (this.reconciling) return;
     this.reconciling = true;
     const deadline = Date.now() + maxDurationMs;
     try {
-      // Public alarms recover launch receipts only. Empty queues need no RPC;
-      // private writers must still reconcile financial work without launches.
-      const pending = this.financialAuditReadOnly ? await this.store.pendingLaunches() : undefined;
-      if (pending?.length === 0) return;
+      // Ordinary maintenance recovers launches only; empty queues need no RPC.
+      const pending = await this.store.pendingLaunches();
+      if (pending.length === 0) return;
       await this.assertNetwork();
-      // Financial maintenance gets its own bounded turn in parallel. A slow
-      // peer-chain RPC must never consume the launch queue's entire turn first.
-      let ledgerWork: Promise<unknown> | undefined;
-      if (!this.financialAuditReadOnly && this.vaultLedgerRuntime && this.runtime.config.mode !== "fork" &&
-        this.runtime.dataScope === (deploymentChain(this.runtime.config) === 8453 ? "base" : "robinhood") && Date.now() < deadline)
-      {
-        if(!this.ledgerReconciling){
-          const work=this.vaultLedgerRuntime.reconcile(Math.min(30_000,maxDurationMs/2,Math.max(0,deadline-Date.now()))).catch(()=>undefined)
-            .finally(()=>{if(this.ledgerReconciling===work)this.ledgerReconciling=undefined;});
-          this.ledgerReconciling=work;
-        }
-        ledgerWork=this.ledgerReconciling;
-      }
-      const rows = pending ?? await this.store.pendingLaunches();
+      const rows = pending;
       const finalized = await this.client.getBlock({ blockTag: "finalized" }).catch(() => null);
       const cursor = rows.findIndex((row) => row.hash === this.reconcileCursor);
       const ordered = [...rows.slice(cursor + 1), ...rows.slice(0, cursor + 1)];
@@ -911,14 +924,6 @@ export class LaunchpadService {
         } finally {
           this.reconcileCursor = row.hash;
         }
-      }
-      if (ledgerWork && Date.now() < deadline) {
-        let timer: ReturnType<typeof setTimeout> | undefined;
-        try {
-          await Promise.race([ledgerWork, new Promise<void>(resolve => {
-            timer = setTimeout(resolve, Math.max(0, deadline - Date.now()));
-          })]);
-        } finally { clearTimeout(timer); }
       }
     } finally {
       this.reconciling = false;

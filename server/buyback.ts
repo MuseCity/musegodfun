@@ -1,4 +1,5 @@
 import {
+  createPublicClient,
   decodeFunctionData,
   decodeFunctionResult,
   encodeFunctionData,
@@ -13,11 +14,18 @@ import {
   zeroAddress,
   type Address,
   type Hex,
+  type PublicClient,
+  type Transport,
 } from "viem";
 import { sameAddress, stockByAddress } from "../src/lib/config";
 import { MUSEGOD_BUYBACK } from "../src/lib/fee-policy";
 import { validTreasury } from "../src/lib/validation";
-import { mainnetRpcUrl } from "./config";
+import type { RuntimeEnvironment } from "./config";
+import { robinhood } from "viem/chains";
+import { alchemyRpcTransport } from "./alchemy-rpc";
+import { BASE_BUYBACK_RH_WETH, BASE_BUYBACK_TREASURY, BASE_BUYBACK_VAULT, type RobinhoodBuybackSummary } from "../src/lib/base-buyback";
+import { buybackVaultAbi } from "../src/lib/buyback-engine";
+import { BUYBACK_SUMMARY_CACHE_MS } from "./base-buyback";
 import type {
   BuybackQuote,
   BuybackQuoteInput,
@@ -72,6 +80,7 @@ type Options = {
   fetch?: typeof fetch;
   now?: () => number;
   timeoutMs?: number;
+  environment?: RuntimeEnvironment;
 };
 
 export class BuybackReader {
@@ -79,12 +88,17 @@ export class BuybackReader {
   private readonly now: () => number;
   private readonly timeoutMs: number;
   private readonly treasury: Address | null;
+  private readonly environment: RuntimeEnvironment | undefined;
+  private statsCache?: { until: number; value: MUSEGODStats };
+  private statsPending?: Promise<MUSEGODStats>;
+  private statsClient?: PublicClient<Transport,any>;
 
   constructor(treasury: string | null, options: Options = {}) {
     this.treasury = validTreasury(treasury ?? undefined);
     this.fetcher = options.fetch ?? fetch.bind(globalThis);
     this.now = options.now ?? Date.now;
     this.timeoutMs = options.timeoutMs ?? 15_000;
+    this.environment = options.environment;
   }
 
   private async request(url: string, body: unknown): Promise<unknown> {
@@ -245,19 +259,28 @@ export class BuybackReader {
   }
 
   private async rpcBatch(calls: { method: string; params: unknown[] }[]) {
-    const raw = await this.request(mainnetRpcUrl(4663), calls.map((call, id) => ({ jsonrpc: "2.0", id, ...call })));
-    if (!Array.isArray(raw) || raw.length !== calls.length)
-      throw new BuybackError("INVALID_RPC", "Robinhood onchain data verification failed");
-    return calls.map((_, id) => {
-      const matches = raw.filter((r) => r?.id === id);
-      if (matches.length !== 1 || matches[0].error || matches[0].jsonrpc !== "2.0" ||
-        typeof matches[0].result !== "string" || !/^0x[0-9a-fA-F]+$/.test(matches[0].result))
-        throw new BuybackError("INVALID_RPC", "Robinhood onchain data verification failed");
-      return matches[0].result as Hex;
-    });
+    this.statsClient ??= createPublicClient({ chain:robinhood,transport:alchemyRpcTransport(4663,this.environment ?? {},{timeout:this.timeoutMs}) });
+    try {
+      const values = await Promise.all(calls.map(call=>this.statsClient!.request(call as any)));
+      if (values.some(value=>typeof value !== "string" || !/^0x[0-9a-fA-F]*$/.test(value)))
+        throw new BuybackError("INVALID_RPC","Robinhood onchain data verification failed");
+      return values as Hex[];
+    } catch(error) {
+      if (error instanceof BuybackError) throw error;
+      if (error instanceof Error && error.message.includes("RPC chain differs"))
+        throw new BuybackError("WRONG_CHAIN","The MUSEGOD RPC network does not match");
+      throw new BuybackError("INVALID_RPC","Robinhood onchain data verification failed");
+    }
   }
 
   async readMUSEGODStats(): Promise<MUSEGODStats> {
+    if (this.statsCache && this.now() < this.statsCache.until) return structuredClone(this.statsCache.value);
+    this.statsPending ??= this.readMUSEGODStatsFresh().then(value => {
+      this.statsCache = { until: this.now() + BUYBACK_SUMMARY_CACHE_MS, value }; return value;
+    }).finally(() => { this.statsPending = undefined; });
+    return structuredClone(await this.statsPending);
+  }
+  private async readMUSEGODStatsFresh(): Promise<MUSEGODStats> {
     const [chain, block] = await this.rpcBatch([
       { method: "eth_chainId", params: [] }, { method: "eth_blockNumber", params: [] },
     ]);
@@ -289,6 +312,46 @@ export class BuybackReader {
         checkedAt: this.now(), scope: "global" };
     } catch {
       throw new BuybackError("INVALID_TOKEN", "The MUSEGOD contract identity or balance could not be verified");
+    }
+  }
+}
+
+/** Shared Robinhood counters only. No transfer scan, source classification or Base attribution. */
+export class RobinhoodBuybackSummaryReader {
+  private cached?: { until: number; value: RobinhoodBuybackSummary };
+  private pending?: Promise<RobinhoodBuybackSummary>;
+  constructor(private readonly client: PublicClient<Transport,any>,private readonly now: () => number = () => Date.now()) {}
+  async read(): Promise<RobinhoodBuybackSummary> {
+    if (this.cached && this.now() < this.cached.until) return structuredClone(this.cached.value);
+    this.pending ??= this.readFresh().then(value => { this.cached = {until:this.now() + BUYBACK_SUMMARY_CACHE_MS,value}; return value; })
+      .finally(() => { this.pending = undefined; });
+    return structuredClone(await this.pending);
+  }
+  private async readFresh(): Promise<RobinhoodBuybackSummary> {
+    const empty: RobinhoodBuybackSummary = { chainId:4663,scope:"shared_robinhood",available:false,checkedAt:this.now(),blockNumber:null,
+      treasury:BASE_BUYBACK_TREASURY,vault:BASE_BUYBACK_VAULT,tokenAddress:MUSEGOD_BUYBACK.tokenAddress,burnAddress:MUSEGOD_BUYBACK.burnAddress,
+      treasuryWeth:null,vaultWeth:null,vaultSpentWeth:null,vaultMuseToDead:null,deadTotalMuse:null,totalSupply:null };
+    try {
+      const blockNumber = await this.client.getBlockNumber();
+      const contracts = [
+        {address:BASE_BUYBACK_RH_WETH,abi:erc20Abi,functionName:"balanceOf",args:[BASE_BUYBACK_TREASURY]},
+        {address:BASE_BUYBACK_RH_WETH,abi:erc20Abi,functionName:"balanceOf",args:[BASE_BUYBACK_VAULT]},
+        {address:BASE_BUYBACK_VAULT,abi:buybackVaultAbi,functionName:"totalSpent"},
+        {address:BASE_BUYBACK_VAULT,abi:buybackVaultAbi,functionName:"totalBurned"},
+        {address:MUSEGOD_BUYBACK.tokenAddress,abi:erc20Abi,functionName:"balanceOf",args:[MUSEGOD_BUYBACK.burnAddress]},
+        {address:MUSEGOD_BUYBACK.tokenAddress,abi:erc20Abi,functionName:"totalSupply"},
+      ];
+      const values = await this.client.multicall({contracts,allowFailure:true,blockNumber,batchSize:128*1024});
+      const counters = values.map(value => {
+        if (value.status !== "success" || typeof value.result !== "bigint" || value.result < 0n || value.result >= 2n**256n) throw new Error("Counter unavailable");
+        return String(value.result);
+      });
+      if (counters.length !== contracts.length || BigInt(counters[5]) <= 0n || BigInt(counters[4]) > BigInt(counters[5])) throw new Error("Token counters unavailable");
+      return {...empty,available:true,blockNumber:String(blockNumber),treasuryWeth:counters[0],vaultWeth:counters[1],vaultSpentWeth:counters[2],
+        vaultMuseToDead:counters[3],deadTotalMuse:counters[4],totalSupply:counters[5]};
+    } catch {
+      if (this.cached?.value.available) return {...this.cached.value,stale:true,error:"Robinhood totals are delayed; values show the previous sample."};
+      return {...empty,error:"Robinhood buyback totals are temporarily unavailable."};
     }
   }
 }

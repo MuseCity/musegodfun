@@ -1,6 +1,6 @@
 import { keccak256, stringToHex, type Hex, type PublicClient, type Transport } from "viem";
 import type { BaseCollectorManifest } from "./base-collector";
-import type { BaseAuditStore } from "./base-audit";
+import type { ContractIdentityStore as BaseAuditStore } from "./contract-identity";
 import { BASE_NATIVE_DESTINATION_POLICY } from "../src/lib/base-buyback";
 
 type Client = Pick<PublicClient<Transport, any>, "getChainId" | "getBlock">;
@@ -145,19 +145,9 @@ export async function persistBaseActivationRecord(source: Client, destination: C
   } catch { throw pending(); }
 }
 
-/** Reuses finalized acceptance across process restarts; never fetches old receipts, logs, or traces. */
-export async function assertBaseActivationRecord(source: Client, destination: Client, store: BaseAuditStore, manifest: BaseCollectorManifest,
-  graphFingerprint: Hex, heads: BaseActivationHeads): Promise<void> {
-  assertAcceptance(manifest, graphFingerprint);
-  const identity = activationRecordIdentity(manifest, graphFingerprint), headPair = { source: storedBlock(heads.source), destination: storedBlock(heads.destination) };
-  try {
-    const record = parseRecord(await store.getBuybackBatch(identity.id), identity);
-    await canonicalAnchors(source, destination, record.anchors, headPair, record.finalized);
-  } catch { throw pending(); }
-}
-
 /** Issuance uses the already completed private acceptance only. Live keeper
- * authority and canonical anchors are checked separately before fee spending. */
+ * authority is checked separately before fee spending; historical anchors
+ * are not re-audited by ordinary issuance or maintenance. */
 export async function hasBaseLaunchActivationRecord(store: Pick<BaseAuditStore, "getBuybackBatch">, manifest: BaseCollectorManifest,
   graphFingerprint: Hex): Promise<boolean> {
   try {

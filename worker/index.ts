@@ -47,7 +47,6 @@ export class LaunchpadRuntime extends DurableObject<Env> {
     const { app, service } = createApp(undefined, true, runtime, { ingressManaged:true, previews:this.previews, challenge:this.challenge,
       chainConfig: chainId => this.env.LAUNCHPAD.get(this.env.LAUNCHPAD.idFromName(chainId === 8453 ? "base-mainnet" : "robinhood-mainnet")).chainConfiguration(),
     });
-    void this.service?.vaultLedgerRuntime?.close();
     this.service = service;
     this.app = app;
     this.fingerprint = fingerprint;
@@ -56,7 +55,7 @@ export class LaunchpadRuntime extends DurableObject<Env> {
    * destination control record, never the source chain's signing state. */
   async chainConfiguration() {
     this.refreshRuntime();
-    return this.service.config();
+    return this.service.config(true);
   }
   async fetch(request: Request): Promise<Response> {
     const admission = this.ingress.admit(request.headers.get("x-forwarded-for") || "unknown", new URL(request.url).pathname);

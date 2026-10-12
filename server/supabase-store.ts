@@ -3,8 +3,9 @@ import { packPlan, unpackPlan } from "./plan-storage";
 import { defaultRuntimeControl, type RuntimeControl, type BudgetName, type BudgetResult } from "./runtime-policy";
 import type { TokenRecord } from "../src/lib/config";
 import { assertBuybackBatchId, assertBuybackAuditRecord, type Store, type LaunchPlan, type BuybackBatchRecord, type BuybackBatchPageRecord } from "./store";
-import { assertVaultAmount, assertVaultCommit, type VaultLedgerState, type VaultLedgerCommit, type VaultLedgerEvent, type VaultLedgerBlock, type VaultEventCursor } from "../src/lib/buyback-vault-ledger";
-import { assertCustodyCommit, type CustodyCommit, type CustodyEvent, type CustodyLedgerId, type CustodyState } from "../src/lib/buyback-custody-ledger";
+function assertSequence(value: unknown): asserts value is string {
+  if (typeof value !== "string" || !/^(?:0|[1-9]\d*)$/.test(value) || BigInt(value) >= 2n ** 256n) throw new Error("Invalid history sequence");
+}
 export type StoreBackend = {
   [K in Exclude<keyof Store, "db">]: Store[K] extends (...a: infer A) => infer R
     ? (...a: A) => R | Promise<R>
@@ -57,7 +58,6 @@ export class SupabaseStore implements StoreBackend {
       this.request(`musegod_quota?${this.where()}&select=key&limit=1`),
       this.request(`musegod_buyback_batches?${this.where()}&select=id&limit=1`),
       this.request(`musegod_runtime_controls?${this.where()}&select=revision&limit=1`),
-      this.request(`musegod_vault_ledger_state?${this.where()}&select=revision&limit=1`),
     ]);
   }
   close() {}
@@ -138,73 +138,11 @@ export class SupabaseStore implements StoreBackend {
   }
   async buybackBatchPage(limit = 100, before?: { sequence: string }): Promise<BuybackBatchPageRecord[]> {
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new Error("Invalid buyback batch page size");
-    if(before)assertVaultAmount(before.sequence);
+    if(before)assertSequence(before.sequence);
     const cursor = before ? `&sequence=lt.${before.sequence}` : "";
     const rows = await this.request<{ payload: BuybackBatchRecord; updated_at: number; sequence:string }[]>(
       `musegod_buyback_batches?${this.where()}${cursor}&order=sequence.desc&select=payload,updated_at,sequence::text&limit=${limit}`);
     return rows.map(row => ({ ...row.payload, updatedAt: row.updated_at, sequence:row.sequence }));
-  }
-  private assertVaultLedgerAuthority() {
-    if (this.scope === "base") throw new Error("Vault ledger belongs to the Robinhood store");
-  }
-  async vaultLedgerState(): Promise<VaultLedgerState | null> {
-    this.assertVaultLedgerAuthority();
-    const rows = await this.request<{ payload: VaultLedgerState }[]>(`musegod_vault_ledger_state?${this.where()}&select=payload&limit=1`);
-    return rows[0]?.payload ?? null;
-  }
-  async vaultLedgerEventPage(limit = 500, after?: VaultEventCursor): Promise<VaultLedgerEvent[]> {
-    this.assertVaultLedgerAuthority();
-    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) throw new Error("Invalid vault ledger page size");
-    if (after) {
-      assertVaultAmount(after.blockNumber);
-      if (![after.transactionIndex, after.logIndex].every(n => Number.isSafeInteger(n) && n >= 0)) throw new Error("Invalid vault event cursor");
-    }
-    const cursor = after ? `&or=(block_number.gt.${after.blockNumber},and(block_number.eq.${after.blockNumber},transaction_index.gt.${after.transactionIndex}),and(block_number.eq.${after.blockNumber},transaction_index.eq.${after.transactionIndex},log_index.gt.${after.logIndex}))` : "";
-    const rows = await this.request<{ payload: VaultLedgerEvent }[]>(`musegod_vault_ledger_events?${this.where()}${cursor}&order=block_number,transaction_index,log_index&select=payload&limit=${limit}`);
-    return rows.map(row => row.payload);
-  }
-  async vaultLedgerBlockPage(limit = 500, before?: string): Promise<VaultLedgerBlock[]> {
-    this.assertVaultLedgerAuthority();
-    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) throw new Error("Invalid vault ledger page size");
-    if (before !== undefined) assertVaultAmount(before);
-    const cursor = before !== undefined ? `&block_number=lt.${before}` : "";
-    const rows = await this.request<{ payload: VaultLedgerBlock }[]>(`musegod_vault_ledger_blocks?${this.where()}${cursor}&order=block_number.desc&select=payload&limit=${limit}`);
-    return rows.map(row => row.payload);
-  }
-  async commitVaultLedger(input: VaultLedgerCommit): Promise<VaultLedgerState> {
-    this.assertVaultLedgerAuthority();
-    // The RPC repeats CAS/graph checks under a transaction lock; this check validates wire inputs only.
-    assertVaultCommit(input, input.expectedRevision === 0 ? null : { ...input.state, revision: input.expectedRevision });
-    return this.request("rpc/musegod_commit_vault_ledger", "POST", { p_scope: this.scope, p_commit: input });
-  }
-  private assertCustodyAuthority(id: CustodyLedgerId) {
-    if (!["base_automation", "robinhood_treasury"].includes(id) || this.scope === "base" && id !== "base_automation" || this.scope === "robinhood" && id !== "robinhood_treasury")
-      throw new Error("Custody journal belongs to another chain");
-  }
-  async custodyLedgerState(id: CustodyLedgerId): Promise<CustodyState | null> {
-    this.assertCustodyAuthority(id);
-    const rows = await this.request<{payload:CustodyState}[]>(`musegod_custody_ledger_state?${this.where()}&ledger_id=eq.${id}&select=payload&limit=1`);
-    return rows[0]?.payload ?? null;
-  }
-  async custodyLedgerEventPage(id: CustodyLedgerId, limit = 500, after?: VaultEventCursor): Promise<CustodyEvent[]> {
-    this.assertCustodyAuthority(id);
-    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) throw new Error("Invalid custody page size");
-    if (after) { assertVaultAmount(after.blockNumber); if (![after.transactionIndex, after.logIndex].every(n => Number.isSafeInteger(n) && n >= 0)) throw new Error("Invalid custody cursor"); }
-    const cursor = after ? `&or=(block_number.gt.${after.blockNumber},and(block_number.eq.${after.blockNumber},transaction_index.gt.${after.transactionIndex}),and(block_number.eq.${after.blockNumber},transaction_index.eq.${after.transactionIndex},log_index.gt.${after.logIndex}))` : "";
-    const rows = await this.request<{payload:CustodyEvent}[]>(`musegod_custody_ledger_events?${this.where()}&ledger_id=eq.${id}${cursor}&order=block_number,transaction_index,log_index&select=payload&limit=${limit}`);
-    return rows.map(row => row.payload);
-  }
-  async custodyLedgerBlockPage(id: CustodyLedgerId, limit = 500, before?: string): Promise<VaultLedgerBlock[]> {
-    this.assertCustodyAuthority(id);
-    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) throw new Error("Invalid custody page size");
-    if (before !== undefined) assertVaultAmount(before);
-    const rows = await this.request<{payload:VaultLedgerBlock}[]>(`musegod_custody_ledger_blocks?${this.where()}&ledger_id=eq.${id}${before === undefined ? "" : `&block_number=lt.${before}`}&order=block_number.desc&select=payload&limit=${limit}`);
-    return rows.map(row => row.payload);
-  }
-  async commitCustodyLedger(input: CustodyCommit): Promise<CustodyState> {
-    this.assertCustodyAuthority(input.state.id);
-    assertCustodyCommit(input,input.expectedRevision === 0 ? null : {...input.state,revision:input.expectedRevision});
-    return this.request("rpc/musegod_commit_custody_ledger","POST",{p_scope:this.scope,p_commit:input});
   }
   async snapshot(key: string): Promise<{ at: number; data: unknown } | null> {
     const rows = await this.request<{ at: number; payload: unknown }[]>(

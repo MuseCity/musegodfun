@@ -1,73 +1,30 @@
-import { runtimeFromEnv, mainnetRpcUrl, redact } from "../server/config";
+import { runtimeFromEnv, redact } from "../server/config";
 import { mkdir, writeFile } from "node:fs/promises";
-import { createPublicClient, http, type PublicClient, type Transport } from "viem";
+import { createPublicClient } from "viem";
+import { alchemyRpcTransport } from "../server/alchemy-rpc";
 import { base, robinhood } from "viem/chains";
 import { airlockAbi } from "@whetstone-research/doppler-sdk/evm";
 import { CONTRACTS, STOCKS } from "../src/lib/config";
 import { assertStock } from "../src/lib/protocol";
-import { BASE_COLLECTOR_MANIFEST, verifyBaseCollectorForOperator as verifyBaseCollector } from "../server/base-collector";
+import { BASE_COLLECTOR_MANIFEST, verifyBaseCollectorForKeeperStartup, verifyBaseCollectorForOperator,
+  baseCollectorGraphFingerprint } from "../server/base-collector";
+import { persistBaseActivationRecord } from "../server/base-activation-record";
+import robinhoodDeployment from "../contracts/artifacts/buyback-v2-deployment.json";
+import { SupabaseStore } from "../server/supabase-store";
 import { readOpeningValuation } from "../server/opening-price";
 import { launchAssetsFor } from "../src/lib/config";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { boundedBaseOperatorAudit, baseOperatorAuditStore } from "./base-audit-store";
-import type { BaseAuditStore } from "../server/base-audit";
-import { createLocalReplayClient } from "./base-local-replay";
-import { SupabaseStore } from "../server/supabase-store";
-
-/** Both operator tools retain checked pages without ever signing a transaction. */
-export async function verifyBaseCollectorForOperator(
-  client: Parameters<typeof verifyBaseCollector>[0], address: Parameters<typeof verifyBaseCollector>[1],
-  options: Parameters<typeof verifyBaseCollector>[2] = {},
-  deps: { verifyGraph?: typeof verifyBaseCollector; auditStore?: BaseAuditStore; maxDurationMs?: number } = {},
-) {
-  const rpc = client as PublicClient<Transport, any>;
-  const auditStore = deps.auditStore ?? baseOperatorAuditStore();
-  const source = deps.verifyGraph ? client : createLocalReplayClient(rpc, { chainId: 8453, rpcUrl: rpc.transport?.url!, auditStore });
-  return boundedBaseOperatorAudit(store => (deps.verifyGraph ?? verifyBaseCollector)(source, address, { ...options, auditStore: store }),
-    auditStore, deps.maxDurationMs);
-}
+import { baseOperatorAuditStore } from "./base-audit-store";
 
 export async function runBaseVerification() {
 const runtime = runtimeFromEnv(8453);
 const recordActivation = process.argv.includes("--record-activation");
-if (recordActivation && (runtime.dataScope !== "base" || !runtime.supabase))
-  throw new Error("Explicit activation recording requires the canonical Base Supabase operator scope; no record was written");
-if (recordActivation && (!runtime.config.feeEngine || BASE_COLLECTOR_MANIFEST.status !== "deployed_verified"))
-  throw new Error("A verified deployed Base Collector is required before recording activation; no record was written");
-// The public endpoint rate-limits bursts of code and archive reads. Serialize
-// transport requests for this offline verifier and retry only explicit limits.
-let rpcQueue = Promise.resolve();
-const pacedFetch: typeof fetch = async (input, init) => {
-  const previous = rpcQueue;
-  let release!: () => void;
-  rpcQueue = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  await previous;
-  try {
-    for (let attempt = 0; ; attempt++) {
-      const response = await fetch(input, init);
-      const body = await response
-        .clone()
-        .json()
-        .catch(() => null);
-      const limited = response.status === 429 || body?.error?.code === -32016;
-      if (!limited || attempt >= 3) return response;
-      await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
-    }
-  } finally {
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    release();
-  }
-};
+if (recordActivation && (runtime.dataScope !== "base" || !runtime.supabase || !runtime.config.feeEngine))
+  throw new Error("Explicit activation recording requires a deployed Collector and the canonical Base private store");
 const client = createPublicClient({
   chain: base,
-  transport: http(runtime.rpcUrl, {
-    timeout: 60_000,
-    retryCount: 1,
-    fetchFn: pacedFetch,
-  }),
+  transport: alchemyRpcTransport(8453, runtime.environment ?? {}),
   batch: { multicall: true },
 });
 if ((await client.getChainId()) !== 8453)
@@ -139,10 +96,27 @@ let collector: unknown = { status: "not_deployed", activation: "not_run" };
 if (runtime.config.feeEngine) {
   const activationStore = recordActivation ? new SupabaseStore(runtime.supabase!.url, runtime.supabase!.secretKey, "base", "base") : undefined;
   try {
-    const destination = createPublicClient({ chain: robinhood, transport: http(mainnetRpcUrl(4663, runtime.environment), { timeout: 25_000, retryCount: 1 }) });
-    collector = { status: "verified", graph: await verifyBaseCollectorForOperator(client, runtime.config.feeEngine,
-      { robinhoodClient: destination, recordActivation }, { auditStore: activationStore }), activation: BASE_COLLECTOR_MANIFEST.activation.status,
-      activationRecord: recordActivation ? "persisted_after_complete_finalized_verification" : "not_written" };
+    const destination = createPublicClient({ chain: robinhood, transport: alchemyRpcTransport(4663, runtime.environment ?? {}) });
+    const graph = recordActivation
+      ? await verifyBaseCollectorForOperator(client, runtime.config.feeEngine, { robinhoodClient: destination })
+      : await verifyBaseCollectorForKeeperStartup(client, destination,
+        { collector: runtime.config.feeEngine, auditStore: baseOperatorAuditStore() });
+    if (activationStore) {
+      // Explicit one-time operator acceptance only: retain deployment anchors
+      // after complete current graph/signature verification. No runtime calls it.
+      const [sourceHead, destinationHead, sourceAnchor, destinationAnchor] = await Promise.all([
+        client.getBlock({ blockTag: "latest" }), destination.getBlock({ blockTag: "latest" }),
+        client.getBlock({ blockNumber: graph.initialDeploymentBlock }),
+        destination.getBlock({ blockNumber: BigInt(robinhoodDeployment.contracts.engine.blockNumber) }),
+      ]);
+      await persistBaseActivationRecord(client, destination, activationStore, BASE_COLLECTOR_MANIFEST,
+        baseCollectorGraphFingerprint(BASE_COLLECTOR_MANIFEST),
+        { source: [sourceAnchor], destination: [destinationAnchor] },
+        { source: sourceHead, destination: destinationHead });
+    }
+    collector = { status: "verified", graph, activation: BASE_COLLECTOR_MANIFEST.activation.status,
+      immutableStartupSeal: recordActivation ? "not_written_by_explicit_activation_command" : "private_local_persisted",
+      activationRecord: recordActivation ? "persisted_after_explicit_complete_verification" : "not_written" };
   }
   catch (error) { collector = { status: "unavailable", error: redact(error) }; process.exitCode = 1; }
   finally { await activationStore?.close(); }

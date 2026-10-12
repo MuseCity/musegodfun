@@ -8,8 +8,6 @@ import type { Address } from "viem";
 export type DeploymentChainId = 8453 | 4663;
 export type RuntimeEnvironment = Readonly<Record<string, string | undefined>>;
 export type Runtime = {
-  // Set only by the private canary entry point; signed owner authorization must bind this exact origin.
-  canaryOrigin?: string;
   environment?: RuntimeEnvironment;
   secrets?: { pinataJwt?: string; coingeckoApiKey?: string; turnstileSecret?: string;
     // Signs new previews; previous keys only verify backups after a rotation.
@@ -33,6 +31,7 @@ export function loadEnvironment() {
 }
 export function mainnetRpcUrl(chainId: DeploymentChainId, environment: RuntimeEnvironment = process.env): string {
   const key = environment.ALCHEMY_API_KEY?.trim();
+  if (environment.NODE_ENV === "production" && !key) throw new Error("Production requires an Alchemy API key");
   return key ? `https://${chainId === 4663 ? "robinhood-mainnet" : "base-mainnet"}.g.alchemy.com/v2/${encodeURIComponent(key)}`
     : chainId === 4663 ? environment.ROBINHOOD_RPC_URL || "https://rpc.mainnet.chain.robinhood.com"
     : environment.BASE_RPC_URL || "https://mainnet.base.org";

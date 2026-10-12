@@ -137,7 +137,7 @@ test("batch keyset pages recover every historical source batch with tied timesta
     assert.equal(all.at(-1)?.status, "unknown", "The oldest unresolved batch is not lost behind a display cap");
     assert.equal(store.listBuybackBatches().length, 1000);
     assert.throws(() => store.buybackBatchPage(101), /page size/);
-    assert.throws(() => store.buybackBatchPage(10, { sequence: "-1" }), /raw vault amount/);
+    assert.throws(() => store.buybackBatchPage(10, { sequence: "-1" }), /history sequence/);
   } finally { store.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 

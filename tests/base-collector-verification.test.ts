@@ -7,16 +7,15 @@ import splitsCode from "../contracts/artifacts/base-collector/splits-base-code.j
 import collectorArtifact from "../contracts/artifacts/base-collector/MusegodBaseFeeCollector.json";
 import robinhoodDeployment from "../contracts/artifacts/buyback-v2-deployment.json";
 import buybackConfig from "../contracts/buyback.config.json";
-import { BASE_COLLECTOR_MANIFEST, baseCollectorExpectedRuntime, baseCollectorGraphFingerprint, baseCollectorCanaryMessage,
-  verifyBaseCollector, verifyBaseCollectorForOperator, verifyBaseAutomationAccount, BASE_SPLITS_FACTORY, BASE_SPLITS_FACTORY_HASH, BASE_SPLITS_IMPLEMENTATION, BASE_SPLITS_IMPLEMENTATION_HASH, BASE_SPLITS_PROXY_HASH, type BaseCollectorClient, type BaseCollectorManifest, type BaseCollectorCanaryAuthorization } from "../server/base-collector";
-import { baseCollectorFinalizedEvidence, verifyBaseCanaryAuthorization, baseNativeExecutionSha256, baseNativeRunAcceptanceMessage, verifyBaseNativeRunAuthority, assertBaseKeeperAuthority, baseSplitsSignerAuthority, baseTrustedSplitsMessage, verifyBaseTrustedSplitsAuthority, type BaseTrustedSplitsAcceptance, type BaseNativeRunAcceptance } from "../server/base-collector";
-import { assetsFor, CONTRACTS, STOCKS, sameAddress } from "../src/lib/config";
+import { BASE_COLLECTOR_MANIFEST, baseCollectorExpectedRuntime, baseCollectorGraphFingerprint,
+  verifyBaseCollectorForOperator, verifyBaseAutomationAccount, assertBaseKeeperLiveAuthority,
+  verifyBaseCollectorForKeeperStartup,
+  BASE_SPLITS_FACTORY, BASE_SPLITS_FACTORY_HASH, BASE_SPLITS_IMPLEMENTATION, BASE_SPLITS_IMPLEMENTATION_HASH,
+  BASE_SPLITS_PROXY_HASH, type BaseCollectorClient, type BaseCollectorManifest, type BaseTrustedSplitsAcceptance,
+  baseSplitsSignerAuthority, baseTrustedSplitsMessage, verifyBaseTrustedSplitsAuthority } from "../server/base-collector";
+import { CONTRACTS } from "../src/lib/config";
 import { prepareBaseCollectorDeploymentSequence } from "../scripts/deploy-base-collector";
-import { hasBaseLaunchActivationRecord, persistBaseActivationRecord } from "../server/base-activation-record";
-import type { BaseAuditStore } from "../server/base-audit";
-import { BUYBACK_CODE_HASHES, RELAY_ROUTER } from "../server/buyback";
-import { RELAY_APPROVAL_PROXY, RELAY_DEPOSITORY } from "../src/lib/buyback";
-import { BUYBACK_FORWARDER_ALLOWANCE_CAP } from "../src/lib/buyback-engine";
+import { contractIdentityOnce, type ContractIdentityStore } from "../server/contract-identity";
 const address = (value: number) => getAddress(`0x${value.toString(16).padStart(40, "0")}`);
 const hash = (value: number) => `0x${value.toString(16).padStart(64, "0")}` as Hex;
 const governor = privateKeyToAccount(`0x${"01".padStart(64, "0")}`);
@@ -84,292 +83,6 @@ function fixture() {
   } };
 }
 const readOnly = { requireActivation: false };
-function evidenceFixture() {
-  let finalized = true, finalizedNumber = 150n, reorg: number | undefined, reads = 0;
-  const makeClient = () => ({ getBlock: async ({ blockNumber, blockTag }: { blockNumber?: bigint; blockTag?: string }) => {
-    reads++;
-    if (blockTag === "finalized" && !finalized) throw new Error("unsupported finalized");
-    const number = blockTag === "finalized" ? finalizedNumber : blockNumber!;
-    return { number, hash: hash(reorg === Number(number) ? 999 : Number(number)) };
-  } }) as unknown as BaseCollectorClient;
-  const source = makeClient(), destination = makeClient();
-  const heads = (number = 300n) => ({ source: { number, hash: hash(Number(number)) }, destination: { number, hash: hash(Number(number)) } });
-  const anchors = { source: [{ number: 100n, hash: hash(100) }, { number: 101n, hash: hash(101) }],
-    destination: [{ number: 120n, hash: hash(120) }, { number: 121n, hash: hash(121) }] };
-  return { source, destination, makeClient, heads, anchors, reads: () => reads,
-    mutate: (value: { finalized?: boolean; finalizedNumber?: bigint; reorg?: number }) => { finalized = value.finalized ?? true; finalizedNumber = value.finalizedNumber ?? 150n; reorg = value.reorg; } };
-}
-test("finalized static Base evidence is reused across heads while every canonical anchor remains live", async () => {
-  const f = evidenceFixture(); let replays = 0;
-  const replay = async () => { replays++; };
-  await baseCollectorFinalizedEvidence(f.source, f.destination, hash(1), f.heads(), f.anchors, replay);
-  const reads = f.reads();
-  await baseCollectorFinalizedEvidence(f.source, f.destination, hash(1), f.heads(301n), f.anchors, replay);
-  assert.equal(replays, 1); assert(f.reads() > reads);
-  for (const reorg of [100, 101, 120, 121, 301]) {
-    f.mutate({ reorg });
-    await assert.rejects(() => baseCollectorFinalizedEvidence(f.source, f.destination, hash(1), f.heads(301n), f.anchors, replay), /anchor/);
-  }
-  assert.equal(replays, 1);
-});
-test("unsupported or incomplete finalized evidence never persists and concurrent reuse binds both head hashes", async () => {
-  for (const finalized of [false, true]) {
-    const f = evidenceFixture(); f.mutate({ finalized, finalizedNumber: 120n }); let replays = 0;
-    const replay = async () => { replays++; };
-    await baseCollectorFinalizedEvidence(f.source, f.destination, hash(1), f.heads(), f.anchors, replay);
-    await baseCollectorFinalizedEvidence(f.source, f.destination, hash(1), f.heads(), f.anchors, replay);
-    assert.equal(replays, 2);
-  }
-  const f = evidenceFixture(); f.mutate({ finalized: false }); let replays = 0;
-  let entered!: () => void, finish!: () => void;
-  const started = new Promise<void>(resolve => { entered = resolve; }), pending = new Promise<void>(resolve => { finish = resolve; });
-  const replay = async () => { replays++; entered(); await pending; };
-  const first = baseCollectorFinalizedEvidence(f.source, f.destination, hash(1), f.heads(), f.anchors, replay); await started;
-  const same = baseCollectorFinalizedEvidence(f.source, f.destination, hash(1), f.heads(), f.anchors, replay);
-  // A different destination head cannot join unfinalized replay from the older head pair.
-  const changed = { ...f.heads(), destination: f.heads(301n).destination };
-  const other = baseCollectorFinalizedEvidence(f.source, f.destination, hash(1), changed, f.anchors, replay);
-  await new Promise(resolve => setImmediate(resolve)); assert.equal(replays, 2);
-  finish(); await Promise.all([first, same, other]);
-  await baseCollectorFinalizedEvidence(f.source, f.destination, hash(1), f.heads(), f.anchors, async () => { replays++; });
-  assert.equal(replays, 3);
-});
-test("proof or destination-client changes and replay failures cannot reuse a completed Base acceptance", async () => {
-  const f = evidenceFixture(); let replays = 0;
-  const replay = async () => { replays++; };
-  await baseCollectorFinalizedEvidence(f.source, f.destination, hash(1), f.heads(), f.anchors, replay);
-  await baseCollectorFinalizedEvidence(f.source, f.destination, hash(2), f.heads(), f.anchors, replay);
-  await baseCollectorFinalizedEvidence(f.source, f.makeClient(), hash(2), f.heads(), f.anchors, replay);
-  assert.equal(replays, 3);
-  const reIncluded = { ...f.anchors, source: [{ number: 102n, hash: hash(102) }] };
-  await baseCollectorFinalizedEvidence(f.source, f.destination, hash(1), f.heads(), reIncluded, replay);
-  assert.equal(replays, 4);
-  for (let i = 0; i < 2; i++) await assert.rejects(() => baseCollectorFinalizedEvidence(f.source, f.destination, hash(3), f.heads(), f.anchors,
-    async () => { replays++; throw new Error("invalid journal"); }), /invalid journal/);
-  assert.equal(replays, 6);
-});
-test("static Base proof cache retains at most sixteen entries", async () => {
-  const f = evidenceFixture(); let replays = 0;
-  const replay = async () => { replays++; };
-  for (let i = 1; i <= 17; i++) await baseCollectorFinalizedEvidence(f.source, f.destination, hash(i), f.heads(), f.anchors, replay);
-  await baseCollectorFinalizedEvidence(f.source, f.destination, hash(17), f.heads(), f.anchors, replay);
-  assert.equal(replays, 17);
-  await baseCollectorFinalizedEvidence(f.source, f.destination, hash(1), f.heads(), f.anchors, replay);
-  assert.equal(replays, 18);
-});
-async function authorize(f: ReturnType<typeof fixture>) {
-  const authorization: BaseCollectorCanaryAuthorization = { version: 2, chainId: 8453, origin: "https://base-canary.musegod.local", collector, automationReceiver: automation,
-    graphFingerprint: baseCollectorGraphFingerprint(f.manifest), keeper, releaseBudgets: [{ token: STOCKS[0].address, decimals: 8, maxAmount: "42" }],
-    maxBaseGasWei: "1000000000000000", maxRobinhoodGasWei: "1000000000000000", expiresAt: "1100", signer: governor.address, signature: "0x" };
-  authorization.signature = await governor.signMessage({ message: baseCollectorCanaryMessage(authorization) }); f.manifest.canaryAuthorization = authorization;
-  return authorization;
-}
-test("a finalized static replay never replaces fresh EIP-1271 governor authorization", async () => {
-  const f = fixture(), proof = evidenceFixture(); const authorization = await authorize(f); let authority = true, signatures = 0, replays = 0;
-  const getCode = f.client.getCode, readContract = f.client.readContract;
-  f.client.getCode = (async (parameters: Parameters<typeof getCode>[0]) => parameters.address === governor.address ? "0x1234" : getCode(parameters)) as typeof getCode;
-  f.client.readContract = (async (parameters: Parameters<typeof readContract>[0]) => {
-    if (parameters.functionName === "isValidSignature") { signatures++; return authority ? "0x1626ba7e" : "0x00000000"; }
-    return readContract(parameters);
-  }) as typeof readContract;
-  const verify = async () => {
-    await verifyBaseCanaryAuthorization(f.client, f.manifest, 1000n, authorization.origin, true);
-    await baseCollectorFinalizedEvidence(proof.source, proof.destination, hash(1), proof.heads(), proof.anchors, async () => { replays++; });
-  };
-  await verify(); await verify(); assert.equal(replays, 1); assert.equal(signatures, 2);
-  authority = false; await assert.rejects(verify, /signature|governor|authority/i);
-  assert.equal(replays, 1); assert.equal(signatures, 3);
-});
-test("native pending manifest never claims deployment or invokes RPC", async () => {
-  const pending = structuredClone(BASE_COLLECTOR_MANIFEST);
-  pending.activation = { status: "not_run" };
-  pending.canaryAuthorization = null;
-  pending.status = "not_deployed";
-  Object.assign(pending.collector, { address: null, runtimeHash: null, transactionHash: null, blockNumber: null });
-  pending.constants.automationReceiver = null;
-  Object.assign(pending.automationAccount, { address: null, runtimeHash: null, implementation: null, owner: null, ownerRuntimeHash: null,
-    threshold: null, signers: [], initializationHash: null, blockNumber: null, creation: null });
-  let calls = 0; const client = { getChainId: async () => { calls++; return 8453; } } as unknown as BaseCollectorClient;
-  await assert.rejects(() => verifyBaseCollectorForOperator(client, collector, { manifest: pending, ...readOnly }), /deployment has not been verified/);
-  assert.equal(calls, 0); assert.equal(pending.constants.automationReceiver, null);
-  assert.equal(pending.activation.status, "not_run");
-});
-test("exact native graph reconstructs every immutable and keeps fresh pause state", async () => {
-  const f = fixture(); const result = await verifyBaseCollectorForOperator(f.client, collector, { manifest: f.manifest, ...readOnly });
-  assert.equal(result.automationReceiver, automation); assert.equal(result.runtimeHash, f.manifest.collector.runtimeHash);
-  assert.equal(result.initialDeploymentBlock, 100n); assert.equal(result.manifestFingerprint, baseCollectorGraphFingerprint(f.manifest));
-  assert.equal(result.currentSettlementGraph,undefined,"Operator initialization verification does not seed a production maintenance graph");
-  f.getters.paused = true; assert.equal((await verifyBaseCollectorForOperator(f.client, collector, { manifest: f.manifest, ...readOnly })).paused, true);
-  assert(!("quoteSigner" in result)); assert(!("gasKeeper" in result)); assert(!("executionModule" in result));
-});
-test("receiver, governor and manager bytecode changes fail closed", async () => {
-  for (const changedCode of [collector, automation, implementation, BASE_SPLITS_FACTORY, CONTRACTS.initializer, CONTRACTS.rehype]) {
-    const f = fixture(); f.mutate({ changedCode }); await assert.rejects(() => verifyBaseCollectorForOperator(f.client, collector, { manifest: f.manifest, ...readOnly }));
-  }
-  const f = fixture(); f.manifest.collector.runtimeHash = hash(999);
-  await assert.rejects(() => verifyBaseCollectorForOperator(f.client, collector, { manifest: f.manifest, ...readOnly }), /compiler output/);
-});
-test("proxy, sparse signer, threshold and owner checks reject unreviewed native account authority", async () => {
-  assert.equal((await verifyBaseCollectorForOperator(fixture().client, collector, { manifest: fixture().manifest, ...readOnly })).automationReceiver, automation);
-  for (const [name, value] of [["owner", address(99)], ["getThreshold", 2], ["getSignerCount", 2], ["getSigner", { slot1: hash(55), slot2: zeroHash }]] as const) {
-    const f = fixture(); f.accountGetters[name] = value; await assert.rejects(() => verifyBaseCollectorForOperator(f.client, collector, { manifest: f.manifest, ...readOnly }), /Automation.*(changed|threshold)|signer changed/i);
-  }
-  const proxy = fixture(); proxy.mutate({ wrongProxy: true }); await assert.rejects(() => verifyBaseCollectorForOperator(proxy.client, collector, { manifest: proxy.manifest, ...readOnly }), /proxy implementation changed/);
-});
-function keeperAuthorityFixture() {
-  const manifest = structuredClone(BASE_COLLECTOR_MANIFEST), sourceAccount=address(701), destinationAccount=manifest.constants.destinationTreasury;
-  const privateKeeper=address(702), owner=address(703), signer=address(704), zero={slot1:zeroHash,slot2:zeroHash};
-  const passkey={slot1:"0x03f6a052474eecfe27884899c3ba21f5dbc9743f11c9000a335be4467cf0fd44" as Hex,slot2:"0x67fbf26c1a1d26289c7ed56abd1747c419a467d180eff8c2f477ea180442f605" as Hex};
-  manifest.constants.automationReceiver=sourceAccount;
-  manifest.automationAccount={...manifest.automationAccount,address:sourceAccount,owner,threshold:1,signers:[{index:250,slot1:padHex(signer,{size:32}),slot2:zeroHash}]};
-  const states=new Map<string,{owner:Address;signers:Map<number,{slot1:Hex;slot2:Hex}>}>([[sourceAccount.toLowerCase(),{owner,signers:new Map([[250,{slot1:padHex(signer,{size:32}),slot2:zeroHash}]])}],
-   [destinationAccount.toLowerCase(),{owner:address(705),signers:new Map([[199,passkey]])}]]);
-  let changedHead=false,unknownContract:Address|undefined,delegated=false;const modules=new Set<string>();
-  const client=(chainId:number)=>({getChainId:async()=>chainId,getBlock:async({blockTag}:any)=>({number:100n,hash:changedHead&&blockTag!=="latest"?hash(999):hash(100)}),
-   getCode:async({address:candidate}:any)=>candidate.toLowerCase()===privateKeeper.toLowerCase()&&delegated?"0xef0100":candidate===BASE_SPLITS_FACTORY?splitsCode.factoryCode:
-    candidate===BASE_SPLITS_IMPLEMENTATION?splitsCode.implementationCode:unknownContract&&sameAddress(candidate,unknownContract)?runtime:states.has(candidate.toLowerCase())?splitsCode.proxyCode:"0x",
-   getStorageAt:async()=>padHex(BASE_SPLITS_IMPLEMENTATION,{size:32}),readContract:async({address:candidate,functionName,args}:any)=>{
-    if(candidate===BASE_SPLITS_FACTORY)return BASE_SPLITS_IMPLEMENTATION;
-    if(functionName==="isModuleEnabled")return modules.has(candidate.toLowerCase());
-    const state=states.get(candidate.toLowerCase());if(!state)throw new Error("unsupported authority");
-    return functionName==="owner"?state.owner:functionName==="getThreshold"?1:functionName==="getSignerCount"?state.signers.size:functionName==="getSigner"?state.signers.get(args[0])??zero:functionName==="FACTORY"?BASE_SPLITS_FACTORY:BASE_SPLITS_IMPLEMENTATION;
-   }}) as unknown as BaseCollectorClient;
-  return{manifest,source:client(8453),destination:client(4663),keeper:privateKeeper,sourceAccount,destinationAccount,states,passkey,modules,mutate:(value:{reorg?:boolean;unknownContract?:Address;delegated?:boolean})=>{changedHead=value.reorg??false;unknownContract=value.unknownContract;delegated=value.delegated??false;}};
-}
-test("live keeper isolation follows actual owner, sparse EOA/ERC1271 signers and full P256 keys on both chains",async()=>{
- const f=keeperAuthorityFixture();await assertBaseKeeperAuthority(f.source,f.destination,f.manifest,f.keeper);
- assert.equal(baseSplitsSignerAuthority(f.passkey).kind,"passkey");
- assert.deepEqual(baseSplitsSignerAuthority({slot1:padHex(f.keeper,{size:32}),slot2:zeroHash}),{kind:"account",address:f.keeper});
- for(const account of [f.sourceAccount,f.destinationAccount]){
-  const state=f.states.get(account.toLowerCase())!,oldOwner=state.owner;state.owner=f.keeper;
-  if(account===f.sourceAccount)f.manifest.automationAccount.owner=f.keeper;
-  await assert.rejects(()=>assertBaseKeeperAuthority(f.source,f.destination,f.manifest,f.keeper),/separate.*owner.*signer/);
-  state.owner=oldOwner;if(account===f.sourceAccount)f.manifest.automationAccount.owner=oldOwner;
-  const old=state.signers;state.signers=new Map([[251,{slot1:padHex(f.keeper,{size:32}),slot2:zeroHash}]]);
-  if(account===f.sourceAccount)f.manifest.automationAccount.signers=[{index:251,slot1:padHex(f.keeper,{size:32}),slot2:zeroHash}];
-  await assert.rejects(()=>assertBaseKeeperAuthority(f.source,f.destination,f.manifest,f.keeper),/separate.*owner.*signer/);
-  state.signers=old;if(account===f.sourceAccount)f.manifest.automationAccount.signers=[{index:250,...old.get(250)!}];
- }
- const nested=address(706),state=f.states.get(f.destinationAccount.toLowerCase())!;
- state.owner=nested;f.states.set(nested.toLowerCase(),{owner:f.keeper,signers:new Map([[255,f.passkey]])});
- await assert.rejects(()=>assertBaseKeeperAuthority(f.source,f.destination,f.manifest,f.keeper),/separate.*owner.*signer/);
- state.owner=address(705);state.signers=new Map([[251,{slot1:padHex(nested,{size:32}),slot2:zeroHash}]]);
- await assert.rejects(()=>assertBaseKeeperAuthority(f.source,f.destination,f.manifest,f.keeper),/separate.*owner.*signer/);
-});
-test("unknown contract-signature/owner, malformed P256, missing slots, delegation and reorg cannot waive keeper isolation",async()=>{
- for(const relationship of ["owner","signer"] as const){
-  const f=keeperAuthorityFixture(),unknown=address(800),state=f.states.get(f.destinationAccount.toLowerCase())!;
-  f.mutate({unknownContract:unknown});if(relationship==="owner")state.owner=unknown;else state.signers=new Map([[255,{slot1:padHex(unknown,{size:32}),slot2:zeroHash}]]);
-  await assert.rejects(()=>assertBaseKeeperAuthority(f.source,f.destination,f.manifest,f.keeper),/Unknown.*owner\/signer authority/);
- }
- assert.throws(()=>baseSplitsSignerAuthority({slot1:hash(1),slot2:hash(2)}),/P256/);
- assert.throws(()=>baseSplitsSignerAuthority({slot1:`0x${"ff".repeat(32)}`,slot2:zeroHash}),/account signer/);
- const reorg=keeperAuthorityFixture();reorg.mutate({reorg:true});await assert.rejects(()=>assertBaseKeeperAuthority(reorg.source,reorg.destination,reorg.manifest,reorg.keeper),/changed during/);
- const delegated=keeperAuthorityFixture();delegated.mutate({delegated:true});await assert.rejects(()=>assertBaseKeeperAuthority(delegated.source,delegated.destination,delegated.manifest,delegated.keeper),/undelegated EOA/);
- const stale=keeperAuthorityFixture();stale.states.get(stale.sourceAccount.toLowerCase())!.signers.set(251,{slot1:padHex(address(801),{size:32}),slot2:zeroHash});
- await assert.rejects(()=>assertBaseKeeperAuthority(stale.source,stale.destination,stale.manifest,stale.keeper),/authority changed/);
-});
-test("keeper execution modules on Treasury and nested custody accounts cannot evade authority isolation",async()=>{
- const f=keeperAuthorityFixture();f.modules.add(f.destinationAccount.toLowerCase());
- await assert.rejects(()=>assertBaseKeeperAuthority(f.source,f.destination,f.manifest,f.keeper),/execution module/);
- f.modules.clear();const nested=address(9999),treasury=f.states.get(f.destinationAccount.toLowerCase())!;
- treasury.owner=nested;f.states.set(nested.toLowerCase(),{owner:address(998),signers:new Map([[255,f.passkey]])});f.modules.add(nested.toLowerCase());
- await assert.rejects(()=>assertBaseKeeperAuthority(f.source,f.destination,f.manifest,f.keeper),/execution module/);
- f.modules.clear();await assertBaseKeeperAuthority(f.source,f.destination,f.manifest,f.keeper);
-});
-
-test("module history commits time-bounded pages across cold clients and failures; live modules remain freshly checked",async context=>{
- const saved=new Map<string,any>(),auditStore={getBuybackBatch:async(id:string)=>structuredClone(saved.get(id)??null),compareAndSetBuybackAudit:async(row:any,expected:any)=>{if(JSON.stringify(saved.get(row.id)??null)!==JSON.stringify(expected))return false;saved.set(row.id,structuredClone(row));return true;}};
- let requests=0,failed=false,clock=0,latency=250;
- context.mock.method(Date,"now",()=>clock);
- const cold=()=>{const f=fixture(),original=f.client.getLogs;f.client.getLogs=(async(input:any)=>{requests++;clock+=latency;if(failed)throw new Error("intermittent module RPC");return original(input);}) as typeof f.client.getLogs;return f;};
- const first=cold();await assert.rejects(()=>verifyBaseAutomationAccount(first.client,first.manifest,1000n,auditStore),/coverage is incomplete/);
- assert(requests<=40);const cursor=[...saved.values()][0].through;assert.equal(cursor,"489");
- failed=true;const broken=cold();await assert.rejects(()=>verifyBaseAutomationAccount(broken.client,broken.manifest,1000n,auditStore),/intermittent/);
- assert.equal([...saved.values()][0].through,cursor);
- failed=false;requests=0;clock=0;latency=0;const next=cold();await verifyBaseAutomationAccount(next.client,next.manifest,1000n,auditStore);assert(requests>40,"One sufficient time budget covers all remaining pages");assert.equal([...saved.values()][0].through,"1000");
- requests=0;const fresh=cold();const log=first.moduleLogs; // An enabled historic address is retained even after a cold process restart.
- assert.equal(log.length,0);await verifyBaseAutomationAccount(fresh.client,fresh.manifest,1000n,auditStore);assert.equal(requests,0);
-});
-test("native Automation rejects live module authority, including a cached historical enable", async () => {
-  const f = fixture(), module = address(888), event = parseAbiItem("event EnabledModule(address indexed module)");
-  f.moduleLogs.push({ address: automation, blockNumber: 91n, blockHash: hash(91), removed: false,
-    transactionHash: hash(70), logIndex: 0, topics: encodeEventTopics({ abi: [event], args: { module } }), data: "0x" });
-  // Disabled historical modules are harmless. The finalized address history may be reused, permissions may not.
-  await verifyBaseCollectorForOperator(f.client, collector, { manifest: f.manifest, ...readOnly });
-  f.moduleEnabled(true);
-  await assert.rejects(() => verifyBaseCollectorForOperator(f.client, collector, { manifest: f.manifest, ...readOnly }), /execution module is enabled/);
-  f.moduleEnabled(false);
-  await verifyBaseCollectorForOperator(f.client, collector, { manifest: f.manifest, ...readOnly });
-  const initial = fixture(); initial.moduleLogs.push({ ...f.moduleLogs[0], blockNumber: 90n }); initial.moduleEnabled(true);
-  await assert.rejects(() => verifyBaseCollectorForOperator(initial.client, collector, { manifest: initial.manifest, ...readOnly }), /execution module is enabled/);
-});
-test("unavailable or removed module history cannot approve the native account", async () => {
-  const f = fixture(); f.client.getLogs = async () => { throw new Error("module history unavailable"); };
-  await assert.rejects(() => verifyBaseCollectorForOperator(f.client, collector, { manifest: f.manifest, ...readOnly }), /module history unavailable/);
-  const g = fixture(), event = parseAbiItem("event EnabledModule(address indexed module)");
-  g.moduleLogs.push({ address: automation, blockNumber: 91n, removed: true,
-    topics: encodeEventTopics({ abi: [event], args: { module: address(888) } }), data: "0x" });
-  await assert.rejects(() => verifyBaseCollectorForOperator(g.client, collector, { manifest: g.manifest, ...readOnly }), /module history is not canonical/);
-});
-test("canary keeper cannot also control governor, operational Treasury or native Automation", async () => {
-  const f = fixture(), authorization = await authorize(f);
-  for (const role of [f.manifest.constants.governor!, f.manifest.constants.operationsTreasury, automation, automationSigner]) {
-    f.manifest.canaryAuthorization = { ...authorization, keeper: role };
-    await assert.rejects(() => verifyBaseCanaryAuthorization(f.client, f.manifest, 1000n, authorization.origin), /human governor authorization/);
-  }
-});
-test("canonical initialization and exact constructor required, counterfactual account never enough", async () => {
-  for (const field of ["missingInit", "wrongConstructor", "reorg"] as const) {
-    const f = fixture(); f.mutate({ [field]: true }); await assert.rejects(() => verifyBaseCollectorForOperator(f.client, collector, { manifest: f.manifest, ...readOnly }));
-  }
-  const f = fixture(); f.manifest.automationAccount.initializationHash = null;
-  await assert.rejects(() => verifyBaseCollectorForOperator(f.client, collector, { manifest: f.manifest, ...readOnly }), /initialized Splits/); assert.equal(f.calls(), 0);
-});
-test("wrong chain, recipient, policy and share never enable Base", async () => {
-  const wrongChain = fixture(); wrongChain.mutate({ chainId: 4663 }); await assert.rejects(() => verifyBaseCollectorForOperator(wrongChain.client, collector, { manifest: wrongChain.manifest, ...readOnly }), /chain 8453/);
-  for (const [name, value] of [["automationReceiver", address(66)], ["LP_SHARE", 1n], ["HOOK_SHARE", 2n]] as const) {
-    const f = fixture(); f.getters[name] = value; await assert.rejects(() => verifyBaseCollectorForOperator(f.client, collector, { manifest: f.manifest, ...readOnly }), /economic shares changed/);
-  }
-  const f = fixture(); f.manifest.nativeRule.recipient = collector;
-  await assert.rejects(() => verifyBaseCollectorForOperator(f.client, collector, { manifest: f.manifest, ...readOnly }), /route.*changed/); assert.equal(f.calls(), 0);
-});
-test("explicit operator activation rejects flags, fork records and missing native closed loop", async () => {
-  const f = fixture(); await assert.rejects(() => verifyBaseCollectorForOperator(f.client, collector, { manifest: f.manifest }), /genuine-fee native/);
-  f.manifest.activation.status = "canary_verified"; await assert.rejects(() => verifyBaseCollectorForOperator(f.client, collector, { manifest: f.manifest }), /status flag is insufficient/);
-  await assert.rejects(() => verifyBaseCollector(f.client, collector, { manifest: f.manifest, allowCanary: true }), /human governor/);
-});
-test("isolated canary verifies exact origin, receiver, keeper, per-token amounts and actual human signature", async () => {
-  const f = fixture(), authorization = await authorize(f);
-  const options = { manifest: f.manifest, allowCanary: true, canaryOrigin: authorization.origin };
-  assert.deepEqual((await verifyBaseCollector(f.client, collector, options)).canaryAuthorization, authorization);
-  await assert.rejects(() => verifyBaseCollector(f.client, collector, { ...options, canaryOrigin: "https://musegod.fun" }), /human governor/);
-  for (const [name, value] of [["keeper", address(66)], ["collector", address(67)], ["expiresAt", "999"], ["maxBaseGasWei", "1"]] as const) {
-    const old = authorization[name]; (authorization as unknown as Record<string, unknown>)[name] = value;
-    await assert.rejects(() => verifyBaseCollector(f.client, collector, options)); (authorization as unknown as Record<string, unknown>)[name] = old;
-  }
-  authorization.releaseBudgets[0].maxAmount = "43"; await assert.rejects(() => verifyBaseCollector(f.client, collector, options));
-});
-test("public origin, absent native rule and paused collector block even signed private canary", async () => {
-  const f = fixture(), authorization = await authorize(f); const options = { manifest: f.manifest, allowCanary: true, canaryOrigin: authorization.origin };
-  f.getters.paused = true; await assert.rejects(() => verifyBaseCollector(f.client, collector, options), /paused/); f.getters.paused = false;
-  f.manifest.nativeRule.ruleId = null; await assert.rejects(() => verifyBaseCollector(f.client, collector, options), /human governor/);
-  f.manifest.nativeRule.ruleId = "reviewed-dedicated-base-rule"; authorization.origin = "https://musegod.fun";
-  authorization.signature = await governor.signMessage({ message: baseCollectorCanaryMessage(authorization) });
-  await assert.rejects(() => verifyBaseCollector(f.client, collector, { ...options, canaryOrigin: authorization.origin }), /isolated/);
-});
-test("explicit offline graph verification does not depend on private canary signing authority", async () => {
-  const f = fixture(), authorization = await authorize(f);
-  authorization.expiresAt = "999";
-  f.getters.paused = true;
-  const graph = await verifyBaseCollectorForOperator(f.client, collector, { manifest: f.manifest, requireActivation: false });
-  assert.equal(graph.paused, true); assert.equal(graph.canaryAuthorization, undefined);
-  await assert.rejects(() => verifyBaseCollector(f.client, collector, { manifest: f.manifest, requireActivation: false,
-    allowCanary: true, canaryOrigin: authorization.origin }), /paused/);
-  f.getters.paused = false;
-  await assert.rejects(() => verifyBaseCollector(f.client, collector, { manifest: f.manifest, requireActivation: false,
-    allowCanary: true, canaryOrigin: authorization.origin }), /expired/);
-});
 test("graph fingerprint excludes activation/auth proofs but binds the native rule and all receiver signers", () => {
   const f = fixture(), before = baseCollectorGraphFingerprint(f.manifest);
   f.manifest.activation.status = "canary_verified"; assert.equal(baseCollectorGraphFingerprint(f.manifest), before);
@@ -404,95 +117,21 @@ test("official factory origin rejects forged factory events, wrong CREATE2 addre
   assert.equal(keccak256(factoryCode), BASE_SPLITS_FACTORY_HASH); assert.equal(keccak256(implementationCode), BASE_SPLITS_IMPLEMENTATION_HASH);
 });
 
-test("native scheduled run acceptance binds the entire journal and both hashes, not just a completion flag", async () => {
-  const f = fixture();
-  f.manifest.activation.nativeExecution = { version: 1, proof: { version: 2, sourceHash: hash(100), destinationHash: hash(101) }, journal: { amount: "42", hash: hash(99) } };
-  const proof: BaseNativeRunAcceptance = { version: 1, graphFingerprint: baseCollectorGraphFingerprint(f.manifest), sourceHash: hash(100), destinationHash: hash(101),
-    nativeExecutionSha256: await baseNativeExecutionSha256(f.manifest.activation.nativeExecution), jobId: "actual-native-job", evidenceUri: "reviewed-evidence/native-run.json", evidenceSha256: hash(102), signer: governor.address, signature: "0x" };
-  await assert.rejects(() => verifyBaseNativeRunAuthority(f.client, f.manifest, 1000n), /scheduled job/);
-  proof.signature = await governor.signMessage({ message: baseNativeRunAcceptanceMessage(proof) }); f.manifest.activation.nativeRunAcceptance = proof;
-  assert.deepEqual(await verifyBaseNativeRunAuthority(f.client, f.manifest, 1000n), proof);
-  for (const [field, value] of [["sourceHash", hash(5)], ["destinationHash", hash(5)], ["graphFingerprint", hash(5)], ["nativeExecutionSha256", hash(5)], ["jobId", ""], ["evidenceSha256", hash(5)], ["evidenceUri", "changed"], ["signer", keeper]] as const) {
-    const mutated = structuredClone(f.manifest); (mutated.activation.nativeRunAcceptance as any)[field] = value;
-    await assert.rejects(() => verifyBaseNativeRunAuthority(f.client, mutated, 1000n));
+test("canonical initialization and exact constructor required, counterfactual account never enough", async () => {
+  for (const field of ["missingInit", "wrongConstructor", "reorg"] as const) {
+    const f = fixture(); f.mutate({ [field]: true }); await assert.rejects(() => verifyBaseCollectorForOperator(f.client, collector, { manifest: f.manifest, ...readOnly }));
   }
-  const mutated = structuredClone(f.manifest); (mutated.activation.nativeExecution as any).journal.amount = "43";
-  await assert.rejects(() => verifyBaseNativeRunAuthority(f.client, mutated, 1000n), /scheduled job/);
-  assert.equal(await baseNativeExecutionSha256({ b: hash(7).toUpperCase().replace("0X", "0x"), a: "42" }), await baseNativeExecutionSha256({ a: "42", b: hash(7) }));
+  const f = fixture(); f.manifest.automationAccount.initializationHash = null;
+  await assert.rejects(() => verifyBaseCollectorForOperator(f.client, collector, { manifest: f.manifest, ...readOnly }), /initialized Splits/); assert.equal(f.calls(), 0);
 });
-test("native completed-run acceptance rechecks current governor EIP-1271 authority", async () => {
-  const f = fixture(); f.manifest.activation.nativeExecution = { proof: { sourceHash: hash(100), destinationHash: hash(101) } };
-  const proof: BaseNativeRunAcceptance = { version: 1, graphFingerprint: baseCollectorGraphFingerprint(f.manifest), sourceHash: hash(100), destinationHash: hash(101),
-    nativeExecutionSha256: await baseNativeExecutionSha256(f.manifest.activation.nativeExecution), jobId: "native-job", evidenceUri: "native-run.json", evidenceSha256: hash(102), signer: governor.address, signature: "0x1234" };
-  f.manifest.activation.nativeRunAcceptance = proof; let live = true, calls = 0;
-  f.client.getCode = async () => "0x1234";
-  f.client.readContract = (async ({ functionName }: { functionName: string }) => {
-    assert.equal(functionName, "isValidSignature"); calls++; return live ? "0x1626ba7e" : "0x00000000";
-  }) as typeof f.client.readContract;
-  await verifyBaseNativeRunAuthority(f.client, f.manifest, 1000n); live = false;
-  await assert.rejects(() => verifyBaseNativeRunAuthority(f.client, f.manifest, 1001n), /signature|authority|governor/i); assert.equal(calls, 2);
-});
-
-test("production activation needs a retained operator result and never falls back to historical receipts", async () => {
-  const f = fixture(); f.manifest.activation.status = "canary_verified";
-  f.manifest.activation.nativeExecution = { proof: { sourceHash: hash(3), destinationHash: hash(4) } };
-  f.manifest.canaryAuthorization = {} as any; f.manifest.activation.walletAcceptance = {} as any;
-  f.manifest.activation.pauseRollbackAcceptance = {} as any; f.manifest.activation.nativeRunAcceptance = {} as any;
-  let receipts = 0, writes = 0;
-  f.client.getTransactionReceipt = async () => { receipts++; throw new Error("Runtime must not replay historical receipts"); };
-  const destination = { getChainId: async () => 4663, getBlock: async () => ({ number: 1000n, hash: hash(1000) }) } as unknown as BaseCollectorClient;
-  const store: BaseAuditStore = { getBuybackBatch: async () => null, compareAndSetBuybackAudit: async () => { writes++; return true; } };
-  for(const requireActivation of [undefined,true,false,"runtime"] as const)
-    await assert.rejects(verifyBaseCollector(f.client,collector,{manifest:f.manifest,requireActivation,robinhoodClient:destination,auditStore:store}),/explicit operator verification/);
-  await assert.rejects(verifyBaseCollector(f.client,BASE_COLLECTOR_MANIFEST.collector.address!),/finalized operator activation record/);
-  for(const canaryOrigin of [undefined,"https://musegod.fun","https://private-canary.example"])
-    await assert.rejects(verifyBaseCollector(f.client,collector,{manifest:f.manifest,requireActivation:false,robinhoodClient:destination,auditStore:store,canaryOrigin}),/explicit operator verification/);
-  assert.equal(receipts + writes, 0);
-  for (const options of [{requireActivation:"runtime" as const}, {requireActivation:false}, {allowCanary:true}])
-    await assert.rejects(verifyBaseCollector(f.client, collector, { manifest:f.manifest, auditStore:store, recordActivation:true, ...options }), /explicit complete operator/);
-  assert.equal(receipts + writes, 0, "production/canary cannot produce an acceptance record");
-});
-
-test("retained activation cannot bypass a current governor EIP-1271 revocation", async () => {
-  const f = fixture(); await authorize(f);
-  f.manifest.activation.status = "canary_verified";
-  // A trusted completed-operator metadata fixture, not a mainnet acceptance.
-  f.manifest.activation.nativeExecution = { proof: { sourceHash: hash(3), destinationHash: hash(4) } };
-  f.manifest.activation.walletAcceptance = {} as any; f.manifest.activation.pauseRollbackAcceptance = {} as any; f.manifest.activation.nativeRunAcceptance = {} as any;
-  const records = new Map<string, any>();
-  const store: BaseAuditStore = { getBuybackBatch: async id => records.get(id) ?? null, compareAndSetBuybackAudit: async row => { records.set(String(row.id), row); return true; } };
-  const destination = { getChainId: async () => 4663, getBlock: async (input:any) => { const number = input.blockNumber ?? 1000n; return {number,hash:hash(Number(number))}; } } as unknown as BaseCollectorClient;
-  const heads = {source:{number:1000n,hash:hash(1000)},destination:{number:1000n,hash:hash(1000)}};
-  await persistBaseActivationRecord(f.client, destination, store, f.manifest, baseCollectorGraphFingerprint(f.manifest),
-    {source:[{number:90n,hash:hash(90)},{number:100n,hash:hash(100)}],destination:[{number:120n,hash:hash(120)}]}, heads);
-  const code = f.client.getCode.bind(f.client), read = f.client.readContract.bind(f.client); let signatures = 0, receipts = 0;
-  f.client.getCode = async args => args.address === governor.address ? "0x1234" : code(args);
-  f.client.readContract = (async (args:any) => { if(args.functionName==="isValidSignature"){signatures++;return "0x00000000";} return read(args); }) as any;
-  f.client.getTransactionReceipt = async () => { receipts++; throw new Error("No historical receipt in production"); };
-  const retainedRecord=structuredClone([...records.values()].find(row=>row.protocol==="internal_native_activation_v1"));
-  assert.equal((await verifyBaseCollector({...f.client},collector,{manifest:f.manifest,requireActivation:false,robinhoodClient:destination,auditStore:store})).collector,collector);
-  assert.equal(signatures,0,"Completed legacy canary records remain usable for recovery after signing authority is revoked");
-  for(const requireActivation of [undefined,true,"runtime"] as const)
-    await assert.rejects(verifyBaseCollector(f.client,collector,{manifest:f.manifest,requireActivation,robinhoodClient:destination,auditStore:store}),/signature|authorization|authority/i);
-  assert.equal(signatures,3); assert.equal(receipts,0);
-  assert.equal([...records.values()].filter(row=>row.protocol==="internal_native_activation_v1").length,1,"Recovery may advance module history but never writes another activation record");
-  assert.deepEqual(records.get(retainedRecord.id),retainedRecord);
-});
-
-test("live Automation checks keep current signers and modules while skipping accepted initialization receipts", async () => {
-  const f=fixture(); let receipts=0;
-  f.client.getTransactionReceipt=async()=>{receipts++;throw new Error("Runtime must not re-read factory initialization");};
-  await verifyBaseAutomationAccount(f.client,f.manifest,1000n,undefined,false);
-  assert.equal(receipts,0);
-  f.accountGetters.owner=keeper;
-  await assert.rejects(verifyBaseAutomationAccount(f.client,f.manifest,1000n,undefined,false),/owner|threshold/);
-  const g=fixture();g.client.getTransactionReceipt=async()=>{receipts++;throw new Error("No accepted initialization replay");};
-  g.moduleLogs.push({address:automation,blockNumber:500n,topics:encodeEventTopics({abi:[parseAbiItem("event EnabledModule(address indexed module)")],eventName:"EnabledModule",args:{module:keeper}}),data:"0x",removed:false});g.moduleEnabled(true);
-  await assert.rejects(verifyBaseAutomationAccount(g.client,g.manifest,1000n,undefined,false),/module is enabled/);
-  assert.equal(receipts,0);
-});
-
-async function trustedAcceptance(f: ReturnType<typeof fixture>) {
+test("wrong chain, recipient, policy and share never enable Base", async () => {
+  const wrongChain = fixture(); wrongChain.mutate({ chainId: 4663 }); await assert.rejects(() => verifyBaseCollectorForOperator(wrongChain.client, collector, { manifest: wrongChain.manifest, ...readOnly }), /chain 8453/);
+  for (const [name, value] of [["automationReceiver", address(66)], ["LP_SHARE", 1n], ["HOOK_SHARE", 2n]] as const) {
+    const f = fixture(); f.getters[name] = value; await assert.rejects(() => verifyBaseCollectorForOperator(f.client, collector, { manifest: f.manifest, ...readOnly }), /economic shares differ/);
+  }
+  const f = fixture(); f.manifest.nativeRule.recipient = collector;
+  await assert.rejects(() => verifyBaseCollectorForOperator(f.client, collector, { manifest: f.manifest, ...readOnly }), /route.*changed/); assert.equal(f.calls(), 0);
+});async function trustedAcceptance(f: ReturnType<typeof fixture>) {
   const acceptance: BaseTrustedSplitsAcceptance = { version:1,sourceChainId:8453,destinationChainId:4663,
     graphFingerprint:baseCollectorGraphFingerprint(f.manifest),collector,automationReceiver:automation,
     destinationTreasury:f.manifest.constants.destinationTreasury,destinationWeth:f.manifest.constants.destinationWeth,
@@ -523,220 +162,60 @@ test("trusted acceptance signature binds chains, graph, assets, accounts, rule, 
   await assert.rejects(()=>verifyBaseTrustedSplitsAuthority(other.client,other.manifest,1000n),/governor|signature/);
 });
 
-test("trusted configuration records retain live governor revocation and do not enable runtime on a status flag alone",async()=>{
-  const f=fixture();await trustedAcceptance(f);let receipts=0,signatures=0;
-  const records=new Map<string,any>(),store:BaseAuditStore={getBuybackBatch:async id=>records.get(id)??null,compareAndSetBuybackAudit:async row=>{records.set(String(row.id),row);return true;}};
-  const destination={getChainId:async()=>4663,getBlock:async(input:any)=>{const number=input.blockNumber??1000n;return{number,hash:hash(Number(number))};}} as unknown as BaseCollectorClient;
-  await assert.rejects(()=>verifyBaseCollector(f.client,collector,{manifest:f.manifest,requireActivation:"runtime",robinhoodClient:destination,auditStore:store}),/explicit operator verification/);
-  await persistBaseActivationRecord(f.client,destination,store,f.manifest,baseCollectorGraphFingerprint(f.manifest),
-    {source:[{number:90n,hash:hash(90)},{number:100n,hash:hash(100)}],destination:[{number:120n,hash:hash(120)}]},
-    {source:{number:1000n,hash:hash(1000)},destination:{number:1000n,hash:hash(1000)}});
-  const code=f.client.getCode.bind(f.client),read=f.client.readContract.bind(f.client);
-  f.client.getCode=async args=>args.address===governor.address?"0x1234":code(args);
-  f.client.readContract=(async(args:any)=>{if(args.functionName==="isValidSignature"){signatures++;return"0x00000000";}return read(args);}) as any;
-  f.client.getTransactionReceipt=async()=>{receipts++;throw new Error("Runtime cannot replay configuration receipts");};
-  await assert.rejects(()=>verifyBaseCollector(f.client,collector,{manifest:f.manifest,requireActivation:"runtime",robinhoodClient:destination,auditStore:store}),/Governor contract rejected/);
-  assert.equal(signatures,1);assert.equal(receipts,0);assert.equal(records.size,1);
+
+test("manual graph verification preserves exact immutable shares and does not scan modules", async()=>{
+ const f=fixture();f.client.getLogs=async()=>{throw new Error('NO_MODULE_HISTORY');};
+ const graph=await verifyBaseCollectorForOperator(f.client,collector,{manifest:f.manifest,requireActivation:false});
+ assert.equal(graph.runtimeHash,keccak256(baseCollectorExpectedRuntime(f.manifest)));assert.equal(graph.automationReceiver,automation);
+ for(const field of ['LP_SHARE','HOOK_SHARE']){const g=fixture();g.getters[field]=0n;await assert.rejects(()=>verifyBaseCollectorForOperator(g.client,collector,{manifest:g.manifest,requireActivation:false}),/economic/);}
+});
+test("per-transaction permissions fit a multicall and slot read; mutable changes defer signing",async()=>{
+ const f=fixture();let rpc=0;
+ f.client.multicall=(async({contracts}:any)=>{rpc++;return Promise.all(contracts.map((call:any)=>f.client.readContract(call)));}) as typeof f.client.multicall;
+ const storage=f.client.getStorageAt;f.client.getStorageAt=async(args:any)=>{rpc++;return storage(args);};
+ await assertBaseKeeperLiveAuthority(f.client,f.manifest,keeper);assert.equal(rpc,2);
+ for(const mutate of [()=>f.getters.paused=true,()=>f.getters.governor=keeper,()=>f.accountGetters.owner=keeper,()=>f.accountGetters.getThreshold=2,()=>f.accountGetters.getSignerCount=2,()=>f.moduleEnabled(true),()=>f.accountGetters.getSigner={slot1:padHex(keeper,{size:32}),slot2:zeroHash},()=>f.mutate({wrongProxy:true})]){
+  mutate();await assert.rejects(()=>assertBaseKeeperLiveAuthority(f.client,f.manifest,keeper));
+  f.getters.paused=false;f.getters.governor=governor.address;f.accountGetters.owner=governor.address;f.accountGetters.getThreshold=1;f.accountGetters.getSignerCount=1;f.accountGetters.getSigner=f.manifest.automationAccount.signers[0];f.moduleEnabled(false);f.mutate({});
+ }
 });
 
-test("a paused Collector records owner-approved Splits wiring only after complete two-chain graph and finalized anchor verification",async t=>{
-  // Only bytecode hashes are synthetic. The Robinhood addresses, immutable
-  // getters and safety limits remain those of the pinned deployed graph.
-  // This exercises configuration acceptance, never a mainnet fee execution.
-  const runtimeHash=keccak256(runtime),contracts=Object.values(robinhoodDeployment.contracts);
-  const originalContractHashes=contracts.map(contract=>contract.runtimeHash);
-  const implementation=robinhoodDeployment.preflight.dependencies.find(entry=>entry.name==="swapperImpl")!;
-  const originalImplementationHash=implementation.runtimeHash,originalRouterHashes={...buybackConfig.expectedRuntimeHashes},originalRelayHashes={...BUYBACK_CODE_HASHES};
-  t.after(()=>{
-    contracts.forEach((contract,index)=>{contract.runtimeHash=originalContractHashes[index];});
-    implementation.runtimeHash=originalImplementationHash;
-    Object.assign(buybackConfig.expectedRuntimeHashes,originalRouterHashes);
-    Object.assign(BUYBACK_CODE_HASHES,originalRelayHashes);
+async function sealedStartupFixture() {
+  const f = fixture(), rows = new Map<string, any>();
+  const store = (): ContractIdentityStore => ({
+    getBuybackBatch: async id => structuredClone(rows.get(id) ?? null),
+    compareAndSetBuybackAudit: async (row, previous) => {
+      assert.deepEqual(rows.get(row.id) ?? null, previous);
+      rows.set(row.id, structuredClone(row)); return true;
+    },
   });
-  contracts.forEach(contract=>{contract.runtimeHash=runtimeHash;});implementation.runtimeHash=runtimeHash;
-  buybackConfig.expectedRuntimeHashes.router=runtimeHash;buybackConfig.expectedRuntimeHashes.routerExecutor=runtimeHash;
-  for(const endpoint of [RELAY_APPROVAL_PROXY,RELAY_DEPOSITORY,RELAY_ROUTER])BUYBACK_CODE_HASHES[endpoint.toLowerCase()]=runtimeHash;
-  const c=robinhoodDeployment.constants,nodes=Object.fromEntries(Object.entries(robinhoodDeployment.contracts).map(([name,entry])=>[name,getAddress(entry.address)]));
-  const feeds=[{token:c.weth,feed:c.ethUsdFeed,maxAge:buybackConfig.ethMaxAge,checkOraclePaused:false},...buybackConfig.feeds];
-  const descriptions=robinhoodDeployment.assetFeedDescriptions as Record<string,{descriptionHash:string}>;
-  const rhAssets=assetsFor({mode:"robinhood"});
-  const getters:Record<string,Record<string,unknown>>={
-    [nodes.engine.toLowerCase()]:{initializer:c.initializer,rehype:c.rehype,oracle:nodes.oracle,assetOracle:nodes.assetOracle,settlementVault:nodes.vault,
-      swapper:nodes.swapper,weth:c.weth,muse:c.muse,router:c.router,automation:c.automation,routerCodeHash:runtimeHash,
-      routerExecutor:c.routerExecutor,routerExecutorCodeHash:runtimeHash},
-    [nodes.executor.toLowerCase()]:{swapper:nodes.swapper,weth:c.weth,musegod:c.muse,router:c.swapRouter},
-    [nodes.forwarder.toLowerCase()]:{source:c.automationTreasury,weth:c.weth,swapper:nodes.swapper,vault:nodes.vault,
-      MAX_ALLOWANCE:BUYBACK_FORWARDER_ALLOWANCE_CAP,totalForwarded:0n},
-    [nodes.vault.toLowerCase()]:{weth:c.weth,musegod:c.muse,oracle:nodes.oracle,swapper:nodes.swapper,executor:nodes.executor,pool:c.museWethPool,
-      WINDOW_CAP:10n**16n,WINDOW_SECONDS:300n,MAX_DEVIATION_BPS:200n},
-    [nodes.assetOracle.toLowerCase()]:{governor:c.treasury,weth:c.weth,FEED_CHANGE_DELAY:604800n},
-    [nodes.oracle.toLowerCase()]:{weth:c.weth,musegod:c.muse,museWethPool:c.museWethPool,ethUsdFeed:c.ethUsdFeed,
-      TWAP_SECONDS:buybackConfig.twapSeconds,ethMaxAge:buybackConfig.ethMaxAge},
-    [nodes.swapper.toLowerCase()]:{owner:address(0),paused:false,beneficiary:c.beneficiary,tokenToBeneficiary:c.muse,oracle:nodes.oracle,
-      defaultScaledOfferFactor:985000,getPairScaledOfferFactors:[0]},
-  };
-  const proofReuseScenarios=new Set(["static_record_reuse","missing_record_pending","changed_binding_pending","changed_record_pending","database_unavailable_pending",
-    "anchor_unavailable_pending","destination_head_unavailable_pending","destination_head_missing_pending","missing_store_pending","missing_destination_pending",
-    "runtime_settlement_projection","producer_full_history","revoked_governor_static_recovery"]);
-  for(const scenario of ["complete","no_post_write_rpc","wrong_recipient","source_not_finalized","destination_past_head","destination_finalized_unavailable","head_changed_before_write","head_rpc_before_write",...proofReuseScenarios]){
-    const f=fixture();f.getters.paused=true;await trustedAcceptance(f);
-    const baseCode=f.client.getCode.bind(f.client),baseBlock=f.client.getBlock.bind(f.client),baseReceipt=f.client.getTransactionReceipt.bind(f.client);
-    const receiptHashes:Hex[]=[];let nativeRequests=0,activationWrites=0,postWriteReads=0,sourceAnchorRead=false,destinationAnchorRead=false;
-    f.client.getCode=async input=>[RELAY_APPROVAL_PROXY,RELAY_DEPOSITORY,RELAY_ROUTER].some(endpoint=>sameAddress(endpoint,input.address))?runtime:baseCode(input);
-    f.client.getBlock=async input=>{
-      if(scenario==="no_post_write_rpc"&&activationWrites){postWriteReads++;throw new Error("No RPC is permitted after the completed activation CAS");}
-      if(input&&"blockNumber" in input&&input.blockNumber===936n)sourceAnchorRead=true;
-      if(input&&"blockNumber" in input&&input.blockNumber===1000n&&sourceAnchorRead&&destinationAnchorRead){
-        if(scenario==="head_changed_before_write")return{number:1000n,hash:hash(999)} as any;
-        if(scenario==="head_rpc_before_write")throw new Error("Outer Base head RPC is unavailable before activation CAS");
-      }
-      return input&&"blockTag" in input&&input.blockTag==="finalized"&&scenario==="source_not_finalized"
-        ? {number:99n,hash:hash(99)} as any:baseBlock(input);
-    };
-    f.client.getTransactionReceipt=async input=>{receiptHashes.push(input.hash);return baseReceipt(input);};
-    f.client.request=async()=>{nativeRequests++;throw new Error("Configuration acceptance must not trace or send transactions");};
-    const records=new Map<string,any>();
-    const store:BaseAuditStore={getBuybackBatch:async id=>structuredClone(records.get(id)??null),compareAndSetBuybackAudit:async(row,expected)=>{
-      assert.deepEqual(records.get(row.id)??null,expected);records.set(row.id,structuredClone(row));
-      if(row.protocol==="internal_native_activation_v1")activationWrites++;return true;
-    }};
-    const destination={getChainId:async()=>4663,getBlockNumber:async()=>1000n,getCode:async()=>runtime,
-      getBlock:async(input:{blockNumber?:bigint;blockTag?:string})=>{
-        if(scenario==="no_post_write_rpc"&&activationWrites){postWriteReads++;throw new Error("No destination RPC is permitted after activation CAS");}
-        if(input.blockNumber===900n)destinationAnchorRead=true;
-        if(input.blockTag==="finalized"&&scenario==="destination_finalized_unavailable")throw new Error("Finalized RPC is unavailable");
-        const number=input.blockNumber??(input.blockTag==="finalized"?(scenario==="destination_past_head"?1001n:900n):1000n);
-        return{number,hash:hash(Number(number)),timestamp:1000n};
-      },readContract:async(input:{address:Address;functionName:string;args?:Address[];blockNumber:bigint})=>{
-        assert.equal(input.blockNumber,1000n);
-        if(input.functionName==="balanceOf"||input.functionName==="allowance")return 0n;
-        if(input.functionName==="descriptionHash")return descriptions[input.args![0].toLowerCase()].descriptionHash;
-        if(input.functionName==="assetFeeds"){
-          const feed=feeds.find(entry=>sameAddress(entry.token,input.args![0]))!;
-          const decimals=sameAddress(feed.token,c.weth)?18:rhAssets.find(asset=>sameAddress(asset.address,feed.token))!.decimals;
-          return[feed.feed,feed.maxAge,decimals,8,feed.checkOraclePaused];
-        }
-        if(scenario==="wrong_recipient"&&sameAddress(input.address,nodes.forwarder)&&input.functionName==="source")return address(999);
-        const value=getters[input.address.toLowerCase()]?.[input.functionName];
-        assert.notEqual(value,undefined,`Unexpected configured Robinhood getter ${input.address}.${input.functionName}`);return value;
-      },request:async()=>{nativeRequests++;throw new Error("Configuration acceptance must not use trace");},
-    } as unknown as BaseCollectorClient;
-    const options={manifest:f.manifest,recordActivation:true,robinhoodClient:destination,auditStore:store};
-    if(scenario==="complete"||scenario==="no_post_write_rpc"||proofReuseScenarios.has(scenario)){
-      const verified=await verifyBaseCollector(f.client,collector,options);
-      assert.equal(verified.paused,true);assert.equal(verified.manifestFingerprint,baseCollectorGraphFingerprint(f.manifest));
-      assert.equal(verified.currentSettlementGraph,undefined,"A full record producer preserves historical anchor shape and supplies no runtime graph");
-      assert.equal(activationWrites,1);
-      assert.equal(await hasBaseLaunchActivationRecord(store,f.manifest,verified.manifestFingerprint),true);
-      const record=[...records.values()].find(row=>row.protocol==="internal_native_activation_v1");
-      assert.deepEqual(record.anchors.source.map((anchor:any)=>anchor.number).sort(),["100","90","936"]);
-      assert.deepEqual(record.anchors.destination,[{number:"900",hash:hash(900)}]);
-      assert.equal(record.finalized.source.number,"1000");assert.equal(record.finalized.destination.number,"900");
-      if(proofReuseScenarios.has(scenario))await t.test(scenario,async()=>{
-        // Old block headers remain available for canonical record anchors.
-        // Only the accepted transaction and initialization state reads are denied.
-        let denyHistory=false,historicalReads=0,signatureChecks=0;
-        const receipt=f.client.getTransactionReceipt.bind(f.client),transaction=f.client.getTransaction.bind(f.client),
-          code=f.client.getCode.bind(f.client),read=f.client.readContract.bind(f.client);
-        f.client.getTransactionReceipt=async input=>{historicalReads++;if(denyHistory)throw new Error("Historical receipt reads disabled");return receipt(input);};
-        f.client.getTransaction=async input=>{historicalReads++;if(denyHistory)throw new Error("Historical transaction reads disabled");return transaction(input);};
-        f.client.getCode=async input=>{
-          if(input.blockNumber===89n||input.blockNumber===90n){historicalReads++;if(denyHistory)throw new Error("Historical initialization code reads disabled");}
-          return scenario==="revoked_governor_static_recovery"&&sameAddress(input.address,governor.address)?"0x1234":code(input);
-        };
-        f.client.readContract=(async(input:any)=>{
-          if(input.blockNumber===90n){historicalReads++;if(denyHistory)throw new Error("Historical initialization getter reads disabled");}
-          if(input.functionName==="isValidSignature"){signatureChecks++;return"0x00000000";}
-          return read(input);
-        }) as typeof f.client.readContract;
-        const staticOptions={...options,recordActivation:false,requireActivation:false};
-        if(scenario==="static_record_reuse"){
-          denyHistory=true;
-          const coldClient={...f.client};
-          const staticGraph=await verifyBaseCollector(coldClient,collector,staticOptions);
-          assert.equal(staticGraph.paused,true);assert.equal(staticGraph.currentSettlementGraph,undefined,"Static recovery must not supply an unverified destination graph");
-          assert.equal(historicalReads,0,"A finalized exact record must remove receipt and initialization archive dependencies");
-          f.getters.paused=false;assert.equal((await verifyBaseCollector(f.client,collector,staticOptions)).paused,false);f.getters.paused=true;
-          for(const [name,value] of [["owner",address(999)],["getThreshold",2],["getSignerCount",2],["getSigner",{slot1:hash(55),slot2:zeroHash}]] as const){
-            const previous=f.accountGetters[name];f.accountGetters[name]=value;
-            await assert.rejects(()=>verifyBaseCollector(f.client,collector,staticOptions),/owner|threshold|signer changed/);f.accountGetters[name]=previous;
-          }
-          for(const changedCode of [collector,automation,BASE_SPLITS_IMPLEMENTATION,BASE_SPLITS_FACTORY,CONTRACTS.initializer,CONTRACTS.rehype]){
-            f.mutate({changedCode});await assert.rejects(()=>verifyBaseCollector(f.client,collector,staticOptions),/runtime|compiler output|factory|implementation/i);f.mutate({});
-          }
-          for(const name of ["LP_SHARE","HOOK_SHARE"]){
-            const previous=f.getters[name];f.getters[name]=1n;
-            await assert.rejects(()=>verifyBaseCollector(f.client,collector,staticOptions),/economic shares changed/);f.getters[name]=previous;
-          }
-          f.mutate({reorg:true});await assert.rejects(()=>verifyBaseCollector(f.client,collector,staticOptions));f.mutate({});
-          const block=f.client.getBlock.bind(f.client);
-          f.client.getBlock=async input=>input&&"blockTag"in input&&input.blockTag==="latest"
-            ?{number:1001n,hash:hash(1001),parentHash:hash(1000),timestamp:1001n} as any:block(input);
-          f.moduleLogs.push({address:automation,blockNumber:1001n,topics:encodeEventTopics({abi:[parseAbiItem("event EnabledModule(address indexed module)")],eventName:"EnabledModule",args:{module:keeper}}),data:"0x",removed:false});
-          f.moduleEnabled(true);
-          await assert.rejects(()=>verifyBaseCollector(f.client,collector,staticOptions),/execution module is enabled/);
-        }else if(scenario==="runtime_settlement_projection"){
-          denyHistory=true;
-          for(const requireActivation of [undefined,true,"runtime"] as const){
-            const checked=await verifyBaseCollector({...f.client},collector,{...staticOptions,requireActivation});
-            assert.deepEqual(checked.currentSettlementGraph,{vault:nodes.vault,weth:getAddress(c.weth),swapper:nodes.swapper,engineForwarders:[nodes.engine,nodes.forwarder]});
-          }
-          const destinationCode=destination.getCode.bind(destination);
-          destination.getCode=async input=>sameAddress(input.address,RELAY_ROUTER)?"0x60056000fd":destinationCode(input);
-          await assert.rejects(()=>verifyBaseCollector(f.client,collector,{...staticOptions,requireActivation:"runtime"}),/latest Robinhood Relay endpoint changed/);
-          assert.equal(historicalReads,0);assert.equal(activationWrites,1);
-          assert.deepEqual([...records.values()].find(row=>row.protocol==="internal_native_activation_v1"),record,"A failed current graph never replaces acceptance metadata");
-        }else if(scenario==="producer_full_history"){
-          denyHistory=true;
-          await assert.rejects(()=>verifyBaseCollector(f.client,collector,options),/Historical (?:receipt|initialization code) reads disabled/);
-          assert(historicalReads>0,"An operator must reverify the full proof before writing even an already completed record");
-          assert.deepEqual([...records.values()].find(row=>row.protocol==="internal_native_activation_v1"),record);
-        }else if(scenario==="revoked_governor_static_recovery"){
-          denyHistory=true;
-          assert.equal((await verifyBaseCollector(f.client,collector,staticOptions)).paused,true);
-          assert.equal(historicalReads,0);assert.equal(signatureChecks,0,"Receipt recovery must not depend on current signing approval");
-          await assert.rejects(()=>verifyBaseCollector(f.client,collector,{...staticOptions,requireActivation:"runtime"}),/Governor contract rejected/);
-          assert.equal(signatureChecks,1,"New signing must still recheck the live governor authority");assert.equal(historicalReads,0);
-        }else{
-          if(scenario==="missing_record_pending")records.delete(record.id);
-          if(scenario==="changed_binding_pending")f.manifest.activation.trustedSplitsAcceptance!.signature="0x5678";
-          if(scenario==="changed_record_pending")records.set(record.id,{...record,binding:hash(999)});
-          if(scenario==="database_unavailable_pending")store.getBuybackBatch=async()=>{throw new Error("Private activation store temporarily unavailable");};
-          if(scenario==="missing_store_pending")staticOptions.auditStore=undefined as unknown as BaseAuditStore;
-          if(scenario==="missing_destination_pending")staticOptions.robinhoodClient=undefined as unknown as BaseCollectorClient;
-          if(scenario==="anchor_unavailable_pending"){
-            const block=destination.getBlock.bind(destination);
-            destination.getBlock=async input=>input&&"blockNumber"in input&&input.blockNumber===900n
-              ?Promise.reject(new Error("Retained destination anchor RPC unavailable")):block(input);
-          }
-          if(scenario==="destination_head_unavailable_pending"||scenario==="destination_head_missing_pending"){
-            const block=destination.getBlock.bind(destination);
-            destination.getBlock=async input=>{
-              if(input&&"blockTag" in input&&input.blockTag==="latest"){
-                if(scenario==="destination_head_unavailable_pending")throw new Error("Destination RPC temporarily unavailable");
-                return{number:null,hash:null} as any;
-              }
-              return block(input);
-            };
-          }
-          denyHistory=true;
-          const pending=/explicit operator verification|finalized operator activation record|canonical settlement head|Destination RPC temporarily unavailable/;
-          for(let attempt=0;attempt<2;attempt++)await assert.rejects(()=>verifyBaseCollector({...f.client},collector,staticOptions),pending);
-          for(const requireActivation of [undefined,true,"runtime"] as const)
-            await assert.rejects(()=>verifyBaseCollector(f.client,collector,{...staticOptions,requireActivation}),pending);
-          assert.equal(historicalReads,0,"Missing, changed or unavailable records never invoke deployment receipts or initial state reads");
-          assert.equal(signatureChecks,0);assert.equal(activationWrites,1,"A pending read cannot invent or repair activation authority");
-        }
-      });
-    }else{
-      const error=scenario==="wrong_recipient"?/WETH forwarder dependencies/:scenario==="head_changed_before_write"?/verification head was reorganized/:
-        scenario==="head_rpc_before_write"?/Outer Base head RPC is unavailable/:/finalized|Finalized|finalized Base activation record/;
-      await assert.rejects(()=>verifyBaseCollector(f.client,collector,options),error);
-      assert.equal(activationWrites,0);
-      assert.equal(await hasBaseLaunchActivationRecord(store,f.manifest,baseCollectorGraphFingerprint(f.manifest)),false);
-    }
-    assert.equal(f.getters.paused,true,scenario);assert.equal(f.manifest.activation.nativeExecution,undefined);
-    assert.equal(f.manifest.canaryAuthorization,null);assert.equal(nativeRequests,0);assert.equal(postWriteReads,0);
-    assert(receiptHashes.every(receipt=>receipt===hash(1)||receipt===hash(2)),"Only existing deployment and account initialization receipts may be inspected");
-  }
+  const immutable = { collector, automationReceiver: automation, runtimeHash: f.manifest.collector.runtimeHash!,
+    manifestFingerprint: baseCollectorGraphFingerprint(f.manifest), initialDeploymentBlock: "100",
+    currentSettlementGraph: { vault: f.manifest.finalSettlement.vault, weth: f.manifest.constants.destinationWeth,
+      swapper: robinhoodDeployment.contracts.swapper.address, engineForwarders: [robinhoodDeployment.contracts.engine.address, f.manifest.finalSettlement.forwarder] } };
+  await contractIdentityOnce({}, { namespace: "base_collector_startup", store: store(),
+    binding: { manifest: f.manifest, runtimeHash: f.manifest.collector.runtimeHash,
+      expectedRuntime: keccak256(baseCollectorExpectedRuntime(f.manifest)), settlement: robinhoodDeployment },
+    validate: () => true, verify: async () => immutable });
+  return { f, store, rows };
+}
+test("startup reuses a durable immutable seal across clients while checking both networks and live pause", async () => {
+  const { f, store } = await sealedStartupFixture(); let sourceNetwork = 0, destinationNetwork = 0, codeReads = 0;
+  f.client.getChainId = async () => { sourceNetwork++; return 8453; };
+  f.client.getCode = async () => { codeReads++; throw Error("Immutable code must not be re-read"); };
+  const destination = { getChainId: async () => { destinationNetwork++; return 4663; } } as unknown as BaseCollectorClient;
+  const first = await verifyBaseCollectorForKeeperStartup(f.client, destination, { manifest: f.manifest, auditStore: store() });
+  assert.equal(first.paused, false); f.getters.paused = true;
+  const second = await verifyBaseCollectorForKeeperStartup(f.client, destination, { manifest: f.manifest, auditStore: store() });
+  assert.equal(second.paused, true); assert.equal(sourceNetwork, 2); assert.equal(destinationNetwork, 2); assert.equal(codeReads, 0);
+  await assert.rejects(() => verifyBaseCollectorForKeeperStartup(f.client,
+    { getChainId: async () => 8453 } as unknown as BaseCollectorClient, { manifest: f.manifest, auditStore: store() }), /RPC networks/);
+});
+test("changed startup manifests cannot reuse the prior private seal", async () => {
+  const { f, store } = await sealedStartupFixture();
+  f.manifest.nativeRule.configurationSha256 = hash(777);
+  f.client.getCode = async () => { throw Error("Changed manifest requires verification"); };
+  await assert.rejects(() => verifyBaseCollectorForKeeperStartup(f.client,
+    { getChainId: async () => 4663 } as unknown as BaseCollectorClient,
+    { manifest: f.manifest, auditStore: store() }), /Changed manifest requires verification/);
 });

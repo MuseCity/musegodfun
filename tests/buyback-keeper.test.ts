@@ -6,7 +6,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { encodeAbiParameters, getAddress, keccak256, parseAbiParameters, type Address, type Hex } from "viem";
-import { acquireKeeperJournalLock, assertKeeperAccount, assertKeeperDeploymentAccount, assertKeeperGraph, assertKeeperSubmissionRuntime, assertKeeperNonceReady, createKeeperPublicClientCache, keeperApiOrigin, keeperGasCost, keeperProfitThreshold, keeperSyncHasNewCredit, keeperTaskWait, KEEPER_TASK_RETRY_POLICY, KeeperSigningStopped, KeeperSubmissionBarrier, readKeeperJournal, readKeeperTaskState, reconcileKeeperJournal, recordKeeperTaskOutcome, redactKeeperError, selectKeeperTasks, writeKeeperJournal, writeKeeperTaskState, type KeeperJournal, type KeeperTaskStateFile } from "../scripts/buyback-keeper";
+import { keeperProfitBackoff, keeperProfitCandidates, readKeeperProfitState, writeKeeperProfitState, KEEPER_PROFIT_INITIAL_BACKOFF_MS, KEEPER_PROFIT_MAX_BACKOFF_MS, acquireKeeperJournalLock, assertKeeperAccount, assertKeeperDeploymentAccount, assertKeeperGraph, assertKeeperSubmissionRuntime, assertKeeperNonceReady, createKeeperPublicClientCache, keeperApiOrigin, keeperGasCost, keeperProfitThreshold, keeperSyncHasNewCredit, keeperTaskWait, KEEPER_TASK_RETRY_POLICY, KeeperSigningStopped, KeeperSubmissionBarrier, readKeeperJournal, readKeeperTaskState, reconcileKeeperJournal, recordKeeperTaskOutcome, redactKeeperError, selectKeeperTasks, writeKeeperJournal, writeKeeperTaskState, type KeeperJournal, type KeeperTaskStateFile } from "../scripts/buyback-keeper";
 import { BUYBACK_WETH, BUYBACK_FORWARDER_ALLOWANCE_CAP, buybackAmountCandidates, type BuybackEngineStatus, type EngineAssetStatus } from "../src/lib/buyback-engine";
 import { MUSEGOD_BUYBACK } from "../src/lib/fee-policy";
 import { ENGINE_FEE_POLICY } from "../src/lib/fee-policy";
@@ -495,4 +495,22 @@ test("keeper claims only when a pool has income in a currency without an engine 
   assert.equal(claim([{ address: healthy, lp: null, hook: "3" }]).length, 1);
   const unlisted = "0x4444444444444444444444444444444444444444" as Address;
   assert.equal(claim([{ address: unlisted, lp: "1", hook: null }]).length, 1, "a currency without a recorded shortfall is healthy");
+});
+
+test("no-profit scheduling survives restart, samples at most three sizes and eventually visits every bounded trade size", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "keeper-profit-backoff-")), path = join(directory, "profit.json");
+  try {
+    let state = await readKeeperProfitState(path, 4663, stock); const amounts = new Set<bigint>(), amount = 10n ** 16n, now = 1000;
+    for (let round = 0; round < 20; round++) {
+      const candidates = keeperProfitCandidates(amount, state.sizeCursor); assert(candidates.length <= 3); for (const candidate of candidates) amounts.add(candidate);
+      state = keeperProfitBackoff(state, false, now + round * KEEPER_PROFIT_MAX_BACKOFF_MS);
+      assert(state.nextAttemptAt - (now + round * KEEPER_PROFIT_MAX_BACKOFF_MS) >= KEEPER_PROFIT_INITIAL_BACKOFF_MS);
+      assert(state.nextAttemptAt - (now + round * KEEPER_PROFIT_MAX_BACKOFF_MS) <= KEEPER_PROFIT_MAX_BACKOFF_MS);
+      await writeKeeperProfitState(path, state); assert.deepEqual(await readKeeperProfitState(path, 4663, stock), state);
+    }
+    assert.deepEqual(amounts, new Set(buybackAmountCandidates(amount)));
+    assert.equal(keeperProfitBackoff(state, true, now).nextAttemptAt, 0); assert.equal(keeperProfitBackoff(state, true, now).misses, 0);
+    assert.equal((await readKeeperProfitState(path, 8453, stock)).misses, 0); assert.equal((await readKeeperProfitState(path, 4663, unknown)).misses, 0);
+    await writeFile(path, JSON.stringify({ ...state, nextAttemptAt: -1 })); assert.equal((await readKeeperProfitState(path, 4663, stock)).nextAttemptAt, 0);
+  } finally { await rm(directory, { recursive: true, force: true }); }
 });

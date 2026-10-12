@@ -491,3 +491,23 @@ test("one-time complete activation proof batches RPC while a cold persisted reco
   assert(fetches - cold <= 2);
   assert.deepEqual(warmMethods.sort(), ["eth_chainId", "eth_getBlockByNumber", "eth_getCode"], "A new process reads only live governor authority and the recorded finalized header");
 });
+
+test("display activation authority/anchor is shared for five minutes, while financial verification remains live", async t => {
+  let now=1_000;t.mock.method(Date,"now",()=>now);
+  const f=await persistedFixture(true),cold=coldRecordClient(f),saved=jsonManifest(f.manifest);
+  const [a,b]=await Promise.all([verifyRecordedBuybackActivation(cold.client,saved,240n,{fresh:false}),verifyRecordedBuybackActivation(cold.client,saved,240n,{fresh:false})]);
+  assert.deepEqual(a,b);assert.equal(cold.reads.authority,2);assert.equal(cold.reads.headers.length,1);
+  const altered=jsonManifest(saved);(altered.governance!.controlProof as GovernorControlProof).signature="0x1234";
+  await assert.rejects(verifyRecordedBuybackActivation(cold.client,altered,240n,{fresh:false}),/activation record/);
+  f.set1271(false);
+  await verifyRecordedBuybackActivation(cold.client,saved,241n,{fresh:false});assert.equal(cold.reads.authority,2);
+  await assert.rejects(verifyRecordedBuybackActivation(cold.client,saved,241n),/Governor contract rejected/);
+  await assert.rejects(verifyRecordedBuybackActivation(cold.client,saved,199n,{fresh:false}),/activation record/);
+  now+=300_001;
+  await assert.rejects(verifyRecordedBuybackActivation(cold.client,saved,242n,{fresh:false}),/Governor contract rejected/);
+  f.set1271(true);
+  await verifyRecordedBuybackActivation(cold.client,saved,242n,{fresh:false});
+  f.setCanonical(false);
+  await assert.rejects(verifyRecordedBuybackActivation(cold.client,saved,242n),/activation record/);
+  noHistoricalReads(cold.reads);
+});

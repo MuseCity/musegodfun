@@ -3,10 +3,11 @@ import test from "node:test";
 import { keccak256, stringToHex, type Hex } from "viem";
 import manifestData from "../contracts/artifacts/base-collector-deployment.json";
 import type { BaseCollectorManifest } from "../server/base-collector";
-import type { BaseAuditStore } from "../server/base-audit";
+import type { ContractIdentityStore as BaseAuditStore } from "../server/contract-identity";
 import { BASE_NATIVE_DESTINATION_POLICY } from "../src/lib/base-buyback";
-import { canonicalProofJson } from "../server/base-native-provenance";
-import { activationRecordIdentity, assertBaseActivationRecord, baseActivationAcceptanceReady, hasBaseLaunchActivationRecord, persistBaseActivationRecord,
+const canonicalProofJson = (value: unknown): string => JSON.stringify(value, (_key, item) =>
+  item && typeof item === "object" && !Array.isArray(item) ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) : item);
+import { activationRecordIdentity, baseActivationAcceptanceReady, hasBaseLaunchActivationRecord, persistBaseActivationRecord,
   type BaseActivationAnchors, type BaseActivationHeads } from "../server/base-activation-record";
 
 const hash = (number: bigint | number): Hex => `0x${BigInt(number).toString(16).padStart(64, "0")}`;
@@ -46,7 +47,7 @@ function fixture() {
         hash: input.blockTag === "finalized" && state.finalizedHash ? state.finalizedHash : changedHead || state.badBlock === number ? hash(888) : hash(number) };
     }, getTransactionReceipt: async () => { throw new Error("must not replay historical receipts"); },
       getLogs: async () => { throw new Error("must not rescan historical events"); }, request: async () => { throw new Error("must not request debug trace"); } };
-    return mock as unknown as Parameters<typeof assertBaseActivationRecord>[0] & { state: typeof state };
+    return mock as unknown as Parameters<typeof persistBaseActivationRecord>[0] & { state: typeof state };
   };
   const source = client(8453), destination = client(4663);
   return { manifest, anchors, heads, store, records, source, destination, client, reads: () => rpcReads, casCalls: () => casCalls,
@@ -76,7 +77,7 @@ test("trusted Splits acceptance can persist exact finalized wiring without creat
     assert.equal((f.manifest.activation as Record<string, unknown>)[key], undefined);
   await persistBaseActivationRecord(f.source, f.destination, f.store, f.manifest, graph, f.anchors, f.heads);
   assert.equal(await hasBaseLaunchActivationRecord(f.store, f.manifest, graph), true);
-  await assertBaseActivationRecord(f.source, f.destination, f.store, f.manifest, graph, f.heads);
+  assert.equal(await hasBaseLaunchActivationRecord(f.store, f.manifest, graph), true);
   const record = [...f.records.values()][0];
   assert.equal(record.protocol, "internal_native_activation_v1");
   assert.equal(record.version, 1);
@@ -137,13 +138,13 @@ test("trusted activation record binds the full signed acceptance, graph and any 
     const changed = structuredClone(f.manifest); change(changed);
     assert.notEqual(activationRecordIdentity(changed, graph).id, identity.id);
     assert.equal(await hasBaseLaunchActivationRecord(f.store, changed, graph), false);
-    await assert.rejects(() => assertBaseActivationRecord(f.source, f.destination, f.store, changed, graph, f.heads), unavailable);
+    assert.equal(await hasBaseLaunchActivationRecord(f.store, changed, graph), false);
   }
   const changedGraph = structuredClone(f.manifest);
   changedGraph.activation.trustedSplitsAcceptance!.graphFingerprint = hash(998);
   assert.equal(baseActivationAcceptanceReady(changedGraph), true, "The new graph requires its own explicit finalized record");
   await assert.rejects(() => persistBaseActivationRecord(f.source, f.destination, f.store, changedGraph, graph, f.anchors, f.heads), unavailable);
-  await assert.rejects(() => assertBaseActivationRecord(f.source, f.destination, f.store, changedGraph, hash(998), f.heads), unavailable);
+  assert.equal(await hasBaseLaunchActivationRecord(f.store, changedGraph, hash(998)), false);
   assert.equal(await hasBaseLaunchActivationRecord(f.store, changedGraph, hash(998)), false);
   assert.equal(f.casCalls(), 1);
 });
@@ -182,10 +183,10 @@ test("finalized activation is reused across cold clients without receipts, logs,
   assert.equal(record.destinationPolicy, BASE_NATIVE_DESTINATION_POLICY);
   assert.equal(record.sourceChainId, 8453); assert.equal(record.destinationChainId, 4663);
   record.verifiedAt = 1; // Old but still finalized acceptance remains reusable.
-  const before = f.casCalls();
-  await assertBaseActivationRecord(f.client(8453), f.client(4663), f.store, f.manifest, graph, f.heads);
-  await assertBaseActivationRecord(f.source, f.destination, f.store, f.manifest, graph, f.heads);
-  assert.equal(f.casCalls(), before); assert(f.reads() > 0);
+  const before = f.casCalls(), beforeReads = f.reads();
+  assert.equal(await hasBaseLaunchActivationRecord(f.store, f.manifest, graph), true);
+  assert.equal(await hasBaseLaunchActivationRecord(f.store, f.manifest, graph), true);
+  assert.equal(f.casCalls(), before); assert.equal(f.reads(), beforeReads);
 });
 
 test("issuance reads one matching completed private record without keeper freshness, current RPCs or another audit", async () => {
@@ -197,7 +198,6 @@ test("issuance reads one matching completed private record without keeper freshn
   f.source.state.failed = true; f.destination.state.failed = true;
   assert.equal(await hasBaseLaunchActivationRecord(store, f.manifest, graph), true);
   assert.equal(databaseReads, 1); assert.equal(f.reads(), reads); assert.equal(f.casCalls(), writes);
-  await assert.rejects(() => assertBaseActivationRecord(f.source, f.destination, f.store, f.manifest, graph, f.heads), unavailable);
   assert.equal(await hasBaseLaunchActivationRecord(store, f.manifest, hash(998)), false);
   f.mutateStore({ failure: true }); assert.equal(await hasBaseLaunchActivationRecord(store, f.manifest, graph), false);
 });
@@ -213,14 +213,14 @@ test("activation records accepted under an older destination policy cannot autho
   delete legacy.destinationPolicy;
   assert.notEqual(legacy.id, identity.id);
   f.records.clear(); f.records.set(legacy.id, legacy);
-  await assert.rejects(() => assertBaseActivationRecord(f.source, f.destination, f.store, f.manifest, graph, f.heads), unavailable);
+  assert.equal(await hasBaseLaunchActivationRecord(f.store, f.manifest, graph), false);
   assert.deepEqual(f.records.get(legacy.id), legacy, "Old acceptance stays historical rather than being silently upgraded");
   for (const destinationPolicy of [undefined, "specific-provider-router-cleanup-weth-v1", "relay-fixed-router-canonical-receipt-v1"]) {
     f.records.set(identity.id, { ...valid, destinationPolicy });
-    await assert.rejects(() => assertBaseActivationRecord(f.source, f.destination, f.store, f.manifest, graph, f.heads), unavailable);
+    assert.equal(await hasBaseLaunchActivationRecord(f.store, f.manifest, graph), false);
   }
   f.records.set(identity.id, valid);
-  await assertBaseActivationRecord(f.source, f.destination, f.store, f.manifest, graph, f.heads);
+  assert.equal(await hasBaseLaunchActivationRecord(f.store, f.manifest, graph), true);
 });
 
 test("identity canonically binds the full activation, authorization and exact graph", () => {
@@ -252,19 +252,19 @@ test("private activation records contain proof hashes and bounded metadata, neve
   for (const raw of [body, "walletAcceptance", "nativeExecution", "canaryAuthorization", "journal", "exactPlan", "humanEvidenceBody"])
     assert(!serialized.includes(raw), `raw proof body was retained: ${raw}`);
   assert(serialized.length < 2000);
-  await assertBaseActivationRecord(f.source, f.destination, f.store, f.manifest, graph, f.heads);
+  assert.equal(await hasBaseLaunchActivationRecord(f.store, f.manifest, graph), true);
   (f.manifest.activation.nativeExecution as any).journal.events[0].evidenceBody += " changed";
   assert.notEqual(activationRecordIdentity(f.manifest, graph).id, identity.id);
-  await assert.rejects(() => assertBaseActivationRecord(f.source, f.destination, f.store, f.manifest, graph, f.heads), unavailable);
+  assert.equal(await hasBaseLaunchActivationRecord(f.store, f.manifest, graph), false);
 });
 
 test("missing or changed acceptance never falls back to a status flag or full replay", async () => {
   const f = fixture();
-  await assert.rejects(() => assertBaseActivationRecord(f.source, f.destination, f.store, f.manifest, graph, f.heads), unavailable);
+  assert.equal(await hasBaseLaunchActivationRecord(f.store, f.manifest, graph), false);
   await persistBaseActivationRecord(f.source, f.destination, f.store, f.manifest, graph, f.anchors, f.heads);
   const changed = structuredClone(f.manifest); (changed.activation.nativeExecution as any).amounts[0] = "101";
-  await assert.rejects(() => assertBaseActivationRecord(f.source, f.destination, f.store, changed, graph, f.heads), unavailable);
-  await assert.rejects(() => assertBaseActivationRecord(f.source, f.destination, f.store, f.manifest, hash(998), f.heads), unavailable);
+  assert.equal(await hasBaseLaunchActivationRecord(f.store, changed, graph), false);
+  assert.equal(await hasBaseLaunchActivationRecord(f.store, f.manifest, hash(998)), false);
   f.records.clear(); f.manifest.activation.status = "not_run";
   await assert.rejects(() => persistBaseActivationRecord(f.source, f.destination, f.store, f.manifest, graph, f.anchors, f.heads), unavailable);
   assert.equal(f.casCalls(), 1);
@@ -316,45 +316,14 @@ test("stored scope, shape, exact proof binding, anchor counts and finality evide
     (r: any) => { r.anchors.source = []; }, (r: any) => { r.anchors.source[0].number = "0100"; },
     (r: any) => { r.anchors.source[0].hash = "0x"; }, (r: any) => { r.anchors.source.push(r.anchors.source[0]); },
     (r: any) => { r.anchors.source = Array.from({ length: 160 }, (_, index) => ({ number: String(index), hash: hash(index) })); },
-    (r: any) => { r.finalized.destination.number = "119"; }, (r: any) => { r.finalized.source.hash = hash(201); },
+    (r: any) => { r.finalized.destination.number = "119"; }, (r: any) => { r.finalized.source.hash = "not-a-hash"; },
   ];
   for (const mutate of mutations) {
     const changed = structuredClone(valid); mutate(changed); f.records.set(id, changed);
-    await assert.rejects(() => assertBaseActivationRecord(f.source, f.destination, f.store, f.manifest, graph, f.heads), unavailable);
+    assert.equal(await hasBaseLaunchActivationRecord(f.store, f.manifest, graph), false);
   }
   f.records.set(id, valid);
-  await assertBaseActivationRecord(f.source, f.destination, f.store, f.manifest, graph, f.heads);
-});
-
-test("every source/destination anchor and the captured heads remain fresh, including a mid-read reorg", async () => {
-  for (const chain of ["source", "destination"] as const) {
-    const f = fixture(); await persistBaseActivationRecord(f.source, f.destination, f.store, f.manifest, graph, f.anchors, f.heads);
-    for (const number of [...f.anchors[chain].map(anchor => anchor.number), f.heads[chain].number, 200n]) {
-      f[chain].state.badBlock = number;
-      await assert.rejects(() => assertBaseActivationRecord(f.source, f.destination, f.store, f.manifest, graph, f.heads), unavailable);
-      f[chain].state.badBlock = undefined;
-    }
-    f[chain].state.headReads = 0; f[chain].state.reorgOnHeadRead = 2;
-    await assert.rejects(() => assertBaseActivationRecord(f.source, f.destination, f.store, f.manifest, graph, f.heads), unavailable);
-  }
-});
-
-test("RPC chain mismatch, wrong returned block, unavailable storage, 404, and lagging finalized head fail closed then recover", async () => {
-  const f = fixture(); await persistBaseActivationRecord(f.source, f.destination, f.store, f.manifest, graph, f.anchors, f.heads);
-  f.source.state.chainId = 4663;
-  await assert.rejects(() => assertBaseActivationRecord(f.source, f.destination, f.store, f.manifest, graph, f.heads), unavailable);
-  f.source.state.chainId = 8453; f.destination.state.wrongNumber = 120n;
-  await assert.rejects(() => assertBaseActivationRecord(f.source, f.destination, f.store, f.manifest, graph, f.heads), unavailable);
-  f.destination.state.wrongNumber = undefined; f.source.state.failed = true;
-  await assert.rejects(() => assertBaseActivationRecord(f.source, f.destination, f.store, f.manifest, graph, f.heads), error => {
-    assert.match(String(error), unavailable); assert(!String(error).includes("secret URL")); return true;
-  });
-  f.source.state.failed = false; f.mutateStore({ failure: true });
-  await assert.rejects(() => assertBaseActivationRecord(f.source, f.destination, f.store, f.manifest, graph, f.heads), unavailable);
-  f.mutateStore({}); f.destination.state.finalized = 199n;
-  await assert.rejects(() => assertBaseActivationRecord(f.source, f.destination, f.store, f.manifest, graph, f.heads), unavailable);
-  f.destination.state.finalized = 200n;
-  await assertBaseActivationRecord(f.source, f.destination, f.store, f.manifest, graph, f.heads);
+  assert.equal(await hasBaseLaunchActivationRecord(f.store, f.manifest, graph), true);
 });
 
 test("an operator CAS conflict cannot grant acceptance and malformed or excessive anchors cannot be persisted", async () => {
@@ -375,5 +344,5 @@ test("simultaneous explicit operator acceptances use private atomic CAS, with ex
   assert.equal(result.filter(row => row.status === "fulfilled").length, 1);
   assert.equal(result.filter(row => row.status === "rejected").length, 3);
   assert.equal(f.records.size, 1);
-  await assertBaseActivationRecord(f.client(8453), f.client(4663), f.store, f.manifest, graph, f.heads);
+  assert.equal(await hasBaseLaunchActivationRecord(f.store, f.manifest, graph), true);
 });

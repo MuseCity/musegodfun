@@ -1,4 +1,8 @@
 import test from "node:test";
+import {mkdtempSync,rmSync} from "node:fs";
+import {tmpdir} from "node:os";
+import {join} from "node:path";
+import {Store} from "../server/store";
 import assert from "node:assert/strict";
 import { decodeFunctionData, keccak256, type Address, type Hash, type PublicClient, type WalletClient } from "viem";
 import { MusegodReader } from "../server/musegod";
@@ -176,4 +180,23 @@ test("missing chain state is reported as unavailable and stops before wallet sub
   } } as unknown as PublicClient;
   await assert.rejects(() => executeMusegodTrade(f.q, config, f.deps), /Chain data.*unavailable.*Nothing was submitted/);
   assert.equal(f.requests.length, 0);
+});
+
+
+test("MUSEGOD immutable market identity is persisted once, while liquidity and unlocked state stay live", async () => {
+  const directory=mkdtempSync(join(tmpdir(),"musegod-startup-"));let store=new Store(directory,31337);
+  const f=readerFixture();let reader=new MusegodReader(f.client,config,async()=>{},Date.now,store);
+  try {
+    await reader.quote("buy","1",100);const first=f.reads.length;
+    await reader.quote("sell","1",100);
+    assert.deepEqual(f.reads.slice(first).map(read=>read.functionName),["totalSupply","liquidity","slot0","quoteExactInputSingle"]);
+    store.close();store=new Store(directory,31337);f.reads.length=0;
+    const original=f.client.readContract.bind(f.client);
+    const cold={...f.client,readContract:async(parameters:any)=>{if(!["totalSupply","liquidity","slot0"].includes(parameters.functionName))throw new Error("Repeated immutable read");return original(parameters);}} as LaunchpadService["client"];
+    reader=new MusegodReader(cold,config,async()=>{},Date.now,store);
+    await reader.quote("buy","1",100);assert.equal(f.reads.length,4);
+    f.overrides.liquidity=0n;await assert.rejects(reader.quote("buy","1",100),/liquidity/);
+    f.overrides.liquidity=100n;f.overrides.slot0=[1n,0,0,0,0,0,false];await assert.rejects(reader.quote("buy","1",100),/unlocked/);
+    f.overrides.slot0=[1n,0,0,0,0,0,true];f.reorg();await assert.rejects(reader.quote("buy","1",100),/block changed/);
+  } finally {store.close();rmSync(directory,{recursive:true});}
 });

@@ -4,7 +4,7 @@ import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, st
 import { hostname } from "node:os";
 import { join, resolve } from "node:path";
 import { isDeepStrictEqual } from "node:util";
-import type { BaseAuditStore } from "../server/base-audit";
+import type { ContractIdentityStore as BaseAuditStore } from "../server/contract-identity";
 
 const CACHE_LOCK_LEASE_MS = 10_000;
 const lockObservations = new Map<string, { inode: number; firstSeen: number }>();
@@ -67,7 +67,7 @@ async function acquireAuditCacheLock(path: string): Promise<{ assertHeld(): void
 /** Private operator/master-CI audit progress. Public runtime uses its existing server-only persistent store. */
 export function baseOperatorAuditStore(directory = resolve(".cache/base-native-audit")): BaseAuditStore {
   const path = (id: string) => {
-    if (!/^internal_native_[a-z_]+:0x[\da-f]{64}$/i.test(id)) throw new Error("Invalid private Base audit identity");
+    if (!/^internal_native_[a-z0-9_]+:0x[\da-f]{64}$/i.test(id)) throw new Error("Invalid private Base audit identity");
     return join(directory, `${id.replace(":", "-")}.json`);
   };
   const read = (id: string) => {
@@ -94,30 +94,4 @@ export function baseOperatorAuditStore(directory = resolve(".cache/base-native-a
       } finally { lock.release(); }
     },
   };
-}
-
-/** CLI graph audits may warm another complete prefix only after a durable CAS
- * advanced it. All other failures remain pending/errors; this never changes financial state. */
-export async function boundedBaseOperatorAudit<T>(verify: (store: BaseAuditStore) => Promise<T>,
-  store = baseOperatorAuditStore(), maxDurationMs = 60_000): Promise<T> {
-  if (!Number.isFinite(maxDurationMs) || maxDurationMs < 0 || maxDurationMs > 60_000) throw new Error("Invalid Base operator audit budget");
-  const deadline = Date.now() + maxDurationMs;
-  let advancedPages = 0;
-  const tracked: BaseAuditStore = {
-    getBuybackBatch: id => store.getBuybackBatch(id),
-    compareAndSetBuybackAudit: async (next, expected) => {
-      const committed = await store.compareAndSetBuybackAudit(next, expected);
-      const integer = (value: unknown): value is string => typeof value === "string" && /^(0|[1-9]\d*)$/.test(value);
-      if (committed && integer(next.through) && (!integer(expected?.through) || BigInt(next.through) > BigInt(expected.through))) advancedPages++;
-      return committed;
-    },
-  };
-  while (Date.now() < deadline) {
-    const before = advancedPages;
-    try { return await verify(tracked); }
-    catch (error) {
-      if (!(error instanceof Error) || error.message !== "Canonical Base audit coverage is incomplete; persisted progress will resume" || advancedPages === before) throw error;
-    }
-  }
-  throw new Error("Base operator audit budget reached; persisted progress will resume");
 }

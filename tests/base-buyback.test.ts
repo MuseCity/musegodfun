@@ -1,49 +1,54 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createPublicClient, http, encodeFunctionData, encodeAbiParameters, encodeEventTopics, erc20Abi, keccak256, parseAbiItem, zeroAddress, type Address, type Hex, type AbiEvent } from "viem";
+import { encodeAbiParameters, encodeEventTopics, erc20Abi, parseAbiItem, type Address, type Hex, type AbiEvent } from "viem";
 import { BaseFeeQuoteReader, BASE_RECOVERY_FIXED_ASSETS, readTrustedBaseRecoveryAssets, canonicalBaseReceipt, readCanonicalBaseTransactionFee, collectorClaimEvidence, collectorReleaseEvidence, collectorUntrackedSyncEvidence } from "../server/base-buyback";
 import { BASE_BUYBACK_PROTOCOL, baseCollectorAbi } from "../src/lib/base-buyback";
-import { CONTRACTS, STOCKS, SUPPLY } from "../src/lib/config";
+import { STOCKS } from "../src/lib/config";
 import { BASE_AUTOMATION_FEE_POLICY } from "../src/lib/fee-policy";
-import { CURVE_POLICY } from "../src/lib/launch-curve";
-import { serializePrepared } from "../src/lib/launch-plan";
-import { buildLaunch } from "../src/lib/protocol";
-import { syntheticOpeningValuation } from "./fixtures";
-import { DopplerSDK, airlockAbi, computePoolId, rehypeDopplerHookInitializerAbi } from "@whetstone-research/doppler-sdk/evm";
 const address=(n:number)=>`0x${n.toString(16).padStart(40,"0")}` as Address,hash=(n:number)=>`0x${n.toString(16).padStart(64,"0")}` as Hex;
 const collector=address(1),automation=address(2),token=address(3),manager="0xBDF938149ac6a781F94FAa0ed45E6A0e984c6544" as Address,pool=hash(4);
 function log(event:string,args:any,index:number) {const abi=parseAbiItem(event) as AbiEvent;return{address:collector,logIndex:index,data:encodeAbiParameters(abi.inputs.filter(input=>!("indexed"in input&&input.indexed)),abi.inputs.filter(input=>!("indexed"in input&&input.indexed)).map(input=>args[input.name!]) as any),topics:encodeEventTopics({abi:[abi],args})};}
-test("native reader observes balances but exposes no source quote/signing execution",async()=>{
- const client={getChainId:async()=>8453,getBlock:async()=>({number:1n,hash:hash(1)}),readContract:async({functionName}:any)=>functionName==="balanceOf"?999n:3n};
- const reader=new BaseFeeQuoteReader({client:client as any,collector,verifyGraph:async()=>({collector,automationReceiver:automation,paused:false,runtimeHash:hash(3),manifestFingerprint:hash(4),initialDeploymentBlock:1n})});
- const status=await reader.status();assert.equal(status.protocol,BASE_BUYBACK_PROTOCOL);assert.equal(status.kind,"base_splits_native");assert.equal(status.available,true);assert.equal(status.nativeAutomationState,"unverified");assert.equal(status.totalBridgedWeth,"0");assert.equal(status.ledgerComplete,false);assert.ok(status.assets.every(asset=>asset.automationBalance==="999"));
- assert.equal("quoteBridge"in reader,false);assert.equal("quoteConversion"in reader,false);assert.equal("validateForSigning"in reader,false);
+const fixedGraph = {collector,automationReceiver:automation,paused:false,runtimeHash:hash(3),manifestFingerprint:hash(4),initialDeploymentBlock:1n};
+function counterClient(values: Record<string,bigint|boolean> = {},fail?: Address) {
+ let headers=0,calls=0;
+ return {getBlockNumber:async()=>{headers++;return 1n;},multicall:async({contracts,blockNumber,batchSize}:any)=>{
+  calls++;assert.equal(blockNumber,1n);assert(batchSize>=65536);
+  return contracts.map((contract:any)=>fail&&contract.args?.[0]===fail?{status:"failure",error:Error("asset unavailable")}:
+   {status:"success",result:values[contract.functionName]??(contract.functionName==="paused"?false:contract.functionName==="verifiedAssets"?true:3n)});
+ },getChainId:async()=>{throw Error("Display must not reread chain identity")},readContract:async()=>{throw Error("Display must use multicall")},
+ getLogs:async()=>{throw Error("Display must not scan history")},getBlock:async()=>{throw Error("Display must not check historical anchors")},
+ metrics:()=>({headers,calls})};
+}
+test("Base counters use a single same-block multicall without source history or attribution",async()=>{
+ const client=counterClient({totalClaimed:9n,totalReleased:3n,totalUntrackedReleased:2n,balanceOf:999n});
+ const reader=new BaseFeeQuoteReader({client:client as any,collector,verifiedGraph:fixedGraph});
+ const status=await reader.status();assert.equal(status.available,true);assert.equal(status.protocol,BASE_BUYBACK_PROTOCOL);assert.equal(status.kind,"base_splits_native");
+ assert.equal(status.assets.length,37);for(const row of status.assets){assert.equal(row.totalClaimed,"9");assert.equal(row.totalReleased,"3");assert.equal(row.pending,"6");assert.equal(row.totalUntrackedReleased,"2");assert.equal(row.automationBalance,"999");}
+ assert.equal("totalBridgedWeth" in status,false);assert.equal("ledgerComplete" in status,false);assert.equal("batches" in status,false);
+ assert.deepEqual(client.metrics(),{headers:1,calls:1});assert.equal("quoteConversion" in reader,false);assert.equal("validateForSigning" in reader,false);
 });
-test("native observed totals come only from the reconciled custody journal, never Treasury balance",async()=>{
- const client={getChainId:async()=>8453,getBlock:async()=>({number:1n,hash:hash(1)}),readContract:async()=>999n};
- const reader=new BaseFeeQuoteReader({client:client as any,collector,verifyGraph:async()=>({collector,automationReceiver:automation,paused:true,runtimeHash:hash(3),manifestFingerprint:hash(4),initialDeploymentBlock:1n}),custodyReport:async()=>({ready:true,assets:[],receivedWeth:"7",refundedWeth:"0"})});
- const status=await reader.status();assert.equal(status.totalBridgedWeth,"7");assert.equal(status.paused,true);assert.equal(status.nativeAutomationState,"unverified");
+test("Base summary cache deduplicates concurrent reads and cannot be forced below five minutes",async()=>{
+ let now=1000;const client=counterClient(),reader=new BaseFeeQuoteReader({client:client as any,collector,verifiedGraph:fixedGraph,now:()=>now});
+ const values=await Promise.all(Array.from({length:12},()=>reader.status()));assert.equal(values.every(value=>value.checkedAt===1000),true);
+ assert.deepEqual(client.metrics(),{headers:1,calls:1});values[0].assets.length=0;assert.equal((await reader.status()).assets.length,37);
+ now+=299999;await reader.status();assert.deepEqual(client.metrics(),{headers:1,calls:1});now++;await reader.status();assert.deepEqual(client.metrics(),{headers:2,calls:2});
 });
-test("unclassified recovery counters remain separate from verified fees and canonical receipt totals",async()=>{
- const amounts:Record<string,bigint>={pendingFees:2n,totalClaimed:3n,totalReleased:1n,untrackedBalance:4n,pendingUntracked:5n,totalUntrackedSynced:12n,totalUntrackedReleased:7n,balanceOf:99n};
- const client={getChainId:async()=>8453,getBlock:async()=>({number:1n,hash:hash(1)}),readContract:async({functionName}:any)=>amounts[functionName]};
- const reader=new BaseFeeQuoteReader({client:client as any,collector,verifyGraph:async()=>({collector,automationReceiver:automation,paused:false,runtimeHash:hash(3),manifestFingerprint:hash(4),initialDeploymentBlock:1n}),
-  custodyReport:async()=>({ready:true,assets:[],receivedWeth:"8",refundedWeth:"0"})});
- const status=await reader.status();assert.equal(status.available,true);assert.equal(status.totalBridgedWeth,"8");
- for(const asset of status.assets){assert.equal(asset.pending,"2");assert.equal(asset.totalClaimed,"3");assert.equal(asset.totalReleased,"1");assert.equal(asset.untracked,"4");assert.equal(asset.pendingUntracked,"5");assert.equal(asset.totalUntrackedSynced,"12");assert.equal(asset.totalUntrackedReleased,"7");}
+test("task reads retain independent pending and unknown buckets; paused Collector is observed",async()=>{
+ const amounts={paused:true,pendingFees:2n,totalClaimed:8n,totalReleased:1n,untrackedBalance:4n,pendingUntracked:5n,totalUntrackedSynced:12n,totalUntrackedReleased:7n,balanceOf:99n};
+ const reader=new BaseFeeQuoteReader({client:counterClient(amounts) as any,collector,verifiedGraph:fixedGraph,includeTaskState:true});
+ const status=await reader.status();assert.equal(status.paused,true);assert.equal(status.nativeAutomationState,"paused");
+ for(const row of status.assets){assert.equal(row.pending,"2");assert.equal(row.untracked,"4");assert.equal(row.pendingUntracked,"5");assert.equal(row.totalUntrackedSynced,"12");assert.equal(row.totalUntrackedReleased,"7");assert.equal(row.verifiedAsset,true);}
 });
-test("an asset's failing metadata cannot withhold other fee balances or custody readiness",async()=>{
- const failing=address(8),longSymbol=address(9),brokenDecimals=address(10);
- const client={getChainId:async()=>8453,getBlock:async()=>({number:1n,hash:hash(1)}),readContract:async({address:asset,functionName}:any)=>{
-  if(functionName==="symbol"){if(asset.toLowerCase()===failing.toLowerCase())throw new Error("metadata reverted");return "L".repeat(100);}
-  if(functionName==="decimals")return asset.toLowerCase()===brokenDecimals.toLowerCase()?999:18;
-  return 3n;
- }};
- const reader=new BaseFeeQuoteReader({client:client as any,collector,verifyGraph:async()=>({collector,automationReceiver:automation,paused:false,runtimeHash:hash(3),manifestFingerprint:hash(4),initialDeploymentBlock:1n}),
-  custodyReport:async()=>({ready:true,assets:[failing,longSymbol,brokenDecimals].map(asset=>({asset,pending:"0",verifiedClaimed:"1"})),receivedWeth:"7",refundedWeth:"0"})});
- const status=await reader.status();assert.equal(status.available,true);assert.equal(status.ledgerComplete,true);assert.equal(status.totalBridgedWeth,"7");
- assert.ok(status.assets.length>1);assert.ok(status.assets.some(asset=>asset.address===longSymbol));assert.equal(status.assetsComplete,false);
- assert.equal(status.assets.some(asset=>asset.address===brokenDecimals),false);
+test("one failed or inconsistent asset never fabricates zero totals or removes healthy counters",async()=>{
+ const failing=STOCKS[0].address,client=counterClient({totalClaimed:5n,totalReleased:3n},failing);
+ const status=await new BaseFeeQuoteReader({client:client as any,collector,verifiedGraph:fixedGraph}).status();assert.equal(status.available,true);assert.equal(status.assetsComplete,false);assert.equal(status.assets.length,36);assert(!status.assets.some(row=>row.address===failing));
+ const broken=await new BaseFeeQuoteReader({client:counterClient({totalClaimed:2n,totalReleased:3n}) as any,collector,verifiedGraph:fixedGraph}).status();assert.equal(broken.assetsComplete,false);assert.equal(broken.assets.length,0);
+});
+test("counter failure retains a labeled previous sample without extending its observation time",async()=>{
+ let now=1000;const client=counterClient(),reader=new BaseFeeQuoteReader({client:client as any,collector,verifiedGraph:fixedGraph,now:()=>now});
+ await reader.status();now+=300000;client.multicall=async()=>{throw Error("429 secret provider")};const delayed=await reader.status();
+ assert.equal(delayed.available,true);assert.equal(delayed.stale,true);assert.equal(delayed.checkedAt,1000);assert.match(delayed.error!,/previous sample/);assert(!JSON.stringify(delayed).includes("secret provider"));
+ const unavailable=await new BaseFeeQuoteReader({client:client as any,collector,verifiedGraph:fixedGraph,now:()=>now}).status();assert.equal(unavailable.available,false);assert.equal(unavailable.assets.length,0);
 });
 test("canonical zero-fee claim race resolves with no income, while release needs actual unique ERC20 delivery",()=>{
  const zero=log("event FeesClaimed(bytes32 indexed poolId,address indexed manager,address indexed token,uint256 amount)",{poolId:pool,manager,token,amount:0n},0);
@@ -85,54 +90,25 @@ test("unknown synchronization and releases require their own events, never genui
  assert.throws(()=>collectorReleaseEvidence({status:"success",logs:[transfer,unknown]} as any,collector,token,"5",address(88),true),/unique/);
  assert.throws(()=>collectorClaimEvidence({status:"success",logs:[sync,unknown]} as any,collector,pool),/no verified manager credit/);
 });
-test("zero-credit registered pool assets remain discoverable without being credited as income",async()=>{
- const client={getChainId:async()=>8453,getBlock:async()=>({number:1n,hash:hash(1)}),readContract:async({functionName}:any)=>functionName==="symbol"?"MEME":functionName==="decimals"?18:functionName==="verifiedAssets"?true:0n};
- const reader=new BaseFeeQuoteReader({client:client as any,collector,verifyGraph:async()=>({collector,automationReceiver:automation,paused:false,runtimeHash:hash(3),manifestFingerprint:hash(4),initialDeploymentBlock:1n}),
-  batches:async()=>[{protocol:BASE_BUYBACK_PROTOCOL,collector,kind:"claim",status:"claimed",claimAssets:[token],claimCredits:[]} as any]});
- const row=(await reader.status()).assets.find(row=>row.address.toLowerCase()===token.toLowerCase());
- assert.equal(row?.verifiedAsset,true);assert.equal(row?.pending,"0");assert.equal(row?.totalClaimed,"0");
+test("the private official registry can add an issued token without scanning receipts or metadata",async()=>{
+ const client=counterClient({totalClaimed:0n,totalReleased:0n,totalUntrackedReleased:0n,balanceOf:0n}),reader=new BaseFeeQuoteReader({client:client as any,collector,verifiedGraph:fixedGraph,
+  assets:async()=>[{chainId:8453,address:token,symbol:"MEME",decimals:18}],includeTaskState:true});
+ const row=(await reader.status()).assets.find(row=>row.address===token);assert.equal(row?.totalClaimed,"0");assert.equal(row?.verifiedAsset,true);
 });
-test("automatic asset eligibility is exact launch addresses plus a fully verified project issuance, never Collector verifiedAssets",async()=>{
- const creator=address(8),quote=STOCKS[0],sdk=new DopplerSDK<8453|4663>({publicClient:createPublicClient({transport:http("http://127.0.0.1:1")}),chainId:8453});
- const valuation=syntheticOpeningValuation(quote.address),draft={name:"Own Issuance",symbol:"OWN",description:"",image:"",quoteAddress:quote.address,tradingFeeBps:100};
- const params=sdk.factory.encodeCreateMulticurveParams(buildLaunch(sdk,draft,creator,creator,creator,valuation,undefined,8453,collector,true,BASE_AUTOMATION_FEE_POLICY));
- const poolKey={currency0:token,currency1:quote.address,fee:8388608,tickSpacing:10,hooks:CONTRACTS.initializer},poolId=computePoolId(poolKey),data=encodeFunctionData({abi:airlockAbi,functionName:"create",args:[params]});
- const prepared={chainId:8453 as const,account:creator,airlock:CONTRACTS.airlock,createParams:params,prediction:{tokenAddress:token,poolOrHookAddress:CONTRACTS.initializer,governanceAddress:creator,timelockAddress:creator,poolKey,poolId,tokenIsCurrency0:true},transaction:{to:CONTRACTS.airlock,data,value:0n},gasEstimate:{status:"unavailable" as const}};
- const plan={id:keccak256(data),creator,data,tokenAddress:token,poolId,draft,preparedAt:Date.now(),gas:null,feePolicy:BASE_AUTOMATION_FEE_POLICY,feeTreasury:creator,feeEngine:collector,openingValuation:valuation,curvePolicy:CURVE_POLICY,prepared:serializePrepared(prepared),transaction:{to:CONTRACTS.airlock,data,value:"0"}};
- const record={...draft,address:token,creator,poolId,transactionHash:hash(22),blockNumber:"1",createdAt:1,openingCap:"",mode:"base",deploymentChainId:8453,feeEngine:collector,feePolicy:BASE_AUTOMATION_FEE_POLICY,openingValuationUnverified:true};
- const receipt={status:"success",from:creator,to:CONTRACTS.airlock,transactionHash:hash(22),blockHash:hash(1),blockNumber:1n,logs:[
-  {address:CONTRACTS.airlock,topics:encodeEventTopics({abi:airlockAbi,eventName:"Create",args:{numeraire:quote.address}}),data:encodeAbiParameters([{type:"address"},{type:"address"},{type:"address"}],[token,CONTRACTS.initializer,CONTRACTS.initializer])},
-  {address:token,topics:encodeEventTopics({abi:erc20Abi,eventName:"Transfer",args:{from:zeroAddress,to:CONTRACTS.airlock}}),data:encodeAbiParameters([{type:"uint256"}],[SUPPLY])},
-  {address:CONTRACTS.rehype,topics:encodeEventTopics({abi:rehypeDopplerHookInitializerAbi,eventName:"FeeScheduleSet",args:{poolId}}),data:encodeAbiParameters([{type:"uint32"},{type:"uint24"},{type:"uint24"},{type:"uint32"}],[1,10000,10000,0])},
- ]};
- let actualDecimals=18,stateReads=0,balance=1n,creationReads=0;
- const client={getChainId:async()=>8453,getBlockNumber:async()=>2n,getBlock:async({blockNumber}:any)=>({number:blockNumber??2n,hash:hash(1)}),getTransactionReceipt:async()=>{creationReads++;return receipt},getTransaction:async()=>({from:creator,to:CONTRACTS.airlock,input:data,value:0n}),readContract:async({functionName}:any)=>functionName==="balanceOf"?balance:actualDecimals};
- const zeroFees={lp:{fees0:0n,fees1:0n},trade:{fees0:0n,fees1:0n}};
- const service={client,store:{tokens:async()=>[record],findPlan:async()=>plan},sdk,contracts:CONTRACTS,state:async()=>{stateReads++;return{}},fees:async()=>zeroFees} as any;
- const assets=await readTrustedBaseRecoveryAssets(service,collector);assert.equal(BASE_RECOVERY_FIXED_ASSETS.length,37);assert.equal(assets.length,38);assert.equal(assets.find(asset=>asset.address===token)?.minimumRaw,"1000000000000000000");assert.equal(stateReads,1,"The real issuance/pool branch must be exercised");
- balance=0n;const reads=creationReads;assert.equal((await readTrustedBaseRecoveryAssets(service,collector)).length,37);assert.equal(creationReads,reads,"Dormant records do not replay creation evidence");
- assert.equal((await readTrustedBaseRecoveryAssets(service,collector,token)).length,38,"A selected signing asset must get full proof even with zero current balance");assert.equal(creationReads,reads+1);
- service.fees=async()=>({...zeroFees,lp:{fees0:1n,fees1:0n}});assert.equal((await readTrustedBaseRecoveryAssets(service,collector)).length,38,"Actual pending manager fees also select an asset");balance=1n;
- actualDecimals=8;assert.equal((await readTrustedBaseRecoveryAssets(service,collector)).length,37);actualDecimals=18;
- record.feeEngine=automation;assert.equal((await readTrustedBaseRecoveryAssets(service,collector)).length,37);record.feeEngine=collector;
- receipt.logs[0].address=automation;assert.equal((await readTrustedBaseRecoveryAssets(service,collector)).length,37);receipt.logs[0].address=CONTRACTS.airlock;
- service.store.findPlan=async()=>null;assert.equal((await readTrustedBaseRecoveryAssets(service,collector)).length,37);
- service.store.findPlan=async()=>plan;const saved=new Map<string,any>();let cacheWrites=0;
- service.store.getBuybackBatch=async(id:string)=>structuredClone(saved.get(id)??null);service.store.compareAndSetBuybackAudit=async(row:any,expected:any)=>{assert.deepEqual(saved.get(row.id)??null,expected);cacheWrites++;saved.set(row.id,structuredClone(row));return true};
- client.readContract=async({functionName,blockNumber}:any)=>{if(functionName==="decimals"&&blockNumber===1n)throw Error("historical state unavailable");return functionName==="balanceOf"?balance:actualDecimals};
- assert.equal((await readTrustedBaseRecoveryAssets(service,collector)).length,38,"Current precision plus canonical creation identity works without archive state");assert.equal(cacheWrites,1);
- const receipts=creationReads,fetchReceipt=client.getTransactionReceipt;client.getTransactionReceipt=async()=>{creationReads++;throw Error("Creation receipts must not be replayed after finalized private proof caching")};service.store.findPlan=async()=>{throw Error("Cached frozen plan must not be decoded repeatedly")};
- const restarted={...service,client:{...client}};assert.equal((await readTrustedBaseRecoveryAssets(restarted,collector)).length,38);assert.equal((await readTrustedBaseRecoveryAssets(restarted,collector,token)).length,38);assert.equal(creationReads,receipts,"Persistent cache survives a new client and still authenticates selected assets");
- actualDecimals=8;assert.equal((await readTrustedBaseRecoveryAssets(restarted,collector,token)).length,37,"Cache never bypasses fresh selected precision");actualDecimals=18;
- restarted.client.getBlock=async({blockNumber}:any)=>({number:blockNumber??2n,hash:blockNumber===1n?hash(9):hash(1)});assert.equal((await readTrustedBaseRecoveryAssets(restarted,collector,token)).length,37,"A changed creation header invalidates the durable proof");
- saved.clear();client.getTransactionReceipt=fetchReceipt;service.store.findPlan=async()=>plan;service.store.compareAndSetBuybackAudit=async()=>false;
- assert.equal((await readTrustedBaseRecoveryAssets(service,collector,token)).length,37,"Failed proof-cache CAS cannot authorize a selected asset");
+test("automatic assets use exact fixed addresses and complete private registrations without historical RPC",async()=>{
+ const quote=STOCKS[0],record={address:token,symbol:"OWN",creator:address(8),poolId:pool,quoteAddress:quote.address,mode:"base",deploymentChainId:8453,
+  feePolicy:BASE_AUTOMATION_FEE_POLICY,feeEngine:collector,transactionHash:hash(22),blockNumber:"1"};
+ const service={store:{tokens:async()=>[record]},client:new Proxy({}, {get(){throw Error("Registry reuse cannot perform RPC")}})} as any;
+ const rows=await readTrustedBaseRecoveryAssets(service,collector);assert.equal(rows.length,38);assert.equal(rows.find(row=>row.address===token)?.decimals,18);
+ for(const change of [{creator:null},{poolId:"0x"},{quoteAddress:automation},{transactionHash:null},{blockNumber:null},{blockNumber:"0"},{feeEngine:automation},{feePolicy:"other"},{mode:"robinhood"},{deploymentChainId:4663}]) {
+  service.store.tokens=async()=>[{...record,...change}];assert.equal((await readTrustedBaseRecoveryAssets(service,collector)).length,37,JSON.stringify(change));
+ }
+ service.store.tokens=async()=>[{...record,symbol:"L".repeat(100)}];assert.equal((await readTrustedBaseRecoveryAssets(service,collector))[37].symbol.length,64);
+ assert.equal((await readTrustedBaseRecoveryAssets(service,collector,automation)).length,37);
 });
-test("thousands of dormant private issuance records do not replay creation receipts, transactions or frozen plans",async()=>{
- const records=Array.from({length:1200},(_,index)=>({address:address(1000+index),creator:address(8),mode:"base",deploymentChainId:8453,feePolicy:BASE_AUTOMATION_FEE_POLICY,feeEngine:collector,transactionHash:hash(1000+index),blockNumber:"1"}));
- let balances=0,fees=0,creation=0,plans=0;
- const client={getChainId:async()=>8453,readContract:async({functionName,args}:any)=>{assert.equal(functionName,"balanceOf");assert.equal(args[0],collector);balances++;return 0n},getTransactionReceipt:async()=>{creation++;throw Error("Dormant creation RPC should not run")},getTransaction:async()=>{creation++;throw Error("Dormant transaction RPC should not run")}};
- const service={client,store:{tokens:async()=>records,findPlan:async()=>{plans++;throw Error("Dormant plan should not be decoded")}},fees:async()=>{fees++;return{lp:{fees0:0n,fees1:0n},trade:{fees0:0n,fees1:0n}}}} as any;
- assert.equal((await readTrustedBaseRecoveryAssets(service,collector)).length,37);assert.equal(balances,1200);assert.equal(fees,1200);assert.equal(creation,0);assert.equal(plans,0);
- assert.equal((await readTrustedBaseRecoveryAssets(service,collector)).length,37);assert.equal(creation,0,"Restart-style scans still do not replay dormant creation evidence");
+test("thousands of dormant registered issuances require no per-token balance or creation calls",async()=>{
+ const records=Array.from({length:1200},(_,index)=>({address:address(1000+index),symbol:"OWN",creator:address(8),poolId:pool,quoteAddress:STOCKS[0].address,mode:"base",deploymentChainId:8453,
+  feePolicy:BASE_AUTOMATION_FEE_POLICY,feeEngine:collector,transactionHash:hash(1000+index),blockNumber:"1"}));
+ const service={store:{tokens:async()=>records},client:new Proxy({}, {get(){throw Error("Dormant identity must not use RPC")}})} as any;
+ assert.equal((await readTrustedBaseRecoveryAssets(service,collector)).length,1237);
 });

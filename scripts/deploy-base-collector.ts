@@ -73,9 +73,8 @@ export async function prepareBaseCollectorDeploymentSequence(manifest: BaseColle
       args: [BASE_COLLECTOR_FIXED.initializer, BASE_COLLECTOR_FIXED.rehype, governor, receiver] }) }] };
 }
 export async function inspectBaseCollector(manifest: BaseCollectorDeployment, rpcUrl: string, verifyDeployed: boolean, deployer?: Address) {
-  const { createLocalReplayClient } = await import("./base-local-replay");
   const { baseOperatorAuditStore } = await import("./base-audit-store");
-  const client = createLocalReplayClient(createPublicClient({ chain: base, transport: http(rpcUrl, { timeout: 30_000, retryCount: 1 }) }), { chainId: 8453, rpcUrl, auditStore: baseOperatorAuditStore() });
+  const client = createPublicClient({ chain: base, transport: http(rpcUrl, { timeout: 15_000, retryCount: 0 }), batch: { multicall: true } });
   assert.equal(await client.getChainId(), 8453, "Wrong RPC chain");
   assert.equal(manifest.schemaVersion, 2); assert.equal(manifest.chainId, 8453);
   assert.equal(manifest.architecture, "splits-treasury-native-automation"); assert.equal(manifest.feePolicy, "creator-70-musegod-base-automation-v1");
@@ -118,7 +117,7 @@ export async function inspectBaseCollector(manifest: BaseCollectorDeployment, rp
     deploymentSequence, verifiedCollector, mainnetDeployment: "not_run", nativeCrossChainExecution: "not_run", publicBaseActivation: "not_run",
     ownerReviewRequired: ["dedicated Base native Automation initialization, owner, signers and implementation", "native 100% Relay rule to canonical Robinhood WETH and the existing Treasury",
       "immutable Collector constructor and source manager fingerprints", "deployment wallet and Base gas budget", "isolated origin, per-token actual-fee release budgets, and keeper gas authorization",
-      "existing Robinhood Treasury finite Forwarder allowance and final keeper gas budget", "genuine fee native cross-chain closure, full journals/FIFO, desktop/mobile recovery and pause/rollback proof"],
+      "existing Robinhood Treasury finite Forwarder allowance and final keeper gas budget", "one-time manual first-fee receipt report, desktop/mobile recovery and pause/rollback proof"],
     trustBoundary: "Collector immutable recipient and exact fee receipts do not make the native Automation account, parent owner or route providers immutable. Native rule changes remain owner-controlled." };
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

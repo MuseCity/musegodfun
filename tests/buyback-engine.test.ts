@@ -1,4 +1,8 @@
 import test from "node:test";
+import {mkdtempSync,rmSync} from "node:fs";
+import {tmpdir} from "node:os";
+import {join} from "node:path";
+import {Store} from "../server/store";
 import assert from "node:assert/strict";
 import { airlockAbi, computePoolId, DopplerSDK } from "@whetstone-research/doppler-sdk/evm";
 import { createPublicClient, decodeAbiParameters, decodeFunctionData, encodeAbiParameters, encodeEventTopics, encodeFunctionData, erc20Abi, getAddress, http, keccak256, parseAbi, parseAbiParameters, type Address, type Hex, type TransactionReceipt } from "viem";
@@ -238,7 +242,8 @@ test("the fifth module requires its reviewed runtime and exact source, WETH and 
   }
 });
 
-test("immutable graph verification merges concurrent reads while every cache hit rechecks network, mutable Swapper and authorization", async () => {
+test("immutable graph verification merges concurrent reads while every cache hit rechecks network, mutable Swapper and authorization", async t => {
+  let now=1_000;t.mock.method(Date,"now",()=>now);
   // Synthetic runtime bytes and matching hashes exercise cache mechanics only;
   // this fixture does not claim actual contract or mainnet verification.
   const runtime = "0x6000" as Hex, runtimeHash = keccak256(runtime);
@@ -261,7 +266,7 @@ test("immutable graph verification merges concurrent reads while every cache hit
     [owner.toLowerCase()]: { weth: c.weth, musegod: c.muse, museWethPool: c.museWethPool, ethUsdFeed: c.ethUsdFeed, TWAP_SECONDS: buybackConfig.twapSeconds, ethMaxAge: buybackConfig.ethMaxAge },
     [creator.toLowerCase()]: { owner: zero, beneficiary: c.beneficiary, tokenToBeneficiary: c.muse, oracle: owner, defaultScaledOfferFactor: 985000, getPairScaledOfferFactors: [0] },
   };
-  let rpcCount = 0, engineCodeReads = 0, chainId = 4663, paused = false, newAllowance = 100n, oldAllowance = 0n, proposalReads = 0;
+  let rpcCount = 0, engineCodeReads = 0, chainId = 4663, paused = false, newAllowance = 100n, oldAllowance = 0n, proposalReads = 0, badFeed = false;
   const client = {
     getChainId: async () => { rpcCount++; return chainId; },
     getBlockNumber: async () => { rpcCount++; return 77n; },
@@ -275,7 +280,7 @@ test("immutable graph verification merges concurrent reads while every cache hit
       if (functionName === "assetFeeds") {
         const feed = feeds.find((entry) => sameAddress(entry.token, args[0]))!;
         const precision = sameAddress(feed.token, BUYBACK_WETH) ? 18 : ROBINHOOD_STOCKS.find((asset) => sameAddress(asset.address, feed.token))!.decimals;
-        return [feed.feed, feed.maxAge, precision, 8, feed.checkOraclePaused];
+        return [badFeed ? zero : feed.feed, feed.maxAge, precision, 8, feed.checkOraclePaused];
       }
       if (functionName === "proposals") { proposalReads++; return [zero, 0n, `0x${"00".repeat(32)}`]; }
       const value = getters[address.toLowerCase()]?.[functionName];
@@ -288,7 +293,7 @@ test("immutable graph verification merges concurrent reads while every cache hit
     assert(rpcCount > 100);
     const initialRpcCount = rpcCount;
     await verifyFeeEngineRuntime(client, engine, manifest);
-    assert.equal(rpcCount - initialRpcCount, 14, "A hit needs only chain/head, live Swapper settings, allowances and source custody reads");
+    assert.equal(rpcCount - initialRpcCount, 13 + feeds.length, "A hit rechecks chain/head, live Swapper, allowances, source funds and every mutable feed");
     assert.equal(proposalReads, 0, "User config/prepare/signing must not scan display-only feed proposals");
     paused = true;
     await assert.rejects(() => verifyFeeEngineRuntime(client, engine, manifest), /Swapper state/);
@@ -307,6 +312,35 @@ test("immutable graph verification merges concurrent reads while every cache hit
     assert.deepEqual(proposals, []); assert.equal(proposalReads, feeds.length);
     await assert.rejects(() => verifyFeeEngineRuntime(client, engine, { ...manifest, contracts: { ...manifest.contracts, engine: { address: engine, runtimeHash: `0x${"ff".repeat(32)}` } } }), /runtime does not match/);
     assert.equal(engineCodeReads, 2, "A new manifest fingerprint cannot reuse a prior graph verification");
+    badFeed=true;
+    await assert.rejects(verifyFeeEngineRuntime(client,engine,manifest),/current fee-asset feed/);
+    badFeed=false;
+    const directory=mkdtempSync(join(tmpdir(),"engine-identity-"));let store=new Store(directory,31337);
+    try {
+      await verifyFeeEngineRuntime(client,engine,manifest,{identityStore:store});const codeChecks=engineCodeReads;
+      store.close();store=new Store(directory,31337);
+      const cold={...client,getCode:async(parameters:any)=>{if(!sameAddress(parameters.address,c.automationTreasury!))throw new Error("Repeated immutable runtime read");return client.getCode(parameters);},readContract:async(parameters:any)=>{
+        if(!["owner","paused","beneficiary","tokenToBeneficiary","oracle","defaultScaledOfferFactor","getPairScaledOfferFactors","allowance","balanceOf","totalForwarded","assetFeeds"].includes(parameters.functionName))throw new Error(`Repeated immutable getter ${parameters.functionName}`);
+        return client.readContract(parameters);
+      }} as typeof client;
+      await verifyFeeEngineRuntime(cold,engine,manifest,{identityStore:store});assert.equal(engineCodeReads,codeChecks);
+      const before=rpcCount;
+      await Promise.all([verifyFeeEngineRuntime(cold,engine,manifest,{identityStore:store,fresh:false}),verifyFeeEngineRuntime(cold,engine,manifest,{identityStore:store,fresh:false})]);
+      assert.equal(rpcCount-before,0,"The verified financial graph seeds the same-binding display snapshot");
+      const shared=rpcCount;paused=true;
+      await verifyFeeEngineRuntime(cold,engine,manifest,{identityStore:store,fresh:false});assert.equal(rpcCount,shared,"Display TTL does not replay the graph");
+      await assert.rejects(verifyFeeEngineRuntime(cold,engine,manifest,{identityStore:store}),/Swapper state/);
+      now+=120_001;
+      await assert.rejects(verifyFeeEngineRuntime(cold,engine,manifest,{identityStore:store,fresh:false}),/Swapper state/);
+      paused=false;
+      await assert.doesNotReject(verifyFeeEngineRuntime(cold,engine,manifest,{identityStore:store}),"Financial verification does not inherit display error backoff");
+      const repaired=rpcCount;
+      await assert.doesNotReject(verifyFeeEngineRuntime(cold,engine,manifest,{identityStore:store,fresh:false}),"Financial success immediately replaces an earlier display failure");
+      assert.equal(rpcCount,repaired,"Repair needs no display RPC replay");
+      now+=60_001;
+      await assert.doesNotReject(verifyFeeEngineRuntime(cold,engine,manifest,{identityStore:store,fresh:false}),"The repaired successful display graph keeps its normal bounded TTL");
+    } finally {store.close();rmSync(directory,{recursive:true});}
+
   } finally { Object.assign(buybackConfig.expectedRuntimeHashes, oldHashes); }
 });
 
@@ -330,4 +364,41 @@ test("conversion quote headroom is bounded by the 99 percent Oracle floor rather
   assert.equal(conversionSlippageBps(198n, minimum), 0);
   assert.throws(() => conversionSlippageBps(197n, minimum));
   assert.throws(() => conversionSlippageBps(0n, 0n));
+});
+
+test("display fee counters cache zero and nonzero totals for five minutes without caching spendable balance or classification", async t => {
+  let now=1_000,pending=100n,balance=100n,claimed=120n,unpriced=false,counterReads=0;
+  t.mock.method(Date,"now",()=>now);
+  const client={readContract:async({functionName}:{functionName:string})=>{
+    if(functionName.startsWith("total")){counterReads++;return functionName==="totalClaimed"?claimed:0n;}
+    if(functionName==="pending")return pending;
+    if(functionName==="balanceOf")return balance;
+    if(functionName==="window")return [300n,10n,0n];
+    if(functionName==="isUnpriced")return unpriced;
+    if(functionName==="quoteToWeth")return 2n;
+    throw new Error(`Unexpected ${functionName}`);
+  }} as unknown as Parameters<typeof readFeeAssetStatus>[0];
+  const graph={engine,oracle:owner,assetOracle,blockNumber:7n};
+  const first=await readFeeAssetStatus(client,graph,token,400n);assert.equal(first.claimed,"120");assert.equal(counterReads,5);
+  pending=50n;balance=50n;claimed=999n;unpriced=true;
+  const second=await readFeeAssetStatus(client,{...graph,blockNumber:8n},token,400n);
+  assert.equal(second.pending,"50");assert.equal(second.available,"50");assert.equal(second.pricing,"unsupported_static");assert.equal(second.claimed,"120");assert.equal(counterReads,5);
+  balance=0n;const shortfall=await readFeeAssetStatus(client,{...graph,blockNumber:9n},token,400n);
+  assert.equal(shortfall.available,"0");assert.equal(shortfall.shortfall,"50");assert.equal(counterReads,5);
+  now+=300_001;const refreshed=await readFeeAssetStatus(client,{...graph,blockNumber:10n},token,400n);
+  assert.equal(refreshed.claimed,"999");assert.equal(counterReads,10);
+});
+
+test("zero forwarded display totals are shared while source allowance stays live", async t => {
+  let now=1_000,forwarded=0n,allowance=100n,counterReads=0;t.mock.method(Date,"now",()=>now);
+  const client={getCode:async()=>"0x6000",readContract:async({functionName}:{functionName:string})=>{
+    if(functionName==="totalForwarded"){counterReads++;return forwarded;}
+    if(functionName==="balanceOf")return 200n;
+    return allowance;
+  }} as unknown as Parameters<typeof readSourceWethStatus>[0];
+  const graph={forwarder:wethForwarder,automationTreasury,blockNumber:7n};
+  await readSourceWethStatus(client,graph);forwarded=10n;allowance=BUYBACK_FORWARDER_ALLOWANCE_CAP+1n;
+  const blocked=await readSourceWethStatus(client,{...graph,blockNumber:8n});
+  assert.equal(blocked.sourceForwarded,"0");assert.equal(blocked.sourceAvailable,"0");assert.match(blocked.sourceAuthorizationError!,/cap/);assert.equal(counterReads,1);
+  now+=300_001;assert.equal((await readSourceWethStatus(client,graph)).sourceForwarded,"10");assert.equal(counterReads,2);
 });

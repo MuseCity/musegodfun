@@ -14,7 +14,7 @@ import type { Hex, Address } from "viem";
 import type { LaunchPlan } from "../src/lib/launch-plan";
 
 test("explicit native bindings isolate stale process values and clear removed secrets",()=>{
-  const env={NODE_ENV:"production",SUPABASE_URL:"https://fixture.supabase.co",SUPABASE_SECRET_KEY:"new-secret",PLATFORM_TREASURY:"0x1111111111111111111111111111111111111111",ENABLE_MAINNET_TRANSACTIONS:"false",LIFI_API_KEY:"new-lifi",PINATA_JWT:"new-pinata"};
+  const env={NODE_ENV:"production",ALCHEMY_API_KEY:"offline-test-key",SUPABASE_URL:"https://fixture.supabase.co",SUPABASE_SECRET_KEY:"new-secret",PLATFORM_TREASURY:"0x1111111111111111111111111111111111111111",ENABLE_MAINNET_TRANSACTIONS:"false",LIFI_API_KEY:"new-lifi",PINATA_JWT:"new-pinata"};
   const snapshot=runtimeFromEnv(4663,env);
   assert.equal(snapshot.config.writesEnabled,false);assert.equal(snapshot.lifi.apiKey,"new-lifi");assert.equal(snapshot.secrets?.pinataJwt,"new-pinata");
   const cleared=runtimeFromEnv(4663,{...env,LIFI_API_KEY:undefined,PINATA_JWT:undefined});

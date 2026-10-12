@@ -606,7 +606,7 @@ test("B20 identity uses native calls, preserves unknown data and retries failure
     );
     fail = false;
     assert((await service.stocks()).every(s => s.multiplierWad === null), "auxiliary failure is cached briefly without pretending recovery");
-    now += 30_001;
+    now += 60_001;
     const recovered = await service.stocks();
     assert(
       recovered.every(

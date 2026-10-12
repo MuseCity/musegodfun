@@ -6,7 +6,8 @@ import { FEE_SHARES, feePolicyFor, launchFeePolicy, MUSEGOD_BUYBACK } from "../l
 import { chainApi } from "../lib/api";
 import type { MarketSummary } from "../lib/market";
 import { MUSEGOD } from "../lib/musegod";
-import { burnShare, useMusegodBurn } from "../lib/musegod-burn";
+import { burnShare } from "../lib/musegod-burn";
+import type { RobinhoodBuybackSummary } from "../lib/base-buyback";
 import FeeBreakdown from "./FeeBreakdown";
 import BuybackEngine from "./BuybackEngine";
 import BaseBuyback from "./BaseBuyback";
@@ -20,7 +21,11 @@ const whole = (value: number, digits = 2) => value.toLocaleString("en-US", { min
 
 export default function BuybackPage({ config }: { config: RuntimeConfig | null }) {
   const [revision, setRevision] = useState(0);
-  const burn = useMusegodBurn(revision);
+  const [summary,setSummary] = useState<RobinhoodBuybackSummary|null>(null),[summaryError,setSummaryError] = useState("");
+  useEffect(()=>{let active=true;const read=()=>chainApi<RobinhoodBuybackSummary>(4663,"/buyback/summary")
+    .then(next=>{if(active){setSummary(next);setSummaryError(next.error??"");}})
+    .catch(()=>{if(active)setSummaryError("Robinhood buyback totals are delayed. Previous values may be stale.");});
+    void read();const timer=setInterval(()=>void read(),300_000);return()=>{active=false;clearInterval(timer);};},[revision]);
   const [price, setPrice] = useState<{ usd: number; stale: boolean } | null>(null);
   useEffect(() => {
     let active = true;
@@ -31,7 +36,8 @@ export default function BuybackPage({ config }: { config: RuntimeConfig | null }
   }, [revision]);
   const shares = feePolicyFor(launchFeePolicy(config)) ?? FEE_SHARES;
   const robinhoodExplorer = explorerFor({ mode: "robinhood" });
-  const data = burn.data;
+  const data = summary?.deadTotalMuse != null && summary.totalSupply != null && summary.blockNumber != null
+    ? { burned:BigInt(summary.deadTotalMuse),supply:BigInt(summary.totalSupply),blockNumber:BigInt(summary.blockNumber) } : null;
   const burned = data ? Number(formatUnits(data.burned, 18)) : null;
   const supply = data ? Number(formatUnits(data.supply, 18)) : null;
   const share = data ? burnShare(data) : null;
@@ -46,14 +52,14 @@ export default function BuybackPage({ config }: { config: RuntimeConfig | null }
         </div>
       </div>
       <div className="burn-total">
-        <span className="burn-eyebrow"><Flame size={14} aria-hidden="true" /> MUSEGOD BURNED · ALL TIME</span>
+        <span className="burn-eyebrow"><Flame size={14} aria-hidden="true" /> MUSEGOD AT DEAD · ALL SOURCES</span>
         <p className="burn-number" aria-live="polite">
           <span className="int">{integer}</span>{fraction && <span className="frac">.{fraction}</span>}
           <span className="unit">MUSEGOD</span>
         </p>
         <p className="burn-caption">
           {data ? <>Total burned = MUSEGOD held by <a href={`${robinhoodExplorer}/address/${MUSEGOD_BUYBACK.burnAddress}`} target="_blank" rel="noreferrer" className="mono">{shortAddress(MUSEGOD_BUYBACK.burnAddress)}</a>, read on-chain at block <span className="mono">{data.blockNumber.toLocaleString("en-US")}</span></>
-            : burn.error ? <>The dead-address balance could not be read. <button type="button" onClick={() => setRevision((value) => value + 1)}>Retry</button></> : "Reading the dead-address balance on Robinhood Chain…"}
+            : summaryError ? <>The dead-address balance could not be read. <button type="button" onClick={() => setRevision((value) => value + 1)}>Retry</button></> : "Reading the dead-address balance on Robinhood Chain…"}
         </p>
       </div>
       <dl className="burn-stats">
@@ -62,11 +68,12 @@ export default function BuybackPage({ config }: { config: RuntimeConfig | null }
           <dd className="sub">{price !== null ? <>at <span className="mono">${price.usd.toLocaleString("en-US", { maximumSignificantDigits: 3 })}</span> per MUSEGOD{price.stale ? " · previous snapshot" : ""}</> : "MUSEGOD price unavailable"}</dd></div>
         <div><dt>Circulating supply</dt><dd>{burned !== null && supply !== null ? whole(supply - burned) : "—"}</dd><dd className="sub">total supply − burned</dd></div>
       </dl>
-      <p className="burn-footnote">Transfers to the dead address remove tokens from circulation; they do not reduce ERC-20 totalSupply. Value uses the current Bankr / Pools price, not the price at each burn.</p>
+      {summaryError && <p className="hint" role="status">{summaryError}</p>}
+      <p className="burn-footnote">Totals are cached for at least five minutes and include all sources. Transfers to the dead address remove tokens from circulation; they do not reduce ERC-20 totalSupply. Value uses the current Bankr / Pools price, not the price at each burn.</p>
     </section>
     {!config ? <p role="status">Reading the selected network configuration…</p>
-      : deploymentChain(config) === 8453 ? <BaseBuyback config={config} onRefresh={() => setRevision((value) => value + 1)} />
-      : <BuybackEngine config={config} onRefresh={() => setRevision((value) => value + 1)} />}
+      : deploymentChain(config) === 8453 ? <BaseBuyback summary={summary} config={config} onRefresh={() => setRevision((value) => value + 1)} />
+      : <BuybackEngine summary={summary} config={config} onRefresh={() => setRevision((value) => value + 1)} />}
     <details className="card disclosure">
       <summary>How new pool fees are distributed</summary>
       <FeeBreakdown policy={launchFeePolicy(config)} />

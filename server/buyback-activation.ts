@@ -51,10 +51,14 @@ export function buybackGraphFingerprint(manifest: BuybackDeployment): Hex {
     if (!entry?.address || !hash(entry.runtimeHash)) throw new Error("Activation graph is incomplete");
     return [name, getAddress(entry.address).toLowerCase(), entry.runtimeHash.toLowerCase()];
   });
+  // This locale ordering participates in an already signed fingerprint/binding;
+  // do not replace it with code-point sorting.
   const constants = Object.entries(manifest.constants).sort(([a], [b]) => a.localeCompare(b)).map(([name, value]) => {
     if (!value) throw new Error("Activation account is missing");
     return [name, getAddress(value).toLowerCase()];
   });
+  // Feed ordering is also part of the already signed fingerprint/binding;
+  // retain localeCompare rather than changing to code-point sorting.
   const descriptions = Object.entries(manifest.assetFeedDescriptions ?? {}).sort(([a], [b]) => a.localeCompare(b)).map(([token, value]) => [token.toLowerCase(), value.descriptionHash.toLowerCase()]);
   if (descriptions.length !== 38) throw new Error("Activation initial feed metadata is incomplete");
   return keccak256(toBytes(JSON.stringify(["musegod-buyback-v2", 4663, contracts, constants, descriptions,
@@ -266,14 +270,31 @@ function parseActivationRecord(manifest: BuybackDeployment): FinalizedBuybackAct
 /** Cross-process runtime path: zero historical receipt, log or balance reads.
  * Keep live governor authority and a canonical finalized checkpoint; mutable
  * graph, allowance, price and actual funding checks remain at their callers. */
-export async function verifyRecordedBuybackActivation(client: ActivationClient, manifest: BuybackDeployment, head: bigint): Promise<ActivationEvidence> {
+const runtimeAcceptances = new WeakMap<object, Map<string, { at: number; evidence?: ActivationEvidence; inFlight?: Promise<ActivationEvidence> }>>();
+export const BUYBACK_ACTIVATION_DISPLAY_CACHE_MS = 300_000;
+export async function verifyRecordedBuybackActivation(client: ActivationClient, manifest: BuybackDeployment, head: bigint, options: {fresh?:boolean} = {}): Promise<ActivationEvidence> {
   manifest = structuredClone(manifest);
   const record = parseActivationRecord(manifest);
   if (head < BigInt(record.finalized.number) || record.anchors.some(anchor => BigInt(anchor.number) + 64n > head)) throw pendingRecord();
-  await verifyCurrentActivationAuthority(client, manifest, head);
-  const finalized = await client.getBlock({ blockNumber: BigInt(record.finalized.number) });
-  if (finalized.number !== BigInt(record.finalized.number) || !hash(finalized.hash) || !same(finalized.hash, record.finalized.hash)) throw pendingRecord();
-  return { fingerprint: record.fingerprint, activatedAtBlock: record.activatedAtBlock, nativeSchedulerEvidence: record.nativeSchedulerEvidence };
+  const verify = async () => {
+    await verifyCurrentActivationAuthority(client, manifest, head);
+    const finalized = await client.getBlock({ blockNumber: BigInt(record.finalized.number) });
+    if (finalized.number !== BigInt(record.finalized.number) || !hash(finalized.hash) || !same(finalized.hash, record.finalized.hash)) throw pendingRecord();
+    return { fingerprint: record.fingerprint, activatedAtBlock: record.activatedAtBlock, nativeSchedulerEvidence: record.nativeSchedulerEvidence };
+  };
+  // Display reads tolerate a bounded authority/anchor snapshot. Signing and
+  // operator recording use the default live verification on every request.
+  if (options.fresh !== false) return verify();
+  const key = keccak256(toBytes(JSON.stringify(manifest)));
+  let cache = runtimeAcceptances.get(client);
+  if (!cache) { cache = new Map(); runtimeAcceptances.set(client,cache); }
+  const retained = cache.get(key);
+  if (retained?.evidence && Date.now()-retained.at < BUYBACK_ACTIVATION_DISPLAY_CACHE_MS) return structuredClone(retained.evidence);
+  if (retained?.inFlight) return structuredClone(await retained.inFlight);
+  const selected: {at:number;evidence?:ActivationEvidence;inFlight?:Promise<ActivationEvidence>}={at:0};
+  selected.inFlight=verify().then(evidence=>{selected.evidence=evidence;selected.at=Date.now();selected.inFlight=undefined;return evidence;},error=>{cache!.delete(key);throw error;});
+  cache.set(key,selected);
+  return structuredClone(await selected.inFlight);
 }
 
 /** One-time operator producer. The caller verifies the current graph first and

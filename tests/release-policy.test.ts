@@ -3,16 +3,13 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { encodeAbiParameters, encodeEventTopics, erc20Abi, parseAbiParameters } from "viem";
 import type { BuildInfo } from "../src/lib/build-info";
 import { assertBuildManifest, assertCandidateRuntimeBindings, assertFrozenBuild, assertLaunchRuntime, assertReleaseCheckout, publishCandidate, ReleaseFailure, requireSingleActiveVersion, runtimeVarsFromBindings, sha256, snapshotBuild, type ReleaseLifecycle } from "../scripts/release-policy";
 import { FEE_POLICY, ENGINE_FEE_POLICY, BASE_AUTOMATION_FEE_POLICY } from "../src/lib/fee-policy";
 import { CURVE_POLICY } from "../src/lib/launch-curve";
-import { checkRuntime, checkFunctionalSmoke, baseRollbackCompatible, pristineBaseCollector, basePristineAuditStore, supportsBaseRecovery, type BasePristineAudit } from "../scripts/release";
+import { checkRuntime, checkFunctionalSmoke, baseRollbackCompatible, supportsBaseRecovery, supportsBuybackSummary } from "../scripts/release";
 import { BASE_COLLECTOR_MANIFEST, BASE_SPLITS_FACTORY, BASE_SPLITS_FACTORY_HASH, BASE_SPLITS_IMPLEMENTATION, BASE_SPLITS_IMPLEMENTATION_HASH, BASE_SPLITS_PROXY_HASH, type BaseCollectorManifest } from "../server/base-collector";
-import { readBaseAudit } from "../server/base-audit";
-import { BASE_BUYBACK_WETH, BASE_NATIVE_DESTINATION_POLICY } from "../src/lib/base-buyback";
-import { Store } from "../server/store";
+import { BASE_NATIVE_DESTINATION_POLICY } from "../src/lib/base-buyback";
 
 const commit = "a".repeat(40), newerCommit = "b".repeat(40);
 const previousVersion = "11111111-1111-4111-8111-111111111111", candidateVersion = "22222222-2222-4222-8222-222222222222";
@@ -289,7 +286,7 @@ test("functional release smoke covers prices, verified assets and a read-only ca
     if(path.endsWith("/first-buy/prices"))return Response.json({assets:prices.map(priceUsd=>({priceUsd}))});
     if(path.endsWith("/stocks"))return Response.json(Array.from({length:path.includes("8453")?36:1},()=>({verified:true})));
     if(path.endsWith("/buyback/engine"))return Response.json(path.includes("8453")?{kind:"base_splits_native",destinationChainId:4663}:{});
-    if(path.endsWith("/buyback/vault-ledger"))return Response.json({version:1,initialized:false});
+    if(path.endsWith("/buyback/summary"))return Response.json({chainId:4663,scope:"shared_robinhood",available:true,vaultMuseToDead:"0",deadTotalMuse:"0"});
     if(path.endsWith("/tokens"))return Response.json({items:[{address:runtimeVars.PLATFORM_TREASURY}],nextCursor:null});
     assert(path.endsWith("/quote"));assert.equal(init?.method,"POST");
     const body=JSON.parse(String(init?.body));assert.equal(body.amount,"1");assert.equal(body.side,"buy");
@@ -328,34 +325,14 @@ function deployedCollectorManifest(): BaseCollectorManifest {
   return manifest;
 }
 
-test("first deployed paused baseline requires a fresh pristine check, then rollback carries the same Collector graph", async () => {
-  const candidateManifest = deployedCollectorManifest(), candidateVars = { ENABLE_BASE_TRANSACTIONS: "false", BASE_FEE_COLLECTOR_ADDRESS: candidateManifest.collector.address! };
-  const pending = structuredClone(BASE_COLLECTOR_MANIFEST);
-  pending.activation = { status: "not_run" };
-  pending.canaryAuthorization = null;
-  pending.status = "not_deployed";
-  Object.assign(pending.collector, { address: null, runtimeHash: null, transactionHash: null, blockNumber: null });
-  let pristineCalls = 0, pristine = true;
-  const input = { previousVars: { ENABLE_BASE_TRANSACTIONS: "false" }, candidateVars, candidateManifest,
-    previousRecoveryProtocol: false, pristine: async () => { pristineCalls++; return pristine; } };
-  assert.equal(await baseRollbackCompatible(input), true);
-  pristine = false;
-  assert.equal(await baseRollbackCompatible(input), false, "recheck before activation and rollback catches intervening financial activity");
-  assert.equal(pristineCalls, 2);
-  assert.equal(await baseRollbackCompatible({ ...input, previousRecoveryProtocol: true, previousManifest: pending }), false,
-    "pending manifest and code marker alone cannot recover a deployed Collector");
-  pristine = true;
-  const blockedCalls = pristineCalls;
-  assert.equal(await baseRollbackCompatible({ ...input, candidateVars: { ...candidateVars, ENABLE_BASE_TRANSACTIONS: "true" } }), false);
-  candidateManifest.activation.nativeExecution = {} as NonNullable<BaseCollectorManifest["activation"]["nativeExecution"]>;
-  assert.equal(await baseRollbackCompatible(input), false, "a canary record makes the pristine bootstrap unavailable");
-  assert.equal(pristineCalls, blockedCalls, "each incompatible signing/canary case must block before the pristine callback");
-  delete candidateManifest.activation.nativeExecution;
-  const prior = structuredClone(candidateManifest);
-  const compatible = { ...input, previousVars: candidateVars, previousManifest: prior, previousRecoveryProtocol: true };
-  assert.equal(await baseRollbackCompatible(compatible), true);
-  prior.constants.operationsTreasury = "0x6666666666666666666666666666666666666666";
-  assert.equal(await baseRollbackCompatible(compatible), false, "same address but changed reviewed graph is not a recovery baseline");
+test("a deployed Collector rejects pre-Collector rollback and requires the same reviewed recovery graph", async () => {
+  const candidateManifest = deployedCollectorManifest(), candidateVars = { ENABLE_BASE_TRANSACTIONS:"false", BASE_FEE_COLLECTOR_ADDRESS:candidateManifest.collector.address! };
+  const input = { previousVars:{ENABLE_BASE_TRANSACTIONS:"false"},candidateVars,candidateManifest,previousRecoveryProtocol:false };
+  assert.equal(await baseRollbackCompatible(input),false,"unused-Collector bootstrap scanning is retired");
+  const prior=structuredClone(candidateManifest),compatible={...input,previousVars:candidateVars,previousManifest:prior,previousRecoveryProtocol:true};
+  assert.equal(await baseRollbackCompatible(compatible),true);
+  prior.constants.operationsTreasury="0x6666666666666666666666666666666666666666";
+  assert.equal(await baseRollbackCompatible(compatible),false,"same address cannot waive graph differences");
 });
 
 test("pre-Collector rollback smoke uses only the existing Robinhood functional endpoints", async context => {
@@ -382,7 +359,7 @@ test("uploaded runtime flags must equal the frozen source even while persistent 
 
 test("a pending Collector release cannot introduce the Base signing flag or a canary record", async () => {
   const input = { previousVars: {}, candidateVars: {}, candidateManifest: structuredClone(BASE_COLLECTOR_MANIFEST),
-    previousRecoveryProtocol: false, pristine: async () => true };
+    previousRecoveryProtocol: false };
   input.candidateManifest.activation = { status: "not_run" };
   input.candidateManifest.canaryAuthorization = null;
   input.candidateManifest.status = "not_deployed";
@@ -397,7 +374,7 @@ test("native Automation activation and destination changes require a matching re
   const candidateManifest = deployedCollectorManifest(), candidateVars = { ENABLE_BASE_TRANSACTIONS: "false", BASE_FEE_COLLECTOR_ADDRESS: candidateManifest.collector.address! };
   candidateManifest.nativeRule.ruleId = "base-native-rule";
   candidateManifest.nativeRule.configurationSha256 = `0x${"aa".repeat(32)}`;
-  const input = { previousVars: {}, candidateVars, candidateManifest, previousRecoveryProtocol: false, pristine: async () => true };
+  const input = { previousVars: {}, candidateVars, candidateManifest, previousRecoveryProtocol: false };
   assert.equal(await baseRollbackCompatible(input), false, "an initialized native rule cannot bootstrap against pre-native code");
   const previousManifest = structuredClone(candidateManifest);
   const compatible = { ...input, previousVars: candidateVars, previousManifest, previousRecoveryProtocol: true };
@@ -437,89 +414,10 @@ test("a paused Robinhood runtime must still expose its exact committed fee engin
  await checkRuntime(releaseOrigin,{vars});
 });
 
-test("a pristine baseline scans complete adapter and native-account history in bounded ten-block RPC pages",async()=>{
- const manifest=deployedCollectorManifest(),collector=manifest.collector.address!,automation=manifest.automationAccount.address!;
- let active=0,peak=0,logs=false,reorg=false,rpcFailure=false,clock=0;
- const ranges:{to?:string;address?:string;fromBlock:bigint;toBlock:bigint}[]=[];
- const client={getBlock:async()=>({number:250n,hash:reorg?"changed":"stable"}),getBalance:async()=>0n,
-  readContract:async({functionName}:any)=>functionName==="paused"?true:0n,
-  getLogs:async(input:any)=>{active++;peak=Math.max(peak,active);ranges.push({...input,to:input.args?.to});await new Promise(resolve=>setImmediate(resolve));active--;
-   if(rpcFailure)throw new Error("RPC unavailable");return logs&&input.args?.to===automation?[{}]:[];}};
- const verifyGraph=async()=>({collector,automationReceiver:automation,paused:true,runtimeHash:manifest.collector.runtimeHash!,manifestFingerprint:"0x11" as const,initialDeploymentBlock:100n});
- const deps={client:client as any,verifyGraph:verifyGraph as any,now:()=>clock++,auditStore:{load:()=>null,save:()=>{}}};
- assert.equal(await pristineBaseCollector(manifest,deps),true);assert(peak>1&&peak<=18);
- for(const holder of [collector,automation]){
-  const received=ranges.filter(row=>row.to===holder).sort((a,b)=>Number(a.fromBlock-b.fromBlock));let expected=holder===collector?100n:90n;
-  for(const row of received){assert.equal(row.fromBlock,expected);assert(row.toBlock-row.fromBlock<=9n);expected=row.toBlock+1n;}assert.equal(expected,251n);
- }
- logs=true;assert.equal(await pristineBaseCollector(manifest,deps),false,"any token arrival blocks a pre-recovery rollback");logs=false;
- rpcFailure=true;assert.equal(await pristineBaseCollector(manifest,deps),false,"unavailable evidence cannot authorize the bootstrap");rpcFailure=false;
- let blockReads=0;client.getBlock=async()=>({number:250n,hash:++blockReads>1?"reorg":"stable"});
- assert.equal(await pristineBaseCollector(manifest,deps),false,"the final canonical head must match the frozen snapshot");
- client.getBlock=async()=>({number:250n,hash:"stable"});
- let expired=false;assert.equal(await pristineBaseCollector(manifest,{...deps,now:()=>expired?45_000:(expired=true,0)}),false);
-});
-
-function pristineAuditFixture() {
- const manifest=deployedCollectorManifest(),collector=manifest.collector.address!,automation=manifest.automationAccount.address!;
- let head=60_000n,clock=0,latency=2500,activity=false,rpcFailure=false,reorgAt:bigint|null=null;
- let saved:BasePristineAudit|null=null;
- const receiptLogs = new Map<string, any>();
- const ranges:{fromBlock:bigint;toBlock:bigint}[]=[];
- const blockHash=(number:bigint)=>`0x${(number+(reorgAt!==null&&number>=reorgAt?1_000_000n:0n)).toString(16).padStart(64,"0")}`;
- const transferLog=(input:any,value=1n,self=false)=>{
-  const to=input.args.to,from=self?to:"0x2222222222222222222222222222222222222222",number=input.toBlock;
-  const log={address:BASE_BUYBACK_WETH,blockNumber:number,blockHash:blockHash(number),transactionHash:`0x${(number+2_000_000n).toString(16).padStart(64,"0")}`,
-   transactionIndex:0,logIndex:0,removed:false,topics:encodeEventTopics({abi:erc20Abi,eventName:"Transfer",args:{from,to}}),data:encodeAbiParameters(parseAbiParameters("uint256"),[value])};
-  receiptLogs.set(log.transactionHash,{status:"success",transactionHash:log.transactionHash,blockNumber:number,blockHash:log.blockHash,transactionIndex:0,logs:[log]});return log;
- };
- const client={getChainId:async()=>8453,getBlock:async(input?:{blockNumber?:bigint})=>{const number=input?.blockNumber??head;return {number,hash:blockHash(number)};},getBalance:async()=>0n,
-  getTransactionReceipt:async({hash}:any)=>{const receipt=receiptLogs.get(hash);if(!receipt)throw new Error("Unknown fixture receipt");return receipt;},
-  readContract:async({functionName}:any)=>functionName==="paused"?true:0n,
-  getLogs:async(input:any)=>{ranges.push({fromBlock:input.fromBlock,toBlock:input.toBlock});clock+=latency;if(rpcFailure)throw new Error("RPC failed");return activity&&input.toBlock>=head&&input.args?.to===automation?[transferLog(input)]:[];}};
- const deps={client:client as any,verifyGraph:async()=>({collector,automationReceiver:automation,paused:true,runtimeHash:manifest.collector.runtimeHash!,manifestFingerprint:"0x11",initialDeploymentBlock:100n}) as any,
-  now:()=>clock,auditStore:{load:()=>saved&&structuredClone(saved),save:(value:BasePristineAudit)=>{saved=structuredClone(value);}}};
- return {manifest,deps,ranges,transferLog,get saved(){return saved;},set saved(value:BasePristineAudit|null){saved=value;},set head(value:bigint){head=value;},set clock(value:number){clock=value;},
-  set latency(value:number){latency=value;},set activity(value:boolean){activity=value;},set rpcFailure(value:boolean){rpcFailure=value;},set reorgAt(value:bigint|null){reorgAt=value;}};
-}
-
-test("old pristine history survives deadline and process restart; activation rechecks only the anchored increment",async()=>{
- const work=pristineAuditFixture();
- assert.equal(await pristineBaseCollector(work.manifest,work.deps),false);
- const retained=structuredClone(work.saved!);assert(BigInt(retained.through)>89n&&BigInt(retained.through)<60_000n);assert.equal(retained.activityObserved,false);
- work.clock=0;work.latency=0;work.ranges.length=0;
- // Reconstruct the store to model a later CI run, including an existing Robinhood hotfix candidate.
- const restarted={...work.deps,auditStore:{load:()=>structuredClone(work.saved),save:(value:BasePristineAudit)=>{work.saved=value;}}};
- const input={previousVars:{ENABLE_BASE_TRANSACTIONS:"false",ENABLE_ROBINHOOD_TRANSACTIONS:"true"},candidateVars:{ENABLE_BASE_TRANSACTIONS:"false",ENABLE_ROBINHOOD_TRANSACTIONS:"true",BASE_FEE_COLLECTOR_ADDRESS:work.manifest.collector.address!},candidateManifest:work.manifest,
-  previousRecoveryProtocol:false,pristine:()=>pristineBaseCollector(work.manifest,restarted)};
- assert.equal(await baseRollbackCompatible(input),true,"complete resumable coverage permits the paused Base migration and same-release Robinhood hotfix");
- assert.equal(work.ranges[0].fromBlock,BigInt(retained.through)+1n,"completed older ranges are not rescanned");assert.equal(work.saved?.through,"60000");
- work.head=60_003n;work.ranges.length=0;assert.equal(await baseRollbackCompatible(input),true);
- assert(work.ranges.length>0&&work.ranges.every(range=>range.fromBlock===60_001n&&range.toBlock===60_003n));
- work.head=60_004n;work.activity=true;assert.equal(await baseRollbackCompatible(input),false,"new activity still blocks unsafe pre-recovery rollback");
- assert.equal(work.saved?.activityObserved,true);
-});
-
-test("pristine audit never advances through RPC failures, rolls forward on restart, and rejects stale or mismatched evidence",async()=>{
- const work=pristineAuditFixture();work.head=250n;work.latency=0;
- assert.equal(await pristineBaseCollector(work.manifest,work.deps),true);const completed=structuredClone(work.saved!);
- work.head=260n;work.rpcFailure=true;assert.equal(await pristineBaseCollector(work.manifest,work.deps),false);assert.deepEqual(work.saved,completed);
- work.rpcFailure=false;assert.equal(await pristineBaseCollector(work.manifest,work.deps),true);assert.equal(work.saved?.through,"260");
- const newer=structuredClone(work.saved!);work.head=200n;work.ranges.length=0;
- assert.equal(await pristineBaseCollector(work.manifest,work.deps),false);assert.deepEqual(work.saved,newer);assert.equal(work.ranges.length,0,"a lagging provider does not erase audit progress");
- work.head=260n;work.reorgAt=200n;work.ranges.length=0;
- assert.equal(await pristineBaseCollector(work.manifest,work.deps),true);assert.equal(work.ranges[0].fromBlock,90n,"canonical anchor conflict requires full coverage replay");
- work.saved={...work.saved!,graphFingerprint:`0x${"ff".repeat(32)}`};work.ranges.length=0;
- assert.equal(await pristineBaseCollector(work.manifest,work.deps),true);assert.equal(work.ranges[0].fromBlock,90n,"foreign graph cannot authorize skipped history");
- work.saved={...work.saved!,through:"-1"};work.ranges.length=0;
- assert.equal(await pristineBaseCollector(work.manifest,work.deps),true);assert.equal(work.ranges[0].fromBlock,90n,"malformed progress cannot authorize skipped history");
-});
-
-test("a compatible native rollback baseline permits Robinhood hotfixes without any pristine scan",async()=>{
+test("a compatible native rollback baseline permits Robinhood hotfixes using only the matching graph",async()=>{
  const manifest=deployedCollectorManifest();manifest.nativeRule.ruleId="live-native-rule";manifest.nativeRule.configurationSha256=`0x${"aa".repeat(32)}`;
  const vars={ENABLE_BASE_TRANSACTIONS:"false",ENABLE_ROBINHOOD_TRANSACTIONS:"true",BASE_FEE_COLLECTOR_ADDRESS:manifest.collector.address!};
- const flow=lifecycle().flow;flow.rollbackAllowed=()=>baseRollbackCompatible({previousVars:vars,candidateVars:vars,previousManifest:manifest,candidateManifest:manifest,previousRecoveryProtocol:true,
-  pristine:async()=>{throw new Error("must not scan a live native baseline");}});
+ const flow=lifecycle().flow;flow.rollbackAllowed=()=>baseRollbackCompatible({previousVars:vars,candidateVars:vars,previousManifest:manifest,candidateManifest:manifest ,previousRecoveryProtocol:true});
  assert.equal(await publishCandidate(flow),"success");
 });
 
@@ -531,106 +429,14 @@ test("rollback requires recovery version 7; older maintenance and destination po
   assert.equal(supportsBaseRecovery(source),false);
  const manifest=deployedCollectorManifest();manifest.nativeRule.ruleId="live-native-rule";manifest.nativeRule.configurationSha256=`0x${"aa".repeat(32)}`;
  const vars={ENABLE_BASE_TRANSACTIONS:"false",BASE_FEE_COLLECTOR_ADDRESS:manifest.collector.address!};
- let scans=0;
  assert.equal(await baseRollbackCompatible({previousVars:vars,candidateVars:vars,previousManifest:manifest,candidateManifest:manifest,
-  previousRecoveryProtocol:supportsBaseRecovery("export const BASE_RECOVERY_PROTOCOL = 3;"),pristine:async()=>{scans++;return true;}}),false);
- assert.equal(scans,0,"a live v3 baseline cannot recover the new internal audit state; no pristine scan can waive recovery compatibility");
+  previousRecoveryProtocol:supportsBaseRecovery("export const BASE_RECOVERY_PROTOCOL = 3;")}),false);
 });
 
-test("external zero-value or self Transfer histories never poison the pristine bootstrap; positive dust still does",async()=>{
- const work=pristineAuditFixture();work.head=250n;work.latency=0;
- let value=0n,self=false;
- const holder=work.manifest.automationAccount.address!;
- const client={...work.deps.client,getLogs:async(input:any)=>{
-  if(input.args?.to!==holder)return [];
-  return [work.transferLog(input,value,self)];
- }};
- const deps={...work.deps,client:client as any};
- assert.equal(await pristineBaseCollector(work.manifest,deps),true);assert.equal(work.saved?.activityObserved,false);
- work.head=251n;value=1n;self=true;assert.equal(await pristineBaseCollector(work.manifest,deps),true);
- assert.equal(work.saved?.activityObserved,false,"self-transfers do not create asset movement");
- work.head=252n;self=false;assert.equal(await pristineBaseCollector(work.manifest,deps),false);
- assert.equal(work.saved?.activityObserved,true,`positive historical transfers to ${holder} still require a compatible recovery baseline`);
-});
 
-test("older operator audits are discarded and fully rechecked under dependency-bound version 3",async()=>{
- const work=pristineAuditFixture();work.head=250n;work.latency=0;
- assert.equal(await pristineBaseCollector(work.manifest,work.deps),true);
- assert.equal(work.saved?.dependencySha256,sha256(readFileSync("package-lock.json")),"the audit binds the actual frozen dependency lock bytes");
- work.saved={...work.saved!,version:2,activityObserved:true} as unknown as BasePristineAudit;
- work.ranges.length=0;
- assert.equal(await pristineBaseCollector(work.manifest,work.deps),true);
- assert.equal(work.ranges[0].fromBlock,90n);assert.equal(work.saved?.version,3);assert.equal(work.saved?.activityObserved,false);
- work.saved={...work.saved!,dependencySha256:"ff".repeat(32),activityObserved:true};work.ranges.length=0;
- assert.equal(await pristineBaseCollector(work.manifest,work.deps),true);
- assert.equal(work.ranges[0].fromBlock,90n,"a foreign package-lock hash cannot retain skipped history or sticky activity");
- assert.notEqual(work.saved?.dependencySha256,"ff".repeat(32));
-});
-
-test("private pristine audit progress is fsynced and survives store recreation without relaxing graph identities",()=>{
- const directory=mkdtempSync(join(tmpdir(),"musegod-pristine-audit-"));try{
-  const value:BasePristineAudit={version:3,chainId:8453,graphFingerprint:`0x${"aa".repeat(32)}`,dependencySha256:"dd".repeat(32),collectorStart:"100",automationStart:"90",through:"250",blockHash:`0x${"bb".repeat(32)}`,activityObserved:false};
-  basePristineAuditStore(directory).save(value);assert.deepEqual(basePristineAuditStore(directory).load(value.graphFingerprint,value.dependencySha256),value);
-  assert.equal(basePristineAuditStore(directory).load(`0x${"cc".repeat(32)}`,value.dependencySha256),null);
-  assert.equal(basePristineAuditStore(directory).load(value.graphFingerprint,"ee".repeat(32)),null,"dependency SHA is part of the persistent file key");
-  assert.throws(()=>basePristineAuditStore(directory).save({...value,graphFingerprint:"../escape"}),/fingerprint/);
-  assert.throws(()=>basePristineAuditStore(directory).save({...value,dependencySha256:"../escape"}),/dependency hash/);
- }finally{rmSync(directory,{recursive:true,force:true});}
-});
-
-test("pristine graph verification warms complete cold module pages within its existing deadline and resumes persisted progress",async()=>{
- const directory=mkdtempSync(join(tmpdir(),"pristine-module-warm-")),store=new Store(directory,31337);
- const work=pristineAuditFixture();work.head=1200n;work.latency=0;
- const id=`internal_native_modules:0x${"45".repeat(32)}`,pages:bigint[]=[];
- let calls=0,ticks=0,pageLatency=3000;
- const verifyGraph=async(client:any,_address:any,options:any)=>{
-  calls++;
-  await readBaseAudit({client,store:options.auditStore,id,from:90n,to:1200n,now:()=>ticks,maxDurationMs:5000,
-   validate:(value):value is {blockNumber:string}=>typeof (value as any)?.blockNumber==="string",
-   page:async(from,to)=>{pages.push(from);ticks+=pageLatency;return [{blockNumber:String(to)}];}});
-  return work.deps.verifyGraph();
- };
- const deps={...work.deps,verifyGraph:verifyGraph as any,graphAuditStore:store,now:()=>ticks,maxDurationMs:5000};
- try{
-  assert.equal(await pristineBaseCollector(work.manifest,deps),false,"deadline stops after complete durable pages, without granting pristine status");
-  assert.equal(calls,1);assert.equal(store.getBuybackBatch(id)?.through,"489");assert.equal(work.saved,null);
-  ticks=0;pageLatency=0;calls=0;pages.length=0;
-  assert.equal(await pristineBaseCollector(work.manifest,deps),true,"cold audit coverage can finish in one bounded release attempt");
-  assert.equal(calls,1);assert.deepEqual(pages,[490n,690n,890n,1090n]);assert.equal(store.getBuybackBatch(id)?.through,"1200");
-  calls=0;
-  assert.equal(await pristineBaseCollector(work.manifest,deps),true);assert.equal(calls,1,"an anchored full module history skips warming on activation recheck");
-  for(const reason of ["Canonical Base audit coverage is incomplete; persisted progress will resume", "Canonical Base audit coverage is incomplete; persisted progress will resume later", "RPC unavailable"]){
-   calls=0;
-   assert.equal(await pristineBaseCollector(work.manifest,{...deps,verifyGraph:async()=>{calls++;throw new Error(reason);}}),false);
-   assert.equal(calls,1,"only the exact incomplete-coverage error with newly committed progress can retry");
-  }
- }finally{store.close();rmSync(directory,{recursive:true,force:true});}
-});
-
-test("phantom, malformed or reverted positive logs fail closed without poisoning persistent pristine activity",async()=>{
- const work=pristineAuditFixture();work.head=250n;work.latency=0;
- assert.equal(await pristineBaseCollector(work.manifest,work.deps),true);
- const completed=structuredClone(work.saved!);
- work.head=251n;work.activity=true;
- const receipt=work.deps.client.getTransactionReceipt;
- for(const invalid of ["phantom","reverted","wrongHash","malformed"]){
-  const client={...work.deps.client,
-   getTransactionReceipt:async(input:any)=>{
-    const actual=await receipt(input);
-    return invalid==="phantom"?{...actual,logs:[]}:invalid==="reverted"?{...actual,status:"reverted"}:invalid==="wrongHash"?{...actual,blockHash:`0x${"ff".repeat(32)}`}:actual;
-   },
-   getLogs:async(input:any)=>{
-    const logs=await work.deps.client.getLogs(input);
-    return invalid==="malformed"?logs.map((log:any)=>({...log,data:"0x"})):logs;
-   },
-  };
-  assert.equal(await pristineBaseCollector(work.manifest,{...work.deps,client:client as any}),false);
-  assert.deepEqual(work.saved,completed,`${invalid} evidence cannot create a sticky activity flag or advance this page`);
- }
- work.activity=false;
- assert.equal(await pristineBaseCollector(work.manifest,work.deps),true,"a later canonical read recovers without erasing private cache files");
- assert.equal(work.saved?.activityObserved,false);assert.equal(work.saved?.through,"251");
- work.head=252n;work.activity=true;
- assert.equal(await pristineBaseCollector(work.manifest,work.deps),false);
- assert.equal(work.saved?.activityObserved,true,"actual receipt membership and a successful canonical block still retain activity");
+test("summary capability is read from locked app source, never from HTTP failure or a comment",()=>{
+ assert.equal(supportsBuybackSummary('app.get("/api/buyback/summary", route(async () => {}));'),true);
+ assert.equal(supportsBuybackSummary('app.get("/api/buyback/engine", route(async () => {}));'),false);
+ assert.equal(supportsBuybackSummary('// app.get("/api/buyback/summary", route(async () => {}));'),false);
+ assert.equal(supportsBuybackSummary(readFileSync(new URL("../server/app.ts",import.meta.url),"utf8")),true);
 });

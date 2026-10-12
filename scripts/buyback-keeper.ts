@@ -9,6 +9,7 @@ import deployment from "../contracts/artifacts/buyback-v2-deployment.json";
 import { readFeePoolCurrencies, verifyFeeEngine, type BuybackDeployment } from "../server/buyback-engine";
 import { BUYBACK_WETH, BUYBACK_FORWARDER_ALLOWANCE_CAP, buybackAmountCandidates, buybackVaultAbi, engineTransaction, feeEngineAbi, type BuybackEngineStatus, type EngineAction, type EngineConversionQuote } from "../src/lib/buyback-engine";
 import { sameAddress, type RuntimeConfig } from "../src/lib/config";
+import { alchemyRpcTransport, createRpcMetrics, requireAlchemyRpc, type RpcMetrics } from "../server/alchemy-rpc";
 import { ENGINE_FEE_POLICY, MUSEGOD_BUYBACK } from "../src/lib/fee-policy";
 
 export type KeeperTask = { id: string; action: EngineAction; label: string } | { id: string; token: Address; amount: string; kind: "conversion"; label: string };
@@ -38,6 +39,7 @@ export type KeeperJournal = {
   blockNumber?: string; blockHash?: Hash; gasSpent?: string; resolvedAt?: number;
 };
 const JOURNAL_FIELDS = ["schemaVersion", "chainId", "caller", "nonce", "taskId", "hash", "to", "dataHash", "value", "gasLimit", "gasPrice", "signedAt", "status", "blockNumber", "blockHash", "gasSpent", "resolvedAt"];
+export const KEEPER_MANUAL_EXIT_CODE = 78;
 export class KeeperSigningStopped extends Error {
   constructor(message: string) { super(message); this.name = "KeeperSigningStopped"; }
 }
@@ -343,10 +345,11 @@ export function redactKeeperError(error: unknown, secrets: (string | undefined)[
 }
 const oracleAbi = parseAbi(["function quoteWethToMuse(uint256 amount) view returns(uint256)"]);
 /** Retain one RPC identity without retaining a successful network check. */
-export function createKeeperPublicClientCache() {
+export function createKeeperPublicClientCache(environment?: Record<string, string | undefined>, metrics?: RpcMetrics) {
   const create = (chainId: number, rpcUrl: string) => createPublicClient({
+    batch: { multicall: true },
     chain: defineChain({ ...robinhood, id: chainId, name: chainId === 31337 ? "Keeper local fork" : robinhood.name }),
-    transport: http(rpcUrl, { timeout: 30_000, retryCount: 0 }),
+    transport: environment && chainId === 4663 ? alchemyRpcTransport(4663, environment, { metrics }) : http(rpcUrl, { timeout: 30_000, retryCount: 0 }),
   });
   let retained: { chainId: number; rpcUrl: string; client: ReturnType<typeof create> } | undefined;
   return async (chainId: number, rpcUrl: string) => {
@@ -361,11 +364,48 @@ export function createKeeperPublicClientCache() {
     return client;
   };
 }
+export const KEEPER_PROFIT_INITIAL_BACKOFF_MS = 300_000;
+export const KEEPER_PROFIT_MAX_BACKOFF_MS = 3_600_000;
+export type KeeperProfitState = { version: 1; chainId: number; caller: Address; misses: number; nextAttemptAt: number; sizeCursor: number };
+export function keeperProfitBackoff(previous: KeeperProfitState, profitable: boolean, now = Date.now()): KeeperProfitState {
+  if (!Number.isSafeInteger(now) || now < 0) throw new Error("Invalid profitability time");
+  const misses = profitable ? 0 : Math.min(8, previous.misses + 1);
+  return { ...previous, misses, sizeCursor: profitable ? 0 : (previous.sizeCursor + 3) % 20, nextAttemptAt: profitable ? 0 : now + Math.min(KEEPER_PROFIT_MAX_BACKOFF_MS, KEEPER_PROFIT_INITIAL_BACKOFF_MS * 2 ** (misses - 1)) };
+}
+export async function readKeeperProfitState(path: string, chainId: number, caller: Address): Promise<KeeperProfitState> {
+  const empty = () => ({ version: 1 as const, chainId, caller, misses: 0, nextAttemptAt: 0, sizeCursor: 0 });
+  try {
+    const value = JSON.parse(await readFile(path, "utf8")) as KeeperProfitState;
+    if (!onlyFields(value, ["version", "chainId", "caller", "misses", "nextAttemptAt", "sizeCursor"]) || value.version !== 1 || value.chainId !== chainId || !sameAddress(value.caller, caller) ||
+      !Number.isSafeInteger(value.misses) || value.misses < 0 || value.misses > 8 || !Number.isSafeInteger(value.nextAttemptAt) || value.nextAttemptAt < 0 || !Number.isSafeInteger(value.sizeCursor) || value.sizeCursor < 0 || value.sizeCursor >= 20)
+      throw new Error("Scheduling identity or fields changed");
+    return value;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") console.log(JSON.stringify({ state: "profitability_state_reset", chainId, reason: "Private profitability scheduling state is unavailable or invalid; starting its default schedule. Financial journals were not changed." }));
+    return empty();
+  }
+}
+/** Only explicit EVM revert evidence can mean a tested size is unsuitable.
+ * HTTP/RPC failures and incomplete responses are availability failures. */
+export function keeperContractReverted(error: unknown): boolean {
+  const seen = new Set<unknown>(); let current = error;
+  while (current && typeof current === "object" && !seen.has(current)) {
+    seen.add(current); const item = current as { name?: string; cause?: unknown };
+    if (["ContractFunctionRevertedError", "ExecutionRevertedError"].includes(item.name ?? "")) return true;
+    current = item.cause;
+  }
+  return false;
+}
+export async function writeKeeperProfitState(path: string, state: KeeperProfitState) { await writePublicJsonAtomic(path, state); }
+/** At most three sizes per due round; every selected size retains the on-chain
+ * gas-profit floor. No-price/no-profit is a persistent scheduling decision. */
+export function keeperProfitCandidates(amount: bigint, cursor = 0) {
+  const candidates = buybackAmountCandidates(amount);
+  if (!Number.isSafeInteger(cursor) || cursor < 0 || cursor >= 20) throw new Error("Invalid profitability size cursor");
+  return Array.from({ length: Math.min(3, candidates.length) }, (_, index) => candidates[(cursor + index) % candidates.length]);
+}
 async function readApi<T>(origin: string, path: string, body?: unknown): Promise<T> {
-  // A local status round may catch up bounded historical pages without Worker limits.
-  // Quotes and all public requests keep the existing deadline; broadcast is separate.
-  const localRead = body === undefined && ["localhost", "127.0.0.1", "[::1]"].includes(new URL(origin).hostname);
-  const response = await fetch(`${origin}/api${path}`, { redirect: "manual", signal: AbortSignal.timeout(localRead ? 120_000 : 35_000),
+  const response = await fetch(`${origin}/api${path}`, { redirect: "manual", signal: AbortSignal.timeout(35_000),
     ...(body === undefined ? {} : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }) });
   if (!response.ok) throw new Error(`The keeper API request failed (${response.status})`);
   const text = await response.text();
@@ -386,7 +426,8 @@ export async function runKeeper(args: string[] = process.argv.slice(2)) {
   if (account && deploymentSenders.some((address) => sameAddress(address, account.address))) throw new Error("The keeper must not reuse a deployment account");
   const attempted = new Map<string, number>();
   const submission = new KeeperSubmissionBarrier();
-  const publicClientFor = createKeeperPublicClientCache();
+  const metrics = createRpcMetrics();
+  const publicClientFor = createKeeperPublicClientCache(process.env, metrics);
   const safeError = (error: unknown) => redactKeeperError(error, [rawKey, process.env.MUSEGOD_DEPLOY_PRIVATE_KEY, process.env.EVM_DY, process.env.ALCHEMY_API_KEY, process.env.ROBINHOOD_RPC_URL, process.env.FORK_RPC_URL]);
   let stopping = false;
   let journalPath: string | null = null;
@@ -394,7 +435,7 @@ export async function runKeeper(args: string[] = process.argv.slice(2)) {
   let taskState: KeeperTaskStateFile | null = null;
   let releaseJournalLock: (() => Promise<void>) | null = null;
   const stopSigning = (error: unknown) => {
-    stopping = true; process.exitCode = 1;
+    stopping = true; process.exitCode = KEEPER_MANUAL_EXIT_CODE;
     console.log(JSON.stringify({ state: "signing_stopped", journal: journalPath, reason: safeError(error) }));
   };
   let wakeWait: (() => void) | null = null;
@@ -402,7 +443,7 @@ export async function runKeeper(args: string[] = process.argv.slice(2)) {
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);
   try { do {
-    const startedAt = Date.now();
+    const startedAt = Date.now(); metrics.reset();
     try {
       const [config, status] = await Promise.all([readApi<RuntimeConfig>(origin, "/config"), readApi<BuybackEngineStatus>(origin, "/buyback/engine")]);
       if (!status.available) { console.log(JSON.stringify({ mode: execute ? "execute" : "dry_run", state: "waiting", reason: status.reason })); }
@@ -412,8 +453,7 @@ export async function runKeeper(args: string[] = process.argv.slice(2)) {
         if (config.chainId === 31337 && !localApi) throw new Error("Fork execution requires an explicit loopback API");
         if (account) assertKeeperAccount(account.address, config);
         const rpcUrl = config.chainId === 31337 ? process.env.FORK_RPC_URL || "http://127.0.0.1:8547"
-          : process.env.ALCHEMY_API_KEY ? `https://robinhood-mainnet.g.alchemy.com/v2/${encodeURIComponent(process.env.ALCHEMY_API_KEY)}`
-          : process.env.ROBINHOOD_RPC_URL || "https://rpc.mainnet.chain.robinhood.com";
+          : requireAlchemyRpc(4663, process.env);
         const rpc = new URL(rpcUrl);
         if (config.chainId === 31337 ? !["127.0.0.1", "localhost", "[::1]"].includes(rpc.hostname) : rpc.protocol !== "https:")
           throw new Error("The keeper RPC is not on the expected HTTPS or loopback network");
@@ -425,7 +465,7 @@ export async function runKeeper(args: string[] = process.argv.slice(2)) {
         const caller = account?.address || "0x0000000000000000000000000000000000000001" as Address;
         const tasks = selectKeeperTasks(status);
         console.log(JSON.stringify({ mode: execute ? "execute" : "dry_run", chainId: config.chainId, tasks: tasks.length, blockNumber: String(graph.blockNumber) }));
-        const wallet = execute && account ? createWalletClient({ account, chain, transport: http(rpcUrl, { timeout: 30_000, retryCount: 0 }) }) : null;
+        const wallet = execute && account ? createWalletClient({ account, chain, transport: config.chainId === 31337 ? http(rpcUrl, { timeout: 30_000, retryCount: 0 }) : alchemyRpcTransport(4663, process.env, { metrics }) }) : null;
         const persist = async (journal: KeeperJournal) => {
           if (!taskState || !taskStatePath) throw new KeeperSigningStopped("Keeper task budgets were not loaded before submission.");
           const updated = recordKeeperTaskOutcome(taskState, journal);
@@ -448,6 +488,8 @@ export async function runKeeper(args: string[] = process.argv.slice(2)) {
           const previous = await readKeeperJournal(journalPath, config.chainId, caller);
           if (previous) { await reconcile(previous); attempted.set(previous.taskId, Math.max(attempted.get(previous.taskId) ?? 0, previous.signedAt)); }
         }
+        const profitPath = resolve(".cache/buyback-keeper", `${config.chainId}-${caller.toLowerCase()}.profit.json`);
+        let profitState = await readKeeperProfitState(profitPath, config.chainId, caller);
         for (const task of tasks) {
           if (stopping) break;
           const wait = taskState && keeperTaskWait(taskState, task.id);
@@ -466,25 +508,30 @@ export async function runKeeper(args: string[] = process.argv.slice(2)) {
               console.log(JSON.stringify({ task: task.id, state: "skipped", reason: "No new credit remains in this verified pool's currencies" })); continue;
             }
             if (action.kind === "execute") {
+              if (Date.now() < profitState.nextAttemptAt) { console.log(JSON.stringify({ task: task.id, state: "waiting", reason: "Profitability backoff", nextAttemptAt: profitState.nextAttemptAt })); continue; }
               let selected: Extract<EngineAction, { kind: "execute" }> | null = null;
-              for (const amount of buybackAmountCandidates(BigInt(action.amount))) {
+              for (const amount of keeperProfitCandidates(BigInt(action.amount), profitState.sizeCursor)) {
                 if (stopping) break;
                 const deadline = Math.floor(Date.now() / 1000) + 59;
                 const args = [amount, 1n, BigInt(deadline)] as const;
                 try {
-                  const [simulation, gas, gasPrice] = await Promise.all([
+                  const outcomes = await Promise.allSettled([
                     client.simulateContract({ address: graph.vault, abi: buybackVaultAbi, functionName: "execute", args, account: caller }),
                     client.estimateContractGas({ address: graph.vault, abi: buybackVaultAbi, functionName: "execute", args, account: caller }),
                     client.getGasPrice(),
                   ]);
+                  const rejected = outcomes.filter(row => row.status === "rejected");
+                  if (rejected.length) throw (rejected.find(row => !keeperContractReverted(row.reason)) ?? rejected[0]).reason;
+                  const [simulation, gas, gasPrice] = outcomes.map(row => (row as PromiseFulfilledResult<any>).value);
                   const gasMuse = await client.readContract({ address: graph.oracle, abi: oracleAbi, functionName: "quoteWethToMuse", args: [keeperGasCost(gas, gasPrice * 2n)] });
                   const minimumProfit = keeperProfitThreshold(gasMuse);
                   if (simulation.result[1] < minimumProfit) continue;
                   await client.simulateContract({ address: graph.vault, abi: buybackVaultAbi, functionName: "execute", args: [amount, minimumProfit, BigInt(deadline)], account: caller });
                   selected = { kind: "execute", amount: String(amount), minProfit: String(minimumProfit), deadline };
                   break;
-                } catch { /* A failed size is only simulated; smaller sizes retain the same price floor. */ }
+                } catch (error) { if (!keeperContractReverted(error)) throw error; /* An explicit EVM revert is a tested unsuitable size. */ }
               }
+              profitState = keeperProfitBackoff(profitState, !!selected); await writeKeeperProfitState(profitPath, profitState);
               if (!selected) { console.log(JSON.stringify({ task: task.id, state: "waiting", reason: "No tested trade size covers estimated gas plus 20%" })); continue; }
               action = selected;
             }
@@ -525,7 +572,11 @@ export async function runKeeper(args: string[] = process.argv.slice(2)) {
               console.log(JSON.stringify({ task: task.id, state: "skipped", reason: "Another transaction already accounted for this pool's new credit" })); continue;
             }
             const confirmed = await submission.submit({ chainId: config.chainId, caller, nonce: latestNonce, taskId: task.id, to: tx.to, dataHash: keccak256(tx.data), value: "0", gasLimit: String(gasLimit), gasPrice: String(gasPrice) }, {
-              sign: () => {
+              sign: async () => {
+                if (stopping) throw new KeeperSigningStopped("The keeper stopped before signing.");
+                await verifyFeeEngine(client, config.feeEngine!, undefined, { fresh: true });
+                assertKeeperSubmissionRuntime(current, config, status);
+                assertKeeperAccount(caller, current);
                 if (stopping) throw new KeeperSigningStopped("The keeper stopped before signing.");
                 engineTransaction(action, current);
                 return wallet.signTransaction({ ...tx, gas: gasLimit, maxFeePerGas: gasPrice, maxPriorityFeePerGas: 10_000n, nonce: latestNonce, type: "eip1559" });
@@ -553,18 +604,18 @@ export async function runKeeper(args: string[] = process.argv.slice(2)) {
     } catch (error) {
       if (error instanceof KeeperSigningStopped) { stopSigning(error); return; }
       console.log(JSON.stringify({ state: "waiting", reason: safeError(error) }));
-    }
+    } finally { console.log(JSON.stringify({ state: "keeper_rpc_metrics", chainId: 4663, ...metrics.snapshot() })); }
     if (once || stopping) break;
     await new Promise<void>((done) => {
-      const timer = setTimeout(() => { wakeWait = null; done(); }, Math.max(1000, 60_000 - (Date.now() - startedAt)));
+      const timer = setTimeout(() => { wakeWait = null; done(); }, Math.max(1000, 300_000 - (Date.now() - startedAt)));
       wakeWait = () => { clearTimeout(timer); wakeWait = null; done(); };
       if (stopping) wakeWait();
     });
-  } while (!stopping); } finally { await releaseJournalLock?.(); }
+  } while (!stopping); } finally { await releaseJournalLock?.(); process.removeListener("SIGINT", stop); process.removeListener("SIGTERM", stop); }
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   await runKeeper().catch((error) => {
     console.error(redactKeeperError(error, [process.env.MUSEGOD_KEEPER_PRIVATE_KEY, process.env.MUSEGOD_DEPLOY_PRIVATE_KEY, process.env.EVM_DY, process.env.ALCHEMY_API_KEY, process.env.ROBINHOOD_RPC_URL, process.env.FORK_RPC_URL]));
-    process.exitCode = 1;
+    process.exitCode = error instanceof KeeperSigningStopped ? KEEPER_MANUAL_EXIT_CODE : 1;
   });
 }

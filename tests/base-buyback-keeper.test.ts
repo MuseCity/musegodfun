@@ -10,27 +10,14 @@ import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { BASE_BUYBACK_PROTOCOL, baseCollectorAbi, type BaseFeeBatch } from "../src/lib/base-buyback";
 import { CONTRACTS, STOCKS } from "../src/lib/config";
 import { BASE_AUTOMATION_FEE_POLICY } from "../src/lib/fee-policy";
-import { allBaseFeeBatches, assertBaseNoUnknown, assertBaseOperationalControl, assertBaseVaultCheckpoint, assertBaseCanaryStorage, baseSourceStore,
+import { allBaseFeeBatches, assertBaseNoUnknown, assertBaseOperationalControl, baseSourceStore,
   baseCanonicalKeeperLease, writeBasePublicJson, readBasePublicJson, baseFeeTransaction, submitBaseFeeBatch, reconcileBaseFeeBatch, reserveBaseGas,
-  assertBaseGasReservationCurrent, assertCanonicalBaseCanaryBudget, assertBaseRoleSecrets, assertBaseKeeperRoles, baseReleaseAssetReady, assertBaseReleaseReadiness, assertBaseSelectedReleaseReadiness, baseUntrackedRecoveryTasks, BASE_UNTRACKED_COOLDOWN_MS, baseCanonicalGasSpent, baseUntrackedWalletHasReserve, assertCanonicalBaseUntrackedBudget, baseTaskIsolated, prepareBaseFeeTask, reconcileBaseKeeperHistory, type BaseKeeperJournal } from "../scripts/base-buyback-keeper";
+  assertBaseGasReservationCurrent, assertCanonicalBaseGasBudget, assertBaseRoleSecrets, assertBaseKeeperRoles, assertBaseSelectedReleaseReadiness, baseUntrackedRecoveryTasks, BASE_UNTRACKED_COOLDOWN_MS, baseCanonicalGasSpent, baseUntrackedWalletHasReserve, assertCanonicalBaseUntrackedBudget, baseTaskIsolated, prepareBaseFeeTask, reconcileBaseKeeperHistory, type BaseKeeperJournal } from "../scripts/base-buyback-keeper";
 import { runtimeFromEnv } from "../server/config";
 import { BASE_RECOVERY_FIXED_ASSETS } from "../server/base-buyback";
-import { emptyVaultLedgerReport } from "../src/lib/buyback-vault-ledger";
-import { emptyCustodyReport } from "../src/lib/buyback-custody-ledger";
 import { acquireBaseProcessLease } from "../scripts/base-process-lease";
 const account = privateKeyToAccount(generatePrivateKey()), collector = getAddress("0x1111111111111111111111111111111111111111"), automation = getAddress("0x2222222222222222222222222222222222222222");
 const hash = `0x${"ab".repeat(32)}` as Hex, replacement = `0x${"cd".repeat(32)}` as Hex;
-function releaseBudgetClient(ownedAmount=0n,foreignAmount=0n,pending=1000n){
- const blockHash=(number:bigint)=>`0x${(number+1000n).toString(16).padStart(64,"0")}` as Hex;
- const releases=[{amount:ownedAmount,from:account.address,blockNumber:100n},{amount:foreignAmount,from:automation,blockNumber:99n}].filter(row=>row.amount>0n);
- const logs=releases.map((row,index)=>({address:collector,blockNumber:row.blockNumber,blockHash:blockHash(row.blockNumber),transactionHash:`0x${(index+500).toString(16).padStart(64,"0")}` as Hex,transactionIndex:index,logIndex:0,removed:false,
-  data:encodeAbiParameters([{type:"uint256"}],[row.amount]),topics:encodeEventTopics({abi:baseCollectorAbi,eventName:"FeesReleased",args:{token:STOCKS[0].address,receiver:automation}})}));
- const client={getChainId:async()=>8453,getBlock:async({blockNumber}:any)=>({number:blockNumber??100n,hash:blockHash(blockNumber??100n)}),
-  getLogs:async({fromBlock,toBlock}:any)=>logs.filter(row=>row.blockNumber>=fromBlock&&row.blockNumber<=toBlock),
-  getTransactionReceipt:async({hash}:any)=>{const index=logs.findIndex(row=>row.transactionHash===hash),log=logs[index];return{transactionHash:hash,from:releases[index].from,status:"success",blockNumber:log.blockNumber,blockHash:log.blockHash,transactionIndex:log.transactionIndex,logs:[log]};},
-  readContract:async()=>pending} as unknown as PublicClient<Transport,any>;
- return{client,logs};
-}
 function batch(kind: "claim" | "release" = "claim"): BaseFeeBatch {
   const initial: BaseFeeBatch = { id: "base-native-test", protocol: BASE_BUYBACK_PROTOCOL, kind, status: "unknown", sourceChainId: 8453, destinationChainId: 4663, collector,
     createdAt: 1, updatedAt: 1, amountIn: kind === "release" ? "100" : "0", receivedAmount: "0", refundedAmount: "0", burnedAmount: "0", claimHashes: [],
@@ -77,7 +64,7 @@ test("a beforeBroadcast failure durably abandons an unsubmitted signature and pe
  const directory=await mkdtemp(join(tmpdir(),"base-abandoned-restart-"));try{
   const path=join(directory,"journal.json");await writeBasePublicJson(path,{version:2,collector,keeper:account.address,batches:[abandoned]});
   const restored=(await readBasePublicJson(path)) as BaseKeeperJournal,next={...batch(),id:"same-nonce-next"},store={buybackBatchPage:async()=>[{...publicRows.get(first.id)!,sequence:"1"}]};
-  await assertCanonicalBaseCanaryBudget(restored,next,store,{} as any,BigInt(next.gasReservation!.totalWei));
+  await assertCanonicalBaseGasBudget(restored,next,store,BigInt(next.gasReservation!.totalWei));
   const noRpc={getBlock:async()=>{throw Error("An abandoned task has no chain outcome to reconcile")},getTransactionReceipt:async()=>{throw Error("An abandoned hash must never get revived")}} as any;
   assert.deepEqual(await reconcileBaseFeeBatch(restored.batches[0],noRpc),abandoned);assert.deepEqual(await reconcileBaseKeeperHistory(restored,restored.batches,noRpc,hash),[]);
   const submitted=await submitBaseFeeBatch(next,deps);assert.equal(submitted.status,"broadcast");assert.equal(submitted.journal?.nonce,7);assert.equal(broadcasts,1);assert.equal(submitted.sourceHash,abandoned.sourceHash,"A later intentional submission may sign identical bytes without resurrecting the abandoned task");
@@ -94,7 +81,7 @@ test("half-written abandonment and legacy signed unknown remain reserved after r
    persistPublic:async row=>{if(phase==="public_complete"&&row.status==="abandoned")throw Error("public durability failed");canonical=structuredClone(row)},broadcast:async()=>{broadcasts++;return keccak256(raw)}}),/durability failed/);
   assert.equal(broadcasts,0);assert.equal(local!.status,"unknown");assert.equal(local!.sourceHash,keccak256(raw));assert.throws(()=>assertBaseNoUnknown([local!],account.address),/unresolved/);
   const journal:BaseKeeperJournal=JSON.parse(JSON.stringify({version:2,collector,keeper:account.address,batches:[local]})),store={buybackBatchPage:async()=>[{...canonical!,sequence:"1"}]};
-  await assert.rejects(assertCanonicalBaseCanaryBudget(journal,next,store,{} as any,cap),/cumulative/);
+  await assert.rejects(assertCanonicalBaseGasBudget(journal,next,store,cap),/cumulative/);
  }
  let failedOnce=false,local:BaseFeeBatch|undefined,canonical:BaseFeeBatch|undefined;
  const recovered=await submitBaseFeeBatch(first,{sign:async()=>raw,persistLocal:async row=>{local=structuredClone(row)},persistPublic:async row=>{if(!failedOnce){failedOnce=true;throw Error("one-shot initial persistence failure")};canonical=structuredClone(row)},broadcast:async()=>{throw Error("broadcast must not run")}});
@@ -108,8 +95,7 @@ test("half-written abandonment and legacy signed unknown remain reserved after r
  const restored:BaseKeeperJournal={version:2,collector,keeper:account.address,batches:[unused]},recoveryStore={buybackBatchPage:async()=>[{...unused,sequence:"1"}]};
  assert.equal(await assertCanonicalBaseUntrackedBudget(restored,{...recovery,id:"fresh-recovery"},recoveryStore,cap),true);
  const row={...STOCKS[0],pending:"0",pendingUntracked:"0",untracked:BASE_RECOVERY_FIXED_ASSETS[0].minimumRaw,verifiedAsset:true},status={available:true,paused:false,automation,assets:[row]} as any;
- const custody={ready:false,reason:"test",automation:emptyCustodyReport("base_automation"),treasury:emptyCustodyReport("robinhood_treasury"),vault:emptyVaultLedgerReport(0n)};
- assert.equal(baseUntrackedRecoveryTasks(status,()=>({...recovery,id:"retry-unknown"}),custody,false,{policies:BASE_RECOVERY_FIXED_ASSETS,history:[unused],keeper:account.address,now:10}).length,1,"An unused recovery signature does not start a one-hour spending cooldown");
+ assert.equal(baseUntrackedRecoveryTasks(status,()=>({...recovery,id:"retry-unknown"}),{policies:BASE_RECOVERY_FIXED_ASSETS,history:[unused],keeper:account.address,now:10}).length,1,"An unused recovery signature does not start a one-hour spending cooldown");
 });
 test("the local signer rejects swap/bridge tasks and altered signed chain, calldata or destination",async()=>{
   assert.throws(()=>baseFeeTransaction({...batch(),kind:"native_relay"}),/Automation/);
@@ -141,29 +127,25 @@ test("success claim requires actual manager credit, and cancellation requires an
   mock.set({cancellation:true,logs:[]});assert.equal((await reconcileBaseFeeBatch(prepared,mock.client,replacement)).status,"cancelled");
   for(const option of [{delegated:true},{auth:true},{logs:[{}]}]){mock.set({delegated:false,auth:false,logs:[],...option});assert.equal((await reconcileBaseFeeBatch(prepared,mock.client,replacement)).status,"unknown")}
 });
-test("complete pagination sees unresolved older than 1000, and journal paths cannot reset canonical gas or token ceilings",async()=>{
+test("complete pagination sees unresolved older than 1000, and journal paths cannot reset canonical gas ceilings",async()=>{
   const prior={...batch(),id:"old",status:"reverted" as const,sourceHash:hash};let calls=0;
   const rows=Array.from({length:1101},(_,index)=>({...prior,id:`row-${index}`,sequence:String(1101-index),updatedAt:1101-index,status:index===1100?"unknown":"reverted"}));
   const store={buybackBatchPage:async(limit=100,before?:{sequence:string})=>{calls++;rows.at(-1)!.updatedAt=Date.now();return rows.filter(row=>!before||BigInt(row.sequence)<BigInt(before.sequence)).slice(0,limit)}};
   const all=await allBaseFeeBatches(store);assert.equal(all.length,1101);assert.equal(calls,12);assert.throws(()=>assertBaseNoUnknown(all,account.address),/unresolved/);
   const journal:BaseKeeperJournal={version:2,collector,keeper:account.address,batches:[]};const simple={buybackBatchPage:async()=>[{...prior,sequence:"1"}]};const rpc={async readContract(){return 100n}} as unknown as PublicClient<Transport,any>;
-  await assert.rejects(assertCanonicalBaseCanaryBudget(journal,{...batch(),id:"new"},simple,rpc,10001000n),/cumulative/);
+  await assert.rejects(assertCanonicalBaseGasBudget(journal,{...batch(),id:"new"},simple,10001000n),/cumulative/);
   assert.equal(baseCanonicalKeeperLease(collector,account.address),baseCanonicalKeeperLease(collector,account.address));
-  const authorization={keeper:account.address,releaseBudgets:[{token:STOCKS[0].address,decimals:8,maxAmount:"100"}]} as any;
-  await assert.rejects(assertCanonicalBaseCanaryBudget(journal,batch("release"),{buybackBatchPage:async()=>[]},releaseBudgetClient(100n).client,100000000n,authorization,1n),/ceiling/);
 });
 test("fresh Base GPO reservation includes signed-size L1 upper bound and operator margin, and increased fees stop execution",async()=>{
   let l1=1000n;const rpc={async getChainId(){return 8453},async getBlock(){return {number:100n,hash}},async readContract(input:{functionName:string;args:any[]}){if(input.functionName==="getL1Fee"){assert.match(input.args[0],/^0x02/);return l1-100n}if(input.functionName==="getL1FeeUpperBound"){assert(input.args[0]>65n);return l1}return 20n}} as unknown as PublicClient<Transport,any>;
   const transaction=baseFeeTransaction(batch()), reservation=await reserveBaseGas(rpc,transaction,7,100000n,100n);assert.equal(reservation.totalWei,"10002040");
   await assertBaseGasReservationCurrent(rpc,transaction,7,100000n,100n,reservation);l1=2000n;await assert.rejects(assertBaseGasReservationCurrent(rpc,transaction,7,100000n,100n,reservation),/increased/);
 });
-test("runtime controls, canonical checkpoint, exact canary scope and isolated key environment all fail closed",async()=>{
+test("runtime controls and isolated key environment all fail closed",async()=>{
   const runtime={config:{mode:"base" as const,chainId:8453,writesEnabled:true,treasury:collector,feeEngine:collector,feePolicy:BASE_AUTOMATION_FEE_POLICY,blockReason:null}};let paused=true;
   const control={runtimeControl:async()=>({paused,revision:0,updatedAt:1,reason:"test"})};await assert.rejects(assertBaseOperationalControl(control,runtime),/persistent/);paused=false;await assertBaseOperationalControl(control,runtime);
-  await assert.rejects(assertBaseVaultCheckpoint(async()=>emptyVaultLedgerReport(100n)),/checkpoint/);
-  const env={NODE_ENV:"test",CHAIN_MODE:"base",SUPABASE_DATA_SCOPE:"verify-base-canary",DATA_DIR:"/tmp/fixture",SUPABASE_URL:"https://reviewed.supabase.co",SUPABASE_SECRET_KEY:"fixture"};assertBaseCanaryStorage(runtimeFromEnv(undefined,env));
-  assert.throws(()=>assertBaseCanaryStorage(runtimeFromEnv(undefined,{...env,SUPABASE_SECRET_KEY:undefined})),/Canary/);
   assert.throws(()=>assertBaseRoleSecrets({MUSEGOD_KEEPER_PRIVATE_KEY:"own",MUSEGOD_DEPLOY_PRIVATE_KEY:"other"}),/only/);
+  const env={NODE_ENV:"test",CHAIN_MODE:"base",SUPABASE_DATA_SCOPE:"base",DATA_DIR:"/tmp/fixture",SUPABASE_URL:"https://reviewed.supabase.co",SUPABASE_SECRET_KEY:"fixture"};
   const old=globalThis.fetch,reads:string[]=[];globalThis.fetch=async url=>{reads.push(String(url));return Response.json([])};try{for(const directory of ["/tmp/a","/tmp/b"]){const store=baseSourceStore(runtimeFromEnv(undefined,{...env,DATA_DIR:directory}));await allBaseFeeBatches(store);await store.close()}assert.equal(reads[0],reads[1]);assert.match(reads[0],/scope=eq.base/)}finally{globalThis.fetch=old}
 });
 test("an undeployed execute entry point cannot load a shared env file or create a signing wallet",async()=>{
@@ -200,8 +182,8 @@ test("multiple retained cancellations preserve separate nonces and cumulative ac
  assert.doesNotThrow(()=>assertBaseNoUnknown(cancelled,account.address));
  const journal:BaseKeeperJournal={version:2,collector,keeper:account.address,batches:cancelled},next={...batch(),id:"next"};
  const store={buybackBatchPage:async()=>cancelled.map((row,index)=>({...row,sequence:String(index+1)}))};
- await assert.rejects(assertCanonicalBaseCanaryBudget(journal,next,store,{} as any,BigInt(next.gasReservation!.totalWei)+4202050n-1n),/cumulative/);
- await assertCanonicalBaseCanaryBudget(journal,next,store,{} as any,BigInt(next.gasReservation!.totalWei)+4202050n);
+ await assert.rejects(assertCanonicalBaseGasBudget(journal,next,store,BigInt(next.gasReservation!.totalWei)+4202050n-1n),/cumulative/);
+ await assertCanonicalBaseGasBudget(journal,next,store,BigInt(next.gasReservation!.totalWei)+4202050n);
 });
 
 test("keeper execution rejects governance, treasury and Automation role reuse",()=>{
@@ -223,30 +205,28 @@ test("trusted Splits execution binds the actual keeper to owner acceptance witho
 });
 test("unknown recovery progresses independently over repeated sync/release cycles and never consumes genuine principal",async()=>{
  const asset={...STOCKS[0],chainId:8453 as const,pending:"7",untracked:"1000000",pendingUntracked:"0",totalClaimed:"7",totalReleased:"0",automationBalance:"0",verifiedAsset:true};
- const status={available:true,paused:false,automation,assets:[asset]} as any,custody={automation:{assets:[]}} as any;
+ const status={available:true,paused:false,automation,assets:[asset]} as any;
  const ctx={policies:BASE_RECOVERY_FIXED_ASSETS,history:[] as BaseFeeBatch[],keeper:account.address,now:10_000};
  const seed=(kind:"sync_untracked"|"release_untracked"):BaseFeeBatch=>({...batch("release"),kind,id:kind,amountIn:kind==="sync_untracked"?"0":"1000000",inputAsset:asset,release:kind==="release_untracked"?{token:asset.address,amount:"1000000",automation}:undefined});
- let tasks=baseUntrackedRecoveryTasks(status,seed,custody,false,ctx);assert.deepEqual(tasks.map(row=>row.kind),["sync_untracked"]);
+ let tasks=baseUntrackedRecoveryTasks(status,seed,ctx);assert.deepEqual(tasks.map(row=>row.kind),["sync_untracked"]);
  const sync={...tasks[0],sourceHash:hash};sync.journal={...sync.journal!,dataHash:keccak256(baseFeeTransaction(sync).data)};
  const syncMock=clientFor(sync,"success");syncMock.set({logs:[{address:collector,data:encodeAbiParameters([{type:"uint256"}],[1000000n]),topics:encodeEventTopics({abi:baseCollectorAbi,eventName:"UntrackedSynced",args:{token:asset.address}})}]});
  const synced=await reconcileBaseFeeBatch(sync,syncMock.client);assert.equal(synced.status,"synced");assert.equal(synced.untrackedSync?.amount,"1000000");assert.equal(synced.claimCredits,undefined);assert.equal(synced.actualGas?.totalWei,"2101025");
  asset.untracked="0";asset.pendingUntracked="1000000";
- tasks=baseUntrackedRecoveryTasks(status,seed,custody,false,ctx);assert.deepEqual(tasks.map(row=>row.kind),["release_untracked"]);assert.equal(tasks[0].amountIn,"1000000");assert.equal(asset.pending,"7");
+ tasks=baseUntrackedRecoveryTasks(status,seed,ctx);assert.deepEqual(tasks.map(row=>row.kind),["release_untracked"]);assert.equal(tasks[0].amountIn,"1000000");assert.equal(asset.pending,"7");
  const released={...tasks[0],sourceHash:hash};released.journal={...released.journal!,nonce:8,dataHash:keccak256(baseFeeTransaction(released).data)};
  const releaseMock=clientFor(released,"success"),transfer={address:asset.address,data:encodeAbiParameters([{type:"uint256"}],[1000000n]),topics:encodeEventTopics({abi:parseAbi(["event Transfer(address indexed from,address indexed to,uint256 value)"]),eventName:"Transfer",args:{from:collector,to:automation}})};
  const event={address:collector,data:encodeAbiParameters([{type:"uint256"}],[1000000n]),topics:encodeEventTopics({abi:baseCollectorAbi,eventName:"UntrackedReleased",args:{token:asset.address,receiver:automation}})};
  releaseMock.set({logs:[transfer,event]});const receipt=await reconcileBaseFeeBatch(released,releaseMock.client);assert.equal(receipt.status,"released");assert.equal(receipt.claimCredits,undefined);assert.equal(receipt.burnedAmount,"0");
  const restored=await reconcileBaseFeeBatch(JSON.parse(JSON.stringify(receipt)),releaseMock.client);assert.equal(restored.status,"released");assert.equal(restored.sourceHash,receipt.sourceHash);assert.deepEqual(restored.release,receipt.release);
  const journal:BaseKeeperJournal={version:2,collector,keeper:account.address,batches:[synced,receipt]},store={buybackBatchPage:async()=>[]};
- await assertCanonicalBaseCanaryBudget(journal,{...batch(),id:"fresh"},store,{} as any,BigInt(batch().gasReservation!.totalWei));
+ await assertCanonicalBaseGasBudget(journal,{...batch(),id:"fresh"},store,BigInt(batch().gasReservation!.totalWei));
  assert.equal(await assertCanonicalBaseUntrackedBudget(journal,{...released,id:"fresh-recovery"},store,BigInt(released.gasReservation!.totalWei)+4202050n-1n),false);
- await assertCanonicalBaseCanaryBudget(journal,{...batch(),id:"fresh"},store,{} as any,100000000n);
- const authorization={keeper:account.address,releaseBudgets:[{token:asset.address,decimals:asset.decimals,maxAmount:"100"}]} as any;
- await assertCanonicalBaseCanaryBudget(journal,batch("release"),store,releaseBudgetClient().client,100000000n,authorization,1n);
- for(const next of [sync,released]) await assert.rejects(assertCanonicalBaseCanaryBudget(journal,next,store,{} as any,100000000n,authorization,1n),/does not permit unknown recovery/);
- asset.pendingUntracked="0";asset.untracked="1000000";assert.deepEqual(baseUntrackedRecoveryTasks(status,seed,custody,false,ctx).map(row=>row.kind),["sync_untracked"]);
- assert.deepEqual(baseUntrackedRecoveryTasks({...status,paused:true},seed,custody,false,ctx),[]);assert.deepEqual(baseUntrackedRecoveryTasks(status,seed,custody,true,ctx),[]);
- asset.verifiedAsset=false;assert.deepEqual(baseUntrackedRecoveryTasks(status,seed,custody,false,ctx),[]);
+ await assertCanonicalBaseGasBudget(journal,{...batch(),id:"fresh"},store,100000000n);
+ for(const next of [sync,released]) await assert.rejects(assertCanonicalBaseGasBudget(journal,next,store,100000000n),/does not permit unknown recovery/);
+ asset.pendingUntracked="0";asset.untracked="1000000";assert.deepEqual(baseUntrackedRecoveryTasks(status,seed,ctx).map(row=>row.kind),["sync_untracked"]);
+ assert.deepEqual(baseUntrackedRecoveryTasks({...status,paused:true},seed,ctx),[]);assert.deepEqual(baseUntrackedRecoveryTasks({...status,paused:true},seed,ctx),[]);
+ asset.verifiedAsset=false;assert.deepEqual(baseUntrackedRecoveryTasks(status,seed,ctx),[]);
 });
 test("unknown source tasks retain their own unresolved nonce, reservation, receipt and reorg protections",async()=>{
  for(const kind of ["sync_untracked","release_untracked"] as const){
@@ -256,53 +236,6 @@ test("unknown source tasks retain their own unresolved nonce, reservation, recei
   mock.set({canonical:false});assert.equal((await reconcileBaseFeeBatch({...resolved,sourceBlockHash:hash},mock.client)).status,"reorg");
   const tampered={...prepared,amountIn:"99"};if(kind==="sync_untracked")assert.throws(()=>baseFeeTransaction(tampered),/Automation/);else assert.throws(()=>baseFeeTransaction({...prepared,release:{...prepared.release!,amount:"99"}}),/Automation/);
  }
-});
-
-test("asset quarantine skips only that release and admits a genuine first-release asset for independent discovery",()=>{
- const custody={automation:{assets:[{asset:STOCKS[0].address,ready:false},{asset:STOCKS[1].address,ready:true}]}} as any;
- assert.equal(baseReleaseAssetReady(custody,STOCKS[0].address),false);
- assert.equal(baseReleaseAssetReady(custody,STOCKS[1].address),true);
- assert.equal(baseReleaseAssetReady(custody,automation),true,"An absent new meme asset is introduced only by the separately verified genuine Collector release");
-});
-
-test("release security readiness admits a healthy asset despite incomplete display totals",()=>{
- const good=STOCKS[0].address,bad=STOCKS[1].address;
- const custody={ready:true,reason:null,automation:{...emptyCustodyReport("base_automation"),ready:true,fresh:true,caughtUp:false,assets:[{asset:good,ready:true,reason:null,received:"0",pending:"0",baseReceived:"0",basePending:"0"},{asset:bad,ready:false,reason:"backfill",received:"0",pending:"0",baseReceived:"0",basePending:"0"}]},
-  treasury:{...emptyCustodyReport("robinhood_treasury"),ready:true,fresh:true,caughtUp:false},vault:{...emptyVaultLedgerReport(1n),attributionReady:true,fresh:true,caughtUp:false}};
- const display={available:true,nativeAutomationState:"configured",ledgerComplete:false};
- assert.doesNotThrow(()=>assertBaseReleaseReadiness(custody,display,good));
- assert.throws(()=>assertBaseReleaseReadiness(custody,display,bad),/quarantined/);
- assert.throws(()=>assertBaseReleaseReadiness({...custody,automation:{...custody.automation,fresh:false}},display,good),/checkpoints/);
- assert.throws(()=>assertBaseReleaseReadiness(custody,{...display,nativeAutomationState:"unverified"},good),/authorization/);
-});
-
-test("canary principal counts canonical keeper-paid manual releases, excluding foreign tasks and donations",async()=>{
- const journal:BaseKeeperJournal={version:2,collector,keeper:account.address,batches:[]},store={buybackBatchPage:async()=>[]};
- const authorization={keeper:account.address,releaseBudgets:[{token:STOCKS[0].address,decimals:8,maxAmount:"100"}]} as any;
- await assertCanonicalBaseCanaryBudget(journal,batch("release"),store,releaseBudgetClient(0n,500n).client,100000000n,authorization,1n);
- await assert.rejects(assertCanonicalBaseCanaryBudget(journal,batch("release"),store,releaseBudgetClient(1n,500n).client,100000000n,authorization,1n),/ceiling/,
-  "An owner's manual release absent from both journals still consumes the signed token budget");
- const foreign=batch("release");foreign.id="foreign-reservation";foreign.journal={...foreign.journal!,caller:automation};foreign.amountIn="500";
- await assertCanonicalBaseCanaryBudget({...journal,batches:[foreign]},batch("release"),store,releaseBudgetClient().client,100000000n,authorization,1n);
- const own={...batch("release"),id:"own-reservation",amountIn:"1"};
- await assert.rejects(assertCanonicalBaseCanaryBudget({...journal,batches:[own]},batch("release"),store,releaseBudgetClient().client,100000000n,authorization,1n),/ceiling/);
- await assert.rejects(assertCanonicalBaseCanaryBudget(journal,batch("release"),store,releaseBudgetClient(0n,0n,99n).client,100000000n,authorization,1n),/genuine/);
-});
-
-test("canary token budgets require durable canonical audit CAS and complete coverage before allowing a release",async(t)=>{
- const journal:BaseKeeperJournal={version:2,collector,keeper:account.address,batches:[]},authorization={keeper:account.address,releaseBudgets:[{token:STOCKS[0].address,decimals:8,maxAmount:"200"}]} as any;
- const saved=new Map<string,any>();let writes=0,expireAfterTwoPages=false,clock=Date.now();
- const store={buybackBatchPage:async()=>[],getBuybackBatch:async(id:string)=>structuredClone(saved.get(id)??null),compareAndSetBuybackAudit:async(row:any,expected:any)=>{
-  assert.deepEqual(saved.get(row.id)??null,expected);writes++;saved.set(row.id,structuredClone(row));if(expireAfterTwoPages&&BigInt(row.through)>=400n)clock+=9001;return true;
- }};
- await assertCanonicalBaseCanaryBudget(journal,batch("release"),store,releaseBudgetClient(1n,500n).client,100000000n,authorization,1n);
- assert(writes>=1);assert.equal([...saved.values()][0].through,"100");assert.equal([...saved.values()][0].entries.filter((row:any)=>row.from===account.address)[0].amount,"1");
- let rejected=0;const lost={buybackBatchPage:async()=>[],getBuybackBatch:async()=>null,compareAndSetBuybackAudit:async()=>{rejected++;return false}};
- await assert.rejects(assertCanonicalBaseCanaryBudget(journal,batch("release"),lost,releaseBudgetClient().client,100000000n,authorization,1n),/changed concurrently/);assert.equal(rejected,1,"A lost persistence CAS cannot authorize release");
- saved.clear();writes=0;expireAfterTwoPages=true;t.mock.method(Date,"now",()=>clock);const pending=releaseBudgetClient().client,original=pending.getBlock;
- pending.getBlock=async(args:any)=>original({...args,blockNumber:args.blockNumber??1000n}) as any;
- await assert.rejects(assertCanonicalBaseCanaryBudget(journal,batch("release"),store,pending,100000000n,authorization,1n),/coverage is incomplete/);
- assert(writes>=2);assert.equal([...saved.values()][0].through,"400","Time-limited partial canonical pages survive without authorizing any spend");
 });
 
 test("a raced zero-fee claim resolves only complete recognized delta pairs under the exact runtime", async () => {
@@ -377,14 +310,14 @@ test("one-raw donations and Collector-blessed unregistered assets create no auto
  const seed=(kind:"sync_untracked"|"release_untracked")=>({...batch("release"),kind,amountIn:"0"}),ctx={policies:BASE_RECOVERY_FIXED_ASSETS,history:[] as BaseFeeBatch[],keeper:account.address,now:10_000};
  const rows=BASE_RECOVERY_FIXED_ASSETS.map(asset=>({...asset,pending:"0",untracked:"1",pendingUntracked:"1",verifiedAsset:true}));
  const attacker={...rows[0],address:automation,untracked:"999999999999999999999",pendingUntracked:"999999999999999999999"};
- const status={available:true,paused:false,automation,assets:[...rows,attacker]} as any,custody={automation:{assets:[]}} as any;
- assert.deepEqual(baseUntrackedRecoveryTasks(status,seed,custody,false,ctx),[]);
- rows[0].untracked=rows[0].minimumRaw;rows[0].pendingUntracked="0";assert.equal(baseUntrackedRecoveryTasks(status,seed,custody,false,ctx).length,1);
- const task=baseUntrackedRecoveryTasks(status,seed,custody,false,ctx)[0];task.createdAt=ctx.now;task.journal={...batch().journal!};task.status="reverted";
+ const status={available:true,paused:false,automation,assets:[...rows,attacker]} as any;
+ assert.deepEqual(baseUntrackedRecoveryTasks(status,seed,ctx),[]);
+ rows[0].untracked=rows[0].minimumRaw;rows[0].pendingUntracked="0";assert.equal(baseUntrackedRecoveryTasks(status,seed,ctx).length,1);
+ const task=baseUntrackedRecoveryTasks(status,seed,ctx)[0];task.createdAt=ctx.now;task.journal={...batch().journal!};task.status="reverted";
  const restored=JSON.parse(JSON.stringify(task));ctx.history=[restored];ctx.now+=BASE_UNTRACKED_COOLDOWN_MS-1;
- assert.deepEqual(baseUntrackedRecoveryTasks(status,seed,custody,false,ctx),[]);ctx.now++;
- assert.equal(baseUntrackedRecoveryTasks(status,seed,custody,false,ctx).length,1);
- rows[0].decimals=18;assert.deepEqual(baseUntrackedRecoveryTasks(status,seed,custody,false,ctx),[]);
+ assert.deepEqual(baseUntrackedRecoveryTasks(status,seed,ctx),[]);ctx.now++;
+ assert.equal(baseUntrackedRecoveryTasks(status,seed,ctx).length,1);
+ rows[0].decimals=18;assert.deepEqual(baseUntrackedRecoveryTasks(status,seed,ctx),[]);
 });
 test("an exhausted unknown-only gas ceiling and recovery registration never consume the genuine fee ceiling",async()=>{
  const old={...batch("release"),kind:"release_untracked" as const,id:"old-unknown",status:"reverted" as const,actualGas:{totalWei:"99999999"} as any};
@@ -397,8 +330,8 @@ test("an exhausted unknown-only gas ceiling and recovery registration never cons
  assert.equal(baseUntrackedWalletHasReserve(BigInt(unknownReservation)+genuineCap,unknownReservation,genuineCap,journal.batches,account.address),true);
  const genuineSpent={...batch(),id:"genuine-spent",status:"reverted" as const,actualGas:{totalWei:"4000"} as any};genuineSpent.journal={...genuineSpent.journal!,nonce:9};
  assert.equal(baseUntrackedWalletHasReserve(BigInt(unknownReservation)+genuineCap-4000n,unknownReservation,genuineCap,[...journal.batches,genuineSpent],account.address),true,"Only actual genuine gas consumption releases its ETH reservation");
- await assertCanonicalBaseCanaryBudget(journal,{...batch("release"),id:"genuine"},store,{} as any,BigInt(batch().gasReservation!.totalWei));
- await assert.rejects(assertCanonicalBaseCanaryBudget(journal,registration,store,{} as any,10n**18n),/does not permit unknown recovery/);
+ await assertCanonicalBaseGasBudget(journal,{...batch("release"),id:"genuine"},store,BigInt(batch().gasReservation!.totalWei));
+ await assert.rejects(assertCanonicalBaseGasBudget(journal,registration,store,10n**18n),/does not permit unknown recovery/);
  const unsignedPending={...next,status:"unknown" as const};assert.throws(()=>assertBaseNoUnknown([unsignedPending],account.address),/unresolved/);
 });
 test("canonical mined asset-event failure consumes its nonce and gas without poisoning healthy assets or counterfeiting income",async()=>{
@@ -423,12 +356,12 @@ test("unsigned simulation failure skips one pool while pending nonces and persis
  const abandoned=await submitBaseFeeBatch(batch(),{sign:async()=>raw,persistLocal:async row=>{saved=row},persistPublic:async()=>{},beforeBroadcast:async()=>{throw new Error("asset became unavailable")},broadcast:async()=>hash});
  assert.equal(abandoned.status,"abandoned");assert.doesNotThrow(()=>assertBaseNoUnknown([saved!],account.address));
 });
-test("thousands of finalized source outcomes use one canonical anchor and cannot flip on receipt/code timeouts",async()=>{
+test("thousands of finalized source outcomes require no repeated canonical history and cannot flip on receipt/code timeouts",async()=>{
  const h=(n:number)=>`0x${n.toString(16).padStart(64,"0")}` as Hex;
  const history=Array.from({length:1200},(_,index)=>{const value={...batch(),id:`terminal-${index}`,status:"claimed" as const,sourceHash:h(index+10_000),sourceBlockNumber:String(index+1),sourceBlockHash:h(index+1),sourceFinalized:true};return{...value,actualGas:{transactionHash:value.sourceHash,blockNumber:value.sourceBlockNumber,blockHash:value.sourceBlockHash,executionWei:"1",l1Wei:"1",operatorWei:"1",totalWei:"3"}}});
  let blocks=0,receipts=0;const client={getChainId:async()=>8453,getBlockNumber:async()=>2001n,getBlock:async({blockNumber}:any)=>{blocks++;const number=blockNumber??2000n;return{number,hash:h(Number(number))};},getTransactionReceipt:async()=>{receipts++;throw new Error("transient receipt timeout")},getCode:async()=>{throw new Error("transient code timeout")}} as any;
  const journal:BaseKeeperJournal={version:2,collector,keeper:account.address,batches:history};
- assert.deepEqual(await reconcileBaseKeeperHistory(journal,history,client,hash),[]);assert.equal(receipts,0);assert.equal(blocks,3);assert(history.every(row=>row.status==="claimed"));
+ assert.deepEqual(await reconcileBaseKeeperHistory(journal,history,client,hash),[]);assert.equal(receipts,0);assert.equal(blocks,0);assert(history.every(row=>row.status==="claimed"));
  const unmarked=history.map(row=>({...row,sourceFinalized:undefined}));blocks=0;
  const results=await reconcileBaseKeeperHistory({...journal,batches:unmarked},unmarked,client,hash);assert.equal(results.length,64);assert(results.every(row=>row.sourceFinalized&&row.status==="claimed"));assert.equal(receipts,0);assert.equal(blocks,66);
  const pending={...batch(),id:"still-unresolved",sourceHash:hash};const candidates=[...history,pending];
@@ -436,17 +369,13 @@ test("thousands of finalized source outcomes use one canonical anchor and cannot
 });
 
 test("release gates read only the selected canonical fee bucket, preserving quarantine and unknown isolation",async()=>{
- const custody={ready:true,reason:null,automation:{...emptyCustodyReport("base_automation"),ready:true,fresh:true},treasury:{...emptyCustodyReport("robinhood_treasury"),ready:true,fresh:true},vault:{...emptyVaultLedgerReport(1n),attributionReady:true,fresh:true}};
  const task=batch("release");let registered=true,pending=1000n;const reads:string[]=[];
  const rpc={readContract:async({address:to,functionName,args}:any)=>{assert.equal(to,collector);assert.deepEqual(args,[task.release!.token]);reads.push(functionName);
    if(functionName==="verifiedAssets")return registered;if(functionName==="pendingFees"||functionName==="pendingUntracked")return pending;throw new Error("The signing gate cannot read display counters or another asset");}} as any;
- await assertBaseSelectedReleaseReadiness(rpc,task,custody);assert.deepEqual(reads,["verifiedAssets","pendingFees"]);
- registered=false;await assert.rejects(assertBaseSelectedReleaseReadiness(rpc,task,custody),/unavailable|insufficient/);registered=true;
- pending=BigInt(task.amountIn)-1n;await assert.rejects(assertBaseSelectedReleaseReadiness(rpc,task,custody),/insufficient/);
+ await assertBaseSelectedReleaseReadiness(rpc,task);assert.deepEqual(reads,["verifiedAssets","pendingFees"]);
+ registered=false;await assert.rejects(assertBaseSelectedReleaseReadiness(rpc,task),/unavailable|insufficient/);registered=true;
+ pending=BigInt(task.amountIn)-1n;await assert.rejects(assertBaseSelectedReleaseReadiness(rpc,task),/insufficient/);
  const unknown={...task,kind:"release_untracked" as const};reads.length=0;
- await assert.rejects(assertBaseSelectedReleaseReadiness(rpc,unknown,custody),/insufficient/);assert.deepEqual(reads,["verifiedAssets","pendingUntracked"],"Unknown cannot borrow the genuine bucket");
- pending=1000n;const before=reads.length;
- await assert.rejects(assertBaseSelectedReleaseReadiness(rpc,task,{...custody,automation:{...custody.automation,assets:[{asset:task.release!.token,ready:false,reason:"quarantined",received:"0",pending:"0",baseReceived:"0",basePending:"0"}]}}),/quarantined/);
- assert.equal(reads.length,before,"Quarantine prevents even selected-bucket RPC");
- await assert.rejects(assertBaseSelectedReleaseReadiness(rpc,task,{...custody,treasury:{...custody.treasury,fresh:false}}),/checkpoints/);
+ await assert.rejects(assertBaseSelectedReleaseReadiness(rpc,unknown),/insufficient/);assert.deepEqual(reads,["verifiedAssets","pendingUntracked"],"Unknown cannot borrow the genuine bucket");
+
 });

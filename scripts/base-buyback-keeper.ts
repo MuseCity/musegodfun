@@ -3,36 +3,27 @@ import { dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
-import { createPublicClient, createWalletClient, decodeEventLog, encodeFunctionData, erc20Abi, parseAbi, http, keccak256, parseTransaction, recoverTransactionAddress, serializeTransaction,
+import { createPublicClient, createWalletClient, decodeEventLog, encodeFunctionData, erc20Abi, parseAbi, keccak256, parseTransaction, recoverTransactionAddress, serializeTransaction,
   type Address, type Hex, type PublicClient, type Transport } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { base, robinhood } from "viem/chains";
-import { BASE_BUYBACK_PROTOCOL, baseCollectorAbi, integer, type BaseCollectorStatus, type BaseFeeBatch, type BaseGasReservation } from "../src/lib/base-buyback";
-import { CONTRACTS, sameAddress, type RuntimeConfig } from "../src/lib/config";
+import { BASE_BUYBACK_PROTOCOL, BASE_BUYBACK_WETH, BASE_BUYBACK_RH_WETH, baseCollectorAbi, integer, type BaseCollectorStatus, type BaseFeeAsset, type BaseFeeBatch, type BaseGasReservation } from "../src/lib/base-buyback";
+import { CONTRACTS, STOCKS, sameAddress, type TokenRecord } from "../src/lib/config";
 import { BASE_AUTOMATION_FEE_POLICY } from "../src/lib/fee-policy";
-import type { VaultLedgerReport } from "../src/lib/buyback-vault-ledger";
-import { BASE_COLLECTOR_MANIFEST, verifyBaseCollector, assertBaseKeeperAuthority, type BaseCollectorCanaryAuthorization } from "../server/base-collector";
-import { baseActivationAcceptanceReady } from "../server/base-activation-record";
-import { BASE_GAS_PRICE_ORACLE, baseGasPriceOracleAbi, canonicalBaseReceipt, collectorClaimEvidence, collectorReleaseEvidence, collectorUntrackedSyncEvidence, readCanonicalBaseTransactionFee, readTrustedBaseRecoveryAssets, type BaseRecoveryAssetPolicy } from "../server/base-buyback";
-import { loadEnvironment, redact, runtimeFromEnv, mainnetRpcUrl, type Runtime, type RuntimeEnvironment } from "../server/config";
+import { BASE_COLLECTOR_MANIFEST, verifyBaseCollectorForKeeperStartup, assertBaseKeeperLiveAuthority } from "../server/base-collector";
+import { BASE_GAS_PRICE_ORACLE, BASE_RECOVERY_FIXED_ASSETS, BaseFeeQuoteReader, baseGasPriceOracleAbi, canonicalBaseReceipt, collectorClaimEvidence, collectorReleaseEvidence, collectorUntrackedSyncEvidence, readCanonicalBaseTransactionFee, type BaseRecoveryAssetPolicy } from "../server/base-buyback";
+import { loadEnvironment, redact, runtimeFromEnv, type Runtime, type RuntimeEnvironment } from "../server/config";
 import { SupabaseStore, type StoreBackend } from "../server/supabase-store";
-import { LaunchpadService } from "../server/service";
-import { assertNativeCustodyReadiness, type NativeCustodyReadiness } from "../server/buyback-vault-runtime";
-import { readCanonicalBaseCollectorReleaseHistory } from "../server/base-native-provenance";
-import { assertKeeperNonceReady, keeperApiOrigin } from "./buyback-keeper";
-import { createBaseKeeperAudit } from "./base-keeper-audit";
-import { createLocalReplayClient } from "./base-local-replay";
+import { FirstBuyPaymentReader } from "../server/lifi";
+import { alchemyRpcTransport, createRpcMetrics } from "../server/alchemy-rpc";
+import { DopplerSDK } from "@whetstone-research/doppler-sdk/evm";
+import { assertKeeperNonceReady } from "./buyback-keeper";
 import { acquireBaseProcessLease, BaseProcessLeaseLostError, type BaseProcessLease } from "./base-process-lease";
-import { baseOperatorAuditStore } from "./base-audit-store";
-import { baseKeeperRpcTransport } from "./base-keeper-rpc";
 
 type Client = PublicClient<Transport, any>;
 export type BaseKeeperJournal = { version: 2; collector: Address; keeper: Address; batches: BaseFeeBatch[] };
 export function baseCanonicalKeeperLease(collector: Address, keeper: Address) {
   return join(homedir(), ".codex", "base-native-keeper", `${collector.toLowerCase()}-${keeper.toLowerCase()}.json`);
-}
-export function baseCanonicalAuditLease(collector: Address) {
-  return join(homedir(), ".codex", "base-native-keeper", `${collector.toLowerCase()}-audit.json`);
 }
 function assertPublic(value: unknown) {
   if (!value || typeof value !== "object") return;
@@ -93,42 +84,15 @@ export async function assertBaseOperationalControl(store: Pick<StoreBackend, "ru
   if (control.paused || !Number.isSafeInteger(control.revision)) throw new Error("Base persistent signing control is paused or unavailable");
   return control.revision;
 }
-export async function assertBaseVaultCheckpoint(read: () => Promise<VaultLedgerReport>) {
-  const report = await read();
-  if (!report.initialized || !report.checkpointBlock || !report.indexedThrough || /reorg|rollback|mismatch|failed/i.test(report.reason ?? "")) throw new Error("A canonical Robinhood Vault checkpoint must exist before Base forwarding");
-  return report;
-}
-export function baseReleaseAssetReady(custody: NativeCustodyReadiness, token: Address) {
-  const asset = custody.automation.assets.find(row => sameAddress(row.asset, token));
-  // A first genuine release introduces a newly launched asset to discovery.
-  // An already indexed, quarantined asset cannot bypass its independent replay.
-  return !asset || asset.ready;
-}
-export function assertBaseReleaseReadiness(custody: NativeCustodyReadiness, readiness: {
-  available: boolean; nativeAutomationState: string;
-}, token: Address) {
-  assertNativeCustodyReadiness(custody);
-  if (!baseReleaseAssetReady(custody, token)) throw new Error("This fee asset's canonical custody remains quarantined; other verified assets may continue");
-  if (!readiness.available || readiness.nativeAutomationState !== "configured") throw new Error("Native Automation authorization and custody checkpoints are not verified");
-}
-/** The caller has freshly verified the live graph and authorization. Check
- * only the selected release's canonical registration and pending bucket. */
-export async function assertBaseSelectedReleaseReadiness(client: Client, task: BaseFeeBatch, custody: NativeCustodyReadiness) {
-  assertNativeCustodyReadiness(custody);
+/** Only the selected fixed fee bucket is checked; no cross-chain attribution gate. */
+export async function assertBaseSelectedReleaseReadiness(client: Client, task: BaseFeeBatch) {
   if (!task.release || !["release", "release_untracked"].includes(task.kind) || !sameAddress(task.release.token, task.inputAsset?.address ?? "") ||
-    task.release.amount !== task.amountIn || !baseReleaseAssetReady(custody, task.release.token)) throw new BaseFeeAssetUnavailable("This selected release asset is invalid or quarantined");
+    task.release.amount !== task.amountIn) throw new BaseFeeAssetUnavailable("This selected release asset is invalid");
   const [registered, pending] = await Promise.all([
     client.readContract({ address: task.collector, abi: baseCollectorAbi, functionName: "verifiedAssets", args: [task.release.token] }),
     client.readContract({ address: task.collector, abi: baseCollectorAbi, functionName: task.kind === "release" ? "pendingFees" : "pendingUntracked", args: [task.release.token] }),
   ]);
   if (registered !== true || typeof pending !== "bigint" || pending < integer(task.amountIn)) throw new BaseFeeAssetUnavailable("The selected canonical fee bucket is unavailable or insufficient");
-}
-export function assertBaseCanaryStorage(runtime: Runtime) {
-  if (runtime.config.mode !== "base" || runtime.dataScope !== "verify-base-canary" || runtime.environment?.NODE_ENV === "production" ||
-    !runtime.environment?.DATA_DIR || !runtime.supabase?.url || !runtime.supabase.secretKey) throw new Error("Canary execution requires its exact reviewed persistent Supabase scope");
-}
-export function baseSourceRuntime(runtime: Runtime): Runtime {
-  return { ...runtime, dataScope: "base", dataDir: join(runtime.dataDir, "canonical-base") };
 }
 export function baseSourceStore(runtime: Runtime): StoreBackend {
   if (!runtime.supabase?.url || !runtime.supabase.secretKey) throw new Error("Canonical Base financial history requires persistent Supabase storage");
@@ -292,14 +256,15 @@ export async function reconcileBaseKeeperHistory(journal: BaseKeeperJournal,hist
   const terminal = (batch: BaseFeeBatch) => ["claimed","synced","released","reverted","cancelled"].includes(batch.status);
   const retryEvidence = (batch: BaseFeeBatch) => ["asset_failed","evidence_pending"].includes(batch.status);
   const knownMined = (batch: BaseFeeBatch) => terminal(batch)||retryEvidence(batch);
+  const candidates = own.filter(batch=>batch.id===replacementHint?.[0] || (retryEvidence(batch) ? !batch.evidenceRetryAt || now>=batch.evidenceRetryAt : !terminal(batch)||!batch.sourceFinalized))
+    .sort((a,b)=>Number(knownMined(a))-Number(knownMined(b)) || (knownMined(a)&&knownMined(b) ? (a.evidenceRetryAt??0)-(b.evidenceRetryAt??0) : 0) || a.journal!.nonce-b.journal!.nonce || a.createdAt-b.createdAt);
+  if (!candidates.length) return []; // Settled finalized tasks require no daily historical RPC.
   const finalized = await client.getBlock({ blockTag: "finalized" });
   if (finalized.number === null || !finalized.hash) throw new Error("Canonical finalized source head is unavailable; retained outcomes were not changed");
   const lastAnchor = own.filter(batch=>knownMined(batch)&&batch.sourceFinalized&&batch.sourceBlockNumber&&batch.sourceBlockHash)
     .sort((a,b)=>BigInt(a.sourceBlockNumber!) < BigInt(b.sourceBlockNumber!) ? 1 : -1)[0];
   if (lastAnchor && (finalized.number < BigInt(lastAnchor.sourceBlockNumber!) || (await client.getBlock({ blockNumber: BigInt(lastAnchor.sourceBlockNumber!) })).hash !== lastAnchor.sourceBlockHash))
     throw new Error("Finalized source anchor is unavailable or changed; retained outcomes require audited recovery");
-  const candidates = own.filter(batch=>batch.id===replacementHint?.[0] || (retryEvidence(batch) ? !batch.evidenceRetryAt || now>=batch.evidenceRetryAt : !terminal(batch)||!batch.sourceFinalized))
-    .sort((a,b)=>Number(knownMined(a))-Number(knownMined(b)) || (knownMined(a)&&knownMined(b) ? (a.evidenceRetryAt??0)-(b.evidenceRetryAt??0) : 0) || a.journal!.nonce-b.journal!.nonce || a.createdAt-b.createdAt);
   if (replacementHint) candidates.sort((a,b)=>Number(b.id===replacementHint[0])-Number(a.id===replacementHint[0]));
   const results: BaseFeeBatch[] = [];
   for (const batch of candidates.slice(0,limit)) {
@@ -386,7 +351,6 @@ export function baseUntrackedWalletHasReserve(balance: bigint,reservation: strin
   const spent = baseCanonicalGasSpent(history,keeper),remaining = genuineCap > spent ? genuineCap - spent : 0n;
   return balance >= integer(reservation,true) + remaining;
 }
-class BaseUntrackedBudgetExhausted extends Error {}
 class BaseFeeAssetUnavailable extends Error {}
 /** No signature/hash exists at this point. Simulation/asset errors may skip one task; unresolved wallet nonces still stop everything. */
 export async function prepareBaseFeeTask(task: BaseFeeBatch,client: Client,keeper: Address,now=Date.now()): Promise<BaseFeeBatch|null> {
@@ -401,37 +365,14 @@ export async function prepareBaseFeeTask(task: BaseFeeBatch,client: Client,keepe
     return { ...task,gasReservation: reservation,journal: { caller: keeper,nonce: latest,to: task.collector,dataHash: keccak256(transaction.data),hash: `0x${"00".repeat(32)}`,gasLimit: String(gas),maxFeePerGas: String(fees.maxFeePerGas),signedAt: now } };
   } catch { return null; }
 }
-export async function assertCanonicalBaseCanaryBudget(journal: BaseKeeperJournal, next: BaseFeeBatch, store: Pick<StoreBackend, "buybackBatchPage"> & Partial<Pick<StoreBackend,"getBuybackBatch"|"compareAndSetBuybackAudit">>,
-  client: Client, maxGas: bigint, authorization?: BaseCollectorCanaryAuthorization, initialDeploymentBlock?: bigint) {
-  const all = unionBatches(journal.batches, await allBaseFeeBatches(store),true).filter(batch => batch.id !== next.id);
-  if (isBaseUntrackedTask(next)) throw new Error("The genuine-fee/private canary budget does not permit unknown recovery");
-  const gas = baseCanonicalGasSpent(all,journal.keeper);
-  if (!next.gasReservation || gas + integer(next.gasReservation.totalWei, true) > maxGas) throw new Error("The cumulative canonical Base gas budget is exhausted");
-  if (authorization) {
-    if (!sameAddress(authorization.keeper, journal.keeper)) throw new Error("The owner authorized a different canary keeper");
-    if (next.kind === "release") {
-      const budget = authorization.releaseBudgets.find(row => sameAddress(row.token, next.release!.token));
-      if (!budget || budget.decimals !== next.inputAsset?.decimals) throw new Error("The owner did not authorize this canary release asset precision");
-      if (initialDeploymentBlock === undefined) throw new Error("The verified Collector deployment block is required for a cumulative canary release ceiling");
-      const head = await client.getBlock({ blockTag: "latest" });
-      if (head.number === null || !head.hash) throw new Error("Canonical canary release budget head is unavailable");
-      const audit = store as Partial<Pick<StoreBackend,"getBuybackBatch"|"compareAndSetBuybackAudit">>;
-      const history = await readCanonicalBaseCollectorReleaseHistory(client, next.collector, next.release!.automation, initialDeploymentBlock, head.number,
-        audit.getBuybackBatch && audit.compareAndSetBuybackAudit ? audit as Pick<StoreBackend,"getBuybackBatch"|"compareAndSetBuybackAudit"> : undefined);
-      const owned = history.filter(row => sameAddress(row.from, journal.keeper) && sameAddress(row.token, budget.token));
-      const released = owned.reduce((sum, row) => sum + row.amount, 0n);
-      const receivedHashes = new Set(owned.map(row => row.transactionHash.toLowerCase()));
-      const reserved = all.filter(batch => batch.kind === "release" && batch.journal && sameAddress(batch.journal.caller, journal.keeper) &&
-        batch.release && sameAddress(batch.release.token, budget.token) && ["unknown", "broadcast", "reorg"].includes(batch.status) &&
-        (!batch.sourceHash || !receivedHashes.has(batch.sourceHash.toLowerCase())))
-        .reduce((sum, batch) => sum + integer(batch.amountIn), 0n);
-      const pending = await client.readContract({ address: next.collector, abi: baseCollectorAbi, functionName: "pendingFees", args: [budget.token], blockNumber: head.number });
-      if ((await client.getBlock({ blockNumber: head.number })).hash !== head.hash) throw new Error("Canary release budget changed during canonical verification");
-      if (released + reserved + integer(next.amountIn) > integer(budget.maxAmount) || integer(next.amountIn) > pending) throw new Error("The cumulative canary token release ceiling or genuine fee income is exceeded");
-    }
-  }
+export async function assertCanonicalBaseGasBudget(journal: BaseKeeperJournal, next: BaseFeeBatch,
+  store: Pick<StoreBackend, "buybackBatchPage">, maxGas: bigint) {
+  const all = unionBatches(journal.batches, await allBaseFeeBatches(store), true).filter(batch => batch.id !== next.id);
+  if (isBaseUntrackedTask(next)) throw new Error("The genuine-fee budget does not permit unknown recovery");
+  if (!next.gasReservation || baseCanonicalGasSpent(all, journal.keeper) + integer(next.gasReservation.totalWei, true) > maxGas)
+    throw new Error("The cumulative canonical Base gas budget is exhausted");
 }
-/** Independent unknown recovery is automatic only outside the existing genuine-fee-only private authorization. */
+/** Unknown recovery retains its independent explicit gas ceiling and cooldown. */
 export const BASE_UNTRACKED_COOLDOWN_MS = 3_600_000;
 type UntrackedRecoveryContext = { policies: readonly BaseRecoveryAssetPolicy[]; history: BaseFeeBatch[]; keeper: Address; now: number };
 export function baseUntrackedAssetCooling(asset: Address,kind: "sync_untracked"|"release_untracked"|"claim",context: UntrackedRecoveryContext) {
@@ -439,221 +380,270 @@ export function baseUntrackedAssetCooling(asset: Address,kind: "sync_untracked"|
     !isBaseAbandonedTask(batch)&&
     ((batch.kind === kind)||(kind === "sync_untracked" && batch.kind === "release_untracked"))&&context.now < batch.createdAt + BASE_UNTRACKED_COOLDOWN_MS);
 }
+function feeAsset(policy: BaseFeeAsset): BaseFeeAsset {
+  return { chainId: policy.chainId, address: policy.address, symbol: policy.symbol, decimals: policy.decimals };
+}
 export function baseUntrackedRecoveryTasks(status: BaseCollectorStatus, seed: (kind: "sync_untracked" | "release_untracked") => BaseFeeBatch,
-  custody: NativeCustodyReadiness, canary = false,context?: UntrackedRecoveryContext): BaseFeeBatch[] {
-  if (!context || canary || !status.available || status.paused || !status.automation) return [];
+  context?: UntrackedRecoveryContext): BaseFeeBatch[] {
+  if (!context || !status.available || status.paused || !status.automation) return [];
   const tasks: BaseFeeBatch[] = [];
   for (const asset of status.assets) {
     const policy = context.policies.find(policy=>sameAddress(policy.address,asset.address));
     if (!policy || policy.decimals !== asset.decimals || !asset.verifiedAsset) continue;
-    if (integer(asset.pendingUntracked ?? "0",true) >= integer(policy.minimumRaw) && baseReleaseAssetReady(custody,asset.address) && !baseUntrackedAssetCooling(asset.address,"release_untracked",context))
-      tasks.push({ ...seed("release_untracked"),inputAsset: policy,amountIn: asset.pendingUntracked!,release: { token: asset.address,amount: asset.pendingUntracked!,automation: status.automation } });
-    else if (integer(asset.untracked,true) >= integer(policy.minimumRaw) && !baseUntrackedAssetCooling(asset.address,"sync_untracked",context)) tasks.push({ ...seed("sync_untracked"),inputAsset: policy,amountIn: "0" });
+    if (integer(asset.pendingUntracked ?? "0",true) >= integer(policy.minimumRaw) && !baseUntrackedAssetCooling(asset.address,"release_untracked",context))
+      tasks.push({ ...seed("release_untracked"),inputAsset: feeAsset(policy),amountIn: asset.pendingUntracked!,release: { token: asset.address,amount: asset.pendingUntracked!,automation: status.automation } });
+    else if (integer(asset.untracked ?? "0",true) >= integer(policy.minimumRaw) && !baseUntrackedAssetCooling(asset.address,"sync_untracked",context)) tasks.push({ ...seed("sync_untracked"),inputAsset: feeAsset(policy),amountIn: "0" });
   }
   return tasks.filter(task=>!baseTaskIsolated(task,context.history,context.keeper));
 }
+export const BASE_KEEPER_INTERVAL_MS = 300_000;
+export const BASE_STUCK_MONITOR_INTERVAL_MS = 900_000;
+export const BASE_STUCK_AFTER_MS = 86_400_000;
+export type BaseStuckMonitor = { version: 1; collector: Address; lastReadAt: number; poolCursor: number;
+  startupRetry?: { failures: number; nextAttemptAt: number };
+  balances: Record<string, { amount: string; overSince: number; alertedAt?: number }> };
+export function baseKeeperTokenEligible(token: TokenRecord, collector: Address) {
+  return token.mode === "base" && token.deploymentChainId === 8453 && token.feePolicy === BASE_AUTOMATION_FEE_POLICY &&
+    !!token.feeEngine && sameAddress(token.feeEngine, collector) && /^0x[\da-f]{40}$/i.test(token.address) &&
+    typeof token.transactionHash === "string" && /^0x[\da-f]{64}$/i.test(token.transactionHash) &&
+    typeof token.blockNumber === "string" && /^\d+$/.test(token.blockNumber) && /^0x[\da-f]{64}$/i.test(token.poolId);
+}
+export function baseKeeperPolicies(tokens: TokenRecord[], collector: Address): BaseRecoveryAssetPolicy[] {
+  const values = new Map(BASE_RECOVERY_FIXED_ASSETS.map(asset => [asset.address.toLowerCase(), asset]));
+  for (const token of tokens) if (baseKeeperTokenEligible(token, collector))
+    values.set(token.address.toLowerCase(), { chainId: 8453, address: token.address, symbol: token.symbol.slice(0, 64), decimals: 18, minimumRaw: "1000000000000000000" });
+  return [...values.values()];
+}
+/** The real quiet-round read path, also usable by explicit offline/CU probes.
+ * It neither starts a service nor performs startup verification or writes. */
+export async function readBaseKeeperFeeRound(reader: Pick<BaseFeeQuoteReader, "status">, tokens: TokenRecord[], collector: Address,
+  poolCursor: number, preview: (token: TokenRecord) => Promise<bigint>) {
+  const status = await reader.status();
+  if (!status.available || status.stale) throw new Error("Current Collector counters are unavailable; pending");
+  const eligible = tokens.filter(token => baseKeeperTokenEligible(token, collector));
+  const claims: { token: TokenRecord; asset: BaseRecoveryAssetPolicy }[] = [], failures: unknown[] = [];
+  for (let index = 0; index < Math.min(2, eligible.length); index++) {
+    const token = eligible[(poolCursor + index) % eligible.length], asset = BASE_RECOVERY_FIXED_ASSETS.find(asset => sameAddress(asset.address, token.quoteAddress));
+    if (!asset) continue;
+    try { if (await preview(token) > 0n) claims.push({ token, asset }); } catch (error) { failures.push(error); }
+  }
+  return { status, claims, failures, poolCursor: eligible.length ? (poolCursor + Math.min(2, eligible.length)) % eligible.length : 0 };
+}
+export function updateBaseStuckMonitor(previous: BaseStuckMonitor, readings: { key: string; amount: string; threshold: string }[], now: number,
+  stuckAfterMs = BASE_STUCK_AFTER_MS) {
+  if (!Number.isSafeInteger(now) || now < 0 || !Number.isSafeInteger(stuckAfterMs) || stuckAfterMs < BASE_STUCK_MONITOR_INTERVAL_MS)
+    throw new Error("Invalid stuck-funds observation time");
+  const balances = { ...previous.balances }, alerts: { key: string; amount: string; overSince: number }[] = [];
+  for (const row of readings) {
+    const amount = integer(row.amount, true), threshold = integer(row.threshold), retained = balances[row.key];
+    if (amount < threshold) { delete balances[row.key]; continue; }
+    const next = { amount: row.amount, overSince: retained?.overSince ?? now, ...(retained?.alertedAt !== undefined ? { alertedAt: retained.alertedAt } : {}) };
+    if (next.alertedAt === undefined && now - next.overSince >= stuckAfterMs) { alerts.push({ key: row.key, amount: row.amount, overSince: next.overSince }); next.alertedAt = now; }
+    balances[row.key] = next;
+  }
+  return { state: { ...previous, lastReadAt: now, balances }, alerts };
+}
+export function baseStartupRetry(previous: BaseStuckMonitor["startupRetry"], now: number) {
+  const failures = Math.min(8, (previous?.failures ?? 0) + 1);
+  return { failures, nextAttemptAt: now + Math.min(3_600_000, BASE_KEEPER_INTERVAL_MS * 2 ** (failures - 1)) };
+}
+async function appendFundAlert(path: string, alert: unknown) {
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  const file = await open(path, "a", 0o600);
+  try { await file.writeFile(JSON.stringify(alert) + "\n"); await file.sync(); } finally { await file.close(); }
+  console.log(JSON.stringify(alert));
+}
+export function sortBaseKeeperTasks(tasks: BaseFeeBatch[]) {
+  const priority = (task: BaseFeeBatch) => task.kind === "release" ? 0 : task.kind === "release_untracked" ? 1 : task.kind === "claim" ? 2 : 3;
+  return [...tasks].sort((a, b) => priority(a) - priority(b));
+}
+export function baseClaimCoversGas(minimumWeth: bigint, reservation: BaseGasReservation) {
+  return minimumWeth > integer(reservation.totalWei, true);
+}
+/** Read-only pricing, never signable calldata. Only the verified paired leg
+ * contributes value; the newly issued meme leg is conservatively worth zero. */
+export async function baseClaimValueWeth(reader: Pick<FirstBuyPaymentReader, "pricingRequest" | "integrator">,
+  asset: BaseFeeAsset, amount: bigint, automation: Address, now = Date.now): Promise<bigint> {
+  if (amount <= 0n) return 0n;
+  if (sameAddress(asset.address, BASE_BUYBACK_WETH)) return amount;
+  const pinned = STOCKS.find(stock => sameAddress(stock.address, asset.address));
+  if (!pinned || pinned.decimals !== asset.decimals) throw new Error("Claim paired-asset valuation is unavailable");
+  const started = now();
+  const raw = await reader.pricingRequest("quote", new URLSearchParams({ fromChain: "8453", toChain: "8453", fromToken: pinned.address,
+    toToken: BASE_BUYBACK_WETH, fromAmount: String(amount), fromAddress: automation, toAddress: automation,
+    integrator: reader.integrator, fee: "0", slippage: "0.01", skipSimulation: "false", allowBridges: "none" })) as any;
+  const action = raw?.action, estimate = raw?.estimate;
+  if (now() < started || now() >= started + 60_000 || action?.fromChainId !== 8453 || action?.toChainId !== 8453 ||
+    !sameAddress(action.fromAddress ?? "", automation) || !sameAddress(action.toAddress ?? "", automation) || action.fromAmount !== String(amount) ||
+    !sameAddress(action.fromToken?.address ?? "", pinned.address) || action.fromToken?.decimals !== pinned.decimals || action.fromToken?.chainId !== 8453 ||
+    !sameAddress(action.toToken?.address ?? "", BASE_BUYBACK_WETH) || action.toToken?.decimals !== 18 || action.toToken?.chainId !== 8453 ||
+    estimate?.fromAmount !== String(amount)) throw new Error("Claim valuation quote changed its chain, assets, amount or freshness");
+  const minimum = integer(estimate.toAmountMin), expected = integer(estimate.toAmount);
+  if (minimum > expected) throw new Error("Invalid conservative claim value");
+  return minimum;
+}
+export async function pendingPairedFees(sdk: DopplerSDK<8453>, token: TokenRecord, collector: Address) {
+  const pool = await sdk.getMulticurvePool(token.address), hook = await sdk.getRehypeDopplerHookInitializer(CONTRACTS.rehype);
+  const [lp, trade] = await Promise.all([pool.getPendingFees(collector), hook.getPendingFees(token.poolId, collector)]);
+  const amount = BigInt(token.address) < BigInt(token.quoteAddress) ? lp.fees1 + trade.fees1 : lp.fees0 + trade.fees0;
+  if (typeof amount !== "bigint" || amount < 0n) throw new Error("Canonical paired fee quantity unavailable");
+  return amount;
+}
 export async function runBaseBuybackKeeper(args = process.argv.slice(2)) {
   const execute = args.includes("--execute"), auditOnly = args.includes("--audit-only");
-  if (execute && auditOnly) throw new Error("Host audit-only mode cannot sign or broadcast");
-  if (args.some(arg => !["--execute", "--audit-only", "--once", "--help"].includes(arg) && !/^--(?:api|interval|max-gas-wei|max-untracked-gas-wei|replacement)=/.test(arg))) throw new Error("Unsupported Base keeper option");
-  for (const name of ["api", "interval", "max-gas-wei", "max-untracked-gas-wei", "replacement"]) if (args.filter(arg => arg.startsWith(`--${name}=`)).length > 1) throw new Error(`Select only one --${name} value`);
-  if (args.includes("--help")) { console.log("Base native fee keeper: [--once] [--interval=30000]. --audit-only maintains canonical journals and publishes bounded display snapshots without a signing key. All audit/readiness checks use explicit Base and Robinhood RPCs on this host; call traces use reviewed local replay, with unsupported execution remaining pending. Public Worker APIs never authorize spending. --api is retained only as the private canary's signed origin. --execute requires --max-gas-wei for genuine fees, an isolated key process, canonical journals and reviewed controls. Optional --max-untracked-gas-wei enables a separate cumulative unknown-recovery gas ceiling; omission disables recovery. Unknown exhaustion never consumes genuine-fee gas. Private canary never permits unknown recovery. No swap or bridge signing. --replacement=<batchId>:<hash> revalidates one retained same-nonce task."); return; }
+  if (execute && auditOnly) throw new Error("Audit-only mode cannot sign or broadcast");
+  const names = ["interval", "operator-dir", "max-gas-wei", "max-untracked-gas-wei", "replacement"];
+  if (args.some(arg => !["--execute", "--audit-only", "--once", "--help"].includes(arg) && !names.some(name => arg.startsWith(`--${name}=`)))) throw new Error("Unsupported Base keeper option");
+  for (const name of names) if (args.filter(arg => arg.startsWith(`--${name}=`)).length > 1) throw new Error(`Select only one --${name} value`);
+  if (args.includes("--help")) { console.log("Base fee keeper: --audit-only [--once] [--interval=300000] [--operator-dir=/private/path]. Five-minute counters and fee tasks only; no custody, tracing, observer or source attribution. Startup verification is persisted once. --execute additionally requires an isolated keeper key, live owner/control permission and explicit --max-gas-wei. Optional --max-untracked-gas-wei is a separate unknown recovery cap; omission disables it. --replacement=<batchId>:<hash> recovers one retained same-nonce transaction. No local swap or bridge signing."); return; }
   if (!BASE_COLLECTOR_MANIFEST.collector.address || BASE_COLLECTOR_MANIFEST.status !== "deployed_verified") {
-    if (execute) throw new Error("Base native fee adapter is not deployed; no transaction was signed");
-    console.log(JSON.stringify({ mode: "dry_run", state: "not_deployed", chainId: 8453 })); return;
+    if (execute) throw new Error("Base fee adapter is not deployed; no transaction was signed");
+    console.log(JSON.stringify({ mode: "audit_only", state: "not_deployed", chainId: 8453 })); return;
   }
   if (!execute) loadEnvironment(); else assertBaseRoleSecrets(process.env);
-  const origin = keeperApiOrigin(args.find(arg => arg.startsWith("--api="))?.slice(6) ?? "https://musegod.fun");
-  const interval = Number(args.find(arg => arg.startsWith("--interval="))?.slice(11) ?? 30000);
-  if (!Number.isSafeInteger(interval) || interval < 1000 || interval > 60000) throw new Error("Invalid keeper interval");
+  const interval = Number(args.find(arg => arg.startsWith("--interval="))?.slice(11) ?? BASE_KEEPER_INTERVAL_MS);
+  if (!Number.isSafeInteger(interval) || interval < BASE_KEEPER_INTERVAL_MS || interval > 3_600_000) throw new Error("Keeper interval must be at least five minutes");
   const rawCap = args.find(arg => arg.startsWith("--max-gas-wei="))?.slice(14);
   if (execute && (!rawCap || !/^[1-9]\d{0,77}$/.test(rawCap))) throw new Error("An explicit cumulative --max-gas-wei ceiling is required");
-  const rawUntrackedCap = args.find(arg=>arg.startsWith("--max-untracked-gas-wei="))?.slice("--max-untracked-gas-wei=".length);
+  const rawUntrackedCap = args.find(arg => arg.startsWith("--max-untracked-gas-wei="))?.slice("--max-untracked-gas-wei=".length);
   const untrackedCap = rawUntrackedCap === undefined ? 0n : integer(rawUntrackedCap);
-  const hint = args.find(arg => arg.startsWith("--replacement="))?.slice(14);
-  const replacementHint = hint?.match(/^([^:]{1,200}):(0x[\da-f]{64})$/i);
+  const hint = args.find(arg => arg.startsWith("--replacement="))?.slice(14), replacementHint = hint?.match(/^([^:]{1,200}):(0x[\da-f]{64})$/i);
   if (hint && (!execute || !replacementHint)) throw new Error("A replacement hint requires --execute and the exact batchId:transactionHash");
-  const runtime = runtimeFromEnv(undefined, { ...process.env, CHAIN_MODE: "base" });
-  const canary = runtime.dataScope === "verify-base-canary"; if (canary) assertBaseCanaryStorage(runtime);
-  (runtime as Runtime & {canaryOrigin?: string}).canaryOrigin = canary ? origin : undefined;
-  const source = baseSourceStore(runtime), service = new LaunchpadService(runtime), collector = BASE_COLLECTOR_MANIFEST.collector.address;
-  const client = createLocalReplayClient(createPublicClient({ chain: base, transport: http(runtime.rpcUrl, { batch: { batchSize: 20, wait: 0 }, timeout: 30000, retryCount: 0 }), batch: { multicall: true } }), { chainId: 8453, rpcUrl: runtime.rpcUrl, auditStore: baseOperatorAuditStore() });
-  const destinationRpc = mainnetRpcUrl(4663, runtime.environment);
-  const destination = createPublicClient({ chain: robinhood, transport: http(destinationRpc, { batch: { batchSize: 20, wait: 0 }, timeout: 30000, retryCount: 0 }), batch: { multicall: true } });
-  const audit = createBaseKeeperAudit({ runtime, service, source, sourceClient: client, destinationClient: destination });
-  // Maintenance metadata does not need archive capacity. Keep this reader
-  // separate from every original pre-sign/broadcast financial client below.
-  const maintenanceClient = createLocalReplayClient(createPublicClient({ chain: base,
-    transport: baseKeeperRpcTransport(8453, runtime.environment ?? {}, runtime.rpcUrl), batch: { multicall: true } }),
-    { chainId: 8453, rpcUrl: runtime.rpcUrl, auditStore: baseOperatorAuditStore() });
-  const maintenanceDestination = createPublicClient({ chain: robinhood,
-    transport: baseKeeperRpcTransport(4663, runtime.environment ?? {}, destinationRpc), batch: { multicall: true } });
-  const maintenanceAudit = createBaseKeeperAudit({ runtime, service, source, sourceClient: maintenanceClient, destinationClient: maintenanceDestination });
+  const runtime = runtimeFromEnv(8453, { ...process.env, CHAIN_MODE: "base" });
+  if (runtime.dataScope !== "base" || runtime.config.mode !== "base") throw new Error("The lightweight keeper uses only canonical Base scope");
+  const metrics = createRpcMetrics();
+  const client = createPublicClient({ chain: base, transport: alchemyRpcTransport(8453, runtime.environment ?? {}, { metrics }), batch: { multicall: true } });
+  const destination = createPublicClient({ chain: robinhood, transport: alchemyRpcTransport(4663, runtime.environment ?? {}, { metrics }), batch: { multicall: true } });
+  const source = baseSourceStore(runtime), collector = BASE_COLLECTOR_MANIFEST.collector.address;
+  const sdk = new DopplerSDK<8453>({ publicClient: client, chainId: 8453 });
+  const quotes = new FirstBuyPaymentReader({ client, chainId: 8453, integrator: runtime.lifi.integrator, apiKey: runtime.lifi.apiKey, budget: source });
   const account = execute ? privateKeyToAccount(process.env.MUSEGOD_KEEPER_PRIVATE_KEY as Hex) : null;
-  if (account) assertBaseKeeperRoles(account.address, BASE_COLLECTOR_MANIFEST);
-  const path = account ? baseCanonicalKeeperLease(collector, account.address) : null;
-  let unlock: BaseProcessLease | null = null, unlockAudit: BaseProcessLease | null = null;
-  let journal: BaseKeeperJournal = { version: 2, collector, keeper: account?.address ?? "0x0000000000000000000000000000000000000001", batches: [] };
-  let stopping = false; process.once("SIGINT", () => { stopping = true; }); process.once("SIGTERM", () => { stopping = true; });
+  const keeper = account?.address ?? BASE_COLLECTOR_MANIFEST.activation?.trustedSplitsAcceptance?.keeper ?? "0x0000000000000000000000000000000000000001";
+  if (account) assertBaseKeeperRoles(account.address, BASE_COLLECTOR_MANIFEST, runtime.config.treasury);
+  const path = baseCanonicalKeeperLease(collector, keeper), operatorDirectory = resolve(args.find(arg => arg.startsWith("--operator-dir="))?.slice(15) ?? dirname(path));
+  const observationPath = join(operatorDirectory, "base-keeper-observations.json"), alertPath = join(operatorDirectory, "base-keeper-alerts.jsonl");
+  let unlock: BaseProcessLease | null = null;
+  let journal: BaseKeeperJournal = { version: 2, collector, keeper, batches: [] };
+  let observations = await readBasePublicJson<BaseStuckMonitor>(observationPath) ?? { version: 1, collector, lastReadAt: 0, poolCursor: 0, balances: {} };
+  if (observations.version !== 1 || !sameAddress(observations.collector, collector) || !Number.isSafeInteger(observations.poolCursor) || observations.poolCursor < 0 ||
+    !Number.isSafeInteger(observations.lastReadAt) || !observations.balances || typeof observations.balances !== "object") throw new Error("Private keeper observation identity changed");
+  if (observations.startupRetry && (!Number.isSafeInteger(observations.startupRetry.failures) || observations.startupRetry.failures < 0 || observations.startupRetry.failures > 8 || !Number.isSafeInteger(observations.startupRetry.nextAttemptAt) || observations.startupRetry.nextAttemptAt < 0)) { delete observations.startupRetry; }
+  let graph: Awaited<ReturnType<typeof verifyBaseCollectorForKeeperStartup>> | undefined, reader: BaseFeeQuoteReader | undefined;
+  let policies = [...BASE_RECOVERY_FIXED_ASSETS], stopping = false, wake: (() => void) | undefined;
+  const stop = () => { stopping = true; wake?.(); }; process.once("SIGINT", stop); process.once("SIGTERM", stop);
+  const deferred = (reason: unknown, task?: BaseFeeBatch) => console.log(JSON.stringify({ mode: execute ? "execute" : "audit_only", chainId: 8453,
+    state: "signing_deferred", ...(task ? { taskId: task.id, kind: task.kind } : {}), reason: redact(reason, runtime.environment) }));
+  const persistLocal = async (batch: BaseFeeBatch) => { journal.batches = [...journal.batches.filter(row => row.id !== batch.id), batch]; if (execute) await writeBasePublicJson(path, journal); };
+  const persistPublic = async (batch: BaseFeeBatch) => { if (execute) await source.saveBuybackBatch(batch); };
   try {
-    unlockAudit = await acquireBaseProcessLease(baseCanonicalAuditLease(collector));
-    unlock = path ? await acquireBaseProcessLease(path) : null;
-    if (path) journal = await readBasePublicJson<BaseKeeperJournal>(path) ?? journal;
-    if (journal.version !== 2 || !sameAddress(journal.collector, collector) || !sameAddress(journal.keeper, account?.address ?? journal.keeper) || !Array.isArray(journal.batches)) throw new Error("The canonical native keeper journal identity differs");
+    if (execute) { unlock = await acquireBaseProcessLease(path); journal = await readBasePublicJson<BaseKeeperJournal>(path) ?? journal; }
+    if (journal.version !== 2 || !sameAddress(journal.collector, collector) || !sameAddress(journal.keeper, keeper) || !Array.isArray(journal.batches)) throw new Error("The keeper journal identity changed");
     do {
-      const observedAt = Date.now();
-      let projectionPublished = false;
+      metrics.reset(); const observedAt = Date.now();
       try {
-      unlockAudit.assertHeld(); unlock?.assertHeld();
-      const round = await maintenanceAudit.maintainRound({ observedAt, maxDurationMs: 60_000,
-        // One complete current verification supplies this maintenance cycle's
-        // graph and authorization. Reconciliation can recover a static graph
-        // separately when authority is revoked; signing gates below stay fresh.
-        verifyGraph: () => verifyBaseCollector(maintenanceClient, collector, { requireActivation: canary || !baseActivationAcceptanceReady(BASE_COLLECTOR_MANIFEST) ? false : "runtime",
-          robinhoodClient: maintenanceDestination, auditStore: source }),
-        verifyAuthority: async graph => {
-          if (!execute && (canary ? graph.paused : !baseActivationAcceptanceReady(BASE_COLLECTOR_MANIFEST))) return false;
-          if (!canary) return baseActivationAcceptanceReady(BASE_COLLECTOR_MANIFEST);
-          await verifyBaseCollector(maintenanceClient, collector, { requireActivation: canary ? false : "runtime", allowCanary: canary,
-            canaryOrigin: canary ? origin : undefined, robinhoodClient: maintenanceDestination, auditStore: source });
-          return true;
-        },
-      });
-      audit.setVerifiedGraph(round.graph, round.activationVerified);
-      unlockAudit.assertHeld(); unlock?.assertHeld();
-      projectionPublished = !!round.snapshot;
-      const graph = round.graph;
-      if (auditOnly) {
-        console.log(JSON.stringify({ mode: "audit_only", chainId: 8453, custody: round.snapshot?.custody ?? null,
-          activationVerified: round.activationVerified, published: projectionPublished,
-          ...(round.error ? { error: redact(round.error) } : {}) }));
-        if (!args.includes("--once") && !stopping) await new Promise(resolve => setTimeout(resolve, interval));
-        continue;
-      }
-      const all = unionBatches(journal.batches, await allBaseFeeBatches(source),true);
-      const persistLocal = async (batch: BaseFeeBatch) => { journal.batches = [...journal.batches.filter(row=>row.id!==batch.id),batch]; if (path) await writeBasePublicJson(path, journal); };
-      const persistPublic = async (batch: BaseFeeBatch) => { await source.saveBuybackBatch(batch); };
-      if (replacementHint && !all.some(batch => batch.id === replacementHint[1] && batch.journal && sameAddress(batch.journal.caller, account!.address))) throw new Error("The replacement hint does not identify this keeper’s retained native task");
-      if (execute && graph) for (const resolved of await reconcileBaseKeeperHistory(journal,all,client,graph.runtimeHash,replacementHint?[replacementHint[1],replacementHint[2] as Hex]:undefined)) { await persistLocal(resolved); await persistPublic(resolved); }
-      if (!graph || execute && !round.activationVerified) {
-        // Acceptance controls new signatures, not this process's lifecycle or
-        // recovery of transactions it already submitted.
-        console.log(JSON.stringify({ mode: execute ? "execute_waiting_authority" : "dry_run", chainId: 8453,
-          activationVerified: false, published: projectionPublished, state: "signing_deferred" }));
-        if (!args.includes("--once") && !stopping) await new Promise(resolve => setTimeout(resolve, interval));
-        continue;
-      }
-      const config = await audit.configuration();
-      const current = unionBatches(journal.batches, await allBaseFeeBatches(source),true);
-      if (execute) { assertBaseNoUnknown(current, account!.address); assertBaseKeeperRoles(account!.address, BASE_COLLECTOR_MANIFEST, config.treasury);
-        await assertBaseKeeperAuthority(client,destination,BASE_COLLECTOR_MANIFEST,account!.address);
-        await assertBaseOperationalControl(service.store, { config }, collector); }
-      const tasks: BaseFeeBatch[] = [], now = Date.now();
-      const policies = await readTrustedBaseRecoveryAssets(service,collector),policyFor=(asset: Address)=>policies.find(policy=>sameAddress(policy.address,asset));
-      const recoveryContext = { policies,history: current,keeper: journal.keeper,now };
-      const recoveryEnabled = !canary && untrackedCap > baseCanonicalGasSpent(current,journal.keeper,true);
-      const seed = (kind: "claim" | "release" | "sync_untracked" | "release_untracked"): BaseFeeBatch => ({ id: `base-native-${randomUUID()}`, protocol: BASE_BUYBACK_PROTOCOL, sourceChainId: 8453, destinationChainId: 4663,
-        collector, kind, status: "unknown", createdAt: now, updatedAt: now, amountIn: "0", receivedAmount: "0", refundedAmount: "0", burnedAmount: "0", claimHashes: [] });
-      for (const token of await service.store.tokens()) if (token.feePolicy === BASE_AUTOMATION_FEE_POLICY && token.feeEngine && sameAddress(token.feeEngine, collector)) {
-        if (!policyFor(token.address) || !policyFor(token.quoteAddress)) continue;
-        try {
-          const fees = await service.fees(token.address, collector);
-          if ([fees.lp.fees0, fees.lp.fees1, fees.trade.fees0, fees.trade.fees1].some(value => value > 0n)) tasks.push({ ...seed("claim"), poolId: token.poolId });
-          else if (recoveryEnabled) for (const asset of [token.address,token.quoteAddress]) {
-            const policy = policyFor(asset)!;
-            if (baseUntrackedAssetCooling(asset,"claim",recoveryContext)) continue;
-            const [registered,untracked] = await Promise.all([client.readContract({ address: collector,abi: baseCollectorAbi,functionName: "verifiedAssets",args: [asset] }),
-              client.readContract({ address: collector,abi: baseCollectorAbi,functionName: "untrackedBalance",args: [asset] })]);
-            if (!registered && untracked >= integer(policy.minimumRaw)) { tasks.push({ ...seed("claim"),poolId: token.poolId,inputAsset: policy,recoveryRegistration: true });break; }
+        unlock?.assertHeld();
+        if (!graph) {
+          if (observedAt < (observations.startupRetry?.nextAttemptAt ?? 0)) throw new Error(`One-time startup verification is deferred until ${observations.startupRetry!.nextAttemptAt}`);
+          try { graph = await verifyBaseCollectorForKeeperStartup(client, destination, { auditStore: source, collector }); }
+          catch (error) {
+            observations = { ...observations, startupRetry: baseStartupRetry(observations.startupRetry, observedAt) };
+            await writeBasePublicJson(observationPath, observations).catch(() => undefined); // Scheduling IO cannot authorize a signature.
+            throw error;
           }
-        } catch { /* One unavailable pool cannot starve the other registered fee tasks. */ }
-      }
-      const status = await audit.engine();
-      if (status.available && status.nativeAutomationState === "configured" && sameAddress(status.collector ?? "", collector) && status.automation && sameAddress(status.automation, graph.automationReceiver)) {
-        const custody = await audit.custody();
-        for (const asset of status.assets) if (policyFor(asset.address) && policyFor(asset.address)!.decimals === asset.decimals && integer(asset.pending, true) > 0n && baseReleaseAssetReady(custody, asset.address)) {
-          assertBaseReleaseReadiness(custody, status, asset.address);
-          tasks.push({ ...seed("release"), inputAsset: policyFor(asset.address), amountIn: asset.pending,
-            release: { token: asset.address, amount: asset.pending, automation: graph.automationReceiver } });
+          if (observations.startupRetry) { delete observations.startupRetry; await writeBasePublicJson(observationPath, observations).catch(() => console.log(JSON.stringify({ mode: "startup_schedule_pending", reason: "Startup verified; private scheduling persistence is temporarily unavailable." }))); }
+          // Startup's one-time work is reported separately from a steady round.
+          console.log(JSON.stringify({ mode: "startup_verified", chainId: 8453, rpc: metrics.snapshot() })); metrics.reset();
+          reader = new BaseFeeQuoteReader({ client, collector, verifiedGraph: graph, assets: async () => policies, includeTaskState: true });
         }
-        if (recoveryEnabled) tasks.push(...baseUntrackedRecoveryTasks(status,seed,custody,canary,recoveryContext));
-      }
-      console.log(JSON.stringify({ mode: execute ? "execute" : "dry_run", chainId: 8453, tasks: tasks.map(task => ({ kind: task.kind, poolId: task.poolId, asset: task.inputAsset?.address, amount: task.amountIn })) }));
-      if (execute && account) {
-        const wallet = createWalletClient({ account, chain: base, transport: http(runtime.rpcUrl, { timeout: 30000, retryCount: 0 }) });
-        for (const task of tasks) {
-          if (baseTaskIsolated(task,unionBatches(journal.batches,current),account.address)) continue;
-          const transaction = baseFeeTransaction(task);
-          const prepared = await prepareBaseFeeTask(task,client,account.address,now); if (!prepared) continue;
-          const latest = prepared.journal!.nonce,gas=BigInt(prepared.journal!.gasLimit),maxFeePerGas=BigInt(prepared.journal!.maxFeePerGas),reservation=prepared.gasReservation!;
-          if (isBaseUntrackedTask(task) && !await assertCanonicalBaseUntrackedBudget(journal,prepared,source,untrackedCap)) continue;
-          const gate = async (alreadyReserved = false) => {
-            unlockAudit!.assertHeld(); unlock?.assertHeld();
-            const fresh = await verifyBaseCollector(client, collector, { requireActivation: canary ? false : "runtime", allowCanary: canary, canaryOrigin: canary ? origin : undefined, robinhoodClient: destination,auditStore: source });
-            if (fresh.manifestFingerprint !== graph.manifestFingerprint || fresh.paused || !sameAddress(fresh.automationReceiver, graph.automationReceiver)) throw new Error("The native fee graph changed or paused");
-            audit.setVerifiedGraph(fresh, true);
-            const currentConfig = await audit.configuration();
-            assertBaseKeeperRoles(account.address, BASE_COLLECTOR_MANIFEST, currentConfig.treasury);
-            await assertBaseKeeperAuthority(client,destination,BASE_COLLECTOR_MANIFEST,account.address);
-            await assertBaseOperationalControl(service.store, { config: currentConfig }, collector);
-            await assertBaseVaultCheckpoint(() => audit.vault());
-            assertBaseNoUnknown(unionBatches(journal.batches, await allBaseFeeBatches(source),true).filter(row => row.id !== prepared.id), account.address);
-            const custody = await audit.custody();
-            assertNativeCustodyReadiness(custody);
-            if (task.kind === "release" || task.kind === "release_untracked") {
-              await assertBaseSelectedReleaseReadiness(client, prepared, custody);
-            }
-            if (task.inputAsset) {
-              const approved = (await readTrustedBaseRecoveryAssets(service,collector,task.inputAsset.address)).find(policy=>sameAddress(policy.address,task.inputAsset!.address));
-              if (!approved || approved.decimals !== task.inputAsset.decimals || await client.readContract({ address: approved.address,abi: erc20Abi,functionName: "decimals" }) !== approved.decimals)
-                throw new BaseFeeAssetUnavailable("The automatic fee asset is not canonically registered with its exact precision");
-              if (isBaseUntrackedTask(task)) {
-                const liveHistory = unionBatches(journal.batches,await allBaseFeeBatches(source),true).filter(batch=>batch.id!==prepared.id);
-                const kind = task.kind === "claim" ? "claim" : task.kind === "release_untracked" ? "release_untracked" : "sync_untracked";
-                if (baseUntrackedAssetCooling(approved.address,kind,{ ...recoveryContext,history: liveHistory,now: Date.now() })) throw new BaseFeeAssetUnavailable("Unknown asset recovery is within its durable cooldown");
-                const [registered,balance] = await Promise.all([client.readContract({ address: collector,abi: baseCollectorAbi,functionName: "verifiedAssets",args: [approved.address] }),
-                  client.readContract({ address: collector,abi: baseCollectorAbi,functionName: task.kind === "release_untracked" ? "pendingUntracked" : "untrackedBalance",args: [approved.address] })]);
-                if (task.recoveryRegistration ? registered || balance < integer(approved.minimumRaw) : !registered || balance < integer(approved.minimumRaw))
-                  throw new BaseFeeAssetUnavailable("Unknown asset registration or raw recovery minimum no longer qualifies");
-              }
-            }
-            await assertBaseGasReservationCurrent(client, transaction, latest, gas, maxFeePerGas, reservation);
-            const cap = fresh.canaryAuthorization ? BigInt(fresh.canaryAuthorization.maxBaseGasWei) < BigInt(rawCap!) ? BigInt(fresh.canaryAuthorization.maxBaseGasWei) : BigInt(rawCap!) : BigInt(rawCap!);
-            // The new task is already included in durable source history before broadcast.
-            const budgetJournal = alreadyReserved ? { ...journal, batches: journal.batches.filter(row => row.id !== prepared.id) } : journal;
-            if (isBaseUntrackedTask(prepared)) {
-              if (canary || fresh.canaryAuthorization) throw new Error("Private canary does not authorize unknown recovery");
-              if (!await assertCanonicalBaseUntrackedBudget(budgetJournal,prepared,source,untrackedCap)) throw new BaseUntrackedBudgetExhausted("Independent unknown gas budget exhausted");
-              const budgetHistory = unionBatches(budgetJournal.batches,await allBaseFeeBatches(source),true).filter(row=>row.id!==prepared.id);
-              if (!baseUntrackedWalletHasReserve(await client.getBalance({ address: account.address,blockTag: "latest" }),reservation.totalWei,cap,budgetHistory,account.address))
-                throw new BaseUntrackedBudgetExhausted("Unknown recovery would consume the ETH reserved for the remaining genuine fee budget");
-            } else {
-              if (await client.getBalance({ address: account.address,blockTag: "latest" }) < integer(reservation.totalWei,true)) throw new Error("The keeper lacks the reserved Base gas; fund the reviewed keeper before submitting");
-              await assertCanonicalBaseCanaryBudget(budgetJournal, prepared, source, client, cap, fresh.canaryAuthorization, BigInt(fresh.initialDeploymentBlock));
-            }
-            unlockAudit!.assertHeld(); unlock?.assertHeld();
-          };
-          let submitted: BaseFeeBatch;
-          try { await gate();submitted = await submitBaseFeeBatch(prepared, { sign: async () => { await gate(); unlockAudit!.assertHeld(); unlock?.assertHeld(); return wallet.signTransaction({ ...transaction, nonce: latest, gas, maxFeePerGas, maxPriorityFeePerGas: 1n, type: "eip1559" }); },
-            persistLocal, persistPublic, beforeBroadcast: async () => { await gate(true); unlockAudit!.assertHeld(); unlock?.assertHeld(); },
-            broadcast: raw => wallet.sendRawTransaction({ serializedTransaction: raw }) });
-          } catch (error) { if (error instanceof BaseUntrackedBudgetExhausted || error instanceof BaseFeeAssetUnavailable) continue; throw error; }
-          if (submitted.status === "abandoned") continue;
-          await client.waitForTransactionReceipt({ hash: submitted.sourceHash!, confirmations: 2, timeout: 30000, pollingInterval: 1000 }).catch(() => undefined);
-          const resolved = await reconcileBaseFeeBatch(submitted, client, undefined, graph.runtimeHash); await persistLocal(resolved); await persistPublic(resolved); assertBaseNoUnknown([resolved], account.address);
+        const tokens = (await source.tokens()).filter(token => baseKeeperTokenEligible(token, collector));
+        policies = baseKeeperPolicies(tokens, collector);
+        const round = await readBaseKeeperFeeRound(reader!, tokens, collector, observations.poolCursor, token => pendingPairedFees(sdk, token, collector));
+        const status = round.status;
+        for (const failure of round.failures) deferred(failure);
+        if (observedAt - observations.lastReadAt >= BASE_STUCK_MONITOR_INTERVAL_MS) {
+          try {
+            if (!status.assetsComplete) throw new Error("Automation balances are incomplete");
+            const treasury = await destination.readContract({ address: BASE_BUYBACK_RH_WETH, abi: erc20Abi, functionName: "balanceOf", args: [BASE_COLLECTOR_MANIFEST.constants.destinationTreasury!] });
+            if (typeof treasury !== "bigint" || treasury < 0n) throw new Error("Treasury balance is unavailable");
+            const readings = status.assets.map(asset => ({ key: `8453:automation:${asset.address.toLowerCase()}`, amount: asset.automationBalance,
+              threshold: policies.find(policy => sameAddress(policy.address, asset.address))!.minimumRaw }));
+            for (const asset of status.assets) readings.push({ key: `8453:collector:${asset.address.toLowerCase()}`, amount: String(integer(asset.pending, true) + integer(asset.untracked ?? "0", true) + integer(asset.pendingUntracked ?? "0", true)), threshold: policies.find(policy => sameAddress(policy.address, asset.address))!.minimumRaw });
+            readings.push({ key: `4663:${BASE_BUYBACK_RH_WETH.toLowerCase()}`, amount: String(treasury), threshold: BASE_RECOVERY_FIXED_ASSETS.find(asset => sameAddress(asset.address, BASE_BUYBACK_WETH))!.minimumRaw });
+            const changed = updateBaseStuckMonitor(observations, readings, observedAt);
+            for (const alert of changed.alerts) await appendFundAlert(alertPath, { at: new Date(observedAt).toISOString(), state: "funds_stuck", ...alert });
+            await writeBasePublicJson(observationPath, changed.state);
+            observations = changed.state;
+          } catch (error) { console.log(JSON.stringify({ mode: "monitor_pending", reason: redact(error, runtime.environment) })); }
         }
-      }
-      } catch (error) {
-        if (!projectionPublished) await maintenanceAudit.publishFailure(observedAt).catch(() => {});
-        if (error instanceof BaseProcessLeaseLostError || !auditOnly || args.includes("--once")) throw error;
-        // Audit-only has no nonce or signature outcome. Persisted complete
-        // pages survive temporary provider errors and resume next round.
-        console.error(redact(error));
-      }
-      if (!args.includes("--once") && !stopping) await new Promise(resolve => setTimeout(resolve, interval));
-    } while (!args.includes("--once") && !stopping);
-  } finally { try { await maintenanceAudit.close(); await audit.close(); await source.close(); await service.store.close(); }
-    finally { try { await unlock?.(); } finally { await unlockAudit?.(); } } }
+        const current = unionBatches(journal.batches, execute ? await allBaseFeeBatches(source) : [], true);
+        if (execute) for (const resolved of await reconcileBaseKeeperHistory(journal, current, client, graph.runtimeHash,
+          replacementHint ? [replacementHint[1], replacementHint[2] as Hex] : undefined)) { await persistLocal(resolved); await persistPublic(resolved); }
+        const seed = (kind: BaseFeeBatch["kind"]): BaseFeeBatch => ({ id: `base-native-${randomUUID()}`, protocol: BASE_BUYBACK_PROTOCOL, sourceChainId: 8453, destinationChainId: 4663,
+          collector, kind, status: "unknown", createdAt: observedAt, updatedAt: observedAt, amountIn: "0", receivedAmount: "0", refundedAmount: "0", burnedAmount: "0", claimHashes: [] });
+        const policyFor = (address: Address) => policies.find(policy => sameAddress(policy.address, address));
+        const tasks: BaseFeeBatch[] = [];
+        for (const asset of status.assets) if (asset.verifiedAsset && integer(asset.pending, true) > 0n && policyFor(asset.address))
+          tasks.push({ ...seed("release"), inputAsset: feeAsset(policyFor(asset.address)!), amountIn: asset.pending, release: { token: asset.address, amount: asset.pending, automation: graph.automationReceiver } });
+        const recoveryContext = { policies, history: current, keeper, now: observedAt };
+        if (untrackedCap > 0n) tasks.push(...baseUntrackedRecoveryTasks(status, kind => seed(kind), recoveryContext));
+        const claims = new Map<string, { token: TokenRecord; asset: BaseRecoveryAssetPolicy }>();
+        for (const claim of round.claims) { const task = { ...seed("claim"), poolId: claim.token.poolId, inputAsset: feeAsset(claim.asset) }; tasks.push(task); claims.set(task.id, claim); }
+        if (tokens.length) { observations.poolCursor = round.poolCursor; await writeBasePublicJson(observationPath, observations); }
+        const ordered = sortBaseKeeperTasks(tasks);
+        console.log(JSON.stringify({ mode: execute ? "execute" : "audit_only", chainId: 8453, startupVerified: true,
+          tasks: ordered.map(task => ({ kind: task.kind, poolId: task.poolId, asset: task.inputAsset?.address, amount: task.amountIn })) }));
+        if (execute && account && !stopping) {
+          const wallet = createWalletClient({ account, chain: base, transport: alchemyRpcTransport(8453, runtime.environment ?? {}, { metrics }) });
+          for (const task of ordered) {
+            if (stopping) break;
+            if (baseTaskIsolated(task, unionBatches(journal.batches, current), account.address)) { deferred("This asset's submitted evidence is isolated", task); continue; }
+            try {
+              const prepared = await prepareBaseFeeTask(task, client, account.address, observedAt); if (!prepared) { deferred("Task simulation or gas reserve unavailable", task); continue; }
+              const transaction = baseFeeTransaction(prepared), nonce = prepared.journal!.nonce, gas = BigInt(prepared.journal!.gasLimit), maxFeePerGas = BigInt(prepared.journal!.maxFeePerGas), reservation = prepared.gasReservation!;
+              const gate = async (alreadyReserved = false) => {
+                unlock!.assertHeld(); if (stopping) throw new Error("Keeper stopped before transport");
+                await assertBaseKeeperLiveAuthority(client, BASE_COLLECTOR_MANIFEST, account.address);
+                assertBaseKeeperRoles(account.address, BASE_COLLECTOR_MANIFEST, runtime.config.treasury);
+                await assertBaseOperationalControl(source, runtime, collector);
+                assertBaseNoUnknown(unionBatches(journal.batches, await allBaseFeeBatches(source), true).filter(row => row.id !== prepared.id), account.address);
+                if (prepared.kind === "release" || prepared.kind === "release_untracked") await assertBaseSelectedReleaseReadiness(client, prepared);
+                const budgetJournal = alreadyReserved ? { ...journal, batches: journal.batches.filter(row => row.id !== prepared.id) } : journal;
+                const balance = await client.getBalance({ address: account.address, blockTag: "latest" });
+                if (isBaseUntrackedTask(prepared)) {
+                  if (!await assertCanonicalBaseUntrackedBudget(budgetJournal, prepared, source, untrackedCap)) throw new Error("Independent unknown gas budget exhausted");
+                  if (!baseUntrackedWalletHasReserve(balance, reservation.totalWei, BigInt(rawCap!), unionBatches(budgetJournal.batches, current), account.address)) throw new Error("Unknown recovery cannot consume genuine fee gas");
+                  const policy = policyFor(prepared.inputAsset!.address)!;
+                  const liveAmount = await client.readContract({ address: collector, abi: baseCollectorAbi, functionName: prepared.kind === "release_untracked" ? "pendingUntracked" : "untrackedBalance", args: [policy.address] });
+                  if (typeof liveAmount !== "bigint" || liveAmount < integer(policy.minimumRaw) || baseUntrackedAssetCooling(policy.address,
+                    prepared.kind === "release_untracked" ? "release_untracked" : "sync_untracked", { ...recoveryContext, history: unionBatches(budgetJournal.batches, current), now: Date.now() })) throw new Error("Unknown recovery minimum or cooldown no longer qualifies");
+                } else {
+                  if (balance < integer(reservation.totalWei, true)) throw new Error("Keeper wallet cannot fund this task's gas reserve");
+                  await assertCanonicalBaseGasBudget(budgetJournal, prepared, source, BigInt(rawCap!));
+                }
+                if (prepared.kind === "claim") {
+                  const claim = claims.get(task.id)!;
+                  const amount = await pendingPairedFees(sdk, claim.token, collector);
+                  const minimum = await baseClaimValueWeth(quotes, claim.asset, amount, graph!.automationReceiver);
+                  if (!baseClaimCoversGas(minimum, reservation)) throw new Error("Claim paired-fee value does not exceed the reserved gas");
+                }
+                await assertBaseGasReservationCurrent(client, transaction, nonce, gas, maxFeePerGas, reservation);
+                unlock!.assertHeld();
+              };
+              const submitted = await submitBaseFeeBatch(prepared, { sign: async () => { await gate(); return wallet.signTransaction({ ...transaction, nonce, gas, maxFeePerGas, maxPriorityFeePerGas: 1n, type: "eip1559" }); },
+                persistLocal, persistPublic, beforeBroadcast: () => gate(true), broadcast: raw => wallet.sendRawTransaction({ serializedTransaction: raw }) });
+              if (submitted.status === "abandoned") { deferred("Signature abandoned before broadcast", prepared); continue; }
+              await client.waitForTransactionReceipt({ hash: submitted.sourceHash!, confirmations: 2, timeout: 30000, pollingInterval: 1000 }).catch(() => undefined);
+              const resolved = await reconcileBaseFeeBatch(submitted, client, undefined, graph.runtimeHash); await persistLocal(resolved); await persistPublic(resolved);
+              assertBaseNoUnknown([resolved], account.address);
+            } catch (error) { if (error instanceof BaseProcessLeaseLostError) throw error; deferred(error, task); }
+          }
+        }
+      } catch (error) { if (error instanceof BaseProcessLeaseLostError) throw error; deferred(error); }
+      finally { console.log(JSON.stringify({ mode: "keeper_rpc_metrics", chainId: 8453, observedAt, ...metrics.snapshot() })); }
+      if (args.includes("--once") || stopping) break;
+      await new Promise<void>(done => { const timer = setTimeout(() => { wake = undefined; done(); }, interval); wake = () => { clearTimeout(timer); wake = undefined; done(); }; if (stopping) wake(); });
+    } while (!stopping);
+  } finally { await unlock?.(); await source.close(); process.removeListener("SIGINT", stop); process.removeListener("SIGTERM", stop); }
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href)
   await runBaseBuybackKeeper().catch(error => { console.error(redact(error)); process.exitCode = 1; });

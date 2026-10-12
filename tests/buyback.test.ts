@@ -66,7 +66,7 @@ function hasCode(code: string) {
 test("default native fetch keeps the global receiver for buyback quotes and RPC stats", async (context) => {
   const oldKey = process.env.ALCHEMY_API_KEY;
   const key = "buyback-native-rpc-fixture /?";
-  process.env.ALCHEMY_API_KEY = key;
+  process.env.ALCHEMY_API_KEY = "unrelated-process-key";
   context.after(() => { if (oldKey === undefined) delete process.env.ALCHEMY_API_KEY; else process.env.ALCHEMY_API_KEY = oldKey; });
   const rpcUrl = `https://robinhood-mainnet.g.alchemy.com/v2/${encodeURIComponent(key)}`;
   const paths: string[] = [], rpc = statsFetch();
@@ -78,7 +78,7 @@ test("default native fetch keeps the global receiver for buyback quotes and RPC 
     assert.equal(String(url), rpcUrl);
     return rpc(url, options);
   });
-  const service = new BuybackReader(treasury, { now: () => now });
+  const service = new BuybackReader(treasury, { now: () => now, environment: { ALCHEMY_API_KEY: key } });
   const quote = await service.quote(input);
   assert.equal(quote.expectedOut, "1000000000000000000000");
   assert.equal(quote.minimumOut, "990000000000000000000");
@@ -192,44 +192,55 @@ test("buyback maps rate limit, no-route, authentication, malformed response and 
   await assert.rejects(new BuybackReader(treasury, { fetch: mock(fixture()), now: () => now + 60_000 * n++ }).quote(input), hasCode("EXPIRED"));
 });
 
+const statsEnvironment={ALCHEMY_API_KEY:"offline-stats-only"};
 function statsFetch(change?: (values: any[], batch: number) => void): typeof fetch {
-  let batch = 0;
   return (async (_url, options) => {
-    const request = JSON.parse(options!.body as string);
-    const first = batch++ === 0;
-    let values: any[] = first ? ["0x1237", "0x4b00000"] : [
-      "0x6001600055",
-      encodeFunctionResult({ abi: erc20Abi, functionName: "name", result: "MUSEGOD" }),
-      encodeFunctionResult({ abi: erc20Abi, functionName: "symbol", result: "MUSEGOD" }),
-      encodeFunctionResult({ abi: erc20Abi, functionName: "decimals", result: 18 }),
-      encodeFunctionResult({ abi: erc20Abi, functionName: "totalSupply", result: 10n ** 27n }),
-      encodeFunctionResult({ abi: erc20Abi, functionName: "balanceOf", result: 123n * 10n ** 18n }),
-    ];
-    if (!first) for (const call of request) {
-      assert.equal(call.params[1], "0x4b00000");
-      if (call.method === "eth_call") assert.equal(call.params[0].to, MUSEGOD_BUYBACK.tokenAddress);
-    }
-    change?.(values, batch);
-    return new Response(JSON.stringify(values.map((result, id) => ({ jsonrpc: "2.0", id, result })).reverse()));
+    const body=JSON.parse(options!.body as string),requests=Array.isArray(body)?body:[body];
+    const first=requests.every((row:any)=>["eth_chainId","eth_blockNumber"].includes(row.method));
+    const values:any[]=first?["0x1237","0x4b00000"]:["0x6001600055",
+      encodeFunctionResult({abi:erc20Abi,functionName:"name",result:"MUSEGOD"}),
+      encodeFunctionResult({abi:erc20Abi,functionName:"symbol",result:"MUSEGOD"}),
+      encodeFunctionResult({abi:erc20Abi,functionName:"decimals",result:18}),
+      encodeFunctionResult({abi:erc20Abi,functionName:"totalSupply",result:10n**27n}),
+      encodeFunctionResult({abi:erc20Abi,functionName:"balanceOf",result:123n*10n**18n})];
+    change?.(values,first?1:2);
+    const results=requests.map((call:any)=>{
+      let index:number;
+      if(first)index=call.method==="eth_chainId"?0:1;
+      else {
+        assert.equal(call.params[1],"0x4b00000");
+        if(call.method==="eth_getCode")index=0;
+        else {assert.equal(call.params[0].to.toLowerCase(),MUSEGOD_BUYBACK.tokenAddress.toLowerCase());const name=decodeFunctionData({abi:erc20Abi,data:call.params[0].data}).functionName;index=["name","symbol","decimals","totalSupply","balanceOf"].indexOf(name)+1;}
+      }
+      return {jsonrpc:"2.0",id:call.id,result:values[index]};
+    });
+    return Response.json(Array.isArray(body)?results.reverse():results[0]);
   }) as typeof fetch;
 }
-test("MUSEGOD global dead balance is verified at one pinned block and is not platform burn accounting", async () => {
-  const stats = await new BuybackReader(null, { fetch: statsFetch(), now: () => now }).readMUSEGODStats();
-  assert.equal(stats.chainId, 4663);
-  assert.equal(stats.deadBalance, "123000000000000000000");
-  assert.equal(stats.scope, "global");
-  assert.equal(stats.blockNumber, String(0x4b00000));
+test("MUSEGOD global dead balance is verified at one pinned block and is not platform burn accounting", async t => {
+  t.mock.method(globalThis,"fetch",statsFetch());
+  const stats = await new BuybackReader(null,{now:()=>now,environment:statsEnvironment}).readMUSEGODStats();
+  assert.equal(stats.chainId,4663);assert.equal(stats.deadBalance,"123000000000000000000");
+  assert.equal(stats.scope,"global");assert.equal(stats.blockNumber,String(0x4b00000));
 });
-test("MUSEGOD stats reject wrong chain, missing code, fake identity, precision and impossible balance", async () => {
-  await assert.rejects(new BuybackReader(null, { fetch: statsFetch((v, b) => { if (b === 1) v[0] = "0x2105"; }) }).readMUSEGODStats(), hasCode("WRONG_CHAIN"));
-  for (const [index, value] of [
-    [0, "0x"],
-    [1, encodeFunctionResult({ abi: erc20Abi, functionName: "name", result: "FAKE" })],
-    [3, encodeFunctionResult({ abi: erc20Abi, functionName: "decimals", result: 8 })],
-    [5, encodeFunctionResult({ abi: erc20Abi, functionName: "balanceOf", result: 10n ** 28n })],
-  ] as const) {
-    await assert.rejects(new BuybackReader(null, { fetch: statsFetch((v, b) => { if (b === 2) v[index] = value; }) }).readMUSEGODStats());
+test("MUSEGOD stats reject wrong chain, missing code, fake identity, precision and impossible balance", async t => {
+  t.mock.method(globalThis,"fetch",statsFetch((values,batch)=>{if(batch===1)values[0]="0x2105";}));
+  await assert.rejects(new BuybackReader(null,{environment:statsEnvironment}).readMUSEGODStats(),hasCode("WRONG_CHAIN"));
+  for(const[index,value]of [[0,"0x"],[1,encodeFunctionResult({abi:erc20Abi,functionName:"name",result:"FAKE"})],
+    [3,encodeFunctionResult({abi:erc20Abi,functionName:"decimals",result:8})],
+    [5,encodeFunctionResult({abi:erc20Abi,functionName:"balanceOf",result:10n**28n})]] as const){
+    t.mock.method(globalThis,"fetch",statsFetch((values,batch)=>{if(batch===2)values[index]=value;}));
+    await assert.rejects(new BuybackReader(null,{environment:statsEnvironment}).readMUSEGODStats());
   }
+});
+test("MUSEGOD stats use chain-scoped Alchemy with bounded 429 retry and five-minute singleflight caching",async t=>{
+  let calls=0;const fixture=statsFetch(),expected="https://robinhood-mainnet.g.alchemy.com/v2/offline-stats-only";
+  t.mock.method(globalThis,"fetch",async(url:any,options:any)=>{
+    assert.equal(String(url),expected);calls++;if(calls===1)return Response.json({error:"rate limit"},{status:429});return fixture(url,options);
+  });
+  const reader=new BuybackReader(null,{environment:statsEnvironment,now:()=>now});
+  const [a,b]=await Promise.all([reader.readMUSEGODStats(),reader.readMUSEGODStats()]);assert.deepEqual(a,b);
+  assert(calls>=3&&calls<=4,"only the rate-limited batch is retried");const complete=calls;await reader.readMUSEGODStats();assert.equal(calls,complete);
 });
 
 // Public, unsubmitted Relay quote used only to test deterministic validation.
@@ -807,7 +818,7 @@ test("default native fetch keeps the global receiver during read-only Relay batc
 
 test("the default destination client uses Robinhood Alchemy even when the batch is on Base", async (context) => {
   const oldKey = process.env.ALCHEMY_API_KEY;
-  process.env.ALCHEMY_API_KEY = "batch-rpc-fixture-key";
+  process.env.ALCHEMY_API_KEY = "unrelated-process-key";
   context.after(() => { if (oldKey === undefined) delete process.env.ALCHEMY_API_KEY; else process.env.ALCHEMY_API_KEY = oldKey; });
   const h = await batchHarness(), paths: string[] = [];
   h.config.writesEnabled = false;
@@ -815,15 +826,16 @@ test("the default destination client uses Robinhood Alchemy even when the batch 
   context.mock.method(globalThis, "fetch", async function (url: string | URL | Request, options?: RequestInit) {
     paths.push(String(url));
     if (String(url) === rpcUrl) {
-      const body = JSON.parse(options!.body as string);
-      assert.equal(body.method, "eth_chainId");
-      return Response.json({ jsonrpc: "2.0", id: body.id, result: "0x1237" });
+      const raw = JSON.parse(options!.body as string),items=(Array.isArray(raw)?raw:[raw]).map(body=>{
+        assert.equal(body.method,"eth_chainId");return{jsonrpc:"2.0",id:body.id,result:"0x1237"};
+      });
+      return Response.json(Array.isArray(raw)?items:items[0]);
     }
     assert.equal(String(url), `https://api.relay.link/intents/status/v3?requestId=${requestId}`);
     return Response.json({ status: "pending", originChainId: 8453, destinationChainId: 4663, inTxHashes: [sourceHash] });
   });
   const statsReader = { readMUSEGODStats: async () => ({}) } as unknown as BuybackReader;
-  const service = new BuybackBatchService(statsReader, h.store, h.base, h.config, { now: () => now });
+  const service = new BuybackBatchService(statsReader, h.store, h.base, h.config, { now: () => now, environment: { ALCHEMY_API_KEY: "batch-rpc-fixture-key" } });
   const pending = await service.reconcile(requestId);
   assert.deepEqual(paths, [rpcUrl, `https://api.relay.link/intents/status/v3?requestId=${requestId}`]);
   assert.equal(pending.status, "bridging");

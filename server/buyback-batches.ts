@@ -1,5 +1,5 @@
 import {
-  createPublicClient, http, erc20Abi, encodeFunctionData, decodeFunctionData,
+  createPublicClient, erc20Abi, encodeFunctionData, decodeFunctionData,
   decodeEventLog, keccak256, parseAbi, recoverTypedDataAddress, hashTypedData, type Address, type Hex, type PublicClient,
 } from "viem";
 import { robinhood } from "viem/chains";
@@ -8,7 +8,8 @@ import { MUSEGOD_BUYBACK } from "../src/lib/fee-policy";
 import { RELAY_APPROVAL_PROXY, buybackAuthorizationTypedData, type BuybackAuthorization, type BuybackPrepareInput,
   type BuybackBatch, type BuybackStep, type BuybackStepKind } from "../src/lib/buyback";
 import { BuybackError, BuybackReader, BUYBACK_CODE_HASHES, RELAY_ROUTER, validateRelayExecution } from "./buyback";
-import { mainnetRpcUrl } from "./config";
+import type { RuntimeEnvironment } from "./config";
+import { alchemyRpcTransport } from "./alchemy-rpc";
 
 type ReceiptProof = { hash: Hex; blockHash: Hex; blockNumber: string };
 type StoredBatch = BuybackBatch & {
@@ -28,7 +29,7 @@ export type BuybackBatchStore = {
 };
 type ReadClient = PublicClient<any, any>;
 type Options = { robinhoodClient?: ReadClient; fetch?: typeof fetch; now?: () => number;
-  destinationConfig?: () => Promise<RuntimeConfig> };
+  destinationConfig?: () => Promise<RuntimeConfig>; environment?: RuntimeEnvironment };
 const collectAbi = parseAbi(["function collectFees(bytes32 poolId)"]);
 const fundsAbi = parseAbi(["event FundsMovement(address from,address to,address currency,uint256 amount,bytes metadata)"]);
 const hashPattern = /^0x[0-9a-fA-F]{64}$/;
@@ -44,7 +45,7 @@ export class BuybackBatchService {
   constructor(private readonly reader: BuybackReader, private readonly store: BuybackBatchStore,
     private readonly base: ReadClient, private readonly config: RuntimeConfig, private readonly options: Options = {}) {
     this.rh = options.robinhoodClient ?? createPublicClient({ chain: robinhood,
-      transport: http(mainnetRpcUrl(4663), { retryCount: 0, timeout: 12_000 }) });
+      transport: alchemyRpcTransport(4663, options.environment ?? {}, { timeout: 12_000 }) });
     this.fetcher = options.fetch ?? fetch.bind(globalThis); this.now = options.now ?? Date.now;
   }
   private locked<T>(work: () => Promise<T>): Promise<T> {

@@ -9,11 +9,12 @@ import { ENGINE_FEE_POLICY, FEE_POLICIES, MUSEGOD_BUYBACK } from "../lib/fee-pol
 const ENGINE_SHARES = FEE_POLICIES[ENGINE_FEE_POLICY];
 import { errorMessage } from "../lib/validation";
 import { publicClient, useWallet } from "../lib/wallet";
+import type { RobinhoodBuybackSummary } from "../lib/base-buyback";
 
 type Preview = { action: EngineAction; expiresAt: number; label: string; minimum: string; profit?: string };
 const quantity = (amount: string | null, decimals = 18) => amount === null ? "Unavailable" : formatUnits(BigInt(amount), decimals);
 
-export default function BuybackEngine({ config, onRefresh }: { config: RuntimeConfig | null; onRefresh?: () => void }) {
+export default function BuybackEngine({ config, onRefresh, summary }: { config: RuntimeConfig | null; onRefresh?: () => void; summary?: RobinhoodBuybackSummary | null }) {
   const wallet = useWallet();
   const [status, setStatus] = useState<BuybackEngineStatus | null>(null);
   const [error, setError] = useState("");
@@ -43,7 +44,7 @@ export default function BuybackEngine({ config, onRefresh }: { config: RuntimeCo
       catch (failure) { if (!cancelled) setError(errorMessage(failure)); }
     };
     void load();
-    const timer = window.setInterval(() => void load(), 30_000);
+    const timer = window.setInterval(() => void load(), 120_000);
     return () => { cancelled = true; window.clearInterval(timer); };
   }, [config?.chainId, config?.feeEngine, config?.buybackVault, config?.assetFeedOracle, config?.treasury, config?.automationReceiver, config?.automationTreasury, config?.wethForwarder, refresh]);
   const enabled = !!config?.writesEnabled && !!config.feeEngine && !!status?.available &&
@@ -129,7 +130,6 @@ export default function BuybackEngine({ config, onRefresh }: { config: RuntimeCo
       <div className="activity-head">
         <h2 id="buyback-engine-title" className="card-title">Public buyback engine</h2>
         <div className="activity-status">
-          {status?.engine && <span className={`index-status${status.burnIndexCaughtUp ? " live" : ""}`}><span aria-hidden="true" />{status.burnIndexCaughtUp ? "Index caught up" : "Index catching up"}</span>}
           {status?.blockNumber && <span>Read at block <span className="mono">{Number(status.blockNumber).toLocaleString("en-US")}</span></span>}
           <button type="button" className="round-button small" aria-label="Refresh buyback engine balances" disabled={busy} onClick={refreshAll}><RefreshCw size={16} /></button>
         </div>
@@ -137,9 +137,9 @@ export default function BuybackEngine({ config, onRefresh }: { config: RuntimeCo
       {!status ? error ? null : <p role="status" className="loading"><RefreshCw size={16} className="spin" />Reading on-chain engine balances…</p> : !status.engine ? <p className="notice"><Info size={17} aria-hidden="true" /><span>{status.reason}</span></p> : <>
         {status.reason && <p className="notice warning" role="status"><TriangleAlert size={17} aria-hidden="true" /><span>{status.reason}</span></p>}
         <dl className="engine-stats">
-          <div className="card halo"><dt>MUSEGOD bought and burned</dt><dd>{amount(status.vaultBurned ?? null)}</dd><dd className="sub">through budget-vault buybacks</dd></div>
-          <div className="card"><dt>Direct engine burns</dt><dd>{amount(status.directBurned)}</dd><dd className="sub">MUSEGOD fees sent to the dead address</dd></div>
-          <div className="card"><dt>WETH from fee conversions</dt><dd>{amount(status.convertedWeth)}</dd><dd className="sub">paired-asset fees converted by the engine</dd></div>
+          <div className="card halo"><dt>Shared Vault sent to dead</dt><dd>{amount(summary?.vaultMuseToDead ?? null)}</dd><dd className="sub">MUSEGOD from all sources</dd></div>
+          <div className="card"><dt>Shared Vault spent</dt><dd>{amount(summary?.vaultSpentWeth ?? null)}</dd><dd className="sub">cumulative WETH from all sources</dd></div>
+          <div className="card"><dt>Robinhood Treasury WETH</dt><dd>{amount(summary?.treasuryWeth ?? null)}</dd><dd className="sub">current balance from all sources</dd></div>
         </dl>
       </>}
       {message && <p className="notice" role="status"><Info size={17} aria-hidden="true" /><span>{message}</span></p>}
@@ -163,19 +163,8 @@ export default function BuybackEngine({ config, onRefresh }: { config: RuntimeCo
           </dl>
         </div>
       </section>
-      <section className="card latest-burns" aria-labelledby="burns-title">
-        <div className="card-head">
-          <h2 id="burns-title" className="card-title">Latest burns</h2>
-          {status.burnIndexCaughtUp && <span className="index-status live"><span aria-hidden="true" />Index caught up</span>}
-        </div>
-        {status.burns.length ? <ol>
-          {status.burns.map((burn, index) => <li key={`${burn.hash}-${index}`}>
-            <div><b className="mono">{amount(burn.amount)}</b> <span className="hint">MUSEGOD</span></div>
-            <div className="hint">{burn.source === "swapper" ? "Buyback" : "Engine transfer"} · block <span className="mono">{Number(burn.blockNumber).toLocaleString("en-US")}</span></div>
-            {explorer ? <a href={`${explorer}/tx/${burn.hash}`} target="_blank" rel="noreferrer" className="mono">{shortAddress(burn.hash)} ↗</a> : <code className="wrap">{burn.hash}</code>}
-          </li>)}
-        </ol> : <p className="hint">No dead-address transfer was found in this scan range.</p>}
-        <p className="hint">Engine transfers and Swapper settlements verified against actual MUSEGOD receipts, indexed from block {status.burnScanFrom ?? "unavailable"} through {status.burnScanTo ?? "unavailable"}. {status.burnIndexCaughtUp ? "Index caught up to the confirmation boundary." : "History is catching up or temporarily unavailable."}</p>
+      <section className="card"><h2 className="card-title">Cumulative buyback totals</h2>
+        <p className="hint">The shared Vault's counters and the dead-address balance include all sources. Totals are cached for at least five minutes; they do not attribute individual burns to Base.</p>
       </section>
     </div>}
     {status?.engine && <section className="card waiting-card" aria-labelledby="waiting-title">

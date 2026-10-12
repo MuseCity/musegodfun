@@ -88,7 +88,7 @@ test("Base launch tracking rejects mismatched calldata or targets; read-only rol
   await assert.rejects(() => service.register(hash), /receipt pending/);
   const before = networkChecks;
   await service.reconcile();
-  assert.equal(networkChecks, before + 1, "Disabling new signatures must not stop receipt recovery");
+  assert.equal(networkChecks, before, "An empty receipt queue does not perform unnecessary network work, even while signing is disabled");
 });
 function fixture() {
   const dir = mkdtempSync(join(tmpdir(), "musegod-test-"));

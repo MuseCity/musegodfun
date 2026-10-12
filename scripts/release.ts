@@ -1,19 +1,13 @@
 import { execFileSync } from "node:child_process";
-import { appendFileSync, closeSync, fsyncSync, mkdirSync, mkdtempSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { createPublicClient, decodeEventLog, erc20Abi, http, parseAbi, parseAbiItem, type PublicClient, type Transport, type TransactionReceipt } from "viem";
-import { base } from "viem/chains";
 import { setTimeout as waitForPropagation } from "node:timers/promises";
 import { ENGINE_FEE_POLICY, BASE_AUTOMATION_FEE_POLICY, FEE_POLICY } from "../src/lib/fee-policy";
 import baseCollectorDeployment from "../contracts/artifacts/base-collector-deployment.json";
-import { baseCollectorGraphFingerprint, verifyBaseCollectorForOperator as verifyBaseCollector, type BaseCollectorManifest } from "../server/base-collector";
-import { mainnetRpcUrl } from "../server/config";
-import { STOCKS } from "../src/lib/config";
-import { BASE_BUYBACK_WETH, BASE_RECOVERY_PROTOCOL, BASE_NATIVE_DESTINATION_POLICY } from "../src/lib/base-buyback";
-import { baseOperatorAuditStore } from "./base-audit-store";
-import type { BaseAuditStore } from "../server/base-audit";
+import { baseCollectorGraphFingerprint, type BaseCollectorManifest } from "../server/base-collector";
+import { BASE_RECOVERY_PROTOCOL, BASE_NATIVE_DESTINATION_POLICY } from "../src/lib/base-buyback";
 import type { BuildInfo } from "../src/lib/build-info";
 import { readBuildIdentity, REPOSITORY } from "./build-info";
 import { assertBuildManifest, assertCandidateRuntimeBindings, assertFrozenBuild, assertLaunchRuntime, assertReleaseCheckout, assertSecurityTransition, rollbackPreservesSafety, publishCandidate, ReleaseFailure, requireSingleActiveVersion, runtimeVarsFromBindings, sha256, snapshotBuild } from "./release-policy";
@@ -124,7 +118,7 @@ export async function readUploadedCandidate(account: string, version: string,
 
 function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
-  if (value && typeof value === "object") return `{${Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`).join(",")}}`;
+  if (value && typeof value === "object") return `{${Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`).join(",")}}`;
   return JSON.stringify(value);
 }
 
@@ -176,7 +170,7 @@ export async function checkRuntime(origin: string, config: Pick<WranglerConfig, 
   }
 }
 
-export async function checkFunctionalSmoke(origin: string, collectorRecovery = true) {
+export async function checkFunctionalSmoke(origin: string, collectorRecovery = true, aggregateSummary = true) {
   const results = [];
   for (const chainId of collectorRecovery ? [8453, 4663] as const : [4663] as const) {
   const prefix=`/api/chains/${chainId}`, headers={"Cache-Control":"no-cache"};
@@ -192,8 +186,10 @@ export async function checkFunctionalSmoke(origin: string, collectorRecovery = t
   if (collectorRecovery) {
     const engine = await (await request(`${origin}${prefix}/buyback/engine`, {headers})).json() as {kind?:string;destinationChainId?:number};
     if (chainId === 8453 && (engine.kind !== "base_splits_native" || engine.destinationChainId !== 4663)) throw new Error("Functional smoke: Base fee status is not chain scoped");
-    const ledger = await (await request(`${origin}${prefix}/buyback/vault-ledger`, {headers})).json() as {version?:number;initialized?:boolean};
-    if (ledger.version !== 1 || typeof ledger.initialized !== "boolean") throw new Error("Functional smoke: malformed shared-vault accounting response");
+    if (chainId === 4663 && aggregateSummary) {
+      const summary = await (await request(`${origin}${prefix}/buyback/summary`, {headers})).json() as {chainId?:number;scope?:string;available?:boolean;vaultMuseToDead?:string|null;deadTotalMuse?:string|null};
+      if (summary.chainId !== 4663 || summary.scope !== "shared_robinhood" || typeof summary.available !== "boolean" || summary.available && (typeof summary.vaultMuseToDead !== "string" || typeof summary.deadTotalMuse !== "string")) throw new Error("Functional smoke: malformed aggregate buyback counters");
+    }
   }
   const tokens=await (await request(`${origin}${prefix}/tokens?limit=1`,{headers})).json() as any;
   const first=(Array.isArray(tokens)?tokens:tokens.items)?.[0];
@@ -207,17 +203,20 @@ export async function checkFunctionalSmoke(origin: string, collectorRecovery = t
   return results;
 }
 
-/** The first paused baseline requires an unused adapter and native account.
- * Later rollbacks must understand native recovery and carry the same reviewed graph. */
+/** Rollbacks must understand native recovery and carry the same reviewed graph. */
 export function supportsBaseRecovery(source: string): boolean {
   const marker = source.match(/^export const BASE_RECOVERY_PROTOCOL = (\d+);?\s*$/m);
   const policy = source.match(/^export const BASE_NATIVE_DESTINATION_POLICY = ["']([^"']+)["'];?\s*$/m);
   return !!marker && Number(marker[1]) === BASE_RECOVERY_PROTOCOL && policy?.[1] === BASE_NATIVE_DESTINATION_POLICY;
 }
+/** Read from the rollback target's immutable source commit, never inferred from a failing HTTP request. */
+export function supportsBuybackSummary(source: string): boolean {
+  return /^app\.get\(["']\/api\/buyback\/summary["']\s*,/m.test(source);
+}
 export async function baseRollbackCompatible(input: {
   previousVars: Record<string, string>; candidateVars: Record<string, string>;
   previousManifest?: BaseCollectorManifest; candidateManifest: BaseCollectorManifest;
-  previousRecoveryProtocol: boolean; pristine(): Promise<boolean>;
+  previousRecoveryProtocol: boolean;
 }): Promise<boolean> {
   const { previousVars: previous, candidateVars: candidate, previousManifest: prior, candidateManifest: next } = input;
   if (!candidate.BASE_FEE_COLLECTOR_ADDRESS && next.status === "not_deployed")
@@ -230,167 +229,7 @@ export async function baseRollbackCompatible(input: {
     try { return baseCollectorGraphFingerprint(prior) === baseCollectorGraphFingerprint(next); }
     catch { return false; }
   }
-  if (previous.ENABLE_BASE_TRANSACTIONS === "true" || candidate.ENABLE_BASE_TRANSACTIONS === "true" || previous.BASE_FEE_COLLECTOR_ADDRESS ||
-    prior && prior.status !== "not_deployed" || next.activation.status !== "not_run" || next.canaryAuthorization || next.activation.nativeExecution ||
-    next.nativeRule.ruleId || next.nativeRule.configurationSha256) return false;
-  return input.pristine();
-}
-
-export type BasePristineAudit = { version: 3; chainId: 8453; graphFingerprint: string; dependencySha256: string; collectorStart: string;
-  automationStart: string; through: string; blockHash: string; activityObserved: boolean };
-/** Private CI/operator progress, never a public proof import. Canonical anchors and the current graph are rechecked on every use. */
-export function basePristineAuditStore(directory = resolve(".cache/base-pristine-audit")) {
-  const path = (fingerprint: string, dependencySha256: string) => {
-    if (!/^0x[\da-f]{64}$/i.test(fingerprint)) throw new Error("Invalid pristine graph fingerprint");
-    if (!/^[\da-f]{64}$/i.test(dependencySha256)) throw new Error("Invalid pristine dependency hash");
-    return join(directory, `${fingerprint.toLowerCase()}-${dependencySha256.toLowerCase()}.json`);
-  };
-  return {
-    load(fingerprint: string, dependencySha256: string): BasePristineAudit | null { try { return JSON.parse(readFileSync(path(fingerprint, dependencySha256), "utf8")); } catch { return null; } },
-    save(audit: BasePristineAudit) {
-      mkdirSync(directory, { recursive: true, mode: 0o700 });
-      const destination = path(audit.graphFingerprint, audit.dependencySha256), temporary = `${destination}.${process.pid}.tmp`;
-      const fd = openSync(temporary, "w", 0o600);
-      try { writeFileSync(fd, JSON.stringify(audit)); fsyncSync(fd); } finally { closeSync(fd); }
-      renameSync(temporary, destination);
-      const parent = openSync(directory, "r"); try { fsyncSync(parent); } finally { closeSync(parent); }
-    },
-  };
-}
-export async function pristineBaseCollector(manifest: BaseCollectorManifest, deps: {
-  client?: PublicClient<Transport, any>; verifyGraph?: typeof verifyBaseCollector; now?: () => number;
-  maxDurationMs?: number; auditStore?: ReturnType<typeof basePristineAuditStore>; graphAuditStore?: BaseAuditStore;
-} = {}): Promise<boolean> {
-  const now = deps.now ?? Date.now, duration = deps.maxDurationMs ?? 45_000;
-  if (!Number.isFinite(duration) || duration < 0 || duration > 600_000) throw new Error("Invalid pristine audit budget");
-  const deadline = now() + duration;
-  try {
-    const address = manifest.collector.address;
-    if (!address) return false;
-    const client = deps.client ?? createPublicClient({ chain: base, transport: http(mainnetRpcUrl(8453), { timeout: 20_000, retryCount: 1,
-      batch: { batchSize: 20, wait: 0 } }), batch: { multicall: true } });
-    const graphStore = deps.graphAuditStore ?? baseOperatorAuditStore();
-    let advancedPages = 0;
-    const graphAuditStore: BaseAuditStore = {
-      getBuybackBatch: id => graphStore.getBuybackBatch(id),
-      compareAndSetBuybackAudit: async (next, expected) => {
-        const committed = await graphStore.compareAndSetBuybackAudit(next, expected);
-        if (committed && typeof next.through === "string" && /^(0|[1-9]\d*)$/.test(next.through) &&
-          (typeof expected?.through !== "string" || !/^(0|[1-9]\d*)$/.test(expected.through) || BigInt(next.through) > BigInt(expected.through))) advancedPages++;
-        return committed;
-      },
-    };
-    let verified: Awaited<ReturnType<typeof verifyBaseCollector>> | undefined;
-    while (now() < deadline) {
-      const before = advancedPages;
-      try {
-        verified = await (deps.verifyGraph ?? verifyBaseCollector)(client, address, { manifest, requireActivation: false, auditStore: graphAuditStore });
-        break;
-      } catch (error) {
-        // Only a completed, persisted prefix may warm the next bounded module page.
-        // Changed graph, unavailable RPC, or a scan without durable progress fails closed.
-        if (!(error instanceof Error) || error.message !== "Canonical Base audit coverage is incomplete; persisted progress will resume" || advancedPages === before) throw error;
-      }
-    }
-    if (!verified) return false;
-    if (!verified.paused) return false;
-    const head = await client.getBlock();
-    if (!head.hash || head.number === null) return false;
-    const abi = parseAbi(["function paused() view returns(bool)"]);
-    if (await client.readContract({ address, abi, functionName: "paused", blockNumber: head.number }) !== true ||
-      await client.getBalance({ address, blockNumber: head.number }) !== 0n) return false;
-    // Native execution authority is separate from the adapter pause. An older
-    // build cannot recover native activity, even if the adapter balance is zero.
-    const automation = manifest.automationAccount.address;
-    const initializedAt = manifest.automationAccount.blockNumber;
-    if (!automation || !initializedAt || manifest.nativeRule.ruleId || manifest.nativeRule.configurationSha256) return false;
-    const starts = [verified.initialDeploymentBlock, BigInt(initializedAt)];
-    if (starts.some(start => start < 0n || start > head.number)) return false;
-    const transfer = parseAbiItem("event Transfer(address indexed from,address indexed to,uint256 value)");
-    const receipts = new Map<string, Promise<TransactionReceipt>>();
-    const canonicalActivity = async (logs: any[], holder: string, fromBlock: bigint, toBlock: bigint, incoming: boolean) => {
-      let observed = false;
-      for (const log of logs) {
-        if (incoming) {
-          // Malformed transfers block this read without becoming sticky cached activity.
-          const decoded = decodeEventLog({ abi: [transfer], data: log.data, topics: log.topics, strict: true });
-          if (decoded.args.to.toLowerCase() !== holder.toLowerCase()) throw new Error("Pristine transfer recipient differs from its query");
-          if (decoded.args.value === 0n || decoded.args.from.toLowerCase() === decoded.args.to.toLowerCase()) continue;
-        }
-        if (log.removed || !/^0x[\da-f]{64}$/i.test(log.transactionHash) || !/^0x[\da-f]{64}$/i.test(log.blockHash) ||
-          typeof log.blockNumber !== "bigint" || log.blockNumber < fromBlock || log.blockNumber > toBlock ||
-          !Number.isSafeInteger(log.transactionIndex) || log.transactionIndex < 0 || !Number.isSafeInteger(log.logIndex) || log.logIndex < 0 ||
-          !/^0x[\da-f]{40}$/i.test(log.address) || !incoming && log.address.toLowerCase() !== holder.toLowerCase() ||
-          typeof log.data !== "string" || !/^0x(?:[\da-f]{2})*$/i.test(log.data) || !Array.isArray(log.topics) || log.topics.some((topic: unknown) => typeof topic !== "string" || !/^0x[\da-f]{64}$/i.test(topic)))
-          throw new Error("Pristine activity log is malformed or outside its canonical range");
-        const key = log.transactionHash.toLowerCase();
-        let pending = receipts.get(key);
-        if (!pending) { pending = client.getTransactionReceipt({ hash: log.transactionHash }); receipts.set(key, pending); }
-        const receipt = await pending;
-        if (receipt.status !== "success" || receipt.transactionHash.toLowerCase() !== key || receipt.blockNumber !== log.blockNumber ||
-          receipt.blockHash !== log.blockHash || receipt.transactionIndex !== log.transactionIndex ||
-          (await client.getBlock({ blockNumber: receipt.blockNumber })).hash !== receipt.blockHash ||
-          !receipt.logs.some(row => row.logIndex === log.logIndex && row.address.toLowerCase() === log.address.toLowerCase() &&
-            row.data.toLowerCase() === log.data.toLowerCase() && canonical(row.topics.map(topic => topic.toLowerCase())) === canonical(log.topics.map((topic: string) => topic.toLowerCase()))))
-          throw new Error("Pristine activity lacks a canonical successful receipt log");
-        observed = true;
-      }
-      return observed;
-    };
-    const first = starts[0] < starts[1] ? starts[0] : starts[1];
-    if (first === 0n) return false;
-    const graphFingerprint = baseCollectorGraphFingerprint(manifest);
-    const dependencySha256 = sha256(readFileSync(resolve("package-lock.json")));
-    const store = deps.auditStore ?? basePristineAuditStore();
-    let audit = store.load(graphFingerprint, dependencySha256);
-    const integer = (value: unknown): value is string => typeof value === "string" && /^(0|[1-9]\d*)$/.test(value);
-    if (audit && (audit.version !== 3 || audit.chainId !== 8453 || audit.graphFingerprint !== graphFingerprint || audit.dependencySha256 !== dependencySha256 ||
-      audit.collectorStart !== String(starts[0]) || audit.automationStart !== String(starts[1]) || !integer(audit.through) ||
-      BigInt(audit.through) < first - 1n || !/^0x[\da-f]{64}$/i.test(audit.blockHash) || typeof audit.activityObserved !== "boolean")) audit = null;
-    // A lagging RPC cannot invalidate a newer retained audit. Wait for a usable provider.
-    if (audit && BigInt(audit.through) > head.number) return false;
-    if (audit && (await client.getBlock({ blockNumber: BigInt(audit.through) })).hash?.toLowerCase() !== audit.blockHash.toLowerCase()) audit = null;
-    if (!audit) {
-      const anchor = await client.getBlock({ blockNumber: first - 1n });
-      if (!anchor.hash) return false;
-      audit = { version: 3, chainId: 8453, graphFingerprint, dependencySha256, collectorStart: String(starts[0]), automationStart: String(starts[1]),
-        through: String(first - 1n), blockHash: anchor.hash, activityObserved: false };
-    }
-    if (audit.activityObserved) return false;
-    // Full historical coverage, including arbitrary-token donations. Completed pages survive timeouts/restarts.
-    // Each page has at most 18 parallel log reads; every RPC range remains ten blocks.
-    for (let page = BigInt(audit.through) + 1n; page <= head.number; page += 60n) {
-      if (now() >= deadline) return false;
-      const endPage = page + 59n < head.number ? page + 59n : head.number;
-      const before = await client.getBlock({ blockNumber: endPage });
-      if (!before.hash) return false;
-      const reads: Promise<boolean>[] = [];
-      for (let range = page; range < page + 60n && range <= head.number; range += 10n) {
-        const end = range + 9n < head.number ? range + 9n : head.number;
-        if (end >= starts[0]) {
-          const fromBlock = range < starts[0] ? starts[0] : range;
-          reads.push(client.getLogs({ address, fromBlock, toBlock: end }).then(logs => canonicalActivity(logs, address, fromBlock, end, false)));
-          reads.push(client.getLogs({ event: transfer, args: { to: address }, fromBlock, toBlock: end, strict: true }).then(logs => canonicalActivity(logs, address, fromBlock, end, true)));
-        }
-        if (end >= starts[1]) {
-          const fromBlock = range < starts[1] ? starts[1] : range;
-          reads.push(client.getLogs({ event: transfer, args: { to: automation }, fromBlock, toBlock: end, strict: true })
-            .then(logs => canonicalActivity(logs, automation, fromBlock, end, true)));
-        }
-      }
-      const results = await Promise.all(reads);
-      // Persist only a page still attached to its checked predecessor and canonical endpoint.
-      if ((await client.getBlock({ blockNumber: BigInt(audit.through) })).hash?.toLowerCase() !== audit.blockHash.toLowerCase() ||
-        (await client.getBlock({ blockNumber: endPage })).hash !== before.hash) return false;
-      audit = { ...audit, through: String(endPage), blockHash: before.hash, activityObserved: results.some(Boolean) };
-      store.save(audit);
-      if (audit.activityObserved || now() >= deadline) return false;
-    }
-    if (await client.getBalance({ address: automation, blockNumber: head.number }) !== 0n) return false;
-    const balances = await Promise.all([address, automation].flatMap(holder => [...STOCKS.map(stock => stock.address), BASE_BUYBACK_WETH].map(token =>
-      client.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [holder], blockNumber: head.number! }))));
-    return balances.every(value => value === 0n) && (await client.getBlock({ blockNumber: head.number })).hash === head.hash && now() < deadline;
-  } catch { return false; }
+  return false;
 }
 
 async function main() {
@@ -432,19 +271,19 @@ async function main() {
       const bytes = Buffer.from(file.content, "base64").toString("utf8");
       if (path.endsWith(".ts")) previousRecoveryProtocol = supportsBaseRecovery(bytes);
       else previousCollectorManifest = JSON.parse(bytes) as BaseCollectorManifest;
-    } catch { /* A pre-Collector baseline has neither file. It must pass the pristine check below. */ }
+    } catch { /* Missing source capabilities never authorize a deployed-Collector rollback. */ }
   }
+  const previousApp = await github<{encoding:string;content:string}>(`contents/server/app.ts?ref=${previousCommit}`);
+  if (previousApp.encoding !== "base64") throw new Error("Cannot inspect the locked rollback target's API capabilities");
+  const previousSummaryProtocol = supportsBuybackSummary(Buffer.from(previousApp.content,"base64").toString("utf8"));
   const candidateCollectorManifest = baseCollectorDeployment as unknown as BaseCollectorManifest;
   assertSecurityTransition(previousConfig.vars,config.vars,previousSource.vars);
-  const compatibleRollback = (duration: number) => rollbackPreservesSafety(previousConfig.vars,config.vars) && baseRollbackCompatible({
+  const compatibleRollback = () => rollbackPreservesSafety(previousConfig.vars,config.vars) && baseRollbackCompatible({
     previousVars: previousConfig.vars, candidateVars: config.vars, previousManifest: previousCollectorManifest,
     candidateManifest: candidateCollectorManifest, previousRecoveryProtocol,
-    pristine: () => pristineBaseCollector(candidateCollectorManifest, { maxDurationMs: duration }),
   });
-  // Establish full anchored coverage outside the short upload/activation checks. Compatible native baselines skip pristine entirely.
-  // A failed or interrupted preflight preserves pages for the next trusted CI run, without uploading or activating anything.
-  if (!await compatibleRollback(600_000)) throw new ReleaseFailure("blocked_by_safety",
-    new Error("Base rollback preflight is incomplete or incompatible; retained pristine progress can resume, production was not changed."));
+  if (!await compatibleRollback()) throw new ReleaseFailure("blocked_by_safety",
+    new Error("Base rollback source or Collector graph is incompatible; production was not changed."));
   const service = await cloudflare<{ default_environment: { script: { migration_tag?: string } } }>(account, `services/${workerName}`);
   const migrationTag = service.default_environment.script.migration_tag;
   if ((config.migrations?.at(-1)?.tag ?? undefined) !== migrationTag)
@@ -550,14 +389,14 @@ async function main() {
           await checkFunctionalSmoke(origin);
         },
       }),
-      rollbackAllowed: async () => compatibleRollback(45_000),
+      rollbackAllowed: async () => compatibleRollback(),
       verifyRollback: async (previous) => verifyProductionCandidate(previous, {
         activeVersion,assertFrozen,describe,wait:waitForPropagation,
         verifyOrigin: async(origin)=>{
           const response=await request(`${origin}/`,{headers:{"Cache-Control":"no-cache"}});
           if(response.headers.get("X-Worker-Version")!==previous)throw new Error(`Rollback activated; edge propagation pending: ${origin}`);
           await checkRuntime(origin,previousConfig);
-          await checkFunctionalSmoke(origin, previousRecoveryProtocol);
+          await checkFunctionalSmoke(origin, previousRecoveryProtocol, previousSummaryProtocol);
           describe(`Rollback origin checked: ${origin}; Worker ${previous}`);
         },
       }),

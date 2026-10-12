@@ -7,9 +7,12 @@ import { firstBuyPaymentInput, FIRST_BUY_SLIPPAGE_BPS } from "../src/lib/first-b
 import { securityHeaders, requestBodyLimitForPath } from "./http-security";
 import { TokenImages } from "./token-images";
 import { z } from "zod";
-import { parseUnits, type Hex } from "viem";
+import { createPublicClient, parseUnits, type Address, type Hex } from "viem";
+import { robinhood } from "viem/chains";
+import { alchemyRpcTransport } from "./alchemy-rpc";
+import baseCollectorDeployment from "../contracts/artifacts/base-collector-deployment.json";
 import { LaunchpadService, runtimeFromEnv } from "./service";
-import { mainnetRpcUrl, redact, type Runtime, type DeploymentChainId } from "./config";
+import { redact, type Runtime, type DeploymentChainId } from "./config";
 import { deploymentChain } from "../src/lib/config";
 import { FirstBuyPaymentReader } from "./lifi";
 import { MarketUnavailable } from "./snapshots";
@@ -17,14 +20,11 @@ import { MarketReader } from "./market";
 import { MusegodReader } from "./musegod";
 import { MusegodMarketReader } from "./musegod-market";
 import { CHART_INTERVALS } from "../src/lib/market";
-import { BuybackReader, BuybackError } from "./buyback";
+import { BuybackReader, BuybackError, RobinhoodBuybackSummaryReader } from "./buyback";
 import { BuybackBatchService } from "./buyback-batches";
 import { BuybackEngineReader } from "./buyback-engine";
-import { BaseFeeQuoteReader } from "./base-buyback";
-import { createVaultLedgerRuntime, readCanonicalBaseSourceBatches } from "./buyback-vault-runtime";
-import { createPersistedVaultLedgerRuntime, readBaseAuditSnapshot, unavailableBaseCollectorStatus } from "./buyback-audit-snapshot";
+import { BaseFeeQuoteReader, readTrustedBaseRecoveryAssets, unavailableBaseCollectorStatus } from "./base-buyback";
 import { BASE_BUYBACK_PROTOCOL, BASE_LEGACY_ACROSS_PROTOCOL } from "../src/lib/base-buyback";
-import { emptyVaultLedgerReport, type VaultLedgerReport } from "../src/lib/buyback-vault-ledger";
 import type { MUSEGODStats } from "../src/lib/buyback";
 import type { LaunchPlan } from "../src/lib/launch-plan";
 import {
@@ -69,51 +69,28 @@ export function createApp(
 ) {
 const app = express(),
   service = new LaunchpadService(runtime);
-service.financialAuditReadOnly = runtime.config.mode !== "fork";
 const images = new TokenImages(runtime.secrets?.pinataJwt, service.store);
 const market = new MarketReader({
   store: service.store,
   apiKey: runtime.secrets?.coingeckoApiKey,
 });
-const musegod = new MusegodReader(service.client, service.runtime.config, () => service.assertNetwork());
+const musegod = new MusegodReader(service.client, service.runtime.config, () => service.assertNetwork(), undefined, service.store);
 const musegodMarket = new MusegodMarketReader(service.runtime.config, service.store);
-const buyback = new BuybackReader(service.runtime.config.treasury);
+const buyback = new BuybackReader(service.runtime.config.treasury, { environment: runtime.environment });
+const robinhoodDisplayClient = runtime.config.mode === "fork" || deploymentChain(runtime.config) === 4663 ? service.client
+  : createPublicClient({ chain: robinhood,transport: alchemyRpcTransport(4663,runtime.environment ?? {}) });
+const buybackSummary = runtime.config.mode === "fork" ? null : new RobinhoodBuybackSummaryReader(robinhoodDisplayClient);
 const buybackBatches = new BuybackBatchService(buyback, service.store, service.client, service.runtime.config, {
+  environment: runtime.environment, robinhoodClient: robinhoodDisplayClient,
   destinationConfig: () => shared.chainConfig?.(4663) ?? Promise.reject(new BuybackError("SIGNING_DISABLED", "The explicit Robinhood recovery runtime is unavailable.")),
 });
-const buybackEngine = new BuybackEngineReader(service.client, () => service.config(), () => service.tokens(), (address, engine) => service.engineClaimPreview(address, engine), service.store, !shared.ingressManaged);
-service.vaultLedgerRuntime = service.financialAuditReadOnly ? createPersistedVaultLedgerRuntime({ runtime, store: service.store })
-  : createVaultLedgerRuntime({ runtime, client: service.client, store: service.store });
-const baseCollector = !service.financialAuditReadOnly && deploymentChain(runtime.config) === 8453 && runtime.config.feeEngine ? new BaseFeeQuoteReader({
-  client: service.client, collector: runtime.config.feeEngine,
-  batches: () => readCanonicalBaseSourceBatches(service.store),
-  custodyReport: () => service.vaultLedgerRuntime!.sourceStatus(),
-  automationPolicy: () => service.vaultLedgerRuntime!.automationPolicy(),
+const buybackEngine = new BuybackEngineReader(service.client, (fresh = false) => service.config(fresh), () => service.tokens(), (address, engine) => service.engineClaimPreview(address, engine), service.store);
+const baseCollector = deploymentChain(runtime.config) === 8453 && runtime.config.feeEngine && baseCollectorDeployment.constants.automationReceiver &&
+  sameAddress(runtime.config.feeEngine,baseCollectorDeployment.collector.address ?? "") ? new BaseFeeQuoteReader({
+  client:service.client,collector:runtime.config.feeEngine,verifiedGraph:{collector:runtime.config.feeEngine,
+    automationReceiver:baseCollectorDeployment.constants.automationReceiver as Address},
+  assets:()=>readTrustedBaseRecoveryAssets(service,runtime.config.feeEngine!),
 }) : null;
-// Display reads share one bounded private snapshot read. Actual signing and
-// canonical maintenance happen on the keeper host, never through these GETs.
-const financialSnapshots = new Map<string, { until: number; value: unknown }>();
-const financialRequests = new Map<string, Promise<unknown>>();
-async function financialRead<T>(key: string, read: () => Promise<T>, request: express.Request): Promise<T> {
-  // no-cache rereads the private database only; it does not request an audit.
-  if (/\bno-cache\b|\bno-store\b/i.test(request.get("cache-control") ?? "") ||
-    /\bno-cache\b/i.test(request.get("pragma") ?? "")) return read();
-  const cached = financialSnapshots.get(key);
-  if (cached && Date.now() < cached.until) return cached.value as T;
-  let pending = financialRequests.get(key);
-  if (!pending) {
-    let timer:ReturnType<typeof setTimeout>|undefined;
-    pending = Promise.race([Promise.resolve().then(read),new Promise<T>((_resolve,reject)=>{
-      timer=setTimeout(()=>reject(new Error("Financial display read timed out; retry canonical status")),15_000);
-    })]).then(value => {
-      const expiry = (value as { auditExpiresAt?: number } | null)?.auditExpiresAt;
-      if(financialRequests.get(key)===pending)financialSnapshots.set(key, { until: Math.min(Date.now() + 5_000, expiry ?? Infinity), value });
-      return value;
-    }).finally(() => {clearTimeout(timer);if(financialRequests.get(key)===pending)financialRequests.delete(key);});
-    financialRequests.set(key, pending);
-  }
-  return pending as Promise<T>;
-}
 const payments = new FirstBuyPaymentReader({ client: service.client, chainId: deploymentChain(runtime.config),
   rpcChainId: runtime.config.mode === "fork" && runtime.config.chainId === 31337 ? 31337 : deploymentChain(runtime.config), ...runtime.lifi, budget: service.store });
 app.set("trust proxy", trustProxy);
@@ -252,24 +229,14 @@ app.post("/api/first-buy/verify", route(async (req, res) => {
 app.get("/api/first-buy-lock/:address", route(async (req, res) =>
   res.json(await service.firstBuyLock(addressSchema.parse(req.params.address))),
 ));
-app.get("/api/buyback/engine", route(async (req, res) => {
+app.get("/api/buyback/engine", route(async (_req, res) => {
   if (deploymentChain(runtime.config) === 4663) { res.json(await buybackEngine.read()); return; }
-  res.json(await financialRead("base-engine", async () => {
-  const snapshot = service.financialAuditReadOnly ? await readBaseAuditSnapshot(runtime, service.store) : null;
-  const status = service.financialAuditReadOnly ? snapshot?.collectorStatus ?? unavailableBaseCollectorStatus()
-    : baseCollector ? await baseCollector.status() : unavailableBaseCollectorStatus();
-  const ledger = service.financialAuditReadOnly ? snapshot?.vaultLedger ?? emptyVaultLedgerReport(0n, "The verified host audit snapshot is unavailable or expired.")
-    : await service.vaultLedgerRuntime!.read();
-  const page = status.available ? [...status.batches].sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id)).slice(0, 100)
-    : await service.store.buybackBatchPage(100);
-  return { ...status, batches: page.filter(row => row.protocol === BASE_BUYBACK_PROTOCOL).map(row => publicBaseBatch(row, ledger)),
-    ledgerComplete: status.ledgerComplete && ledger.attributionReady && ledger.fresh, vaultLedger: ledger,
-    ...(snapshot ? { auditObservedAt: snapshot.observedAt, auditExpiresAt: snapshot.expiresAt,
-      ...(snapshot.failedAt === undefined ? {} : { auditFailedAt: snapshot.failedAt }) } : {}) };
-  }, req));
+  res.json(baseCollector ? await baseCollector.status() : unavailableBaseCollectorStatus());
 }));
-app.get("/api/buyback/vault-ledger", route(async (req, res) => res.json(await financialRead("vault", () => service.vaultLedgerRuntime!.read(), req))));
-app.get("/api/buyback/custody", route(async (req, res) => res.json(await financialRead("custody", () => service.vaultLedgerRuntime!.custody(), req))));
+app.get("/api/buyback/summary", route(async (_req,res) => {
+  if (!buybackSummary) throw new BuybackError("FORK_UNAVAILABLE","Fork assets cannot use mainnet buyback totals.");
+  res.json(await buybackSummary.read());
+}));
 let engineQuoting = false;
 app.post("/api/buyback/engine/quote", route(async (req, res) => {
   if (deploymentChain(runtime.config) !== 4663) { res.status(410).json({ code: "AUTOMATIC_BASE_FEES", error: "Base fee conversion is managed by Splits native Automation. Public quote signing is unavailable." }); return; }
@@ -279,37 +246,24 @@ app.post("/api/buyback/engine/quote", route(async (req, res) => {
   try { res.json(await buybackEngine.conversionQuote(input.token, input.amount, input.caller)); }
   finally { engineQuoting = false; }
 }));
-let buybackStats: MUSEGODStats | null = null;
-let buybackStatsPending: Promise<MUSEGODStats> | null = null;
 function requireHistoricalBase() {
   if (runtime.config.mode !== "base" || runtime.config.chainId !== 8453)
     throw new BuybackError("WRONG_CHAIN", "Historical Relay recovery requires the explicit Base API.");
 }
-function publicBaseBatch(value: Record<string, unknown>, ledger?: VaultLedgerReport) {
+function publicBaseBatch(value: Record<string, unknown>) {
   const keys = ["id", "protocol", "sourceChainId", "destinationChainId", "collector", "kind", "status", "createdAt", "updatedAt", "poolId",
     "inputAsset", "amountIn", "receivedAmount", "refundedAmount", "burnedAmount", "claimHashes", "sourceHash", "sourceBlockNumber", "sourceBlockHash", "destinationHash"] as const;
   const result = Object.fromEntries(keys.filter(key => value[key] !== undefined).map(key => [key, value[key]]));
-  // Source receipts and RH accounting retain separate write authorities.
-  // Their read projection supplies the complete batch lifecycle without
-  // claiming LI.FI status or a cached source row proves destination receipt.
-  if (ledger?.attributionReady && value.protocol === BASE_BUYBACK_PROTOCOL && value.kind === "native_relay") {
-    const accounting = ledger.batches.find(row => row.batchId === value.id);
-    const lot = ledger.lots.find(row => row.batchId === value.id && row.source === "base");
-    if (accounting && lot) Object.assign(result, { receivedAmount: accounting.receivedWeth, burnedAmount: accounting.attributedMuseToDead,
-      status: accounting.status === "consumed" ? "attributed" : "awaiting_buyback", destinationHash: value.destinationHash ?? lot.id.split(":")[0] });
-  }
   return result;
 }
 app.get("/api/buyback/stats", route(async (_req, res) => {
-  if (service.runtime.config.mode === "fork") throw new BuybackError("FORK_UNAVAILABLE", "Fork assets cannot use mainnet data.");
-  if (buybackStats && Date.now() - buybackStats.checkedAt < 30_000) {
-    res.json(buybackStats);
-    return;
-  }
-  buybackStatsPending ??= buyback.readMUSEGODStats()
-    .then((result) => { buybackStats = result; return result; })
-    .finally(() => { buybackStatsPending = null; });
-  res.json(await buybackStatsPending);
+  if (!buybackSummary) throw new BuybackError("FORK_UNAVAILABLE", "Fork assets cannot use mainnet data.");
+  const summary = await buybackSummary.read();
+  if (!summary.available || summary.totalSupply === null || summary.deadTotalMuse === null || summary.blockNumber === null)
+    throw new BuybackError("STATS_UNAVAILABLE",summary.error ?? "Robinhood totals are unavailable.");
+  const stats: MUSEGODStats = {source:"Robinhood Chain RPC",chainId:4663,tokenAddress:summary.tokenAddress,burnAddress:summary.burnAddress,
+    symbol:"MUSEGOD",decimals:18,totalSupply:summary.totalSupply,deadBalance:summary.deadTotalMuse,blockNumber:summary.blockNumber,checkedAt:summary.checkedAt,scope:"global"};
+  res.json({...stats,...(summary.stale?{stale:true}:{}),...(summary.error?{error:summary.error}:{})});
 }));
 app.post("/api/buyback/quote", route(async (_req, res) => res.status(410).json({ code: "MANUAL_BUYBACK_RETIRED", error: "New manual fee quotes have been replaced by Splits native Automation." })));
 const buybackKind = z.enum(["approval", "deposit", "burn"]);
@@ -318,8 +272,7 @@ app.get("/api/buyback/batches", route(async (req, res) => {
   const limit = z.coerce.number().int().min(1).max(100).default(100).parse(req.query.limit);
   const before = req.query.before ? z.object({ sequence: z.string().regex(/^[1-9]\d{0,18}$/) }).strict().parse(JSON.parse(String(req.query.before))) : undefined;
   const rows = await service.store.buybackBatchPage(limit, before);
-  const ledger = await service.vaultLedgerRuntime!.read();
-  const items = rows.filter(row=>!String(row.protocol).startsWith("internal_native_")).map(row => row.protocol === BASE_BUYBACK_PROTOCOL ? publicBaseBatch(row, ledger)
+  const items = rows.filter(row=>!String(row.protocol).startsWith("internal_native_")).map(row => row.protocol === BASE_BUYBACK_PROTOCOL ? publicBaseBatch(row)
     : row.protocol === BASE_LEGACY_ACROSS_PROTOCOL ? publicBaseBatch(row)
     : !row.protocol && row.quote && row.hashes && row.steps ? buybackBatches.visible(row as any)
     : { id: row.id, protocol: "historical_unknown", status: "unknown" });
@@ -417,12 +370,12 @@ app.post(
 app.post(
   "/api/launch/prepare",
   route(async (req, res) => {
-    const checkedConfig = await service.config();
+    const checkedConfig = await service.config(true);
     assertSigningEnabled(checkedConfig);
     const canonical=(value:unknown,depth=0):unknown=>{
       if(depth>30)throw new Error("Request nesting is too deep.");
       if(Array.isArray(value))return value.map(item=>canonical(item,depth+1));
-      return value && typeof value==="object" ? Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)).map(([key,item])=>[key,canonical(item,depth+1)])) : value;
+      return value && typeof value==="object" ? Object.fromEntries(Object.entries(value).sort(([a],[b])=>a < b ? -1 : a > b ? 1 : 0).map(([key,item])=>[key,canonical(item,depth+1)])) : value;
     };
     const key=createHash("sha256").update(JSON.stringify(canonical(req.body))).digest("hex");
     const requestId=typeof req.headers["x-request-id"]==="string" && /^[a-f0-9-]{36}$/i.test(req.headers["x-request-id"]) ? req.headers["x-request-id"] : undefined;
@@ -543,18 +496,7 @@ app.post(
       if (req.path === "/api/rpc/robinhood") {
         if (service.runtime.config.mode === "fork") throw new Error("A local fork cannot query mainnet through the secondary RPC.");
         if (service.runtime.config.chainId === 4663) result = await service.rpcRequest(body.method, body.params);
-        else {
-        const response = await fetch(mainnetRpcUrl(4663, runtime.environment), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-          signal: AbortSignal.timeout(25_000),
-        });
-        if (!response.ok) throw new Error("Robinhood RPC is temporarily unavailable");
-        const data = await response.json() as { error?: unknown; result?: unknown };
-        if (data.error) throw new Error("Robinhood on-chain query did not complete");
-        result = data.result;
-        }
+        else result = await robinhoodDisplayClient.request({ method: body.method, params: body.params } as any);
       } else result = await service.rpcRequest(body.method, body.params);
       res.json({
         jsonrpc: "2.0",
@@ -627,7 +569,7 @@ export function createDualChainApp(
     chainConfig: async chainId => {
       const target = chains.get(chainId);
       if (!target) throw new BuybackError("SIGNING_DISABLED", "The explicit recovery network is unavailable.");
-      return target.service.config();
+      return target.service.config(true);
     },
   }));
   const legacy = chains.get(4663) ?? (runtimes[0]?.config.mode === "fork" ? chains.get(deploymentChain(runtimes[0].config)) : undefined);

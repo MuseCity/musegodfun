@@ -136,18 +136,18 @@ test("warning stock results are cached with a short expiry and preserve actual o
   Object.defineProperty(service,"assets",{value:[asset]});
   const first=await service.stocks();assert(first[0].availabilityWarning);assert.equal(reads,9);
   now+=10_000;assert.deepEqual(await service.stocks(),first);assert.equal(reads,9);
-  now+=21_000;await service.stocks();assert.equal(reads,18,"degraded status eventually refreshes instead of staying stale");
+  now+=50_001;await service.stocks();assert.equal(reads,18,"degraded status eventually refreshes instead of staying stale");
 });
 
 test("cached guard checks never cache signing pause or inherit an unverified runtime address", async context => {
   let now=100_000, codeReads=0, dependencyReads=0, controls=0, paused=false;context.mock.method(Date,"now",()=>now);
   const runtime={config:{mode:"robinhood",chainId:4663,writesEnabled:true,blockReason:null,treasury:account,launchGuard:null}};
   const service=Object.assign(Object.create(LaunchpadService.prototype),{runtime,guardCandidate:account,assertNetwork:async()=>{},
-    store:{runtimeControl:async()=>{controls++;return {paused,revision:controls,reason:"current pause"};}},
+    store:{getBuybackBatch:async()=>null,compareAndSetBuybackAudit:async()=>true,runtimeControl:async()=>{controls++;return {paused,revision:controls,reason:"current pause"};}},
     client:{getBlockNumber:async()=>1n,getCode:async()=>{codeReads++;return "0x1234";},readContract:async()=>{dependencyReads++;return account;}}}) as LaunchpadService;
   const first=await service.config();assert.equal(first.launchGuard,null);assert.equal(first.writesEnabled,true);assert.equal(codeReads,1);
-  paused=true;const stopped=await service.config();assert.equal(stopped.writesEnabled,false);assert.equal(stopped.controlRevision,2);assert.equal(codeReads,1);
-  now+=3_001;await service.config();assert.equal(codeReads,2,"negative identity cache has a bounded retry period");assert.equal(controls,3);
+  paused=true;const stopped=await service.config(true);assert.equal(stopped.writesEnabled,false);assert.equal(stopped.controlRevision,2);assert.equal(codeReads,1);
+  now+=60_001;await service.config(true);assert.equal(codeReads,2,"negative identity cache has a bounded retry period");assert.equal(controls,3);
   assert.equal(dependencyReads,0,"foreign guard code is rejected before spending reads on its dependencies");
 });
 
@@ -170,4 +170,34 @@ test("automatic release rejects unsafe rollback before upload and rechecks befor
   assert.equal(uploads,0);assert.equal(activations,0);
   safe=true;await assert.rejects(publishCandidate(flow),e=>e instanceof ReleaseFailure && e.rollback==="not_needed");
   assert.equal(uploads,1);assert.equal(activations,0,"changed rollback safety cancels promotion with old production still active");
+});
+
+test("display RPC config is singleflight for sixty seconds while every request sees live pause controls", async t => {
+  let now=1_000,reads=0,graphs=0,paused=false,release!:()=>void;
+  t.mock.method(Date,"now",()=>now);
+  const held=new Promise<void>(resolve=>{release=resolve;});
+  const service=Object.assign(Object.create(LaunchpadService.prototype),{runtime:{config:{mode:"robinhood",chainId:4663,writesEnabled:true,blockReason:null,treasury:account}},store:{runtimeControl:async()=>{reads++;if(reads===1)await held;return {paused,revision:reads,reason:"Owner pause"};}}}) as LaunchpadService;
+  const original=(service as any).readConfig.bind(service);
+  t.mock.method(service as any,"readConfig",async(fresh:boolean)=>{graphs++;return original(fresh);});
+  const one=service.config(),two=service.config();await new Promise<void>(resolve=>setImmediate(resolve));
+  assert.equal(graphs,1);assert.equal(reads,2);release();
+  const [a,b]=await Promise.all([one,two]);assert.equal(a.writesEnabled,true);a.writesEnabled=false;assert.equal(b.writesEnabled,true);
+  paused=true;
+  assert.equal((await service.config()).writesEnabled,false,"Display responses cannot inherit an earlier signing control");assert.equal(reads,3);assert.equal(graphs,1);
+  assert.equal((await service.config(true)).writesEnabled,false);assert.equal(reads,4);assert.equal(graphs,2);
+  now+=60_001;assert.equal((await service.config()).writesEnabled,false);assert.equal(reads,5);assert.equal(graphs,3);
+});
+
+test("global stock RPC failures back off for at least sixty seconds and success resets the exponent", async t => {
+  let now=1_000,blocks=0,fault=true;t.mock.method(Date,"now",()=>now);
+  const asset=ROBINHOOD_STOCKS.find(a=>a.issuer==="Robinhood")!;
+  const service=Object.assign(Object.create(LaunchpadService.prototype),{runtime:{environment:{}},assertNetwork:async()=>{},client:{getBlockNumber:async()=>{blocks++;if(fault)throw new Error("HTTP 429");return 10n;},readContract:async({functionName}:{functionName:string})=>({symbol:asset.symbol,decimals:asset.decimals,name:asset.name,totalSupply:100n,uiMultiplier:10n**18n,newUIMultiplier:0n,effectiveAt:0n,paused:false,oraclePaused:false} as Record<string,unknown>)[functionName]}}) as LaunchpadService;
+  Object.defineProperty(service,"assets",{value:[asset]});
+  const failed=await service.stocks();assert.equal(failed[0].verified,false);assert.equal(failed[0].blockNumber,"unavailable");
+  now+=59_999;assert.deepEqual(await service.stocks(),failed);assert.equal(blocks,1);
+  now+=2;await service.stocks();assert.equal(blocks,2);
+  now+=119_999;await service.stocks();assert.equal(blocks,2,"The second failure waits two minutes");
+  now+=2;fault=false;assert.equal((await service.stocks())[0].verified,true);assert.equal(blocks,3);
+  now+=300_001;fault=true;await service.stocks();assert.equal(blocks,4);
+  now+=60_001;await service.stocks();assert.equal(blocks,5,"Success resets the next failure to one minute");
 });

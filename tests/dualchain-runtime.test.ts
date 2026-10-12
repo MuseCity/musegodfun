@@ -100,6 +100,7 @@ function fixtureRuntime(chainId: 8453 | 4663, directory: string, fork = false): 
     config: { mode: fork ? "fork" : chainId === 8453 ? "base" : "robinhood", chainId: fork ? 31337 : chainId,
       deploymentChainId: chainId, treasury: null, writesEnabled: false, blockReason: null },
     rpcUrl: "http://127.0.0.1:1", dataDir: join(directory, String(chainId)),
+    environment: { ALCHEMY_API_KEY: "offline-test-key", NODE_ENV: "test" },
     dataScope: chainId === 8453 ? "base" : "robinhood", launchGuardCandidate: null, firstBuyGuardCandidate: null,
     lifi: { integrator: "musegodfun" },
   };

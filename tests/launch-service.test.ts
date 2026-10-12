@@ -17,7 +17,7 @@ import { ENGINE_MANIFEST } from "../server/launch-policy-registry";
 import { activatedEngineManifest } from "./engine-manifest-fixture";
 import { OPENING_CAP_USD, openingCapInQuote, type HistoricalOpeningValuation } from "../src/lib/opening-valuation";
 import { assertPlanIntegrity, assertRecoveryPlan, verifiedFirstBuyLock, verifyGuardedReceipt } from "../server/launch-verification";
-import { chainLaunchDependencies, expectedGuardRuntime, identifyGuardVersion, LaunchGuardMismatch, verifyLaunchGuard } from "../server/launch-guard";
+import { chainLaunchDependencies, expectedGuardRuntime, identifyGuardVersion, LaunchGuardMismatch, verifyLaunchGuard, verifyLaunchGuardIdentity } from "../server/launch-guard";
 import { LaunchpadService } from "../server/service";
 import { planAttestation, verifyPlanAttestation } from "../server/plan-attestation";
 import { Store } from "../server/store";
@@ -1445,4 +1445,19 @@ test("old confirmed receipts slow down when finality is unavailable without bein
   }) as LaunchpadService;
   await service.reconcile(); assert.equal(finalized, false);
   assert(retryAt >= Date.now() + 3_599_000);
+});
+
+
+test("the immutable launch guard identity survives a private store restart and cannot cross an address/version binding", async () => {
+  const directory=mkdtempSync(join(tmpdir(),"guard-startup-"));let store=new Store(directory,31337),reads=0;
+  const client={getBlockNumber:async()=>10n,getCode:async({address}:{address:Address})=>{reads++;return address.toLowerCase()===guard.toLowerCase()?expectedGuardRuntime():bundlerRuntime;},readContract:async({address,functionName}:{address:Address;functionName:string})=>{reads++;return address.toLowerCase()===ROBINHOOD_BUNDLER.toLowerCase()?(functionName==="airlock"?contracts.airlock:contracts.poolManager):ROBINHOOD_BUNDLER;}} as unknown as Parameters<typeof verifyLaunchGuard>[0];
+  try {
+    const result=await verifyLaunchGuardIdentity(client,guard,4663,"vesting",store);assert.equal(result.supportsLock,true);const count=reads;
+    await verifyLaunchGuardIdentity(client,guard,4663,"vesting",store);assert.equal(reads,count);
+    store.close();store=new Store(directory,31337);
+    const unavailable={...client,getBlockNumber:async()=>{throw new Error("Do not repeat pinned runtime reads");}};
+    assert.deepEqual(await verifyLaunchGuardIdentity(unavailable,guard,4663,"vesting",store),result);
+    await assert.rejects(verifyLaunchGuardIdentity(unavailable,guard,8453,"vesting",store),/Do not repeat/);
+    await assert.rejects(verifyLaunchGuardIdentity(unavailable,guard,4663,"legacy",store),/Do not repeat/);
+  } finally {store.close();rmSync(directory,{recursive:true});}
 });

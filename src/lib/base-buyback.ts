@@ -28,27 +28,14 @@ export type BaseGasReservation = { executionWei: string; l1Wei: string; operator
   blockNumber: string; blockHash: Hex; unsignedHash: Hex; unsignedBytes: number };
 export type BaseTransactionFee = { transactionHash: Hex; blockNumber: string; blockHash: Hex; executionWei: string;
   l1Wei: string; operatorWei: string; totalWei: string };
-/** Retained public provider response, not a transaction prepared or signed by the project. */
-export type BaseNativeRelayProofInput =
-  { version: 1; protocol: typeof BASE_NATIVE_BUYBACK_PROTOCOL; sourceHash: Hex; destinationHash: Hex; raw: Record<string, unknown> } |
-  { version: 2; protocol: typeof BASE_NATIVE_BUYBACK_PROTOCOL; sourceHash: Hex; destinationHash: Hex };
-/** V2 verifies native request-tag association under the explicitly trusted provider; signed order minima/refunds/deadlines are unavailable. */
-export type BaseNativeRelayEvidence = {
-  version: 1 | 2; protocol: typeof BASE_NATIVE_BUYBACK_PROTOCOL; orderParametersVerified: boolean; requestId: Hex; orderId: Hex; metadata: Hex;
-  sourceTransactionHash: Hex; sourceBlockNumber: string; sourceBlockHash: Hex; sourceTransferLogIndex: number;
-  sourceDepositLogIndex: number; sourceAsset: Address; sourceAmount: string; sourceNativeDeposit: string;
-  automation: Address; treasury: Address; outputToken: Address; outputAmount: string;
-  destinationTransactionHash: Hex; destinationBlockNumber: string; destinationBlockHash: Hex;
-  destinationTransferLogIndex: number; destinationMovementLogIndex: number; sourceCalldataHash: Hex;
-};
 export type BaseFeeBatch = {
   id: string; protocol: typeof BASE_NATIVE_BUYBACK_PROTOCOL; sourceChainId: 8453; destinationChainId: 4663;
   collector: Address; kind: "claim" | "release" | "sync_untracked" | "release_untracked" | "native_relay";
   status: "broadcast" | "unknown" | "claimed" | "synced" | "released" | "bridging" | "received" | "awaiting_buyback" |
-    "attributed" | "reverted" | "cancelled" | "refunded" | "reorg" | "asset_failed" | "evidence_pending" | "abandoned";
+    "reverted" | "cancelled" | "refunded" | "reorg" | "asset_failed" | "evidence_pending" | "abandoned";
   createdAt: number; updatedAt: number; poolId?: Hex; inputAsset?: BaseFeeAsset; amountIn: string;
   receivedAmount: string; refundedAmount: string; burnedAmount: string; claimHashes: Hex[];
-  sourceHash?: Hex; sourceBlockNumber?: string; sourceBlockHash?: Hex; destinationHash?: Hex; destinationScanAfter?: Hex; destinationFromBlock?: string; destinationFromBlockHash?: Hex; destinationMatchHash?: Hex; requestId?: Hex; orderId?: Hex; nativeConflict?: { sourceHash: Hex; requestId: Hex; orderId: Hex };
+  sourceHash?: Hex; sourceBlockNumber?: string; sourceBlockHash?: Hex; destinationHash?: Hex;
   claimCredits?: { poolId: Hex; manager: Address; token: Address; amount: string }[];
   /** Verified pool identities, including canonical zero-credit registration. Never fee income. */
   claimAssets?: Address[];
@@ -56,22 +43,15 @@ export type BaseFeeBatch = {
   recoveryRegistration?: boolean;
   /** Set only after the exact canonical receipt and actual gas were verified at/below a captured finalized head. */
   sourceFinalized?: boolean;
-  /** Bounded discovery retry queue only; these hashes are not arrival evidence. */
-  destinationPendingHashes?: Hex[];
-  /** Overflow scheduling range over the complete canonical destination journal. */
-  destinationOverflowFrom?: Hex; destinationOverflowAfter?: Hex; destinationOverflowThrough?: Hex; destinationOverflowPending?: boolean;
   /** Already-mined asset evidence is rechecked at this time, never by repeating its source spend. */
   evidenceRetryAt?: number;
-  /** Durable bounded discovery backoff; never permission to repeat source spending. */
-  nativeRetryAfter?: number;
-  nativeRetryAttempts?: number;
   /** Current local signer proved broadcast was never invoked. Unlock only after both journals retain the complete abandoned marker. */
   abandonedBeforeBroadcast?: true;
   untrackedSync?: { token: Address; amount: string };
   release?: { token: Address; amount: string; automation: Address };
   journal?: { caller: Address; nonce: number; to: Address; dataHash: Hex; hash: Hex; gasLimit: string; maxFeePerGas: string; signedAt: number };
   replacements?: { hash: Hex; cancelled: boolean; blockNumber: string; blockHash: Hex }[];
-  proof?: BaseNativeRelayProofInput; relay?: BaseNativeRelayEvidence; error?: string;
+  error?: string;
   gasReservation?: BaseGasReservation; actualGas?: BaseTransactionFee;
 };
 export type BaseCollectorStatus = {
@@ -79,10 +59,16 @@ export type BaseCollectorStatus = {
   available: boolean; collector: Address | null; automation: Address | null; destinationChainId: 4663;
   destinationTreasury: Address; destinationVault: Address; paused: boolean;
   nativeAutomationState: "unverified" | "configured" | "paused";
-  totalBridgedWeth: string; totalRefundedWeth: string; assets: (BaseFeeAsset & {
-    pending: string; untracked: string; totalClaimed: string; totalReleased: string; automationBalance: string;
+  checkedAt: number; blockNumber: string | null; stale?: boolean; assets: (BaseFeeAsset & {
+    pending: string; untracked?: string; totalClaimed: string; totalReleased: string; automationBalance: string;
     pendingUntracked?: string; totalUntrackedSynced?: string; totalUntrackedReleased?: string; verifiedAsset?: boolean;
-  })[]; batches: BaseFeeBatch[]; ledgerComplete: boolean; assetsComplete: boolean; error?: string;
+  })[]; assetsComplete: boolean; error?: string;
+};
+export type RobinhoodBuybackSummary = {
+  chainId: 4663; scope: "shared_robinhood"; available: boolean; checkedAt: number; blockNumber: string | null; stale?: boolean;
+  treasury: Address; vault: Address; tokenAddress: Address; burnAddress: Address;
+  treasuryWeth: string | null; vaultWeth: string | null; vaultSpentWeth: string | null; vaultMuseToDead: string | null;
+  deadTotalMuse: string | null; totalSupply: string | null; error?: string;
 };
 export function integer(value: unknown, zero = false): bigint {
   if (typeof value !== "string" || !/^(?:0|[1-9]\d{0,77})$/.test(value)) throw new Error("Invalid raw Base amount");

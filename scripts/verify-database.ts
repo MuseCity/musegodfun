@@ -9,8 +9,6 @@ import { STOCKS, type TokenRecord } from "../src/lib/config";
 import type { LaunchPlan } from "../server/store";
 import { FEE_POLICY } from "../src/lib/fee-policy";
 import { BASE_BUYBACK_PROTOCOL, BASE_BUYBACK_VAULT, BASE_BUYBACK_RH_WETH, BASE_BUYBACK_WETH, type BaseFeeBatch } from "../src/lib/base-buyback";
-import { vaultEventId, type VaultLedgerEvent, type VaultLedgerState } from "../src/lib/buyback-vault-ledger";
-import type { CustodyLedgerId, CustodyState, CustodyEvent } from "../src/lib/buyback-custody-ledger";
 /** Disposable scopes only; the legacy probes use invalid commits and cannot mutate financial rows. */
 export async function assertNativeAuditDatabaseMigration(store: SupabaseStore, url: string, key: string) {
   if (!/^verify-[a-z0-9-]+$/.test(store.scope)) throw new Error("Audit migration verification requires an isolated verify scope");
@@ -48,10 +46,6 @@ const store = connect(scope),
 let connected = false;
 try {
   await store.health();
-  // Fail before writing disposable fixtures when the native custody migration
-  // is absent. Ordinary launch/Vault health alone does not cover these tables.
-  await Promise.all(["state", "blocks", "events"].map(table =>
-    store.request(`musegod_custody_ledger_${table}?scope=eq.${scope}&select=*&limit=0`)));
   await store.request(`musegod_buyback_batches?scope=eq.${scope}&select=sequence&limit=0`);
   connected = true;
   await assertNativeAuditDatabaseMigration(store, process.env.SUPABASE_URL || "", process.env.SUPABASE_SECRET_KEY || "");
@@ -144,32 +138,6 @@ try {
   assert.deepEqual(await connect(scope).getBuybackBatch(sourceBatch.id), sourceBatch, "An unknown source submission retains its original hash, nonce, gas and replacement proofs");
   const page = await store.buybackBatchPage(1), next = await store.buybackBatchPage(1, page[0]);
   assert.equal(new Set([...page, ...next].map(row => row.id)).size, 2, "Source batch keyset pages retain exact history");
-  const checkpoint = { number: "0", hash: `0x${"6".repeat(64)}` as const, parentHash: `0x${"0".repeat(64)}` as const,
-    wethBalance: "1000000000000000000", totalSpent: "7", totalBurned: "21", establishedAt: now };
-  const cursor = { number: "1", hash: blockHash as `0x${string}`, parentHash: checkpoint.hash };
-  const vaultState: VaultLedgerState = { version: 1, chainId: 4663, vault: BASE_BUYBACK_VAULT, weth: BASE_BUYBACK_RH_WETH,
-    swapper: STOCKS[2].address, revision: 1, checkpoint, cursor, observedBalance: "1000000000000000021",
-    observedTotalSpent: "7", observedTotalBurned: "21", updatedAt: now, blockedReason: null };
-  const vaultEvent: VaultLedgerEvent = { id: vaultEventId(hash, 0), blockNumber: "1", blockHash: cursor.hash, transactionHash: hash,
-    transactionIndex: 0, logIndex: 0, kind: "weth_in", from: STOCKS[3].address, to: BASE_BUYBACK_VAULT, amount: "21", source: "unknown" };
-  const checkpointBlock = { number: checkpoint.number, hash: checkpoint.hash, parentHash: checkpoint.parentHash };
-  await store.commitVaultLedger({ expectedRevision: 0, state: vaultState, blocks: [checkpointBlock, cursor], events: [vaultEvent] });
-  assert.deepEqual(await connect(scope).vaultLedgerState(), vaultState);
-  assert.deepEqual(await connect(scope).vaultLedgerEventPage(), [vaultEvent]);
-  const custodyFixtures = (["base_automation", "robinhood_treasury"] as CustodyLedgerId[]).map(ledgerId => {
-    const asset = ledgerId === "base_automation" ? BASE_BUYBACK_WETH : BASE_BUYBACK_RH_WETH;
-    const state: CustodyState = { version: 1, id: ledgerId, chainId: ledgerId === "base_automation" ? 8453 : 4663,
-      account: STOCKS[3].address, revision: 1, checkpoint: checkpointBlock, cursor,
-      openingBalances: { [asset.toLowerCase()]: "0" }, observedBalances: { [asset.toLowerCase()]: "21" }, updatedAt: now, blockedReason: null };
-    const event: CustodyEvent = { id: vaultEventId(hash, 1), blockNumber: "1", blockHash: cursor.hash, transactionHash: hash,
-      transactionIndex: 0, logIndex: 1, asset, kind: "in", from: STOCKS[2].address, to: state.account, amount: "21" };
-    return { state, event };
-  });
-  for (const { state, event } of custodyFixtures) {
-    await store.commitCustodyLedger({ expectedRevision: 0, state, blocks: [checkpointBlock, cursor], events: [event] });
-    assert.deepEqual(await connect(scope).custodyLedgerState(state.id), state);
-    assert.deepEqual(await connect(scope).custodyLedgerEventPage(state.id), [event]);
-  }
   await store.updateRuntimeControl(true, "Isolated database verification fixture", 0);
   const backup = await store.backup();
   assert.equal(backup.version, 3);
@@ -179,14 +147,6 @@ try {
   assert.deepEqual(await restore.pendingLaunches(), queue);
   assert.deepEqual(await restore.getBuybackBatch(batch.id), confirmedBatch);
   assert.deepEqual(await restore.getBuybackBatch(sourceBatch.id), sourceBatch, "Source unknown/reserved submissions cannot lose their original broadcast evidence during restore");
-  assert.deepEqual(await restore.vaultLedgerState(), vaultState);
-  assert.deepEqual(await restore.vaultLedgerEventPage(), [vaultEvent]);
-  assert.deepEqual(await restore.vaultLedgerBlockPage(), [cursor, checkpointBlock]);
-  for (const { state, event } of custodyFixtures) {
-    assert.deepEqual(await restore.custodyLedgerState(state.id), state);
-    assert.deepEqual(await restore.custodyLedgerEventPage(state.id), [event]);
-    assert.deepEqual(await restore.custodyLedgerBlockPage(state.id), [cursor, checkpointBlock]);
-  }
   assert.deepEqual(await restore.runtimeControl(), await store.runtimeControl(), "Runtime pause and CAS revision survive an isolated restore");
   const historicalBackup: Record<string, unknown> = { ...backup, version: 1 };
   for (const field of ["buyback_batches", "runtime_controls", "vault_ledger_state", "vault_ledger_blocks", "vault_ledger_events",
@@ -231,9 +191,8 @@ try {
           "orphan token removal",
           "buyback batch amounts and receipt history survive reconnect and upsert",
           "buyback batch scope isolation and 24-hour cleanup retention",
-          "version-3 backup preserves canonical vault journal, checkpoint, legacy balances and runtime control revision",
-          "native custody migration tables and atomic commits are present",
-          "both native custody checkpoints, blocks and events survive reconnect and backup restore",
+          "version-3 backup preserves runtime control revision and transaction history",
+          "legacy ledger data is preserved by the unchanged database backup / restore functions",
           "unknown Base source submission nonce, original hash, gas and replacement evidence survive backup restore",
           "source batch keyset pages preserve independent historical rows",
           "version-1 backup without buyback batches restores successfully",
@@ -255,12 +214,6 @@ try {
       "snapshots",
       "quota",
       "buyback_batches",
-      "custody_ledger_events",
-      "custody_ledger_blocks",
-      "custody_ledger_state",
-      "vault_ledger_events",
-      "vault_ledger_blocks",
-      "vault_ledger_state",
       "runtime_controls",
     ])
       await db.request(`musegod_${table}?scope=eq.${db.scope}`, "DELETE");

@@ -2,6 +2,7 @@ import { keccak256, parseAbi, type Address, type Hex, type PublicClient } from "
 import artifact from "../contracts/artifacts/MusegodLaunchGuard.json";
 import legacyArtifact from "../contracts/artifacts/MusegodLaunchGuardLegacy.json";
 import { BASE_BUNDLER_CODE_HASH, contractsFor, ROBINHOOD_BUNDLER, ROBINHOOD_BUNDLER_CODE_HASH, sameAddress } from "../src/lib/config";
+import { contractIdentityOnce, type ContractIdentityStore } from "./contract-identity";
 import { launchGuardAbi } from "../src/lib/launch-guard";
 
 const dependenciesAbi = parseAbi(["function airlock() view returns(address)", "function poolManager() view returns(address)"]);
@@ -69,4 +70,19 @@ export async function verifyLaunchGuard(
     throw new Error("The launch guard official dependencies cannot be verified. Try again shortly.");
   return { address, blockNumber: String(block), runtimeHash: keccak256(guardCode!), bundler: boundBundler,
     version, supportsLock: version === "vesting" };
+}
+
+/** Startup identity is immutable in the pinned nonproxy Guard and Bundler. */
+export async function verifyLaunchGuardIdentity(client: Parameters<typeof verifyLaunchGuard>[0], address: Address, chainId: 8453|4663 = 4663, requiredVersion?: LaunchGuardVersion, store?: ContractIdentityStore) {
+  const dependencies=chainLaunchDependencies(chainId);
+  const runtimes={legacy:keccak256(expectedGuardRuntime(chainId,"legacy")),vesting:keccak256(expectedGuardRuntime(chainId,"vesting"))};
+  return contractIdentityOnce(client,{namespace:"launch_guard",store,
+    binding:{chainId,address:address.toLowerCase(),requiredVersion,dependencies,runtimes},
+    verify:()=>verifyLaunchGuard(client,address,chainId,requiredVersion),
+    validate:value=>{
+      if(!value||typeof value!=="object")return false;
+      const row=value as Awaited<ReturnType<typeof verifyLaunchGuard>>;
+      return sameAddress(row.address??"",address)&&["vesting","legacy"].includes(row.version)&&(!requiredVersion||row.version===requiredVersion)&&row.runtimeHash===runtimes[row.version]&&sameAddress(row.bundler??"",dependencies.bundler)&&row.supportsLock===(row.version==="vesting")&&typeof row.blockNumber==="string"&&/^(0|[1-9]\d*)$/.test(row.blockNumber);
+    },
+  });
 }
