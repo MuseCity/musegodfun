@@ -82,20 +82,69 @@ test("link values pass the launch form's own field checks", () => {
   assert.equal(decodedDraft(raw({ v: 1, name: "  Bard  " }))?.name, "Bard");
 });
 
-test("every refusal names the field at fault", () => {
+test("every refusal names the known field at fault", () => {
   const url = "https://example.com/a.png";
   for (const [field, value] of [["symbol", "1BARD"], ["symbol", "B".repeat(11)], ["name", ""], ["name", "N".repeat(33)], ["description", "d".repeat(281)],
     ["image", "http://example.com/a.png"], ["image", `${url}?${"q".repeat(500)}`], ["image", "https://127.0.0.1/a.png"], ["website", "javascript:alert(1)"],
-    ["twitter", "https://example.com/muse"], ["telegram", "https://example.com/muse"], ["tradingFeeBps", 50], ["tradingFeeBps", 150.5], ["tradingFeeBps", "100"],
-    ["nft", { chainId: 1, contract: MUSES.contract, tokenId: "1" }], ["nft", { ...draft.nft, tokenId: "007" }], ["nft", { ...draft.nft, extra: 1 }],
-    ["nft", { ...draft.nft, contract: "0x1234" }], ["nft", "1"], ["name", null]] as const) {
+    ["website", `https://example.com/${"w".repeat(500)}`], ["twitter", "https://example.com/muse"], ["telegram", "https://example.com/muse"],
+    ["tradingFeeBps", 50], ["tradingFeeBps", 150.5], ["tradingFeeBps", "100"], ["nft", "1"], ["name", null]] as const) {
     const error = errorOf(raw({ v: 1, name: "Bard", [field]: value }));
     assert.ok(error?.includes(`"${field}"`), `${field} ${JSON.stringify(value).slice(0, 40)}: ${error}`);
   }
-  assert.ok(errorOf(raw({ v: 1, evil: true }))?.includes('"evil"'), "an unknown key is named");
+  for (const [part, value] of [["chainId", 1], ["tokenId", "007"], ["tokenId", 7], ["contract", "0x1234"], ["contract", 5]] as const) {
+    const error = errorOf(raw({ v: 1, nft: { ...draft.nft, [part]: value } }));
+    assert.ok(error?.includes(`"nft.${part}"`), `nft.${part} ${JSON.stringify(value)}: ${error}`);
+  }
+  assert.ok(errorOf(raw({ v: 1, evil: true }))?.includes("unknown field"), "an unknown key is reported as an unknown field");
   assert.ok(errorOf(raw({ v: 2, name: "Bard" }))?.includes('"v"'), "a wrong version names v");
   assert.ok(errorOf(raw({ name: "Bard" }))?.includes('"v"'), "a missing version names v");
-  assert.ok(errorOf(raw({ v: 1, ["x".repeat(100)]: 1 }))!.length < 140, "an unknown key is shortened");
+});
+
+test("a refusal says what the form says or a sentence written here, never zod's own text", () => {
+  assert.equal(errorOf(raw({ v: 1, image: "http://example.com/a.png" })), 'This draft link was not imported: "image": The image must use a public HTTPS URL');
+  assert.equal(errorOf(raw({ v: 1, name: "N".repeat(33) })), 'This draft link was not imported: "name": The name must be 32 characters or fewer');
+  assert.equal(errorOf(raw({ v: 1, image: `https://example.com/${"a".repeat(500)}` })), 'This draft link was not imported: "image" is too long.');
+  assert.equal(errorOf(raw({ v: 1, tradingFeeBps: 150.5 })), 'This draft link was not imported: "tradingFeeBps" is not valid.');
+  assert.equal(errorOf(raw({ v: 1, nft: { ...draft.nft, extra: 1 } })), 'This draft link was not imported: "nft" is not valid.');
+  assert.equal(errorOf(raw({ v: 1, nft: { ...draft.nft, tokenId: "007" } })), 'This draft link was not imported: "nft.tokenId": Enter the token number without leading zeros');
+  assert.equal(errorOf(raw({ v: 1, extra: 1 })), "This draft link was not imported: it has an unknown field.");
+});
+
+test("a refusal never repeats text from the link", () => {
+  const phishing = "Your wallet is at risk. Re-enter your recovery phrase at wallet-help.example to keep your coin.";
+  const quoted = 'x" is fine. Visit https://wallet-help.example/claim?seed=1';
+  // Fragments of the hostile text, as they would appear if an error echoed a key or a value.
+  const echoes = ["wallet", "recovery", "risk", "Re-enter", "help.example", "claim", "seed", "Visit", "fine", "keep your coin"];
+  const hostile = [phishing, quoted, `${phishing} ${phishing}`];
+  const refusals: string[] = [];
+  const refuse = (hash: string) => { const error = errorOf(hash); assert.ok(error, "this one is refused"); refusals.push(error); };
+  // As keys at the top level (also written by hand, so "__proto__" is a real key) and inside nft: always refused.
+  for (const key of [...hostile, "__proto__", "constructor"]) {
+    refuse(raw({ v: 1, [key]: 1 })); refuse(`#draft=${Buffer.from(`{"v":1,${JSON.stringify(key)}:1}`).toString("base64url")}`);
+    refuse(raw({ v: 1, nft: { ...draft.nft, [key]: 1 } }));
+  }
+  // As values of every field, in the wrong shape, or inside a nft part: refused unless the value happens to be valid for the field.
+  for (const value of hostile) {
+    for (const field of ["name", "symbol", "description", "image", "website", "twitter", "telegram", "tradingFeeBps", "nft"]) {
+      for (const hash of [raw({ v: 1, [field]: value }), raw({ v: 1, [field]: { [value]: value } }), raw({ v: 1, [field]: [value] })]) {
+        const error = errorOf(hash);
+        if (error) refusals.push(error);
+      }
+    }
+    for (const part of ["chainId", "contract", "tokenId"]) refuse(raw({ v: 1, nft: { ...draft.nft, [part]: value } }));
+    refuse(raw({ v: value, name: "Bard" }));
+  }
+  // An over-long value that carries the hostile text.
+  refuse(raw({ v: 1, image: `https://wallet-help.example/${"a".repeat(500)}` })); refuse(raw({ v: 1, website: `${phishing}${"w".repeat(500)}` }));
+  refuse(raw({ v: 1, description: phishing.repeat(5) }));
+  // Text that is not JSON, not base64, not an object, or too long.
+  for (const hash of [`#draft=${Buffer.from(phishing).toString("base64url")}`, `#draft=${Buffer.from(JSON.stringify(phishing)).toString("base64url")}`,
+    `#draft=${Buffer.from(JSON.stringify([phishing])).toString("base64url")}`, "#draft=wallet-help.example", `#draft=${"A".repeat(5000)}`]) refuse(hash);
+  assert.ok(refusals.length > 60);
+  for (const error of refusals) {
+    for (const echo of echoes) assert.equal(error.includes(echo), false, `${echo} is in: ${error}`);
+    assert.ok(error.length < 160, `short: ${error}`);
+  }
 });
 
 test("a Muse link is restored through restoreDraft: the pair is MUSEGOD and the link never chooses a fee", () => {

@@ -19,9 +19,23 @@ export function assertSigningEnabled(config: RuntimeConfig) {
     throw new Error("The signing network does not match the platform mode");
 }
 
+/** The launch form's own messages for the fields a draft link can carry. They are fixed text that never contains the input, so they are
+ * the only validation messages an imported link's error may show (zod's own messages can repeat what the link contained). */
+export const LAUNCH_FIELD_MESSAGES = {
+  contract: "Enter a valid contract address",
+  tokenFormat: "Enter the token number without leading zeros",
+  tokenRange: "The token number is out of range",
+  nameRequired: "Enter a token name",
+  nameLength: "The name must be 32 characters or fewer",
+  symbol: "The symbol must contain 1–10 letters or digits and start with a letter",
+  descriptionLength: "The description must be 280 characters or fewer",
+  image: "The image must use a public HTTPS URL",
+  socialLink: "Enter a valid public HTTPS URL. X and Telegram links must use their respective websites.",
+  tradingFee: "Select a supported trading fee between 1% and 3%",
+} as const;
 export const addressSchema = z
   .string()
-  .refine((s) => isAddress(s, { strict: false }), "Enter a valid contract address")
+  .refine((s) => isAddress(s, { strict: false }), LAUNCH_FIELD_MESSAGES.contract)
   .transform((s) => getAddress(s));
 export const hashSchema = z
   .string()
@@ -30,8 +44,8 @@ export const nftRefSchema = z.object({
   chainId: z.union([z.literal(8453), z.literal(4663)]),
   contract: addressSchema,
   // abort: the range check must never see a malformed string (BigInt throws on "1.0").
-  tokenId: z.string().regex(/^(?:0|[1-9]\d{0,77})$/, { error: "Enter the token number without leading zeros", abort: true })
-    .refine((value) => BigInt(value) < 2n ** 256n, "The token number is out of range"),
+  tokenId: z.string().regex(/^(?:0|[1-9]\d{0,77})$/, { error: LAUNCH_FIELD_MESSAGES.tokenFormat, abort: true })
+    .refine((value) => BigInt(value) < 2n ** 256n, LAUNCH_FIELD_MESSAGES.tokenRange),
 }).strict();
 // A `?nft=` value is exactly three ":"-separated parts and the chain id is written canonically, so it always agrees with `nftKey()`.
 const nftQuerySchema = z.string().regex(/^(?:8453|4663):[^:]*:[^:]*$/, "Use nft=<chainId>:<contract>:<tokenId>")
@@ -58,31 +72,31 @@ const publicLink = (host?: "x" | "telegram") =>
     .max(500)
     .refine(
       (value) => !value || !!safeSocialLink(value, host),
-      "Enter a valid public HTTPS URL. X and Telegram links must use their respective websites.",
+      LAUNCH_FIELD_MESSAGES.socialLink,
     )
     .optional();
 export const launchSchema = z
   .object({
-    name: z.string().trim().min(1, "Enter a token name").max(32, "The name must be 32 characters or fewer"),
+    name: z.string().trim().min(1, LAUNCH_FIELD_MESSAGES.nameRequired).max(32, LAUNCH_FIELD_MESSAGES.nameLength),
     symbol: z
       .string()
       .trim()
       .regex(
         /^[A-Za-z][A-Za-z0-9]{0,9}$/,
-        "The symbol must contain 1–10 letters or digits and start with a letter",
+        LAUNCH_FIELD_MESSAGES.symbol,
       )
       .transform((s) => s.toUpperCase()),
-    description: z.string().trim().max(280, "The description must be 280 characters or fewer"),
+    description: z.string().trim().max(280, LAUNCH_FIELD_MESSAGES.descriptionLength),
     image: z
       .string()
       .max(500)
-      .refine((s) => !s || safeImage(s) !== "", "The image must use a public HTTPS URL"),
+      .refine((s) => !s || safeImage(s) !== "", LAUNCH_FIELD_MESSAGES.image),
     website: publicLink(),
     twitter: publicLink("x"),
     telegram: publicLink("telegram"),
     tradingFeeBps: z.number().int().refine(
       (value) => TRADING_FEE_BPS.some((fee) => fee === value),
-      "Select a supported trading fee between 1% and 3%",
+      LAUNCH_FIELD_MESSAGES.tradingFee,
     ).default(DEFAULT_TRADING_FEE_BPS),
     quoteAddress: addressSchema.refine((s) => {
       try {

@@ -71,7 +71,7 @@ What your holder sees when they open it:
 - If their wallet is locked or not connected, the link still imports, and the draft moves to their account when they connect.
 - A notice says "Imported from a link — check every field." The page stays on step 1.
 - Nothing is reviewed, signed or sent. If NFT mode is off on that network, or the NFT is on a different network than the page, the NFT is dropped and the other fields still import, with a notice saying so.
-- A link that is malformed or has a bad field is refused with a message that names the field, and nothing changes.
+- A link that is malformed or has a bad field is refused with a message that names the field (the message never repeats text from the link), and nothing changes.
 
 Before you send it:
 
@@ -101,7 +101,7 @@ Before you send it:
 
 ## 8. If something goes wrong
 
-- The page refuses the link and names a field: fix that field in the JSON and send a new link. A refused link changes nothing.
+- The page refuses the link and names the field at fault (or says it has an unknown field): fix the JSON and send a new link. A refused link changes nothing.
 - "This wallet does not hold the NFT and has no delegation for it.": your holder must connect the wallet that holds the NFT, or one it delegated to.
 - "This NFT already has its coin.": there is one coin per NFT, so nothing more can be launched for it.
 - "NFT mode is not available on this network yet": the page imported the other fields and left the NFT out. Use the Robinhood Chain link (`chainId=4663`).

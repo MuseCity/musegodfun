@@ -1,5 +1,5 @@
 import { deploymentChain, type RuntimeConfig } from "./config";
-import { LAUNCH_IDENTITY_FIELDS, launchSchema, type LaunchInput } from "./validation";
+import { LAUNCH_FIELD_MESSAGES, LAUNCH_IDENTITY_FIELDS, launchSchema, type LaunchInput } from "./validation";
 
 // An agent hands its holder a prefilled create page: `/create?chainId=4663#draft=<base64url JSON>`. The fragment never reaches a
 // server. It prefills the identity fields (step one), the NFT and an optional trading fee (a step-two field), and the holder reviews
@@ -8,6 +8,11 @@ import { LAUNCH_IDENTITY_FIELDS, launchSchema, type LaunchInput } from "./valida
 const MAX = 4096;
 const PREFIX = "#draft=";
 const FIELDS = ["name", "symbol", "description", "image", "website", "twitter", "telegram", "tradingFeeBps", "nft"] as const;
+const NFT_PARTS = ["chainId", "contract", "tokenId"];
+const FORM_MESSAGES: ReadonlySet<string> = new Set(Object.values(LAUNCH_FIELD_MESSAGES));
+// An error never repeats anything the link contained: no key, no value, no library message. It names a known field (or a known part
+// of `nft`), and gives either one of the form's own fixed messages or a sentence written here.
+const refused = (reason: string) => ({ error: `This draft link was not imported: ${reason}` });
 
 function toBase64Url(text: string) {
   let binary = "";
@@ -37,17 +42,17 @@ export function decodeDraftFragment(hash: string): DraftFragment | null {
   try { json = JSON.parse(fromBase64Url(encoded)); } catch { return { error: "This draft link could not be read." }; }
   if (!json || typeof json !== "object" || Array.isArray(json)) return { error: "This draft link could not be read." };
   const { v: version, ...fields } = json as Record<string, unknown>;
-  if (version !== 1) return { error: 'This draft link was not imported: "v" must be 1.' };
-  const extra = Object.keys(fields).find((key) => !(FIELDS as readonly string[]).includes(key));
-  if (extra !== undefined) return { error: `This draft link was not imported: ${JSON.stringify(extra.slice(0, 32))} is not a field this page accepts.` };
+  if (version !== 1) return refused('"v" must be 1.');
+  if (Object.keys(fields).some((key) => !(FIELDS as readonly string[]).includes(key))) return refused("it has an unknown field.");
   const draft: Record<string, unknown> = {};
   for (const key of FIELDS) {
     if (fields[key] === undefined) continue;
     const field = launchSchema.shape[key].safeParse(fields[key]);
     if (!field.success) {
-      // An error always names its field. The form's own messages are specific; zod's generic "Invalid input…" only says which field.
-      const reason = field.error.issues[0]?.message ?? "";
-      return { error: `This draft link was not imported: "${key}"${reason && !reason.startsWith("Invalid input") ? `: ${reason}` : " is not valid."}` };
+      const issue = field.error.issues[0];
+      const part = key === "nft" && NFT_PARTS.includes(String(issue?.path[0])) ? `.${String(issue.path[0])}` : "";
+      if (issue && FORM_MESSAGES.has(issue.message)) return refused(`"${key}${part}": ${issue.message}`);
+      return refused(`"${key}${part}" is ${issue?.code === "too_big" ? "too long" : "not valid"}.`);
     }
     draft[key] = field.data;
   }
