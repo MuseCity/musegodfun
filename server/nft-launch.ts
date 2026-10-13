@@ -4,7 +4,7 @@ import { CallExecutionError, ContractFunctionExecutionError, ContractFunctionRev
   type Address, type Block, type Hex, type PublicClient, type Transaction, type TransactionReceipt } from "viem";
 import { ROBINHOOD_STOCKS, sameAddress, type TokenRecord } from "../src/lib/config";
 import { LAUNCH_FEE_MIN_BLOCK, LAUNCH_FEE_MINING_GRACE_SECONDS, LAUNCH_FEE_QUOTE_TTL, LAUNCH_FEE_STABLE, type LaunchFee } from "../src/lib/launch-fee";
-import { DELEGATE_REGISTRY_V2, NFT_LAUNCH_RIGHTS, NFT_VAULT_MANIFEST, isMuse, vaultFactory, type NftChainId, type NftRef, type NftVaultManifest } from "../src/lib/nft-mode";
+import { DELEGATE_REGISTRY_V2, NFT_LAUNCH_RIGHTS, NFT_VAULT_MANIFEST, isMuse, nftKey, vaultFactory, type NftChainId, type NftRef, type NftVaultManifest } from "../src/lib/nft-mode";
 import type { LaunchInput } from "../src/lib/validation";
 
 export type NftLaunchCode = "NFT_MODE_DISABLED" | "NFT_CHAIN_UNSUPPORTED" | "NFT_NOT_ERC721" | "NFT_NOT_CONTROLLED"
@@ -31,6 +31,12 @@ export function assertNftDraftRules(draft: LaunchInput, chainId: NftChainId, ena
     if (!musegod || !sameAddress(musegod.address, draft.quoteAddress))
       throw new NftLaunchError("NFT_MUSE_PAIR_REQUIRED", "Muse coins must pair with MUSEGOD.");
   }
+}
+
+/** A coin bound to an NFT (to `nft`, or to any NFT when omitted) that the public APIs list: `verified`, or `unverified`, which includes a
+ * record registered before verification existed. A `rejected` coin keeps its record but is never offered as that NFT's coin. */
+export function isBoundNftCoin(record: TokenRecord, nft?: NftRef): boolean {
+  return !!record.nft && (!nft || nftKey(record.nft) === nftKey(nft)) && record.nftVerification?.status !== "rejected";
 }
 
 /** True only for the contract's own answer: a revert, no code or no such function, or return bytes that do not decode as the ABI says.

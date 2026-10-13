@@ -2,7 +2,7 @@ import express from "express";
 import { createHash, randomUUID } from "node:crypto";
 import { clientBucket, IngressLimiter, PreviewQueue, RiskChallenge } from "./abuse";
 import { BudgetUnavailable, recoveryBudget, withRecoveryBudget } from "./runtime-policy";
-import { sameAddress, listedTokens, type RuntimeConfig } from "../src/lib/config";
+import { sameAddress, listedTokens, type RuntimeConfig, type TokenRecord } from "../src/lib/config";
 import { firstBuyPaymentInput, FIRST_BUY_SLIPPAGE_BPS } from "../src/lib/first-buy-payment";
 import { securityHeaders, requestBodyLimitForPath } from "./http-security";
 import { TokenImages } from "./token-images";
@@ -11,6 +11,7 @@ import { createPublicClient, parseUnits, type Address, type Hex } from "viem";
 import { robinhood } from "viem/chains";
 import { alchemyRpcTransport } from "./alchemy-rpc";
 import baseCollectorDeployment from "../contracts/artifacts/base-collector-deployment.json";
+import committedHiddenTokens from "../src/lib/hidden-tokens.json";
 import { LaunchpadService, runtimeFromEnv } from "./service";
 import { redact, type Runtime, type DeploymentChainId } from "./config";
 import { deploymentChain } from "../src/lib/config";
@@ -21,7 +22,7 @@ import { MusegodReader } from "./musegod";
 import { MusegodMarketReader } from "./musegod-market";
 import { CHART_INTERVALS } from "../src/lib/market";
 import { BuybackReader, BuybackError, RobinhoodBuybackSummaryReader } from "./buyback";
-import { NftLaunchError } from "./nft-launch";
+import { NftLaunchError, isBoundNftCoin } from "./nft-launch";
 import { BuybackBatchService } from "./buyback-batches";
 import { BuybackEngineReader } from "./buyback-engine";
 import { BaseFeeQuoteReader, readTrustedBaseRecoveryAssets, unavailableBaseCollectorStatus } from "./base-buyback";
@@ -33,12 +34,21 @@ import {
   errorMessage,
   hashSchema,
   minimumOutput,
+  parseNftQuery,
   assertSigningEnabled,
 } from "../src/lib/validation";
 
 export const knownPage = (path: string) =>
   /^\/(?:create|rewards|buyback)?$/.test(path) ||
-  /^\/token\/(?:(?:base|robinhood)\/)?0x[0-9a-fA-F]{40}$/.test(path);
+  /^\/token\/(?:(?:base|robinhood)\/)?0x[0-9a-fA-F]{40}$/.test(path) ||
+  /^\/nft\/(?:base|robinhood)\/0x[0-9a-fA-F]{40}\/(?:0|[1-9]\d{0,77})$/.test(path);
+
+// The operator's hide list ships with the code (src/lib/hidden-tokens.json): chain id -> coin addresses. A hidden coin stays in the catalog,
+// marked in the response only, so holders keep trading and sweeping; only the public ?nft= listing omits it.
+const hideList = (list: Record<string, readonly string[]>) => new Map(Object.entries(list).map(([chain, addresses]) => [chain, new Set(addresses.map((a) => a.toLowerCase()))]));
+let hiddenTokens = hideList(committedHiddenTokens);
+/** Tests only. */
+export function setHiddenTokens(list: Record<string, readonly string[]>) { hiddenTokens = hideList(list); }
 
 export function legacyTokenPath(path: string): string | null {
   return /^\/token\/0x[0-9a-fA-F]{40}$/.test(path)
@@ -137,6 +147,8 @@ const route =
   (req: express.Request, res: express.Response, next: express.NextFunction) => {
     Promise.resolve(fn(req, res)).catch(next);
   };
+const isHidden = (record: TokenRecord) => hiddenTokens.get(String(record.deploymentChainId ?? deploymentChain(runtime.config)))?.has(record.address.toLowerCase()) === true;
+const withHiddenFlag = (record: TokenRecord): TokenRecord => isHidden(record) ? { ...record, hidden: true } : record;
 app.get("/healthz", (_req, res) => res.json({ status: "ok" }));
 app.post("/api/token-images", route(async (req, res) => {
   const key = clientBucket(req.ip || "unknown"), now=Date.now();
@@ -308,12 +320,19 @@ app.get(
   route(async (req, res) => {
     // Preserve the complete-array contract. New catalog clients opt in to
     // pagination; a truncated legacy array cannot signal its remaining rows.
-    if(req.query.limit===undefined && req.query.before===undefined){res.json(await service.tokens());return;}
+    if(req.query.nft!==undefined){
+      // The public, cross-origin listing of an NFT's coins (or of every NFT coin): never rejected or hidden ones.
+      res.set("Access-Control-Allow-Origin","*");
+      const nft=req.query.nft==="any" ? undefined : parseNftQuery(req.query.nft);
+      res.json((await service.tokens()).filter(record=>isBoundNftCoin(record,nft) && !isHidden(record)));
+      return;
+    }
+    if(req.query.limit===undefined && req.query.before===undefined){res.json((await service.tokens()).map(withHiddenFlag));return;}
     const limit=z.coerce.number().int().min(1).max(100).parse(req.query.limit ?? 50);
     const cursor=z.string().max(300).optional().parse(req.query.before);
     const before=cursor ? z.object({createdAt:z.number().int().nonnegative(),address:addressSchema}).strict().parse(JSON.parse(Buffer.from(cursor,"base64url").toString("utf8"))) : undefined;
     const rows=await service.store.tokenPage(limit,before);
-    const items=listedTokens(rows,runtime.config.mode,deploymentChain(runtime.config));
+    const items=listedTokens(rows,runtime.config.mode,deploymentChain(runtime.config)).map(withHiddenFlag);
     const last=rows.at(-1);
     const nextCursor=rows.length===limit && last ? Buffer.from(JSON.stringify({createdAt:last.createdAt,address:last.address})).toString("base64url") : null;
     res.json({items,nextCursor});
@@ -353,10 +372,11 @@ app.get(
   route(async (req, res) => {
     const detail = await service.tokenDetail(addressSchema.parse(req.params.address));
     if (!detail) { res.status(404).json({ error: "Platform token not found", code: "TOKEN_NOT_REGISTERED" }); return; }
-    res.json(detail);
+    res.json({ ...detail, token: withHiddenFlag(detail.token) });
   }),
 );
 
+app.get("/api/nft-treasury", route(async (req, res) => res.json(await service.nftTreasury(req.query.nft))));
 // A platform-signed ETH price for the $10 NFT launch fee; the stablecoin fee needs no quote.
 app.get("/api/launch-fee-quote", route(async (req, res) => res.json(await service.launchFeeQuote(req.query.payer))));
 app.post(

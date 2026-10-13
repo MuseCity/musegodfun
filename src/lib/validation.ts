@@ -2,6 +2,7 @@ import { z } from "zod";
 import { getAddress, isAddress, parseUnits, zeroAddress } from "viem";
 import { DEAD, launchAssetsFor, stockByAddress, type RuntimeConfig } from "./config";
 import { DEFAULT_TRADING_FEE_BPS, TRADING_FEE_BPS, tradingFeeBpsFor } from "./trading-fee";
+import type { NftRef } from "./nft-mode";
 
 export function assertSigningEnabled(config: RuntimeConfig) {
   if (!config.writesEnabled || config.signingPaused === true)
@@ -32,6 +33,12 @@ export const nftRefSchema = z.object({
   tokenId: z.string().regex(/^(?:0|[1-9]\d{0,77})$/, { error: "Enter the token number without leading zeros", abort: true })
     .refine((value) => BigInt(value) < 2n ** 256n, "The token number is out of range"),
 }).strict();
+// A `?nft=` value is exactly three ":"-separated parts and the chain id is written canonically, so it always agrees with `nftKey()`.
+const nftQuerySchema = z.string().regex(/^(?:8453|4663):[^:]*:[^:]*$/, "Use nft=<chainId>:<contract>:<tokenId>")
+  .transform((value) => { const [chainId, contract, tokenId] = value.split(":"); return { chainId: Number(chainId) as 8453 | 4663, contract, tokenId }; })
+  .pipe(nftRefSchema);
+/** A `?nft=` value, "<chainId>:<contract>:<tokenId>", as an NftRef. Throws a ZodError (HTTP 400) for anything else, including a repeated parameter. */
+export const parseNftQuery = (value: unknown): NftRef => nftQuerySchema.parse(value);
 export const launchFeeSchema = z.discriminatedUnion("asset", [
   z.object({ asset: z.literal("stable"), txHash: hashSchema.transform((h) => h.toLowerCase() as `0x${string}`) }).strict(),
   z.object({ asset: z.literal("native"), txHash: hashSchema.transform((h) => h.toLowerCase() as `0x${string}`),

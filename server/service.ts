@@ -47,6 +47,7 @@ import {
   parseAmount,
   minimumOutput,
   errorMessage,
+  parseNftQuery,
   simulationError,
   assertSigningEnabled,
 } from "../src/lib/validation";
@@ -65,8 +66,8 @@ import { hasBaseLaunchActivationRecord } from "./base-activation-record";
 import { assertTrustedLaunchPolicy, engineLaunchCutover, ENGINE_MANIFEST, trustedLaunchPolicies, type EngineLaunchCutover } from "./launch-policy-registry";
 import { planAttestation, verifyPlanAttestation } from "./plan-attestation";
 import { BudgetUnavailable } from "./runtime-policy";
-import { NftLaunchError, assertNftDraftRules, inspectVaultFactory, launchFeeQuoteMac, nftRegistrationStatus, readNftControl, verifyLaunchFeePayment, type NftRegistrationStatus } from "./nft-launch";
-import { isMuse, nftKey, type NftRef } from "../src/lib/nft-mode";
+import { NftLaunchError, assertNftDraftRules, inspectVaultFactory, isBoundNftCoin, launchFeeQuoteMac, nftRegistrationStatus, readNftControl, verifyLaunchFeePayment, type NftRegistrationStatus } from "./nft-launch";
+import { isMuse, nftKey, treasuryFor, vaultFor, type NftRef } from "../src/lib/nft-mode";
 import { LAUNCH_FEE_QUOTE_TTL, LAUNCH_FEE_STABLE, LAUNCH_FEE_USD, type LaunchFee } from "../src/lib/launch-fee";
 import type { EngineClaimPreview } from "../src/lib/buyback-engine";
 
@@ -1153,6 +1154,49 @@ export class LaunchpadService {
     ]);
     return { lp, trade, poolKey: state.poolKey };
   }
+  /** An NFT's fee vault and Tokenbound treasury: both addresses are computed and checked for code; the balances are what the treasury and the
+   * vault hold of the NFT's bound coins and their paired assets (an asset whose read failed is left out, never shown as zero); the pending
+   * fees are the vault's per coin, and one coin's failed preview becomes an error entry instead of failing the answer. Public and keyed by
+   * user input, so a success is kept in memory for 15 seconds, within a bounded cache. */
+  async nftTreasury(raw: unknown): Promise<NftTreasury> {
+    const nft = parseNftQuery(raw), chainId = deploymentChain(this.runtime.config);
+    if (nft.chainId !== chainId) throw new NftLaunchError("NFT_CHAIN_UNSUPPORTED", "This NFT lives on another network; open it there.");
+    const factory = await this.verifiedVaultFactory();
+    if (!factory) throw new NftLaunchError("NFT_VAULT_UNAVAILABLE", "The NFT fee vault is not deployed and verified on this network.");
+    const key = `${chainId}:${nftKey(nft)}`, saved = NFT_TREASURY_CACHE.get(key);
+    if (saved && Date.now() - saved.at < NFT_TREASURY_TTL_MS) return saved.value;
+    const vault = vaultFor(nft, factory, this.runtime.nftVaultManifest?.vaultInitCodeHash), treasury = treasuryFor(nft);
+    const coins = (await this.tokens()).filter((record) => isBoundNftCoin(record, nft));
+    const assets = new Map<string, { token: Address; symbol: string }>();
+    for (const coin of coins) assets.set(coin.address.toLowerCase(), { token: coin.address, symbol: coin.symbol });
+    for (const coin of coins) {
+      const quote = quoteAsset(coin);
+      if (!assets.has(quote.address.toLowerCase())) assets.set(quote.address.toLowerCase(), { token: quote.address, symbol: quote.symbol });
+    }
+    const listed = [...assets.values()];
+    const reads = listed.flatMap(({ token }) => [treasury, vault].map((holder) => ({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [holder] }) as const));
+    const [vaultCode, treasuryCode, held, previews] = await Promise.all([
+      this.client.getCode({ address: vault }), this.client.getCode({ address: treasury }),
+      reads.length ? this.client.multicall({ contracts: reads, allowFailure: true }) : Promise.resolve([]),
+      Promise.allSettled(coins.map((coin) => this.fees(coin.address, vault))),
+    ]);
+    const balances = listed.flatMap((asset, index) => {
+      const inTreasury = held[2 * index], inVault = held[2 * index + 1];
+      return inTreasury?.status === "success" && inVault?.status === "success"
+        ? [{ ...asset, amount: String(inTreasury.result), vaultAmount: String(inVault.result) }] : [];
+    });
+    const pendingFees = previews.map((preview, index) => preview.status === "fulfilled" ? { token: coins[index].address, ...preview.value }
+      : { token: coins[index].address, error: redact(preview.reason, this.runtime.environment) });
+    const hasCode = (code: Hex | undefined) => !!code && code !== "0x";
+    const value: NftTreasury = { nft, vault, vaultDeployed: hasCode(vaultCode), treasury, treasuryDeployed: hasCode(treasuryCode), balances, pendingFees };
+    const now = Date.now();
+    // Entries are inserted in time order, so the expired ones are at the front; then the oldest go once the cap is reached.
+    for (const [cached, row] of NFT_TREASURY_CACHE) { if (now - row.at < NFT_TREASURY_TTL_MS) break; NFT_TREASURY_CACHE.delete(cached); }
+    NFT_TREASURY_CACHE.delete(key);
+    while (NFT_TREASURY_CACHE.size >= NFT_TREASURY_CACHE_MAX) NFT_TREASURY_CACHE.delete(NFT_TREASURY_CACHE.keys().next().value!);
+    NFT_TREASURY_CACHE.set(key, { at: now, value });
+    return value;
+  }
   async firstBuyLock(address: Address): Promise<FirstBuyLockStatus | null> {
     await this.assertNetwork();
     const chainId = deploymentChain(this.runtime.config), dependencies = chainLaunchDependencies(chainId);
@@ -1231,6 +1275,11 @@ async function withNftLocks<T>(keys: string[], run: () => Promise<T>): Promise<T
     return await run();
   } finally { for (const release of releases.reverse()) release(); }
 }
+// /api/* is no-store, so the public treasury view is cached here. Keys come from user input: successes only, at most 500 of them.
+type NftTreasury = { nft: NftRef; vault: Address; vaultDeployed: boolean; treasury: Address; treasuryDeployed: boolean;
+  balances: { token: Address; symbol: string; amount: string; vaultAmount: string }[]; pendingFees: unknown[] };
+const NFT_TREASURY_TTL_MS = 15_000, NFT_TREASURY_CACHE_MAX = 500;
+const NFT_TREASURY_CACHE = new Map<string, { at: number; value: NftTreasury }>();
 // A transaction's settled chain evidence at one receipt block is reused for
 // this long; a failure that could still change only briefly, so a later retry
 // can succeed.

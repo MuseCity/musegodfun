@@ -90,6 +90,10 @@ test("API and token routes use explicit identities and preserve legacy Robinhood
   assert.equal(knownPage(`/token/base/${address}`), true);
   assert.equal(knownPage(`/token/robinhood/${address}`), true);
   assert.equal(knownPage(`/token/ethereum/${address}`), false);
+  assert.equal(knownPage(`/nft/robinhood/${address}/1`), true);
+  assert.equal(knownPage(`/nft/base/${address}/0`), true);
+  assert.equal(knownPage(`/nft/robinhood/${address}/007`), false);
+  assert.equal(knownPage(`/nft/ethereum/${address}/1`), false);
   assert.equal(stockByAddress(STOCKS[0].address, 8453).chainId, 8453);
   assert.equal(stockByAddress(ROBINHOOD_STOCKS[0].address, 4663).chainId, 4663);
   assert.throws(() => stockByAddress(ROBINHOOD_STOCKS[0].address, 8453), /Unsupported paired asset/);
