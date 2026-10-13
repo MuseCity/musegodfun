@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { CallExecutionError, ContractFunctionExecutionError, ContractFunctionRevertedError, ContractFunctionZeroDataError, ExecutionRevertedError,
-  HttpRequestError, TimeoutError, TransactionReceiptNotFoundError, WebSocketRequestError, decodeEventLog, erc20Abi, isHex, keccak256, parseAbi, size,
+  HttpRequestError, TimeoutError, TransactionReceiptNotFoundError, WebSocketRequestError, decodeEventLog, erc20Abi, hexToBytes, isHex, keccak256, parseAbi, size,
   type Address, type Block, type Hex, type PublicClient, type Transaction, type TransactionReceipt } from "viem";
 import { ROBINHOOD_STOCKS, sameAddress, type TokenRecord } from "../src/lib/config";
 import { LAUNCH_FEE_MIN_BLOCK, LAUNCH_FEE_MINING_GRACE_SECONDS, LAUNCH_FEE_QUOTE_TTL, LAUNCH_FEE_STABLE, type LaunchFee } from "../src/lib/launch-fee";
@@ -74,6 +74,25 @@ export async function readNftControl(client: Pick<PublicClient, "readContract">,
   const delegated = await client.readContract({ address: DELEGATE_REGISTRY_V2, abi: delegateAbi, functionName: "checkDelegateForERC721",
     args: [account, owner, nft.contract, BigInt(nft.tokenId), NFT_LAUNCH_RIGHTS], ...at }).catch(answered(false));
   return { erc721: true, owner, controls: delegated === true };
+}
+
+const museProfileAbi = parseAbi(["function supportsInterface(bytes4) view returns (bool)", "function metadata(uint256 tokenId, string key) view returns (bytes)",
+  "function agentOf(uint256 tokenId) view returns (bytes32, uint256)"]);
+/** A Muse's ERC-8048 `name`, decoded as UTF-8, when the collection supports ERC-8048. Any failure, or an empty or malformed name, is undefined. */
+export async function readMuseName(client: Pick<PublicClient, "readContract">, nft: NftRef): Promise<string | undefined> {
+  try {
+    if (await client.readContract({ address: nft.contract, abi: museProfileAbi, functionName: "supportsInterface", args: ["0xdf670be1"] }) !== true) return undefined;
+    const raw = await client.readContract({ address: nft.contract, abi: museProfileAbi, functionName: "metadata", args: [BigInt(nft.tokenId), "name"] });
+    const text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(hexToBytes(raw)).trim();
+    return text && text.length <= 100 && !/[\u0000-\u001f\u007f]/.test(text) ? text : undefined;
+  } catch { return undefined; }
+}
+/** A Muse's ERC-8004 agent id: the second word of `agentOf`. Any failure, or zero (no agent), is undefined. */
+export async function readMuseAgentId(client: Pick<PublicClient, "readContract">, nft: NftRef): Promise<string | undefined> {
+  try {
+    const [, agent] = await client.readContract({ address: nft.contract, abi: museProfileAbi, functionName: "agentOf", args: [BigInt(nft.tokenId)] });
+    return agent > 0n ? agent.toString() : undefined;
+  } catch { return undefined; }
 }
 
 export type NftRegistrationStatus = NonNullable<TokenRecord["nftVerification"]>;

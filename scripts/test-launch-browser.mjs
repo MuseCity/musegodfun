@@ -25,8 +25,16 @@ const quoteClockModes = new Set(['wrap_near_expiry', 'idle_review', 'hidden_revi
 const tokenLookupModes = new Set(['token_detail_pending', 'token_detail_error', 'token_detail_state_unavailable', 'token_detail_unregistered_backup', 'token_detail_invalid_pool', 'token_detail_unverified_opening']);
 const timeoutModes = new Set(['approval_timeout', 'payment_timeout', 'launch_timeout', 'approval_timeout_reject']);
 const recoveryRaceModes = new Set(['payment_marker_race', 'launch_marker_race', 'payment_status_race', 'payment_submit_race', 'payment_submit_record_race']);
+// NFT mode: the mode switch, the Muse pair lock, the $10 fee card before review and prepare's NFT rejections. No launch is signed.
+const nftModes = new Set(['nft_muse_free', 'nft_paid_usdg', 'nft_not_controlled', 'nft_already_launched']);
+const muses = '0x13Ea3072b7215d4C9c2Ec4f498A08c5825129836', paidCollection = '0x9999999999999999999999999999999999999999';
+const usdg = '0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168', musegodAsset = ROBINHOOD_STOCKS.find(x => x.symbol === 'MUSEGOD');
+const nftRejections = { nft_not_controlled: { tokenId: '8', code: 'NFT_NOT_CONTROLLED', error: 'Connect the wallet that holds this NFT, or one it delegated to.' },
+  nft_already_launched: { tokenId: '10', code: 'NFT_ALREADY_LAUNCHED', error: 'This NFT already has its coin.' } };
 const sdk = new DopplerSDK({ chainId: 4663, publicClient: createPublicClient({ transport: http('http://127.0.0.1:1') }) });
 const config = { mode: 'fork', chainId: 31337, deploymentChainId: 4663, treasury, writesEnabled: true, blockReason: null, curvePolicy: CURVE_POLICY, launchGuard: guard, launchLockAvailable: false };
+const nftConfig = { ...config, nftMode: { enabled: true, vaultFactory: null, launchFeeUsd: 10,
+  freeCollections: [`4663:${muses.toLowerCase()}`], verifiedCollections: [`4663:${muses.toLowerCase()}`] } };
 const report = { scope: 'Local Chromium UI with injected mock wallet/API/RPC and reference-price fixtures, scoped to Robinhood fork and No lock. Cross-tab checks use separate browser pages sharing one origin and storage. No real-wallet, conversion or chain settlement proof.', observedAt: new Date().toISOString(), origin, checks: [], screenshots: [], productionPublication: 'not_run' };
 const browser = await chromium.launch({ headless: true });
 let activePage;
@@ -74,7 +82,7 @@ async function casePage(mode, viewport = { width: 1440, height: 1000 }) {
     approvalCanonical: mode !== 'approval_pending', configurationReleased: mode !== 'delayed_config', releaseConfiguration: [],
     unresolvedRequests: new Map(), holdVerification: ['payment_submit_race', 'payment_submit_record_race'].includes(mode), releaseVerification: null,
     holdRegistration: false, releaseRegistration: null, priceRequests: 0, paymentQuoteRequests: [], releaseDetail: null, detailRequested: false,
-    trackRequests: 0, trackedHash: null, trackedReceipt: false };
+    trackRequests: 0, trackedHash: null, trackedReceipt: false, nftStatusRequests: [], feeReceipt: true };
   if (mode === 'delayed_config') await context.route(delayedImage, route => route.fulfill({ contentType: 'image/png',
     body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jS1sAAAAASUVORK5CYII=', 'base64') }));
   await context.addInitScript(({ creator, treasury, mode }) => {
@@ -108,8 +116,9 @@ async function casePage(mode, viewport = { width: 1440, height: 1000 }) {
   await context.exposeBinding('__testSend', async (_source, tx) => {
     const wrap = tx.to.toLowerCase() === quote.address.toLowerCase() && tx.data === encodeFunctionData({ abi: wrapAbi, functionName: 'deposit' });
     const approval = tx.to.toLowerCase() === quote.address.toLowerCase() && tx.data.startsWith('0x095ea7b3');
+    const fee = tx.to.toLowerCase() === usdg.toLowerCase();
     if (approval && mode === 'reject_approval') return { reject: true };
-    const hash = keccak256(toHex(`browser-send-${mode}-${state.sends.length}`)); state.sends.push({ ...tx, hash, approval, wrap });
+    const hash = keccak256(toHex(`browser-send-${mode}-${state.sends.length}`)); state.sends.push({ ...tx, hash, approval, wrap, fee });
     if (wrap) { assert(wrapping); assert.equal(BigInt(tx.value), BigInt(state.paymentQuote.amountIn)); state.wrapped = true; }
     if (approval) { state.allowance = BigInt(state.plan.firstBuy.amountIn); if (mode === 'expiry') state.expired = true; }
     if (approval && mode === 'two_tabs' && state.sends.length === 1) await new Promise(resolve => { state.releaseApproval = resolve; });
@@ -133,7 +142,7 @@ async function casePage(mode, viewport = { width: 1440, height: 1000 }) {
     const path = url.pathname.replace(/^\/api\/chains\/4663(?=\/|$)/, '/api');
     if (path === '/api/config') {
       if (!state.configurationReleased) await new Promise(resolve => state.releaseConfiguration.push(resolve));
-      return reply(mode === 'stale_page' ? { ...config, curvePolicy: 'old-curve-v1' } : config);
+      return reply(mode === 'stale_page' ? { ...config, curvePolicy: 'old-curve-v1' } : nftModes.has(mode) ? nftConfig : config);
     }
     if (path === '/api/stocks') return reply(ROBINHOOD_STOCKS.map(x=>({ ...x, verified: true, blockNumber: '16', totalSupply: '1000000000000000000000000', multiplierWad: null })));
     if (path === '/api/tokens') return reply(mode.startsWith('token_detail_') ? Array.from({length:50},(_,index)=>({
@@ -142,11 +151,11 @@ async function casePage(mode, viewport = { width: 1440, height: 1000 }) {
     if (path === '/api/first-buy/prices') {
       state.priceRequests++;
       const pairedAsset = url.searchParams.get('pairedAsset');
-      if (!pairedAsset || pairedAsset.toLowerCase() !== quote.address.toLowerCase())
+      if (!pairedAsset || !nftModes.has(mode) && pairedAsset.toLowerCase() !== quote.address.toLowerCase())
         return reply({ error: 'This reference-price fixture only covers paired WETH' }, 400);
       const now = Date.now();
       return reply({ chainId: 4663, quotedAt: now, expiresAt: now + 60000, referenceOnly: true,
-        assets: firstBuyPaymentAssets(4663, quote.address).map(asset => ({ ...asset,
+        assets: firstBuyPaymentAssets(4663, pairedAsset).map(asset => ({ ...asset,
           priceUsd: asset.symbol === 'USDG' ? '1' : '3000' })) });
     }
     if (path === '/api/first-buy/quote' && wrapping) {
@@ -167,6 +176,23 @@ async function casePage(mode, viewport = { width: 1440, height: 1000 }) {
         return reply({ status: 'pending', hash: sent.hash });
       if (state.holdVerification) await new Promise(resolve => { state.releaseVerification = resolve; });
       return reply({ status: 'success', hash: sent.hash, actualOutput, pairedAsset: quote.address, account: creator, blockNumber: '16', blockHash });
+    }
+    if (path === '/api/nft-status') {
+      const [chainId, contract, tokenId] = (url.searchParams.get('nft') || '').split(':');
+      state.nftStatusRequests.push({ chainId, contract, tokenId, account: url.searchParams.get('account') });
+      const muse = contract?.toLowerCase() === muses.toLowerCase();
+      return reply({ erc721: true, owner: tokenId === '7' ? treasury : creator, controls: tokenId !== '7', alreadyLaunched: tokenId === '9', free: muse,
+        ...(muse ? { name: 'Bard', agentId: '6592' } : {}) });
+    }
+    if (path === '/api/launch-fee-quote') return reply({ wei: '3333333333333334', expiresAt: Math.floor(Date.now() / 1000) + 60, mac: '0x' + '11'.repeat(32), stable: { address: usdg, amount: '10000000' } });
+    if (path === '/api/launch/prepare' && nftModes.has(mode)) {
+      state.prepareRequests.push(structuredClone(payload)); state.plans++;
+      const rejection = nftRejections[mode];
+      if (rejection && payload.draft.nft?.tokenId === rejection.tokenId) return reply({ error: rejection.error, code: rejection.code }, 422);
+      // The fixture plan is a normal launch of the same identity: this suite checks the request and the review, never NFT calldata.
+      const { nft: _nft, launchFee: _fee, ...plain } = payload.draft;
+      state.plan = preparedPlan(plain, payload.firstBuy, state.plans, payload.options, payload.creator);
+      state.byData.set(state.plan.data, state.plan); return reply({ ...state.plan, draft: payload.draft });
     }
     if (path === '/api/launch/prepare') { assert.equal(payload.expectedCurvePolicy, CURVE_POLICY); state.plans++; state.expired=false;
       state.prepareRequests.push(structuredClone(payload));
@@ -214,7 +240,7 @@ async function casePage(mode, viewport = { width: 1440, height: 1000 }) {
         else if (item.method === 'eth_getCode') result=wrapping && item.params[0].toLowerCase() === quote.address.toLowerCase() ? wrapRuntime : '0x';
         else if (item.method === 'eth_getTransactionReceipt' && state.trackedHash && item.params[0] === state.trackedHash)
           result=state.trackedReceipt ? { transactionHash:state.trackedHash, transactionIndex:'0x0', blockHash, blockNumber:'0x10', from:creator, to:contracts.airlock, cumulativeGasUsed:'0xea60', gasUsed:'0xea60', contractAddress:null, logs:[], logsBloom:'0x'+'00'.repeat(256), status:'0x1', effectiveGasPrice:'0x1', type:'0x2' } : null;
-        else if (item.method === 'eth_getTransactionReceipt') { const sent=state.sends.find(x=>x.hash===item.params[0]); result=!sent || (!sent.approval&&!state.receipts) ? null : { transactionHash:sent.hash, transactionIndex:'0x0', blockHash, blockNumber:'0x10', from:creator, to:sent.to, cumulativeGasUsed:'0xea60', gasUsed:'0xea60', contractAddress:null, logs:sent.wrap ? depositLogs(sent) : [], logsBloom:'0x'+'00'.repeat(256), status:'0x1', effectiveGasPrice:'0x1', type:'0x2' }; }
+        else if (item.method === 'eth_getTransactionReceipt') { const sent=state.sends.find(x=>x.hash===item.params[0]); result=!sent || (!sent.approval&&!state.receipts) || (sent.fee&&!state.feeReceipt) ? null : { transactionHash:sent.hash, transactionIndex:'0x0', blockHash, blockNumber:'0x10', from:creator, to:sent.to, cumulativeGasUsed:'0xea60', gasUsed:'0xea60', contractAddress:null, logs:sent.wrap ? depositLogs(sent) : [], logsBloom:'0x'+'00'.repeat(256), status:'0x1', effectiveGasPrice:'0x1', type:'0x2' }; }
         else if (item.method === 'eth_getTransactionByHash') { const sent=state.sends.find(x=>x.hash===item.params[0]); result=sent ? { hash:sent.hash, from:creator, to:sent.to, input:sent.data, value:sent.value ?? '0x0', nonce:toHex(state.sends.indexOf(sent)), gas:'0xea60', gasPrice:'0x1', blockHash, blockNumber:'0x10', transactionIndex:'0x0', type:'0x0', v:'0x1b', r:'0x1', s:'0x1' } : null; }
         else throw new Error('Unexpected fixture RPC '+item.method);
         return { jsonrpc:'2.0',id:item.id,result };
@@ -237,7 +263,9 @@ async function casePage(mode, viewport = { width: 1440, height: 1000 }) {
   });
   const page = await context.newPage(); activePage = page; const pageErrors=[]; page.on('pageerror',e=>pageErrors.push(e.message));
   if (quoteClockModes.has(mode)) await page.clock.install({time:new Date()});
-  await page.goto(origin+'/create?chainId=4663'); await page.getByLabel('Token name',{exact:true}).fill(('Browser '+mode).slice(0, 32));
+  await page.goto(origin+'/create?chainId=4663');
+  if (nftModes.has(mode)) return { context,page,state,pageErrors };
+  await page.getByLabel('Token name',{exact:true}).fill(('Browser '+mode).slice(0, 32));
   await page.getByLabel('Token symbol',{exact:true}).fill('BROWSE');
   if (mode === 'delayed_config') {
     await waitForFixture(() => state.releaseConfiguration.length > 0, 'initial configuration request');
@@ -556,15 +584,135 @@ async function timeoutCase(page, state) {
   assert.equal(state.unresolvedRequests.size, 0);
   state.lateHashIntentPreserved = true;
 }
+async function nftCase(page, state) {
+  const mode = state.mode, nftRadio = page.getByRole('radio', { name: 'NFT', exact: true });
+  const tokenInput = page.getByLabel('Token number', { exact: true }), status = page.locator('#nft-launch-status');
+  const reviewAndContinue = page.getByRole('button', { name: 'Review and continue', exact: true });
+  const focused = id => page.waitForFunction(id => document.activeElement?.id === id, id);
+  const statusIs = text => page.waitForFunction(text => document.getElementById('nft-launch-status')?.textContent === text, text);
+  // The switch appears only because the configuration enables NFT mode; Normal is the default.
+  await nftRadio.waitFor();
+  assert.equal(await page.getByRole('radio', { name: 'Normal', exact: true }).isChecked(), true);
+  await page.getByRole('button', { name: 'Connect wallet', exact: true }).click();
+  const choose = page.getByRole('button', { name: /Local acceptance wallet/ }); if (await choose.count()) await choose.click();
+  await nftRadio.check();
+  assert.equal(await page.getByLabel('Collection contract', { exact: true }).inputValue(), muses, 'Muses are preset');
+  // Review never opens, and never prepares a normal coin, while the NFT check has not passed; the status is the reason.
+  const blocked = async (reason, focusId) => {
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await reviewAndContinue.click();
+    await page.locator('#nft-launch-error').getByText(reason, { exact: true }).waitFor();
+    await focused(focusId);
+    assert.equal(await page.getByRole('dialog').count(), 0);
+    assert.equal(state.prepareRequests.length, 0);
+  };
+  const review = async () => {
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await reviewAndContinue.click();
+    await waitForFixture(() => state.prepareRequests.length > 0, 'the NFT prepare request');
+  };
+  if (mode === 'nft_muse_free') {
+    await tokenInput.fill('1');
+    await statusIs('Muse launches are free. Muse coins pair with MUSEGOD.');
+    // The Muse's name fills the empty fields once; a later selection never overwrites what the user typed.
+    await page.waitForFunction(() => document.querySelector('input[name="name"]')?.value === 'Bard');
+    assert.equal(await page.getByLabel('Token symbol', { exact: true }).inputValue(), 'BARD');
+    await page.getByLabel('Token name', { exact: true }).fill('My Muse coin');
+    await tokenInput.fill('2');
+    await statusIs('Muse launches are free. Muse coins pair with MUSEGOD.');
+    assert.equal(await page.getByLabel('Token name', { exact: true }).inputValue(), 'My Muse coin');
+    assert.equal(await page.getByRole('button', { name: /^Pay / }).count(), 0, 'Muses never show the fee card');
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    const grid = page.getByRole('group', { name: 'Quote assets' });
+    await page.getByText('Muse coins pair with MUSEGOD.', { exact: true }).waitFor();
+    assert.match(await grid.locator('button[aria-pressed="true"]').innerText(), /MUSEGOD/);
+    assert.equal(await grid.locator('button:not([disabled])').count(), 0, 'the pair picker is disabled');
+    await reviewAndContinue.click();
+    await page.getByRole('button', { name: 'Confirm launch · Sign in wallet', exact: true }).waitFor();
+    const request = state.prepareRequests[0];
+    assert.deepEqual(request.draft.nft, { chainId: 4663, contract: muses, tokenId: '2' });
+    assert.equal(request.draft.quoteAddress.toLowerCase(), musegodAsset.address.toLowerCase());
+    assert.equal('launchFee' in request.draft, false);
+    const dialog = page.getByRole('dialog');
+    for (const text of ['Bound NFT', 'Verified', 'Creator fees']) await dialog.getByText(text, { exact: true }).waitFor();
+    assert.equal(await dialog.getByText('Launch fee', { exact: true }).count(), 0);
+    await dialog.getByText(/Not investment advice\. musegod\.fun does not endorse NFT collections/).waitFor();
+    state.nftChecks = { modeSwitch: true, musePairLocked: true, prefillOnce: true, freeWithoutFee: true };
+  } else if (mode === 'nft_paid_usdg') {
+    await page.getByLabel('Collection contract', { exact: true }).fill(paidCollection);
+    await tokenInput.fill('5');
+    await statusIs('Launching for this NFT costs $10, paid before the launch.');
+    await page.getByLabel('Token name', { exact: true }).fill('Paid NFT coin');
+    await page.getByLabel('Token symbol', { exact: true }).fill('PAID');
+    // The fee card comes before review: review waits until the fee is paid.
+    await blocked('Pay the $10 launch fee for this NFT first.', 'nft-launch-fee');
+    state.feeReceipt = false;
+    await page.getByRole('button', { name: 'Pay 10 USDG', exact: true }).click();
+    await page.getByText(/Payment sent, waiting for confirmation\./).waitFor();
+    assert.equal(state.sends.length, 1); assert.equal(state.sends[0].to.toLowerCase(), usdg.toLowerCase());
+    const transfer = decodeFunctionData({ abi: erc20Abi, data: state.sends[0].data });
+    assert.deepEqual([transfer.functionName, ...transfer.args], ['transfer', treasury, 10_000_000n]);
+    const savedFee = () => page.evaluate(() => {
+      const keys = Object.keys(localStorage).filter(key => key.startsWith('musegod.launch.payment.') && key.endsWith('.launch-fee'));
+      return keys.length === 1 ? JSON.parse(localStorage.getItem(keys[0])) : { count: keys.length };
+    });
+    assert.deepEqual(await savedFee(), { asset: 'stable', txHash: state.sends[0].hash, pending: true }, 'the hash is saved before it confirms');
+    // A reload mid-payment keeps the hash, offers no second payment, and waits for the same receipt.
+    await page.reload();
+    await page.getByText(/Payment sent, waiting for confirmation\./).waitFor();
+    assert.equal(await page.getByText(state.sends[0].hash).count() > 0, true);
+    assert.equal(await page.getByRole('button', { name: /^Pay / }).count(), 0);
+    // The receipt watcher re-checks on each new block, so the fixture mines one along with the receipt.
+    state.feeReceipt = true; state.head += 1n;
+    await page.getByText(/Launch fee paid\./).waitFor();
+    assert.deepEqual(await savedFee(), { asset: 'stable', txHash: state.sends[0].hash });
+    await page.screenshot({ path: '.cache/launch-browser-nft_paid_usdg-step1.png', fullPage: true }); report.screenshots.push('.cache/launch-browser-nft_paid_usdg-step1.png');
+    // The paid fee belongs to this wallet's next NFT launch, so switching the NFT does not ask for it again.
+    await tokenInput.fill('6');
+    await statusIs('Launching for this NFT costs $10, paid before the launch.');
+    await page.getByText(/Launch fee paid\./).waitFor();
+    assert.equal(await page.getByRole('button', { name: /^Pay / }).count(), 0);
+    await review();
+    await page.getByRole('button', { name: 'Confirm launch · Sign in wallet', exact: true }).waitFor();
+    const request = state.prepareRequests.at(-1);
+    assert.deepEqual(request.draft.nft, { chainId: 4663, contract: paidCollection, tokenId: '6' });
+    assert.deepEqual(request.draft.launchFee, { asset: 'stable', txHash: state.sends[0].hash });
+    const dialog = page.getByRole('dialog');
+    for (const text of ['Unverified collection', '$10, paid, non-refundable', 'Creator fees']) await dialog.getByText(text, { exact: true }).waitFor();
+    assert.equal(state.sends.length, 1, 'one fee payment, never two');
+    state.nftChecks = { modeSwitch: true, feeCardBeforeReview: true, pendingFeeSurvivedReload: true, feeKeptAcrossNftChange: true, feePayments: 1 };
+  } else {
+    const rejection = nftRejections[mode], blockedId = mode === 'nft_not_controlled' ? '7' : '9';
+    const blockedStatus = mode === 'nft_not_controlled' ? 'This wallet does not hold the NFT and has no delegation for it.' : 'This NFT already has its coin.';
+    await tokenInput.fill(blockedId);
+    await statusIs(blockedStatus);
+    await page.getByLabel('Token name', { exact: true }).fill('Blocked NFT coin');
+    await page.getByLabel('Token symbol', { exact: true }).fill('BLOCK');
+    await blocked(blockedStatus, 'nft-launch-token');
+    // The check passed, but prepare's own check refuses: its message shows next to the NFT step and focus returns to the token number.
+    await tokenInput.fill(rejection.tokenId);
+    await statusIs('Muse launches are free. Muse coins pair with MUSEGOD.');
+    await review();
+    await page.locator('#nft-launch-error').getByText(rejection.error, { exact: true }).waitFor();
+    await focused('nft-launch-token');
+    assert.equal(await page.getByRole('dialog').count(), 0);
+    assert.equal(state.prepareRequests.length, 1); assert.equal(state.prepareRequests[0].draft.nft.tokenId, rejection.tokenId);
+    assert.equal(state.sends.length, 0);
+    state.nftChecks = { modeSwitch: true, reviewBlockedByStatus: true, serverCode: rejection.code, inlineMessage: true, tokenInputFocused: true };
+  }
+  assert(state.nftStatusRequests.length > 0 && state.nftStatusRequests.every(row => row.chainId === '4663' && row.account?.toLowerCase() === creator));
+  await page.screenshot({ path: `.cache/launch-browser-${mode}.png`, fullPage: true }); report.screenshots.push(`.cache/launch-browser-${mode}.png`);
+}
 try {
-  for (const mode of (process.env.BROWSER_CASES?.split(',') || ['success','plain','duplicate','stale_page','reject_approval','expiry','account_change','network_change','simulation_failure','two_tabs','unknown_send','approval_unknown','approval_pending','wrap_flow','wrap_price_change','delayed_config','unknown_fetch','approval_timeout','payment_timeout','launch_timeout','approval_timeout_reject','payment_marker_race','launch_marker_race','payment_status_race','payment_submit_race','payment_submit_record_race','wrap_late_launch_recovery','wrap_near_expiry','idle_review','hidden_review','idle_plain','token_detail_pending','token_detail_error','token_detail_state_unavailable','token_detail_unregistered_backup','token_detail_invalid_pool','token_detail_unverified_opening','history_track_backoff'])) {
+  for (const mode of (process.env.BROWSER_CASES?.split(',') || ['success','plain','duplicate','stale_page','reject_approval','expiry','account_change','network_change','simulation_failure','two_tabs','unknown_send','approval_unknown','approval_pending','wrap_flow','wrap_price_change','delayed_config','unknown_fetch','approval_timeout','payment_timeout','launch_timeout','approval_timeout_reject','payment_marker_race','launch_marker_race','payment_status_race','payment_submit_race','payment_submit_record_race','wrap_late_launch_recovery','wrap_near_expiry','idle_review','hidden_review','idle_plain','token_detail_pending','token_detail_error','token_detail_state_unavailable','token_detail_unregistered_backup','token_detail_invalid_pool','token_detail_unverified_opening','history_track_backoff','nft_muse_free','nft_paid_usdg','nft_not_controlled','nft_already_launched'])) {
     const {context,page,state,pageErrors}=await casePage(mode);
     const plain = plainModes.has(mode);
     if (mode === 'success') {
       await page.screenshot({path:'.cache/launch-scoped-browser-desktop-review.png',fullPage:true});
       report.screenshots.push('.cache/launch-scoped-browser-desktop-review.png');
     }
-    if (tokenLookupModes.has(mode)) await tokenLookup(page,state);
+    if (nftModes.has(mode)) await nftCase(page,state);
+    else if (tokenLookupModes.has(mode)) await tokenLookup(page,state);
     else if (mode === 'history_track_backoff') await historyTrackBackoff(page,state);
     else if (mode === 'stale_page') {
       await page.getByText(/curve policy has changed/).waitFor(); assert.equal(state.plans,0); assert.equal(state.sends.length,0);
@@ -590,7 +738,7 @@ try {
       state.businessConfirmations++;
       await page.getByRole('button',{name:plain?/Confirm launch · Sign in wallet/:/Confirm launch and first buy/,exact:true}).click();
     }
-    if (tokenLookupModes.has(mode) || mode === 'history_track_backoff') { /* Read-only lookups, no signing. */ }
+    if (tokenLookupModes.has(mode) || mode === 'history_track_backoff' || nftModes.has(mode)) { /* Read-only lookups and NFT checks: no launch is signed. */ }
     else if (mode === 'wrap_late_launch_recovery') await lateFundedLaunchRecovery(page, state);
     else if (recoveryRaceModes.has(mode)) await recoveryRaceCase(context, page, state);
     else if (timeoutModes.has(mode)) await timeoutCase(page, state);
@@ -777,6 +925,7 @@ try {
       ...(state.quietBackground ? { idleOrHiddenPollingStopped:true, continuedWithOneConfirmation:true } : {}),
       ...(state.singleTokenLookup ? { partialCatalogDidNotHideToken:true } : {}),
       ...(state.historyBackoff ? { trackRetryAfterHonoured:true, manualPendingCheckClearedBackoff:true } : {}),
+      ...(state.nftChecks ? { nft: state.nftChecks } : {}),
       status:'passed'}); console.log('PASS browser: '+mode); await context.close();
   }
   const { context,page,state,pageErrors }=await casePage('success',{width:390,height:844});

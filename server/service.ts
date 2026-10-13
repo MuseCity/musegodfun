@@ -66,8 +66,8 @@ import { hasBaseLaunchActivationRecord } from "./base-activation-record";
 import { assertTrustedLaunchPolicy, engineLaunchCutover, ENGINE_MANIFEST, trustedLaunchPolicies, type EngineLaunchCutover } from "./launch-policy-registry";
 import { planAttestation, verifyPlanAttestation } from "./plan-attestation";
 import { BudgetUnavailable } from "./runtime-policy";
-import { NftLaunchError, assertNftDraftRules, inspectVaultFactory, isBoundNftCoin, launchFeeQuoteMac, nftRegistrationStatus, readNftControl, verifyLaunchFeePayment, type NftRegistrationStatus } from "./nft-launch";
-import { isMuse, nftKey, treasuryFor, vaultFor, type NftRef } from "../src/lib/nft-mode";
+import { NftLaunchError, assertNftDraftRules, inspectVaultFactory, isBoundNftCoin, launchFeeQuoteMac, nftRegistrationStatus, readMuseAgentId, readMuseName, readNftControl, verifyLaunchFeePayment, type NftRegistrationStatus } from "./nft-launch";
+import { isMuse, nftKey, treasuryFor, vaultFor, type NftRef, type NftStatus } from "../src/lib/nft-mode";
 import { LAUNCH_FEE_QUOTE_TTL, LAUNCH_FEE_STABLE, LAUNCH_FEE_USD, type LaunchFee } from "../src/lib/launch-fee";
 import type { EngineClaimPreview } from "../src/lib/buyback-engine";
 
@@ -93,6 +93,7 @@ export class LaunchpadService {
   private tokensPromise?: Promise<TokenRecord[]>;
   private tokensRevision = 0;
   private openingCache?: Map<string, { at: number; value: LifiOpeningValuation }>;
+  private museProfiles?: Map<string, { name?: string; agentId?: string }>;
   private openingRequests?: Map<string, Promise<LifiOpeningValuation>>;
   private registerRequests?: Map<string, Promise<TokenRecord>>;
   private stateReads?: Map<string, ReturnType<LaunchpadService["state"]>>;
@@ -1199,6 +1200,20 @@ export class LaunchpadService {
     while (NFT_TREASURY_CACHE.size >= NFT_TREASURY_CACHE_MAX) NFT_TREASURY_CACHE.delete(NFT_TREASURY_CACHE.keys().next().value!);
     NFT_TREASURY_CACHE.set(key, { at: now, value });
     return value;
+  }
+  /** What the create form needs to know about an NFT for `account`: ERC-721, holder or delegate, whether it already has its verified coin,
+   * and whether it launches free (a Muse). Prepare re-checks all of it. A Muse also gets its name and agent id; each successful read is kept
+   * for the runtime's lifetime (so the memory is bounded by the Muses supply), a failed one is left out and asked again next time. */
+  async nftStatus(rawNft: unknown, rawAccount: unknown): Promise<NftStatus> {
+    const nft = parseNftQuery(rawNft), account = addressSchema.parse(rawAccount);
+    if (nft.chainId !== deploymentChain(this.runtime.config)) throw new NftLaunchError("NFT_CHAIN_UNSUPPORTED", "This NFT must launch on its own network.");
+    await this.assertNetwork();
+    const free = isMuse(nft), profiles = this.museProfiles ??= new Map(), saved = profiles.get(nft.tokenId) ?? {};
+    const [control, existing, name, agentId] = await Promise.all([readNftControl(this.client, nft, account), this.store.verifiedNftCoin(nftKey(nft)),
+      free ? saved.name ?? readMuseName(this.client, nft) : undefined, free ? saved.agentId ?? readMuseAgentId(this.client, nft) : undefined]);
+    const profile = { ...(name ? { name } : {}), ...(agentId ? { agentId } : {}) };
+    if (name || agentId) profiles.set(nft.tokenId, profile);
+    return { ...control, alreadyLaunched: !!existing, free, ...profile };
   }
   async firstBuyLock(address: Address): Promise<FirstBuyLockStatus | null> {
     await this.assertNetwork();

@@ -377,6 +377,8 @@ app.get(
 );
 
 app.get("/api/nft-treasury", route(async (req, res) => res.json(await service.nftTreasury(req.query.nft))));
+// The create form's NFT check (holder or delegate, one coin per NFT, free tier); prepare re-checks everything.
+app.get("/api/nft-status", route(async (req, res) => res.json(await service.nftStatus(req.query.nft, req.query.account))));
 // A platform-signed ETH price for the $10 NFT launch fee; the stablecoin fee needs no quote.
 app.get("/api/launch-fee-quote", route(async (req, res) => res.json(await service.launchFeeQuote(req.query.payer))));
 app.post(

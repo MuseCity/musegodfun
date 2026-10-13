@@ -3,6 +3,8 @@ import manifestJson from "../../contracts/artifacts/nft-vault-deployment.json";
 
 export type NftChainId = 8453 | 4663;
 export type NftRef = { chainId: NftChainId; contract: Address; tokenId: string };
+/** `/api/nft-status`: what the create form shows about an NFT for a wallet. `name` and `agentId` come only for Muses, and only when read. */
+export type NftStatus = { erc721: boolean; owner: Address | null; controls: boolean; alreadyLaunched: boolean; free: boolean; name?: string; agentId?: string };
 
 export const ERC6551_REGISTRY = getAddress("0x000000006551c19487814612e58FE06813775758");
 export const TOKENBOUND_V3_PROXY = getAddress("0x55266d75D1a14E4572138116aF39863Ed6596E7F");

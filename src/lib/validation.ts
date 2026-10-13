@@ -2,7 +2,7 @@ import { z } from "zod";
 import { getAddress, isAddress, parseUnits, zeroAddress } from "viem";
 import { DEAD, launchAssetsFor, stockByAddress, type RuntimeConfig } from "./config";
 import { DEFAULT_TRADING_FEE_BPS, TRADING_FEE_BPS, tradingFeeBpsFor } from "./trading-fee";
-import type { NftRef } from "./nft-mode";
+import { isMuse, type NftRef } from "./nft-mode";
 
 export function assertSigningEnabled(config: RuntimeConfig) {
   if (!config.writesEnabled || config.signingPaused === true)
@@ -150,6 +150,11 @@ export function restoreDraft(raw: string | null, config?: Pick<RuntimeConfig, "m
     if (saved.nft !== undefined) {
       const nft = nftRefSchema.safeParse(saved.nft);
       if (nft.success) draft.nft = nft.data;
+    }
+    // A Muse coin always pairs with MUSEGOD (prepare refuses anything else).
+    if (draft.nft && isMuse(draft.nft)) {
+      const musegod = assets.find((asset) => asset.symbol === "MUSEGOD");
+      if (musegod) draft.quoteAddress = musegod.address;
     }
   } catch {
     /* Corrupt or unsupported stored fields fall back to the defaults. */
