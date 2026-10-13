@@ -6,6 +6,7 @@ import { firstBuyPaymentAssets } from "../src/lib/first-buy-payment";
 import { decodeFunctionData, encodeFunctionResult, erc20Abi, multicall3Abi, type Hex } from "viem";
 import { baseCollectorAbi } from "../src/lib/base-buyback";
 import baseDeployment from "../contracts/artifacts/base-collector-deployment.json";
+import { ADMITTED_BASE_ASSET_COUNT } from "../src/lib/config";
 
 test("real Worker routes refresh native secrets and flags while persistent pause survives code updates",{timeout:60_000},async()=>{
   const bundled=await build({entryPoints:["worker/index.ts"],bundle:true,write:false,format:"esm",platform:"node",target:"es2022",external:["node:*","cloudflare:*"],banner:{js:'import {createRequire} from "node:module";const require=createRequire("/fixture.js");'}});
@@ -124,7 +125,7 @@ test("real Worker Base counters share one multicall across anonymous forced refr
             const value=inner.functionName==="paused"?false:inner.functionName==="totalClaimed"?8n:inner.functionName==="totalReleased"?3n:2n;
             return{success:true,returnData:encodeFunctionResult({abi,functionName:inner.functionName as any,result:value})};
           });
-          assert.equal(calls.length,149);result=encodeFunctionResult({abi:multicall3Abi,functionName:"aggregate3",result:calls});
+          assert.equal(calls.length,(ADMITTED_BASE_ASSET_COUNT+1)*4+1);result=encodeFunctionResult({abi:multicall3Abi,functionName:"aggregate3",result:calls});
         }
         return{jsonrpc:"2.0",id:body.id,result};
       });
@@ -132,7 +133,7 @@ test("real Worker Base counters share one multicall across anonymous forced refr
     }}));
   try {
     const read=async()=>{const response=await mf.dispatchFetch("https://musegod.fun/api/chains/8453/buyback/engine",{headers:{"cf-connecting-ip":"192.0.2.50","cache-control":"no-cache","pragma":"no-cache"}});assert.equal(response.status,200,await response.clone().text());return response.json() as Promise<any>;};
-    const first=await read();assert.equal(first.available,true,JSON.stringify({first,methods}));assert.equal(first.assets.length,37);assert.equal(first.assets[0].totalClaimed,"8");assert.equal(first.assets[0].totalReleased,"3");
+    const first=await read();assert.equal(first.available,true,JSON.stringify({first,methods}));assert.equal(first.assets.length,ADMITTED_BASE_ASSET_COUNT+1);assert.equal(first.assets[0].totalClaimed,"8");assert.equal(first.assets[0].totalReleased,"3");
     const cold=[...methods];assert.deepEqual(cold,["eth_blockNumber","eth_call"]);
     const repeat=await Promise.all(Array.from({length:4},read));assert(repeat.every(value=>value.checkedAt===first.checkedAt));assert.deepEqual(methods,cold,"Repeated Worker display requests make zero RPC calls");
   }finally{await mf.dispose();}

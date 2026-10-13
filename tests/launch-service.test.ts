@@ -5,12 +5,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DopplerSDK, airlockAbi, bundlerAbi, computePoolId, rehypeDopplerHookInitializerAbi, verifyPreparedCreateExecution } from "@whetstone-research/doppler-sdk/evm";
 import { createPublicClient, http, encodeFunctionData, encodeEventTopics, encodeAbiParameters, decodeAbiParameters, decodeFunctionData, parseAbi, parseAbiParameters, erc20Abi, formatUnits, keccak256, zeroAddress, ContractFunctionExecutionError, ContractFunctionRevertedError, ContractFunctionZeroDataError, HttpRequestError, type Hex, type Address, type TransactionReceipt } from "viem";
-import { ROBINHOOD_BUNDLER, ROBINHOOD_BUNDLER_CODE_HASH, ROBINHOOD_CONTRACTS as contracts, ROBINHOOD_STOCKS, STOCKS, SUPPLY, assetsFor, launchAssetsFor, listedTokens, stockByAddress, type RuntimeConfig, type Stock, type TokenRecord } from "../src/lib/config";
+import { ROBINHOOD_BUNDLER, ROBINHOOD_BUNDLER_CODE_HASH, ROBINHOOD_CONTRACTS as contracts, CONTRACTS as baseContracts, ROBINHOOD_STOCKS, STOCKS, SUPPLY, assetsFor, launchAssetsFor, listedTokens, stockByAddress, type RuntimeConfig, type Stock, type TokenRecord } from "../src/lib/config";
 import { CURVE_POLICY } from "../src/lib/launch-curve";
 import { launchGuardAbi } from "../src/lib/launch-guard";
 import { restorePrepared, serializePrepared, type LaunchPlan } from "../src/lib/launch-plan";
 import { buildLaunch } from "../src/lib/protocol";
-import { ENGINE_FEE_POLICY, FEE_POLICY } from "../src/lib/fee-policy";
+import { BASE_AUTOMATION_FEE_POLICY, ENGINE_FEE_POLICY, FEE_POLICY } from "../src/lib/fee-policy";
 import { minimumOutput } from "../src/lib/validation";
 import { syntheticOpeningValuation } from "./fixtures";
 import { ENGINE_MANIFEST } from "../server/launch-policy-registry";
@@ -32,6 +32,45 @@ const guard = "0x3333333333333333333333333333333333333333" as Address;
 const token = "0x4444444444444444444444444444444444444444" as Address;
 const hash = `0x${"aa".repeat(32)}` as Hex, blockHash = `0x${"bb".repeat(32)}` as Hex;
 const quote = ROBINHOOD_STOCKS.find((asset) => asset.symbol === "WETH")!;
+const removedBasePm:Stock={address:"0xB2000000000000000000008FC2A8C23cf5937b66",symbol:"PMc",ticker:"PM",name:"Philip Morris",decimals:8,
+  chainId:8453,issuer:"Coinbase",standard:"B20",sourceUrl:"https://api.coinbase.com/v1/tokenized-stocks"};
+
+test("round13 actual Base prepare refuses removed PM before RPC while an admitted pairing reaches the network check",async()=>{
+  let network=0;const config:RuntimeConfig={mode:"base",chainId:8453,deploymentChainId:8453,treasury,writesEnabled:true,blockReason:null,feePolicy:BASE_AUTOMATION_FEE_POLICY,feeEngine:token};
+  const service=Object.assign(Object.create(LaunchpadService.prototype),{runtime:{config},assertNetwork:async()=>{network++;throw Error("ADMITTED_PAIR_REACHED_NETWORK");}}) as LaunchpadService;
+  const draft={name:"Base PM Test",symbol:"PMTEST",description:"",image:"",tradingFeeBps:100,quoteAddress:removedBasePm.address};
+  await assert.rejects(service.prepare(draft,creator,CURVE_POLICY),/supported pairing asset|unavailable for a new launch/);
+  assert.equal(network,0);
+  await assert.rejects(service.prepare({...draft,quoteAddress:STOCKS[0].address},creator,CURVE_POLICY),/ADMITTED_PAIR_REACHED_NETWORK/);
+  assert.equal(network,1,"The fixture does not accidentally reject all preparations for a missing treasury, curve policy or draft field");
+});
+function frozenBasePlan(asset:Stock) {
+  const added=!STOCKS.some(row=>row.address.toLowerCase()===asset.address.toLowerCase());if(added)STOCKS.push(asset);
+  try {
+    const sdk=new DopplerSDK<8453>({publicClient:createPublicClient({transport:http("http://127.0.0.1:1")}),chainId:8453});
+    const draft={name:"Frozen Base",symbol:"FROZEN",description:"",image:"",quoteAddress:asset.address,tradingFeeBps:100},feeEngine=guard;
+    const openingValuation=syntheticOpeningValuation(asset.address,"100",{chainId:8453});
+    const createParams=sdk.factory.encodeCreateMulticurveParams(buildLaunch(sdk,draft,creator,treasury,token,openingValuation,undefined,8453,feeEngine));
+    const poolKey={currency0:token,currency1:asset.address,fee:8388608,tickSpacing:10,hooks:baseContracts.initializer};
+    const transaction={to:baseContracts.airlock,data:encodeFunctionData({abi:airlockAbi,functionName:"create",args:[createParams]}),value:0n};
+    const prepared={chainId:8453 as const,account:creator,airlock:baseContracts.airlock,createParams,
+      prediction:{tokenAddress:token,poolOrHookAddress:token,governanceAddress:treasury,timelockAddress:treasury,poolKey,poolId:computePoolId(poolKey),tokenIsCurrency0:true},transaction,gasEstimate:{status:"unavailable" as const}};
+    const plan:LaunchPlan={id:keccak256(transaction.data),creator,data:transaction.data,tokenAddress:token,poolId:prepared.prediction.poolId,draft,preparedAt:Date.now(),gas:null,
+      feePolicy:BASE_AUTOMATION_FEE_POLICY,feeTreasury:treasury,feeEngine,openingValuation,curvePolicy:CURVE_POLICY,prepared:serializePrepared(prepared),transaction:{...transaction,value:"0"}};
+    assertPlanIntegrity(plan,baseContracts);return plan;
+  } finally {if(added)STOCKS.splice(STOCKS.indexOf(asset),1);}
+}
+test("round13 actual stored frozen PM plan is found and refused at the Base pairing gate without affecting admitted plans",async()=>{
+  const directory=mkdtempSync(join(tmpdir(),"round13-frozen-pm-")),store=new Store(directory,8453),pm=frozenBasePlan(removedBasePm),admitted=frozenBasePlan(STOCKS[0]);
+  const config:RuntimeConfig={mode:"base",chainId:8453,deploymentChainId:8453,treasury,writesEnabled:true,blockReason:null,feePolicy:BASE_AUTOMATION_FEE_POLICY,feeEngine:guard};
+  let configurations=0;const service=Object.assign(Object.create(LaunchpadService.prototype),{runtime:{config},store,config:async()=>{configurations++;return config;}}) as LaunchpadService;
+  try {
+    store.savePlan(pm);store.savePlan(admitted);assert.equal(store.findPlan(creator,pm.data)?.id,pm.id);assert.equal(pm.recovered,undefined);
+    await assert.rejects(service.validateLaunch(creator,pm.data,true),/paired asset is no longer supported/);
+    assert.equal(configurations,0,"The complete stored plan is refused by its asset rather than an unrelated deployment/config failure");
+    assert.equal((await service.validateLaunch(creator,admitted.data)).planId,admitted.id);
+  } finally {store.close();rmSync(directory,{recursive:true,force:true});}
+});
 
 test("service RPC batches HTTP identity reads as well as contract reads", async (context) => {
   const service = new LaunchpadService({

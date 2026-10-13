@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { STOCKS, ROBINHOOD_STOCKS, launchAssetsFor, stockByAddress, sameAddress, type RuntimeConfig } from "../src/lib/config";
+import { ADMITTED_BASE_ASSET_COUNT, STOCKS, ROBINHOOD_STOCKS, launchAssetsFor, stockByAddress, sameAddress, type RuntimeConfig } from "../src/lib/config";
 import { firstBuyDraft, launchDraftKey, launchDraftStep, resetLaunchedDraftStep, savedLaunchDraft } from "../src/lib/launch-draft";
 import { firstBuyPaymentAssets } from "../src/lib/first-buy-payment";
 import { LAUNCH_IDENTITY_FIELDS, launchIdentityIssue, launchSchema, restoreDraft } from "../src/lib/validation";
@@ -71,15 +71,16 @@ test("new-launch lists match the active chain qualification evidence while retai
     const baseEvidence = JSON.parse(readFileSync(new URL("../docs/evidence/base-jumper-qualification.json", import.meta.url), "utf8")) as {
       records: { address: string; status: string }[];
     };
-    const passed = chain === 8453 ? baseEvidence.records.filter((row) => row.status === "quote_observed") : historicalPassed;
-    assert.equal(passed.length, chain === 8453 ? 36 : 115);
+    const passed = chain === 8453 ? baseEvidence.records.filter((row) => row.status === "quote_observed" &&
+      STOCKS.some(asset => sameAddress(asset.address, row.address))) : historicalPassed;
+    assert.equal(passed.length, chain === 8453 ? ADMITTED_BASE_ASSET_COUNT : 115);
     for (const fork of [false, true]) {
       const assets = launchAssetsFor(config(chain, fork));
       assert.deepEqual(assets.map((asset) => asset.address.toLowerCase()).sort(), passed.map((row) => row.address.toLowerCase()).sort());
       assert.equal(new Set(assets.map((asset) => asset.address)).size, assets.length);
     }
   }
-  assert.equal(STOCKS.length, 36, "historical Base identities remain available");
+  assert.equal(STOCKS.length, ADMITTED_BASE_ASSET_COUNT, "current Base identities follow the admitted list");
   assert.equal(ROBINHOOD_STOCKS.length, 198, "historical Robinhood identities remain available");
 });
 

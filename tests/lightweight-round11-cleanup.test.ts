@@ -8,6 +8,7 @@ import { Store } from "../server/store";
 import { SupabaseStore } from "../server/supabase-store";
 import { BaseFeeQuoteReader } from "../server/base-buyback";
 import { checkFunctionalSmoke } from "../scripts/release";
+import { ADMITTED_BASE_ASSET_COUNT } from "../src/lib/config";
 
 test("REL-1: a source-locked pre-summary rollback skips only aggregate counters, retaining both chains' existing smoke", async t => {
   const paths: string[] = [];let failedPath:string|undefined;
@@ -15,7 +16,7 @@ test("REL-1: a source-locked pre-summary rollback skips only aggregate counters,
     const path=new URL(url).pathname;paths.push(path);
     if(path===failedPath)return new Response(null,{status:503});
     if(path.endsWith("/first-buy/prices"))return Response.json({assets:[{priceUsd:"1"},{priceUsd:null}]});
-    if(path.endsWith("/stocks"))return Response.json(Array.from({length:path.includes("8453")?36:1},()=>({verified:true})));
+    if(path.endsWith("/stocks"))return Response.json(Array.from({length:path.includes("8453")?ADMITTED_BASE_ASSET_COUNT:1},()=>({verified:true})));
     if(path.endsWith("/buyback/engine"))return Response.json(path.includes("8453")?{kind:"base_splits_native",destinationChainId:4663}:{});
     if(path.endsWith("/tokens"))return Response.json({items:[]});
     return new Response(null,{status:404});

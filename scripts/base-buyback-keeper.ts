@@ -496,6 +496,7 @@ export type BaseStuckMonitor = { version: 1; collector: Address; lastReadAt: num
 export function baseKeeperTokenEligible(token: TokenRecord, collector: Address) {
   return token.mode === "base" && token.deploymentChainId === 8453 && token.feePolicy === BASE_AUTOMATION_FEE_POLICY &&
     !!token.feeEngine && sameAddress(token.feeEngine, collector) && /^0x[\da-f]{40}$/i.test(token.address) &&
+    STOCKS.some(stock => sameAddress(stock.address, token.quoteAddress)) &&
     typeof token.transactionHash === "string" && /^0x[\da-f]{64}$/i.test(token.transactionHash) &&
     typeof token.blockNumber === "string" && /^\d+$/.test(token.blockNumber) && /^0x[\da-f]{64}$/i.test(token.poolId);
 }

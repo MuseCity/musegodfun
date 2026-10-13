@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { setTimeout as waitForPropagation } from "node:timers/promises";
 import { ENGINE_FEE_POLICY, BASE_AUTOMATION_FEE_POLICY, FEE_POLICY } from "../src/lib/fee-policy";
+import { ADMITTED_BASE_ASSET_COUNT } from "../src/lib/config";
 import baseCollectorDeployment from "../contracts/artifacts/base-collector-deployment.json";
 import { baseCollectorGraphFingerprint, type BaseCollectorManifest } from "../server/base-collector";
 import { BASE_RECOVERY_PROTOCOL, BASE_NATIVE_DESTINATION_POLICY } from "../src/lib/base-buyback";
@@ -170,7 +171,8 @@ export async function checkRuntime(origin: string, config: Pick<WranglerConfig, 
   }
 }
 
-export async function checkFunctionalSmoke(origin: string, collectorRecovery = true, aggregateSummary = true) {
+export async function checkFunctionalSmoke(origin: string, collectorRecovery = true, aggregateSummary = true, expectedBaseAssetCount:number = ADMITTED_BASE_ASSET_COUNT) {
+  if(collectorRecovery&&(!Number.isSafeInteger(expectedBaseAssetCount)||expectedBaseAssetCount<=0))throw new Error("Functional smoke: Base pairing identity count is unavailable");
   const results = [];
   for (const chainId of collectorRecovery ? [8453, 4663] as const : [4663] as const) {
   const prefix=`/api/chains/${chainId}`, headers={"Cache-Control":"no-cache"};
@@ -182,7 +184,7 @@ export async function checkFunctionalSmoke(origin: string, collectorRecovery = t
   if(unknownReferences)console.log(`Functional smoke: auxiliary price references degraded (${unknownReferences}/${prices.assets.length})`);
   const stocks=await (await request(`${origin}${prefix}/stocks`,{headers})).json() as {verified?:boolean;address?:string}[];
   if(!Array.isArray(stocks) || !stocks.length || !stocks.some(stock=>stock.verified===true))throw new Error("Functional smoke: no verified paired assets");
-  if (chainId === 8453 && stocks.length !== 36) throw new Error("Functional smoke: Base pairing identity count differs from the admitted 36 assets");
+  if (chainId === 8453 && stocks.length !== expectedBaseAssetCount) throw new Error(`Functional smoke: Base pairing identity count differs from the admitted ${expectedBaseAssetCount} assets`);
   if (collectorRecovery) {
     const engine = await (await request(`${origin}${prefix}/buyback/engine`, {headers})).json() as {kind?:string;destinationChainId?:number};
     if (chainId === 8453 && (engine.kind !== "base_splits_native" || engine.destinationChainId !== 4663)) throw new Error("Functional smoke: Base fee status is not chain scoped");
@@ -212,6 +214,18 @@ export function supportsBaseRecovery(source: string): boolean {
 /** Read from the rollback target's immutable source commit, never inferred from a failing HTTP request. */
 export function supportsBuybackSummary(source: string): boolean {
   return /^app\.get\(["']\/api\/buyback\/summary["']\s*,/m.test(source);
+}
+/** Only the locked rollback commit's asset list defines its expected count. */
+export function baseAssetCountFromSource(source: string): number {
+  const invalid=()=>new Error("Cannot inspect the locked rollback target's Base asset list");
+  let stocks:unknown;
+  try {stocks=JSON.parse(source);}catch{throw invalid();}
+  if(!Array.isArray(stocks)||!stocks.length||stocks.some(stock=>!stock||typeof stock!=="object"||Array.isArray(stock)||
+    !["ticker","symbol","name"].every(key=>typeof stock[key]==="string"&&stock[key].trim())||
+    typeof stock.address!=="string"||!/^0x[\da-f]{40}$/i.test(stock.address)||/^0x0{40}$/i.test(stock.address)||
+    !Number.isInteger(stock.decimals)||stock.decimals<0||stock.decimals>255)||
+    new Set(stocks.map(stock=>stock.address.toLowerCase())).size!==stocks.length)throw invalid();
+  return stocks.length;
 }
 export async function baseRollbackCompatible(input: {
   previousVars: Record<string, string>; candidateVars: Record<string, string>;
@@ -276,6 +290,12 @@ async function main() {
   const previousApp = await github<{encoding:string;content:string}>(`contents/server/app.ts?ref=${previousCommit}`);
   if (previousApp.encoding !== "base64") throw new Error("Cannot inspect the locked rollback target's API capabilities");
   const previousSummaryProtocol = supportsBuybackSummary(Buffer.from(previousApp.content,"base64").toString("utf8"));
+  let previousBaseAssetCount:number|undefined;
+  if(previousRecoveryProtocol){
+    const previousStocks=await github<{encoding:string;content:string}>(`contents/src/lib/stocks.json?ref=${previousCommit}`);
+    if(previousStocks.encoding!=="base64"||typeof previousStocks.content!=="string")throw new Error("Cannot inspect the locked rollback target's Base asset list");
+    previousBaseAssetCount=baseAssetCountFromSource(Buffer.from(previousStocks.content,"base64").toString("utf8"));
+  }
   const candidateCollectorManifest = baseCollectorDeployment as unknown as BaseCollectorManifest;
   assertSecurityTransition(previousConfig.vars,config.vars,previousSource.vars);
   const compatibleRollback = () => rollbackPreservesSafety(previousConfig.vars,config.vars) && baseRollbackCompatible({
@@ -396,7 +416,7 @@ async function main() {
           const response=await request(`${origin}/`,{headers:{"Cache-Control":"no-cache"}});
           if(response.headers.get("X-Worker-Version")!==previous)throw new Error(`Rollback activated; edge propagation pending: ${origin}`);
           await checkRuntime(origin,previousConfig);
-          await checkFunctionalSmoke(origin, previousRecoveryProtocol, previousSummaryProtocol);
+          await checkFunctionalSmoke(origin, previousRecoveryProtocol, previousSummaryProtocol, previousBaseAssetCount);
           describe(`Rollback origin checked: ${origin}; Worker ${previous}`);
         },
       }),

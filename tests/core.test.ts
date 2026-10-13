@@ -27,6 +27,7 @@ import {
 } from "viem";
 import { base } from "viem/chains";
 import {
+  ADMITTED_BASE_ASSET_COUNT,
   CONTRACTS,
   DEAD,
   STOCKS,
@@ -479,7 +480,7 @@ test("Coinbase registry excludes wrapped stocks and unlisted B20 assets", () => 
       "SPCXc",
       "TSLAc",
       "AMDc", "ASTSc", "AVGOc", "BEc", "CAKEc", "DJTc", "DUOLc", "GMEc", "HIMSc", "HTZc",
-      "LLYc", "MRNAc", "MRVLc", "MUc", "NFLXc", "ORCLc", "PFEc", "PLTRc", "PMc", "PTONc",
+      "LLYc", "MRNAc", "MRVLc", "MUc", "NFLXc", "ORCLc", "PFEc", "PLTRc", "PTONc",
       "PYPLc", "QUBTc", "RBLXc", "RDDTc", "TTWOc", "WENc",
     ],
   );
@@ -489,7 +490,7 @@ test("Coinbase registry excludes wrapped stocks and unlisted B20 assets", () => 
     assert.equal(stock.decimals, 8);
     assert.equal(stock.chainId, 8453);
   }
-  assert.equal(new Set(STOCKS.map((stock) => stock.address.toLowerCase())).size, 36);
+  assert.equal(new Set(STOCKS.map((stock) => stock.address.toLowerCase())).size, ADMITTED_BASE_ASSET_COUNT);
   for (const quoteAddress of [
     "0xFb5B41acdbA20a3230F84BE995173CFb98b8D6E7",
     "0xb200000000000000000000c85a31389D71F3ecfb",

@@ -11,11 +11,21 @@ import { encodeAbiParameters, encodeEventTopics, keccak256, parseTransaction, ty
 import { BASE_COLLECTOR_MANIFEST } from "../server/base-collector";
 import { BASE_RECOVERY_FIXED_ASSETS } from "../server/base-buyback";
 import { BASE_BUYBACK_PROTOCOL, BASE_BUYBACK_WETH, baseCollectorAbi, type BaseFeeBatch } from "../src/lib/base-buyback";
-import { STOCKS, type TokenRecord } from "../src/lib/config";
+import { ADMITTED_BASE_ASSET_COUNT, STOCKS, type TokenRecord } from "../src/lib/config";
 import { BASE_AUTOMATION_FEE_POLICY } from "../src/lib/fee-policy";
 import { baseKeeperPolicies, baseClaimCoversGas, baseClaimValueWeth, readBaseKeeperFeeRound, sortBaseKeeperTasks, assertBaseNoUnknown, updateBaseStuckMonitor, BASE_STUCK_MONITOR_INTERVAL_MS, BASE_STUCK_AFTER_MS } from "../scripts/base-buyback-keeper";
 const collector: Address = "0x1111111111111111111111111111111111111111", automation = "0x2222222222222222222222222222222222222222", hash = `0x${"cd".repeat(32)}` as Hex;
 function token(index: number): TokenRecord { return { mode: "base", deploymentChainId: 8453, feePolicy: BASE_AUTOMATION_FEE_POLICY, feeEngine: collector, address: `0x${(index + 100).toString(16).padStart(40,"0")}`, quoteAddress: STOCKS[0].address, symbol: "MEME", poolId: `0x${index.toString(16).padStart(64,"0")}`, transactionHash: hash, blockNumber: "5" } as unknown as TokenRecord; }
+const removedPm="0xB2000000000000000000008FC2A8C23cf5937b66" as Address;
+test("round13 keeper policies reject PM-paired memes before claim, release or balance monitoring eligibility",async()=>{
+ const admitted=token(12),removed={...token(13),quoteAddress:removedPm};
+ const policies=baseKeeperPolicies([admitted,removed],collector);
+ assert.equal(policies.length,ADMITTED_BASE_ASSET_COUNT+2);
+ assert(!policies.some(asset=>[removedPm,removed.address].some(address=>address.toLowerCase()===asset.address.toLowerCase())));
+ const seen:Address[]=[];
+ const round=await readBaseKeeperFeeRound({status:async()=>({available:true}) as any},[removed,admitted],collector,0,async row=>{seen.push(row.address);return 100n;});
+ assert.deepEqual(seen,[admitted.address]);assert.deepEqual(round.claims.map(row=>row.asset.address),[STOCKS[0].address]);
+});
 test("quiet fee round is bounded, fair and does not create zero-fee registration tasks or valuations", async () => {
   const tokens = Array.from({ length: 8 }, (_, index) => token(index)), seen: string[] = []; let calls = 0;
   const reader = { status: async () => { calls++; return { available: true } as any; } }, preview = async (row: TokenRecord) => { seen.push(row.address); return 0n; };
@@ -56,7 +66,7 @@ test("15-minute amount monitor alerts once after a full stuck duration, survives
 const baseline = process.env.KEEPER_REVIEW_BASELINE_DIR;
 async function mainFixture(t: TestContext) {
   const directory = await mkdtemp(join(tmpdir(), "light-base-main-")), environment = process.env, original = structuredClone(BASE_COLLECTOR_MANIFEST);
-  const key = generatePrivateKey(), keeper = privateKeyToAccount(key), calls: string[] = [], outputs: any[] = [], rows = new Map<string, BaseFeeBatch>(), transactions = new Map<string, any>();
+  const key = generatePrivateKey(), keeper = privateKeyToAccount(key), calls: string[] = [], outputs: any[] = [], rows = new Map<string, BaseFeeBatch>(), transactions = new Map<string, any>(),registry:TokenRecord[]=[];
   let maximumFee = 100n, l1Fee = 1000n, operatorFee = 1000n;
   let failObservations = false, failAlerts = false, nonce = 7, afterSign: (() => void) | undefined;
   let paused = false, failAuthority = false, balance = 10n ** 18n, startup = true, statusReads = 0, stopAfter = Infinity;
@@ -65,7 +75,7 @@ async function mainFixture(t: TestContext) {
     readContract: async ({ functionName }: any) => functionName === "verifiedAssets" ? true : functionName === "getOperatorFee" ? operatorFee : functionName.startsWith("getL1Fee") ? l1Fee : 1000n,
     getTransaction: async ({ hash: id }: any) => transactions.get(id), getTransactionReceipt: async ({ hash: id }: any) => { const tx = transactions.get(id), asset = assets.find(row => tx.input.toLowerCase().includes(row.address.slice(2).toLowerCase()))!; return { transactionHash: id, from: keeper.address, status: "success", blockHash: hash, blockNumber: 99n, gasUsed: 21000n, effectiveGasPrice: 100n, logs: [{ address: collector, data: encodeAbiParameters([{ type: "uint256" }], [100n]), topics: encodeEventTopics({ abi: baseCollectorAbi, eventName: "FeesReleased", args: { token: asset.address, receiver: automation } }) }, { address: asset.address, data: encodeAbiParameters([{ type: "uint256" }], [100n]), topics: [`0x${"ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"}`, `0x${collector.slice(2).padStart(64, "0")}`, `0x${automation.slice(2).padStart(64, "0")}`] }] }; },
     request: async ({ params }: any) => ({ transactionHash: params[0], blockHash: hash, blockNumber: "0x63", gasUsed: "0x5208", effectiveGasPrice: "0x64", l1Fee: "0x3e8" }), waitForTransactionReceipt: async () => {} };
-  const source = { close: async () => {}, runtimeControl: async () => ({ paused, revision: 1 }), tokens: async () => [], buybackBatchPage: async () => [...rows.values()].map((row, index) => ({ ...row, sequence: String(index + 1) })), saveBuybackBatch: async (row: BaseFeeBatch) => { rows.set(row.id, row); } };
+  const source = { close: async () => {}, runtimeControl: async () => ({ paused, revision: 1 }), tokens: async () => registry, buybackBatchPage: async () => [...rows.values()].map((row, index) => ({ ...row, sequence: String(index + 1) })), saveBuybackBatch: async (row: BaseFeeBatch) => { rows.set(row.id, row); } };
   const wallet = { signTransaction: async (input: any) => { calls.push("sign"); const raw = await keeper.signTransaction({ ...input, chainId: 8453 }); afterSign?.(); return raw; }, sendRawTransaction: async ({ serializedTransaction: raw }: any) => { calls.push("broadcast"); const tx = parseTransaction(raw), id = keccak256(raw); nonce++; transactions.set(id, { hash: id, type: "eip1559", from: keeper.address, to: tx.to, nonce: tx.nonce, input: tx.data, value: 0n }); return id; } };
   BASE_COLLECTOR_MANIFEST.collector.address = collector; BASE_COLLECTOR_MANIFEST.status = "deployed_verified"; BASE_COLLECTOR_MANIFEST.activation = { status: "trusted_splits_authorized", trustedSplitsAcceptance: { keeper: keeper.address } as any };
   process.env = { PATH: environment.PATH, HOME: directory, NODE_ENV: "test", DATA_DIR: directory, ALCHEMY_API_KEY: "offline", BASE_FEE_COLLECTOR_ADDRESS: collector, ENABLE_BASE_TRANSACTIONS: "true", BASE_PLATFORM_TREASURY: original.constants.operationsTreasury!, SUPABASE_URL: "https://offline.invalid", SUPABASE_SECRET_KEY: "offline", MUSEGOD_KEEPER_PRIVATE_KEY: key };
@@ -77,12 +87,27 @@ async function mainFixture(t: TestContext) {
     "node:os": { homedir: () => directory }, "../server/config": { loadEnvironment: () => {} },
     "../server/supabase-store": { SupabaseStore: class { constructor() { return source; } } },
     "../server/base-collector": { BASE_COLLECTOR_MANIFEST, verifyBaseCollectorForKeeperStartup: async () => { calls.push("startup"); if (!startup) throw Error("One-time record pending"); return graph; }, assertBaseKeeperLiveAuthority: async () => { calls.push("live"); if (failAuthority) throw Error("Live owner revoked"); } },
-    "../server/base-buyback": { BaseFeeQuoteReader: class { constructor() {} async status() { if (++statusReads >= stopAfter) process.emit("SIGTERM"); return { available: true, assetsComplete: true, paused: false, assets, automation }; } } },
+    "../server/base-buyback": { BaseFeeQuoteReader: class { constructor(private deps:any) {} async status() { if (++statusReads >= stopAfter) process.emit("SIGTERM");const policies=await this.deps.assets();return { available: true, assetsComplete: true, paused: false, assets:assets.filter(row=>policies.some((policy:any)=>policy.address.toLowerCase()===row.address.toLowerCase())), automation }; } } },
   };
   Reflect.set(globalThis, id, overrides); const hooks = registerHooks({ resolve(specifier, context, next) { if (context.parentURL !== entry.href || !overrides[specifier]) return next(specifier, context); const original = specifier.startsWith(".") ? new URL(`${specifier}.ts`, entry).href : import.meta.resolve(specifier); return { shortCircuit: true, url: `data:text/javascript,${encodeURIComponent(`export * from ${JSON.stringify(original)};\n${Object.keys(overrides[specifier]).map(name => `export const ${name}=globalThis[${JSON.stringify(id)}][${JSON.stringify(specifier)}][${JSON.stringify(name)}];`).join("\n")}`)}` }; } });
   t.after(async () => { hooks.deregister(); Reflect.deleteProperty(globalThis, id); process.env = environment; Object.assign(BASE_COLLECTOR_MANIFEST, original); await rm(directory, { recursive: true, force: true }); });
-  return { entry: await import(entry.href), directory, outputs, calls, rows, assets, keeper, setObservationFailure: (value: boolean) => { failObservations = value; }, setAlertFailure: (value: boolean) => { failAlerts = value; }, afterSign: (callback: () => void) => { afterSign = callback; }, setPaused: (value: boolean) => { paused = value; }, setAuthority: (value: boolean) => { failAuthority = !value; }, setBalance: (value: bigint) => { balance = value; }, setMaximumFee: (value: bigint) => { maximumFee = value; }, setExtraFees: (l1: bigint, operator: bigint) => { l1Fee = l1; operatorFee = operator; }, setStartup: (value: boolean) => { startup = value; }, stopAfter: (count: number) => { stopAfter = count; } };
+  return { entry: await import(entry.href), directory, outputs, calls, rows, assets, registry, keeper, setObservationFailure: (value: boolean) => { failObservations = value; }, setAlertFailure: (value: boolean) => { failAlerts = value; }, afterSign: (callback: () => void) => { afterSign = callback; }, setPaused: (value: boolean) => { paused = value; }, setAuthority: (value: boolean) => { failAuthority = !value; }, setBalance: (value: bigint) => { balance = value; }, setMaximumFee: (value: bigint) => { maximumFee = value; }, setExtraFees: (l1: bigint, operator: bigint) => { l1Fee = l1; operatorFee = operator; }, setStartup: (value: boolean) => { startup = value; }, stopAfter: (count: number) => { stopAfter = count; } };
 }
+test("round13 actual keeper round releases and monitors the admitted set plus WETH, leaving removed PM-paired income untouched",async t=>{
+ const f=await mainFixture(t),removed={...token(99),quoteAddress:removedPm};f.registry.push(removed);
+ const template=f.assets[0];
+ f.assets.splice(0,f.assets.length,...BASE_RECOVERY_FIXED_ASSETS.map(asset=>({...template,...asset,pending:asset.minimumRaw,automationBalance:asset.minimumRaw})));
+ f.assets.push({...template,address:removed.address,symbol:"PMMEME",decimals:18,pending:"1000000000000000000",automationBalance:"1000000000000000000"});
+ await f.entry.runBaseBuybackKeeper(["--audit-only","--once",`--operator-dir=${f.directory}`]);
+ const tasks=f.outputs.find(row=>row.startupVerified===true).tasks;
+ assert.equal(tasks.length,ADMITTED_BASE_ASSET_COUNT+1);assert(tasks.every((task:any)=>task.kind==="release"));
+ assert.deepEqual(new Set(tasks.map((task:any)=>task.asset.toLowerCase())),new Set(BASE_RECOVERY_FIXED_ASSETS.map(asset=>asset.address.toLowerCase())));
+ const observations=JSON.parse(await readFile(join(f.directory,"base-keeper-observations.json"),"utf8"));
+ const keys=Object.keys(observations.balances);
+ for(const asset of BASE_RECOVERY_FIXED_ASSETS)for(const holder of ["automation","collector"])assert(keys.includes(`8453:${holder}:${asset.address.toLowerCase()}`));
+ assert(!keys.some(key=>[removedPm,removed.address].some(address=>key.includes(address.toLowerCase()))));
+ assert.equal(f.calls.includes("sign"),false);assert.equal(f.rows.size,0);
+});
 for (const failure of ["pause", "authority", "balance", "gas"] as const) test(`real lightweight main loop defers ${failure} without exiting or blocking the next task`, async t => {
   const f = await mainFixture(t); if (failure === "pause") f.setPaused(true); if (failure === "authority") f.setAuthority(false); if (failure === "balance") f.setBalance(0n); if (failure === "gas") f.setMaximumFee(20_000_000_000n);
   await f.entry.runBaseBuybackKeeper(["--execute", "--once", `--operator-dir=${f.directory}`]);

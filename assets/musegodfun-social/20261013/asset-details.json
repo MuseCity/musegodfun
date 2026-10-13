@@ -1,0 +1,60 @@
+{
+  "preparedDate": "2026-10-13",
+  "timezone": "Asia/Shanghai",
+  "bioCharacters": 129,
+  "bannerGenerator": "built-in imagegen",
+  "bannerSource": "/Users/admin/.codex/generated_images/01a1331b-ab41-74b0-a749-47c069c18dc9/exec-6e5077b1-fe69-4d5a-a562-4665887fd845.png",
+  "avatarSource": "/Users/admin/.codex/generated_images/01a1331b-ab41-74b0-a749-47c069c18dc9/exec-e7349c70-d8f2-4474-aabf-b0d22abd07a3.png",
+  "avatarMethod": "Built-in imagegen; new Muse mascot portrait referencing the selected banner; PNG size export",
+  "artifacts": [
+    {
+      "file": "avatar-x-400.png",
+      "width": 400,
+      "height": 400,
+      "bytes": 299110,
+      "sha256": "7441e45221d107aa52b174713b1439d1a2158e4ddf2523f1cdea1db968736b32"
+    },
+    {
+      "file": "avatar-master-1024.png",
+      "width": 1024,
+      "height": 1024,
+      "bytes": 1961916,
+      "sha256": "47a582f24daf070a08af4ac3543445e5c3b9eda30d33074c2370a26218933094"
+    },
+    {
+      "file": "banner-x-1500x500.png",
+      "width": 1500,
+      "height": 500,
+      "bytes": 1031351,
+      "sha256": "76c6628c2d3b75e790a2e7aca6c180321f0048814577af5419a0ef609c29fb39"
+    },
+    {
+      "file": "banner-master.png",
+      "width": 2172,
+      "height": 724,
+      "bytes": 1635982,
+      "sha256": "4bb9d4125e03e71437f6456a81f559f8a2838c6cef4f9567a80fdae24e19d118"
+    }
+  ],
+  "validation": {
+    "bioUnder160": true,
+    "avatarDimensions": "400x400",
+    "bannerDimensions": "1500x500",
+    "avatarCircularCrop": "Revised Muse portrait visually checked in local HTML preview; crown, halo and face fit circular crop",
+    "bannerText": "Visually checked all three exact text strings",
+    "previewBoundary": "Local HTML preview only; no native X upload or profile update",
+    "publicChainConfig": {
+      "Base8453": {
+        "http": 200,
+        "writesEnabled": true,
+        "signingPaused": false
+      },
+      "Robinhood4663": {
+        "http": 200,
+        "writesEnabled": true,
+        "signingPaused": false
+      }
+    }
+  },
+  "avatarRevision": 2
+}

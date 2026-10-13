@@ -196,13 +196,6 @@
     "decimals": 8
   },
   {
-    "ticker": "PM",
-    "symbol": "PMc",
-    "name": "Philip Morris International Inc.",
-    "address": "0xB2000000000000000000008FC2A8C23cf5937b66",
-    "decimals": 8
-  },
-  {
     "ticker": "PTON",
     "symbol": "PTONc",
     "name": "Peloton Interactive, Inc.",

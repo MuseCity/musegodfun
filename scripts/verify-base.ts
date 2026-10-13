@@ -4,7 +4,7 @@ import { createPublicClient } from "viem";
 import { alchemyRpcTransport } from "../server/alchemy-rpc";
 import { base, robinhood } from "viem/chains";
 import { airlockAbi } from "@whetstone-research/doppler-sdk/evm";
-import { CONTRACTS, STOCKS } from "../src/lib/config";
+import { ADMITTED_BASE_ASSET_COUNT, CONTRACTS, STOCKS } from "../src/lib/config";
 import { assertStock } from "../src/lib/protocol";
 import { BASE_COLLECTOR_MANIFEST, verifyBaseCollectorForKeeperStartup, verifyBaseCollectorForOperator,
   baseCollectorGraphFingerprint } from "../server/base-collector";
@@ -90,8 +90,8 @@ for (let i = 0; i < STOCKS.length; i += 6) {
     )),
   );
 }
-if (launchAssetsFor(runtime.config).length !== 36 || STOCKS.length !== 36)
-  throw new Error("Expected the exact 36 admitted Base B20 addresses");
+if (launchAssetsFor(runtime.config).length !== ADMITTED_BASE_ASSET_COUNT || STOCKS.length !== ADMITTED_BASE_ASSET_COUNT)
+  throw new Error(`Expected the exact ${ADMITTED_BASE_ASSET_COUNT} admitted Base B20 addresses`);
 let collector: unknown = { status: "not_deployed", activation: "not_run" };
 if (runtime.config.feeEngine) {
   const activationStore = recordActivation ? new SupabaseStore(runtime.supabase!.url, runtime.supabase!.secretKey, "base", "base") : undefined;

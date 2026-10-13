@@ -1,0 +1,24 @@
+Musegod.fun · X 账号材料
+准备日期：2026-10-13（Asia/Shanghai）
+
+显示名称：musegod.fun
+计划用户名：@musegodfun（尚未检查可用性）
+网站：https://musegod.fun
+
+英文简介（129 / 160 字符）
+Memes meet stocks. Launch memes paired with tokenized stocks & assets on Base + Robinhood Chain. Powered by Doppler & Uniswap v4.
+
+中文释义（供审核）
+Memes 与股票相遇。在 Base 和 Robinhood Chain 上发行与代币化股票及其他资产配对的 meme。由 Doppler 和 Uniswap v4 支持。
+
+头像：avatar-x-400.png，400×400；母版 avatar-master-1024.png，1024×1024。
+头像更新：内置 imagegen 生成 Muse 角色特写，奶油白角色、金色皇冠与光环、金黄色背景，与 banner 保持一致。
+Banner：banner-x-1500x500.png，1500×500。
+Banner 文案：musegod.fun / Memes meet stocks. / BASE + ROBINHOOD CHAIN
+视觉：官网奶油白、金黄色、暖黑；衬线品牌字；Muse 角色。
+
+本次仅准备材料，没有修改、上传或发布 X 账号资料。
+简介不放具体资产数量、销毁量或收益承诺，以免资料随时间过期。
+
+尺寸依据：https://help.x.com/en/managing-your-account/how-to-customize-your-profile
+产品依据：https://musegod.fun；现有 X 账号公开内容；本地 index.html、src/App.tsx、docs/SPEC.md。

@@ -11,6 +11,7 @@ import { BASE_COLLECTOR_MANIFEST, baseCollectorExpectedRuntime, baseCollectorGra
   BASE_SPLITS_IMPLEMENTATION, BASE_SPLITS_IMPLEMENTATION_HASH, BASE_SPLITS_PROXY_HASH } from "../server/base-collector";
 import { keccak256, padHex, zeroHash, type Address } from "viem";
 import { persistBaseActivationRecord } from "../server/base-activation-record";
+import { ADMITTED_BASE_ASSET_COUNT } from "../src/lib/config";
 const treasury="0xc4F87C3715374445C4657aa14c47CBB339b59d1A",collector="0x1111111111111111111111111111111111111111";
 const automationReceiver="0x2222222222222222222222222222222222222222" as Address;
 
@@ -143,7 +144,7 @@ test("Base counter GETs retain five-minute cache even with no-cache; removed led
  t.mock.method(service.client,"getCode",async()=>{throw Error("Public counters must not redo launch validation");});
  const read=async()=>{const response=await fetch(`${f.origin}/api/chains/8453/buyback/engine`,{headers:{"cache-control":"no-cache"}});assert.equal(response.status,200);return response.json();};
  try {
-  const values=await Promise.all(Array.from({length:4},read));for(const value of values){assert.equal(value.available,true);assert.equal(value.assets.length,37);assert.equal(value.assets[0].totalClaimed,"8");assert.equal("vaultLedger" in value,false);assert.equal("totalBridgedWeth" in value,false);assert.equal("batches" in value,false);}
+  const values=await Promise.all(Array.from({length:4},read));for(const value of values){assert.equal(value.available,true);assert.equal(value.assets.length,ADMITTED_BASE_ASSET_COUNT+1);assert.equal(value.assets[0].totalClaimed,"8");assert.equal("vaultLedger" in value,false);assert.equal("totalBridgedWeth" in value,false);assert.equal("batches" in value,false);}
   assert.equal(blockReads,1);assert.equal(multicalls,1);now+=299999;await read();assert.equal(multicalls,1);now++;await read();assert.equal(multicalls,2);
   for(const chain of [8453,4663])for(const path of ["custody","vault-ledger"]){const response=await fetch(`${f.origin}/api/chains/${chain}/buyback/${path}`);assert.equal(response.status,404);}
  }finally{await f.close();}

@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { encodeAbiParameters, encodeEventTopics, erc20Abi, parseAbiItem, type Address, type Hex, type AbiEvent } from "viem";
 import { BaseFeeQuoteReader, BASE_RECOVERY_FIXED_ASSETS, readTrustedBaseRecoveryAssets, canonicalBaseReceipt, readCanonicalBaseTransactionFee, collectorClaimEvidence, collectorReleaseEvidence, collectorUntrackedSyncEvidence } from "../server/base-buyback";
-import { BASE_BUYBACK_PROTOCOL, baseCollectorAbi } from "../src/lib/base-buyback";
-import { STOCKS } from "../src/lib/config";
+import { BASE_BUYBACK_PROTOCOL, BASE_BUYBACK_WETH, baseCollectorAbi } from "../src/lib/base-buyback";
+import { ADMITTED_BASE_ASSET_COUNT, STOCKS } from "../src/lib/config";
 import { BASE_AUTOMATION_FEE_POLICY } from "../src/lib/fee-policy";
 const address=(n:number)=>`0x${n.toString(16).padStart(40,"0")}` as Address,hash=(n:number)=>`0x${n.toString(16).padStart(64,"0")}` as Hex;
 const collector=address(1),automation=address(2),token=address(3),manager="0xBDF938149ac6a781F94FAa0ed45E6A0e984c6544" as Address,pool=hash(4);
@@ -23,14 +23,14 @@ test("Base counters use a single same-block multicall without source history or 
  const client=counterClient({totalClaimed:9n,totalReleased:3n,totalUntrackedReleased:2n,balanceOf:999n});
  const reader=new BaseFeeQuoteReader({client:client as any,collector,verifiedGraph:fixedGraph});
  const status=await reader.status();assert.equal(status.available,true);assert.equal(status.protocol,BASE_BUYBACK_PROTOCOL);assert.equal(status.kind,"base_splits_native");
- assert.equal(status.assets.length,37);for(const row of status.assets){assert.equal(row.totalClaimed,"9");assert.equal(row.totalReleased,"3");assert.equal(row.pending,"6");assert.equal(row.totalUntrackedReleased,"2");assert.equal(row.automationBalance,"999");}
+ assert.equal(status.assets.length,ADMITTED_BASE_ASSET_COUNT+1);for(const row of status.assets){assert.equal(row.totalClaimed,"9");assert.equal(row.totalReleased,"3");assert.equal(row.pending,"6");assert.equal(row.totalUntrackedReleased,"2");assert.equal(row.automationBalance,"999");}
  assert.equal("totalBridgedWeth" in status,false);assert.equal("ledgerComplete" in status,false);assert.equal("batches" in status,false);
  assert.deepEqual(client.metrics(),{headers:1,calls:1});assert.equal("quoteConversion" in reader,false);assert.equal("validateForSigning" in reader,false);
 });
 test("Base summary cache deduplicates concurrent reads and cannot be forced below five minutes",async()=>{
  let now=1000;const client=counterClient(),reader=new BaseFeeQuoteReader({client:client as any,collector,verifiedGraph:fixedGraph,now:()=>now});
  const values=await Promise.all(Array.from({length:12},()=>reader.status()));assert.equal(values.every(value=>value.checkedAt===1000),true);
- assert.deepEqual(client.metrics(),{headers:1,calls:1});values[0].assets.length=0;assert.equal((await reader.status()).assets.length,37);
+ assert.deepEqual(client.metrics(),{headers:1,calls:1});values[0].assets.length=0;assert.equal((await reader.status()).assets.length,ADMITTED_BASE_ASSET_COUNT+1);
  now+=299999;await reader.status();assert.deepEqual(client.metrics(),{headers:1,calls:1});now++;await reader.status();assert.deepEqual(client.metrics(),{headers:2,calls:2});
 });
 test("task reads retain independent pending and unknown buckets; paused Collector is observed",async()=>{
@@ -41,7 +41,7 @@ test("task reads retain independent pending and unknown buckets; paused Collecto
 });
 test("one failed or inconsistent asset never fabricates zero totals or removes healthy counters",async()=>{
  const failing=STOCKS[0].address,client=counterClient({totalClaimed:5n,totalReleased:3n},failing);
- const status=await new BaseFeeQuoteReader({client:client as any,collector,verifiedGraph:fixedGraph}).status();assert.equal(status.available,true);assert.equal(status.assetsComplete,false);assert.equal(status.assets.length,36);assert(!status.assets.some(row=>row.address===failing));
+ const status=await new BaseFeeQuoteReader({client:client as any,collector,verifiedGraph:fixedGraph}).status();assert.equal(status.available,true);assert.equal(status.assetsComplete,false);assert.equal(status.assets.length,ADMITTED_BASE_ASSET_COUNT);assert(!status.assets.some(row=>row.address===failing));
  const broken=await new BaseFeeQuoteReader({client:counterClient({totalClaimed:2n,totalReleased:3n}) as any,collector,verifiedGraph:fixedGraph}).status();assert.equal(broken.assetsComplete,false);assert.equal(broken.assets.length,0);
 });
 test("counter failure retains a labeled previous sample without extending its observation time",async()=>{
@@ -99,16 +99,30 @@ test("automatic assets use exact fixed addresses and complete private registrati
  const quote=STOCKS[0],record={address:token,symbol:"OWN",creator:address(8),poolId:pool,quoteAddress:quote.address,mode:"base",deploymentChainId:8453,
   feePolicy:BASE_AUTOMATION_FEE_POLICY,feeEngine:collector,transactionHash:hash(22),blockNumber:"1"};
  const service={store:{tokens:async()=>[record]},client:new Proxy({}, {get(){throw Error("Registry reuse cannot perform RPC")}})} as any;
- const rows=await readTrustedBaseRecoveryAssets(service,collector);assert.equal(rows.length,38);assert.equal(rows.find(row=>row.address===token)?.decimals,18);
+ const rows=await readTrustedBaseRecoveryAssets(service,collector);assert.equal(rows.length,ADMITTED_BASE_ASSET_COUNT+2);assert.equal(rows.find(row=>row.address===token)?.decimals,18);
  for(const change of [{creator:null},{poolId:"0x"},{quoteAddress:automation},{transactionHash:null},{blockNumber:null},{blockNumber:"0"},{feeEngine:automation},{feePolicy:"other"},{mode:"robinhood"},{deploymentChainId:4663}]) {
-  service.store.tokens=async()=>[{...record,...change}];assert.equal((await readTrustedBaseRecoveryAssets(service,collector)).length,37,JSON.stringify(change));
+  service.store.tokens=async()=>[{...record,...change}];assert.equal((await readTrustedBaseRecoveryAssets(service,collector)).length,ADMITTED_BASE_ASSET_COUNT+1,JSON.stringify(change));
  }
- service.store.tokens=async()=>[{...record,symbol:"L".repeat(100)}];assert.equal((await readTrustedBaseRecoveryAssets(service,collector))[37].symbol.length,64);
- assert.equal((await readTrustedBaseRecoveryAssets(service,collector,automation)).length,37);
+ service.store.tokens=async()=>[{...record,symbol:"L".repeat(100)}];assert.equal((await readTrustedBaseRecoveryAssets(service,collector))[ADMITTED_BASE_ASSET_COUNT+1].symbol.length,64);
+ assert.equal((await readTrustedBaseRecoveryAssets(service,collector,automation)).length,ADMITTED_BASE_ASSET_COUNT+1);
 });
 test("thousands of dormant registered issuances require no per-token balance or creation calls",async()=>{
  const records=Array.from({length:1200},(_,index)=>({address:address(1000+index),symbol:"OWN",creator:address(8),poolId:pool,quoteAddress:STOCKS[0].address,mode:"base",deploymentChainId:8453,
   feePolicy:BASE_AUTOMATION_FEE_POLICY,feeEngine:collector,transactionHash:hash(1000+index),blockNumber:"1"}));
  const service={store:{tokens:async()=>records},client:new Proxy({}, {get(){throw Error("Dormant identity must not use RPC")}})} as any;
- assert.equal((await readTrustedBaseRecoveryAssets(service,collector)).length,1237);
+ assert.equal((await readTrustedBaseRecoveryAssets(service,collector)).length,1200+ADMITTED_BASE_ASSET_COUNT+1);
+});
+test("round13 Base quote policies read every admitted B20 plus WETH and never query PM, even from a removed-pair registry row",async()=>{
+ const pm="0xB2000000000000000000008FC2A8C23cf5937b66" as Address,removedMeme=address(999),seen:string[]=[];
+ const record={address:removedMeme,symbol:"PMMEME",creator:address(8),poolId:pool,quoteAddress:pm,mode:"base",deploymentChainId:8453,
+  feePolicy:BASE_AUTOMATION_FEE_POLICY,feeEngine:collector,transactionHash:hash(22),blockNumber:"1"};
+ const service={store:{tokens:async()=>[record]}} as any;
+ const policies=await readTrustedBaseRecoveryAssets(service,collector);
+ assert.equal(policies.length,ADMITTED_BASE_ASSET_COUNT+1);
+ assert.deepEqual(new Set(policies.map(row=>row.address.toLowerCase())),new Set([...STOCKS.map(row=>row.address),BASE_BUYBACK_WETH].map(value=>value.toLowerCase())));
+ assert(!policies.some(row=>[pm,removedMeme].some(value=>row.address.toLowerCase()===value.toLowerCase())));
+ const client=counterClient(),multicall=client.multicall;
+ client.multicall=async(input:any)=>{for(const row of input.contracts)seen.push(row.address.toLowerCase(),...((row.args??[]) as string[]).map(value=>value.toLowerCase()));return multicall(input);};
+ const reader=new BaseFeeQuoteReader({client:client as any,collector,verifiedGraph:fixedGraph,assets:()=>readTrustedBaseRecoveryAssets(service,collector),includeTaskState:true});
+ const status=await reader.status();assert.equal(status.assets.length,ADMITTED_BASE_ASSET_COUNT+1);assert(!seen.includes(pm.toLowerCase()));
 });

@@ -7,9 +7,10 @@ import type { BuildInfo } from "../src/lib/build-info";
 import { assertBuildManifest, assertCandidateRuntimeBindings, assertFrozenBuild, assertLaunchRuntime, assertReleaseCheckout, publishCandidate, ReleaseFailure, requireSingleActiveVersion, runtimeVarsFromBindings, sha256, snapshotBuild, type ReleaseLifecycle } from "../scripts/release-policy";
 import { FEE_POLICY, ENGINE_FEE_POLICY, BASE_AUTOMATION_FEE_POLICY } from "../src/lib/fee-policy";
 import { CURVE_POLICY } from "../src/lib/launch-curve";
-import { checkRuntime, checkFunctionalSmoke, baseRollbackCompatible, supportsBaseRecovery, supportsBuybackSummary } from "../scripts/release";
+import { checkRuntime, checkFunctionalSmoke, baseRollbackCompatible, supportsBaseRecovery, supportsBuybackSummary, baseAssetCountFromSource } from "../scripts/release";
 import { BASE_COLLECTOR_MANIFEST, BASE_SPLITS_FACTORY, BASE_SPLITS_FACTORY_HASH, BASE_SPLITS_IMPLEMENTATION, BASE_SPLITS_IMPLEMENTATION_HASH, BASE_SPLITS_PROXY_HASH, type BaseCollectorManifest } from "../server/base-collector";
 import { BASE_NATIVE_DESTINATION_POLICY } from "../src/lib/base-buyback";
+import { ADMITTED_BASE_ASSET_COUNT, STOCKS } from "../src/lib/config";
 
 const commit = "a".repeat(40), newerCommit = "b".repeat(40);
 const previousVersion = "11111111-1111-4111-8111-111111111111", candidateVersion = "22222222-2222-4222-8222-222222222222";
@@ -284,7 +285,7 @@ test("functional release smoke covers prices, verified assets and a read-only ca
   context.mock.method(globalThis,"fetch",async(url:string,init?:RequestInit)=>{
     const path=new URL(url).pathname;
     if(path.endsWith("/first-buy/prices"))return Response.json({assets:prices.map(priceUsd=>({priceUsd}))});
-    if(path.endsWith("/stocks"))return Response.json(Array.from({length:path.includes("8453")?36:1},()=>({verified:true})));
+    if(path.endsWith("/stocks"))return Response.json(Array.from({length:path.includes("8453")?ADMITTED_BASE_ASSET_COUNT:1},()=>({verified:true})));
     if(path.endsWith("/buyback/engine"))return Response.json(path.includes("8453")?{kind:"base_splits_native",destinationChainId:4663}:{});
     if(path.endsWith("/buyback/summary"))return Response.json({chainId:4663,scope:"shared_robinhood",available:true,vaultMuseToDead:"0",deadTotalMuse:"0"});
     if(path.endsWith("/tokens"))return Response.json({items:[{address:runtimeVars.PLATFORM_TREASURY}],nextCursor:null});
@@ -299,6 +300,47 @@ test("functional release smoke covers prices, verified assets and a read-only ca
       "auxiliary references do not disable valid transaction/identity checks");
   }
   prices=["1","NaN"];await assert.rejects(checkFunctionalSmoke(releaseOrigin),/malformed payment price/);
+});
+
+test("round13 candidate smoke requires the current admitted Base asset count, not the previous 36",async context=>{
+  let baseCount=ADMITTED_BASE_ASSET_COUNT;
+  context.mock.method(globalThis,"fetch",async(url:string)=>{
+    const path=new URL(url).pathname;
+    if(path.endsWith("/first-buy/prices"))return Response.json({assets:[{priceUsd:"1"},{priceUsd:"2500"}]});
+    if(path.endsWith("/stocks"))return Response.json(Array.from({length:path.includes("8453")?baseCount:1},()=>({verified:true})));
+    if(path.endsWith("/buyback/engine"))return Response.json(path.includes("8453")?{kind:"base_splits_native",destinationChainId:4663}:{});
+    assert(path.endsWith("/tokens"));return Response.json([]);
+  });
+  await checkFunctionalSmoke(releaseOrigin,true,false);
+  for(const count of [ADMITTED_BASE_ASSET_COUNT-1,36]){baseCount=count;await assert.rejects(checkFunctionalSmoke(releaseOrigin,true,false),/Base pairing identity count/);}
+});
+
+test("round13 rollback smoke uses its immutable source list of 36 and does not change candidate expectations",async context=>{
+  const pm={ticker:"PM",symbol:"PMc",name:"Philip Morris",address:"0xB2000000000000000000008FC2A8C23cf5937b66",decimals:8};
+  const targetStocks=[...STOCKS.filter(stock=>stock.address.toLowerCase()!==pm.address.toLowerCase()),pm];
+  const rollbackCount=baseAssetCountFromSource(JSON.stringify(targetStocks));assert.equal(rollbackCount,36);
+  let baseCount=rollbackCount;
+  context.mock.method(globalThis,"fetch",async(url:string)=>{
+    const path=new URL(url).pathname;
+    if(path.endsWith("/first-buy/prices"))return Response.json({assets:[{priceUsd:"1"},{priceUsd:"2500"}]});
+    if(path.endsWith("/stocks"))return Response.json(Array.from({length:path.includes("8453")?baseCount:1},()=>({verified:true})));
+    if(path.endsWith("/buyback/engine"))return Response.json(path.includes("8453")?{kind:"base_splits_native",destinationChainId:4663}:{});
+    assert(path.endsWith("/tokens"));return Response.json([]);
+  });
+  await checkFunctionalSmoke(releaseOrigin,true,false,rollbackCount);
+  await assert.rejects(checkFunctionalSmoke(releaseOrigin,true,false),/Base pairing identity count/);
+  baseCount=ADMITTED_BASE_ASSET_COUNT;await checkFunctionalSmoke(releaseOrigin,true,false);
+  await assert.rejects(checkFunctionalSmoke(releaseOrigin,true,false,rollbackCount),/Base pairing identity count/);
+});
+
+test("round13 malformed or missing rollback asset lists never manufacture a usable count",async context=>{
+  const stock=STOCKS[0];
+  for(const source of [undefined,"", "not JSON","null","{}","[]",JSON.stringify([{}]),JSON.stringify([stock,stock]),
+    JSON.stringify([{...stock,address:"0x0000000000000000000000000000000000000000"}]),JSON.stringify([{...stock,decimals:-1}])])
+    assert.throws(()=>baseAssetCountFromSource(source as string),/locked rollback target's Base asset list/);
+  let calls=0;context.mock.method(globalThis,"fetch",async()=>{calls++;throw Error("Invalid expected counts must be rejected before HTTP");});
+  for(const count of [0,-1,NaN,Infinity,1.5])await assert.rejects(checkFunctionalSmoke(releaseOrigin,true,false,count),/Base pairing identity count is unavailable/);
+  assert.equal(calls,0);
 });
 
 function deployedCollectorManifest(): BaseCollectorManifest {

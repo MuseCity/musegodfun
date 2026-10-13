@@ -63,6 +63,8 @@ export const STOCKS: Stock[] = stockData.map((s) => ({
   standard: "B20",
   sourceUrl: COINBASE_STOCKS_SOURCE,
 }));
+// Current admitted Base identities; historical quote evidence retains its original scope.
+export const ADMITTED_BASE_ASSET_COUNT = 35;
 export const ROBINHOOD_STOCKS: Stock[] = robinhoodData.map((s) => ({
   ...s, address: getAddress(s.address), chainId: 4663,
   issuer: s.category === "OTHERS" ? "Token issuer" : "Robinhood",
