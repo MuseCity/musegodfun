@@ -84,8 +84,13 @@ test("a USDG payment is refused when the stablecoin is another token, the sender
 const transferCall = (to: Address, amount: bigint) => encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [to, amount] });
 /** No receipt: the node knows the transaction (`pending`, still in its mempool, with `tx` replacing its fields), has never seen it
  * (`missing`), or its lookup fails. By default the pending transaction is a real payer's USDG payment: transfer(treasury, 10 USDG) on USDG. */
-const unmined = (transaction: "pending" | "missing" | Error, tx: object = {}) => ({
+const unmined = (transaction: "pending" | "missing" | Error, tx: object = {}, headTimestamp = 1000n) => ({
   getTransactionReceipt: async () => { throw new TransactionReceiptNotFoundError({ hash }); },
+  // The chain head while the transaction is pending: only `blockTag: "latest"` is ever asked for.
+  getBlock: async (args: { blockTag?: string }) => {
+    assert.deepEqual(args, { blockTag: "latest" });
+    return { hash: `0x${"22".repeat(32)}`, timestamp: headTimestamp };
+  },
   getTransaction: async () => {
     if (transaction instanceof Error) throw transaction;
     if (transaction === "missing") throw new TransactionNotFoundError({ hash });
@@ -96,7 +101,7 @@ const unmined = (transaction: "pending" | "missing" | Error, tx: object = {}) =>
 const pendingKind = async (p: Promise<unknown>) => p.then(() => "ok", (e) => e instanceof NftLaunchError ? (e.retry ? `retry:${e.retry}` : `${e.code}:${e.message}`) : "node");
 const show = (value: unknown) => JSON.stringify(value, (_k, v) => typeof v === "bigint" ? String(v) : v);
 
-test("a pending ETH payment counts as unconfirmed only with the platform's quote MAC and exactly its wei; any other shape is final at once", async () => {
+test("a pending ETH payment counts as unconfirmed only with the platform's quote MAC, at least its wei and a head inside its mining window", async () => {
   const wei = "5000000000000000", expiresAt = 2000;
   const fee = { asset: "native" as const, txHash: hash, wei, expiresAt, mac: launchFeeQuoteMac(key, 4663, payer, wei, expiresAt) };
   const native = { fee, payer, recipient: ops, chainId: 4663 as const, keys: [key] };
@@ -104,6 +109,12 @@ test("a pending ETH payment counts as unconfirmed only with the platform's quote
   assert.equal(await pendingKind(verifyLaunchFeePayment(unmined("pending", exact), native)), "retry:unconfirmed", "a real payer's quoted transfer, still in the mempool");
   assert.equal(await pendingKind(verifyLaunchFeePayment(unmined("pending", exact), { ...native, keys: ["n".repeat(32), key] })), "retry:unconfirmed",
     "a quote signed before a key rotation still counts");
+  assert.equal(await pendingKind(verifyLaunchFeePayment(unmined("pending", { ...exact, value: 5000000000000001n }), native)), "retry:unconfirmed",
+    "more than the quote can still be mined and accepted, as a mined overpayment is");
+  // Block timestamps never go backwards: the head past expiresAt plus the 10-minute grace means no block can include it in time.
+  assert.equal(await pendingKind(verifyLaunchFeePayment(unmined("pending", exact, 2000n + 600n), native)), "retry:unconfirmed", "the head exactly at the bound");
+  assert.equal(await pendingKind(verifyLaunchFeePayment(unmined("pending", exact, 2000n + 601n), native)),
+    "NFT_FEE_INVALID:The launch fee payment is not valid: the quote expired.", "the head one second past the bound");
   const cases: [string, object, typeof native][] = [
     ["a quote MAC the platform never signed", exact, { ...native, fee: { ...fee, mac: launchFeeQuoteMac("x".repeat(32), 4663, payer, wei, expiresAt) } }],
     ["no MAC", exact, { ...native, fee: { ...fee, mac: undefined as never } }],
@@ -112,7 +123,6 @@ test("a pending ETH payment counts as unconfirmed only with the platform's quote
     ["a claim that lowers the signed wei", { ...exact, value: 1n }, { ...native, fee: { ...fee, wei: "1" } }],
     ["one wei", { ...exact, value: 1n }, native],
     ["one wei short", { ...exact, value: 4999999999999999n }, native],
-    ["more than the quote", { ...exact, value: 5000000000000001n }, native],
     ["another recipient", { ...exact, to: stranger }, native],
     ["a contract creation", { ...exact, to: null }, native],
     ["calldata", { ...exact, input: "0xdeadbeef" }, native],
@@ -366,16 +376,37 @@ test("the Supabase store queries the same hash-and-creator predicate", async () 
   assert.equal(await store.tokenUsingLaunchFee(hash, payer), null);
 });
 
+test("Supabase: the guards are ready only when musegod_nft_guards_ready answers true; any failure, including a missing migration, is not ready", async () => {
+  const store = new SupabaseStore("https://fixture.supabase.co", "test-server-key", "verify-fee");
+  const original = globalThis.fetch, sent: { method?: string; url: string; body: unknown }[] = [];
+  let reply: () => Response = () => Response.json(true);
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    sent.push({ method: init?.method, url: String(url), body: init?.body === undefined ? undefined : JSON.parse(String(init.body)) });
+    return reply();
+  }) as typeof fetch;
+  try {
+    assert.equal(await store.nftGuardsReady(), true);
+    assert.deepEqual(sent, [{ method: "POST", url: "https://fixture.supabase.co/rest/v1/rpc/musegod_nft_guards_ready", body: {} }]);
+    const notReady: [string, () => Response][] = [
+      ["false", () => Response.json(false)], ["a non-boolean", () => Response.json("true")], ["an empty body", () => new Response(null, { status: 204 })],
+      ["the function is missing (no migration)", () => Response.json({ code: "PGRST202", message: "Could not find the function" }, { status: 404 })],
+      ["a server error", () => new Response("down", { status: 500 })], ["a network failure", () => { throw new TypeError("fetch failed"); }],
+    ];
+    for (const [why, answer] of notReady) { reply = answer; assert.equal(await store.nftGuardsReady(), false, why); }
+  } finally { globalThis.fetch = original; }
+});
+
 // ---- service -----------------------------------------------------------------------------
 const nftModeOn: NonNullable<RuntimeConfig["nftMode"]> = { enabled: true, vaultFactory: null, launchFeeUsd: 10, freeCollections: [], verifiedCollections: [] };
-function feeService(options: { price?: string; key?: string | null; previous?: string[]; treasury?: Address | null; nftMode?: RuntimeConfig["nftMode"]; store?: object; tx?: object; timestamp?: bigint } = {}) {
+function feeService(options: { price?: string; key?: string | null; previous?: string[]; treasury?: Address | null; nftMode?: RuntimeConfig["nftMode"]; store?: object; tx?: object; timestamp?: bigint;
+  guards?: boolean } = {}) {
   const calls = { valuations: 0, valued: [] as Address[] };
   const config = { mode: "robinhood", chainId: 4663, deploymentChainId: 4663, treasury: options.treasury === null ? undefined : options.treasury ?? ops,
     writesEnabled: true, blockReason: null, nftMode: options.nftMode ?? nftModeOn } as RuntimeConfig;
   const service = Object.assign(Object.create(LaunchpadService.prototype), {
     runtime: { config, secrets: { planAttestationKey: options.key === null ? undefined : options.key ?? key, planAttestationPreviousKeys: options.previous ?? [] } },
     client: client({ logs: [transferLog(payer, ops, usdg.amount)] }, options.tx, options.timestamp),
-    store: options.store ?? { tokenUsingLaunchFee: async () => null },
+    store: options.store ?? { tokenUsingLaunchFee: async () => null, nftGuardsReady: async () => options.guards ?? true },
     openingValuation: async (address: Address) => { calls.valuations++; calls.valued.push(address); return { quotePriceUsd: options.price ?? "2000" }; },
   }) as LaunchpadService;
   return { service, calls };
@@ -406,6 +437,9 @@ test("launchFeeQuote fails closed without a plan-attestation key, a usable price
   const off = feeService({ nftMode: { ...nftModeOn, enabled: false } });
   assert.equal(await codeOf(off.service.launchFeeQuote(payer)), "NFT_MODE_DISABLED");
   assert.equal(off.calls.valuations, 0);
+  const unguarded = feeService({ guards: false });
+  assert.equal(await codeOf(unguarded.service.launchFeeQuote(payer)), "NFT_MODE_DISABLED", "the flag without the database's single-use guards is off");
+  assert.equal(unguarded.calls.valuations, 0);
   assert.match(await codeOf(feeService().service.launchFeeQuote("not-an-address")), /ZodError|Invalid|address/i, "a malformed payer is a validation error, not a quote");
 });
 

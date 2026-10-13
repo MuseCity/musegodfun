@@ -6,7 +6,7 @@ import { execFileSync } from "node:child_process";
 const postgresImage="postgres@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73";
 let dockerAvailable=false;
 try {execFileSync("docker",["image","inspect",postgresImage],{stdio:"ignore"});dockerAvailable=true;}catch{}
-test("runtime migration enforces service-only control, shared quotas and compatible recovery restore",{skip:!dockerAvailable,timeout:30_000},()=>{
+test("runtime migration enforces service-only control, shared quotas and compatible recovery restore, and the NFT single-use guards",{skip:!dockerAvailable,timeout:30_000},()=>{
   let container="";
   const sql=(source:string)=>execFileSync("docker",["exec","-i",container,"psql","-U","postgres","-X","-v","ON_ERROR_STOP=1"],{encoding:"utf8",input:source,stdio:["pipe","pipe","pipe"]});
   try {
@@ -14,7 +14,7 @@ test("runtime migration enforces service-only control, shared quotas and compati
     container=execFileSync("docker",["run","--detach","--rm","--network","none","--tmpfs","/var/lib/postgresql/data","--env","POSTGRES_HOST_AUTH_METHOD=trust",postgresImage,"-c","listen_addresses="],{encoding:"utf8"}).trim();
     execFileSync("docker",["exec",container,"sh","-c","for i in $(seq 1 100); do test \"$(cat /proc/1/comm)\" = postgres && pg_isready -U postgres >/dev/null && exit 0; sleep 0.1; done; exit 1"],{stdio:"pipe"});
     sql("CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS;");
-    for(const migration of ["20261005000537_musegod_store.sql","20261007094402_runtime_safety_controls.sql"])
+    for(const migration of ["20261005000537_musegod_store.sql","20261007094402_runtime_safety_controls.sql","20261014120000_nft_single_use_indexes.sql"])
       sql(readFileSync(`supabase/migrations/${migration}`,"utf8"));
     sql(`SET ROLE service_role;
       DO $$ BEGIN IF NOT (SELECT paused FROM public.musegod_runtime_controls WHERE scope='robinhood') THEN RAISE EXCEPTION 'default must pause'; END IF; END $$;
@@ -41,6 +41,36 @@ test("runtime migration enforces service-only control, shared quotas and compati
       RESET ROLE;`);
     const rls=sql("SELECT bool_and(relrowsecurity) FROM pg_class WHERE relname IN ('musegod_runtime_controls','musegod_runtime_budget','musegod_runtime_circuit','musegod_prepare_slots');");
     assert.match(rls,/\bt\b/);
+    // NFT single-use guards (20261014120000): each index refuses exactly what the store lookups treat as equal, per scope, and the readiness
+    // function sees both, is service-only, and reports a missing guard.
+    sql(`SET ROLE service_role;
+      DO $$ BEGIN IF public.musegod_nft_guards_ready() IS NOT TRUE THEN RAISE EXCEPTION 'guards not ready'; END IF; END $$;
+      INSERT INTO public.musegod_tokens VALUES('base','0xa1','0xt1',1,'{"launchFee":{"asset":"stable","txHash":"0xAB"},"nft":{"chainId":4663,"contract":"0xC0","tokenId":"1"},"nftVerification":{"status":"verified"}}');
+      INSERT INTO public.musegod_tokens VALUES('base','0xa1','0xt1',1,'{"launchFee":{"asset":"stable","txHash":"0xAB"},"nft":{"chainId":4663,"contract":"0xC0","tokenId":"1"},"nftVerification":{"status":"verified"}}') ON CONFLICT(scope,address) DO NOTHING;
+      DO $$ BEGIN
+        BEGIN INSERT INTO public.musegod_tokens VALUES('base','0xa2','0xt2',2,'{"launchFee":{"asset":"stable","txHash":"0xab"}}') ON CONFLICT(scope,address) DO NOTHING; RAISE EXCEPTION 'fee spent twice';
+        EXCEPTION WHEN unique_violation THEN IF SQLERRM NOT LIKE '%"musegod_tokens_launch_fee_once"%' THEN RAISE; END IF; END;
+        BEGIN INSERT INTO public.musegod_tokens VALUES('base','0xa3','0xt3',3,'{"nft":{"chainId":4663,"contract":"0xc0","tokenId":"1"},"nftVerification":{"status":"verified"}}'); RAISE EXCEPTION 'second verified coin';
+        EXCEPTION WHEN unique_violation THEN IF SQLERRM NOT LIKE '%"musegod_tokens_nft_verified_once"%' THEN RAISE; END IF; END;
+      END $$;
+      INSERT INTO public.musegod_tokens VALUES('base','0xa4','0xt4',4,'{"nft":{"chainId":4663,"contract":"0xc0","tokenId":"1"},"nftVerification":{"status":"rejected","reason":"already_launched"}}');
+      INSERT INTO public.musegod_tokens VALUES('base','0xa5','0xt5',5,'{"nft":{"chainId":4663,"contract":"0xC0","tokenId":"1"},"nftVerification":{"status":"unverified","reason":"fee_unconfirmed","feeClaim":{"asset":"stable","txHash":"0xab"}}}');
+      INSERT INTO public.musegod_tokens VALUES('base','0xa6','0xt6',6,'{"nft":{"chainId":4663,"contract":"0xc0","tokenId":"2"},"nftVerification":{"status":"verified"}}');
+      DO $$ BEGIN
+        BEGIN UPDATE public.musegod_tokens SET payload=jsonb_set(payload,'{nftVerification}','{"status":"verified"}') WHERE scope='base' AND address='0xa5'; RAISE EXCEPTION 'verified by compare-and-swap';
+        EXCEPTION WHEN unique_violation THEN NULL; END;
+      END $$;
+      INSERT INTO public.musegod_tokens VALUES('verify-other','0xa1','0xt1',1,'{"launchFee":{"asset":"stable","txHash":"0xab"},"nft":{"chainId":4663,"contract":"0xc0","tokenId":"1"},"nftVerification":{"status":"verified"}}');
+      DO $$ BEGIN IF (SELECT count(*) FROM public.musegod_tokens) <> 5 THEN RAISE EXCEPTION 'unexpected token rows'; END IF; END $$;
+      RESET ROLE; SET ROLE anon;
+      DO $$ BEGIN BEGIN PERFORM public.musegod_nft_guards_ready(); RAISE EXCEPTION 'public guard function'; EXCEPTION WHEN insufficient_privilege THEN NULL; END; END $$;
+      RESET ROLE;
+      BEGIN; DROP INDEX public.musegod_tokens_nft_verified_once;
+      DO $$ BEGIN IF public.musegod_nft_guards_ready() THEN RAISE EXCEPTION 'a missing guard was not reported'; END IF; END $$;
+      ROLLBACK;
+      SET ROLE service_role;
+      DO $$ BEGIN IF public.musegod_nft_guards_ready() IS NOT TRUE THEN RAISE EXCEPTION 'guards lost'; END IF; END $$;
+      RESET ROLE;`);
   }finally{
     if(container)try{execFileSync("docker",["rm","-f",container],{stdio:"ignore"});}catch{}
   }

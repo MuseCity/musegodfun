@@ -420,7 +420,7 @@ function statusFixture(over: { owner?: Address; existing?: Set<string>; failName
     runtime: { config: { mode: "robinhood", chainId: 4663, deploymentChainId: 4663, treasury: null, writesEnabled: false, blockReason: null,
       nftMode: { enabled: true, vaultFactory: null, launchFeeUsd: 10, freeCollections: [], verifiedCollections: [] } } },
     assertNetwork: async () => {},
-    store: { verifiedNftCoin: async (key: string) => over.existing?.has(key) ? { address: account } : null },
+    store: { verifiedNftCoin: async (key: string) => over.existing?.has(key) ? { address: account } : null, nftGuardsReady: async () => true },
     client: {
       readContract: async ({ functionName, args }: { functionName: string; args: readonly unknown[] }) => {
         calls.push(functionName === "supportsInterface" ? `supportsInterface:${args[0]}` : functionName);

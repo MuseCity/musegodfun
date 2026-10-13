@@ -187,7 +187,7 @@ function decodeTransferCall(input: Hex): { to: Address; amount: bigint } | null 
 type FeeClient = {
   getTransactionReceipt(args: { hash: Hex }): Promise<Pick<TransactionReceipt, "status" | "transactionHash" | "blockNumber" | "blockHash" | "from" | "logs">>;
   getTransaction(args: { hash: Hex }): Promise<Pick<Transaction, "from" | "to" | "value" | "input">>;
-  getBlock(args: { blockNumber: bigint }): Promise<Pick<Block, "hash" | "timestamp">>;
+  getBlock(args: { blockNumber: bigint } | { blockTag: "latest" }): Promise<Pick<Block, "hash" | "timestamp">>;
   getBlockNumber(args?: { cacheTime?: number }): Promise<bigint>;
 };
 /** Verifies that `payer` paid the launch fee to `recipient`: an exact stablecoin transfer mined since NFT mode began, or at least the
@@ -202,10 +202,11 @@ export async function verifyLaunchFeePayment(client: FeeClient, args: { fee: Lau
   const pending = (why: string, retry: "unconfirmed" | "missing" = "unconfirmed") =>
     new NftLaunchError("NFT_FEE_INVALID", `The launch fee payment is not valid: ${why}.`, retry);
   // Without a receipt, the transaction itself says whether the payment is still in the mempool or does not exist (yet). Any other failure
-  // is the node's and propagates. Only a pending transaction in exactly a payment's shape is "unconfirmed", so a stuck transaction that
-  // is no payment can never keep a coin listed: an ETH transfer needs the platform's quote MAC and exactly its wei, sent plain to the
-  // recipient; a stablecoin payment must be a direct transfer(recipient, amount) call on the stablecoin. One that can never become this
-  // payment is a definite mismatch at once; any other pending transaction (a wallet contract's call, for one) is "missing".
+  // is the node's and propagates. Only a pending transaction in a payment's shape is "unconfirmed", so a stuck transaction that is no
+  // payment can never keep a coin listed: an ETH transfer needs the platform's quote MAC and at least its wei, sent plain to the recipient,
+  // while the chain is still inside the quote's mining window; a stablecoin payment must be a direct transfer(recipient, amount) call on
+  // the stablecoin. One that can never become this payment is a definite mismatch at once; any other pending transaction (a wallet
+  // contract's call, for one) is "missing".
   const receipt = await client.getTransactionReceipt({ hash: args.fee.txHash }).catch(async (error: unknown) => {
     if (!(error instanceof TransactionReceiptNotFoundError)) throw error;
     const sent = await client.getTransaction({ hash: args.fee.txHash }).catch((lookup: unknown) => {
@@ -218,8 +219,12 @@ export async function verifyLaunchFeePayment(client: FeeClient, args: { fee: Lau
       if (!args.fee.wei || !/^\d{1,78}$/.test(args.fee.wei) || !args.fee.expiresAt ||
         !verifyLaunchFeeQuoteMac(args.keys, args.chainId, args.payer, args.fee.wei, args.fee.expiresAt, args.fee.mac))
         throw invalid("the ETH quote is not platform-signed");
-      if (!sent.to || !sameAddress(sent.to, args.recipient) || sent.value !== BigInt(args.fee.wei)) throw invalid("the ETH amount or recipient is wrong");
+      if (!sent.to || !sameAddress(sent.to, args.recipient) || sent.value < BigInt(args.fee.wei)) throw invalid("the ETH amount or recipient is wrong");
       if (sent.input !== "0x") throw invalid("the ETH payment must be a plain transfer");
+      // Block timestamps never go backwards: once the head is past the quote's mining window, no block can include this payment in time.
+      // The chain's clock decides, as for a mined payment below, never the server's.
+      const head = await client.getBlock({ blockTag: "latest" });
+      if (head.timestamp > BigInt(args.fee.expiresAt + LAUNCH_FEE_MINING_GRACE_SECONDS)) throw invalid("the quote expired");
     } else {
       const stable = LAUNCH_FEE_STABLE[args.chainId];
       if (!stable) throw invalid("no stablecoin fee on this network");

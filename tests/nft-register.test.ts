@@ -163,7 +163,7 @@ test("prepare surfaces an RPC outage as an error, not NFT_NOT_CONTROLLED or NFT_
       runtime: { config: { mode: "robinhood", chainId: 4663, deploymentChainId: 4663, treasury: "0x2222222222222222222222222222222222222222", writesEnabled: true,
         blockReason: null, nftMode: { enabled: true, vaultFactory: "0x00000000000000000000000000000000000fac70", launchFeeUsd: 10, freeCollections: [], verifiedCollections: [] } } },
       assertNetwork: async () => {}, assertCreatorAccount: async () => {}, client,
-      store: { verifiedNftCoin: async () => null },
+      store: { verifiedNftCoin: async () => null, nftGuardsReady: async () => true },
     }) as LaunchpadService;
     const draft = { name: "Bard", symbol: "BARD", description: "", image: "", quoteAddress: musegod.address, tradingFeeBps: 100, nft: muse };
     try { await service.prepare(draft, owner, CURVE_POLICY); return "ok"; }
@@ -257,9 +257,10 @@ function registrar(store: Store, coins: Coin[], chain: Chain = {}) {
         throw new TransactionReceiptNotFoundError({ hash });
       },
       getBlockNumber: async () => chain.feeFault === "unconfirmed" ? FEE_BLOCK : FEE_BLOCK + 100n,
-      getBlock: async ({ blockNumber }: { blockNumber: bigint }) => {
-        const valuation = coins[0].plan.openingValuation!;
-        return { hash: blockNumber === BigInt(valuation.blockNumber) ? valuation.blockHash : blockHash, timestamp: now - (chain.receiptAge ?? 30n) };
+      // Any block, including the head (`blockTag: "latest"`), is `receiptAge` seconds old; the first coin's valuation block keeps its own hash.
+      getBlock: async ({ blockNumber }: { blockNumber?: bigint }) => {
+        const valuation = coins[0]?.plan.openingValuation;
+        return { hash: valuation && blockNumber === BigInt(valuation.blockNumber) ? valuation.blockHash : blockHash, timestamp: now - (chain.receiptAge ?? 30n) };
       },
       readContract: async ({ functionName, blockNumber }: { functionName: string; blockNumber?: bigint }) => {
         if (!["supportsInterface", "ownerOf", "checkDelegateForERC721"].includes(functionName)) throw new Error("No independent reference in this fixture");
@@ -510,17 +511,19 @@ const nftCoin = (n: number, over: Partial<TokenRecord> = {}): TokenRecord => JSO
   creator, quoteAddress: musegod.address, nft: muse, ...over })));
 
 // ---- pending fee transactions: only a payment's exact shape is "found but unconfirmed" -----------------------------------------
-test("a pending fee transaction counts as unconfirmed only in a payment's exact shape, under and over the 10-minute window", async () => {
-  const key = "q".repeat(32), wei = "5000000000000000", expiresAt = Math.floor(Date.now() / 1000) + 30;
-  const eth = (mac: Hex = launchFeeQuoteMac(key, 4663, creator, wei, expiresAt)) => ({ asset: "native" as const, txHash: paidFee, wei, expiresAt, mac });
+test("a pending fee transaction counts as unconfirmed only in a payment's shape, under and over the 10-minute window", async () => {
+  const key = "q".repeat(32), wei = "5000000000000000", now = Math.floor(Date.now() / 1000), expiresAt = now + 30;
+  // A quote signed by `signer` that expires at `at`. The harness's chain head is at most 601 s old, so `now - 1300` is past its mining window.
+  const eth = (at = expiresAt, signer = key) => ({ asset: "native" as const, txHash: paidFee, wei, expiresAt: at, mac: launchFeeQuoteMac(signer, 4663, creator, wei, at) });
   const ethTx = { to: treasury, value: BigInt(wei), input: "0x" };
   type Outcome = "retry" | "unverified" | "rejected";
   // [why, claim, the pending transaction, inside the window, after it]
   const cases: [string, LaunchPlan["draft"]["launchFee"], Record<string, unknown>, Outcome, Outcome][] = [
     ["ETH: the signed quote's exact wei, plain, to the treasury", eth(), ethTx, "retry", "unverified"],
-    ["ETH: a quote MAC the platform never signed", eth(launchFeeQuoteMac("x".repeat(32), 4663, creator, wei, expiresAt)), ethTx, "rejected", "rejected"],
+    ["ETH: more than the quote, which a mined payment also accepts", eth(), { ...ethTx, value: BigInt(wei) + 1n }, "retry", "unverified"],
+    ["ETH: a quote MAC the platform never signed", eth(expiresAt, "x".repeat(32)), ethTx, "rejected", "rejected"],
+    ["ETH: a quote whose mining window the chain head has passed", eth(now - 1300), ethTx, "rejected", "rejected"],
     ["ETH: one wei", eth(), { ...ethTx, value: 1n }, "rejected", "rejected"],
-    ["ETH: more than the quote", eth(), { ...ethTx, value: BigInt(wei) + 1n }, "rejected", "rejected"],
     ["ETH: calldata", eth(), { ...ethTx, input: "0xdeadbeef" }, "rejected", "rejected"],
     ["USDG: transfer(treasury, 10 USDG) on USDG", stableClaim, {}, "retry", "unverified"],
     ["USDG: a transfer to someone else", stableClaim, { input: usdgTransfer(getAddress(other)) }, "rejected", "rejected"],
@@ -649,13 +652,14 @@ test("the Supabase store issues the same compare-and-swap as two explicit filter
 
 /** `race`: another coin for the NFT is saved verified right after the CLI's one-coin check; `feeRace`: another coin is saved holding the fee
  * right after the CLI's fee check passes (the server registering it meanwhile, in both cases). */
-type CliChain = { holder?: Address | "fail"; fee?: "ok" | "invalid" | "rpc" | "missing" | "unconfirmed"; race?: TokenRecord; feeRace?: TokenRecord };
+type CliChain = { holder?: Address | "fail"; fee?: "ok" | "invalid" | "rpc" | "missing" | "unconfirmed"; race?: TokenRecord; feeRace?: TokenRecord; guards?: boolean };
 function cli(store: Store, chain: CliChain = {}) {
   const reads: string[] = [], feeChecks: string[] = [];
   let raced = false;
   const deps: NftReverifyDeps = { chainId: 4663,
     store: { token: (address) => store.token(address), updateNftVerification: (token) => store.updateNftVerification(token),
       tokenUsingLaunchFee: (txHash, payer, exclude) => store.tokenUsingLaunchFee(txHash, payer, exclude),
+      nftGuardsReady: () => chain.guards ?? store.nftGuardsReady(),
       // `race`: another coin for the NFT is saved verified right after the CLI's one-coin check (the server registering it meanwhile).
       verifiedNftCoin: (key, exclude) => {
         const found = store.verifiedNftCoin(key, exclude);
@@ -816,17 +820,18 @@ test("SQLite: a fee the server spends while the CLI settles a fee_unconfirmed co
     conflictOf("launch_fee"), "the guard holds for any status that spends the fee");
 }));
 
-test("nft:reverify applies the pending-payment rules to a fee_unconfirmed coin's claim: only a payment's exact shape stays open", withStore(async (store) => {
-  const key = "q".repeat(32), wei = "5000000000000000", expiresAt = Math.floor(Date.now() / 1000) + 30;
-  const eth = (mac: Hex = launchFeeQuoteMac(key, 4663, creator, wei, expiresAt)) => ({ asset: "native" as const, txHash: paidFee, wei, expiresAt, mac });
+test("nft:reverify applies the pending-payment rules to a fee_unconfirmed coin's claim: only a payment's shape stays open", withStore(async (store) => {
+  const key = "q".repeat(32), wei = "5000000000000000", now = Math.floor(Date.now() / 1000), expiresAt = now + 30;
+  const eth = (at = expiresAt, signer = key) => ({ asset: "native" as const, txHash: paidFee, wei, expiresAt: at, mac: launchFeeQuoteMac(signer, 4663, creator, wei, at) });
   const ethTx = { to: treasury, value: BigInt(wei), input: "0x" };
   const cases: [string, NonNullable<TokenRecord["launchFee"]>, Record<string, unknown>, string][] = [
     ["USDG: transfer(treasury, 10 USDG) on USDG", stableClaim, {}, "unverified, unchanged (launch-fee check unavailable)"],
     ["USDG: a call to another contract", stableClaim, { to: getAddress(other) }, "unverified -> rejected (fee)"],
     ["USDG: a transfer to someone else", stableClaim, { input: usdgTransfer(getAddress(other)) }, "unverified -> rejected (fee)"],
     ["ETH: the signed quote's exact wei", eth(), ethTx, "unverified, unchanged (launch-fee check unavailable)"],
-    ["ETH: a quote MAC the platform never signed", eth(launchFeeQuoteMac("x".repeat(32), 4663, creator, wei, expiresAt)), ethTx, "unverified -> rejected (fee)"],
-    ["ETH: more than the quote", eth(), { ...ethTx, value: BigInt(wei) + 1n }, "unverified -> rejected (fee)"],
+    ["ETH: more than the quote", eth(), { ...ethTx, value: BigInt(wei) + 1n }, "unverified, unchanged (launch-fee check unavailable)"],
+    ["ETH: a quote MAC the platform never signed", eth(expiresAt, "x".repeat(32)), ethTx, "unverified -> rejected (fee)"],
+    ["ETH: a quote whose mining window the chain head has passed", eth(now - 1300), ethTx, "unverified -> rejected (fee)"],
   ];
   for (const [index, [why, claim, feeTx, outcome]] of cases.entries()) {
     // An hour old: past the settlement window.
@@ -839,6 +844,37 @@ test("nft:reverify applies the pending-payment rules to a fee_unconfirmed coin's
     if (outcome.includes("unchanged")) assert.deepEqual(store.token(record.address), record, `${why}: the claim stays open`);
     else assert.equal(store.token(record.address)?.launchFee, undefined, `${why}: nothing is spent`);
   }
+}));
+
+test("nft:reverify refuses to run without the database's single-use guards, changing and reading nothing", withStore(async (store) => {
+  const open = nftCoin(3, { nftVerification: { status: "unverified", reason: "rpc" } });
+  store.saveToken(open);
+  const run = cli(store, { guards: false });
+  await assert.rejects(nftReverifyCommand(["4663", open.address], run.deps),
+    /^Error: The NFT single-use database guards are missing: apply supabase\/migrations\/20261014120000_nft_single_use_indexes\.sql, then run nft:reverify again\. Nothing was changed\.$/);
+  assert.deepEqual([run.reads, run.feeChecks], [[], []]);
+  assert.deepEqual(store.token(open.address), open);
+  await assert.rejects(nftReverifyCommand(["4663"], run.deps), /Usage/, "bad arguments are still refused first");
+  // Supabase without the migration: the function is missing (404), so the command refuses before any token read.
+  const supabase = new SupabaseStore("https://fixture.supabase.co", "test-server-key", "verify-nft");
+  const original = globalThis.fetch, paths: string[] = [];
+  globalThis.fetch = (async (url: string | URL | Request) => {
+    paths.push(String(url));
+    return Response.json({ code: "PGRST202", message: "Could not find the function public.musegod_nft_guards_ready" }, { status: 404 });
+  }) as typeof fetch;
+  try {
+    await assert.rejects(nftReverifyCommand(["4663", open.address], { ...run.deps, store: supabase }), /guards are missing/);
+    assert.deepEqual(paths, ["https://fixture.supabase.co/rest/v1/rpc/musegod_nft_guards_ready"]);
+  } finally { globalThis.fetch = original; }
+}));
+
+test("registration is never gated on the guards: a launched coin registers even while the database lacks them", withStore(async (store) => {
+  const launch = coin(3, {});
+  store.savePlan(launch.plan);
+  let asked = 0;
+  store.nftGuardsReady = () => { asked++; return false; };
+  assert.deepEqual((await registrar(store, [launch]).service.register(launch.hash)).nftVerification, { status: "verified" });
+  assert.equal(asked, 0);
 }));
 
 test("the compare-and-swap never downgrades provenance: it matches the opening-valuation state that was read", withStore(async (store) => {
@@ -869,6 +905,7 @@ test("Supabase: the database refuses the CLI's second verified coin (409, 23505)
       if (path.includes("status=eq.unverified") && stored.nftVerification?.status === "unverified") stored = JSON.parse(String(init?.body)).payload;
       return new Response(null, { status: 204 });
     }
+    if (path === "rpc/musegod_nft_guards_ready") return Response.json(true);
     // The rival is verified only once the CLI has tried to write (the server registering it meanwhile).
     if (path.includes("payload->nftVerification->>status=eq.verified")) return Response.json(refuse && calls.some((call) => call.startsWith("PATCH")) ? [{ payload: rival }] : []);
     return Response.json([{ payload: stored }]);

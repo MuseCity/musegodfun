@@ -241,6 +241,11 @@ export class SupabaseStore implements StoreBackend {
     await this.request(`${row}&payload->nftVerification->>status=eq.unverified`, "PATCH", { payload: token }, "return=minimal");
     await this.request(`${row}&payload->nftVerification=is.null`, "PATCH", { payload: token }, "return=minimal");
   }
+  /** Both guard indexes of migration 20261014120000 exist, unique and valid (`musegod_nft_guards_ready`). Any failure, including a project
+   * without the migration (404), counts as not ready, so NFT mode fails closed. */
+  async nftGuardsReady(): Promise<boolean> {
+    return this.request<unknown>("rpc/musegod_nft_guards_ready", "POST", {}).then((ready) => ready === true, () => false);
+  }
   async tokens(): Promise<TokenRecord[]> {
     const result: TokenRecord[] = [];
     for (let offset = 0; ; offset += 1000) {

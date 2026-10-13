@@ -12,7 +12,7 @@ import type { LaunchFee } from "../src/lib/launch-fee";
 export type NftReverifyDeps = {
   chainId: 4663 | 8453;
   client: Pick<PublicClient, "readContract">;
-  store: Pick<StoreBackend, "token" | "verifiedNftCoin" | "tokenUsingLaunchFee" | "updateNftVerification">;
+  store: Pick<StoreBackend, "token" | "verifiedNftCoin" | "tokenUsingLaunchFee" | "updateNftVerification" | "nftGuardsReady">;
   assertUnusedLaunchFee(fee: LaunchFee, payer: Address, self?: Address): Promise<void>;
 };
 type Outcome = { line: string; failed?: true };
@@ -88,6 +88,9 @@ export async function nftReverifyCommand(args: string[], deps?: NftReverifyDeps)
     deps = { chainId, client: owned.client, store: owned.store, assertUnusedLaunchFee: (fee, payer, self) => owned.assertUnusedLaunchFee(fee, payer, self) };
   }
   try {
+    // The database's single-use guards are what make a concurrent registration a CONFLICT instead of a second badge or a second spend.
+    if (!(await deps.store.nftGuardsReady()))
+      throw new Error("The NFT single-use database guards are missing: apply supabase/migrations/20261014120000_nft_single_use_indexes.sql, then run nft:reverify again. Nothing was changed.");
     const lines: string[] = [];
     let failed = false;
     for (const address of addresses) {

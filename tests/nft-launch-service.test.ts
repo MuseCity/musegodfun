@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { once } from "node:events";
@@ -69,8 +70,8 @@ const nftMode = (over: Partial<NonNullable<RuntimeConfig["nftMode"]>> = {}): Non
   ({ enabled: true, vaultFactory: factory, launchFeeUsd: 10, freeCollections: [], verifiedCollections: [], ...over });
 
 function prepareFixture(options: { owner?: Address; erc721?: boolean; existing?: TokenRecord | null; mode?: Partial<NonNullable<RuntimeConfig["nftMode"]>>;
-  getCode?: () => Promise<Hex | undefined>; manifest?: NftVaultManifest } = {}) {
-  const calls = { network: 0, codeReads: 0, prepared: 0, uniquenessKeys: [] as string[] };
+  getCode?: () => Promise<Hex | undefined>; manifest?: NftVaultManifest; guards?: () => Promise<boolean> } = {}) {
+  const calls = { network: 0, codeReads: 0, prepared: 0, uniquenessKeys: [] as string[], guardReads: 0 };
   const owner = options.owner ?? holder;
   const config: RuntimeConfig = { mode: "robinhood", chainId: 4663, deploymentChainId: 4663, treasury, writesEnabled: true, blockReason: null, nftMode: nftMode(options.mode) };
   const client = {
@@ -88,7 +89,8 @@ function prepareFixture(options: { owner?: Address; erc721?: boolean; existing?:
     assertCreatorAccount: async () => {},
     assertLaunchPolicyCurrent: () => { throw new Error("REACHED_POLICY_CHECK"); },
     client,
-    store: { verifiedNftCoin: async (key: string) => { calls.uniquenessKeys.push(key); return options.existing ?? null; }, runtimeControl: async () => ({ revision: 1, paused: false, reason: "" }) },
+    store: { verifiedNftCoin: async (key: string) => { calls.uniquenessKeys.push(key); return options.existing ?? null; }, runtimeControl: async () => ({ revision: 1, paused: false, reason: "" }),
+      nftGuardsReady: async () => { calls.guardReads++; return options.guards ? options.guards() : true; } },
     sdk: { factory: { prepareCreateMulticurve: async () => { calls.prepared++; throw new Error("PREPARED"); } } },
   }) as LaunchpadService;
   return { service, calls, config };
@@ -187,6 +189,65 @@ test("empty factory code is a transient verdict: it blocks for a minute, then a 
   const foreign = prepareFixture({ getCode: async () => "0x6002600255" });
   await foreign.service.config(true);
   assert.equal((foreign.service as unknown as { nftFactoryCheck: { ttl: number } }).nftFactoryCheck.ttl, Infinity, "only a definitive mismatch is permanent");
+});
+
+test("without the database's single-use guards NFT mode is off: /config, prepare, quotes and the NFT APIs refuse; registration is never gated", async () => {
+  let ready = false;
+  const { service, calls } = prepareFixture({ guards: async () => ready });
+  assert.deepEqual((await service.config(true)).nftMode, { ...nftMode(), enabled: false }, "the flag alone is not enough");
+  const network = calls.network;
+  assert.equal(await outcome(() => service.prepare(draft, holder, CURVE_POLICY)), "NFT_MODE_DISABLED");
+  assert.equal(await outcome(() => service.launchFeeQuote(holder)), "NFT_MODE_DISABLED");
+  assert.equal(await outcome(() => service.nftStatus(`4663:${muse.contract}:1`, holder)), "NFT_MODE_UNAVAILABLE");
+  assert.equal(await outcome(() => service.nftTreasury(`4663:${muse.contract}:1`)), "NFT_MODE_UNAVAILABLE");
+  assert.equal(calls.network, network, "refused before any RPC");
+  assert.equal(calls.guardReads, 1, "a missing verdict is held for a short backoff, not re-read on every request");
+  assert.equal(await outcome(() => service.prepare({ ...draft, nft: undefined }, holder, CURVE_POLICY)), "other:REACHED_POLICY_CHECK", "normal launches are unaffected");
+  // The migration is applied: picked up after the backoff, without a restart, and then final.
+  ready = true;
+  (service as unknown as { nftGuardsCheck: { at: number } }).nftGuardsCheck.at -= 61_000;
+  assert.deepEqual((await service.config(true)).nftMode, nftMode());
+  assert.equal(await outcome(() => service.prepare(draft, holder, CURVE_POLICY)), "other:REACHED_POLICY_CHECK");
+  ready = false;
+  (service as unknown as { nftGuardsCheck: { at: number } }).nftGuardsCheck.at -= 3_600_000;
+  assert.equal((await service.config(true)).nftMode?.enabled, true, "a ready verdict lasts for the runtime's lifetime");
+  assert.equal(calls.guardReads, 2);
+  // A failing read is not ready either.
+  const failing = prepareFixture({ guards: async () => { throw new Error("database down"); } });
+  assert.equal((await failing.service.config(true)).nftMode?.enabled, false);
+  assert.equal(await outcome(() => failing.service.prepare(draft, holder, CURVE_POLICY)), "NFT_MODE_DISABLED");
+  // With the flag off the guards are never asked.
+  const off = prepareFixture({ mode: { enabled: false } });
+  assert.equal((await off.service.config(true)).nftMode?.enabled, false);
+  assert.equal(off.calls.guardReads, 0);
+});
+
+test("SQLite always has both guards (the store creates them or refuses to start)", () => {
+  const directory = mkdtempSync(join(tmpdir(), "nft-store-"));
+  const store = new Store(directory, 4663);
+  try { assert.equal(store.nftGuardsReady(), true); }
+  finally { store.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("SQLite refuses to start on a database that already breaks a single-use rule, naming the index, the coins and the fix", () => {
+  const cases: [string, string[], RegExp][] = [
+    ["tokens_launch_fee_once", [JSON.stringify({ launchFee: { asset: "stable", txHash: "0xAB" } }), JSON.stringify({ launchFee: { asset: "stable", txHash: "0xab" } })],
+      /Cannot create the tokens_launch_fee_once index on .*launchpad\.sqlite: two or more coins spend one launch-fee payment \(0x1+ 0x2+\)\. Resolve each group before starting: keep the one coin the payment funded; on each other coin remove "launchFee" and set "nftVerification" to \{"status":"rejected","reason":"fee"\}\./],
+    ["tokens_nft_verified_once", [1, 2].map(() => JSON.stringify({ nft: muse, nftVerification: { status: "verified" } })),
+      /Cannot create the tokens_nft_verified_once index on .*: an NFT has two or more verified coins \(0x1+ 0x2+\)\. Resolve each group before starting: keep the earliest verified coin; set "nftVerification" on each other coin to \{"status":"rejected","reason":"already_launched"\}\./],
+  ];
+  for (const [name, payloads, message] of cases) {
+    const directory = mkdtempSync(join(tmpdir(), "nft-store-"));
+    try {
+      // A database written before the guards existed.
+      const legacy = new DatabaseSync(join(directory, "launchpad.sqlite"));
+      legacy.exec("CREATE TABLE tokens (address TEXT PRIMARY KEY, tx_hash TEXT UNIQUE NOT NULL, created_at INTEGER NOT NULL, payload TEXT NOT NULL)");
+      payloads.forEach((payload, index) => legacy.prepare("INSERT INTO tokens VALUES(?,?,?,?)").run(`0x${String(index + 1).repeat(40)}`, `0x${String(index + 1).repeat(64)}`, 1, payload));
+      legacy.close();
+      assert.throws(() => new Store(directory, 4663), (error: unknown) => error instanceof Error && message.test(error.message) &&
+        (error.cause as Error).message === `UNIQUE constraint failed: index '${name}'`, name);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  }
 });
 
 test("NFT mode is Robinhood-only and off unless NFT_MODE_ENABLED is exactly true", () => {

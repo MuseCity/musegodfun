@@ -78,10 +78,27 @@ export class Store {
       "PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS plans (id TEXT PRIMARY KEY, creator TEXT NOT NULL, data TEXT NOT NULL, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS tokens (address TEXT PRIMARY KEY, tx_hash TEXT UNIQUE NOT NULL, created_at INTEGER NOT NULL, payload TEXT NOT NULL);",
     );
     // TOKEN_UNIQUE_INDEXES: the stored JSON keeps nft.chainId a number and nft.tokenId a decimal string, as verifiedNftCoin reads them.
-    this.db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS ${TOKEN_UNIQUE_INDEXES.launch_fee.sqlite} ON tokens(lower(json_extract(payload,'$.launchFee.txHash')))
-        WHERE json_extract(payload,'$.launchFee.txHash') IS NOT NULL;
-      CREATE UNIQUE INDEX IF NOT EXISTS ${TOKEN_UNIQUE_INDEXES.nft_verified.sqlite} ON tokens(json_extract(payload,'$.nft.chainId'),
-        lower(json_extract(payload,'$.nft.contract')), json_extract(payload,'$.nft.tokenId')) WHERE json_extract(payload,'$.nftVerification.status')='verified';`);
+    // A database that already breaks a rule cannot get its guard; it refuses to start and names the coins to resolve.
+    const guards = [
+      [TOKEN_UNIQUE_INDEXES.launch_fee.sqlite, "lower(json_extract(payload,'$.launchFee.txHash'))", "json_extract(payload,'$.launchFee.txHash') IS NOT NULL",
+        "two or more coins spend one launch-fee payment",
+        'keep the one coin the payment funded; on each other coin remove "launchFee" and set "nftVerification" to {"status":"rejected","reason":"fee"}'],
+      [TOKEN_UNIQUE_INDEXES.nft_verified.sqlite, "json_extract(payload,'$.nft.chainId'), lower(json_extract(payload,'$.nft.contract')), json_extract(payload,'$.nft.tokenId')",
+        "json_extract(payload,'$.nftVerification.status')='verified'", "an NFT has two or more verified coins",
+        'keep the earliest verified coin; set "nftVerification" on each other coin to {"status":"rejected","reason":"already_launched"}'],
+    ] as const;
+    for (const [name, columns, where, problem, resolution] of guards) {
+      try { this.db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS ${name} ON tokens(${columns}) WHERE ${where}`); }
+      catch (error) {
+        if ((error as { errcode?: unknown }).errcode !== 2067) throw error;
+        const duplicates = (this.db.prepare(`SELECT group_concat(address,' ') AS coins FROM tokens WHERE ${where} GROUP BY ${columns} HAVING count(*)>1 LIMIT 5`)
+          .all() as { coins: string }[]).map((row) => row.coins);
+        this.db.close();
+        this.budgetDb.close();
+        throw new Error(`Cannot create the ${name} index on ${join(directory, "launchpad.sqlite")}: ${problem} (${duplicates.join("; ")}). ` +
+          `Resolve each group before starting: ${resolution}.`, { cause: error });
+      }
+    }
     this.db.exec(
       "CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
     );
@@ -377,6 +394,12 @@ export class Store {
       .prepare("SELECT payload FROM plans WHERE creator=? AND data=? LIMIT 1")
       .get(creator.toLowerCase(), data) as { payload: string } | undefined;
     return row ? unpackPlan(JSON.parse(row.payload)) : null;
+  }
+  /** Both TOKEN_UNIQUE_INDEXES guards exist. The constructor creates them or refuses to start, so this holds for every open store. */
+  nftGuardsReady(): boolean {
+    const names = Object.values(TOKEN_UNIQUE_INDEXES).map((index) => index.sqlite);
+    const row = this.db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type='index' AND tbl_name='tokens' AND name IN (?,?)").get(...names) as { n: number };
+    return row.n === names.length;
   }
   /** Runs one token write; a refusal by a TOKEN_UNIQUE_INDEXES guard becomes a TokenUniqueConflict. */
   private writeToken(write: () => unknown) {

@@ -135,7 +135,9 @@ try {
   assert.equal(await connect(scope).tokenUsingLaunchFee(launchFee.txHash, token.creator!, STOCKS[9].address), null, "A coin's own fee is not another use");
   assert.equal((await connect(scope).tokenUsingLaunchFee(launchFee.txHash, token.creator!, STOCKS[10].address))?.address, STOCKS[9].address,
     "The holder of the fee is found for any other coin");
-  // Migration 20261014120000: both guard indexes exist (a refusal names them) and refuse a duplicate, from any connection.
+  // Migration 20261014120000: both guard indexes exist (a refusal names them) and refuse a duplicate, from any connection, and the readiness
+  // check the runtime and nft:reverify depend on reports them.
+  assert.equal(await connect(scope).nftGuardsReady(), true, "musegod_nft_guards_ready() reports both guard indexes");
   const refused = (kind: TokenUniqueKind) => (error: unknown) => error instanceof TokenUniqueConflict && error.kind === kind;
   await assert.rejects(() => connect(scope).saveToken(payerCoin(10, "c", { ...launchFee, txHash: `0x${"CD".repeat(32)}` as `0x${string}` })), refused("launch_fee"),
     "The launch-fee index refuses a second coin spending one payment, in any case");
@@ -234,6 +236,7 @@ try {
           "NFT verification compare-and-swap settles only unverified or absent statuses and never touches non-NFT records",
           "NFT verification compare-and-swap matches the provenance it read and never downgrades it",
           "launch-fee single use excludes only the coin itself",
+          "musegod_nft_guards_ready() reports both NFT single-use guard indexes",
           "the launch-fee guard index refuses a second coin spending one payment, in any case",
           "the verified-NFT guard index refuses a second verified coin (insert or compare-and-swap) and allows rejected and unverified ones",
           "backup restores token and canonical receipt identity",

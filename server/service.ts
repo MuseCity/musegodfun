@@ -106,6 +106,8 @@ export class LaunchpadService {
   private displayConfigPromise?: Promise<RuntimeConfig>;
   private nftFactoryCheck?: { at: number; ttl: number; value: Address | null };
   private nftFactoryRequest?: Promise<Address | null>;
+  private nftGuardsCheck?: { at: number; ttl: number; value: boolean };
+  private nftGuardsRequest?: Promise<boolean>;
   private stockFailures = 0;
   constructor(readonly runtime: ReturnType<typeof runtimeFromEnv>) {
     this.guardCandidate = runtime.launchGuardCandidate;
@@ -356,8 +358,27 @@ export class LaunchpadService {
     const declaredNftMode = this.runtime.config.nftMode;
     return { ...this.runtime.config, writesEnabled, blockReason, controlRevision, signingPaused, securityProtocol: 1,
       curvePolicy: CURVE_POLICY, launchGuard, launchLockAvailable, feeEngine, buybackExecutor, automationReceiver, automationTreasury, wethForwarder, assetFeedOracle, buybackVault,
-      // The declared factory is a candidate until its deployed runtime hash matches the manifest.
-      ...(declaredNftMode ? { nftMode: { ...declaredNftMode, vaultFactory: await this.verifiedVaultFactory() } } : {}) };
+      // The declared factory is a candidate until its deployed runtime hash matches the manifest. The flag counts only with the database's
+      // single-use guards in place, so a release check sees a flag-on runtime without the migration as a mismatch.
+      ...(declaredNftMode ? { nftMode: { ...declaredNftMode, enabled: await this.nftModeEnabled(), vaultFactory: await this.verifiedVaultFactory() } } : {}) };
+  }
+  /** NFT mode as this runtime offers it: the flag is on AND the database enforces both single-use rules (TOKEN_UNIQUE_INDEXES; in Supabase,
+   * migration 20261014120000). Without the guards NFT mode is off: `/config`, prepare, launch-fee quotes and the NFT APIs refuse, while
+   * registration of coins already launched is never gated. */
+  async nftModeEnabled(): Promise<boolean> {
+    return this.runtime.config.nftMode?.enabled === true && await this.nftGuardsReady();
+  }
+  /** Whether the store's guard indexes exist. Ready lasts for the runtime's lifetime; not ready, or a failed read, is asked again after a minute,
+   * so applying the migration enables NFT mode without a restart. */
+  private async nftGuardsReady(): Promise<boolean> {
+    const saved = this.nftGuardsCheck;
+    if (saved && Date.now() - saved.at < saved.ttl) return saved.value;
+    this.nftGuardsRequest ??= (async () => {
+      const value = await Promise.resolve().then(() => this.store.nftGuardsReady()).then((ready) => ready === true, () => false);
+      this.nftGuardsCheck = { at: Date.now(), ttl: value ? Infinity : 60_000, value };
+      return value;
+    })().finally(() => { this.nftGuardsRequest = undefined; });
+    return this.nftGuardsRequest;
   }
   /** Identity check of the NFT fee-vault factory. A match or a foreign runtime lasts for the runtime's lifetime; empty code (not deployed yet,
    * or a lagging node) and an RPC failure only block for a minute, so neither can disable NFT mode until restart. */
@@ -382,7 +403,7 @@ export class LaunchpadService {
    * Fails closed without the plan-attestation key: Releases cannot add secrets, so that key signs these quotes too (under its own domain). */
   async launchFeeQuote(rawPayer: unknown) {
     const payer = addressSchema.parse(rawPayer), chainId = deploymentChain(this.runtime.config);
-    if (this.runtime.config.nftMode?.enabled !== true) throw new NftLaunchError("NFT_MODE_DISABLED", "NFT launches are not enabled on this network.");
+    if (!(await this.nftModeEnabled())) throw new NftLaunchError("NFT_MODE_DISABLED", "NFT launches are not enabled on this network.");
     const key = this.runtime.secrets?.planAttestationKey;
     if (!key) throw new NftLaunchError("NFT_FEE_INVALID", "ETH launch-fee quotes are unavailable on this deployment; pay with the stablecoin.");
     const weth = launchAssetsFor(this.runtime.config).find((asset) => asset.symbol === "WETH");
@@ -459,6 +480,8 @@ export class LaunchpadService {
     if (!launchAssetsFor(this.runtime.config).some((asset) => sameAddress(asset.address, draft.quoteAddress)))
       throw new Error("This asset is unavailable for a new launch because it is not in the verified LI.FI opening-price pairing list.");
     assertNftDraftRules(draft, deploymentChain(this.runtime.config), this.runtime.config.nftMode?.enabled === true);
+    // After the CPU-only rules: the flag counts only with the database's single-use guards in place.
+    if (draft.nft && !(await this.nftModeEnabled())) throw new NftLaunchError("NFT_MODE_DISABLED", "NFT launches are not enabled on this network.");
     if (draft.nft && !this.runtime.config.nftMode?.vaultFactory)
       throw new NftLaunchError("NFT_VAULT_UNAVAILABLE", "The NFT fee vault is not deployed and verified on this network.");
     const stock = stockByAddress(draft.quoteAddress);
@@ -1175,9 +1198,10 @@ export class LaunchpadService {
     ]);
     return { lp, trade, poolKey: state.poolKey };
   }
-  /** The NFT surfaces stay dark while NFT mode is off: refused before any parsing, RPC or database read. */
-  private assertNftModeAvailable() {
-    if (this.runtime.config.nftMode?.enabled !== true) throw new NftLaunchError("NFT_MODE_UNAVAILABLE", "NFT mode is not available on this network.");
+  /** The NFT surfaces stay dark while NFT mode is off (the flag, or the database's single-use guards): refused before any parsing or RPC, and
+   * with the flag off before any database read. */
+  private async assertNftModeAvailable() {
+    if (!(await this.nftModeEnabled())) throw new NftLaunchError("NFT_MODE_UNAVAILABLE", "NFT mode is not available on this network.");
   }
   /** An NFT's fee vault and Tokenbound treasury: both addresses are computed and checked for code; the balances are what the treasury and the
    * vault hold of the NFT's bound coins (any status) and their paired assets (a failed vault read is `vaultAmount: null`; an asset whose treasury read
@@ -1185,7 +1209,7 @@ export class LaunchpadService {
    * error entry instead of failing the answer. Public and keyed by user input, so a fully successful result is kept in memory for 15 seconds,
    * within a bounded cache; a degraded one is returned but never cached. */
   async nftTreasury(raw: unknown): Promise<NftTreasury> {
-    this.assertNftModeAvailable();
+    await this.assertNftModeAvailable();
     const nft = parseNftQuery(raw), chainId = deploymentChain(this.runtime.config);
     if (nft.chainId !== chainId) throw new NftLaunchError("NFT_CHAIN_UNSUPPORTED", "This NFT lives on another network; open it there.");
     const factory = await this.verifiedVaultFactory();
@@ -1232,7 +1256,7 @@ export class LaunchpadService {
    * and whether it launches free (a Muse). Prepare re-checks all of it. A Muse also gets its name and agent id; each successful read is kept
    * for the runtime's lifetime (so the memory is bounded by the Muses supply), a failed one is left out and asked again next time. */
   async nftStatus(rawNft: unknown, rawAccount: unknown): Promise<NftStatus> {
-    this.assertNftModeAvailable();
+    await this.assertNftModeAvailable();
     const nft = parseNftQuery(rawNft), account = addressSchema.parse(rawAccount);
     if (nft.chainId !== deploymentChain(this.runtime.config)) throw new NftLaunchError("NFT_CHAIN_UNSUPPORTED", "This NFT must launch on its own network.");
     await this.assertNetwork();

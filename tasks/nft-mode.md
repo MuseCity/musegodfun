@@ -145,7 +145,7 @@ The vault is the Doppler creator-fee beneficiary of every coin bound to that NFT
   - A record with `nft` but no status counts as `unverified`. Records without `nft` are never touched.
   - Register never blocks on the flag, D5's pair rule or D8; those only affect the badge.
 - **Mutexes:** the per-NFT and per-payment mutexes live at the Durable Object level (one per chain, `worker/index.ts:32`), because `refreshRuntime` rebuilds the service (`:38-53`).
-- **Database guards (2026-10-14, residual R1):** across processes, partial unique indexes on the token records refuse a second spent `launchFee` hash and a second `verified` coin per NFT, in SQLite and in Supabase (migration `20261014120000_nft_single_use_indexes.sql`, applied before the flag goes on). A refused registration settles `rejected: fee` or `rejected: already_launched`; a refused `nft:reverify` write prints `CONFLICT` and exits non-zero.
+- **Database guards (2026-10-14, residual R1):** across processes, partial unique indexes on the token records refuse a second spent `launchFee` hash and a second `verified` coin per NFT, in SQLite and in Supabase (migration `20261014120000_nft_single_use_indexes.sql`, applied before the flag-off publish). A refused registration settles `rejected: fee` or `rejected: already_launched`; a refused `nft:reverify` write prints `CONFLICT` and exits non-zero. Without the guards NFT mode fails closed: the runtime reports it off and `nft:reverify` refuses to run.
 - **Operator CLI:** `scripts/nft-reverify.ts` upgrades only records whose `nftVerification.status` is `unverified`, or absent with `nft` present. It uses a new compare-and-swap store method following `server/store.ts:357`. PostgREST `not.in` skips NULLs, so filter explicitly. Cover the new store methods in `scripts/verify-database.ts:96-109`.
 
 ### 6.3 $10 launch fee
@@ -276,6 +276,7 @@ Vault and treasury addresses are computed locally. Nothing re-verifies on reads.
 - [ ] Release checks:
   - Extend `checkRuntime` and `checkFunctionalSmoke` (`scripts/release.ts:138, 173`). They must accept the previous version's flags (`:398-399`), so rollback verification passes on pre-NFT builds.
   - Add a `supportsNftMode` rollback marker that applies only when the candidate's NFT flag is on, like `baseRollbackCompatible` (`:216-222`), so it does not block the first flag-off release (`:281-285`).
+- [ ] Apply migration `supabase/migrations/20261014120000_nft_single_use_indexes.sql` to the production Supabase project and run `npm run verify:database`. Without it the runtime reports NFT mode off, so a flag-on release fails its runtime check.
 - [ ] Push to master with `NFT_MODE_ENABLED=false`. Verify both domains. Record this release as the NFT-compatible rollback baseline, because older builds' strict parse rejects NFT plans.
 - [ ] Turn the flag on without announcing it. Run canaries: a free Muse launch on Robinhood and a paid Base-NFT launch on Base. Then sweep, transfer the NFT, and withdraw as the new holder.
 - [ ] Announce.

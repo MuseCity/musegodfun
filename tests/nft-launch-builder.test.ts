@@ -187,7 +187,7 @@ test("prepare refresh must keep the same NFT and launch-fee payment", async () =
   const config: RuntimeConfig = { mode: "base", chainId: 8453, deploymentChainId: 8453, treasury, writesEnabled: true, blockReason: null,
     nftMode: { enabled: true, vaultFactory: "0x00000000000000000000000000000000000fac70", launchFeeUsd: 10, freeCollections: [], verifiedCollections: [] } };
   let network = 0;
-  const service = Object.assign(Object.create(LaunchpadService.prototype), { runtime: { config }, store: { getPlan: async () => previous },
+  const service = Object.assign(Object.create(LaunchpadService.prototype), { runtime: { config }, store: { getPlan: async () => previous, nftGuardsReady: async () => true },
     assertNetwork: async () => { network++; throw new Error("REACHED_NETWORK"); } }) as LaunchpadService;
   const refresh = (draftInput: unknown) => service.prepare(draftInput, creator, CURVE_POLICY, undefined, { intentId: "intent-1", previousPlanId: previous.id });
   await assert.rejects(refresh(previousDraft), /REACHED_NETWORK/, "an identical NFT and payment pass the refresh gate");

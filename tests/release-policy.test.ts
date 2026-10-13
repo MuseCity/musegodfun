@@ -11,7 +11,8 @@ import { checkRuntime, checkFunctionalSmoke, baseRollbackCompatible, supportsBas
 import { NFT_VAULT_MANIFEST, type NftVaultManifest } from "../src/lib/nft-mode";
 import { BASE_COLLECTOR_MANIFEST, BASE_SPLITS_FACTORY, BASE_SPLITS_FACTORY_HASH, BASE_SPLITS_IMPLEMENTATION, BASE_SPLITS_IMPLEMENTATION_HASH, BASE_SPLITS_PROXY_HASH, type BaseCollectorManifest } from "../server/base-collector";
 import { BASE_NATIVE_DESTINATION_POLICY } from "../src/lib/base-buyback";
-import { ADMITTED_BASE_ASSET_COUNT, STOCKS } from "../src/lib/config";
+import { ADMITTED_BASE_ASSET_COUNT, STOCKS, type RuntimeConfig } from "../src/lib/config";
+import { LaunchpadService } from "../server/service";
 
 const commit = "a".repeat(40), newerCommit = "b".repeat(40);
 const previousVersion = "11111111-1111-4111-8111-111111111111", candidateVersion = "22222222-2222-4222-8222-222222222222";
@@ -533,6 +534,31 @@ test("an enabled NFT runtime must follow the exact committed flag and expose the
   for (const malformed of [null, { enabled: "true", vaultFactory: null }, { enabled: true, vaultFactory: "factory" }, { enabled: false }])
     assert.throws(() => nftModeRuntime(malformed), /NFT mode runtime configuration is malformed/);
   assert.deepEqual(nftModeRuntime(undefined), { enabled: false, vaultFactory: null });
+});
+
+test("a flag-on release whose database lacks the NFT single-use indexes fails the runtime check: the runtime reports NFT mode off", async context => {
+  // The real /config of a Robinhood runtime with the flag on and the verified factory, over a store with or without the guards.
+  const runtimeNftMode = async (guards: boolean) => {
+    const config = { mode: "robinhood", chainId: 4663, deploymentChainId: 4663, treasury: runtimeVars.PLATFORM_TREASURY, writesEnabled: true,
+      blockReason: null, nftMode: nftConfig(4663, true) } as RuntimeConfig;
+    const service = Object.assign(Object.create(LaunchpadService.prototype), {
+      runtime: { config, nftVaultManifest: deployedNftManifest }, assertNetwork: async () => {}, verifiedVaultFactory: async () => nftFactory,
+      store: { nftGuardsReady: async () => guards, runtimeControl: async () => ({ revision: 1, paused: false, reason: "" }) },
+    }) as LaunchpadService;
+    return (await service.config(true)).nftMode;
+  };
+  let responses = runtimeResponses();
+  context.mock.method(globalThis, "fetch", async (url: string) => Response.json(responses[new URL(url).pathname as keyof typeof responses]));
+  const on = { vars: { ...runtimeVars, NFT_MODE_ENABLED: "true" } };
+  for (const guards of [true, false]) {
+    responses = runtimeResponses();
+    const nftMode = await runtimeNftMode(guards);
+    for (const path of ["/api/config", "/api/chains/4663/config"] as const) Object.assign(responses[path], { nftMode });
+    Object.assign(responses["/api/chains/8453/config"], { nftMode: nftConfig(8453, false) });
+    if (guards) assert.deepEqual(await checkRuntime(releaseOrigin, on, true, deployedNftManifest), { nftMode: { enabled: true, vaultFactory: nftFactory } });
+    else await assert.rejects(checkRuntime(releaseOrigin, on, true, deployedNftManifest), /NFT mode runtime differs from the committed release .*\(4663\)/,
+      "the committed flag is on, but without migration 20261014120000 the runtime reports NFT mode off");
+  }
 });
 
 test("the functional smoke lists NFT coins only for an enabled runtime and keeps the flag-off smoke unchanged", async context => {

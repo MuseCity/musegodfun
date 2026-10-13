@@ -284,6 +284,7 @@ function treasuryFixture(rows: TokenRecord[], over: { factory?: Address | null; 
   const service = Object.assign(Object.create(LaunchpadService.prototype), {
     runtime: { config: runtimeConfig(over.factory === undefined ? factory : over.factory), nftVaultManifest: deployedManifest },
     assertNetwork: async () => {},
+    store: { nftGuardsReady: async () => true }, // the database's single-use guards are in place
     tokens: async () => structuredClone(rows),
     client: {
       getCode: async ({ address: target }: { address: Address }) => { calls.codes.push(target); return target === factory ? factoryCode : deployed.has(target.toLowerCase()) ? "0x6001" : "0x"; },
