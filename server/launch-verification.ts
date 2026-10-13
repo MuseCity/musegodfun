@@ -8,7 +8,7 @@ import { launchGuardAbi } from "../src/lib/launch-guard";
 import { LAUNCH_SIGNING_TTL, restorePrepared, type FirstBuyLockRecord, type LaunchPlan } from "../src/lib/launch-plan";
 import { minimumOutput, parseAmount } from "../src/lib/validation";
 import { stockByAddress } from "../src/lib/config";
-import { assertEngineFeeCalldata, assertTradingFeeCalldata, buildLaunch, launchFeeData } from "../src/lib/protocol";
+import { assertEngineFeeCalldata, assertNftFeeCalldata, assertTradingFeeCalldata, buildLaunch, launchFeeData } from "../src/lib/protocol";
 
 // Recovery deliberately uses the stored preview and actual transaction, without
 // requiring current signing policy, price freshness or a historical SDK snapshot.
@@ -32,6 +32,7 @@ export function assertPlanIntegrity(plan: LaunchPlan, contracts: ContractRegistr
     throw new Error("The frozen launch signing window changed. Run a new preview.");
   assertTradingFeeCalldata(plan.draft.tradingFeeBps, p.createParams.poolInitializerData, contracts.rehype);
   assertEngineFeeCalldata(plan, p.createParams.poolInitializerData);
+  assertNftFeeCalldata(plan, p.createParams.poolInitializerData, p.chainId as 8453 | 4663);
   if (p.chainId !== (sameAddress(contracts.airlock, CONTRACTS.airlock) ? 8453 : 4663) ||
     !sameAddress(p.airlock, contracts.airlock) || !sameAddress(p.account, plan.creator) ||
     !sameAddress(p.createParams.numeraire, plan.draft.quoteAddress) ||

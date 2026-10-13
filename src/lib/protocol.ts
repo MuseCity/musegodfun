@@ -39,6 +39,7 @@ import {
   type LaunchWarning,
 } from "./opening-valuation";
 import { LP_FEE_PPM, tradingFeeBpsFor } from "./trading-fee";
+import { NFT_VAULT_MANIFEST, treasuryFor, vaultFactory, vaultFor, type NftVaultManifest } from "./nft-mode";
 
 export const routerAbi = parseAbi([
   "function execute(bytes commands, bytes[] inputs, uint256 deadline) payable",
@@ -76,7 +77,15 @@ export function beneficiaries(entries: BeneficiaryData[]): BeneficiaryData[] {
     throw new Error("Fee shares must total 100%");
   return result;
 }
-export function tokenMetadata(input: LaunchInput, openingValuation: OpeningValuation, chainId: 8453 | 4663 = 8453, feeEngine?: Address, recovery = false, historicalFeePolicy?: string) {
+/** The derived fee vault that receives an NFT launch's creator shares, or undefined for a normal launch. */
+export function nftFeeRecipient(input: LaunchInput, chainId: 8453 | 4663, manifest: NftVaultManifest = NFT_VAULT_MANIFEST): Address | undefined {
+  if (!input.nft) return undefined;
+  const factory = vaultFactory(chainId, manifest);
+  if (!factory) throw new Error("The NFT fee vault is not deployed and verified on this network.");
+  return vaultFor(input.nft, factory, manifest.vaultInitCodeHash);
+}
+export function tokenMetadata(input: LaunchInput, openingValuation: OpeningValuation, chainId: 8453 | 4663 = 8453, feeEngine?: Address, recovery = false, historicalFeePolicy?: string,
+  manifest: NftVaultManifest = NFT_VAULT_MANIFEST) {
   if (recovery) assertHistoricalOpeningValuation(openingValuation, input.quoteAddress, chainId);
   else assertOpeningValuation(openingValuation, input.quoteAddress, chainId);
   const historicalCollector = recovery && historicalFeePolicy === BASE_COLLECTOR_FEE_POLICY;
@@ -104,6 +113,8 @@ export function tokenMetadata(input: LaunchInput, openingValuation: OpeningValua
       tradingFeeBps: tradingFeeBpsFor(input.tradingFeeBps),
       feePolicy,
       ...(feeEngine ? { feeEngine } : {}),
+      ...(input.nft ? { nft: { chainId: input.nft.chainId, contract: input.nft.contract, tokenId: input.nft.tokenId,
+        vault: nftFeeRecipient(input, chainId, manifest)!, treasury: treasuryFor(input.nft) } } : {}),
       feeDistribution: {
         basis: "total_fees",
         protocolBps: FEE_SHARES.protocol,
@@ -132,14 +143,17 @@ export function buildLaunch(
   feeEngine?: Address,
   recovery = false,
   historicalFeePolicy?: string,
+  manifest: NftVaultManifest = NFT_VAULT_MANIFEST,
 ) {
   const contracts = contractsFor({ mode: chainId === 4663 ? "robinhood" : "base" });
   const draft = launchSchema.parse(input),
     stock = stockByAddress(draft.quoteAddress);
+  // An NFT launch pays both creator shares to the NFT's derived fee vault; the launcher still signs and buys.
+  const creatorShareRecipient = nftFeeRecipient(draft, chainId, manifest) ?? creator;
   if (stock.chainId !== chainId) throw new Error("The paired asset is on a different deployment network");
   if (recovery) assertHistoricalOpeningValuation(openingValuation, stock.address, chainId);
   else assertOpeningValuation(openingValuation, stock.address, chainId);
-  if (feeEngine && [creator, treasury, protocolOwner, DEAD, "0x0000000000000000000000000000000000000000"].some((address) => sameAddress(feeEngine, address)))
+  if (feeEngine && [creator, creatorShareRecipient, treasury, protocolOwner, DEAD, "0x0000000000000000000000000000000000000000"].some((address) => sameAddress(feeEngine, address)))
     throw new Error("The fee engine must be a distinct beneficiary on the selected chain");
   const lpBeneficiaries = beneficiaries([
     {
@@ -147,7 +161,7 @@ export function buildLaunch(
       shares: (WAD * BigInt(FEE_SHARES.protocol)) / 10_000n,
     },
     {
-      beneficiary: creator,
+      beneficiary: creatorShareRecipient,
       shares: (WAD * BigInt(FEE_SHARES.creator)) / 10_000n,
     },
     {
@@ -158,7 +172,7 @@ export function buildLaunch(
   ]);
   const hookBeneficiaries = beneficiaries([
     {
-      beneficiary: creator,
+      beneficiary: creatorShareRecipient,
       shares: (WAD * BigInt(FEE_SHARES.creatorNet)) / 10_000n,
     },
     {
@@ -173,7 +187,7 @@ export function buildLaunch(
       type: "dopplerERC20V1",
       name: draft.name,
       symbol: draft.symbol,
-      tokenURI: `data:application/json,${encodeURIComponent(JSON.stringify(tokenMetadata(draft, openingValuation, chainId, feeEngine, recovery, historicalFeePolicy)))}`,
+      tokenURI: `data:application/json,${encodeURIComponent(JSON.stringify(tokenMetadata(draft, openingValuation, chainId, feeEngine, recovery, historicalFeePolicy, manifest)))}`,
     })
     .saleConfig({
       initialSupply: SUPPLY,
@@ -260,6 +274,24 @@ export function assertEngineFeeCalldata(input: { feePolicy?: string; feeEngine?:
   if (lp.length !== 1 || trade.length !== 1 || lp[0].shares !== WAD * 2280n / 10_000n || trade[0].shares !== WAD * 2400n / 10_000n ||
     !sameAddress(pool.dopplerHook, contractsFor({ mode: [BASE_COLLECTOR_FEE_POLICY, BASE_AUTOMATION_FEE_POLICY].some(policy => policy === input.feePolicy) ? "base" : "robinhood" }).rehype) || hook.feeRoutingMode !== 1)
     throw new Error("The launch calldata does not contain the fixed fee engine shares");
+}
+
+/** Binds an NFT draft to calldata that pays both creator shares to exactly the derived vault. */
+export function assertNftFeeCalldata(input: { draft: LaunchInput; creator: Address }, poolInitializerData: Hex, chainId: 8453 | 4663,
+  manifest: NftVaultManifest = NFT_VAULT_MANIFEST) {
+  const { pool, hook } = launchFeeData(poolInitializerData);
+  const expected = nftFeeRecipient(input.draft, chainId, manifest);
+  const lpCreator = (address: Address) => pool.beneficiaries.find((entry) => sameAddress(entry.beneficiary, address));
+  const hookCreator = (address: Address) => hook.feeBeneficiaries.find((entry) => sameAddress(entry.beneficiary, address));
+  if (!expected) {
+    if (!lpCreator(input.creator) && !hookCreator(input.creator))
+      throw new Error("The launch calldata does not pay the creator share to the creator.");
+    return;
+  }
+  const lp = lpCreator(expected), trade = hookCreator(expected);
+  if (!lp || !trade || lp.shares !== WAD * BigInt(FEE_SHARES.creator) / 10_000n || trade.shares !== WAD * BigInt(FEE_SHARES.creatorNet) / 10_000n ||
+    lpCreator(input.creator) || hookCreator(input.creator))
+    throw new Error("The launch calldata does not pay the creator shares to this NFT fee vault.");
 }
 export function swapTransaction(
   poolKey: V4PoolKey,

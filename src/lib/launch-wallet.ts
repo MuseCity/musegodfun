@@ -9,7 +9,7 @@ import { assertLaunchPlanValidity, type LaunchPlan, type LaunchTransaction } fro
 import { launchGuardAbi } from "./launch-guard";
 import { transactionMatchesConfig, type Transaction } from "./transactions";
 import { ENGINE_FEE_POLICY, BASE_AUTOMATION_FEE_POLICY, launchFeePolicy } from "./fee-policy";
-import { assertEngineFeeCalldata, assertTradingFeeCalldata } from "./protocol";
+import { assertEngineFeeCalldata, assertNftFeeCalldata, assertTradingFeeCalldata } from "./protocol";
 
 export type LaunchSimulation = { valid: true; gas: string; amountOut: string | null; simulatedAt: number };
 export type LaunchWalletStep = LaunchTransaction & { from: Address; chainId: number };
@@ -101,6 +101,7 @@ export function assertLaunchWalletPlan(plan: LaunchPlan, config: RuntimeConfig, 
     throw new Error("The launch calldata does not contain valid creation parameters");
   assertTradingFeeCalldata(plan.draft.tradingFeeBps, createParams.poolInitializerData, contractsFor(config).rehype);
   assertEngineFeeCalldata(plan, createParams.poolInitializerData);
+  assertNftFeeCalldata(plan, createParams.poolInitializerData, deploymentChain(config));
   if (!plan.firstBuy) {
     if (plan.approval || !sameAddress(plan.transaction.to, contractsFor(config).airlock))
       throw new Error("The launch transaction target is not allowed");
@@ -220,7 +221,12 @@ export class LaunchPriceChanged extends Error {
 export function assertAcceptedLaunchRefresh(previous: LaunchPlan, next: LaunchPlan) {
   if (previous.creator.toLowerCase() !== next.creator.toLowerCase() || previous.intentId !== next.intentId ||
     (["name", "symbol", "description", "image", "website", "twitter", "telegram", "quoteAddress", "tradingFeeBps"] as const)
-      .some((key) => previous.draft[key] !== next.draft[key]) || previous.feePolicy !== next.feePolicy ||
+      .some((key) => previous.draft[key] !== next.draft[key]) ||
+    (previous.draft.nft?.chainId ?? null) !== (next.draft.nft?.chainId ?? null) ||
+    (previous.draft.nft?.contract?.toLowerCase() ?? null) !== (next.draft.nft?.contract?.toLowerCase() ?? null) ||
+    (previous.draft.nft?.tokenId ?? null) !== (next.draft.nft?.tokenId ?? null) ||
+    (previous.draft.launchFee?.txHash ?? null) !== (next.draft.launchFee?.txHash ?? null) ||
+    previous.feePolicy !== next.feePolicy ||
     previous.feeTreasury !== next.feeTreasury || previous.feeEngine !== next.feeEngine ||
     !!previous.firstBuy !== !!next.firstBuy) throw new Error("The launch parameters changed. Review before continuing.");
   if (previous.firstBuy && next.firstBuy) {

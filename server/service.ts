@@ -407,6 +407,10 @@ export class LaunchpadService {
     if (options.previousPlanId && (!previous || previous.recovered || !sameAddress(previous.creator, creator) || !options.intentId || previous.intentId !== options.intentId ||
       !previous.prepared || !sameAddress(previous.draft.quoteAddress, draft.quoteAddress) ||
       previous.draft.tradingFeeBps !== draft.tradingFeeBps ||
+      (previous.draft.nft?.chainId ?? null) !== (draft.nft?.chainId ?? null) ||
+      (previous.draft.nft?.contract?.toLowerCase() ?? null) !== (draft.nft?.contract?.toLowerCase() ?? null) ||
+      (previous.draft.nft?.tokenId ?? null) !== (draft.nft?.tokenId ?? null) ||
+      (previous.draft.launchFee?.txHash ?? null) !== (draft.launchFee?.txHash ?? null) ||
       (previous.firstBuy?.lockDays ?? 0) !== (buy?.lockDays ?? 0) ||
       (previous.firstBuy?.slippageBps ?? buy?.slippageBps) !== buy?.slippageBps ||
       (previous.firstBuy?.amount ?? "0") !== (buy?.amount ?? "0")))
