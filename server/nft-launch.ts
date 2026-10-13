@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { CallExecutionError, ContractFunctionExecutionError, ContractFunctionRevertedError, ContractFunctionZeroDataError, ExecutionRevertedError,
-  HttpRequestError, TimeoutError, TransactionReceiptNotFoundError, WebSocketRequestError, decodeEventLog, erc20Abi, keccak256, parseAbi,
+  HttpRequestError, TimeoutError, TransactionReceiptNotFoundError, WebSocketRequestError, decodeEventLog, erc20Abi, isHex, keccak256, parseAbi, size,
   type Address, type Block, type Hex, type PublicClient, type Transaction, type TransactionReceipt } from "viem";
 import { ROBINHOOD_STOCKS, sameAddress, type TokenRecord } from "../src/lib/config";
 import { LAUNCH_FEE_MIN_BLOCK, LAUNCH_FEE_MINING_GRACE_SECONDS, LAUNCH_FEE_QUOTE_TTL, LAUNCH_FEE_STABLE, type LaunchFee } from "../src/lib/launch-fee";
@@ -42,8 +42,12 @@ export function isContractAnswer(error: unknown): boolean {
   const { cause } = error;
   if (cause instanceof ContractFunctionZeroDataError) return true;
   const reverted = error.walk((e) => e instanceof ExecutionRevertedError) !== null;
-  // viem also maps a bare -32603 internal error to a revert; only revert data or an execution-reverted node error proves one.
-  if (cause instanceof ContractFunctionRevertedError) return (cause.raw !== undefined && cause.raw !== "0x") || reverted;
+  // viem also maps a bare -32603 internal error, and any error `data` a provider sends, to a revert. Revert data proves one only as hex
+  // of at least a selector; a provider's text in `data` is its own failure. Without data, only an execution-reverted node error proves it.
+  if (cause instanceof ContractFunctionRevertedError) {
+    const raw: unknown = cause.raw;
+    return raw === undefined || raw === "0x" ? reverted : typeof raw === "string" && isHex(raw) && size(raw) >= 4;
+  }
   // The call failed without a revert: the node's failure. No failed call at all: the call returned bytes that did not decode.
   return error.walk((e) => e instanceof CallExecutionError) ? reverted : true;
 }

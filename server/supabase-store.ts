@@ -224,12 +224,14 @@ export class SupabaseStore implements StoreBackend {
       "PATCH", { payload: token }, "return=minimal",
     );
   }
-  /** The same compare-and-swap as Store.updateNftVerification. PostgREST `not.in` skips NULLs, so an unverified and an absent status are
-   * matched by two explicit requests; the first one's write no longer matches the second's filter. */
+  /** The compare-and-swap of Store.updateNftVerification, including the provenance match. PostgREST `not.in` skips NULLs, so an unverified
+   * and an absent status are matched by two explicit requests; the first one's write no longer matches the second's filter. The one-coin
+   * guard of a `verified` write is NOT atomic here (PostgREST has no correlated NOT EXISTS): callers re-read `verifiedNftCoin` afterwards. */
   async updateNftVerification(token: TokenRecord) {
     if (!token.nft || !token.transactionHash || !token.nftVerification) return;
     const row = `musegod_tokens?${this.where()}&address=eq.${encodeURIComponent(token.address.toLowerCase())}` +
-      `&tx_hash=eq.${encodeURIComponent(token.transactionHash.toLowerCase())}&payload->nft=not.is.null`;
+      `&tx_hash=eq.${encodeURIComponent(token.transactionHash.toLowerCase())}&payload->nft=not.is.null` +
+      `&payload->>openingValuationUnverified=${token.openingValuationUnverified ? "eq.true" : "is.null"}`;
     await this.request(`${row}&payload->nftVerification->>status=eq.unverified`, "PATCH", { payload: token }, "return=minimal");
     await this.request(`${row}&payload->nftVerification=is.null`, "PATCH", { payload: token }, "return=minimal");
   }
@@ -251,9 +253,10 @@ export class SupabaseStore implements StoreBackend {
       `&order=created_at.asc&select=payload&limit=1`);
     return rows[0]?.payload ?? null;
   }
-  async tokenUsingLaunchFee(txHash: string, creator: string): Promise<TokenRecord | null> {
+  async tokenUsingLaunchFee(txHash: string, creator: string, excludeAddress?: string): Promise<TokenRecord | null> {
     const rows = await this.request<{ payload: TokenRecord }[]>(`musegod_tokens?${this.where()}&payload->launchFee->>txHash=ilike.${encodeURIComponent(txHash.toLowerCase())}` +
-      `&payload->>creator=ilike.${encodeURIComponent(creator.toLowerCase())}&select=payload&limit=1`);
+      `&payload->>creator=ilike.${encodeURIComponent(creator.toLowerCase())}` +
+      `${excludeAddress ? `&address=neq.${encodeURIComponent(excludeAddress.toLowerCase())}` : ""}&select=payload&limit=1`);
     return rows[0]?.payload ?? null;
   }
   async token(address: string) {

@@ -357,14 +357,21 @@ export class Store {
       .prepare("UPDATE tokens SET payload=? WHERE address=? AND lower(tx_hash)=lower(?) AND json_extract(payload,'$.openingValuationUnverified') IS NOT NULL")
       .run(JSON.stringify(token), token.address.toLowerCase(), token.transactionHash);
   }
-  /** Re-verification only settles an open NFT status: it replaces the record of the same launch only while that record has `nft` and a
-   * status of `unverified` or none. Verified and rejected statuses are final, and records without `nft` are never touched. */
+  /** Re-verification only settles an open NFT status: it replaces the record of the same launch only while that record has `nft`, a
+   * status of `unverified` or none, and the opening-valuation provenance the caller read (so a concurrent provenance upgrade is never
+   * reverted). Verified and rejected statuses are final, and records without `nft` are never touched. A `verified` write also applies
+   * only while no other coin holds that NFT verified: one statement, so the one-coin check and the write cannot interleave. */
   updateNftVerification(token: TokenRecord) {
     if (!token.nft || !token.transactionHash || !token.nftVerification) return;
+    const verified = token.nftVerification.status === "verified";
     this.db
       .prepare(`UPDATE tokens SET payload=? WHERE address=? AND lower(tx_hash)=lower(?) AND json_extract(payload,'$.nft') IS NOT NULL
-        AND (json_extract(payload,'$.nftVerification.status') IS NULL OR json_extract(payload,'$.nftVerification.status')='unverified')`)
-      .run(JSON.stringify(token), token.address.toLowerCase(), token.transactionHash);
+        AND (json_extract(payload,'$.nftVerification.status') IS NULL OR json_extract(payload,'$.nftVerification.status')='unverified')
+        AND json_extract(payload,'$.openingValuationUnverified') IS ?${verified ? `
+        AND NOT EXISTS (SELECT 1 FROM tokens other WHERE json_extract(other.payload,'$.nft.chainId')=? AND lower(json_extract(other.payload,'$.nft.contract'))=?
+          AND json_extract(other.payload,'$.nft.tokenId')=? AND json_extract(other.payload,'$.nftVerification.status')='verified' AND other.address<>tokens.address)` : ""}`)
+      .run(JSON.stringify(token), token.address.toLowerCase(), token.transactionHash, token.openingValuationUnverified ? 1 : null,
+        ...(verified ? [token.nft.chainId, token.nft.contract.toLowerCase(), token.nft.tokenId] : []));
   }
   tokens(): TokenRecord[] {
     return (
@@ -381,10 +388,11 @@ export class Store {
       .get(Number(chainId), contract.toLowerCase(), tokenId, (excludeAddress ?? "").toLowerCase()) as { payload: string } | undefined;
     return row ? JSON.parse(row.payload) : null;
   }
-  /** The coin that already spent this launch-fee payment. A fee belongs to its payer: another wallet's coin carrying the hash never consumes it. */
-  tokenUsingLaunchFee(txHash: string, creator: string): TokenRecord | null {
-    const row = this.db.prepare(`SELECT payload FROM tokens WHERE lower(json_extract(payload,'$.launchFee.txHash'))=? AND lower(json_extract(payload,'$.creator'))=? LIMIT 1`)
-      .get(txHash.toLowerCase(), creator.toLowerCase()) as { payload: string } | undefined;
+  /** The coin that already spent this launch-fee payment. A fee belongs to its payer: another wallet's coin carrying the hash never consumes it.
+   * `excludeAddress` (the coin being registered or re-verified) is filtered in the query, so another holder is found whichever row comes first. */
+  tokenUsingLaunchFee(txHash: string, creator: string, excludeAddress?: string): TokenRecord | null {
+    const row = this.db.prepare(`SELECT payload FROM tokens WHERE lower(json_extract(payload,'$.launchFee.txHash'))=? AND lower(json_extract(payload,'$.creator'))=?
+      AND address<>? LIMIT 1`).get(txHash.toLowerCase(), creator.toLowerCase(), (excludeAddress ?? "").toLowerCase()) as { payload: string } | undefined;
     return row ? JSON.parse(row.payload) : null;
   }
   token(address: string): TokenRecord | null {

@@ -186,6 +186,36 @@ test("another wallet's coin carrying the hash does not consume it", () => {
   } finally { store.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
+test("single use excludes only the coin itself: another coin holding the fee still counts, whichever row comes first", () => {
+  const directory = mkdtempSync(join(tmpdir(), "nft-fee-store-"));
+  const store = new Store(directory, 4663);
+  const self = getAddress("0x3333333333333333333333333333333333333333"), rival = getAddress("0x4444444444444444444444444444444444444444");
+  const holding = (address: Address, n: string) => syntheticToken({ mode: "robinhood", address, transactionHash: `0x${n.repeat(64)}`, creator: payer,
+    launchFee: { asset: "stable", txHash: lettered } });
+  try {
+    store.saveToken(holding(self, "5"));
+    assert.equal(store.tokenUsingLaunchFee(lettered, payer, self), null, "the coin's own record is not another use");
+    assert.equal(store.tokenUsingLaunchFee(lettered, payer, self.toLowerCase())?.address, undefined);
+    store.saveToken(holding(rival, "6"));
+    assert.equal(store.tokenUsingLaunchFee(lettered, payer, self)?.address, rival, "the other holder is found even when the first row is the coin itself");
+    assert.equal(store.tokenUsingLaunchFee(lettered, payer, rival)?.address, self);
+  } finally { store.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("assertUnusedLaunchFee with self refuses a fee another coin also holds", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "nft-fee-service-"));
+  const store = new Store(directory, 4663);
+  const self = getAddress("0x3333333333333333333333333333333333333333"), rival = getAddress("0x4444444444444444444444444444444444444444");
+  const fee: LaunchFee = { asset: "stable", txHash: hash };
+  try {
+    const { service } = feeService({ store });
+    store.saveToken(syntheticToken({ mode: "robinhood", address: self, transactionHash: `0x${"5".repeat(64)}`, creator: payer, launchFee: fee }));
+    assert.equal(await codeOf(service.assertUnusedLaunchFee(fee, payer, self)), "ok");
+    store.saveToken(syntheticToken({ mode: "robinhood", address: rival, transactionHash: `0x${"6".repeat(64)}`, creator: payer, launchFee: fee }));
+    assert.equal(await codeOf(service.assertUnusedLaunchFee(fee, payer, self)), "NFT_FEE_USED");
+  } finally { store.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
 test("the Supabase store queries the same hash-and-creator predicate", async () => {
   const store = new SupabaseStore("https://fixture.supabase.co", "test-server-key", "verify-fee");
   let path = "";
@@ -195,6 +225,9 @@ test("the Supabase store queries the same hash-and-creator predicate", async () 
   const query = decodeURIComponent(path);
   for (const part of ["scope=eq.verify-fee", `payload->launchFee->>txHash=ilike.${lettered}`, `payload->>creator=ilike.${payer.toLowerCase()}`, "limit=1"])
     assert(query.includes(part), `missing ${part} in ${query}`);
+  assert(!query.includes("address=neq."), "no exclusion unless asked");
+  await store.tokenUsingLaunchFee(lettered, payer, "0x3333333333333333333333333333333333333333");
+  assert(decodeURIComponent(path).includes("address=neq.0x3333333333333333333333333333333333333333"), "the coin itself is excluded in the query, before LIMIT 1");
   store.request = async <T>() => [] as T;
   assert.equal(await store.tokenUsingLaunchFee(hash, payer), null);
 });

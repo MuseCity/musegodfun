@@ -402,8 +402,7 @@ export class LaunchpadService {
     if (!treasury) throw new Error("The platform treasury is not configured.");
     const keys = [this.runtime.secrets?.planAttestationKey, ...(this.runtime.secrets?.planAttestationPreviousKeys ?? [])].filter((k): k is string => !!k);
     await verifyLaunchFeePayment(this.client, { fee, payer, recipient: treasury, chainId, keys });
-    const used = await this.store.tokenUsingLaunchFee(fee.txHash, payer);
-    if (used && !(self && sameAddress(used.address, self))) throw new NftLaunchError("NFT_FEE_USED", "This launch fee was already used.");
+    if (await this.store.tokenUsingLaunchFee(fee.txHash, payer, self)) throw new NftLaunchError("NFT_FEE_USED", "This launch fee was already used.");
   }
   async openingValuation(quoteAddress: Address): Promise<LifiOpeningValuation> {
     const chainId = deploymentChain(this.runtime.config), key = `${chainId}:${quoteAddress.toLowerCase()}:${launchFeePolicy(this.runtime.config)}:${this.runtime.lifi?.integrator ?? ""}`;

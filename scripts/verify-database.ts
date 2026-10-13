@@ -123,6 +123,18 @@ try {
   await store.saveToken(plain);
   await store.updateNftVerification({ ...plain, nft, nftVerification: { status: "verified" } });
   assert.deepEqual(await connect(scope).token(plain.address), plain, "A record without nft is never touched");
+  const proven: TokenRecord = { ...token, address: STOCKS[8].address, transactionHash: `0x${"a".repeat(64)}`, nft: { ...nft, tokenId: "2" },
+    nftVerification: { status: "unverified", reason: "rpc" } };
+  await store.saveToken(proven);
+  await store.updateNftVerification({ ...proven, openingValuationUnverified: true, nftVerification: { status: "verified" } });
+  assert.deepEqual(await connect(scope).token(proven.address), proven, "A write from an unproven read never downgrades a proven record");
+  const launchFee = { asset: "stable" as const, txHash: `0x${"cd".repeat(32)}` as const };
+  const payerCoin = (n: number, letter: string): TokenRecord => ({ ...token, address: STOCKS[n].address, transactionHash: `0x${letter.repeat(64)}`, launchFee });
+  await store.saveToken(payerCoin(9, "b"));
+  assert.equal(await connect(scope).tokenUsingLaunchFee(launchFee.txHash, token.creator!, STOCKS[9].address), null, "A coin's own fee is not another use");
+  await store.saveToken(payerCoin(10, "c"));
+  assert.equal((await connect(scope).tokenUsingLaunchFee(launchFee.txHash, token.creator!, STOCKS[9].address))?.address, STOCKS[10].address,
+    "Another holder of the fee is found");
   await store.launchStatus(hash, "confirmed", blockHash);
   const queue = await connect(scope).pendingLaunches();
   assert.equal(queue.length, 1, "Replacement must leave the active queue");
@@ -206,6 +218,8 @@ try {
           "fee policy and original treasury survive reconnect and backup restore",
           "idempotent token registration and replacement status",
           "NFT verification compare-and-swap settles only unverified or absent statuses and never touches non-NFT records",
+          "NFT verification compare-and-swap matches the provenance it read and never downgrades it",
+          "launch-fee single use excludes only the coin itself",
           "backup restores token and canonical receipt identity",
           "orphan token removal",
           "buyback batch amounts and receipt history survive reconnect and upsert",
