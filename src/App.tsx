@@ -98,6 +98,7 @@ import {
 import { ApiError, api, chainApi } from "./lib/api";
 import { LaunchModeSwitch, NftLaunchStep, NFT_DISCLAIMER, NFT_ERROR_ID, NFT_FEE_ID, NFT_TOKEN_ID, type NftStepStatus } from "./components/NftLaunchStep";
 import { forgetLaunchFee, launchFeeStorageKey, musePrefill, nftReviewBlocker, prepareDraft, savedNftMode } from "./lib/nft-client";
+import { decodeDraftFragment, importDraftLink, type DraftFragment } from "./lib/draft-link";
 import { isMuse, treasuryFor, vaultFor } from "./lib/nft-mode";
 import { useNetwork, tokenPath } from "./lib/network";
 import { firstBuyDraft, launchDraftKey, launchDraftStep, resetLaunchedDraftStep, savedLaunchDraft, type FirstBuyDraft, type LaunchStep } from "./lib/launch-draft";
@@ -1165,6 +1166,28 @@ function CreatePage({
       else if (!anonymous && !firstResolution) { replaceDraft(null); setFirstBuy(firstBuyDraft(config, null)); setStep(1); }
     }
   }, [config?.chainId, config?.deploymentChainId, wallet.account, configurationPending]);
+  // An agent's `#draft=` link is read once and removed from the address. It imports after the wallet has reconnected and the
+  // network's configuration is known, as a new draft (the current one stays under "Saved launches"). It only fills in step one.
+  const draftLink = useRef<DraftFragment | null>(null), [linkNotice, setLinkNotice] = useState<{ kind: "info" | "error"; text: string } | null>(null);
+  useEffect(() => {
+    const link = decodeDraftFragment(location.hash);
+    if (!link) return;
+    draftLink.current = link;
+    history.replaceState(null, "", location.pathname + location.search);
+  }, []);
+  useEffect(() => {
+    const link = draftLink.current;
+    if (!link || !config || wallet.restoring || configurationPending || busy) return;
+    // The form must have followed the wallet's account first, or the previous account's blank draft would be saved as a launch.
+    if (draftScope.current !== (wallet.account?.toLowerCase() ?? "draft") || activeLaunchIntent(config, wallet.account) !== intentId) return;
+    draftLink.current = null;
+    if ("error" in link) { setLinkNotice({ kind: "error", text: link.error }); return; }
+    const imported = importDraftLink(link.draft, config);
+    resumeIntent(newIntentId());
+    replaceDraft(imported.raw);
+    setMessage("");
+    setLinkNotice({ kind: "info", text: imported.notice });
+  }, [wallet.restoring, configurationPending, busy, wallet.account, intentId]);
   useEffect(() => {
     if (invalidField === "tradingFeeBps") setAdvancedOpen(true);
   }, [invalidField]);
@@ -1373,7 +1396,7 @@ function CreatePage({
   }
   // A saved (or empty) draft replaces the form, with its NFT mode; the NFT step starts over from the restored NFT.
   function replaceDraft(raw: string | null) {
-    setDraft(restoreDraft(raw, config ?? undefined)); setNftMode(savedNftMode(raw)); setDraftRevision((value) => value + 1);
+    setDraft(restoreDraft(raw, config ?? undefined)); setNftMode(savedNftMode(raw)); setDraftRevision((value) => value + 1); setLinkNotice(null);
   }
   // Leaving NFT mode drops the NFT but keeps a paid fee: fees are spent per creator, so it still covers a later NFT launch.
   function chooseNftMode(next: boolean) {
@@ -2059,6 +2082,7 @@ function CreatePage({
         <h1 className="page-title">Launch your token.</h1>
         <p className="page-lede">Two steps on {chainName}. Give it a name and a face, choose what it trades against, then review before you sign.</p>
       </div>
+      {linkNotice && (linkNotice.kind === "error" || step === 1) && <div className="page-notices"><Notice kind={linkNotice.kind}>{linkNotice.text}</Notice></div>}
       {savedLaunchIntents(config, wallet.account).some((saved) => saved.intentId !== intentId) && <details className="card disclosure saved-launches">
         <summary>Saved launches</summary>
         <ul>{savedLaunchIntents(config, wallet.account).filter((saved) => saved.intentId !== intentId).map((saved) => <li key={saved.intentId}>

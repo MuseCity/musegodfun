@@ -176,6 +176,8 @@ type WalletState = {
   chainId: number | null;
   error: string;
   connecting: boolean;
+  /** True from mount until the remembered wallet's reconnect has settled (or there was none to reconnect). */
+  restoring: boolean;
   revision: number;
   connect: () => Promise<void>;
   disconnect: () => void;
@@ -210,6 +212,9 @@ const Context: ReturnType<typeof createContext<WalletState | null>> =
   import.meta.hot?.data.walletContext ??
   createContext<WalletState | null>(null);
 if (import.meta.hot) import.meta.hot.data.walletContext = Context;
+// How long a remembered wallet may take to announce itself (the legacy `window.ethereum` fallback waits 300 ms) before there is
+// nothing left to restore.
+const RESTORE_ANNOUNCE_MS = 2000;
 export function WalletProvider({ children }: { children: ReactNode }) {
   const network = useNetwork();
   const [connection, setConnection] = useState({
@@ -221,6 +226,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   });
   const [options, setOptions] = useState<WalletOption[]>([]),
     [open, setOpen] = useState(false);
+  const [restoring, setRestoring] = useState(true);
   const [ethBalance, setEthBalance] = useState<string | null>(null);
   const [balanceNetwork, setBalanceNetwork] = useState<string | null>(null);
   const dialog = useRef<HTMLDialogElement>(null);
@@ -270,7 +276,13 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   }, [account, chainId, revision, network.chainId]);
   useEffect(() => {
     const wallets: WalletOption[] = [];
-    let restored = false;
+    let restored = false, live = true, remembered = false;
+    try {
+      remembered = !!localStorage.getItem("musegod.wallet.v1");
+    } catch {}
+    const settled = () => {
+      if (live) setRestoring(false);
+    };
     const add = (option: WalletOption) => {
       if (wallets.some((w) => w.provider === option.provider)) return;
       wallets.push(option);
@@ -281,7 +293,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       } catch {}
       if (!restored && !controller.current?.selected && saved === option.rdns) {
         restored = true;
-        void controller.current?.select(option, true);
+        void controller.current?.select(option, true).finally(settled);
       }
     };
     const announce = (e: Event) => {
@@ -299,8 +311,14 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           provider: window.ethereum,
         });
     }, 300);
+    // Nothing to reconnect, or the remembered wallet never announced itself: the attempt is over.
+    const unrestored = setTimeout(() => {
+      if (!restored) settled();
+    }, remembered ? RESTORE_ANNOUNCE_MS : 0);
     return () => {
+      live = false;
       clearTimeout(legacy);
+      clearTimeout(unrestored);
       window.removeEventListener("eip6963:announceProvider", announce);
       controller.current?.dispose();
     };
@@ -1064,6 +1082,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         chainId,
         error,
         connecting,
+        restoring,
         revision,
         connect,
         disconnect,
