@@ -87,6 +87,8 @@ export function assertSecurityTransition(previous: Record<string,string>, candid
     baseFirstBuy:vars.BASE_FIRST_BUY_GUARD_ADDRESS ?? "", robinhoodFirstBuy:vars.ROBINHOOD_FIRST_BUY_GUARD_ADDRESS ?? vars.FIRST_BUY_GUARD_ADDRESS ?? "",
     feeEngine:vars.FEE_ENGINE_ADDRESS ?? "",
     baseCollector:vars.BASE_FEE_COLLECTOR_ADDRESS ?? "",
+    // NFT launches add a signing path, so a live kill switch is protected the same way as the chain flags.
+    nftMode:vars.NFT_MODE_ENABLED === "true" ? "true" : "false",
   });
   const live=values(previous),next=values(candidate),source=values(previousSource);
   for(const key of Object.keys(live) as (keyof typeof live)[]) {

@@ -5,6 +5,8 @@ import lifiLaunchAssets from "./lifi-launch-assets.json";
 import type { FeePolicy } from "./fee-policy";
 import type { OpeningValuation } from "./opening-valuation";
 import type { FirstBuyLockRecord } from "./launch-plan";
+import type { LaunchFee } from "./launch-fee";
+import type { NftRef } from "./nft-mode";
 
 export const SUPPLY = 1_000_000_000n * 10n ** 18n;
 export const WAD = 10n ** 18n;
@@ -129,6 +131,8 @@ export type RuntimeConfig = {
   wethForwarder?: Address | null;
   assetFeedOracle?: Address | null;
   buybackVault?: Address | null;
+  // NFT mode (tasks/nft-mode.md). vaultFactory is exposed only after its deployed runtime hash matches the manifest.
+  nftMode?: { enabled: boolean; vaultFactory: Address | null; launchFeeUsd: number; freeCollections: string[]; verifiedCollections: string[] };
 };
 export type StockStatus = Stock & {
   verified: boolean;
@@ -175,6 +179,11 @@ export type TokenRecord = {
   // Set only for a launch recovered from a local backup without a valid
   // platform attestation: its opening valuation is not platform-verified.
   openingValuationUnverified?: true;
+  // NFT mode (tasks/nft-mode.md). Present only for NFT launches; the status is computed once at registration.
+  nft?: NftRef;
+  launchFee?: LaunchFee;
+  nftVerification?: { status: "verified" | "rejected" | "unverified"; reason?: string; block?: string };
+  hidden?: true;
 };
 
 // Currency ordering changes with the deployed meme address; never assume the

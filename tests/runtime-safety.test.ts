@@ -93,6 +93,12 @@ test("release preserves live emergency overrides and permits intentional committ
   assert.doesNotThrow(()=>assertSecurityTransition({ENABLE_MAINNET_TRANSACTIONS:"false"},{ENABLE_MAINNET_TRANSACTIONS:"true"},{ENABLE_MAINNET_TRANSACTIONS:"false"}));
   assert.throws(()=>assertSecurityTransition({ENABLE_MAINNET_TRANSACTIONS:"TRUE"},{ENABLE_MAINNET_TRANSACTIONS:"true"},{ENABLE_MAINNET_TRANSACTIONS:"true"}),/drift/,"flags use the runtime's exact true semantics");
 });
+test("release treats NFT_MODE_ENABLED as a signing-affecting flag with exact true semantics",()=>{
+  assert.throws(()=>assertSecurityTransition({NFT_MODE_ENABLED:"false"},{NFT_MODE_ENABLED:"true"},{NFT_MODE_ENABLED:"true"}),/drift.*nftMode/);
+  assert.doesNotThrow(()=>assertSecurityTransition({NFT_MODE_ENABLED:"false"},{NFT_MODE_ENABLED:"true"},{NFT_MODE_ENABLED:"false"}),"an intentional committed false to true change is automatic");
+  assert.doesNotThrow(()=>assertSecurityTransition({},{NFT_MODE_ENABLED:"false"},{}),"the first release that introduces the variable, off, is not drift");
+  assert.throws(()=>assertSecurityTransition({NFT_MODE_ENABLED:"TRUE"},{NFT_MODE_ENABLED:"true"},{NFT_MODE_ENABLED:"true"}),/drift/,"only the exact string true enables NFT mode");
+});
 test("an incompatible rollback baseline prevents upload and activation",async()=>{
   let active="previous";const activations:string[]=[];
   await assert.rejects(publishCandidate({commit:"source",previousVersion:"previous",currentMaster:async()=>"source",activeVersion:async()=>active,assertFrozen(){},upload:async()=>"candidate",publishRelease:async()=>{},createDeployment:async()=>{},status:async()=>{},activate:async version=>{active=version;activations.push(version);},verify:async()=>{throw new Error("smoke failed");},verifyRollback:async()=>{},rollbackAllowed:async()=>false}),error=>error instanceof ReleaseFailure && error.rollback==="blocked_by_safety");

@@ -21,6 +21,7 @@ import { MusegodReader } from "./musegod";
 import { MusegodMarketReader } from "./musegod-market";
 import { CHART_INTERVALS } from "../src/lib/market";
 import { BuybackReader, BuybackError, RobinhoodBuybackSummaryReader } from "./buyback";
+import { NftLaunchError } from "./nft-launch";
 import { BuybackBatchService } from "./buyback-batches";
 import { BuybackEngineReader } from "./buyback-engine";
 import { BaseFeeQuoteReader, readTrustedBaseRecoveryAssets, unavailableBaseCollectorStatus } from "./base-buyback";
@@ -542,7 +543,7 @@ app.use(
           : 422;
     res.status(status).json({
       error: redact(error instanceof z.ZodError ? errorMessage(error) : error, runtime.environment),
-      ...(error instanceof BuybackError ? { code: error.code } : {}),
+      ...(error instanceof BuybackError || error instanceof NftLaunchError ? { code: error.code } : {}),
       ...(error instanceof MarketUnavailable
         ? {
             status: error.status,

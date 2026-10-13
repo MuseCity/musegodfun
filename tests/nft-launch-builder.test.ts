@@ -182,7 +182,9 @@ test("prepare refresh must keep the same NFT and launch-fee payment", async () =
   const baseDraft = { name: "Bard", symbol: "BARD", description: "", image: "", quoteAddress: quote.address, tradingFeeBps: 100 };
   const previousDraft = { ...baseDraft, nft: { ...nftRef, chainId: 8453 as const }, launchFee: fee(h1) };
   const previous = { id: keccak256("0x21"), creator, intentId: "intent-1", prepared: {}, recovered: false, draft: previousDraft };
-  const config: RuntimeConfig = { mode: "base", chainId: 8453, deploymentChainId: 8453, treasury, writesEnabled: true, blockReason: null };
+  // The prepare-time NFT rules (Task 5) run before the refresh gate, so this fixture presents an enabled NFT mode with a declared factory.
+  const config: RuntimeConfig = { mode: "base", chainId: 8453, deploymentChainId: 8453, treasury, writesEnabled: true, blockReason: null,
+    nftMode: { enabled: true, vaultFactory: "0x00000000000000000000000000000000000fac70", launchFeeUsd: 10, freeCollections: [], verifiedCollections: [] } };
   let network = 0;
   const service = Object.assign(Object.create(LaunchpadService.prototype), { runtime: { config }, store: { getPlan: async () => previous },
     assertNetwork: async () => { network++; throw new Error("REACHED_NETWORK"); } }) as LaunchpadService;
@@ -192,6 +194,7 @@ test("prepare refresh must keep the same NFT and launch-fee payment", async () =
   const bad = [{ ...previousDraft, nft: { ...previousDraft.nft, tokenId: "2" } }, { ...previousDraft, nft: { ...previousDraft.nft, chainId: 4663 as const } },
     { ...previousDraft, nft: { ...previousDraft.nft, contract: "0x1234567890123456789012345678901234567890" } },
     { ...previousDraft, nft: undefined }, { ...previousDraft, launchFee: fee(h2) }, { ...previousDraft, launchFee: undefined }];
-  for (const changed of bad) await assert.rejects(refresh(changed), /same creator, intent and reviewed purchase/);
+  // A token moved to another chain is refused by the NFT chain rule even earlier; every other change by the refresh gate.
+  for (const changed of bad) await assert.rejects(refresh(changed), changed.nft?.chainId === 4663 ? /own network/ : /same creator, intent and reviewed purchase/);
   assert.equal(network, 1, "every changed draft is refused before any network work");
 });

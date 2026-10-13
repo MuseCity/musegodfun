@@ -364,6 +364,14 @@ export class Store {
         .all() as { payload: string }[]
     ).map((r) => JSON.parse(r.payload));
   }
+  /** The first registered coin whose NFT identity passed verification. Rejected and unverified records never reserve an NFT. */
+  verifiedNftCoin(key: string, excludeAddress?: string): TokenRecord | null {
+    const [chainId, contract, tokenId] = key.split(":");
+    const row = this.db.prepare(`SELECT payload FROM tokens WHERE json_extract(payload,'$.nft.chainId')=? AND lower(json_extract(payload,'$.nft.contract'))=?
+      AND json_extract(payload,'$.nft.tokenId')=? AND json_extract(payload,'$.nftVerification.status')='verified' AND address<>? ORDER BY created_at ASC LIMIT 1`)
+      .get(Number(chainId), contract.toLowerCase(), tokenId, (excludeAddress ?? "").toLowerCase()) as { payload: string } | undefined;
+    return row ? JSON.parse(row.payload) : null;
+  }
   token(address: string): TokenRecord | null {
     const row = this.db
       .prepare("SELECT payload FROM tokens WHERE address=?")

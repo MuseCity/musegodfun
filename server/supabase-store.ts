@@ -234,6 +234,14 @@ export class SupabaseStore implements StoreBackend {
       if (rows.length < 1000) return result;
     }
   }
+  async verifiedNftCoin(key: string, excludeAddress?: string): Promise<TokenRecord | null> {
+    const [chainId, contract, tokenId] = key.split(":");
+    const rows = await this.request<{ payload: TokenRecord }[]>(`musegod_tokens?${this.where()}&payload->nft->>chainId=eq.${encodeURIComponent(chainId)}` +
+      `&payload->nft->>contract=ilike.${encodeURIComponent(contract)}&payload->nft->>tokenId=eq.${encodeURIComponent(tokenId)}` +
+      `&payload->nftVerification->>status=eq.verified${excludeAddress ? `&address=neq.${encodeURIComponent(excludeAddress.toLowerCase())}` : ""}` +
+      `&order=created_at.asc&select=payload&limit=1`);
+    return rows[0]?.payload ?? null;
+  }
   async token(address: string) {
     const rows = await this.request<{ payload: TokenRecord }[]>(
       `musegod_tokens?${this.where()}&address=eq.${address.toLowerCase()}&select=payload`,

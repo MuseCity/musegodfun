@@ -64,6 +64,9 @@ import { hasBaseLaunchActivationRecord } from "./base-activation-record";
 import { assertTrustedLaunchPolicy, engineLaunchCutover, ENGINE_MANIFEST, trustedLaunchPolicies, type EngineLaunchCutover } from "./launch-policy-registry";
 import { planAttestation, verifyPlanAttestation } from "./plan-attestation";
 import { BudgetUnavailable } from "./runtime-policy";
+import { NftLaunchError, assertNftDraftRules, readNftControl, verifyVaultFactory } from "./nft-launch";
+import { isMuse, nftKey } from "../src/lib/nft-mode";
+import type { LaunchFee } from "../src/lib/launch-fee";
 import type { EngineClaimPreview } from "../src/lib/buyback-engine";
 
 import { runtimeFromEnv, mainnetRpcUrl, redact } from "./config";
@@ -98,6 +101,8 @@ export class LaunchpadService {
   private guardMismatches?: Map<string, number>;
   private displayConfigCache?: { at: number; value: RuntimeConfig };
   private displayConfigPromise?: Promise<RuntimeConfig>;
+  private nftFactoryCheck?: { at: number; ttl: number; value: Address | null };
+  private nftFactoryRequest?: Promise<Address | null>;
   private stockFailures = 0;
   constructor(readonly runtime: ReturnType<typeof runtimeFromEnv>) {
     this.guardCandidate = runtime.launchGuardCandidate;
@@ -345,8 +350,33 @@ export class LaunchpadService {
       writesEnabled = false;
       blockReason = "Base issuance awaits its verified fee adapter, native Automation configuration and owner activation confirmation.";
     }
+    const declaredNftMode = this.runtime.config.nftMode;
     return { ...this.runtime.config, writesEnabled, blockReason, controlRevision, signingPaused, securityProtocol: 1,
-      curvePolicy: CURVE_POLICY, launchGuard, launchLockAvailable, feeEngine, buybackExecutor, automationReceiver, automationTreasury, wethForwarder, assetFeedOracle, buybackVault };
+      curvePolicy: CURVE_POLICY, launchGuard, launchLockAvailable, feeEngine, buybackExecutor, automationReceiver, automationTreasury, wethForwarder, assetFeedOracle, buybackVault,
+      // The declared factory is a candidate until its deployed runtime hash matches the manifest.
+      ...(declaredNftMode ? { nftMode: { ...declaredNftMode, vaultFactory: await this.verifiedVaultFactory() } } : {}) };
+  }
+  /** One-time identity check of the NFT fee-vault factory. A definitive verdict lasts for the runtime's lifetime; an RPC failure only blocks briefly. */
+  private async verifiedVaultFactory(): Promise<Address | null> {
+    if (!this.runtime.config.nftMode?.vaultFactory) return null;
+    const saved = this.nftFactoryCheck;
+    if (saved && Date.now() - saved.at < saved.ttl) return saved.value;
+    this.nftFactoryRequest ??= (async () => {
+      try {
+        await this.assertNetwork();
+        const value = await verifyVaultFactory(this.client, deploymentChain(this.runtime.config), this.runtime.nftVaultManifest);
+        this.nftFactoryCheck = { at: Date.now(), ttl: Infinity, value };
+        return value;
+      } catch {
+        this.nftFactoryCheck = { at: Date.now(), ttl: 60_000, value: null };
+        return null;
+      }
+    })().finally(() => { this.nftFactoryRequest = undefined; });
+    return this.nftFactoryRequest;
+  }
+  /** Task 6 replaces this with the on-chain launch-fee payment check. Until then a fee can never be accepted. */
+  private async assertUnusedLaunchFee(_fee: LaunchFee, _payer: Address): Promise<void> {
+    throw new NftLaunchError("NFT_FEE_INVALID", "Launch-fee verification is not available yet.");
   }
   async openingValuation(quoteAddress: Address): Promise<LifiOpeningValuation> {
     const chainId = deploymentChain(this.runtime.config), key = `${chainId}:${quoteAddress.toLowerCase()}:${launchFeePolicy(this.runtime.config)}:${this.runtime.lifi?.integrator ?? ""}`;
@@ -400,6 +430,9 @@ export class LaunchpadService {
     if (!treasury) throw new Error("The platform treasury is not configured.");
     if (!launchAssetsFor(this.runtime.config).some((asset) => sameAddress(asset.address, draft.quoteAddress)))
       throw new Error("This asset is unavailable for a new launch because it is not in the verified LI.FI opening-price pairing list.");
+    assertNftDraftRules(draft, deploymentChain(this.runtime.config), this.runtime.config.nftMode?.enabled === true);
+    if (draft.nft && !this.runtime.config.nftMode?.vaultFactory)
+      throw new NftLaunchError("NFT_VAULT_UNAVAILABLE", "The NFT fee vault is not deployed and verified on this network.");
     const stock = stockByAddress(draft.quoteAddress);
     const buy = firstBuySchema.parse(firstBuy);
     const options = prepareOptionsSchema.parse(rawOptions ?? {});
@@ -422,9 +455,20 @@ export class LaunchpadService {
     if (buy?.lockDays && amountIn === 0n) throw new Error("A locked first buy requires a positive amount.");
     await this.assertNetwork();
     await this.assertCreatorAccount(creator);
+    if (draft.nft) {
+      const [control, existing] = await Promise.all([readNftControl(this.client, draft.nft, creator), this.store.verifiedNftCoin(nftKey(draft.nft))]);
+      if (!control.erc721) throw new NftLaunchError("NFT_NOT_ERC721", "This contract is not an ERC-721 collection.");
+      if (!control.controls) throw new NftLaunchError("NFT_NOT_CONTROLLED", "Connect the wallet that holds this NFT, or one it delegated to.");
+      if (existing) throw new NftLaunchError("NFT_ALREADY_LAUNCHED", "This NFT already has its coin.");
+      if (!isMuse(draft.nft) && !draft.launchFee) throw new NftLaunchError("NFT_FEE_REQUIRED", "Pay the $10 launch fee for this NFT first.");
+      if (!isMuse(draft.nft)) await this.assertUnusedLaunchFee(draft.launchFee!, creator); // Task 6 supplies the real check
+    }
     // The HTTP route already checked this request's live configuration. Reuse it
     // for read-only preparation; the actual signing validation reads it afresh.
     const launchConfig = checkedConfig ?? await this.config(true);
+    // The live configuration exposes the factory only after its deployed runtime hash matched the manifest.
+    if (draft.nft && !launchConfig.nftMode?.vaultFactory)
+      throw new NftLaunchError("NFT_VAULT_UNAVAILABLE", "The NFT fee vault is not deployed and verified on this network.");
     const feePolicy = launchFeePolicy(launchConfig);
     this.assertLaunchPolicyCurrent(feePolicy);
     if (isEngineFeePolicy(feePolicy) && !launchConfig.feeEngine)

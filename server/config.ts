@@ -3,6 +3,8 @@ import { validTreasury } from "../src/lib/validation";
 import type { RuntimeConfig } from "../src/lib/config";
 import { CURVE_POLICY } from "../src/lib/launch-curve";
 import { BASE_AUTOMATION_FEE_POLICY, ENGINE_FEE_POLICY, FEE_POLICY } from "../src/lib/fee-policy";
+import { LAUNCH_FEE_USD } from "../src/lib/launch-fee";
+import { MUSES, vaultFactory, type NftVaultManifest } from "../src/lib/nft-mode";
 import type { Address } from "viem";
 
 export type DeploymentChainId = 8453 | 4663;
@@ -14,6 +16,8 @@ export type Runtime = {
     planAttestationKey?: string; planAttestationPreviousKeys?: string[] };
   turnstileSiteKey?: string;
   config: RuntimeConfig;
+  // Absent in production (the committed manifest applies); lets tests present a deployed factory.
+  nftVaultManifest?: NftVaultManifest;
   rpcUrl: string;
   dataDir: string;
   dataScope: string;
@@ -91,6 +95,9 @@ export function runtimeFromEnv(requestedChainId?: DeploymentChainId, environment
     : defaultDir;
   return {
     config: { mode, deploymentChainId, chainId: mode === "fork" ? 31337 : deploymentChainId, treasury, writesEnabled, curvePolicy: CURVE_POLICY, launchGuard: null,
+      // The deploymentChainId === 4663 guard is the Robinhood-only lock of this release; the Base plan removes it.
+      nftMode: { enabled: environment.NFT_MODE_ENABLED === "true" && deploymentChainId === 4663, vaultFactory: vaultFactory(deploymentChainId),
+        launchFeeUsd: LAUNCH_FEE_USD, freeCollections: [`4663:${MUSES.contract.toLowerCase()}`], verifiedCollections: [`4663:${MUSES.contract.toLowerCase()}`] },
       launchLockAvailable: false,
       feeEngine, feePolicy: feeEngine ? deploymentChainId === 8453 ? BASE_AUTOMATION_FEE_POLICY : ENGINE_FEE_POLICY : FEE_POLICY, buybackExecutor: null,
       blockReason: !treasury ? "The platform treasury is not configured. Browsing and drafts are available."
