@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import vm from "node:vm";
 import { decodeDraftFragment, encodeDraftLink } from "../src/lib/draft-link";
 import { MUSES } from "../src/lib/nft-mode";
 
@@ -50,4 +51,11 @@ test("the file says what musegod.fun is and is not, and promises nothing", () =>
 test("the file points to the coin lookup and the token page", () => {
   assert.ok(doc.includes("https://musegod.fun/api/chains/4663/tokens?nft=4663:<contract>:<id>"));
   assert.ok(doc.includes("https://musegod.fun/token/robinhood/<address>"));
+});
+
+test("the code sample runs on its own and builds the example link", () => {
+  const sample = doc.match(/```js\n([\s\S]*?)```/)![1];
+  const sandbox = { Buffer, result: "" };
+  vm.runInNewContext(`${sample}\nresult = museDraftLink({ id: 1, name: "Example Muse One", symbol: "EXMPL", description: "Placeholder text. Replace it with words drawn from your own soul." });`, sandbox);
+  assert.ok(doc.includes(sandbox.result), "the sample produces the link the file shows");
 });

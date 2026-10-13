@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { encodeDraftLink, decodeDraftFragment, importDraftLink } from "../src/lib/draft-link";
+import { SAVED_LAUNCHES_NOTE, encodeDraftLink, decodeDraftFragment, importDraftLink, isPristineDraft } from "../src/lib/draft-link";
 import { MUSES } from "../src/lib/nft-mode";
 import { ROBINHOOD_STOCKS } from "../src/lib/config";
 import { restoreDraft, type LaunchInput } from "../src/lib/validation";
@@ -79,11 +79,23 @@ test("an absent field stays absent: a partial link gains no defaults", () => {
 
 test("link values pass the launch form's own field checks", () => {
   assert.equal(decodedDraft(raw({ v: 1, symbol: "bard9" }))?.symbol, "BARD9", "the symbol is upper-cased like the form's");
-  for (const bad of [{ symbol: "1BARD" }, { symbol: "B".repeat(11) }, { name: "" }, { name: "N".repeat(33) }, { description: "d".repeat(281) },
-    { image: "http://example.com/a.png" }, { image: "https://127.0.0.1/a.png" }, { website: "javascript:alert(1)" }, { twitter: "https://example.com/muse" },
-    { telegram: "https://example.com/muse" }, { tradingFeeBps: 50 }, { tradingFeeBps: 150.5 }, { tradingFeeBps: "100" },
-    { nft: { chainId: 1, contract: MUSES.contract, tokenId: "1" } }, { nft: { ...draft.nft, tokenId: "007" } }, { nft: { ...draft.nft, extra: 1 } }, { nft: { ...draft.nft, contract: "0x1234" } }])
-    assert.ok(errorOf(raw({ v: 1, name: "Bard", ...bad })), JSON.stringify(bad));
+  assert.equal(decodedDraft(raw({ v: 1, name: "  Bard  " }))?.name, "Bard");
+});
+
+test("every refusal names the field at fault", () => {
+  const url = "https://example.com/a.png";
+  for (const [field, value] of [["symbol", "1BARD"], ["symbol", "B".repeat(11)], ["name", ""], ["name", "N".repeat(33)], ["description", "d".repeat(281)],
+    ["image", "http://example.com/a.png"], ["image", `${url}?${"q".repeat(500)}`], ["image", "https://127.0.0.1/a.png"], ["website", "javascript:alert(1)"],
+    ["twitter", "https://example.com/muse"], ["telegram", "https://example.com/muse"], ["tradingFeeBps", 50], ["tradingFeeBps", 150.5], ["tradingFeeBps", "100"],
+    ["nft", { chainId: 1, contract: MUSES.contract, tokenId: "1" }], ["nft", { ...draft.nft, tokenId: "007" }], ["nft", { ...draft.nft, extra: 1 }],
+    ["nft", { ...draft.nft, contract: "0x1234" }], ["nft", "1"], ["name", null]] as const) {
+    const error = errorOf(raw({ v: 1, name: "Bard", [field]: value }));
+    assert.ok(error?.includes(`"${field}"`), `${field} ${JSON.stringify(value).slice(0, 40)}: ${error}`);
+  }
+  assert.ok(errorOf(raw({ v: 1, evil: true }))?.includes('"evil"'), "an unknown key is named");
+  assert.ok(errorOf(raw({ v: 2, name: "Bard" }))?.includes('"v"'), "a wrong version names v");
+  assert.ok(errorOf(raw({ name: "Bard" }))?.includes('"v"'), "a missing version names v");
+  assert.ok(errorOf(raw({ v: 1, ["x".repeat(100)]: 1 }))!.length < 140, "an unknown key is shortened");
 });
 
 test("a Muse link is restored through restoreDraft: the pair is MUSEGOD and the link never chooses a fee", () => {
@@ -101,6 +113,32 @@ test("a Muse link is restored through restoreDraft: the pair is MUSEGOD and the 
 test("importing never takes the pair or the launch fee, even from a draft that carries them", () => {
   const imported = importDraftLink({ name: "Plain", quoteAddress: weth.address, launchFee: { asset: "stable", txHash: `0x${"11".repeat(32)}` } }, { ...robinhood, nftMode: nftMode(true) });
   assert.deepEqual(JSON.parse(imported.raw), { name: "Plain" });
+});
+
+test("an NFT on another network than the page is dropped and the notice says so", () => {
+  const config = { ...robinhood, nftMode: nftMode(true) };
+  const imported = importDraftLink({ ...draft, nft: { ...draft.nft, chainId: 8453 } }, config);
+  assert.equal(restoreDraft(imported.raw, config).nft, undefined);
+  assert.equal(restoreDraft(imported.raw, config).name, "Bard");
+  assert.equal(imported.notice, "Imported from a link — check every field. The NFT is on a different network than this page; the NFT was not imported.");
+});
+
+test("the notice says the previous draft was saved only when it was", () => {
+  const config = { ...robinhood, nftMode: nftMode(true) };
+  assert.equal(importDraftLink(draft, config).notice, "Imported from a link — check every field.");
+  assert.equal(importDraftLink(draft, config, true).notice, `Imported from a link — check every field. ${SAVED_LAUNCHES_NOTE}`);
+  assert.equal(importDraftLink(draft, robinhood, true).notice,
+    `Imported from a link — check every field. NFT mode is not available on this network yet; the NFT was not imported. ${SAVED_LAUNCHES_NOTE}`);
+});
+
+test("only an untouched draft is pristine", () => {
+  const blank = restoreDraft(null, robinhood);
+  assert.equal(isPristineDraft(blank, 1), true);
+  assert.equal(isPristineDraft({ ...blank, name: "  " }, 1), true, "blanks do not count");
+  assert.equal(isPristineDraft(blank, 2), false);
+  for (const touched of [{ name: "Bard" }, { symbol: "B" }, { description: "x" }, { image: "https://example.com/a.png" }, { website: "https://example.com" },
+    { twitter: "https://x.com/a" }, { telegram: "https://t.me/a" }, { nft: draft.nft }, { launchFee: { asset: "stable" as const, txHash: `0x${"11".repeat(32)}` as const } }])
+    assert.equal(isPristineDraft({ ...blank, ...touched }, 1), false, JSON.stringify(touched));
 });
 
 test("a link without an NFT imports a normal draft", () => {

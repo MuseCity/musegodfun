@@ -27,7 +27,7 @@ const tokenLookupModes = new Set(['token_detail_pending', 'token_detail_error', 
 const timeoutModes = new Set(['approval_timeout', 'payment_timeout', 'launch_timeout', 'approval_timeout_reject']);
 const recoveryRaceModes = new Set(['payment_marker_race', 'launch_marker_race', 'payment_status_race', 'payment_submit_race', 'payment_submit_record_race']);
 // NFT mode: the mode switch, the Muse pair lock, the $10 fee card before review and prepare's NFT rejections. No launch is signed.
-const nftModes = new Set(['nft_muse_free', 'nft_paid_usdg', 'nft_paid_eth', 'nft_fee_sending_reload', 'nft_not_controlled', 'nft_already_launched', 'nft_draft_link_during_reconnect']);
+const nftModes = new Set(['nft_muse_free', 'nft_paid_usdg', 'nft_paid_eth', 'nft_fee_sending_reload', 'nft_not_controlled', 'nft_already_launched', 'nft_draft_link_during_reconnect', 'nft_draft_link_locked_wallet']);
 const feeWei = '3333333333333334';
 const muses = '0x13Ea3072b7215d4C9c2Ec4f498A08c5825129836', paidCollection = '0x9999999999999999999999999999999999999999';
 const usdg = '0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168', musegodAsset = ROBINHOOD_STOCKS.find(x => x.symbol === 'MUSEGOD');
@@ -84,7 +84,7 @@ async function casePage(mode, viewport = { width: 1440, height: 1000 }) {
     approvalCanonical: mode !== 'approval_pending', configurationReleased: mode !== 'delayed_config', releaseConfiguration: [],
     unresolvedRequests: new Map(), holdVerification: ['payment_submit_race', 'payment_submit_record_race'].includes(mode), releaseVerification: null,
     holdRegistration: false, releaseRegistration: null, priceRequests: 0, paymentQuoteRequests: [], releaseDetail: null, detailRequested: false,
-    trackRequests: 0, trackedHash: null, trackedReceipt: false, nftStatusRequests: [], feeReceipt: true, holdReconnect: false, reconnectHeld: false, releaseReconnect: null };
+    trackRequests: 0, trackedHash: null, trackedReceipt: false, nftStatusRequests: [], feeReceipt: true, holdReconnect: false, reconnectHeld: false, reconnectResolvers: [], walletLocked: false };
   // A held fee payment is not mined yet: it spends no nonce and has no receipt.
   const minedSends = () => state.sends.filter(sent => !sent.fee || state.feeReceipt);
   const chainTransaction = sent => ({ hash:sent.hash, from:creator, to:sent.to, input:sent.data, value:sent.value ?? '0x0', nonce:toHex(state.sends.indexOf(sent)),
@@ -94,11 +94,14 @@ async function casePage(mode, viewport = { width: 1440, height: 1000 }) {
   await context.addInitScript(({ creator, treasury, mode }) => {
     const listeners = new Map();
     let selectedAccount = creator, selectedChain = '0x7a69';
-    const provider = { on(name, fn) { const list = listeners.get(name) || []; list.push(fn); listeners.set(name,list); }, removeListener(name, fn) { listeners.set(name,(listeners.get(name)||[]).filter(x=>x!==fn)); },
+    const provider = { __emit(name, value) { for (const fn of listeners.get(name) || []) fn(value); },
+      on(name, fn) { const list = listeners.get(name) || []; list.push(fn); listeners.set(name,list); }, removeListener(name, fn) { listeners.set(name,(listeners.get(name)||[]).filter(x=>x!==fn)); },
       async request(request) {
         if (request.method === 'eth_accounts' || request.method === 'eth_requestAccounts') {
           // The remembered wallet's silent reconnect can be held open by the test; connecting by hand never is.
           if (request.method === 'eth_accounts' && mode === 'nft_draft_link_during_reconnect') await window.__testReconnect();
+          // A locked wallet answers the silent reconnect with no account until the test grants one.
+          if (request.method === 'eth_accounts' && mode === 'nft_draft_link_locked_wallet' && await window.__testLocked()) return [];
           return [selectedAccount];
         }
         if (request.method === 'eth_chainId') return selectedChain;
@@ -123,7 +126,9 @@ async function casePage(mode, viewport = { width: 1440, height: 1000 }) {
     if (mode.includes('_timeout') || mode === 'wrap_late_launch_recovery') { const native = window.setTimeout; window.setTimeout = (fn, ms, ...args) => native(fn, ms === 300000 ? 300 : ms, ...args); }
   }, { creator, treasury, mode });
   await context.exposeBinding('__testChanged', () => { state.changed = true; });
-  await context.exposeBinding('__testReconnect', () => state.holdReconnect ? new Promise(resolve => { state.reconnectHeld = true; state.releaseReconnect = resolve; }) : undefined);
+  // Every silent reconnect request made during the hold waits for the release, not only the first.
+  await context.exposeBinding('__testReconnect', () => state.holdReconnect ? new Promise(resolve => { state.reconnectHeld = true; state.reconnectResolvers.push(resolve); }) : undefined);
+  await context.exposeBinding('__testLocked', () => state.walletLocked);
   await context.exposeBinding('__testSend', async (_source, tx) => {
     const wrap = tx.to.toLowerCase() === quote.address.toLowerCase() && tx.data === encodeFunctionData({ abi: wrapAbi, functionName: 'deposit' });
     const approval = tx.to.toLowerCase() === quote.address.toLowerCase() && tx.data.startsWith('0x095ea7b3');
@@ -603,7 +608,7 @@ async function timeoutCase(page, state) {
 // and never advances the flow. The holder's own draft stays under "Saved launches".
 async function draftLinkCase(page, state) {
   const name = page.getByLabel('Token name', { exact: true }), symbol = page.getByLabel('Token symbol', { exact: true });
-  const imported = page.getByText('Imported from a link — check every field.', { exact: true });
+  const imported = page.getByText(/^Imported from a link — check every field\./), importedText = 'Imported from a link — check every field. Your previous draft is under Saved launches.';
   const posts = []; page.on('request', request => { if (request.method() !== 'GET') posts.push(new URL(request.url()).pathname); });
   await page.getByRole('button', { name: 'Connect wallet', exact: true }).click();
   const choose = page.getByRole('button', { name: /Local acceptance wallet/ }); if (await choose.count()) await choose.click();
@@ -625,9 +630,9 @@ async function draftLinkCase(page, state) {
   assert.equal(await name.inputValue(), '', 'nothing imports while the wallet is reconnecting');
   assert.equal(await imported.count(), 0);
   // The reconnect settles: the link imports into a new draft, on step one, with its notice.
-  state.holdReconnect = false; state.releaseReconnect();
+  state.holdReconnect = false; state.reconnectResolvers.splice(0).forEach(resolve => resolve());
   await page.waitForFunction(() => document.querySelector('input[name="name"]')?.value === 'Linked Muse coin');
-  await imported.waitFor();
+  await page.getByText(importedText, { exact: true }).waitFor();
   assert.equal(await symbol.inputValue(), 'LINK');
   assert.equal(await page.getByLabel('Description', { exact: true }).inputValue(), 'Prefilled by an agent.');
   assert.equal(await page.getByRole('radio', { name: 'NFT', exact: true }).isChecked(), true);
@@ -667,8 +672,84 @@ async function draftLinkCase(page, state) {
   state.nftChecks = { reconnectHeldFirst: true, importedAfterReconnect: true, fragmentRemoved: true, chainFromQuery: true, previousDraftSaved: true,
     stayedOnStepOne: true, noReviewNoSignNoWrite: true, refusedLinkChangedNothing: true };
 }
+// The remembered wallet is locked, so the link imports with no account. When the holder unlocks it, the imported draft goes with them
+// and their own earlier draft stays listed under "Saved launches" instead of replacing it.
+async function lockedWalletCase(page, state) {
+  const name = page.getByLabel('Token name', { exact: true }), symbol = page.getByLabel('Token symbol', { exact: true });
+  const base = 'Imported from a link — check every field.';
+  const posts = []; page.on('request', request => { if (request.method() !== 'GET') posts.push(new URL(request.url()).pathname); });
+  await page.getByRole('button', { name: 'Connect wallet', exact: true }).click();
+  const choose = page.getByRole('button', { name: /Local acceptance wallet/ }); if (await choose.count()) await choose.click();
+  await page.getByRole('button', { name: /^Wallet account / }).waitFor();
+  await name.fill('Previous draft'); await symbol.fill('PREV');
+  await page.waitForFunction(account => Object.keys(localStorage).some(key => key.startsWith('musegod.launch.draft.') && key.includes(account) &&
+    JSON.parse(localStorage.getItem(key) || 'null')?.name === 'Previous draft'), creator);
+  const link = encodeDraftLink({ name: 'Linked Muse coin', symbol: 'LINK', description: 'Prefilled by an agent.', nft: { chainId: 4663, contract: muses, tokenId: '2' } }, origin);
+  // A browser restart: the wallet is remembered but locked, so its silent reconnect finishes with no account and the link imports without one.
+  state.walletLocked = true;
+  await page.goto('about:blank'); await page.goto(link);
+  await page.getByRole('radio', { name: 'NFT', exact: true }).waitFor();
+  await page.getByText(base, { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Connect wallet', exact: true }).waitFor();
+  assert.equal(await name.inputValue(), 'Linked Muse coin');
+  assert.equal(new URL(page.url()).hash, '');
+  assert.equal(await page.getByText('Saved launches', { exact: true }).count(), 0, 'an untouched anonymous draft is replaced in place, not saved as a launch');
+  // The holder unlocks the wallet: the page gets an account.
+  state.walletLocked = false;
+  await page.evaluate(account => window.ethereum.__emit('accountsChanged', [account]), creator);
+  await page.getByRole('button', { name: /^Wallet account / }).waitFor();
+  await page.getByText(`${base} Your previous draft is under Saved launches.`, { exact: true }).waitFor();
+  assert.equal(await name.inputValue(), 'Linked Muse coin', 'the imported draft stays; the wallet\'s own draft does not replace it');
+  assert.equal(await symbol.inputValue(), 'LINK');
+  assert.equal(await page.getByLabel('Description', { exact: true }).inputValue(), 'Prefilled by an agent.');
+  assert.equal(await page.getByRole('radio', { name: 'NFT', exact: true }).isChecked(), true);
+  assert.equal(await page.getByLabel('Collection contract', { exact: true }).inputValue(), muses);
+  assert.equal(await page.getByLabel('Token number', { exact: true }).inputValue(), '2');
+  await page.waitForFunction(() => document.getElementById('nft-launch-status')?.textContent === 'Muse launches are free. Muse coins pair with MUSEGOD.');
+  assert.equal(await name.inputValue(), 'Linked Muse coin');
+  assert.equal(await page.getByRole('heading', { name: 'Give it a name and a face' }).isVisible(), true);
+  // The imported draft now belongs to the account's active intent; the wallet's earlier draft is listed and intact.
+  await page.waitForFunction(account => { const intent = localStorage.getItem(`musegod.launch.intent.31337.4663.${account}`);
+    return !!intent && JSON.parse(localStorage.getItem(`musegod.launch.draft.31337.4663.${account}.${intent}`) || 'null')?.name === 'Linked Muse coin'; }, creator);
+  await page.getByText('Saved launches', { exact: true }).click();
+  const resume = page.getByRole('button', { name: 'Resume Previous draft', exact: true });
+  await resume.waitFor();
+  assert.equal(await page.getByRole('button', { name: /^Resume / }).count(), 1);
+  assert.equal(state.prepareRequests.length, 0); assert.equal(state.sends.length, 0);
+  assert(posts.every(path => path.endsWith('/rpc')), `no network write: ${posts.join(', ')}`);
+  await page.screenshot({ path: '.cache/launch-browser-nft_draft_link_locked_wallet.png', fullPage: true });
+  report.screenshots.push('.cache/launch-browser-nft_draft_link_locked_wallet.png');
+  await resume.click();
+  await page.waitForFunction(() => document.querySelector('input[name="name"]')?.value === 'Previous draft');
+  assert.equal(await symbol.inputValue(), 'PREV');
+  await page.getByRole('button', { name: 'Resume Linked Muse coin', exact: true }).waitFor();
+  // A wallet whose own draft is blank has nothing to protect: the link keeps the form and no blank launch is listed. The drafts are set
+  // from a same-origin page that is not the app, so nothing autosaves over them.
+  await page.goto(`${origin}/skill.md`);
+  await page.evaluate(account => {
+    for (const key of Object.keys(localStorage)) if (key.startsWith('musegod.launch.draft.31337.4663.')) localStorage.removeItem(key);
+    const intent = localStorage.getItem(`musegod.launch.intent.31337.4663.${account}`);
+    localStorage.setItem(`musegod.launch.draft.31337.4663.${account}.${intent}`, JSON.stringify({ name: '', symbol: '', description: '', image: '', website: '', twitter: '', telegram: '', step: 1, intentId: intent }));
+  }, creator);
+  state.walletLocked = true;
+  await page.goto(encodeDraftLink({ name: 'Second link coin', symbol: 'SECOND' }, origin));
+  await page.getByText(base, { exact: true }).waitFor();
+  assert.equal(await name.inputValue(), 'Second link coin');
+  state.walletLocked = false;
+  await page.evaluate(account => window.ethereum.__emit('accountsChanged', [account]), creator);
+  await page.getByRole('button', { name: /^Wallet account / }).waitFor();
+  await page.waitForFunction(account => { const intent = localStorage.getItem(`musegod.launch.intent.31337.4663.${account}`);
+    return !!intent && JSON.parse(localStorage.getItem(`musegod.launch.draft.31337.4663.${account}.${intent}`) || 'null')?.name === 'Second link coin'; }, creator);
+  assert.equal(await name.inputValue(), 'Second link coin');
+  assert.equal(await symbol.inputValue(), 'SECOND');
+  await page.getByText(base, { exact: true }).waitFor();
+  assert.equal(await page.getByText('Saved launches', { exact: true }).count(), 0, 'a blank wallet draft is not listed as a saved launch');
+  assert(posts.every(path => path.endsWith('/rpc')), `no network write: ${posts.join(', ')}`);
+  state.nftChecks = { importedWithoutAccount: true, untouchedDraftReplacedInPlace: true, keptOnConnect: true, walletDraftListed: true, blankWalletDraftNotListed: true, noWrites: true };
+}
 async function nftCase(page, state) {
   if (state.mode === 'nft_draft_link_during_reconnect') return draftLinkCase(page, state);
+  if (state.mode === 'nft_draft_link_locked_wallet') return lockedWalletCase(page, state);
   const mode = state.mode, nftRadio = page.getByRole('radio', { name: 'NFT', exact: true });
   const tokenInput = page.getByLabel('Token number', { exact: true }), status = page.locator('#nft-launch-status');
   const reviewAndContinue = page.getByRole('button', { name: 'Review and continue', exact: true });
@@ -827,7 +908,7 @@ async function nftCase(page, state) {
   await page.screenshot({ path: `.cache/launch-browser-${mode}.png`, fullPage: true }); report.screenshots.push(`.cache/launch-browser-${mode}.png`);
 }
 try {
-  for (const mode of (process.env.BROWSER_CASES?.split(',') || ['success','plain','duplicate','stale_page','reject_approval','expiry','account_change','network_change','simulation_failure','two_tabs','unknown_send','approval_unknown','approval_pending','wrap_flow','wrap_price_change','delayed_config','unknown_fetch','approval_timeout','payment_timeout','launch_timeout','approval_timeout_reject','payment_marker_race','launch_marker_race','payment_status_race','payment_submit_race','payment_submit_record_race','wrap_late_launch_recovery','wrap_near_expiry','idle_review','hidden_review','idle_plain','token_detail_pending','token_detail_error','token_detail_state_unavailable','token_detail_unregistered_backup','token_detail_invalid_pool','token_detail_unverified_opening','history_track_backoff','nft_muse_free','nft_paid_usdg','nft_paid_eth','nft_fee_sending_reload','nft_not_controlled','nft_already_launched','nft_draft_link_during_reconnect'])) {
+  for (const mode of (process.env.BROWSER_CASES?.split(',') || ['success','plain','duplicate','stale_page','reject_approval','expiry','account_change','network_change','simulation_failure','two_tabs','unknown_send','approval_unknown','approval_pending','wrap_flow','wrap_price_change','delayed_config','unknown_fetch','approval_timeout','payment_timeout','launch_timeout','approval_timeout_reject','payment_marker_race','launch_marker_race','payment_status_race','payment_submit_race','payment_submit_record_race','wrap_late_launch_recovery','wrap_near_expiry','idle_review','hidden_review','idle_plain','token_detail_pending','token_detail_error','token_detail_state_unavailable','token_detail_unregistered_backup','token_detail_invalid_pool','token_detail_unverified_opening','history_track_backoff','nft_muse_free','nft_paid_usdg','nft_paid_eth','nft_fee_sending_reload','nft_not_controlled','nft_already_launched','nft_draft_link_during_reconnect','nft_draft_link_locked_wallet'])) {
     const {context,page,state,pageErrors}=await casePage(mode);
     const plain = plainModes.has(mode);
     if (mode === 'success') {

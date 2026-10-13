@@ -53,6 +53,10 @@ export function sentLaunchAwaitingRegistration(config: Pick<RuntimeConfig, "chai
       tx.tokenAddress?.toLowerCase() === tokenAddress.toLowerCase() && transactionMatchesConfig(tx, config));
   } catch { return false; }
 }
+/** True when the intent holds a submission, pending, plan or payment record: it is more than a draft and must never be overwritten. */
+export function intentHasRecords(config: Pick<RuntimeConfig, "chainId" | "mode" | "deploymentChainId">, account: Address | null, intent: string): boolean {
+  return (["submission", "pending", "plan", "payment"] as const).some((kind) => !!localStorage.getItem(launchIntentStorageKey(config, account, intent, kind)));
+}
 export function savedLaunchIntents(config: RuntimeConfig, account: Address | null) {
   const prefix = `musegod.launch.draft.${scope(config, account)}.`;
   const saved: { intentId: string; name: string; pending: boolean }[] = [];

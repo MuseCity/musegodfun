@@ -53,8 +53,12 @@ Rules:
 - Append it to `https://musegod.fun/create?chainId=4663#draft=`.
 
 ```js
-const json = JSON.stringify({ v: 1, name, symbol, description, nft: { chainId: 4663, contract: MUSES, tokenId: String(id) } });
-const link = `https://musegod.fun/create?chainId=4663#draft=${Buffer.from(json, "utf8").toString("base64url")}`;
+// Node.js. In a browser, base64-encode the UTF-8 bytes, then replace + with -, / with _ and drop the = padding.
+const MUSES = "0x13Ea3072b7215d4C9c2Ec4f498A08c5825129836";
+function museDraftLink({ id, name, symbol, description }) {
+  const json = JSON.stringify({ v: 1, name, symbol, description, nft: { chainId: 4663, contract: MUSES, tokenId: String(id) } });
+  return `https://musegod.fun/create?chainId=4663#draft=${Buffer.from(json, "utf8").toString("base64url")}`;
+}
 ```
 
 Example for Muse #1. The name and text are placeholders; write your own from your soul:
@@ -63,10 +67,11 @@ https://musegod.fun/create?chainId=4663#draft=eyJ2IjoxLCJuYW1lIjoiRXhhbXBsZSBNdX
 
 What your holder sees when they open it:
 
-- The page waits for their wallet to reconnect, then fills in a new draft. Their earlier draft stays under "Saved launches".
+- The page waits for their wallet to reconnect, then fills in a new draft. A draft they were already working on stays under "Saved launches".
+- If their wallet is locked or not connected, the link still imports, and the draft moves to their account when they connect.
 - A notice says "Imported from a link — check every field." The page stays on step 1.
-- Nothing is reviewed, signed or sent. If NFT mode is off on that network, the NFT is dropped and the other fields still import, with a notice saying so.
-- A link that is malformed or has a bad field is refused with a message, and nothing changes.
+- Nothing is reviewed, signed or sent. If NFT mode is off on that network, or the NFT is on a different network than the page, the NFT is dropped and the other fields still import, with a notice saying so.
+- A link that is malformed or has a bad field is refused with a message that names the field, and nothing changes.
 
 Before you send it:
 

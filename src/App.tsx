@@ -3,7 +3,7 @@ import { PaymentPriceChanged } from "./lib/first-buy-wallet";
 import TurnstileGate from "./components/TurnstileGate";
 import LockRecovery from "./components/LockRecovery";
 import { quoteNow } from "./lib/quote-clock";
-import { activeLaunchIntent, newIntentId, selectLaunchIntent, savedLaunchIntents, launchIntentStorageKey, restoreLegacyPending, saveFrozenLaunch, withLaunchIntentLock, sentLaunchAwaitingRegistration } from "./lib/launch-intent";
+import { activeLaunchIntent, intentHasRecords, newIntentId, selectLaunchIntent, savedLaunchIntents, launchIntentStorageKey, restoreLegacyPending, saveFrozenLaunch, withLaunchIntentLock, sentLaunchAwaitingRegistration } from "./lib/launch-intent";
 import { LaunchPriceChanged, assertAcceptedLaunchRefresh, assertLaunchWalletPlan, launchDraftInput } from "./lib/launch-wallet";
 import { assertLaunchPlanValidity } from "./lib/launch-plan";
 import { dopplerUrl } from "./lib/doppler";
@@ -98,7 +98,7 @@ import {
 import { ApiError, api, chainApi } from "./lib/api";
 import { LaunchModeSwitch, NftLaunchStep, NFT_DISCLAIMER, NFT_ERROR_ID, NFT_FEE_ID, NFT_TOKEN_ID, type NftStepStatus } from "./components/NftLaunchStep";
 import { forgetLaunchFee, launchFeeStorageKey, musePrefill, nftReviewBlocker, prepareDraft, savedNftMode } from "./lib/nft-client";
-import { decodeDraftFragment, importDraftLink, type DraftFragment } from "./lib/draft-link";
+import { SAVED_LAUNCHES_NOTE, decodeDraftFragment, importDraftLink, isPristineDraft, type DraftFragment } from "./lib/draft-link";
 import { isMuse, treasuryFor, vaultFor } from "./lib/nft-mode";
 import { useNetwork, tokenPath } from "./lib/network";
 import { firstBuyDraft, launchDraftKey, launchDraftStep, resetLaunchedDraftStep, savedLaunchDraft, type FirstBuyDraft, type LaunchStep } from "./lib/launch-draft";
@@ -1149,6 +1149,8 @@ function CreatePage({
   const currentPlan = useRef<LaunchPlan | null>(null);
   const inFlightIntents = useRef(new Set<string>());
   const draftScope = useRef(wallet.account?.toLowerCase() ?? "draft");
+  // A draft link imported while no wallet account was connected: the form then moves with the holder to their account.
+  const importedAnonymously = useRef(false);
   const resolvedConfiguration = useRef(!configurationPending);
   useEffect(() => {
     if (!config) return;
@@ -1158,16 +1160,28 @@ function CreatePage({
     const scope = wallet.account?.toLowerCase() ?? "draft";
     if (next !== intentId || draftScope.current !== scope) {
       const anonymous = draftScope.current === "draft";
-      draftScope.current = scope; imageUpload.current++;
-      generation.current++; setIntentId(next); currentPlan.current = null;
-      setPlan(null); setPaymentQuote(null); setTxHash(null); setConfirmed(false); setBusy(false); setUploadingImage(false); setReview(false);
       const saved = localStorage.getItem(launchIntentStorageKey(config, wallet.account, next, "draft"));
-      if (saved) { replaceDraft(saved); setFirstBuy(firstBuyDraft(config, saved)); setStep(launchDraftStep(saved)); }
-      else if (!anonymous && !firstResolution) { replaceDraft(null); setFirstBuy(firstBuyDraft(config, null)); setStep(1); }
+      // An imported draft link must not give way to the wallet's own draft when the holder connects: the form is kept, and when the
+      // wallet's draft holds anything it moves to a new intent of the account and the wallet's draft stays listed under "Saved launches".
+      const keep = anonymous && !!wallet.account && importedAnonymously.current;
+      const carry = keep && !!saved && !(isPristineDraft(restoreDraft(saved, config), launchDraftStep(saved)) && !intentHasRecords(config, wallet.account, next));
+      if (wallet.account) importedAnonymously.current = false;
+      const target = carry ? newIntentId() : next;
+      draftScope.current = scope; imageUpload.current++;
+      generation.current++; setIntentId(target); currentPlan.current = null;
+      setPlan(null); setPaymentQuote(null); setTxHash(null); setConfirmed(false); setBusy(false); setUploadingImage(false); setReview(false);
+      if (carry) {
+        selectLaunchIntent(config, wallet.account, target);
+        localStorage.setItem(launchIntentStorageKey(config, wallet.account, target, "draft"), JSON.stringify({ ...draft, firstBuy, intentId: target, step, nftMode }));
+        setLinkNotice((notice) => notice && !notice.text.includes(SAVED_LAUNCHES_NOTE) ? { ...notice, text: `${notice.text} ${SAVED_LAUNCHES_NOTE}` } : notice);
+      }
+      else if (saved && !keep) { replaceDraft(saved); setFirstBuy(firstBuyDraft(config, saved)); setStep(launchDraftStep(saved)); }
+      else if (!saved && !anonymous && !firstResolution) { replaceDraft(null); setFirstBuy(firstBuyDraft(config, null)); setStep(1); }
     }
   }, [config?.chainId, config?.deploymentChainId, wallet.account, configurationPending]);
   // An agent's `#draft=` link is read once and removed from the address. It imports after the wallet has reconnected and the
-  // network's configuration is known, as a new draft (the current one stays under "Saved launches"). It only fills in step one.
+  // network's configuration is known, as a new draft (an untouched current draft is replaced in place; any other stays under
+  // "Saved launches"). It fills in the form and stays on step one.
   const draftLink = useRef<DraftFragment | null>(null), [linkNotice, setLinkNotice] = useState<{ kind: "info" | "error"; text: string } | null>(null);
   useEffect(() => {
     const link = decodeDraftFragment(location.hash);
@@ -1180,10 +1194,12 @@ function CreatePage({
     if (!link || !config || wallet.restoring || configurationPending || busy) return;
     // The form must have followed the wallet's account first, or the previous account's blank draft would be saved as a launch.
     if (draftScope.current !== (wallet.account?.toLowerCase() ?? "draft") || activeLaunchIntent(config, wallet.account) !== intentId) return;
+    if ("error" in link) { draftLink.current = null; setLinkNotice({ kind: "error", text: link.error }); return; }
+    const pristine = isPristineDraft(draft, step) && !intentHasRecords(config, wallet.account, intentId);
+    const imported = importDraftLink(link.draft, config, !pristine);
+    if (!pristine && !resumeIntent(newIntentId())) return;
     draftLink.current = null;
-    if ("error" in link) { setLinkNotice({ kind: "error", text: link.error }); return; }
-    const imported = importDraftLink(link.draft, config);
-    resumeIntent(newIntentId());
+    importedAnonymously.current = !wallet.account;
     replaceDraft(imported.raw);
     setMessage("");
     setLinkNotice({ kind: "info", text: imported.notice });
@@ -2035,8 +2051,8 @@ function CreatePage({
     if (!expired || refreshedPreview.current === key) return;
     refreshedPreview.current = key; void simulate();
   }, [review, busy, txHash, submissionUnknown, paymentAttempt, planExpired, paymentExpired, plan, paymentQuote, backgroundRefreshAllowed]);
-  function resumeIntent(next: string) {
-    if (!config || busy) return;
+  function resumeIntent(next: string): boolean {
+    if (!config || busy) return false;
     localStorage.setItem(launchIntentStorageKey(config, wallet.account, intentId, "draft"), JSON.stringify({ ...draft, firstBuy, intentId, step, nftMode }));
     selectLaunchIntent(config, wallet.account, next); generation.current++; imageUpload.current++; currentPlan.current = null;
     const saved = localStorage.getItem(launchIntentStorageKey(config, wallet.account, next, "draft"));
@@ -2044,6 +2060,7 @@ function CreatePage({
     setIntentId(next); replaceDraft(saved); setFirstBuy(firstBuyDraft(config, saved)); setStep(launchDraftStep(saved));
     setPaymentAttempt(null); setPaymentQuote(null); setPlan(null); setTxHash(null); setConfirmed(false); setSubmissionUnknown(false);
     setError(""); setMessage(saved ? "Your saved launch is restored. Check its submitted transaction before continuing." : "Your previous launch is saved. Start your next token here."); setReview(false);
+    return true;
   }
   function startAnotherLaunch() {
     resumeIntent(newIntentId());
