@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "vaultInitCodeHash": "0x6fc7d0685e8d58a46916a79e3e4b4f02ab63f2cc3efa96aa12800dc62e9eb793",
+  "vaultInitCodeHash": "0x9bca6b10994de2c8aafadff4eb9b326d558bfbbdb1f1d2282b378907b5f46fa7",
   "chains": {
     "4663": {
       "status": "not_deployed",

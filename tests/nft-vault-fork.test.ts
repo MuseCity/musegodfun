@@ -11,8 +11,10 @@ import {
 type Build = { factoryBytecode: Hex; vaultInitCodeHash: Hex; factoryRuntimeTemplateHash: Hex;
   immutableReferences: Record<string, { start: number; length: number }[]> };
 const build = JSON.parse(readFileSync("contracts/artifacts/nft-vault-build.json", "utf8")) as Build;
-// Deployed factory runtime length; equals the compiler runtime length (immutables keep their size).
-const FACTORY_RUNTIME_LENGTH = 4609;
+// Deployed factory runtime length; equals the compiler runtime length (immutables keep their size). This value and the
+// immutable slot offsets asserted below change whenever the vault or factory source is recompiled; update them from
+// contracts/out after `npm run build:nft-vault`.
+const FACTORY_RUNTIME_LENGTH = 5727;
 
 test("fork gate code has no address formula of its own and uses the Task 3 library", () => {
   for (const file of ["scripts/nft-vault-fork-helpers.ts", "scripts/test-nft-vault-fork.ts"]) {

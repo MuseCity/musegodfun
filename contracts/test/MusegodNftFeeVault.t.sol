@@ -88,11 +88,48 @@ contract ProxyFixture {
     fallback() external payable {}
 }
 
+/// Stand-in for an ERC-6551 Tokenbound account proxy: initialize records the implementation once, then reverts.
+contract AccountFixture {
+    error AlreadyInitialized();
+    address public implementation;
+    uint256 public initializeCalls;
+    function initialize(address implementation_) external {
+        if (implementation != address(0)) revert AlreadyInitialized();
+        implementation = implementation_;
+        initializeCalls++;
+    }
+    receive() external payable {}
+}
+
+/// Mirrors the canonical registry: account() is the CREATE2 prediction; createAccount deploys once and is idempotent.
 contract RegistryFixture {
-    function account(address implementation, bytes32 salt, uint256 chainId, address tokenContract, uint256 tokenId)
-        external pure returns (address)
+    uint256 public createCalls;
+    function _salt(address implementation, bytes32 salt, uint256 chainId, address tokenContract, uint256 tokenId)
+        internal pure returns (bytes32)
     {
-        return address(uint160(uint256(keccak256(abi.encode(implementation, salt, chainId, tokenContract, tokenId)))));
+        return keccak256(abi.encode(implementation, salt, chainId, tokenContract, tokenId));
+    }
+    function account(address implementation, bytes32 salt, uint256 chainId, address tokenContract, uint256 tokenId)
+        public view returns (address)
+    {
+        bytes32 hash = keccak256(abi.encodePacked(
+            bytes1(0xff), address(this), _salt(implementation, salt, chainId, tokenContract, tokenId),
+            keccak256(type(AccountFixture).creationCode)));
+        return address(uint160(uint256(hash)));
+    }
+    function createAccount(address implementation, bytes32 salt, uint256 chainId, address tokenContract, uint256 tokenId)
+        external returns (address created)
+    {
+        createCalls++;
+        created = account(implementation, salt, chainId, tokenContract, tokenId);
+        if (created.code.length == 0) new AccountFixture{salt: _salt(implementation, salt, chainId, tokenContract, tokenId)}();
+    }
+}
+
+/// A registry that answers account() but never deploys, so the treasury stays codeless.
+contract InertRegistryFixture {
+    function createAccount(address, bytes32, uint256, address, uint256) external pure returns (address) {
+        return address(0);
     }
 }
 
@@ -103,6 +140,7 @@ contract MusegodNftFeeVaultTest {
     address constant BASE_INITIALIZER = 0xBDF938149ac6a781F94FAa0ed45E6A0e984c6544;
     address constant RH_INITIALIZER = 0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544;
     address constant PROXY = 0x55266d75D1a14E4572138116aF39863Ed6596E7F;
+    address constant IMPLEMENTATION = 0x41C8f39463A868d3A88af00cd0fe7102F30E44eC;
 
     event VaultDeployed(
         uint256 indexed homeChainId, address indexed nft, uint256 indexed tokenId, address vault, address treasury
@@ -110,6 +148,7 @@ contract MusegodNftFeeVaultTest {
     event FeeClaimFailed(bytes32 indexed poolId, address indexed source, bytes reason);
     event Swept(address indexed token, address indexed treasury, uint256 amount);
     event SweepFailed(address indexed token, bytes reason);
+    event TreasuryActivation(address indexed treasury, bool created, bool initialized);
 
     Factory factory;
     NftFixture nft;
@@ -337,6 +376,112 @@ contract MusegodNftFeeVaultTest {
         ManagerFixture(RH_INITIALIZER).accrue(vault, 23);
         _sweepFeeToken(vault);
         _requireForwarded(vault, 23);
+    }
+
+    function _pools() internal pure returns (bytes32[] memory pools) {
+        pools = new bytes32[](1);
+        pools[0] = keccak256("pool");
+    }
+
+    function _tokenAndEther() internal view returns (address[] memory tokens) {
+        tokens = new address[](2);
+        tokens[0] = address(token);
+        tokens[1] = address(0);
+    }
+
+    function testPinnedTokenboundAddresses() public {
+        address vault = factory.deploy(4663, address(nft), 7);
+        require(Vault(payable(vault)).ERC6551_REGISTRY() == REGISTRY, "registry");
+        require(Vault(payable(vault)).TOKENBOUND_V3_PROXY() == PROXY, "proxy");
+        require(Vault(payable(vault)).TOKENBOUND_V3_IMPLEMENTATION() == IMPLEMENTATION, "implementation");
+    }
+
+    function testFirstSweepCreatesAndInitializesTreasuryThenForwards() public {
+        address vault = factory.deploy(4663, address(nft), 7);
+        address treasury = Vault(payable(vault)).treasury();
+        require(treasury.code.length == 0, "treasury starts counterfactual");
+        ManagerFixture(REHYPE).accrue(vault, 30);
+        vm.deal(vault, 2 ether);
+        vm.expectEmit(true, false, false, true, vault);
+        emit TreasuryActivation(treasury, true, true);
+        vm.expectEmit(true, true, false, true, vault);
+        emit Swept(address(token), treasury, 30);
+        vm.expectEmit(true, true, false, true, vault);
+        emit Swept(address(0), treasury, 2 ether);
+        Vault(payable(vault)).sweep(_pools(), _tokenAndEther());
+        require(treasury.code.length != 0, "treasury created");
+        require(AccountFixture(payable(treasury)).implementation() == IMPLEMENTATION, "canonical implementation");
+        require(AccountFixture(payable(treasury)).initializeCalls() == 1, "initialized once");
+        require(token.balanceOf(treasury) == 30 && treasury.balance == 2 ether, "forwarded after activation");
+        require(token.balanceOf(vault) == 0 && vault.balance == 0, "vault emptied");
+
+        // A later sweep finds the account active: createAccount is idempotent and initialize reverts, ignored.
+        ManagerFixture(RH_INITIALIZER).accrue(vault, 4);
+        vm.expectEmit(true, false, false, true, vault);
+        emit TreasuryActivation(treasury, true, false);
+        Vault(payable(vault)).sweep(_pools(), _tokenAndEther());
+        require(AccountFixture(payable(treasury)).initializeCalls() == 1, "never re-initialized");
+        require(RegistryFixture(REGISTRY).createCalls() == 2, "createAccount called on every sweep");
+        require(token.balanceOf(treasury) == 34, "second sweep forwarded");
+    }
+
+    function testAccountInitializedEarlierStillReceivesForward() public {
+        address vault = factory.deploy(4663, address(nft), 7);
+        address treasury = RegistryFixture(REGISTRY).createAccount(PROXY, bytes32(0), 4663, address(nft), 7);
+        require(treasury == Vault(payable(vault)).treasury(), "registry account is the treasury");
+        address earlier = address(0xE411E5);
+        AccountFixture(payable(treasury)).initialize(earlier);
+        ManagerFixture(REHYPE).accrue(vault, 15);
+        vm.expectEmit(true, false, false, true, vault);
+        emit TreasuryActivation(treasury, true, false);
+        vm.expectEmit(true, true, false, true, vault);
+        emit Swept(address(token), treasury, 15);
+        Vault(payable(vault)).sweep(_pools(), _tokenAndEther());
+        require(AccountFixture(payable(treasury)).implementation() == earlier, "earlier initialization kept");
+        require(token.balanceOf(treasury) == 15 && token.balanceOf(vault) == 0, "forwarded to the existing account");
+    }
+
+    function testCodelessTreasuryAfterActivationKeepsFundsInVault() public {
+        address vault = factory.deploy(4663, address(nft), 7);
+        address treasury = Vault(payable(vault)).treasury();
+        vm.etch(REGISTRY, address(new InertRegistryFixture()).code);
+        ManagerFixture(REHYPE).accrue(vault, 21);
+        ManagerFixture(RH_INITIALIZER).accrue(vault, 2);
+        vm.deal(vault, 1 ether);
+        bytes memory missing = abi.encodeWithSelector(Vault.TreasuryMissing.selector);
+        vm.expectEmit(true, false, false, true, vault);
+        emit TreasuryActivation(treasury, false, false);
+        vm.expectEmit(true, false, false, true, vault);
+        emit SweepFailed(address(token), missing);
+        vm.expectEmit(true, false, false, true, vault);
+        emit SweepFailed(address(0), missing);
+        Vault(payable(vault)).sweep(_pools(), _tokenAndEther());
+        require(treasury.code.length == 0, "treasury still codeless");
+        require(token.balanceOf(vault) == 23 && vault.balance == 1 ether, "claims landed and stay in the vault");
+        require(token.balanceOf(treasury) == 0 && treasury.balance == 0, "nothing sent to a codeless treasury");
+    }
+
+    function testCodelessRegistryKeepsFundsInVault() public {
+        address vault = factory.deploy(4663, address(nft), 7);
+        address treasury = Vault(payable(vault)).treasury();
+        vm.etch(REGISTRY, "");
+        token.mint(vault, 5);
+        address[] memory tokens = new address[](1);
+        tokens[0] = address(token);
+        // A call to an address without code succeeds vacuously; neither step may count as done.
+        vm.expectEmit(true, false, false, true, vault);
+        emit TreasuryActivation(treasury, false, false);
+        vm.expectEmit(true, false, false, true, vault);
+        emit SweepFailed(address(token), abi.encodeWithSelector(Vault.TreasuryMissing.selector));
+        Vault(payable(vault)).sweep(new bytes32[](0), tokens);
+        require(token.balanceOf(vault) == 5 && token.balanceOf(treasury) == 0, "funds stay in the vault");
+    }
+
+    function testEmptySweepActivatesTreasury() public {
+        address vault = factory.deploy(4663, address(nft), 7);
+        address treasury = Vault(payable(vault)).treasury();
+        Vault(payable(vault)).sweep(new bytes32[](0), new address[](0));
+        require(AccountFixture(payable(treasury)).implementation() == IMPLEMENTATION, "activated without tokens");
     }
 
     function testFuzzVaultForIsUniquePerNft(uint256 a, uint256 b) public view {
