@@ -1,3 +1,7 @@
+# Active task: Agentic NFT meme mode (proposal, 2026-10-12)
+
+Spec and owner decisions: [nft-mode.md](nft-mode.md). Implementation plans for Codex: [Robinhood](nft-mode-robinhood-plan.md) first, then [Base](nft-mode-base-plan.md). Earlier task records follow.
+
 # musegod.fun redesign — implementation spec & plan
 
 Source: `musegod.fun redesign.html` (8 boards: Explore, Token, Launch, Review, Rewards, Buyback, MUSEGOD, Dialogs).
