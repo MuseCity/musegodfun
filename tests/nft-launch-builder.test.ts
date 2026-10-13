@@ -1,16 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { DopplerSDK, airlockAbi, computePoolId } from "@whetstone-research/doppler-sdk/evm";
 import { createPublicClient, encodeFunctionData, http, keccak256, type Address, type Hex } from "viem";
 import { ROBINHOOD_CONTRACTS, ROBINHOOD_STOCKS, STOCKS, WAD, contractsFor, type RuntimeConfig } from "../src/lib/config";
 import { buildLaunch, tokenMetadata, launchFeeData, assertEngineFeeCalldata, assertNftFeeCalldata } from "../src/lib/protocol";
-import { MUSES, vaultFor, treasuryFor, type NftVaultManifest } from "../src/lib/nft-mode";
+import { MUSES, NFT_VAULT_MANIFEST, vaultFor, treasuryFor, type NftVaultManifest } from "../src/lib/nft-mode";
 import { syntheticOpeningValuation } from "./fixtures";
 import { ENGINE_FEE_POLICY, FEE_POLICY, FEE_SHARES } from "../src/lib/fee-policy";
 import { CURVE_POLICY } from "../src/lib/launch-curve";
 import { serializePrepared, type LaunchPlan } from "../src/lib/launch-plan";
 import { assertAcceptedLaunchRefresh, assertLaunchWalletPlan } from "../src/lib/launch-wallet";
-import { assertPlanIntegrity } from "../server/launch-verification";
+import { assertPlanIntegrity, assertRecoveryPlan } from "../server/launch-verification";
 import { LaunchpadService } from "../server/service";
 
 const creator = "0x1111111111111111111111111111111111111111" as Address;
@@ -197,4 +198,50 @@ test("prepare refresh must keep the same NFT and launch-fee payment", async () =
   // A token moved to another chain is refused by the NFT chain rule even earlier; every other change by the refresh gate.
   for (const changed of bad) await assert.rejects(refresh(changed), changed.nft?.chainId === 4663 ? /own network/ : /same creator, intent and reviewed purchase/);
   assert.equal(network, 1, "every changed draft is refused before any network work");
+});
+
+// ---- the runtime manifest seam (Runtime.nftVaultManifest) ---------------------------------------------------------------------
+// A plan whose calldata pays the vault of `manifest`'s factory, the way prepare builds it when the runtime carries that manifest.
+function nftPlan(): LaunchPlan {
+  const plan = robinhoodPlan(), s = sdk();
+  const createParams = s.factory.encodeCreateMulticurveParams(buildLaunch(s, draft, creator, treasury, owner, plan.openingValuation!,
+    undefined, 4663, undefined, false, undefined, manifest));
+  const transaction = { to: ROBINHOOD_CONTRACTS.airlock, data: encodeFunctionData({ abi: airlockAbi, functionName: "create", args: [createParams] }), value: 0n };
+  const prepared = { ...JSON.parse(JSON.stringify(plan.prepared)), createParams, transaction } as Record<string, unknown>;
+  const restored = { chainId: 4663 as const, account: creator, airlock: ROBINHOOD_CONTRACTS.airlock, createParams,
+    prediction: { ...(prepared.prediction as object) } as never, transaction, gasEstimate: { status: "unavailable" as const } };
+  return { ...plan, id: keccak256(transaction.data), data: transaction.data, draft, prepared: serializePrepared(restored),
+    transaction: { ...transaction, value: "0" } };
+}
+const outcomeOf = (run: () => unknown) => { try { run(); return "ok"; } catch (e) { return (e as Error).message; } };
+
+test("the default manifest is the committed file, and the integrity and recovery checks use an injected one only when it is passed", () => {
+  const committed = JSON.parse(readFileSync(new URL("../contracts/artifacts/nft-vault-deployment.json", import.meta.url), "utf8"));
+  assert.deepEqual(NFT_VAULT_MANIFEST, committed, "the default path reads contracts/artifacts/nft-vault-deployment.json");
+  const plan = nftPlan(), s = sdk();
+  // Omitting the manifest is the same as passing the committed one (not_deployed today, so an NFT plan fails closed).
+  assert.equal(outcomeOf(() => assertPlanIntegrity(plan, ROBINHOOD_CONTRACTS)), outcomeOf(() => assertPlanIntegrity(plan, ROBINHOOD_CONTRACTS, NFT_VAULT_MANIFEST)));
+  assert.equal(outcomeOf(() => assertRecoveryPlan(plan, ROBINHOOD_CONTRACTS, s)), outcomeOf(() => assertRecoveryPlan(plan, ROBINHOOD_CONTRACTS, s, NFT_VAULT_MANIFEST)));
+  if (NFT_VAULT_MANIFEST.chains["4663"].status === "not_deployed") {
+    assert.throws(() => assertPlanIntegrity(plan, ROBINHOOD_CONTRACTS), /not deployed and verified/);
+    assert.throws(() => assertRecoveryPlan(plan, ROBINHOOD_CONTRACTS, s), /not deployed and verified/);
+  }
+  assert.doesNotThrow(() => assertPlanIntegrity(plan, ROBINHOOD_CONTRACTS, manifest));
+  assert.doesNotThrow(() => assertRecoveryPlan(plan, ROBINHOOD_CONTRACTS, s, manifest), "recovery re-encodes the same vault from the injected manifest");
+  const elsewhere: NftVaultManifest = { ...manifest, chains: { ...manifest.chains, "4663": { ...manifest.chains["4663"], factory: "0x8888888888888888888888888888888888888888" } } };
+  assert.throws(() => assertPlanIntegrity(plan, ROBINHOOD_CONTRACTS, elsewhere), /NFT fee vault/, "another factory's vault is refused");
+});
+
+test("the service checks a saved NFT plan against its runtime manifest, and against the committed one when the runtime has none", async () => {
+  const plan = nftPlan();
+  const config: RuntimeConfig = { mode: "robinhood", chainId: 4663, deploymentChainId: 4663, treasury, writesEnabled: true, blockReason: null, curvePolicy: CURVE_POLICY };
+  const service = (nftVaultManifest?: NftVaultManifest) => Object.assign(Object.create(LaunchpadService.prototype), {
+    runtime: { config, ...(nftVaultManifest ? { nftVaultManifest } : {}) },
+    store: { findPlan: async () => plan },
+    config: async () => { throw new Error("REACHED_CONFIG"); },
+  }) as LaunchpadService;
+  await assert.rejects(service(manifest).validateLaunch(creator, plan.data), /REACHED_CONFIG/, "the injected manifest's vault passes the integrity check");
+  const committed = await service().validateLaunch(creator, plan.data).then(() => "ok", (e: Error) => e.message);
+  assert.equal(committed, outcomeOf(() => assertPlanIntegrity(plan, ROBINHOOD_CONTRACTS, NFT_VAULT_MANIFEST)),
+    "without a runtime manifest the service judges the plan exactly as the committed manifest does");
 });

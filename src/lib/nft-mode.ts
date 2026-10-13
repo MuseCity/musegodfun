@@ -12,6 +12,9 @@ export const TOKENBOUND_V3_IMPLEMENTATION = getAddress("0x41C8f39463A868d3A88af0
 export const DELEGATE_REGISTRY_V2 = getAddress("0x00000000000000447e69651d841bD8D104Bed493");
 export const MUSES = { chainId: 4663, contract: getAddress("0x13Ea3072b7215d4C9c2Ec4f498A08c5825129836") } as const;
 export const NFT_LAUNCH_RIGHTS = keccak256(toHex("musegod.fun.launch"));
+/** Release marker read from a rollback target's source (scripts/release.ts supportsNftMode): a release may enable NFT mode only when
+ * the version it would roll back to carries this protocol, so NFT coins never fall back to a build that cannot read them. */
+export const NFT_MODE_PROTOCOL = 1;
 const ZERO_SALT = pad("0x00", { size: 32 });
 
 export function nftKey(nft: NftRef): string {

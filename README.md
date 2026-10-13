@@ -51,6 +51,15 @@ On `/create`, upload PNG/JPG/WebP/GIF up to **5 MiB**, or use a public HTTPS URL
 
 Uploads require server-only `PINATA_JWT` in every runtime. Images go to public IPFS through Pinata; keep them pinned. A content-hash cache reuses successful uploads in the same database scope, and both chains share a durable 100-upload daily budget. Cached uploads spend no additional provider budget. Backups contain image URLs and cache records, not image bytes. Failed uploads preserve the previous image.
 
+## NFT mode
+
+NFT mode binds a new coin to one ERC-721 on Robinhood Chain; each NFT gets one coin, ever. Muses launch free and pair with MUSEGOD; other NFTs pay $10 (10 USDG or quoted ETH) to the operations wallet. The coin's creator fees go to a per-NFT fee vault that anyone can sweep into the NFT's Tokenbound (ERC-6551) treasury, which the current holder controls, so the fees follow the NFT when it is sold. It is off until the owner deploys the vault factory and sets `NFT_MODE_ENABLED=true`. Rules, statuses, APIs and the rollback floor: [specification](docs/SPEC.md#nft-mode-robinhood).
+
+```sh
+npm run test:nft-launch-fork -- --chain robinhood   # isolated Robinhood fork, end to end; reads only .env.fork (ALCHEMY_API_KEY)
+npm run report:nft                                   # operator report from the public API; add -- --local <store> for a local SQLite store
+```
+
 ## Check changes
 
 ```sh

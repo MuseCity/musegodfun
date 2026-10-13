@@ -1,6 +1,6 @@
 # Agentic NFT meme mode — spec and plan
 
-Status: **proposal, 2026-10-12; fee model reconfirmed 2026-10-13 (Muses free, other NFTs $10).** Implementation plans: `tasks/nft-mode-robinhood-plan.md` (first; includes the shared contracts, app and UI) and `tasks/nft-mode-base-plan.md` (enables Base). It replaces the Muse-only launch plan (`tasks/muse-launch.md`, removed on 2026-10-13 at the owner's request).
+Status: **Robinhood implementation in progress on `codex/nft-mode-robinhood`** (proposal 2026-10-12; fee model reconfirmed 2026-10-13: Muses free, other NFTs $10). Implementation plans: `tasks/nft-mode-robinhood-plan.md` (first; includes the shared contracts, app and UI) and `tasks/nft-mode-base-plan.md` (enables Base). It replaces the Muse-only launch plan (`tasks/muse-launch.md`, removed on 2026-10-13 at the owner's request).
 
 The owner asked for:
 - a new launch mode alongside the normal mode
@@ -331,6 +331,33 @@ Vault and treasury addresses are computed locally. Nothing re-verifies on reads.
 - **Regulatory:** NFTs that carry fee streams may be read as investment products. Get counsel; never market returns.
 - **Payments:** no refunds; ETH quotes expire after 60 seconds.
 - **Rollback floor:** after NFT coins exist, rolling back below the NFT-compatible release breaks recovery of their backups.
+
+## 11. Review: Robinhood implementation (Task 12, 2026-10-14)
+
+Branch `codex/nft-mode-robinhood`, local only: nothing was pushed, deployed or sent to mainnet. Fork runs used only `.env.fork`.
+
+| Check | Result |
+|---|---|
+| `npm test` | 1,177 / 1,177 pass |
+| `npm run build` (both typechecks and Vite) | pass; the 1,065 kB main-chunk warning predates this work |
+| `npm run test:launch-guard` (forge) | 196 / 196 pass |
+| `npm run test:launch-browser` (built `dist` served on 127.0.0.1:5191, run alone) | 47 / 47 checks pass; `scripts/test-nft-ui-browser.mjs` also passes (15 checks) |
+| `npm run test:nft-vault-fork -- --chain robinhood` | gates 1–6 pass and gate 7 is observed, at block 87,739,425; the committed Task 2b evidence was kept |
+| `npm run test:nft-launch-fork -- --chain robinhood` | all 5 steps pass at block 87,740,437; `docs/evidence/nft-launch-fork-robinhood.json` |
+| `test:robinhood-fork` (run with `.env.fork` only) | **fails, for a reason that predates this branch:** since the engine launch cutover of 2026-10-08, Robinhood refuses treasury-only launches, and this script's fork configuration has no fee engine. It stops at the first `prepare`, before the repaired check. |
+
+Acceptance (§8), as shown on the Robinhood fork:
+1. Fees follow the NFT: met. Both creator shares go to the vault (0.665 LP, 0.70 hook), with the fee engine beside it. A sweep after two trades delivered exactly the previewed fees to the treasury. After a sale the old holder's withdraw reverted (`NotAuthorized()`) and the new holder received the swept balance.
+2. Pricing and limits: met. A Muse launched free and a second prepare was refused (`NFT_ALREADY_LAUNCHED`). A paid launch with exactly 10 USDG registered with the fee stored, and the same payment for another NFT was refused (`NFT_FEE_USED`).
+3. Control: met. A non-holder was refused (`NFT_NOT_CONTROLLED`); a delegate.xyz delegate (rights `musegod.fun.launch`) was accepted.
+4–6: covered by the Task 4, 8, 10 and 11 tests and browser cases.
+7. Cost: not measured on mainnet.
+8. Quality gate: met, except `test:robinhood-fork` above. The owner's review roles run in Task 13.
+
+Open items:
+- The NFT fork run prices launches from a synthetic opening valuation, because LI.FI is outside its network. NFT-mode rules do not depend on the price.
+- The pre-activation residual risk (fork gate 7) stands.
+- The §2 sentence on zero-share pushes is left unchanged here. `docs/SPEC.md` states the Robinhood behaviour: initializer only; Rehype refuses.
 
 ## Appendix A — proposal to the MUSEGOD team (draft; the owner edits and sends)
 

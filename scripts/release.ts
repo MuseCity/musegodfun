@@ -9,6 +9,7 @@ import { ADMITTED_BASE_ASSET_COUNT } from "../src/lib/config";
 import baseCollectorDeployment from "../contracts/artifacts/base-collector-deployment.json";
 import { baseCollectorGraphFingerprint, type BaseCollectorManifest } from "../server/base-collector";
 import { BASE_RECOVERY_PROTOCOL, BASE_NATIVE_DESTINATION_POLICY } from "../src/lib/base-buyback";
+import { NFT_MODE_PROTOCOL, NFT_VAULT_MANIFEST, vaultFactory, type NftVaultManifest } from "../src/lib/nft-mode";
 import type { BuildInfo } from "../src/lib/build-info";
 import { readBuildIdentity, REPOSITORY } from "./build-info";
 import { assertBuildManifest, assertCandidateRuntimeBindings, assertFrozenBuild, assertLaunchRuntime, assertReleaseCheckout, assertSecurityTransition, rollbackPreservesSafety, publishCandidate, ReleaseFailure, requireSingleActiveVersion, runtimeVarsFromBindings, sha256, snapshotBuild } from "./release-policy";
@@ -136,7 +137,21 @@ function wrangler(args: string[], env: NodeJS.ProcessEnv = {}) {
   execFileSync(resolve("node_modules/.bin/wrangler"), args, { stdio: "inherit", env: { ...process.env, ...env }, timeout: 300_000 });
 }
 
-export async function checkRuntime(origin: string, config: Pick<WranglerConfig, "vars">, requireLaunchPolicy = true) {
+/** A runtime's NFT mode as `/config` reports it. A version without `nftMode` predates NFT mode and counts as disabled. */
+export type NftModeRuntime = { enabled: boolean; vaultFactory: string | null };
+export function nftModeRuntime(value: unknown): NftModeRuntime {
+  if (value === undefined) return { enabled: false, vaultFactory: null };
+  const mode = value as { enabled?: unknown; vaultFactory?: unknown } | null;
+  if (!mode || typeof mode !== "object" || typeof mode.enabled !== "boolean" ||
+    (mode.vaultFactory !== null && (typeof mode.vaultFactory !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(mode.vaultFactory))))
+    throw new Error("NFT mode runtime configuration is malformed");
+  return { enabled: mode.enabled, vaultFactory: mode.vaultFactory as string | null };
+}
+
+/** Returns the Robinhood runtime's NFT mode (the scoped `/api/chains/4663/config`, or the legacy `/api/config` for an older rollback). */
+export async function checkRuntime(origin: string, config: Pick<WranglerConfig, "vars">, requireLaunchPolicy = true,
+  nftManifest: NftVaultManifest = NFT_VAULT_MANIFEST): Promise<{ nftMode: NftModeRuntime }> {
+  let robinhoodNftMode: NftModeRuntime = { enabled: false, vaultFactory: null };
   const headers = { "Cache-Control": "no-cache" };
   // Keep the legacy Robinhood ingress checked. Older rollback versions do not
   // have scoped APIs, so only candidates must also pass both deployment scopes.
@@ -145,7 +160,7 @@ export async function checkRuntime(origin: string, config: Pick<WranglerConfig, 
     const chainId = target ?? 4663, prefix = target ? `/api/chains/${target}` : "/api";
     const readyPath = target ? `${prefix}/readyz` : "/readyz";
     const ready = await (await request(`${origin}${readyPath}`, { headers })).json() as { status: string; chainId: number; writesEnabled: boolean };
-    const runtime = await (await request(`${origin}${prefix}/config`, { headers })).json() as { mode: string; chainId: number; deploymentChainId: number; treasury: string | null; writesEnabled: boolean; curvePolicy?: string; launchGuard?: string | null; launchLockAvailable?: boolean; signingPaused?: boolean; controlRevision?: number; securityProtocol?: number; feeEngine?:string|null;feePolicy?:string };
+    const runtime = await (await request(`${origin}${prefix}/config`, { headers })).json() as { mode: string; chainId: number; deploymentChainId: number; treasury: string | null; writesEnabled: boolean; curvePolicy?: string; launchGuard?: string | null; launchLockAvailable?: boolean; signingPaused?: boolean; controlRevision?: number; securityProtocol?: number; feeEngine?:string|null;feePolicy?:string;nftMode?:unknown };
     const treasury = (config.vars[chainId === 8453 ? "BASE_PLATFORM_TREASURY" : "ROBINHOOD_PLATFORM_TREASURY"]
       ?? config.vars.PLATFORM_TREASURY) || null;
     const signingFlag = chainId === 8453 ? config.vars.ENABLE_BASE_TRANSACTIONS
@@ -168,10 +183,21 @@ export async function checkRuntime(origin: string, config: Pick<WranglerConfig, 
       if(runtime.feePolicy!==policy || runtime.feeEngine && runtime.feeEngine.toLowerCase() !== engine?.toLowerCase() ||
         (chainId !== 8453 || writesEnabled) && (runtime.feeEngine?.toLowerCase() ?? null)!==(engine?.toLowerCase() ?? null))throw new Error("Fee engine runtime differs from the committed release");
     }
+    // NFT mode is Robinhood-only and follows the exact committed flag. Enabled, it must expose the committed manifest's verified
+    // vault factory: without it the create page would take a $10 fee for a launch that prepare then refuses.
+    const nftMode = nftModeRuntime(runtime.nftMode);
+    if (chainId === 8453 ? nftMode.enabled : nftMode.enabled !== (config.vars.NFT_MODE_ENABLED === "true"))
+      throw new Error(`NFT mode runtime differs from the committed release for ${origin} (${chainId})`);
+    const factory = vaultFactory(4663, nftManifest);
+    if (nftMode.enabled && (!factory || nftMode.vaultFactory?.toLowerCase() !== factory.toLowerCase()))
+      throw new Error(`NFT mode is enabled without the committed verified vault factory for ${origin} (${chainId})`);
+    if (chainId === 4663) robinhoodNftMode = nftMode;
   }
+  return { nftMode: robinhoodNftMode };
 }
 
-export async function checkFunctionalSmoke(origin: string, collectorRecovery = true, aggregateSummary = true, expectedBaseAssetCount:number = ADMITTED_BASE_ASSET_COUNT) {
+/** `nftListing` (the runtime's NFT mode is enabled) adds the public NFT-coin listing; a disabled or pre-NFT runtime is checked as before. */
+export async function checkFunctionalSmoke(origin: string, collectorRecovery = true, aggregateSummary = true, expectedBaseAssetCount:number = ADMITTED_BASE_ASSET_COUNT, nftListing = false) {
   if(collectorRecovery&&(!Number.isSafeInteger(expectedBaseAssetCount)||expectedBaseAssetCount<=0))throw new Error("Functional smoke: Base pairing identity count is unavailable");
   const results = [];
   for (const chainId of collectorRecovery ? [8453, 4663] as const : [4663] as const) {
@@ -199,8 +225,16 @@ export async function checkFunctionalSmoke(origin: string, collectorRecovery = t
     const quote=await(await request(`${origin}${prefix}/quote`,{method:"POST",headers:{...headers,"content-type":"application/json"},body:JSON.stringify({address:first.address,side:"buy",amount:"1",slippageBps:100})})).json() as {amountOut?:string};
     if(!quote.amountOut || !/^\d+$/.test(quote.amountOut) || BigInt(quote.amountOut)<=0n)throw new Error("Functional smoke: on-chain quote unavailable");
   } else console.log("Functional smoke: launch trade quote not_run (catalog empty); reference response and asset identity passed");
+  let nftCoins: number | undefined;
+  if (chainId === 4663 && nftListing) {
+    const listed=await (await request(`${origin}${prefix}/tokens?nft=any`,{headers})).json() as unknown;
+    if(!Array.isArray(listed) || listed.some(item=>!item || typeof item!=="object" || !(item as {nft?:{chainId?:unknown}}).nft || (item as {nft:{chainId?:unknown}}).nft.chainId!==4663))
+      throw new Error("Functional smoke: malformed NFT coin listing");
+    nftCoins=listed.length;
+  }
   results.push({ chainId, auxiliaryPrices: unknownReferences ? "degraded" as const : "available" as const, unknownReferences,
-    tradeQuote: first?.address ? "passed" as const : "not_run" as const });
+    tradeQuote: first?.address ? "passed" as const : "not_run" as const,
+    ...(chainId === 4663 ? { nftListing: nftCoins === undefined ? "not_run" as const : "passed" as const, ...(nftCoins === undefined ? {} : { nftCoins }) } : {}) });
   }
   return results;
 }
@@ -226,6 +260,17 @@ export function baseAssetCountFromSource(source: string): number {
     !Number.isInteger(stock.decimals)||stock.decimals<0||stock.decimals>255)||
     new Set(stocks.map(stock=>stock.address.toLowerCase())).size!==stocks.length)throw invalid();
   return stocks.length;
+}
+/** The rollback target's NFT-mode marker, read from its immutable src/lib/nft-mode.ts. A target without the file or the marker predates
+ * NFT mode, which then counts as disabled there. */
+export function supportsNftMode(source: string | undefined): boolean {
+  const marker = source?.match(/^export const NFT_MODE_PROTOCOL = (\d+);?\s*$/m);
+  return !!marker && Number(marker[1]) === NFT_MODE_PROTOCOL;
+}
+/** NFT mode's rollback floor. It applies only when the candidate enables NFT mode (the exact string "true"): then the rollback target
+ * must support NFT mode, so NFT coins never fall back to a build that cannot read them. A flag-off release is never blocked by it. */
+export function nftRollbackCompatible(input: { candidateVars: Record<string, string>; previousNftMode: boolean }): boolean {
+  return input.candidateVars.NFT_MODE_ENABLED !== "true" || input.previousNftMode;
 }
 export async function baseRollbackCompatible(input: {
   previousVars: Record<string, string>; candidateVars: Record<string, string>;
@@ -287,6 +332,11 @@ async function main() {
       else previousCollectorManifest = JSON.parse(bytes) as BaseCollectorManifest;
     } catch { /* Missing source capabilities never authorize a deployed-Collector rollback. */ }
   }
+  let previousNftMode = false;
+  try {
+    const file = await github<{encoding:string;content:string}>(`contents/src/lib/nft-mode.ts?ref=${previousCommit}`);
+    previousNftMode = file.encoding === "base64" && supportsNftMode(Buffer.from(file.content, "base64").toString("utf8"));
+  } catch { /* A pre-NFT rollback target has no src/lib/nft-mode.ts; NFT mode counts as disabled there. */ }
   const previousApp = await github<{encoding:string;content:string}>(`contents/server/app.ts?ref=${previousCommit}`);
   if (previousApp.encoding !== "base64") throw new Error("Cannot inspect the locked rollback target's API capabilities");
   const previousSummaryProtocol = supportsBuybackSummary(Buffer.from(previousApp.content,"base64").toString("utf8"));
@@ -298,7 +348,8 @@ async function main() {
   }
   const candidateCollectorManifest = baseCollectorDeployment as unknown as BaseCollectorManifest;
   assertSecurityTransition(previousConfig.vars,config.vars,previousSource.vars);
-  const compatibleRollback = () => rollbackPreservesSafety(previousConfig.vars,config.vars) && baseRollbackCompatible({
+  const compatibleRollback = () => rollbackPreservesSafety(previousConfig.vars,config.vars) &&
+    nftRollbackCompatible({ candidateVars: config.vars, previousNftMode }) && baseRollbackCompatible({
     previousVars: previousConfig.vars, candidateVars: config.vars, previousManifest: previousCollectorManifest,
     candidateManifest: candidateCollectorManifest, previousRecoveryProtocol,
   });
@@ -405,8 +456,9 @@ async function main() {
         activeVersion, assertFrozen, describe, wait: waitForPropagation,
         verifyOrigin: async (origin) => {
           execFileSync("npm", ["run", "verify:deployment", "--", "--release", buildId, "--origin", origin], { stdio: "inherit", timeout: 240_000 });
-          await checkRuntime(origin, config);
-          await checkFunctionalSmoke(origin);
+          const { nftMode } = await checkRuntime(origin, config);
+          describe(`NFT mode on ${origin}: ${nftMode.enabled ? `enabled, vault factory ${nftMode.vaultFactory}` : "disabled"}`);
+          await checkFunctionalSmoke(origin, true, true, ADMITTED_BASE_ASSET_COUNT, nftMode.enabled);
         },
       }),
       rollbackAllowed: async () => compatibleRollback(),
@@ -415,8 +467,8 @@ async function main() {
         verifyOrigin: async(origin)=>{
           const response=await request(`${origin}/`,{headers:{"Cache-Control":"no-cache"}});
           if(response.headers.get("X-Worker-Version")!==previous)throw new Error(`Rollback activated; edge propagation pending: ${origin}`);
-          await checkRuntime(origin,previousConfig);
-          await checkFunctionalSmoke(origin, previousRecoveryProtocol, previousSummaryProtocol, previousBaseAssetCount);
+          const { nftMode } = await checkRuntime(origin,previousConfig);
+          await checkFunctionalSmoke(origin, previousRecoveryProtocol, previousSummaryProtocol, previousBaseAssetCount, nftMode.enabled);
           describe(`Rollback origin checked: ${origin}; Worker ${previous}`);
         },
       }),

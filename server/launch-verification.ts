@@ -9,6 +9,7 @@ import { LAUNCH_SIGNING_TTL, restorePrepared, type FirstBuyLockRecord, type Laun
 import { minimumOutput, parseAmount } from "../src/lib/validation";
 import { stockByAddress } from "../src/lib/config";
 import { assertEngineFeeCalldata, assertNftFeeCalldata, assertTradingFeeCalldata, buildLaunch, launchFeeData } from "../src/lib/protocol";
+import type { NftVaultManifest } from "../src/lib/nft-mode";
 
 // Recovery deliberately uses the stored preview and actual transaction, without
 // requiring current signing policy, price freshness or a historical SDK snapshot.
@@ -23,7 +24,8 @@ export function assertLaunchTradingFee(plan: LaunchPlan, data: Hex, contracts: C
   assertTradingFeeCalldata(plan.draft.tradingFeeBps, params.poolInitializerData, contracts.rehype);
 }
 
-export function assertPlanIntegrity(plan: LaunchPlan, contracts: ContractRegistry) {
+/** `manifest` is the NFT fee-vault manifest; omitted, the committed one applies (production). */
+export function assertPlanIntegrity(plan: LaunchPlan, contracts: ContractRegistry, manifest?: NftVaultManifest) {
   if (!plan.prepared || !plan.transaction || plan.curvePolicy !== CURVE_POLICY)
     throw new Error("The frozen issuance preview is missing. Run a new preview.");
   const p = restorePrepared(plan.prepared), buy = plan.firstBuy;
@@ -32,7 +34,7 @@ export function assertPlanIntegrity(plan: LaunchPlan, contracts: ContractRegistr
     throw new Error("The frozen launch signing window changed. Run a new preview.");
   assertTradingFeeCalldata(plan.draft.tradingFeeBps, p.createParams.poolInitializerData, contracts.rehype);
   assertEngineFeeCalldata(plan, p.createParams.poolInitializerData);
-  assertNftFeeCalldata(plan, p.createParams.poolInitializerData, p.chainId as 8453 | 4663);
+  assertNftFeeCalldata(plan, p.createParams.poolInitializerData, p.chainId as 8453 | 4663, manifest);
   if (p.chainId !== (sameAddress(contracts.airlock, CONTRACTS.airlock) ? 8453 : 4663) ||
     !sameAddress(p.airlock, contracts.airlock) || !sameAddress(p.account, plan.creator) ||
     !sameAddress(p.createParams.numeraire, plan.draft.quoteAddress) ||
@@ -153,8 +155,8 @@ export function verifiedFirstBuyLock(plan: LaunchPlan, receipt: TransactionRecei
  * Shares) unless the Airlock owner at that exact point holds at least 5% of
  * these immutable beneficiaries, so only they are candidates. A block-level
  * read cannot see an owner change elsewhere in the same block. */
-export function assertRecoveryPlan(plan: LaunchPlan, contracts: ContractRegistry, sdk: DopplerSDK<8453 | 4663>) {
-  assertPlanIntegrity(plan, contracts);
+export function assertRecoveryPlan(plan: LaunchPlan, contracts: ContractRegistry, sdk: DopplerSDK<8453 | 4663>, manifest?: NftVaultManifest) {
+  assertPlanIntegrity(plan, contracts, manifest);
   if (!plan.openingValuation || !plan.feeTreasury || (plan.feePolicy !== FEE_POLICY && !isEngineFeePolicy(plan.feePolicy)))
     throw new Error("The local recovery preview is incomplete.");
   const prepared = restorePrepared(plan.prepared!);
@@ -169,7 +171,7 @@ export function assertRecoveryPlan(plan: LaunchPlan, contracts: ContractRegistry
   const matches = candidates.some((owner) => {
     try {
       const params = buildLaunch(sdk, draft, plan.creator, plan.feeTreasury!, owner,
-        plan.openingValuation!, prepared.createParams.salt, prepared.chainId, plan.feeEngine, true, plan.feePolicy);
+        plan.openingValuation!, prepared.createParams.salt, prepared.chainId, plan.feeEngine, true, plan.feePolicy, manifest);
       return encodeFunctionData({ abi: airlockAbi, functionName: "create", args: [sdk.factory.encodeCreateMulticurveParams(params)] }) === actual;
     } catch { return false; }
   });

@@ -7,7 +7,8 @@ import type { BuildInfo } from "../src/lib/build-info";
 import { assertBuildManifest, assertCandidateRuntimeBindings, assertFrozenBuild, assertLaunchRuntime, assertReleaseCheckout, publishCandidate, ReleaseFailure, requireSingleActiveVersion, runtimeVarsFromBindings, sha256, snapshotBuild, type ReleaseLifecycle } from "../scripts/release-policy";
 import { FEE_POLICY, ENGINE_FEE_POLICY, BASE_AUTOMATION_FEE_POLICY } from "../src/lib/fee-policy";
 import { CURVE_POLICY } from "../src/lib/launch-curve";
-import { checkRuntime, checkFunctionalSmoke, baseRollbackCompatible, supportsBaseRecovery, supportsBuybackSummary, baseAssetCountFromSource } from "../scripts/release";
+import { checkRuntime, checkFunctionalSmoke, baseRollbackCompatible, supportsBaseRecovery, supportsBuybackSummary, baseAssetCountFromSource, nftModeRuntime, nftRollbackCompatible, supportsNftMode } from "../scripts/release";
+import { NFT_VAULT_MANIFEST, type NftVaultManifest } from "../src/lib/nft-mode";
 import { BASE_COLLECTOR_MANIFEST, BASE_SPLITS_FACTORY, BASE_SPLITS_FACTORY_HASH, BASE_SPLITS_IMPLEMENTATION, BASE_SPLITS_IMPLEMENTATION_HASH, BASE_SPLITS_PROXY_HASH, type BaseCollectorManifest } from "../server/base-collector";
 import { BASE_NATIVE_DESTINATION_POLICY } from "../src/lib/base-buyback";
 import { ADMITTED_BASE_ASSET_COUNT, STOCKS } from "../src/lib/config";
@@ -481,4 +482,106 @@ test("summary capability is read from locked app source, never from HTTP failure
  assert.equal(supportsBuybackSummary('app.get("/api/buyback/engine", route(async () => {}));'),false);
  assert.equal(supportsBuybackSummary('// app.get("/api/buyback/summary", route(async () => {}));'),false);
  assert.equal(supportsBuybackSummary(readFileSync(new URL("../server/app.ts",import.meta.url),"utf8")),true);
+});
+
+// ---- NFT mode (plan Task 12 Step 4) ------------------------------------------------------------------------------------------
+const nftFactory = "0x5555555555555555555555555555555555555555";
+const deployedNftManifest: NftVaultManifest = { ...NFT_VAULT_MANIFEST, chains: { ...NFT_VAULT_MANIFEST.chains,
+  "4663": { status: "deployed_verified", factory: nftFactory, factoryRuntimeHash: `0x${"aa".repeat(32)}`, transactionHash: `0x${"bb".repeat(32)}`, blockNumber: 1 } } };
+const nftConfig = (chainId: 4663 | 8453, enabled: boolean, vaultFactory: string | null = enabled ? nftFactory : null) =>
+  ({ enabled, vaultFactory, launchFeeUsd: 10, freeCollections: [], verifiedCollections: [] });
+
+test("checkRuntime records the Robinhood runtime's NFT mode; a runtime without nftMode (pre-NFT) counts as disabled", async context => {
+  const responses = runtimeResponses(), paths: string[] = [];
+  context.mock.method(globalThis, "fetch", async (url: string) => { const path = new URL(url).pathname; paths.push(path); return Response.json(responses[path as keyof typeof responses]); });
+  assert.deepEqual(await checkRuntime(releaseOrigin, { vars: runtimeVars }), { nftMode: { enabled: false, vaultFactory: null } });
+  assert.deepEqual(paths, Object.keys(responses), "no extra request: nftMode is read from the configs already checked");
+  for (const [path, response] of Object.entries(responses)) if (path.endsWith("/config")) Object.assign(response, { nftMode: nftConfig(path.includes("8453") ? 8453 : 4663, false) });
+  assert.deepEqual(await checkRuntime(releaseOrigin, { vars: { ...runtimeVars, NFT_MODE_ENABLED: "false" } }), { nftMode: { enabled: false, vaultFactory: null } });
+  // An older rollback target answers only the legacy endpoints, without nftMode.
+  const { nftMode: _nft, curvePolicy: _curve, launchGuard: _guard, launchLockAvailable: _lock, ...older } = responses["/api/config"] as Record<string, unknown>;
+  context.mock.method(globalThis, "fetch", async (url: string) => {
+    const path = new URL(url).pathname;
+    return path === "/readyz" ? Response.json(responses["/readyz"]) : path === "/api/config" ? Response.json(older) : new Response(null, { status: 404 });
+  });
+  assert.deepEqual(await checkRuntime(releaseOrigin, { vars: { PLATFORM_TREASURY: runtimeVars.PLATFORM_TREASURY, ENABLE_MAINNET_TRANSACTIONS: "true" } }, false),
+    { nftMode: { enabled: false, vaultFactory: null } });
+});
+
+test("an enabled NFT runtime must follow the exact committed flag and expose the committed verified vault factory", async context => {
+  const responses = runtimeResponses();
+  const set = (enabled: boolean, vaultFactory?: string | null) => {
+    for (const path of ["/api/config", "/api/chains/4663/config"] as const) Object.assign(responses[path], { nftMode: nftConfig(4663, enabled, vaultFactory) });
+    Object.assign(responses["/api/chains/8453/config"], { nftMode: nftConfig(8453, false) });
+  };
+  context.mock.method(globalThis, "fetch", async (url: string) => Response.json(responses[new URL(url).pathname as keyof typeof responses]));
+  const on = { vars: { ...runtimeVars, NFT_MODE_ENABLED: "true" } };
+  set(true);
+  assert.deepEqual(await checkRuntime(releaseOrigin, on, true, deployedNftManifest), { nftMode: { enabled: true, vaultFactory: nftFactory } });
+  await assert.rejects(checkRuntime(releaseOrigin, on), /without the committed verified vault factory/, "the committed manifest is not deployed yet");
+  set(true, null);
+  await assert.rejects(checkRuntime(releaseOrigin, on, true, deployedNftManifest), /without the committed verified vault factory/);
+  set(true, "0x6666666666666666666666666666666666666666");
+  await assert.rejects(checkRuntime(releaseOrigin, on, true, deployedNftManifest), /without the committed verified vault factory/);
+  set(false);
+  await assert.rejects(checkRuntime(releaseOrigin, on, true, deployedNftManifest), /NFT mode runtime differs/, "the committed flag is on but the runtime is off");
+  set(true);
+  await assert.rejects(checkRuntime(releaseOrigin, { vars: { ...runtimeVars, NFT_MODE_ENABLED: "TRUE" } }, true, deployedNftManifest), /NFT mode runtime differs/,
+    "only the exact string true enables NFT mode");
+  Object.assign(responses["/api/chains/8453/config"], { nftMode: nftConfig(8453, true) });
+  await assert.rejects(checkRuntime(releaseOrigin, on, true, deployedNftManifest), /NFT mode runtime differs.*8453/, "Base stays locked");
+  for (const malformed of [null, { enabled: "true", vaultFactory: null }, { enabled: true, vaultFactory: "factory" }, { enabled: false }])
+    assert.throws(() => nftModeRuntime(malformed), /NFT mode runtime configuration is malformed/);
+  assert.deepEqual(nftModeRuntime(undefined), { enabled: false, vaultFactory: null });
+});
+
+test("the functional smoke lists NFT coins only for an enabled runtime and keeps the flag-off smoke unchanged", async context => {
+  let listing: unknown = [{ address: runtimeVars.PLATFORM_TREASURY, nft: { chainId: 4663, contract: nftFactory, tokenId: "1" } }], status = 200;
+  const paths: string[] = [];
+  context.mock.method(globalThis, "fetch", async (url: string) => {
+    const target = new URL(url); paths.push(`${target.pathname}${target.search}`);
+    if (target.pathname.endsWith("/first-buy/prices")) return Response.json({ assets: [{ priceUsd: "1" }, { priceUsd: "2500" }] });
+    if (target.pathname.endsWith("/stocks")) return Response.json([{ verified: true }]);
+    if (target.pathname.endsWith("/tokens") && target.search === "?nft=any") return status === 200 ? Response.json(listing) : new Response(null, { status });
+    if (target.pathname.endsWith("/tokens")) return Response.json({ items: [], nextCursor: null });
+    return new Response(null, { status: 404 });
+  });
+  const disabled = await checkFunctionalSmoke(releaseOrigin, false);
+  assert.equal(paths.some(path => path.includes("nft=")), false, "a disabled or pre-NFT runtime gets exactly the earlier smoke");
+  assert.equal(disabled[0].nftListing, "not_run");
+  paths.length = 0;
+  const enabled = await checkFunctionalSmoke(releaseOrigin, false, true, ADMITTED_BASE_ASSET_COUNT, true);
+  assert(paths.includes("/api/chains/4663/tokens?nft=any"));
+  assert.equal(enabled[0].nftListing, "passed"); assert.equal(enabled[0].nftCoins, 1);
+  listing = [];
+  assert.equal((await checkFunctionalSmoke(releaseOrigin, false, true, ADMITTED_BASE_ASSET_COUNT, true))[0].nftCoins, 0, "an empty listing is valid");
+  for (const bad of [{ items: [] }, [{ address: runtimeVars.PLATFORM_TREASURY }], [{ nft: { chainId: 8453 } }], [null]]) {
+    listing = bad;
+    await assert.rejects(checkFunctionalSmoke(releaseOrigin, false, true, ADMITTED_BASE_ASSET_COUNT, true), /malformed NFT coin listing/);
+  }
+  status = 404;
+  await assert.rejects(checkFunctionalSmoke(releaseOrigin, false, true, ADMITTED_BASE_ASSET_COUNT, true), /HTTP 404/);
+});
+
+test("supportsNftMode reads the rollback target's marker; a target without it counts as NFT mode disabled", () => {
+  assert.equal(supportsNftMode(readFileSync(new URL("../src/lib/nft-mode.ts", import.meta.url), "utf8")), true, "this release carries the marker");
+  assert.equal(supportsNftMode("export const NFT_MODE_PROTOCOL = 1;\n"), true);
+  for (const source of [undefined, "", "export const NFT_LAUNCH_RIGHTS = 1;", "// export const NFT_MODE_PROTOCOL = 1;", "export const NFT_MODE_PROTOCOL = 2;",
+    "export const NFT_MODE_PROTOCOL = 10;"])
+    assert.equal(supportsNftMode(source), false);
+});
+
+test("the NFT rollback floor applies only when the candidate enables NFT mode, so the first flag-off release is not blocked", async () => {
+  for (const candidateVars of [{}, { NFT_MODE_ENABLED: "false" }, { NFT_MODE_ENABLED: "TRUE" }] as Record<string, string>[])
+    assert.equal(nftRollbackCompatible({ candidateVars, previousNftMode: false }), true, `flag off: ${JSON.stringify(candidateVars)}`);
+  assert.equal(nftRollbackCompatible({ candidateVars: { NFT_MODE_ENABLED: "true" }, previousNftMode: false }), false, "no enabling over a pre-NFT rollback target");
+  assert.equal(nftRollbackCompatible({ candidateVars: { NFT_MODE_ENABLED: "true" }, previousNftMode: true }), true);
+  // In the pipeline, an incompatible floor stops the release before anything is uploaded.
+  const { flow, events } = lifecycle();
+  flow.rollbackAllowed = async () => nftRollbackCompatible({ candidateVars: { NFT_MODE_ENABLED: "true" }, previousNftMode: supportsNftMode("export const BASE_RECOVERY_PROTOCOL = 7;") });
+  await assert.rejects(publishCandidate(flow), (error: unknown) => error instanceof ReleaseFailure && error.rollback === "blocked_by_safety");
+  assert.equal(events.includes("upload"), false);
+  const compatible = lifecycle().flow;
+  compatible.rollbackAllowed = async () => nftRollbackCompatible({ candidateVars: { NFT_MODE_ENABLED: "true" }, previousNftMode: true });
+  assert.equal(await publishCandidate(compatible), "success");
 });

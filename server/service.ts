@@ -513,7 +513,7 @@ export class LaunchpadService {
     const openingValuation = await this.openingValuation(draft.quoteAddress);
     const protocolOwner = await this.sdk.getAirlockOwner();
     const params = buildLaunch(this.sdk, draft, creator, treasury, protocolOwner, openingValuation,
-      previous?.prepared?.createParams.salt, chainId, launchConfig.feeEngine ?? undefined);
+      previous?.prepared?.createParams.salt, chainId, launchConfig.feeEngine ?? undefined, false, undefined, this.runtime.nftVaultManifest);
     if (amountIn > 0n) {
       params.modules = { ...params.modules, bundler: chainLaunchDependencies(chainId).bundler };
       const duration = BigInt(buy?.lockDays ?? 0) * 86400n;
@@ -568,7 +568,7 @@ export class LaunchpadService {
       prepared: serializePrepared(prepared), transaction, firstBuy: firstBuyPlan, approval,
     };
     assertOpeningValuation(openingValuation, stock.address, chainId, finalizedAt);
-    assertPlanIntegrity(plan, this.contracts);
+    assertPlanIntegrity(plan, this.contracts, this.runtime.nftVaultManifest);
     const attestationKey = this.runtime.secrets?.planAttestationKey;
     if (attestationKey) plan.attestation = planAttestation(attestationKey, chainId, plan.id);
     await this.store.savePlan(plan);
@@ -587,7 +587,7 @@ export class LaunchpadService {
       throw new Error("The issuance preview expired or the treasury changed. Simulate again.");
     assertLaunchPlanValidity(plan, deploymentChain(this.runtime.config));
     if (plan.requiresReconfirmation) throw new Error("The refreshed price is below your accepted minimum. Review the changed price before signing.");
-    assertPlanIntegrity(plan, this.contracts);
+    assertPlanIntegrity(plan, this.contracts, this.runtime.nftVaultManifest);
     const config = await this.config(true);
     assertSigningEnabled(config);
     if (plan.firstBuy || isEngineFeePolicy(plan.feePolicy)) {
@@ -849,7 +849,7 @@ export class LaunchpadService {
       assertTrustedLaunchPolicy(plan, this.runtime.config, { blockNumber: receipt.blockNumber, timestamp },
         trustedLaunchPolicies(this.runtime.config, this.launchManifest(), BASE_COLLECTOR_MANIFEST, baseDeploymentTimestamp));
       // CPU only: an altered backup fails here, before any shared RPC budget.
-      assertRecoveryPlan(plan, this.contracts, this.sdk);
+      assertRecoveryPlan(plan, this.contracts, this.sdk, this.runtime.nftVaultManifest);
       if (BigInt(plan.openingValuation!.blockNumber) > receipt.blockNumber)
         throw new Error("The recovered opening valuation is newer than its creation receipt.");
       await this.recoveryAnchor(plan.openingValuation!);

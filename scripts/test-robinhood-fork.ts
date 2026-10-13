@@ -140,7 +140,11 @@ try {
     }, creator, CURVE_POLICY);
     assert.equal(plan.feePolicy, FEE_POLICY);
     assert(sameAddress(plan.feeTreasury!, treasury));
-    assert.deepEqual(await service.validateLaunch(creator, plan.data), { valid: true, feePolicy: FEE_POLICY, curvePolicy: CURVE_POLICY });
+    // validateLaunch also returns planId, the signing window and other fields this test does not own.
+    const validated = await service.validateLaunch(creator, plan.data);
+    assert.equal(validated.valid, true);
+    assert.equal(validated.feePolicy, FEE_POLICY);
+    assert.equal(validated.curvePolicy, CURVE_POLICY);
     const launchHash = await wallet.sendTransaction({ to: contracts.airlock, data: plan.data, value: 0n });
     await service.trackLaunch(launchHash, plan.id);
     await confirmed(launchHash);

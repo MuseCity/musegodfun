@@ -16,7 +16,9 @@ export type Runtime = {
     planAttestationKey?: string; planAttestationPreviousKeys?: string[] };
   turnstileSiteKey?: string;
   config: RuntimeConfig;
-  // Absent in production (the committed manifest applies); lets tests present a deployed factory.
+  // Test-only seam, never set by runtimeFromEnv: absent in production, so the committed contracts/artifacts/nft-vault-deployment.json
+  // applies. When set, the service uses it for the factory identity check, prepare's launch builder, the plan-integrity and recovery
+  // checks and the treasury view, so a test (or scripts/test-nft-launch-fork.ts) can present a factory it deployed on a fork.
   nftVaultManifest?: NftVaultManifest;
   rpcUrl: string;
   dataDir: string;

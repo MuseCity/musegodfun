@@ -1,0 +1,436 @@
+{
+  "version": 1,
+  "scope": "Isolated Anvil fork of Robinhood Chain mainnet state, execution chain id 4663; local fork transactions only; no mainnet signing or broadcast; committed manifest unchanged",
+  "status": "passed",
+  "stage": "completed",
+  "observedAt": "2026-10-13T18:52:36.694Z",
+  "completedAt": "2026-10-13T18:56:06.839Z",
+  "upstreamChainId": 4663,
+  "executionChainId": 4663,
+  "runnerSha256": "099c6a6f944deca795b51f023a2faf6885016d6f4ee46ceb44ef50c5eb9d79ce",
+  "anvil": "anvil Version: 1.0.0-v1.0.0",
+  "forkBlockNumber": "87740437",
+  "forkBlockHash": "0x8fce4f007fefc4d180ba543628c930bbcc4efe39e1ed33d3fee94d357a84261b",
+  "forkBlockTimestamp": "1791917558",
+  "launchFeeMinBlock": {
+    "minBlock": "87500000",
+    "forkHeadAbove": true
+  },
+  "multicall3": {
+    "address": "0xcA11bde05977b3631167028862bE2a173976CA11",
+    "codeLength": 3808,
+    "codeHash": "0xd5c15df687b16f2ff992fc8d767b4216323184a2bbc6ee2f9c398c318e770891",
+    "hasCode": true
+  },
+  "manifest": {
+    "committedSha256Before": "a8ef794e39a0870e9e1f5d1e3770b317321ac18ca6663909aacb85f8786bed7a",
+    "committedSha256After": "a8ef794e39a0870e9e1f5d1e3770b317321ac18ca6663909aacb85f8786bed7a",
+    "committedRobinhoodStatus": "not_deployed",
+    "vaultInitCodeHash": "0x9bca6b10994de2c8aafadff4eb9b326d558bfbbdb1f1d2282b378907b5f46fa7",
+    "temporaryCopy": {
+      "location": "operating-system temporary directory, outside the repository",
+      "status": "deployed_verified",
+      "factory": "0x45403e1a641929A5Dbba4Ac78c9D59eE68e21986",
+      "factoryRuntimeHash": "0x887bf689866d510c4d312b318320dd38088371c10372861ae429b668daf54abe",
+      "deploymentTransaction": "0x94bc97c9d8f79835cccc52b2656c4fd5d1de4f3f67b3cb1fa7c9bfa48aec9eb1",
+      "deploymentBlock": "87740438",
+      "vaultInitCodeHash": "0x9bca6b10994de2c8aafadff4eb9b326d558bfbbdb1f1d2282b378907b5f46fa7"
+    }
+  },
+  "service": {
+    "mode": "fork",
+    "chainId": 4663,
+    "deploymentChainId": 4663,
+    "treasury": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+    "feePolicy": "creator-70-musegod-swapper-v3",
+    "feeEngine": "0x9caefd217ea5a039BbA77Ae5b0626733eA093769",
+    "nftModeEnabled": true,
+    "vaultFactory": "0x45403e1a641929A5Dbba4Ac78c9D59eE68e21986",
+    "store": "isolated SQLite in the temporary directory",
+    "secrets": "throwaway plan-attestation key generated for this run"
+  },
+  "openingValuation": {
+    "kind": "synthetic",
+    "quotePriceUsd": {
+      "MUSEGOD": "0.0003",
+      "WETH": "3000"
+    }
+  },
+  "actors": {
+    "deployer": "0x8F7D28b2D404c9F4025960C1d89728B29C1Ef714",
+    "trader": "0x0ebAbB93f907fa7341286f732B3b9Aa99277B84B",
+    "newHolder": "0xCDd7c1645B5a1b255A0222572889020C7AFB0A0A",
+    "outsider": "0x4C991b9663fE6164515945521f2212fA61042AF9",
+    "paidCreator": "0x30ED9BA99fd4539e658c316ae3799c8aD50B63cB"
+  },
+  "mainnetTransactionsSubmitted": false,
+  "blockedUpstreamWrites": 0,
+  "snapshotRestored": true,
+  "steps": {
+    "1_freeMuseLaunch": {
+      "status": "passed",
+      "museSelection": {
+        "preferredTokenId": 1,
+        "usedTokenId": "1",
+        "considered": [
+          {
+            "tokenId": "1",
+            "holder": "0x00A839dE7922491683f547a67795204763ff8237",
+            "holderCodeLength": 0
+          }
+        ]
+      },
+      "nft": {
+        "chainId": 4663,
+        "contract": "0x13Ea3072b7215d4C9c2Ec4f498A08c5825129836",
+        "tokenId": "1"
+      },
+      "holder": "0x00A839dE7922491683f547a67795204763ff8237",
+      "vault": "0x397460d487D7951F452A5744DC08502F58521e87",
+      "vaultCodeBefore": "0x",
+      "treasury": "0x1104626A8c21c88317D1b539c51a34451a0a162F",
+      "planId": "0x89042c9f6a09a2464e55c7db8001541e754b9e0ea4df47dee3d8f9860991d768",
+      "feePolicy": "creator-70-musegod-swapper-v3",
+      "launch": {
+        "hash": "0xf6d9b839c97a414122b96a93c64e12a447006a0c876c991f025be91293454beb",
+        "blockNumber": "87740439",
+        "status": "success",
+        "gasUsed": "6619973"
+      },
+      "coin": "0xf883A897B1eABa27b8661a9Dc428b65710FaB81E",
+      "poolId": "0x316a833d03cbffebaf6dac67cfbfcf0b5dc20e4c603d75b80f03bcb1b7fb9146",
+      "nftVerification": {
+        "status": "verified"
+      },
+      "recordNft": {
+        "chainId": 4663,
+        "contract": "0x13Ea3072b7215d4C9c2Ec4f498A08c5825129836",
+        "tokenId": "1"
+      },
+      "launchFee": null,
+      "shares": {
+        "initializerVault": "665000000000000000",
+        "rehypeVault": "700000000000000000",
+        "initializerLauncher": "0",
+        "rehypeLauncher": "0",
+        "initializerEngine": "228000000000000000",
+        "rehypeEngine": "240000000000000000"
+      }
+    },
+    "2_oneCoinPerNft": {
+      "status": "passed",
+      "secondPrepare": "NFT_ALREADY_LAUNCHED"
+    },
+    "3_paidLaunch": {
+      "status": "passed",
+      "collection": {
+        "address": "0x46B44f717d0290e132788C70C0DC7b0f76b62d0b",
+        "deployment": {
+          "hash": "0x6d611c3e4343aa7eb9a7ae76ed5290e500408afebd808d8a53065d8fafe4e646",
+          "blockNumber": "87740442",
+          "status": "success",
+          "gasUsed": "663590"
+        },
+        "bytecodeKeccak": "0xae8848e8726a259f5b06086885d3291ff363b082a66cd259241ab168268b4e99",
+        "holder": "0x30ED9BA99fd4539e658c316ae3799c8aD50B63cB",
+        "tokenIds": [
+          1,
+          2
+        ]
+      },
+      "usdgFunding": {
+        "kind": "existing holder inventory, impersonated on the fork only",
+        "donor": "0xd4EB21209C4D6093f80B5b84f5C45cc093EA14a3",
+        "donorBalance": "1363547094731",
+        "scans": [
+          {
+            "fromBlock": "87738438",
+            "toBlock": "87740437",
+            "refused": true
+          },
+          {
+            "fromBlock": "87740428",
+            "toBlock": "87740437",
+            "logs": 72,
+            "candidatesChecked": 25
+          }
+        ],
+        "amount": "10000000",
+        "hash": "0xde1f8a0eab3963a6e5f08fb08fae59131e7e835f84336cea53ba3dfdda186fc3",
+        "blockNumber": "87740443",
+        "status": "success",
+        "gasUsed": "65366"
+      },
+      "payment": {
+        "hash": "0x68274f12f1fc3e716fa2e261283de1a1728024d2f1f489ecdbf76b04fb84ef52",
+        "blockNumber": "87740444",
+        "status": "success",
+        "gasUsed": "60566",
+        "token": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        "from": "0x30ED9BA99fd4539e658c316ae3799c8aD50B63cB",
+        "to": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
+        "amount": "10000000",
+        "treasuryDelta": "10000000"
+      },
+      "planId": "0x736447ca14071d72a17737929194e6e769e81175db4ee2e0d4c9996de77a1d70",
+      "launch": {
+        "hash": "0x481da46fb61365c9609b7c83777cb6379eedde8f801732251e0cf474548b1844",
+        "blockNumber": "87740447",
+        "status": "success",
+        "gasUsed": "6635046"
+      },
+      "coin": "0x90Ed22AE81235FC6B6032e76d6B3d35D8c589cd7",
+      "poolId": "0xd524a2aff6a54855a6f7876f144ccbab6136b50f8ce29938d007716fb49e2896",
+      "quote": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+      "vault": "0x96C77470bf1fe776c5093ECE63a171B89f348387",
+      "nftVerification": {
+        "status": "verified"
+      },
+      "launchFee": {
+        "asset": "stable",
+        "txHash": "0x68274f12f1fc3e716fa2e261283de1a1728024d2f1f489ecdbf76b04fb84ef52"
+      },
+      "shares": {
+        "initializerVault": "665000000000000000",
+        "rehypeVault": "700000000000000000",
+        "initializerLauncher": "0",
+        "rehypeLauncher": "0",
+        "initializerEngine": "228000000000000000",
+        "rehypeEngine": "240000000000000000"
+      },
+      "reuseForAnotherNft": "NFT_FEE_USED"
+    },
+    "4_feesFollowNft": {
+      "status": "passed",
+      "musegodFunding": {
+        "kind": "ETH buy of MUSEGOD on its SushiSwap v3 pool, local fork transaction",
+        "hash": "0x36dc6cdb648605a283bfb3075317606a7f0755bf4a1ec89f720a02c6dc08bb34",
+        "blockNumber": "87740450",
+        "status": "success",
+        "gasUsed": "236649",
+        "ethIn": "10000000000000000",
+        "musegodOut": "173362991906059232109047",
+        "pool": "0x071eE139277688d64B139Af1e44f79a9acf12e53"
+      },
+      "trades": {
+        "buy": {
+          "side": "buy",
+          "hash": "0x9dec89e63097cea7a74b7b96e5511d89b4d6ed193bce79f0646aa74fc37b0442",
+          "blockNumber": "87740453",
+          "status": "success",
+          "gasUsed": "737226",
+          "amountIn": "173362991906059232109047",
+          "quotedOut": "10137727786818770055515334",
+          "amountOut": "10137727786818770055515334"
+        },
+        "sell": {
+          "side": "sell",
+          "hash": "0xfa7e3afc1240dd29aadc4885cc5ba950cca8d85c0201e957c50f61949a65482e",
+          "blockNumber": "87740455",
+          "status": "success",
+          "gasUsed": "541405",
+          "amountIn": "10137727786818770055515334",
+          "quotedOut": "169721936659135316932189",
+          "amountOut": "169721936659135316932189"
+        }
+      },
+      "treasuryViewBeforeSweep": {
+        "vault": "0x397460d487D7951F452A5744DC08502F58521e87",
+        "vaultDeployed": false,
+        "treasury": "0x1104626A8c21c88317D1b539c51a34451a0a162F",
+        "treasuryDeployed": false,
+        "pendingFees": [
+          {
+            "token": "0xf883A897B1eABa27b8661a9Dc428b65710FaB81E",
+            "lp": {
+              "fees0": "57643194808764694675",
+              "fees1": "3403140496841093356502"
+            },
+            "trade": {
+              "fees0": "2308553262692583645111",
+              "fees1": "0"
+            },
+            "poolKey": {
+              "currency0": "0x0379E228F6887c6F18bf394042ECAF81B308cb2e",
+              "currency1": "0xf883A897B1eABa27b8661a9Dc428b65710FaB81E",
+              "fee": 8388608,
+              "tickSpacing": 10,
+              "hooks": "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544"
+            }
+          }
+        ]
+      },
+      "vaultDeployment": {
+        "hash": "0x38e46d2ae86e7978d29648d0e5967022c0597bf7d0ee9fdc73ab67f27571dd17",
+        "blockNumber": "87740456",
+        "status": "success",
+        "gasUsed": "838399"
+      },
+      "sweep": {
+        "hash": "0xb7bac8fef8d6d804e753df91a0d6a030164b17021edea02692ce3f0bfedf50c2",
+        "blockNumber": "87740457",
+        "status": "success",
+        "gasUsed": "1486215",
+        "caller": "0x8F7D28b2D404c9F4025960C1d89728B29C1Ef714",
+        "tokens": [
+          "0xf883A897B1eABa27b8661a9Dc428b65710FaB81E",
+          "0x0379E228F6887c6F18bf394042ECAF81B308cb2e"
+        ],
+        "before": {
+          "treasury": {
+            "0xf883A897B1eABa27b8661a9Dc428b65710FaB81E": "0",
+            "0x0379E228F6887c6F18bf394042ECAF81B308cb2e": "0"
+          },
+          "vault": {
+            "0xf883A897B1eABa27b8661a9Dc428b65710FaB81E": "0",
+            "0x0379E228F6887c6F18bf394042ECAF81B308cb2e": "0"
+          }
+        },
+        "after": {
+          "treasury": {
+            "0xf883A897B1eABa27b8661a9Dc428b65710FaB81E": "3403140496841093356502",
+            "0x0379E228F6887c6F18bf394042ECAF81B308cb2e": "2366196457501348339786"
+          },
+          "vault": {
+            "0xf883A897B1eABa27b8661a9Dc428b65710FaB81E": "0",
+            "0x0379E228F6887c6F18bf394042ECAF81B308cb2e": "0"
+          }
+        },
+        "treasuryDelta": {
+          "0xf883A897B1eABa27b8661a9Dc428b65710FaB81E": "3403140496841093356502",
+          "0x0379E228F6887c6F18bf394042ECAF81B308cb2e": "2366196457501348339786"
+        },
+        "treasuryHadCode": false,
+        "vaultEvents": [
+          {
+            "name": "TreasuryActivation",
+            "args": {
+              "treasury": "0x1104626A8c21c88317D1b539c51a34451a0a162F",
+              "created": true,
+              "initialized": true
+            }
+          },
+          {
+            "name": "Swept",
+            "args": {
+              "token": "0xf883A897B1eABa27b8661a9Dc428b65710FaB81E",
+              "treasury": "0x1104626A8c21c88317D1b539c51a34451a0a162F",
+              "amount": "3403140496841093356502"
+            }
+          },
+          {
+            "name": "Swept",
+            "args": {
+              "token": "0x0379E228F6887c6F18bf394042ECAF81B308cb2e",
+              "treasury": "0x1104626A8c21c88317D1b539c51a34451a0a162F",
+              "amount": "2366196457501348339786"
+            }
+          }
+        ],
+        "vaultOutflows": [
+          {
+            "token": "0xf883A897B1eABa27b8661a9Dc428b65710FaB81E",
+            "to": "0x1104626A8c21c88317D1b539c51a34451a0a162F",
+            "amount": "3403140496841093356502"
+          },
+          {
+            "token": "0x0379E228F6887c6F18bf394042ECAF81B308cb2e",
+            "to": "0x1104626A8c21c88317D1b539c51a34451a0a162F",
+            "amount": "2366196457501348339786"
+          }
+        ]
+      },
+      "activateTreasury": {
+        "createAccount": {
+          "hash": "0x7dc15292123f1e2ec03c005bee3c3a37ff28221c90ac56feca5fe71142471d55",
+          "blockNumber": "87740458",
+          "status": "success",
+          "gasUsed": "25559"
+        },
+        "initialize": {
+          "accepted": false,
+          "reason": "AlreadyInitialized()"
+        }
+      },
+      "museTransfer": {
+        "hash": "0xccfdd7f4af8a3386d5440d6f48546d214fb390014a986b5a91a8eaea5deead86",
+        "blockNumber": "87740459",
+        "status": "success",
+        "gasUsed": "104381"
+      },
+      "withdrawals": [
+        {
+          "token": "0xf883A897B1eABa27b8661a9Dc428b65710FaB81E",
+          "sweptAmount": "3403140496841093356502",
+          "oldHolder": {
+            "accepted": false,
+            "reason": "NotAuthorized()",
+            "receipt": {
+              "hash": "0xd98d8440877cb61736914acf40dd4440216a14dd2e419a552bd2b11fa8a8dd12",
+              "blockNumber": "87740460",
+              "status": "reverted",
+              "gasUsed": "45408"
+            }
+          },
+          "newHolder": {
+            "hash": "0xf278953ea2943c46dab74a657cdf8fa15e8520750b84a63c63e906bd00cd6f6b",
+            "blockNumber": "87740461",
+            "status": "success",
+            "gasUsed": "103882",
+            "received": "3403140496841093356502"
+          }
+        },
+        {
+          "token": "0x0379E228F6887c6F18bf394042ECAF81B308cb2e",
+          "sweptAmount": "2366196457501348339786",
+          "oldHolder": {
+            "accepted": false,
+            "reason": "NotAuthorized()",
+            "receipt": {
+              "hash": "0x1e5bd862faa9d7f8a7216588cc278db4a7ecaa954b068eb208044e46e11069b8",
+              "blockNumber": "87740462",
+              "status": "reverted",
+              "gasUsed": "45408"
+            }
+          },
+          "newHolder": {
+            "hash": "0x5ab1ffa9ced90684082f2a342719a121c12ecf89b679b1110368798d72d7d71c",
+            "blockNumber": "87740463",
+            "status": "success",
+            "gasUsed": "191140",
+            "received": "2366196457501348339786"
+          }
+        }
+      ]
+    },
+    "5_nonHolderAndDelegate": {
+      "status": "passed",
+      "nft": {
+        "chainId": 4663,
+        "contract": "0x13Ea3072b7215d4C9c2Ec4f498A08c5825129836",
+        "tokenId": "2"
+      },
+      "holder": "0x00A839dE7922491683f547a67795204763ff8237",
+      "account": "0x4C991b9663fE6164515945521f2212fA61042AF9",
+      "nonHolderPrepare": "NFT_NOT_CONTROLLED",
+      "delegation": {
+        "registry": "0x00000000000000447e69651d841bD8D104Bed493",
+        "rights": "0x1495e9856302c8791d0928c56a7631d1357f87026b44f60fbd50da1f72566708",
+        "hash": "0x7c58faaae6575e254c618ef45fb8321f2be8b295232b84b48937bc81afdee173",
+        "blockNumber": "87740464",
+        "status": "success",
+        "gasUsed": "203539"
+      },
+      "delegatePrepare": "accepted",
+      "planId": "0xc9b0c07b2f6153e362b0a57984f598f2f99811e836ee5a45b2f9a64ecba83c66",
+      "planCreator": "0x4C991b9663fE6164515945521f2212fA61042AF9",
+      "planNft": {
+        "chainId": 4663,
+        "contract": "0x13Ea3072b7215d4C9c2Ec4f498A08c5825129836",
+        "tokenId": "2"
+      },
+      "vault": "0x9B489b068778839141835BAAa0A60bc35D598314"
+    }
+  },
+  "error": null
+}
