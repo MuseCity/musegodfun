@@ -60,6 +60,8 @@ npm run test:nft-launch-fork -- --chain robinhood   # isolated Robinhood fork, e
 npm run report:nft                                   # operator report from the public API; add -- --local <store> for a local SQLite store
 ```
 
+The fork run needs Foundry's `anvil` (the isolated fork) and `forge`, which compiles the run's test ERC-721 offline with solc 0.8.24.
+
 ## Check changes
 
 ```sh

@@ -7,7 +7,7 @@ import type { BuildInfo } from "../src/lib/build-info";
 import { assertBuildManifest, assertCandidateRuntimeBindings, assertFrozenBuild, assertLaunchRuntime, assertReleaseCheckout, publishCandidate, ReleaseFailure, requireSingleActiveVersion, runtimeVarsFromBindings, sha256, snapshotBuild, type ReleaseLifecycle } from "../scripts/release-policy";
 import { FEE_POLICY, ENGINE_FEE_POLICY, BASE_AUTOMATION_FEE_POLICY } from "../src/lib/fee-policy";
 import { CURVE_POLICY } from "../src/lib/launch-curve";
-import { checkRuntime, checkFunctionalSmoke, baseRollbackCompatible, supportsBaseRecovery, supportsBuybackSummary, baseAssetCountFromSource, nftModeRuntime, nftRollbackCompatible, supportsNftMode } from "../scripts/release";
+import { checkRuntime, checkFunctionalSmoke, baseRollbackCompatible, supportsBaseRecovery, supportsBuybackSummary, baseAssetCountFromSource, nftModeRuntime, nftRollbackCompatible, rollbackBlockReason, supportsNftMode } from "../scripts/release";
 import { NFT_VAULT_MANIFEST, type NftVaultManifest } from "../src/lib/nft-mode";
 import { BASE_COLLECTOR_MANIFEST, BASE_SPLITS_FACTORY, BASE_SPLITS_FACTORY_HASH, BASE_SPLITS_IMPLEMENTATION, BASE_SPLITS_IMPLEMENTATION_HASH, BASE_SPLITS_PROXY_HASH, type BaseCollectorManifest } from "../server/base-collector";
 import { BASE_NATIVE_DESTINATION_POLICY } from "../src/lib/base-buyback";
@@ -536,6 +536,7 @@ test("an enabled NFT runtime must follow the exact committed flag and expose the
 });
 
 test("the functional smoke lists NFT coins only for an enabled runtime and keeps the flag-off smoke unchanged", async context => {
+  context.mock.method(console, "log", () => {}); // the smoke's own "not_run" notes for this empty catalog
   let listing: unknown = [{ address: runtimeVars.PLATFORM_TREASURY, nft: { chainId: 4663, contract: nftFactory, tokenId: "1" } }], status = 200;
   const paths: string[] = [];
   context.mock.method(globalThis, "fetch", async (url: string) => {
@@ -584,4 +585,19 @@ test("the NFT rollback floor applies only when the candidate enables NFT mode, s
   const compatible = lifecycle().flow;
   compatible.rollbackAllowed = async () => nftRollbackCompatible({ candidateVars: { NFT_MODE_ENABLED: "true" }, previousNftMode: true });
   assert.equal(await publishCandidate(compatible), "success");
+});
+
+test("a blocked release names the NFT rollback floor when that is what fails, and keeps the earlier message otherwise", async () => {
+  const pending = structuredClone(BASE_COLLECTOR_MANIFEST);
+  pending.activation = { status: "not_run" }; pending.canaryAuthorization = null; pending.status = "not_deployed";
+  Object.assign(pending.collector, { address: null, runtimeHash: null, transactionHash: null, blockNumber: null });
+  const base = { previousVars: { RUNTIME_SECURITY_PROTOCOL: "1" } as Record<string, string>, candidateVars: {} as Record<string, string>,
+    candidateManifest: pending, previousRecoveryProtocol: false, previousNftMode: false };
+  const earlier = "Base rollback source or Collector graph is incompatible; production was not changed.";
+  assert.equal(await rollbackBlockReason(base), null, "the first flag-off NFT release over a pre-NFT target is compatible");
+  assert.match(await rollbackBlockReason({ ...base, candidateVars: { NFT_MODE_ENABLED: "true" } }) ?? "",
+    /^NFT mode cannot be enabled while the rollback target lacks NFT support \(NFT_MODE_PROTOCOL\)/);
+  assert.equal(await rollbackBlockReason({ ...base, candidateVars: { NFT_MODE_ENABLED: "true" }, previousNftMode: true }), null);
+  assert.equal(await rollbackBlockReason({ ...base, previousVars: {} }), earlier, "the runtime-safety baseline keeps its message");
+  assert.equal(await rollbackBlockReason({ ...base, candidateVars: { ENABLE_BASE_TRANSACTIONS: "true" } }), earlier, "the Base graph keeps its message");
 });

@@ -338,13 +338,13 @@ Branch `codex/nft-mode-robinhood`, local only: nothing was pushed, deployed or s
 
 | Check | Result |
 |---|---|
-| `npm test` | 1,177 / 1,177 pass |
+| `npm test` | 1,178 / 1,178 pass |
 | `npm run build` (both typechecks and Vite) | pass; the 1,065 kB main-chunk warning predates this work |
 | `npm run test:launch-guard` (forge) | 196 / 196 pass |
 | `npm run test:launch-browser` (built `dist` served on 127.0.0.1:5191, run alone) | 47 / 47 checks pass; `scripts/test-nft-ui-browser.mjs` also passes (15 checks) |
 | `npm run test:nft-vault-fork -- --chain robinhood` | gates 1–6 pass and gate 7 is observed, at block 87,739,425; the committed Task 2b evidence was kept |
-| `npm run test:nft-launch-fork -- --chain robinhood` | all 5 steps pass at block 87,740,437; `docs/evidence/nft-launch-fork-robinhood.json` |
-| `test:robinhood-fork` (run with `.env.fork` only) | **fails, for a reason that predates this branch:** since the engine launch cutover of 2026-10-08, Robinhood refuses treasury-only launches, and this script's fork configuration has no fee engine. It stops at the first `prepare`, before the repaired check. |
+| `npm run test:nft-launch-fork -- --chain robinhood` | all 5 steps pass at block 87,753,438; `docs/evidence/nft-launch-fork-robinhood.json`. The USDG donor is the v4 PoolManager (a known holder), so no log scan was needed. `validateLaunch` passes the integrity check and stops only at the signing gate for fork chain id 4663 |
+| `test:robinhood-fork` (run with `.env.fork` only) | **known pre-existing failure, out of scope for NFT mode** (its repair is a separate follow-up): since the engine launch cutover of 2026-10-08 (`8d88123`), `server/service.ts:675` refuses Robinhood launches without the fee engine, and the script's fork configuration has none. It stops at the first `prepare`, before the repaired `deepEqual`, which is kept. The script also needs live LI.FI quotes. |
 
 Acceptance (§8), as shown on the Robinhood fork:
 1. Fees follow the NFT: met. Both creator shares go to the vault (0.665 LP, 0.70 hook), with the fee engine beside it. A sweep after two trades delivered exactly the previewed fees to the treasury. After a sale the old holder's withdraw reverted (`NotAuthorized()`) and the new holder received the swept balance.

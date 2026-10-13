@@ -272,6 +272,15 @@ export function supportsNftMode(source: string | undefined): boolean {
 export function nftRollbackCompatible(input: { candidateVars: Record<string, string>; previousNftMode: boolean }): boolean {
   return input.candidateVars.NFT_MODE_ENABLED !== "true" || input.previousNftMode;
 }
+const BASE_ROLLBACK_BLOCKED = "Base rollback source or Collector graph is incompatible; production was not changed.";
+/** Why rolling back to the previous version would be unsafe, or null when it is compatible. The checks run in their original order;
+ * a failing NFT rollback floor is named, every other failure keeps the earlier message. */
+export async function rollbackBlockReason(input: Parameters<typeof baseRollbackCompatible>[0] & { previousNftMode: boolean }): Promise<string | null> {
+  if (!rollbackPreservesSafety(input.previousVars, input.candidateVars)) return BASE_ROLLBACK_BLOCKED;
+  if (!nftRollbackCompatible(input))
+    return "NFT mode cannot be enabled while the rollback target lacks NFT support (NFT_MODE_PROTOCOL); first release an NFT-capable build with NFT_MODE_ENABLED=false. Production was not changed.";
+  return await baseRollbackCompatible(input) ? null : BASE_ROLLBACK_BLOCKED;
+}
 export async function baseRollbackCompatible(input: {
   previousVars: Record<string, string>; candidateVars: Record<string, string>;
   previousManifest?: BaseCollectorManifest; candidateManifest: BaseCollectorManifest;
@@ -348,13 +357,10 @@ async function main() {
   }
   const candidateCollectorManifest = baseCollectorDeployment as unknown as BaseCollectorManifest;
   assertSecurityTransition(previousConfig.vars,config.vars,previousSource.vars);
-  const compatibleRollback = () => rollbackPreservesSafety(previousConfig.vars,config.vars) &&
-    nftRollbackCompatible({ candidateVars: config.vars, previousNftMode }) && baseRollbackCompatible({
-    previousVars: previousConfig.vars, candidateVars: config.vars, previousManifest: previousCollectorManifest,
-    candidateManifest: candidateCollectorManifest, previousRecoveryProtocol,
-  });
-  if (!await compatibleRollback()) throw new ReleaseFailure("blocked_by_safety",
-    new Error("Base rollback source or Collector graph is incompatible; production was not changed."));
+  const rollbackInput = { previousVars: previousConfig.vars, candidateVars: config.vars, previousManifest: previousCollectorManifest,
+    candidateManifest: candidateCollectorManifest, previousRecoveryProtocol, previousNftMode };
+  const blockReason = await rollbackBlockReason(rollbackInput);
+  if (blockReason) throw new ReleaseFailure("blocked_by_safety", new Error(blockReason));
   const service = await cloudflare<{ default_environment: { script: { migration_tag?: string } } }>(account, `services/${workerName}`);
   const migrationTag = service.default_environment.script.migration_tag;
   if ((config.migrations?.at(-1)?.tag ?? undefined) !== migrationTag)
@@ -461,7 +467,7 @@ async function main() {
           await checkFunctionalSmoke(origin, true, true, ADMITTED_BASE_ASSET_COUNT, nftMode.enabled);
         },
       }),
-      rollbackAllowed: async () => compatibleRollback(),
+      rollbackAllowed: async () => await rollbackBlockReason(rollbackInput) === null,
       verifyRollback: async (previous) => verifyProductionCandidate(previous, {
         activeVersion,assertFrozen,describe,wait:waitForPropagation,
         verifyOrigin: async(origin)=>{

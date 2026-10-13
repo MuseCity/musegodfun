@@ -38,7 +38,8 @@ import { startChainFork } from "./robinhood-fork";
 // Robinhood end-to-end NFT-mode launch on an isolated Anvil fork that keeps chain id 4663 (plan Task 12 Step 2).
 // - Environment: only .env.fork (ALCHEMY_API_KEY), loaded by `node --env-file`. The real .env is never read; every other secret the
 //   service needs is a throwaway value generated here.
-// - Network: the fork's read-only upstream proxy and one bounded Transfer-log scan for the USDG donor; everything else is 127.0.0.1.
+// - Network: the fork's read-only upstream proxy and, only if no known USDG holder can pay, a bounded Transfer-log scan (at most ten
+//   10-block windows); everything else is 127.0.0.1.
 //   LI.FI is outside that set, so launches are priced from a synthetic opening valuation (NFT-mode rules do not depend on the price).
 // - Writes: local fork transactions only, from fresh random addresses or mainnet accounts impersonated on the fork. No mainnet
 //   transaction is signed or sent.
@@ -57,6 +58,7 @@ if (!process.env.ANVIL_BIN?.trim() && !existsSync(".cache/bin/base-anvil-v1.1.1/
 const CHAIN_ID = 4663;
 const MULTICALL3 = getAddress("0xcA11bde05977b3631167028862bE2a173976CA11");
 const MANIFEST_PATH = "contracts/artifacts/nft-vault-deployment.json";
+const SIGNING_NETWORK_GATE = "The signing network does not match the platform mode";
 const FAILED_EVIDENCE = ".cache/nft-launch-fork-robinhood-failed.json";
 const PASSED_EVIDENCE = "docs/evidence/nft-launch-fork-robinhood.json";
 const ERC1967_SLOT = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc" as Hex;
@@ -65,6 +67,9 @@ const WETH = ROBINHOOD_STOCKS.find((asset) => asset.symbol === "WETH")!;
 const USDG = LAUNCH_FEE_STABLE[CHAIN_ID]!;
 const ENGINE = getAddress(ENGINE_MANIFEST.contracts.engine.address ?? "");
 const OPERATIONS_TREASURY = getAddress(ENGINE_MANIFEST.constants.treasury ?? "");
+// The Uniswap v4 PoolManager holds the USDG of every v4 USDG pool; it was also the USDG donor of the earlier Robinhood fork evidence
+// (docs/evidence/robinhood-fork-proof.json, launch-curve-fork.json, buyback-engine-fork.json).
+const USDG_KNOWN_HOLDERS = [ROBINHOOD_CONTRACTS.poolManager];
 // Synthetic USD prices for the opening valuation only (LI.FI is not reachable in this run).
 const SYNTHETIC_PRICE_USD: Record<string, string> = { [MUSEGOD.address.toLowerCase()]: "0.0003", [WETH.address.toLowerCase()]: "3000" };
 const museRef = (tokenId: bigint): NftRef => ({ chainId: CHAIN_ID, contract: MUSES.contract, tokenId: tokenId.toString() });
@@ -149,6 +154,13 @@ type Step = Record<string, unknown> & { status: "not_run" | "running" | "passed"
 const stepNames: StepName[] = ["1_freeMuseLaunch", "2_oneCoinPerNft", "3_paidLaunch", "4_feesFollowNft", "5_nonHolderAndDelegate"];
 const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
 const serialize = (_key: string, value: unknown) => typeof value === "bigint" ? value.toString() : value;
+/** Evidence text: never the API key, never a URL. Used on every write path, the fork-start failure included. */
+function evidenceText(value: unknown) {
+  const text = JSON.stringify(value, serialize, 2) + "\n";
+  assert(!key || !text.includes(key), "Evidence must not contain the API key");
+  assert(!/https?:\/\//i.test(text), "Evidence must not contain a URL");
+  return text;
+}
 const committedManifestText = await readFile(MANIFEST_PATH, "utf8");
 const evidence = {
   version: 1,
@@ -180,7 +192,7 @@ catch (error) {
   console.error(`BLOCKED: the Robinhood fork did not start: ${message}`);
   evidence.status = isRateLimited(message) ? "blocked_rate_limited" : "failed"; evidence.error = message;
   await mkdir(".cache", { recursive: true });
-  await writeFile(FAILED_EVIDENCE, JSON.stringify(evidence, serialize, 2) + "\n");
+  await writeFile(FAILED_EVIDENCE, evidenceText(evidence));
   process.exit(1);
 }
 const client = createPublicClient({ chain: robinhood, pollingInterval: 100, transport: http(fork.rpc, { timeout: 120_000, retryCount: 0 }) });
@@ -252,39 +264,50 @@ async function nftCode<T>(run: () => Promise<T>) {
   catch (error) { if (error instanceof NftLaunchError) return error.code; throw error; }
 }
 
-/** A real holder of `token` with at least `amount`: parties of its recent Transfer logs, one bounded upstream getLogs per window (newest
- * 2,000 blocks, then the 8,000 before them; never more than 10,000 in total), checked with balanceOf and a transfer simulation. A
- * window the provider refuses falls back once to the last 10 blocks. A 429 stops the run. */
-async function findDonor(token: Address, amount: bigint, exclude: Address[]) {
-  const head = fork.blockNumber, scans: Record<string, unknown>[] = [], tried = new Set(exclude.map((a) => a.toLowerCase()));
-  const windows: [bigint, bigint][] = [[head - 1_999n, head], [head - 9_999n, head - 2_000n]];
-  for (let index = 0; index < windows.length; index++) {
-    const [fromBlock, toBlock] = windows[index];
+/** A real holder of `token` with at least `amount`, checked with balanceOf and a simulated transfer. First the known large holders;
+ * then the parties of recent Transfer logs: one upstream getLogs per 10-block window, newest first, at most 10 windows and 25 new
+ * parties per window. It stops at the first donor. A 429, or a refused window, stops the run. */
+async function findDonor(token: Address, amount: bigint, known: Address[], exclude: Address[]) {
+  const head = fork.blockNumber, candidatesTried: Record<string, unknown>[] = [], windowsScanned: Record<string, unknown>[] = [];
+  const seen = new Set(exclude.map((a) => a.toLowerCase()));
+  async function usable(candidate: Address, source: string) {
+    seen.add(candidate.toLowerCase());
+    const balance = await balanceOf(token, candidate);
+    const simulation = balance < amount ? null : await rawRpc("eth_call", [{ from: candidate, to: token,
+      data: encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [candidate, amount] }) }, "latest"]);
+    const ok = !!simulation && !simulation.error;
+    candidatesTried.push({ candidate, source, balance, transferSimulated: ok });
+    return ok ? balance : null;
+  }
+  const found = (donor: Address, donorBalance: bigint) => ({ donor, donorBalance, candidatesTried, windowsScanned });
+  for (const candidate of known) {
+    if (seen.has(candidate.toLowerCase())) continue;
+    const balance = await usable(candidate, "known holder");
+    if (balance !== null) return found(candidate, balance);
+  }
+  for (let window = 0n; window < 10n; window++) {
+    const toBlock = head - window * 10n, fromBlock = toBlock - 9n;
     let logs;
     try { logs = await fork.upstream.getLogs({ address: token, event: transferEvent, fromBlock, toBlock, strict: true }); }
     catch (error) {
       const message = redact(error);
-      if (isRateLimited(message)) throw new Error(`Upstream rate limit during the Transfer-log scan: ${message}`);
-      scans.push({ fromBlock, toBlock, refused: true });
-      if (index === 0) windows.splice(1, 1, [head - 9n, head]);
-      continue;
+      windowsScanned.push({ fromBlock, toBlock, refused: true });
+      throw Object.assign(new Error(isRateLimited(message) ? `Upstream rate limit during the Transfer-log scan: ${message}`
+        : `The Transfer-log scan was refused for blocks ${fromBlock}-${toBlock}: ${message}`), { blocked: true, candidatesTried, windowsScanned });
     }
     const parties = [...new Set(logs.flatMap((log) => [log.args.to, log.args.from]).filter((a): a is Address => !!a && !sameAddress(a, zeroAddress))
-      .map((a) => getAddress(a)))].filter((a) => !tried.has(a.toLowerCase())).slice(0, 25);
-    scans.push({ fromBlock, toBlock, logs: logs.length, candidatesChecked: parties.length });
+      .map((a) => getAddress(a)))].filter((a) => !seen.has(a.toLowerCase())).slice(0, 25);
+    windowsScanned.push({ fromBlock, toBlock, logs: logs.length, newParties: parties.length });
     for (const candidate of parties) {
-      tried.add(candidate.toLowerCase());
-      const held = await balanceOf(token, candidate);
-      if (held < amount) continue;
-      const simulated = await rawRpc("eth_call", [{ from: candidate, to: token,
-        data: encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [candidate, amount] }) }, "latest"]);
-      if (!simulated.error) return { donor: candidate, donorBalance: held, scans };
+      const balance = await usable(candidate, `Transfer log, blocks ${fromBlock}-${toBlock}`);
+      if (balance !== null) return found(candidate, balance);
     }
   }
-  throw Object.assign(new Error(`No holder with at least ${amount} raw units of ${token} among recent Transfer-log parties`), { blocked: true, scans });
+  throw Object.assign(new Error(`No holder with at least ${amount} raw units of ${token} among the known holders and 10 recent 10-block windows`),
+    { blocked: true, candidatesTried, windowsScanned });
 }
-async function fund(token: Address, to: Address, amount: bigint, exclude: Address[]) {
-  const found = await findDonor(token, amount, [to, ...exclude]);
+async function fund(token: Address, to: Address, amount: bigint, known: Address[], exclude: Address[]) {
+  const found = await findDonor(token, amount, known, [to, ...exclude]);
   await impersonate(found.donor);
   const before = await balanceOf(token, to);
   try {
@@ -390,15 +413,18 @@ try {
   const svc = service;
 
   async function launch(creator: Address, draft: Record<string, unknown>) {
-    // No validateLaunch: its signing-network check accepts a fork only as chain id 31337, and this fork must keep 4663 for the
-    // Tokenbound treasury. prepare already ran the plan-integrity check (with the temporary manifest) that validateLaunch repeats.
     const plan = await svc.prepare(draft, creator, CURVE_POLICY);
+    // validateLaunch repeats the plan-integrity check (assertNftFeeCalldata under the temporary manifest) and then reaches the signing
+    // gate, which admits a fork only as chain id 31337. This fork keeps 4663 for the Tokenbound treasury, so it must stop exactly there.
+    // Any other refusal (an integrity failure included) fails here with its own message shown.
+    const refusal = await svc.validateLaunch(creator, plan.data).then(() => "accepted", (error: unknown) => error instanceof Error ? error.message : String(error));
+    assert.equal(refusal, SIGNING_NETWORK_GATE);
     const sent = await sendTx(creator, plan.transaction!.to as Address, plan.data);
     assert.equal(sent.status, "success", `The launch ${sent.transactionHash} reverted`);
     await svc.trackLaunch(sent.transactionHash, plan.id);
     await confirm();
     const record = await svc.register(sent.transactionHash);
-    return { plan, receipt: sent, record };
+    return { plan, receipt: sent, record, validateLaunch: "integrity passed; refused only at the signing-network gate (fork chain id 4663)" };
   }
   const nftShares = async (poolId: Hex, holder: Address, vault: Address) => ({
     initializerVault: await shares(ROBINHOOD_CONTRACTS.initializer, poolId, vault), rehypeVault: await shares(ROBINHOOD_CONTRACTS.rehype, poolId, vault),
@@ -418,11 +444,11 @@ try {
     assert.equal(await client.readContract({ address: factory, abi: factoryAbi, functionName: "vaultFor", args: [BigInt(CHAIN_ID), MUSES.contract, picked.tokenId] }), museVault);
     assert.equal(await code(museVault), "0x", "The Muse's vault must not exist before its launch");
     await impersonate(museHolder);
-    const { plan, receipt, record } = await launch(museHolder, { name: "Muse Fork Proof", symbol: "MUSEFP", description: "Isolated local Robinhood fork acceptance.",
+    const { plan, receipt, record, validateLaunch } = await launch(museHolder, { name: "Muse Fork Proof", symbol: "MUSEFP", description: "Isolated local Robinhood fork acceptance.",
       image: "", quoteAddress: MUSEGOD.address, nft: muse });
     museCoin = getAddress(record.address); musePoolId = record.poolId as Hex;
     const onchain = await nftShares(musePoolId, museHolder, museVault);
-    Object.assign(s, { planId: plan.id, feePolicy: plan.feePolicy, launch: tx(receipt), coin: museCoin, poolId: musePoolId,
+    Object.assign(s, { planId: plan.id, feePolicy: plan.feePolicy, validateLaunch, launch: tx(receipt), coin: museCoin, poolId: musePoolId,
       nftVerification: record.nftVerification, recordNft: record.nft, launchFee: record.launchFee ?? null, shares: onchain });
     assert.equal(plan.feePolicy, ENGINE_FEE_POLICY);
     assert.deepEqual(record.nftVerification, { status: "verified" });
@@ -451,7 +477,7 @@ try {
     const paid: NftRef = { chainId: CHAIN_ID, contract: collection, tokenId: "1" };
     assert.equal(await client.readContract({ address: collection, abi: nftAbi, functionName: "supportsInterface", args: ["0x80ac58cd"] }), true);
     assert(sameAddress(await client.readContract({ address: collection, abi: nftAbi, functionName: "ownerOf", args: [1n] }), paidCreator));
-    const funding = await fund(USDG.address, paidCreator, USDG.amount, [OPERATIONS_TREASURY]);
+    const funding = await fund(USDG.address, paidCreator, USDG.amount, USDG_KNOWN_HOLDERS, [OPERATIONS_TREASURY]);
     const treasuryBefore = await balanceOf(USDG.address, OPERATIONS_TREASURY);
     const payment = await send(paidCreator, USDG.address, encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [OPERATIONS_TREASURY, USDG.amount] }));
     await confirm();
@@ -459,13 +485,13 @@ try {
     assert.equal(treasuryDelta, USDG.amount, "Exactly 10 USDG must reach config.treasury");
     assert(payment.blockNumber >= LAUNCH_FEE_MIN_BLOCK[CHAIN_ID]!);
     const fee = { asset: "stable" as const, txHash: payment.transactionHash };
-    const { plan, receipt, record } = await launch(paidCreator, { name: "Paid NFT Fork Proof", symbol: "PAIDFP", description: "Isolated local Robinhood fork acceptance.",
+    const { plan, receipt, record, validateLaunch } = await launch(paidCreator, { name: "Paid NFT Fork Proof", symbol: "PAIDFP", description: "Isolated local Robinhood fork acceptance.",
       image: "", quoteAddress: WETH.address, nft: paid, launchFee: fee });
     const vault = vaultFor(paid, factory, manifest.vaultInitCodeHash);
     const onchain = await nftShares(record.poolId as Hex, paidCreator, vault);
     Object.assign(s, { collection: { address: collection, deployment: tx(nftDeployment), bytecodeKeccak: keccak256(bytecode), holder: paidCreator, tokenIds: [1, 2] },
       usdgFunding: funding, payment: { ...tx(payment), token: USDG.address, from: paidCreator, to: OPERATIONS_TREASURY, amount: USDG.amount, treasuryDelta },
-      planId: plan.id, launch: tx(receipt), coin: record.address, poolId: record.poolId, quote: record.quoteAddress, vault,
+      planId: plan.id, validateLaunch, launch: tx(receipt), coin: record.address, poolId: record.poolId, quote: record.quoteAddress, vault,
       nftVerification: record.nftVerification, launchFee: record.launchFee ?? null, shares: onchain });
     assert.deepEqual(record.nftVerification, { status: "verified" });
     assert.deepEqual(record.nft, paid);
@@ -614,6 +640,9 @@ try {
   const blocked = !!(error as { blocked?: boolean })?.blocked;
   const record = current ? evidence.steps[current] : undefined;
   if (record) { record.status = blocked ? "blocked" : "failed"; record.error = message; }
+  // A donor search that found nobody still records what it tried.
+  const scan = error as { candidatesTried?: unknown; windowsScanned?: unknown };
+  if (record && scan?.candidatesTried) Object.assign(record, { donorSearch: { candidatesTried: scan.candidatesTried, windowsScanned: scan.windowsScanned } });
   evidence.status = isRateLimited(message) ? "blocked_rate_limited" : blocked ? "blocked" : "failed";
   console.error(`${evidence.status.toUpperCase()} at ${evidence.stage}: ${message}`);
 } finally {
@@ -633,9 +662,7 @@ try {
   evidence.completedAt = new Date().toISOString();
   // A failed run never replaces the last passing evidence and stays out of git (.cache is ignored).
   const path = evidence.status === "passed" ? PASSED_EVIDENCE : FAILED_EVIDENCE;
-  const text = JSON.stringify(evidence, serialize, 2) + "\n";
-  assert(!key || !text.includes(key), "Evidence must not contain the API key");
-  assert(!/https?:\/\//i.test(text), "Evidence must not contain a URL");
+  const text = evidenceText(evidence);
   await mkdir(path.startsWith(".cache") ? ".cache" : "docs/evidence", { recursive: true });
   await writeFile(path, text);
   console.log(JSON.stringify({ status: evidence.status, forkBlockNumber: evidence.forkBlockNumber, evidence: path,
