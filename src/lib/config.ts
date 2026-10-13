@@ -182,7 +182,9 @@ export type TokenRecord = {
   // NFT mode (tasks/nft-mode.md). Present only for NFT launches; the status is computed once at registration.
   nft?: NftRef;
   launchFee?: LaunchFee;
-  nftVerification?: { status: "verified" | "rejected" | "unverified"; reason?: string; block?: string };
+  // `feeClaim`: only on `unverified` (`fee_unconfirmed`): the draft's fee, which existed but could not be confirmed in time. It is not
+  // spent (single use reads `launchFee` only); `npm run nft:reverify` re-checks it.
+  nftVerification?: { status: "verified" | "rejected" | "unverified"; reason?: string; block?: string; feeClaim?: LaunchFee };
   hidden?: true;
 };
 

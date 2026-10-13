@@ -66,7 +66,7 @@ import { hasBaseLaunchActivationRecord } from "./base-activation-record";
 import { assertTrustedLaunchPolicy, engineLaunchCutover, ENGINE_MANIFEST, trustedLaunchPolicies, type EngineLaunchCutover } from "./launch-policy-registry";
 import { planAttestation, verifyPlanAttestation } from "./plan-attestation";
 import { BudgetUnavailable } from "./runtime-policy";
-import { NftLaunchError, assertNftDraftRules, inspectVaultFactory, launchFeeQuoteMac, nftRegistrationStatus, readMuseAgentId, readMuseName, readNftControl, verifyLaunchFeePayment, withinRetryWindow, type NftRegistrationStatus, type RegistrationFee } from "./nft-launch";
+import { NftLaunchError, assertNftDraftRules, inspectVaultFactory, launchFeeQuoteMac, nftRegistrationStatus, readMuseAgentId, readMuseName, readNftControl, settleLaunchFee, verifyLaunchFeePayment, type NftRegistrationStatus, type RegistrationFee } from "./nft-launch";
 import { isMuse, nftKey, treasuryFor, vaultFor, type NftRef, type NftStatus } from "../src/lib/nft-mode";
 import { LAUNCH_FEE_QUOTE_TTL, LAUNCH_FEE_STABLE, LAUNCH_FEE_USD, type LaunchFee } from "../src/lib/launch-fee";
 import type { EngineClaimPreview } from "../src/lib/buyback-engine";
@@ -956,7 +956,7 @@ export class LaunchpadService {
   }
   /** An NFT coin's status and the launch fee it consumed, decided once at registration. The caller holds the NFT's and the payment's locks
    * until the record is written. Register never blocks on the status rules; it fails retryably only while an RPC outage, or a fee payment
-   * still confirming or in a reorganized block, is under 10 minutes old (spec §6.2). */
+   * that is not found, still confirming or in a reorganized block, is under 10 minutes old (spec §6.2). */
   private async nftRegistration(args: { hash: Hex; plan: LaunchPlan; nft: NftRef; fee?: LaunchFee; saved: boolean; receiptBlock: bigint; receiptTimestamp: bigint }):
     Promise<{ nftVerification: NftRegistrationStatus; launchFee?: LaunchFee }> {
     // A record already written for this transaction keeps its status and fee: a repeated or concurrent registration, or a later attested
@@ -964,22 +964,19 @@ export class LaunchpadService {
     const stored = await this.store.tokenByTxHash(args.hash);
     if (stored?.nftVerification) return { nftVerification: stored.nftVerification, ...(stored.launchFee ? { launchFee: stored.launchFee } : {}) };
     const { plan, nft } = args, nowSeconds = BigInt(Math.floor(Date.now() / 1000));
-    let fee: RegistrationFee | undefined, launchFee: LaunchFee | undefined;
+    let fee: RegistrationFee | undefined;
+    const claim = !isMuse(nft) && args.fee ? { ...args.fee, txHash: args.fee.txHash.toLowerCase() as Hex } : undefined;
     if (!isMuse(nft)) {
-      fee = "invalid";
-      if (args.fee) {
-        try {
-          await this.assertUnusedLaunchFee(args.fee, plan.creator, plan.tokenAddress);
-          fee = "paid"; launchFee = { ...args.fee, txHash: args.fee.txHash.toLowerCase() as Hex };
-        } catch (error) {
-          // A definite mismatch or an already used payment only costs the status. A payment not mined, with one confirmation, in a
-          // reorganized block or unreadable is retried for 10 minutes, then left unconsumed: the coin stays `unverified`, never `rejected: fee`.
-          if (error instanceof NftLaunchError && !error.retryable) fee = "invalid";
-          else if (withinRetryWindow(args.receiptTimestamp, nowSeconds)) throw new Error("The launch fee check is temporarily unavailable. Registration will retry.");
-          else fee = "unconfirmed";
-        }
-      }
+      // Prepare refuses without a treasury, but registration (a saved preview or a backup) can still meet it: the fee cannot be checked.
+      if (claim && !this.runtime.config.treasury)
+        console.error(JSON.stringify({ event: "nft_fee_treasury_unconfigured", transactionHash: args.hash, token: plan.tokenAddress }));
+      // A definite mismatch or a used payment only costs the status. Anything that can still change retries for 10 minutes; then a
+      // transaction the chain does not have is `rejected: fee`, and an unconfirmed or unreadable payment leaves the coin `unverified`.
+      const settled = claim ? await settleLaunchFee(() => this.assertUnusedLaunchFee(claim, plan.creator, plan.tokenAddress), args.receiptTimestamp, nowSeconds) : "invalid";
+      if (settled === "retry") throw new Error("The launch fee check is temporarily unavailable. Registration will retry.");
+      fee = settled;
     }
+    const launchFee = fee === "paid" ? claim : undefined;
     // Control can only be shown on the NFT's own chain. Prepare refuses another chain, so only a backup can carry one.
     const result = nft.chainId !== deploymentChain(this.runtime.config) ? { status: "rejected" as const, reason: "not_controller" }
       : await nftRegistrationStatus({ client: this.client, nft, creator: plan.creator,
@@ -988,7 +985,9 @@ export class LaunchpadService {
         existing: await this.store.verifiedNftCoin(nftKey(nft), plan.tokenAddress),
         quoteAddress: plan.draft.quoteAddress, receiptTimestamp: args.receiptTimestamp, nowSeconds, ...(fee ? { fee } : {}) });
     if (result === "retry") throw new Error("The NFT ownership check is temporarily unavailable. Registration will retry.");
-    const nftVerification = result.status === "verified" || args.saved ? result : { ...result, block: String(args.receiptBlock) };
+    // An unconfirmed fee stays unspent; the coin keeps its claim so `npm run nft:reverify` can settle it later.
+    const settledStatus: NftRegistrationStatus = fee === "unconfirmed" && claim && result.status === "unverified" ? { ...result, feeClaim: claim } : result;
+    const nftVerification = settledStatus.status === "verified" || args.saved ? settledStatus : { ...settledStatus, block: String(args.receiptBlock) };
     return { nftVerification, ...(launchFee ? { launchFee } : {}) };
   }
   private reconciling = false;

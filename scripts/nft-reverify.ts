@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { getAddress, isAddress, type Address, type PublicClient } from "viem";
 import { loadEnvironment, redact, runtimeFromEnv } from "../server/config";
 import { LaunchpadService } from "../server/service";
-import { NftLaunchError, nftRegistrationStatus, type NftRegistrationStatus, type RegistrationFee } from "../server/nft-launch";
+import { nftRegistrationStatus, settleLaunchFee, type NftRegistrationStatus, type RegistrationFee } from "../server/nft-launch";
 import type { StoreBackend } from "../server/supabase-store";
 import { isMuse, nftKey } from "../src/lib/nft-mode";
 import type { LaunchFee } from "../src/lib/launch-fee";
@@ -16,9 +16,10 @@ export type NftReverifyDeps = {
 };
 type Outcome = { line: string; failed?: true };
 
-/** Settles one NFT coin whose registration met an RPC outage: only a record with `nft` and a status of `unverified` or none is
- * re-checked, at its receipt block, with the registration rules (pair, fee, one coin per NFT, control). Verified and rejected
- * statuses are final, records without `nft` are never touched, and a still-failing RPC leaves the record as it is. */
+/** Settles one NFT coin whose registration met an RPC outage or an unconfirmed fee: only a record with `nft` and a status of `unverified`
+ * or none is re-checked, at its receipt block, with the registration rules (pair, fee, one coin per NFT, control). A `fee_unconfirmed`
+ * coin's claimed fee is checked again and settles the coin once the chain answers definitively. Verified and rejected statuses are
+ * final, records without `nft` are never touched, and a still-failing RPC or unconfirmed fee leaves the record as it is. */
 export async function reverifyNftCoin(deps: NftReverifyDeps, address: Address): Promise<Outcome> {
   const record = await deps.store.token(address);
   if (!record) return { line: `${address}: no such token` };
@@ -28,30 +29,36 @@ export async function reverifyNftCoin(deps: NftReverifyDeps, address: Address): 
   const { blockNumber: block, creator } = record;
   if (!block || !/^\d+$/.test(block) || !creator) return { line: `${address}: ${before}, unchanged (no receipt block or creator)` };
   const nft = record.nft, key = nftKey(nft), { launchFee, ...rest } = record;
-  // Muse coins launch free and registration never persists a fee on them, so `keepFee` stays false for them.
-  let fee: RegistrationFee | undefined, keepFee = false;
+  const receiptTimestamp = BigInt(Math.floor(record.createdAt / 1000)), nowSeconds = BigInt(Math.floor(Date.now() / 1000));
+  // Re-checks a fee claim by registration's rules: a definite mismatch, a used payment or (past 10 minutes) a transaction the chain does
+  // not have settles "invalid"; a payment still unconfirmed or unreadable leaves the record as it is.
+  const recheck = (claim: LaunchFee) => settleLaunchFee(() => deps.assertUnusedLaunchFee(claim, creator, record.address), receiptTimestamp, nowSeconds);
+  // Muse coins launch free and registration never persists a fee on them, so `spent` stays undefined for them.
+  let fee: RegistrationFee | undefined, spent: LaunchFee | undefined;
   if (!isMuse(nft)) {
-    if (before === "unverified") {
-      // An `unverified` coin with a fee: registration verified, and so consumed, it before the control read failed. Checking it again
-      // against a rotated treasury or quote key would un-consume a real payment. Without one, the fee could not be confirmed within
-      // 10 minutes and was left unspent: a coin that consumed no payment never becomes verified, and is never rejected for it either.
-      if (!launchFee) return { line: `${address}: unverified, unchanged (no launch fee was verified; its payment stays unspent)` };
-      keepFee = true; fee = "paid";
-    } else {
-      // No status: the record may predate the verified-fee-only rule, so its fee is only a claim until it verifies now.
-      fee = "invalid";
-      if (launchFee) {
-        try { await deps.assertUnusedLaunchFee(launchFee, creator, record.address); fee = "paid"; keepFee = true; }
-        catch (error) { if (!(error instanceof NftLaunchError) || error.retryable) return { line: `${address}: ${before}, unchanged (launch-fee check unavailable)` }; }
-      }
-    }
+    const claim = before === "unverified" ? record.nftVerification?.feeClaim : launchFee;
+    if (before === "unverified" && launchFee) {
+      // Registration verified, and so consumed, this fee before the control read failed. Checking it again against a rotated treasury or
+      // quote key would un-consume a real payment.
+      fee = "paid"; spent = launchFee;
+    } else if (claim) {
+      // `fee_unconfirmed`: the payment existed but was unconfirmed or unreadable, so it was left unspent with its claim. No status: the
+      // record may predate the verified-fee-only rule, so its fee is only a claim until it verifies now.
+      const settled = await recheck(claim);
+      if (settled === "retry" || settled === "unconfirmed") return { line: `${address}: ${before}, unchanged (launch-fee check unavailable)` };
+      fee = settled; spent = settled === "paid" ? claim : undefined;
+    } else if (before === "unverified") {
+      // An `unverified` coin with neither a spent fee nor a claim: nothing to re-check, and it consumed no payment.
+      return { line: `${address}: unverified, unchanged (no launch fee was verified; its payment stays unspent)` };
+    } else fee = "invalid";
   }
   const result: NftRegistrationStatus | "retry" = nft.chainId !== deps.chainId ? { status: "rejected", reason: "not_controller", block }
     : await nftRegistrationStatus({ client: deps.client, nft, creator, blockNumber: BigInt(block),
       existing: await deps.store.verifiedNftCoin(key, record.address), quoteAddress: record.quoteAddress,
-      receiptTimestamp: BigInt(Math.floor(record.createdAt / 1000)), nowSeconds: BigInt(Math.floor(Date.now() / 1000)), ...(fee ? { fee } : {}) });
+      receiptTimestamp, nowSeconds, ...(fee ? { fee } : {}) });
   if (result === "retry" || result.status === "unverified") return { line: `${address}: ${before}, unchanged (RPC unavailable)` };
-  await deps.store.updateNftVerification({ ...rest, ...(keepFee ? { launchFee } : {}), nftVerification: result });
+  // A settled status drops the claim; only a verified fee is kept, as the coin's spent `launchFee`.
+  await deps.store.updateNftVerification({ ...rest, ...(spent ? { launchFee: spent } : {}), nftVerification: result });
   // The server may have verified another coin for this NFT since the check above. SQLite refuses such a write atomically; Supabase
   // cannot, so a second verified coin may now exist. Either way it is a conflict for the operator, never a silent second badge.
   if (result.status === "verified") {

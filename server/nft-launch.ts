@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { CallExecutionError, ContractFunctionExecutionError, ContractFunctionRevertedError, ContractFunctionZeroDataError, ExecutionRevertedError,
-  HttpRequestError, TimeoutError, TransactionReceiptNotFoundError, WebSocketRequestError, decodeEventLog, erc20Abi, hexToBytes, isHex, keccak256, parseAbi, size,
+  HttpRequestError, TimeoutError, TransactionNotFoundError, TransactionReceiptNotFoundError, WebSocketRequestError, decodeEventLog, erc20Abi, hexToBytes, isHex, keccak256, parseAbi, size,
   type Address, type Block, type Hex, type PublicClient, type Transaction, type TransactionReceipt } from "viem";
 import { ROBINHOOD_STOCKS, sameAddress, type TokenRecord } from "../src/lib/config";
 import { LAUNCH_FEE_MIN_BLOCK, LAUNCH_FEE_MINING_GRACE_SECONDS, LAUNCH_FEE_QUOTE_TTL, LAUNCH_FEE_STABLE, type LaunchFee } from "../src/lib/launch-fee";
@@ -10,10 +10,11 @@ import type { LaunchInput } from "../src/lib/validation";
 export type NftLaunchCode = "NFT_MODE_DISABLED" | "NFT_MODE_UNAVAILABLE" | "NFT_CHAIN_UNSUPPORTED" | "NFT_NOT_ERC721" | "NFT_NOT_CONTROLLED"
   | "NFT_ALREADY_LAUNCHED" | "NFT_MUSE_PAIR_REQUIRED" | "NFT_RESERVED_NAME" | "NFT_FEE_REQUIRED" | "NFT_FEE_INVALID"
   | "NFT_FEE_USED" | "NFT_VAULT_UNAVAILABLE";
-/** `retryable`: the answer can still change (a fee payment still confirming, or in a reorganized block), so registration retries it
- * like an RPC failure; prepare reports it like any other refusal. */
+/** `retry`: a fee answer that can still change, so registration retries it for 10 minutes like an RPC failure. "unconfirmed": the payment
+ * exists but has fewer than two confirmations or sits in a reorganized block (then it settles `unverified`). "missing": the chain has
+ * neither the transaction nor a receipt (then it settles `rejected: fee`). Prepare reports both like any other refusal. */
 export class NftLaunchError extends Error {
-  constructor(public code: NftLaunchCode, message: string, readonly retryable = false) { super(message); this.name = "NftLaunchError"; }
+  constructor(public code: NftLaunchCode, message: string, readonly retry?: "unconfirmed" | "missing") { super(message); this.name = "NftLaunchError"; }
 }
 const erc721Abi = parseAbi(["function supportsInterface(bytes4) view returns (bool)", "function ownerOf(uint256) view returns (address)"]);
 const delegateAbi = parseAbi(["function checkDelegateForERC721(address to, address from, address contract_, uint256 tokenId, bytes32 rights) view returns (bool)"]);
@@ -101,9 +102,21 @@ export async function readMuseAgentId(client: Pick<PublicClient, "readContract">
 export type NftRegistrationStatus = NonNullable<TokenRecord["nftVerification"]>;
 /** While the receipt block is at most 10 minutes old (spec §6.2), an answer that can still change fails registration retryably. */
 export const withinRetryWindow = (receiptTimestamp: bigint, nowSeconds: bigint) => nowSeconds - receiptTimestamp <= 600n;
-/** A non-Muse coin's launch fee at registration: verified and unused ("paid"), a definite mismatch or already used ("invalid"), or still
- * unconfirmed 10 minutes after the coin's receipt (still confirming, in a reorganized block, or unreadable): "unconfirmed". */
+/** A non-Muse coin's launch fee at registration: verified and unused ("paid"); a definite mismatch, already used, or a transaction the
+ * chain still does not have 10 minutes after the coin's receipt ("invalid"); or a payment that exists but is still unconfirmed or
+ * reorganized, or that could not be read, after those 10 minutes ("unconfirmed"). */
 export type RegistrationFee = "paid" | "invalid" | "unconfirmed";
+/** Settles a launch-fee check (`check` is `assertUnusedLaunchFee`) by the 10-minute rule of spec §6.2: "retry" while the coin's receipt
+ * block is at most 10 minutes old and the answer can still change; after that, a missing transaction is "invalid" and an unconfirmed or
+ * unreadable one is "unconfirmed". A definite mismatch or a used payment is "invalid" at once. */
+export async function settleLaunchFee(check: () => Promise<unknown>, receiptTimestamp: bigint, nowSeconds: bigint): Promise<RegistrationFee | "retry"> {
+  try { await check(); return "paid"; }
+  catch (error) {
+    if (error instanceof NftLaunchError && !error.retry) return "invalid";
+    if (withinRetryWindow(receiptTimestamp, nowSeconds)) return "retry";
+    return error instanceof NftLaunchError && error.retry === "missing" ? "invalid" : "unconfirmed";
+  }
+}
 /** The status an NFT coin is registered with, decided once. Register never blocks on it: the pair, fee, one-coin and control rules only
  * decide the status. The caller holds the NFT's (and payment's) lock and passes the NFT's earliest other `verified` coin as `existing`.
  * "retry" asks the caller to fail the registration retryably while the receipt block is at most 10 minutes old; after that an RPC
@@ -171,15 +184,31 @@ type FeeClient = {
 };
 /** Verifies that `payer` paid the launch fee to `recipient`: an exact stablecoin transfer mined since NFT mode began, or at least the
  * platform-quoted ETH in a plain transfer mined within the quote's window. Single use is the caller's job (`tokenUsingLaunchFee`).
- * Throws NFT_FEE_INVALID: `retryable` while the payment is not mined, has one confirmation or sits in a reorganized block, final for a
- * definite mismatch. Any other failure is the node's and propagates. */
+ * Throws NFT_FEE_INVALID: with `retry` "unconfirmed" while a known payment is unmined, has one confirmation or sits in a reorganized
+ * block, "missing" while the chain has neither the transaction nor a receipt, and final for a definite mismatch. Any other failure is
+ * the node's and propagates. */
 export async function verifyLaunchFeePayment(client: FeeClient, args: { fee: LaunchFee; payer: Address; recipient: Address; chainId: FeeChainId; keys: readonly string[] }):
   Promise<{ blockNumber: bigint }> {
   const invalid = (why: string) => new NftLaunchError("NFT_FEE_INVALID", `The launch fee payment is not valid: ${why}.`);
-  const pending = (why: string) => new NftLaunchError("NFT_FEE_INVALID", `The launch fee payment is not valid: ${why}.`, true);
-  // A hash that is not mined yet is the payer's to retry; any other failure is the node's and propagates.
-  const receipt = await client.getTransactionReceipt({ hash: args.fee.txHash }).catch((error: unknown) => {
-    throw error instanceof TransactionReceiptNotFoundError ? pending("the transaction has not been mined yet") : error;
+  const pending = (why: string, retry: "unconfirmed" | "missing" = "unconfirmed") =>
+    new NftLaunchError("NFT_FEE_INVALID", `The launch fee payment is not valid: ${why}.`, retry);
+  // Without a receipt, the transaction itself says whether the payment is still in the mempool or does not exist (yet). The payer may
+  // retry either; any other failure is the node's and propagates. A pending transaction that can never become this payment (another
+  // sender's, or an ETH transfer to someone else, of too little or with calldata) is already a definite mismatch.
+  const receipt = await client.getTransactionReceipt({ hash: args.fee.txHash }).catch(async (error: unknown) => {
+    if (!(error instanceof TransactionReceiptNotFoundError)) throw error;
+    const sent = await client.getTransaction({ hash: args.fee.txHash }).catch((lookup: unknown) => {
+      if (lookup instanceof TransactionNotFoundError) return null;
+      throw lookup;
+    });
+    if (!sent) throw pending("the transaction has not been mined yet", "missing");
+    if (!sameAddress(sent.from, args.payer)) throw invalid("it was not sent by this wallet");
+    if (args.fee.asset === "native") {
+      if (!sent.to || !sameAddress(sent.to, args.recipient) || !args.fee.wei || !/^\d{1,78}$/.test(args.fee.wei) || sent.value < BigInt(args.fee.wei))
+        throw invalid("the ETH amount or recipient is wrong");
+      if (sent.input !== "0x") throw invalid("the ETH payment must be a plain transfer");
+    }
+    throw pending("the transaction has not been mined yet");
   });
   if (receipt.status !== "success") throw invalid("the transaction failed");
   if (receipt.transactionHash.toLowerCase() !== args.fee.txHash.toLowerCase()) throw invalid("the receipt belongs to another transaction");

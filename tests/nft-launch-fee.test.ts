@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { once } from "node:events";
-import { TransactionReceiptNotFoundError, encodeEventTopics, erc20Abi, encodeAbiParameters, getAddress, type Address, type Hex } from "viem";
+import { TransactionNotFoundError, TransactionReceiptNotFoundError, encodeEventTopics, erc20Abi, encodeAbiParameters, getAddress, type Address, type Hex } from "viem";
 import { launchFeeQuoteMac, verifyLaunchFeeQuoteMac, verifyLaunchFeePayment, NftLaunchError } from "../server/nft-launch";
 import { LAUNCH_FEE_MIN_BLOCK, LAUNCH_FEE_STABLE, type LaunchFee } from "../src/lib/launch-fee";
 import { LaunchpadService } from "../server/service";
@@ -81,24 +81,53 @@ test("a USDG payment is refused when the stablecoin is another token, the sender
   assert.equal(await codeOf(verifyLaunchFeePayment(client({ logs: [transferLog(payer, ops, usdg.amount + 1n)] }), args)), "NFT_FEE_INVALID", "the stable fee is exact, not at-least");
 });
 
+/** No receipt: the node knows the transaction (`pending`, still in its mempool, with `tx` replacing its fields), has never seen it
+ * (`missing`), or its lookup fails. */
+const unmined = (transaction: "pending" | "missing" | Error, tx: object = {}) => ({
+  getTransactionReceipt: async () => { throw new TransactionReceiptNotFoundError({ hash }); },
+  getTransaction: async () => {
+    if (transaction instanceof Error) throw transaction;
+    if (transaction === "missing") throw new TransactionNotFoundError({ hash });
+    return { from: payer, to: usdg.address, value: 0n, input: "0x", ...tx };
+  },
+}) as never;
+
+test("a transaction still in the mempool is only a pending payment when it can still become one: another sender's, or a wrong ETH transfer, is final", async () => {
+  const kind = async (p: Promise<unknown>) => p.then(() => "ok", (e) => e instanceof NftLaunchError ? (e.retry ? `retry:${e.retry}` : `${e.code}:${e.message}`) : "node");
+  const stable = { fee: { asset: "stable" as const, txHash: hash }, payer, recipient: ops, chainId: 4663 as const, keys: [key] };
+  assert.equal(await kind(verifyLaunchFeePayment(unmined("pending", { to: stranger }), stable)), "retry:unconfirmed", "a token payment may go through a wallet contract");
+  assert.equal(await kind(verifyLaunchFeePayment(unmined("pending", { from: stranger }), stable)),
+    "NFT_FEE_INVALID:The launch fee payment is not valid: it was not sent by this wallet.");
+  const wei = "5000000000000000", expiresAt = 2000;
+  const native = { ...stable, fee: { asset: "native" as const, txHash: hash, wei, expiresAt, mac: launchFeeQuoteMac(key, 4663, payer, wei, expiresAt) } };
+  assert.equal(await kind(verifyLaunchFeePayment(unmined("pending", { to: ops, value: 5000000000000000n }), native)), "retry:unconfirmed");
+  for (const tx of [{ to: stranger, value: 5000000000000000n }, { to: ops, value: 1n }, { to: ops, value: 5000000000000000n, input: "0xdeadbeef" }, { to: null, value: 5000000000000000n }])
+    assert.match(await kind(verifyLaunchFeePayment(unmined("pending", tx), native)), /^NFT_FEE_INVALID:/, JSON.stringify(tx, (_k, v) => typeof v === "bigint" ? String(v) : v));
+});
+
 test("an unmined hash is an invalid fee, while a node failure propagates as itself", async () => {
   const args = { fee: { asset: "stable" as const, txHash: hash }, payer, recipient: ops, chainId: 4663 as const, keys: [key] };
   const failing = (error: Error) => ({ getTransactionReceipt: async () => { throw error; } }) as never;
-  assert.equal(await codeOf(verifyLaunchFeePayment(failing(new TransactionReceiptNotFoundError({ hash })), args)), "NFT_FEE_INVALID");
+  assert.equal(await codeOf(verifyLaunchFeePayment(unmined("missing"), args)), "NFT_FEE_INVALID");
+  assert.equal(await codeOf(verifyLaunchFeePayment(unmined("pending"), args)), "NFT_FEE_INVALID");
   assert.equal(await codeOf(verifyLaunchFeePayment(failing(new Error("rpc down")), args)), "Error: rpc down");
+  assert.equal(await codeOf(verifyLaunchFeePayment(unmined(new Error("rpc down")), args)), "Error: rpc down", "a failed transaction lookup is the node's too");
 });
 
-test("only a fee still confirming or from a reorganized block is retryable; every definite mismatch is final", async () => {
-  // "retry": NFT_FEE_INVALID marked retryable; "node": the node's own error; otherwise the final code.
-  const kind = async (p: Promise<unknown>) => p.then(() => "ok", (e) => e instanceof NftLaunchError ? (e.retryable ? `retry:${e.message}` : e.code) : "node");
+test("a fee still confirming, reorganized or not found is retryable, marked by kind; every definite mismatch is final", async () => {
+  // "retry:<kind>": NFT_FEE_INVALID that can still change; "node": the node's own error; otherwise the final code.
+  const kind = async (p: Promise<unknown>) => p.then(() => "ok", (e) => e instanceof NftLaunchError ? (e.retry ? `retry:${e.retry}:${e.message}` : e.code) : "node");
   const stable = { fee: { asset: "stable" as const, txHash: hash }, payer, recipient: ops, chainId: 4663 as const, keys: [key] };
   const paid = { logs: [transferLog(payer, ops, usdg.amount)] };
   const failing = (error: Error) => ({ getTransactionReceipt: async () => { throw error; } }) as never;
-  assert.equal(await kind(verifyLaunchFeePayment(failing(new TransactionReceiptNotFoundError({ hash })), stable)),
-    "retry:The launch fee payment is not valid: the transaction has not been mined yet.", "the wording prepare shows is unchanged");
-  assert.equal(await kind(verifyLaunchFeePayment(client(paid, {}, 1000n, BLOCK + 10n), stable)), "retry:The launch fee payment is not valid: wait for two confirmations.");
-  assert.equal(await kind(verifyLaunchFeePayment(client({ ...paid, blockHash: `0x${"33".repeat(32)}` }), stable)), "retry:The launch fee payment is not valid: the block was reorganized.");
+  assert.equal(await kind(verifyLaunchFeePayment(unmined("missing"), stable)),
+    "retry:missing:The launch fee payment is not valid: the transaction has not been mined yet.", "a hash the chain has never seen; the wording prepare shows is unchanged");
+  assert.equal(await kind(verifyLaunchFeePayment(unmined("pending"), stable)),
+    "retry:unconfirmed:The launch fee payment is not valid: the transaction has not been mined yet.", "a known transaction still in the mempool");
+  assert.equal(await kind(verifyLaunchFeePayment(client(paid, {}, 1000n, BLOCK + 10n), stable)), "retry:unconfirmed:The launch fee payment is not valid: wait for two confirmations.");
+  assert.equal(await kind(verifyLaunchFeePayment(client({ ...paid, blockHash: `0x${"33".repeat(32)}` }), stable)), "retry:unconfirmed:The launch fee payment is not valid: the block was reorganized.");
   assert.equal(await kind(verifyLaunchFeePayment(failing(new Error("rpc down")), stable)), "node");
+  assert.equal(await kind(verifyLaunchFeePayment(client({ ...paid, blockNumber: BLOCK - 1n }), stable)), "NFT_FEE_INVALID", "a block below the minimum is final");
   const foreignToken = { ...transferLog(payer, ops, usdg.amount), address: "0x1111111111111111111111111111111111111111" as Address };
   for (const [why, receipt] of [["wrong amount", { logs: [transferLog(payer, ops, usdg.amount - 1n)] }], ["wrong recipient", { logs: [transferLog(payer, stranger, usdg.amount)] }],
     ["wrong asset", { logs: [foreignToken] }], ["wrong payer", { ...paid, from: stranger }], ["reverted", { ...paid, status: "reverted" }]] as const)
