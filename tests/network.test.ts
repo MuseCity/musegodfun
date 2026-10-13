@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { NetworkProvider, pathChain, tokenPath, useNetwork } from "../src/lib/network";
+import { NetworkProvider, nftPath, pathChain, tokenPath, useNetwork } from "../src/lib/network";
 import { chainApi } from "../src/lib/api";
 import { launchDraftKey } from "../src/lib/launch-draft";
 import type { RuntimeConfig } from "../src/lib/config";
@@ -74,4 +74,12 @@ test("API calls capture the selected deployment and cannot normalize into anothe
       assert.throws(() => chainApi(8453, path), /Unsupported/);
     assert.equal(calls.length, 2);
   } finally { globalThis.fetch = previous; }
+});
+
+test("an NFT page selects the NFT's own network and its path round-trips", () => {
+  const contract = "0x13Ea3072b7215d4C9c2Ec4f498A08c5825129836" as const;
+  assert.equal(nftPath({ chainId: 4663, contract, tokenId: "1" }), `/nft/robinhood/${contract}/1`);
+  assert.equal(nftPath({ chainId: 8453, contract, tokenId: "0" }), `/nft/base/${contract}/0`);
+  assert.equal(pathChain(`/nft/robinhood/${contract}/1`, "?chainId=8453"), 4663);
+  assert.equal(pathChain(`/nft/base/${contract}/1`, "?chainId=4663"), 8453);
 });

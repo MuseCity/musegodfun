@@ -5,8 +5,9 @@ import type { CardMarketState } from "../lib/token-card-market";
 import assetLogos from "../lib/asset-logos.json";
 import { tokenPath } from "../lib/network";
 import { changeClass as changeKind, percentChange as percent, relativeTime, tokenImageSrc, usdCompact as usd } from "../lib/format";
+import { nftBadge } from "../lib/nft-treasury";
 
-export type TokenCardToken = Pick<TokenRecord, "address" | "name" | "symbol" | "image" | "creator" | "mode" | "deploymentChainId"> & {
+export type TokenCardToken = Pick<TokenRecord, "address" | "name" | "symbol" | "image" | "creator" | "mode" | "deploymentChainId" | "nft" | "nftVerification"> & {
   kind: "launch" | "musegod";
   quote: Stock;
   createdAt?: number;
@@ -21,6 +22,13 @@ function QuoteIcon({ ticker }: { ticker: string }) {
       ? <img src={logo.path} alt="" loading="lazy" decoding="async" onError={() => setFailedPath(logo.path)} />
       : ticker.slice(0, 2)}
   </span>;
+}
+
+/** An NFT coin's badge: plain text, so a card that is one link never nests an action. The unverified-collection warning is safety copy
+ * and keeps the full-size warning style. */
+export function NftBadge({ token }: { token: Pick<TokenRecord, "nft" | "nftVerification"> }) {
+  const label = nftBadge(token);
+  return label ? <span className={`badge nft-badge${label.includes("unverified") ? " nft-warning" : ""}`}>{label}</span> : null;
 }
 
 export default function TokenCard({ token, market, onNavigate }: {
@@ -60,6 +68,7 @@ export default function TokenCard({ token, market, onNavigate }: {
           <h3 title={token.name}>{token.name}</h3>
           {token.kind === "musegod" && <span className="featured-label"><Sparkles size={11} /> Featured</span>}
         </div>
+        <NftBadge token={token} />
         <span className="token-card-pair">
           <span className="token-card-symbol" title={`$${token.symbol}`}>${token.symbol}</span>
           <span aria-hidden="true">·</span>

@@ -45,6 +45,7 @@ const actions = {
   buyback: "Buyback and burn",
   engine: "Public buyback engine",
   fee: "NFT launch fee",
+  treasury: "NFT treasury",
 };
 
 function rowNetwork(row: Pick<Transaction, "chainId" | "deploymentChainId">): Pick<RuntimeConfig, "chainId" | "mode"> & { deploymentChainId: 8453 | 4663 } {

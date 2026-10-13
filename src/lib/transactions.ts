@@ -9,7 +9,7 @@ export type Transaction = {
   chainId: number;
   deploymentChainId?: 8453 | 4663;
   account: Address;
-  action: "launch" | "approval" | "swap" | "claim" | "recovered" | "buyback" | "engine" | "fee";
+  action: "launch" | "approval" | "swap" | "claim" | "recovered" | "buyback" | "engine" | "fee" | "treasury";
   status: "pending" | "success" | "failed" | "cancelled" | "replaced";
   at: number;
   replacement?: Hash;
@@ -72,7 +72,7 @@ export function transactions(): Transaction[] {
                 "cancelled",
                 "replaced",
               ].includes(x.status) &&
-              ["launch", "approval", "swap", "claim", "recovered", "buyback", "engine", "fee"].includes(
+              ["launch", "approval", "swap", "claim", "recovered", "buyback", "engine", "fee", "treasury"].includes(
                 x.action,
               ) &&
               (x.action !== "buyback" || (

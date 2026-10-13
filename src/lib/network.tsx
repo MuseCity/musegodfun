@@ -2,17 +2,22 @@ import { createContext, useContext, useEffect, useRef, useState, type ReactNode 
 import { deploymentChain, type TokenRecord } from "./config";
 import { api } from "./api";
 import type { RuntimeConfig } from "./config";
+import type { NftRef } from "./nft-mode";
 
 export type DeploymentChainId = 8453 | 4663;
 export function pathChain(path = location.pathname, search = location.search): DeploymentChainId | null {
-  if (path.startsWith("/token/base/")) return 8453;
-  if (path.startsWith("/token/robinhood/") || path.startsWith("/token/")) return 4663;
+  if (path.startsWith("/token/base/") || path.startsWith("/nft/base/")) return 8453;
+  if (path.startsWith("/token/robinhood/") || path.startsWith("/token/") || path.startsWith("/nft/robinhood/")) return 4663;
   const query = new URLSearchParams(search).get("chainId");
   if (path === "/buyback") return query === "8453" ? 8453 : 4663;
   return query === "8453" ? 8453 : query === "4663" ? 4663 : null;
 }
 export function tokenPath(token: Pick<TokenRecord, "address" | "mode" | "deploymentChainId">) {
   return `/token/${deploymentChain(token) === 8453 ? "base" : "robinhood"}/${token.address}`;
+}
+/** An NFT's page (its coins and treasury); NFT coins launch on the NFT's own network. */
+export function nftPath(nft: NftRef) {
+  return `/nft/${nft.chainId === 8453 ? "base" : "robinhood"}/${nft.contract}/${nft.tokenId}`;
 }
 const Network = createContext<{ chainId: DeploymentChainId; selectChain: (id: DeploymentChainId) => void } | null>(null);
 export function NetworkProvider({ children }: { children: ReactNode }) {
@@ -36,7 +41,7 @@ export function NetworkProvider({ children }: { children: ReactNode }) {
     if (![8453, 4663].includes(id)) throw new Error("Unsupported network");
     revision.current++;
     const url = new URL(location.href);
-    if (url.pathname.startsWith("/token/")) url.pathname = "/create";
+    if (url.pathname.startsWith("/token/") || url.pathname.startsWith("/nft/")) url.pathname = "/create";
     url.searchParams.set("chainId", String(id));
     history.pushState({}, "", `${url.pathname}${url.search}`);
     setChainId(id);

@@ -1,4 +1,5 @@
 import { getAddress, type Address } from "viem";
+import { vaultFor, type NftRef } from "./nft-mode";
 
 // All shares use basis points. The first five fields use gross fees; *Net
 // fields use fees after Doppler; platform* fields use the platform's income.
@@ -82,11 +83,15 @@ export type FeeIncomeAllocation = {
   operations: bigint;
   // Unallocated smallest units from either rounding step remain in the wallet.
   remainder: bigint;
+  // An NFT coin's creator share belongs to the NFT's fee vault and treasury, not to the launcher.
+  creatorLabel?: "NFT treasury";
 };
 
 // `amount` is this beneficiary account's income in one token's raw units,
 // never pool-wide gross fees or a wallet balance of unverified provenance.
 // This is an allocation reference; it does not transfer or reserve funds.
+// For an NFT coin the creator beneficiary is the NFT's fee vault under the
+// verified factory; without one, no account is the creator (never the launcher).
 export function allocateFeeIncome(input: {
   feePolicy: string | null | undefined;
   amount: bigint;
@@ -94,7 +99,14 @@ export function allocateFeeIncome(input: {
   creator: Address | null;
   treasury?: Address | null;
   engine?: Address | null;
+  nft?: NftRef;
+  vaultFactory?: Address | null;
 }): FeeIncomeAllocation | null {
+  if (input.nft) {
+    const { nft, vaultFactory, ...rest } = input;
+    const allocation = allocateFeeIncome({ ...rest, creator: vaultFactory ? vaultFor(nft, vaultFactory) : null });
+    return allocation && { ...allocation, creatorLabel: "NFT treasury" };
+  }
   if (input.amount < 0n) throw new Error("Fee income cannot be negative");
   const policy = feePolicyFor(input.feePolicy);
   if (!policy) return null;

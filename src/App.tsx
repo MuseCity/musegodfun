@@ -86,6 +86,7 @@ import {
 import {
   errorMessage,
   amountSchema,
+  nftRefSchema,
   launchSchema,
   launchIdentityIssue,
   LAUNCH_IDENTITY_FIELDS,
@@ -100,7 +101,8 @@ import { LaunchModeSwitch, NftLaunchStep, NFT_DISCLAIMER, NFT_ERROR_ID, NFT_FEE_
 import { forgetLaunchFee, launchFeeStorageKey, musePrefill, nftReviewBlocker, prepareDraft, savedNftMode } from "./lib/nft-client";
 import { SAVED_LAUNCHES_NOTE, decodeDraftFragment, importDraftLink, isPristineDraft, type DraftFragment } from "./lib/draft-link";
 import { isMuse, treasuryFor, vaultFor } from "./lib/nft-mode";
-import { useNetwork, tokenPath } from "./lib/network";
+import { listedNftCoin } from "./lib/nft-treasury";
+import { useNetwork, tokenPath, nftPath } from "./lib/network";
 import { firstBuyDraft, launchDraftKey, launchDraftStep, resetLaunchedDraftStep, savedLaunchDraft, type FirstBuyDraft, type LaunchStep } from "./lib/launch-draft";
 import FirstBuy from "./components/FirstBuy";
 import FirstBuyLock from "./components/FirstBuyLock";
@@ -121,6 +123,9 @@ import { pendingLaunchResolution, terminalLaunchIsCanonical, type PendingLaunchR
 
 import TokenMarket from "./components/TokenMarket";
 import MusegodPage from "./components/MusegodPage";
+import { GetMusegodPanel } from "./components/MusegodTradePanel";
+import NftCoinCard from "./components/NftCoinCard";
+import NftPage, { MyNftTreasuries } from "./components/NftPage";
 import { MUSEGOD } from "./lib/musegod";
 import BuybackPage from "./components/BuybackPage";
 import FeeBreakdown, { FeeSplitBar } from "./components/FeeBreakdown";
@@ -132,7 +137,7 @@ import assetLogos from "./lib/asset-logos.json";
 import { buildIdentity } from "./lib/build-info";
 import { useTheme } from "./lib/theme";
 import { relativeTime, usdCompact, percentChange, changeClass, dateLabel, feePercent, tokenImageSrc } from "./lib/format";
-import TokenCard from "./components/TokenCard";
+import TokenCard, { NftBadge } from "./components/TokenCard";
 import { useTokenCardMarkets } from "./lib/token-card-market";
 
 function useResource<T>(path: string, version = 0) {
@@ -446,6 +451,8 @@ export function App() {
           ? "buyback"
           : "explore";
   const tokenAddress = path.startsWith("/token/") ? path.split("/").at(-1)! : null;
+  const nftRoute = /^\/nft\/(base|robinhood)\/(0x[0-9a-fA-F]{40})\/(0|[1-9]\d{0,77})$/.exec(path);
+  const nftRef = nftRoute ? nftRefSchema.safeParse({ chainId: nftRoute[1] === "base" ? 8453 : 4663, contract: nftRoute[2], tokenId: nftRoute[3] }).data ?? null : null;
   useEffect(() => {
     if (/^\/token\/0x[0-9a-fA-F]{40}$/.test(path)) {
       const canonical = `/token/robinhood/${path.split("/")[2]}`;
@@ -458,7 +465,7 @@ export function App() {
   const chainName = config.data ? networkName(config.data) : "Loading network…";
   const explorer = config.data ? explorerFor(config.data) : undefined;
   const known = /^\/(?:create|rewards|buyback)?$/.test(path) ||
-    /^\/token\/(?:(?:base|robinhood)\/)?0x[0-9a-fA-F]{40}$/.test(path);
+    /^\/token\/(?:(?:base|robinhood)\/)?0x[0-9a-fA-F]{40}$/.test(path) || !!nftRef;
   const nav = [
     { href: "/", id: "explore", icon: Compass, label: "Explore" },
     { href: "/create", id: "create", icon: Plus, label: "Launch token" },
@@ -475,7 +482,9 @@ export function App() {
           ? "MUSEGOD buyback and burn"
           : tokenAddress
             ? "Token details"
-            : "Discover what’s next";
+            : nftRef
+              ? "NFT treasury"
+              : "Discover what’s next";
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -491,7 +500,7 @@ export function App() {
               href={n.href}
               key={n.id}
               className={`nav-link ${known && current === n.id ? "active" : ""}`}
-              aria-current={known && current === n.id && !tokenAddress ? "page" : undefined}
+              aria-current={known && current === n.id && !tokenAddress && !nftRef ? "page" : undefined}
             >
               <n.icon size={20} strokeWidth={1.75} />
               {n.label}
@@ -535,7 +544,7 @@ export function App() {
               title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}>
               {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
             </button>
-            {current === "explore" && !tokenAddress && known && (
+            {current === "explore" && !tokenAddress && !nftRef && known && (
               <Link href="/create" className="primary">
                 <Plus size={18} strokeWidth={2} />
                 Launch token
@@ -613,6 +622,8 @@ export function App() {
               address={tokenAddress}
               config={config.data}
             />
+          ) : nftRef ? (
+            <NftPage key={`${network.chainId}:${path}`} nft={nftRef} config={config.data} navigate={navigate} />
           ) : (
             <Explore
               key={network.chainId}
@@ -706,7 +717,8 @@ export function App() {
 }
 
 // Display entries are separate from verified launch records and their fee policy.
-export type ExploreToken = Pick<TokenRecord, "address" | "name" | "symbol" | "description" | "image" | "createdAt" | "mode" | "deploymentChainId" | "creator"> & {
+export type ExploreToken = Pick<TokenRecord, "address" | "name" | "symbol" | "description" | "image" | "createdAt" | "mode" | "deploymentChainId" | "creator"
+  | "nft" | "nftVerification"> & {
   kind: "launch" | "musegod";
   quote: Stock;
   tradingFeeBps?: number;
@@ -723,7 +735,7 @@ export function exploreTokens(
       kind: "launch", address: token.address, name: token.name, symbol: token.symbol,
       description: token.description, image: token.image, createdAt: token.createdAt,
       mode: token.mode, deploymentChainId: token.deploymentChainId, creator: token.creator, quote: quoteAsset(token),
-      tradingFeeBps: token.tradingFeeBps,
+      tradingFeeBps: token.tradingFeeBps, nft: token.nft, nftVerification: token.nftVerification,
       locked: !!token.firstBuyLock && (token.firstBuyLock.start + token.firstBuyLock.vestingDuration) * 1000 > Date.now(),
     }));
   if (featured) {
@@ -742,7 +754,7 @@ export function exploreTokens(
     });
 }
 
-type QuickFilter = "all" | "new" | "locked" | "mine";
+type QuickFilter = "all" | "new" | "locked" | "mine" | "nft" | "muse";
 const DAY = 86_400_000;
 const VIEW_KEY = "musegod.explore.view";
 function savedView(): "list" | "grid" {
@@ -796,8 +808,9 @@ export function Explore({
       deploymentChain(config) !== deploymentChain(directory.current.config))) directory.current.tokens = [];
   if (config) directory.current.config = config;
   const displayConfig = config ?? directory.current.config;
-  if (tokens !== null) directory.current.tokens = displayConfig
-    ? listedTokens(tokens, displayConfig.mode, deploymentChain(displayConfig)) : tokens;
+  // An operator-hidden coin stays tradable from its own page but is left out of every Explore view and count.
+  if (tokens !== null) directory.current.tokens = (displayConfig
+    ? listedTokens(tokens, displayConfig.mode, deploymentChain(displayConfig)) : tokens).filter((token) => !token.hidden);
   const assets = assetsFor(displayConfig ?? undefined);
   const launchAssets = launchAssetsFor(displayConfig ?? undefined);
   const chainName = displayConfig ? networkName(displayConfig) : "Robinhood Chain";
@@ -811,12 +824,16 @@ export function Explore({
   const newCount = listed.filter((token) => now - token.createdAt < DAY).length;
   const lockedCount = listed.filter((token) => token.firstBuyLock && (token.firstBuyLock.start + token.firstBuyLock.vestingDuration) * 1000 > now).length;
   const mineCount = account ? listed.filter((token) => token.creator && sameAddress(token.creator, account)).length : 0;
-  const activeQuick: QuickFilter = quick === "mine" && !account ? "all" : quick;
+  const nftCount = listed.filter(listedNftCoin).length, museCount = listed.filter((token) => listedNftCoin(token) && isMuse(token.nft!)).length;
+  const showNft = nftCount > 0 || !!displayConfig?.nftMode?.enabled;
+  const activeQuick: QuickFilter = quick === "mine" && !account || (quick === "nft" || quick === "muse") && !showNft ? "all" : quick;
   const filtered = exploreTokens(listed, displayConfig, search, filter, order === "name" ? "name" : "new")
     .filter((entry) => activeQuick === "all" || entry.kind === "launch" && (
       activeQuick === "new" ? now - entry.createdAt < DAY
         : activeQuick === "locked" ? entry.locked
-          : !!account && !!entry.creator && sameAddress(entry.creator, account)));
+          : activeQuick === "nft" ? listedNftCoin(entry)
+            : activeQuick === "muse" ? listedNftCoin(entry) && isMuse(entry.nft!)
+              : !!account && !!entry.creator && sameAddress(entry.creator, account)));
   const markets = useTokenCardMarkets(listed, config, refreshVersion);
   const showMarket = displayConfig?.mode === "base";
   const marketFor = (entry: ExploreToken) => markets[entry.address.toLowerCase()] ?? {
@@ -955,6 +972,10 @@ export function Explore({
           <button type="button" className="filter-chip" aria-pressed={activeQuick === "new"} onClick={() => setQuick("new")}>New in 24h <span className="count">{newCount}</span></button>
           <button type="button" className="filter-chip" aria-pressed={activeQuick === "locked"} onClick={() => setQuick("locked")}><LockKeyhole size={13} />Locked first buy <span className="count">{lockedCount}</span></button>
           {account && <button type="button" className="filter-chip" aria-pressed={activeQuick === "mine"} onClick={() => setQuick("mine")}>Launched by me <span className="count">{mineCount}</span></button>}
+          {showNft && <>
+            <button type="button" className="filter-chip" aria-pressed={activeQuick === "nft"} onClick={() => setQuick("nft")}>NFT coins <span className="count">{nftCount}</span></button>
+            <button type="button" className="filter-chip" aria-pressed={activeQuick === "muse"} onClick={() => setQuick("muse")}>Muse coins <span className="count">{museCount}</span></button>
+          </>}
         </div>
         <p className="market-note">
           <span>{displayConfig?.mode === "fork" ? "Local fork launches have no mainnet market data. Open a token for an on-chain quote."
@@ -1001,6 +1022,7 @@ export function Explore({
                             <Link href={href} className="token-name" title={entry.name}>{entry.name}</Link>
                             {featured && <span className="featured-label"><Sparkles size={12} /> Featured</span>}
                             {entry.locked && <span className="lock-flag" title="First buy locked"><LockKeyhole size={13} aria-label="First buy locked" /></span>}
+                            <NftBadge token={entry} />
                           </span>
                           <span className="token-sub">
                             ${entry.symbol} · {featured ? <>SushiSwap v3{data && <> · {usdCompact(data.marketCapUsd)} mcap · <span className={changeClass(data.periods.h24?.change)}>{percentChange(data.periods.h24?.change)}</span> 24h</>}</> : shortAddress(entry.address)}
@@ -2898,6 +2920,7 @@ function TokenPage({
     [balance, setBalance] = useState<bigint | null>(null),
     [copied, setCopied] = useState(false),
     [sharing, setSharing] = useState(false),
+    [musegodBought, setMusegodBought] = useState(0),
     [clock, setClock] = useState(quoteNow());
   useEffect(() => {
     generation.current++;
@@ -2933,7 +2956,7 @@ function TokenPage({
     return () => {
       active = false;
     };
-  }, [wallet.account, wallet.revision, balanceAsset, hash]);
+  }, [wallet.account, wallet.revision, balanceAsset, hash, musegodBought]);
   // Metadata stays readable while the pool state is unavailable; retry the
   // state quietly so trading resumes without a manual reload. A pool that
   // contradicts the listing is not transient and is not retried.
@@ -3011,6 +3034,9 @@ function TokenPage({
     }
   }
   const beneficiary = isFeeBeneficiary(token, wallet.account);
+  // A MUSEGOD-paired coin (every Muse coin): offer MUSEGOD for ETH first when the wallet holds less than the buy amount.
+  const buyAmount = side === "buy" && amount ? (() => { try { return parseAmount(amount, stock.decimals); } catch { return null; } })() : null;
+  const needsMusegod = sameAddress(stock.address, MUSEGOD.token) && !!wallet.account && balance !== null && buyAmount !== null && balance < buyAmount;
   const chainLabel = token.mode === "fork" ? "Fork test asset" : token.mode === "robinhood" ? "Robinhood Chain" : "Base";
   const canonicalUrl = `${location.origin}${tokenPath(token)}`;
   return (
@@ -3050,6 +3076,7 @@ function TokenPage({
             {token.tradingFeeBps !== undefined && <span className="chip sm sunken mono">{feePercent(token.tradingFeeBps)} + 0.05% LP fee</span>}
             {!stateInvalid && <span className="chip sm sunken"><LockKeyhole size={12} />Liquidity locked</span>}
             {!stateInvalid && stockStatus?.verified && <span className="chip sm up"><Check size={12} />Verified quote asset</span>}
+            <NftBadge token={token} />
           </div>
         </div>
         <button type="button" className="secondary token-share" onClick={() => setSharing(true)}>
@@ -3063,6 +3090,7 @@ function TokenPage({
       <div className="detail-layout">
         <div className="detail-main">
           <TokenMarket token={token} refreshKey={hash ?? ""} />
+          <NftCoinCard token={token} config={config} navigate={navigate} />
           <FeeCard token={token} config={config} variant={beneficiary ? "token" : "rewards"} />
           <FirstBuyLock token={token} config={config} hideWhenEmpty />
           <section className="card about-card" aria-labelledby="about-title">
@@ -3136,6 +3164,8 @@ function TokenPage({
             </details>
           </section>
         </div>
+        <div className="trade-column">
+        {needsMusegod && <GetMusegodPanel config={config} onConfirmed={() => setMusegodBought((n) => n + 1)} />}
         <section className="card trade-panel" id="trade" aria-labelledby="trade-title">
           <div className="trade-panel-heading">
             <h2 id="trade-title" className="card-title">Trade {token.symbol}</h2>
@@ -3361,6 +3391,7 @@ function TokenPage({
             </div>
           )}
         </section>
+        </div>
       </div>
     </>
   );
@@ -3371,11 +3402,12 @@ type FeeData = {
   trade: { fees0: string; fees1: string };
   poolKey: V4PoolKey;
 };
-function FeeIncomeReference({ token, account, currency, amount }: {
+function FeeIncomeReference({ token, account, currency, amount, vaultFactory }: {
   token: TokenRecord;
   account: Address;
   currency: Address;
   amount: string;
+  vaultFactory?: Address | null;
 }) {
   const allocation = allocateFeeIncome({
     feePolicy: token.feePolicy,
@@ -3384,11 +3416,13 @@ function FeeIncomeReference({ token, account, currency, amount }: {
     creator: token.creator,
     treasury: token.feeTreasury,
     engine: token.feeEngine,
+    nft: token.nft,
+    vaultFactory,
   });
   if (!allocation || BigInt(amount) === 0n) return null;
   const asset = poolCurrency(currency, token);
   const parts = [
-    { label: "Creator income", amount: allocation.creator },
+    { label: allocation.creatorLabel ?? "Creator income", amount: allocation.creator },
     { label: "Buyback budget", amount: allocation.buyback },
     { label: "Operating allocation", amount: allocation.operations },
     { label: "Rounding remainder (retained)", amount: allocation.remainder },
@@ -3464,7 +3498,8 @@ function FeeCard({
   const symbol = (currency: Address) => poolCurrency(currency, token).symbol;
   const policy = feePolicyFor(token.feePolicy);
   const isTreasury = !!wallet.account && !!token.feeTreasury && sameAddress(token.feeTreasury, wallet.account);
-  const isCreator = !!wallet.account && !!token.creator && sameAddress(token.creator, wallet.account);
+  // An NFT coin's creator share goes to the NFT's fee vault, so its launcher has nothing to claim here.
+  const isCreator = !token.nft && !!wallet.account && !!token.creator && sameAddress(token.creator, wallet.account);
   const splitOnChain = isEngineFeePolicy(token.feePolicy);
   const incomeTitle = !policy ? "Beneficiary fees" : splitOnChain && isTreasury ? isCreator ? "Creator and operating income" : "Operating income" : isTreasury
     ? isCreator ? (policy.operations > 0 ? "Creator and platform income" : "Creator income and buyback funds")
@@ -3494,12 +3529,22 @@ function FeeCard({
     <div className="fee-allocations">
       {(["trade", "lp"] as const).map((type) => <div key={type}>
         <b>{type === "trade" ? "Trading fee" : "LP fee"}</b>
-        <FeeIncomeReference token={token} account={wallet.account!} currency={data.poolKey.currency0} amount={data[type].fees0} />
-        <FeeIncomeReference token={token} account={wallet.account!} currency={data.poolKey.currency1} amount={data[type].fees1} />
+        <FeeIncomeReference token={token} account={wallet.account!} currency={data.poolKey.currency0} amount={data[type].fees0} vaultFactory={config?.nftMode?.vaultFactory} />
+        <FeeIncomeReference token={token} account={wallet.account!} currency={data.poolKey.currency1} amount={data[type].fees1} vaultFactory={config?.nftMode?.vaultFactory} />
       </div>)}
     </div>
     <p className="hint">Calculated for each asset using the creator and treasury recorded at launch, as a reference for manual allocation after claiming. Buyback budgets are rounded down and remainders are retained. Account for each pool separately. Check manually if protocol income is included or beneficiary rights have been transferred.</p>
   </details> : null;
+  // Only the platform treasury claims on an NFT coin; everyone else sees where the creator fees go.
+  if (token.nft && !isTreasury) return (
+    <section className={`card fee-panel${variant === "rewards" ? " rewards-fee" : ""}`} aria-labelledby={`fees-${token.address}`}>
+      {variant === "rewards"
+        ? <h3 id={`fees-${token.address}`} className="fee-title"><Coins size={16} aria-hidden="true" /><span className="mono">{token.symbol}</span> creator fees</h3>
+        : <h2 id={`fees-${token.address}`} className="card-title"><Coins size={18} aria-hidden="true" />{token.symbol} creator fees</h2>}
+      <p className="nft-warning">Creator fees go to the NFT's treasury. Anyone can sweep them there; the NFT holder withdraws them.</p>
+      <Link href={nftPath(token.nft)} className="text-button">View the NFT treasury <ArrowRight size={14} /></Link>
+    </section>
+  );
   if (variant === "token") return (
     <section className="card fee-panel" aria-labelledby={`fees-${token.address}`}>
       <div className="card-head">
@@ -3630,6 +3675,7 @@ function Rewards({
         </div>
       )}
       {wallet.account && hasMore && <div className="load-more"><button type="button" className="secondary" disabled={loading} onClick={loadMore}>{loading ? "Loading older launches…" : "Load older launches"}</button></div>}
+      <MyNftTreasuries tokens={tokens} config={config} navigate={navigate} />
       <LockRecovery config={config} />
       <details className="card disclosure">
         <summary>How are fees distributed for new pools?</summary>

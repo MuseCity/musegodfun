@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { MUSEGOD } from "../src/lib/musegod";
+import { MUSES } from "../src/lib/nft-mode";
 import { ROBINHOOD_STOCKS, type RuntimeConfig } from "../src/lib/config";
 import { syntheticToken } from "./fixtures";
 import { createElement } from "react";
@@ -82,6 +83,28 @@ test("the homepage still renders its local-logo featured card when catalog loadi
     assert.doesNotMatch(markup, /The first story starts with you/);
     if (state.tokenError) assert.match(markup, /Platform launches could not be loaded: Catalog request failed/);
   }
+});
+
+test("Explore counts Muse and NFT coins, leaving out rejected and hidden ones everywhere", () => {
+  const musegodQuote = ROBINHOOD_STOCKS.find((asset) => asset.symbol === "MUSEGOD")!.address;
+  const nftOf = (contract: `0x${string}`, tokenId: string) => ({ chainId: 4663 as const, contract, tokenId });
+  const muse = syntheticToken({ name: "Verified Muse coin", address: "0x5555555555555555555555555555555555555555", mode: "robinhood",
+    quoteAddress: musegodQuote, nft: nftOf(MUSES.contract, "1"), nftVerification: { status: "verified" } });
+  const rejected = syntheticToken({ name: "Rejected NFT coin", address: "0x6666666666666666666666666666666666666666", mode: "robinhood",
+    quoteAddress: MUSEGOD.weth, nft: nftOf("0x9999999999999999999999999999999999999999", "2"), nftVerification: { status: "rejected", reason: "Not an ERC-721" } });
+  const hidden = syntheticToken({ name: "Hidden Muse coin", address: "0x7777777777777777777777777777777777777777", mode: "robinhood",
+    quoteAddress: musegodQuote, nft: nftOf(MUSES.contract, "3"), nftVerification: { status: "verified" }, hidden: true });
+  const markup = renderToStaticMarkup(createElement(NetworkProvider, null, createElement(Explore, {
+    tokens: [muse, rejected, hidden], stocks: null, stockError: "", tokenError: "", loading: false, config, refresh: () => {},
+  })));
+  assert.match(markup, /Muse coins <span class="count">1<\/span>/);
+  assert.match(markup, /NFT coins <span class="count">1<\/span>/);
+  assert.match(markup, /Verified Muse coin/);
+  assert.match(markup, /Rejected NFT coin/, "a rejected coin is still a listed launch, just not an NFT coin");
+  assert.doesNotMatch(markup, /Hidden Muse coin/);
+  assert.match(markup, /Listed launches<\/dt><dd>2</, "the hidden coin is not counted either");
+  assert.match(markup, /Muse #1/);
+  assert.doesNotMatch(markup, /Muse #3|NFT #2/);
 });
 
 test("MUSEGOD market UI credits Bankr and hides holders while launch markets retain holders", () => {

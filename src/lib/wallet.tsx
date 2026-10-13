@@ -35,6 +35,8 @@ import { MUSEGOD_BUYBACK } from "./fee-policy";
 import { RELAY_APPROVAL_PROXY, RELAY_DEPOSITORY, type BuybackStep, type BuybackBatch } from "./buyback";
 import { assertSigningEnabled, errorMessage, simulationError } from "./validation";
 import { isLaunchFeeTx, type LaunchFeeQuote } from "./nft-client";
+import { isNftTreasuryTx } from "./nft-treasury";
+import type { NftRef } from "./nft-mode";
 import { permit2Abi, swapTransaction } from "./protocol";
 import type { V4PoolKey } from "@whetstone-research/doppler-sdk/evm";
 import {
@@ -170,7 +172,8 @@ export function assertBuybackRequest(request: { method: string; params?: unknown
 }
 /** `send` extras: an NFT launch-fee payment passes its exact value (and, for ETH, the quote it must equal); `beforeSend` runs right
  * before the wallet receives the request, after every check that could still refuse it. */
-type SendOptions = { value?: bigint; feeQuote?: LaunchFeeQuote; beforeSend?: () => void };
+// `nft`: the NFT whose fee vault or treasury this call acts on; the guard derives every allowed address from it.
+type SendOptions = { value?: bigint; feeQuote?: LaunchFeeQuote; beforeSend?: () => void; nft?: NftRef };
 type WalletState = {
   account: Address | null;
   chainId: number | null;
@@ -521,15 +524,16 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     data: Hex,
     config: RuntimeConfig,
     onHash?: (hash: Hash) => void,
-    { value = 0n, feeQuote, beforeSend }: SendOptions = {},
+    { value = 0n, feeQuote, beforeSend, nft }: SendOptions = {},
   ) {
     const publicClient = transactionClient(config.chainId, config);
     if (!account) throw new Error("Connect your wallet first");
     const expected = account;
     const contracts = contractsFor(config);
-    // Fee claims, or exactly an NFT launch-fee payment to the platform treasury.
+    // Fee claims, exactly an NFT launch-fee payment to the platform treasury, or exactly one of an NFT's vault and treasury calls.
     const launchFee = isLaunchFeeTx(config, { to, data, value }, feeQuote);
-    if (!launchFee && (value !== 0n ||
+    const nftTreasury = !launchFee && !!nft && isNftTreasuryTx(config, nft, { to, data, value }, expected);
+    if (!launchFee && !nftTreasury && (value !== 0n ||
       ![contracts.initializer, contracts.rehype].some((a) =>
         sameAddress(a, to),
       ))
@@ -547,7 +551,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       hash,
       config,
       expected,
-      launchFee ? "fee" : "claim",
+      launchFee ? "fee" : nftTreasury ? "treasury" : "claim",
     );
     onHash?.(hash);
     return confirmation;

@@ -630,9 +630,14 @@ dialog.modal[open] { display: flex; flex-direction: column; gap: 16px; }
 
 /* Trade panel */
 .trade-panel { position: sticky; top: 24px; gap: 12px; }
+/* A coin page's right column: an optional MUSEGOD panel above the sticky trade panel. */
+.trade-column { display: flex; flex-direction: column; gap: 24px; min-width: 0; align-self: stretch; }
+.trade-column > .musegod-acquire { position: static; }
 @media (max-width: 1179px) {
   .detail-layout { grid-template-columns: minmax(0, 1fr); }
   .detail-layout > .trade-panel { grid-row: 1; position: static; }
+  .detail-layout > .trade-column { grid-row: 1; align-self: start; }
+  .trade-column > .trade-panel { position: static; }
 }
 .trade-panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .trade-tabs { display: flex; gap: 4px; padding: 4px; border-radius: 14px; background: var(--surface-sunken); }
@@ -728,6 +733,30 @@ dialog.modal[open] { display: flex; flex-direction: column; gap: 16px; }
 .nft-eth-quote { display: flex; flex-direction: column; gap: 8px; }
 .nft-amount { font-family: var(--font-mono); font-size: 22px; line-height: 28px; font-weight: 600; color: var(--ink); }
 .nft-fee { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+/* NFT coins: badge, NFT card and treasury actions, NFT page. */
+.badge.nft-badge { position: static; display: inline-flex; align-items: center; align-self: flex-start; max-width: 100%; min-width: 0; height: auto; min-height: 20px;
+  padding: 0 8px; border-radius: 999px; background: var(--halo-tint); color: var(--halo-ink); font-family: var(--font-sans); font-size: 11px; line-height: 20px;
+  text-align: left; white-space: nowrap; }
+.badge.nft-badge.nft-warning { padding: 2px 10px; border-radius: 10px; background: var(--warning-tint); color: var(--ink); font-size: 14px; line-height: 20px; white-space: normal; }
+.nft-card .card-head .button-row { align-items: center; }
+.nft-banner { padding: 10px 14px; border-radius: 14px; background: var(--warning-tint); }
+.nft-identity { display: flex; align-items: flex-start; gap: 16px; min-width: 0; }
+.nft-identity > .rows { flex: 1; min-width: 0; }
+.nft-art { flex: none; width: 96px; height: 96px; border-radius: 14px; overflow: hidden; background: var(--surface-sunken); }
+.nft-art img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.nft-subtitle { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; line-height: 20px; font-weight: 650; }
+.nft-subtitle svg { color: var(--halo-ink); }
+.nft-balances, .nft-action { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.nft-actions { display: flex; flex-direction: column; gap: 16px; }
+.nft-action { padding-top: 14px; border-top: 1px solid var(--line); }
+.nft-action > .primary, .nft-action > .secondary, .nft-actions > .secondary { align-self: flex-start; }
+.nft-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
+.nft-row .field { flex: 1 1 160px; max-width: 360px; }
+.nft-progress { font-size: 14px; line-height: 20px; font-weight: 600; overflow-wrap: anywhere; }
+.nft-coin-list { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; }
+.nft-coin-list li { list-style: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-width: 0; padding: 10px 14px;
+  border-radius: 14px; background: var(--surface-sunken); }
+.nft-coin-list .token-name { max-width: 100%; }
 .nft-fee h3:focus { outline: none; }
 .social-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr)); gap: 12px; }
 .asset-results { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--ink-muted); }
@@ -982,4 +1011,5 @@ dialog.modal.launch-review { width: min(640px, calc(100vw - 32px)); }
   .image-drop { min-height: 96px; flex-direction: row; }
   .image-drop.has-image { width: min(148px, 100%); aspect-ratio: 1; }
   .review-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .nft-identity { flex-direction: column; }
 }

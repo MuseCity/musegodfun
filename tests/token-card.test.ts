@@ -156,3 +156,17 @@ test("a retained snapshot stays visible during refresh and is identified after a
   assert.match(previous, /CoinGecko/);
   assert.match(previous, /<time\b[^>]*datetime=/i);
 });
+
+test("an NFT coin's badge is a plain span, so the card keeps one link and no button", () => {
+  const muses = "0x13Ea3072b7215d4C9c2Ec4f498A08c5825129836" as const, other = "0x9999999999999999999999999999999999999999" as const;
+  const muse = card(token({ mode: "robinhood", nft: { chainId: 4663, contract: muses, tokenId: "12" }, nftVerification: { status: "verified" } }));
+  assert.match(muse, /<span class="badge[^"]*">Muse #12<\/span>/);
+  assert.equal((muse.match(/<a\b/g) ?? []).length, 1);
+  assert.doesNotMatch(muse, /<button\b/);
+  const unverified = card(token({ mode: "robinhood", nft: { chainId: 4663, contract: other, tokenId: "3" }, nftVerification: { status: "unverified" } }));
+  assert.match(unverified, /<span class="badge[^"]*">NFT · unverified collection<\/span>/);
+  assert.equal((unverified.match(/<a\b/g) ?? []).length, 1);
+  const rejected = card(token({ mode: "robinhood", nft: { chainId: 4663, contract: other, tokenId: "4" }, nftVerification: { status: "rejected", reason: "Not an ERC-721" } }));
+  assert.doesNotMatch(rejected, /class="badge/);
+  assert.doesNotMatch(card(), /class="badge/);
+});
