@@ -27,6 +27,7 @@
     "dev:cloudflare": "wrangler dev",
     "deploy:cloudflare": "tsx scripts/release.ts",
     "test:launch-guard": "forge test --root contracts",
+    "test:nft-vault": "forge test --root contracts --match-contract \"MusegodNftFeeVault.*\"",
     "build:launch-guard": "forge build --root contracts",
     "verify:launch-guard": "tsx scripts/deploy-launch-guard.ts",
     "test:launch-curve-fork": "tsx scripts/run.ts scripts/test-launch-curve-fork.ts",

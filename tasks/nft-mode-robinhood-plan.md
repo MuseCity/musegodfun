@@ -119,7 +119,7 @@ Everything chain-specific is keyed by chain id, so `tasks/nft-mode-base-plan.md`
   - Vault getters: `treasury()`, `nft()`, `tokenId()`, `homeChainId()`, `initializer()`
 - Salt is `keccak256(abi.encode(homeChainId, nft, tokenId))`. The vault takes no constructor arguments; it reads `parameters()` from the factory, so the init-code hash is constant.
 
-- [ ] **Step 1: Write the failing forge test**
+- [x] **Step 1: Write the failing forge test**
 
 Create `contracts/test/MusegodNftFeeVault.t.sol`:
 
@@ -310,12 +310,12 @@ contract MusegodNftFeeVaultTest {
 }
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `forge test --root contracts --match-contract MusegodNftFeeVaultTest`
 Expected: compilation error, because `MusegodNftFeeVault.sol` does not exist.
 
-- [ ] **Step 3: Write the vault**
+- [x] **Step 3: Write the vault**
 
 Create `contracts/src/MusegodNftFeeVault.sol`:
 
@@ -421,7 +421,7 @@ contract MusegodNftFeeVault is ReentrancyGuard {
 
 Note on `testReentrantTokenCannotReenterSweep`: the hostile token's `transfer` calls `sweep`, which reverts with `ReentrancyGuardReentrantCall`. The whole `forward` call reverts, the balance stays, and `SweepFailed` is emitted.
 
-- [ ] **Step 4: Write the factory**
+- [x] **Step 4: Write the factory**
 
 Create `contracts/src/MusegodNftFeeVaultFactory.sol`:
 
@@ -496,12 +496,12 @@ contract MusegodNftFeeVaultFactory {
 }
 ```
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [x] **Step 5: Run the tests to verify they pass**
 
 Run: `forge test --root contracts --match-contract MusegodNftFeeVaultTest -vv`
 Expected: every test passes, including the fuzz test (256 runs).
 
-- [ ] **Step 6: Add the script and run the full forge suite**
+- [x] **Step 6: Add the script and run the full forge suite**
 
 In `package.json` `scripts`, add:
 
@@ -511,12 +511,14 @@ In `package.json` `scripts`, add:
 
 Run: `npm run test:launch-guard` (runs all forge tests). Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add contracts/src/MusegodNftFeeVault.sol contracts/src/MusegodNftFeeVaultFactory.sol contracts/test/MusegodNftFeeVault.t.sol package.json
 git commit -m "feat(contracts): add per-NFT fee vault and deterministic factory"
 ```
+
+Task 1 execution, 2026-10-13: the initial Forge run failed because both vault implementation files were absent. After implementation, 11 vault tests passed (including 256 fuzz runs), all 182 contract tests passed, and all 969 application tests passed. The tests also cover the Base initializer and an ETH-rejecting treasury without blocking ERC-20 forwarding. `testFailingSourceAndTokenAreIsolated` was renamed `testSourceAndTokenFailuresAreIsolated` because this Forge version rejects the removed `testFail*` convention. These are local fixture results; the Task 2 chain fork gate has not run.
 
 ---
 
