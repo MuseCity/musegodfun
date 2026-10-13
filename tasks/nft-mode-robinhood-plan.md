@@ -633,29 +633,40 @@ Task 2a, 2026-10-13 (artifact, build script and CI part of Task 2; the fork gate
 - Reproducibility: the tests build in temporary Forge projects (twice, each from a clean compile) and require byte-identical JSON equal to the committed files; the committed artifacts are never rewritten by tests. The build refuses a changed init-code hash once any chain is no longer `not_deployed`.
 - Left to Task 2b at the time: the fork gate script, its `test:nft-vault-fork` npm entry and the evidence file. Task 2b (below) completed them.
 
-Task 2b, 2026-10-13 (Steps 3-4, the Robinhood fork gates): all six gates passed on an isolated Anvil fork of Robinhood mainnet at block 87490562, keeping chain id 4663. Evidence: [`docs/evidence/nft-vault-fork-robinhood.json`](../docs/evidence/nft-vault-fork-robinhood.json). Run: `npm run test:nft-vault-fork -- --chain robinhood`. It loads only `.env.fork` through `node --env-file`, and the upstream proxy forwards reads only. No mainnet transaction, deployment or manifest change.
+Task 2b, 2026-10-13 (Steps 3-4, the Robinhood fork gates; rerun after the treasury-activation amendment): gates 1-6 passed on an isolated Anvil fork of Robinhood mainnet at block 87500828, keeping chain id 4663; gate 7 records the residual risk. Evidence: [`docs/evidence/nft-vault-fork-robinhood.json`](../docs/evidence/nft-vault-fork-robinhood.json). Run: `npm run test:nft-vault-fork -- --chain robinhood`. It loads only `.env.fork` through `node --env-file`, and the upstream proxy forwards reads only. Failed runs write `.cache/nft-vault-fork-robinhood-failed.json`, which is never committed. No mainnet transaction, deployment or manifest change.
+- Amendment (Task 2b fix round 1):
+  - `sweep()` now activates the treasury after the claims and before forwarding: registry `createAccount` (idempotent), then `initialize` with the V3 implementation.
+  - Both are low-level calls; failures are ignored and recorded in `TreasuryActivation(treasury, created, initialized)`.
+  - `forward` reverts `TreasuryMissing()` while the treasury has no code, so `sweep` emits `SweepFailed` per token and the funds stay in the vault.
+  - The rebuilt `vaultInitCodeHash` is `0x9bca6b10994de2c8aafadff4eb9b326d558bfbbdb1f1d2282b378907b5f46fa7`; both chains are still `not_deployed`.
 - Gate 1, treasury formula: the registry's `account(proxy, 0, 4663, Muses, 1)` equals `treasuryFor` (`0x1104…162F`).
 - Gate 2, factory:
-  - The committed init code contains the runtime template (offset 110, 4609 bytes, keccak = `factoryRuntimeTemplateHash`).
-  - Filling both `VAULT_INIT_CODE_HASH` slots with `vaultInitCodeHash` gives exactly the deployed runtime: hash `0x597c…3bca`. Task 13's `--verify` recipe holds.
+  - The committed init code contains the runtime template (offset 110, 5727 bytes, keccak = `factoryRuntimeTemplateHash`).
+  - Filling both `VAULT_INIT_CODE_HASH` slots (190 and 1115) with `vaultInitCodeHash` gives exactly the deployed runtime: hash `0x887b…4abe`. Task 13's `--verify` recipe holds.
   - `VAULT_INIT_CODE_HASH()` matches the build and the manifest, and TS `vaultFor` equals `factory.vaultFor`.
 - Gate 3, counterfactual beneficiary on CLAWGOD (Ruling 3):
   - The creator moved its initializer (0.665) and Rehype (0.70) shares to the undeployed vault of Muse #2. Both sources accepted.
   - After a 0.05 WETH buy and a full sell, `deploy` returned the predicted vault.
-  - `sweep` paid the treasury exactly the vault's Release amounts: 0.000689157772702077 WETH and 8003.87 CLAWGOD. The vault ended empty, and every vault outflow went to the treasury.
+  - The first `sweep` created the treasury and initialized it: `TreasuryActivation(true, true)`, ERC-1967 slot = V3 implementation, `owner()` = holder.
+  - It then paid the treasury exactly the vault's Release amounts: 0.000689157772702077 WETH and 8003.87 CLAWGOD. The vault ended empty, and every vault outflow went to the treasury.
 - Gate 4, zero-share push:
   - Initializer: `updateBeneficiary` from a zero-share account is accepted. After a permissionless `collectFees`, it pushes the vault's accrued fees without a vault claim.
   - Rehype: it rejects the same call with `CallerNotBeneficiary()`, so Rehype fees wait for `sweep`.
-  - The vault's shares were unchanged, and the next sweep forwarded everything.
+  - The vault's shares were unchanged, and the next sweep forwarded everything (`TreasuryActivation(true, false)`).
 - Gate 5, Tokenbound control:
-  - `createAccount` and `initialize` work. The holder withdrew through `execute`, then transferred the Muse with `safeTransferFrom`; the transfer validator allowed it.
+  - On the already-activated account, `createAccount` is idempotent and `initialize` returns `AlreadyInitialized()`.
+  - The holder withdrew through `execute`, then transferred the Muse with `safeTransferFrom`; the transfer validator allowed it.
   - After the transfer, the old holder gets `NotAuthorized()` and the new holder can withdraw.
 - Gate 6, guardian:
   - AccountV3 guardian: `0x2FE5…5D57`, taken from the Sourcify (8453) exact-match constructor argument and read back from the Robinhood runtime, which is byte-identical. Guardian owner: `0x781b…F328`, an EOA.
-  - With the guardian owner impersonated, a guardian-trusted executor gets `NotAuthorized()` on the same-chain treasury, for both `execute` and `upgradeTo`. The same executor can act on a foreign-chain account (positive control).
+  - With the guardian owner impersonated, a guardian-trusted executor gets `NotAuthorized()` on the same-chain treasury, for both `execute` and `upgradeTo`. An accepted call on either path would stop the run as BLOCKED.
+  - The same executor can act on a foreign-chain account (positive control).
   - Source: in `AccountV3._isValidExecutor`, guardian trust sits only inside `if (chainId != block.chainid)` (src/AccountV3.sol:225-254).
   - D1 stands.
-  - Observation: while a treasury is not yet initialized, anyone can initialize it to any guardian-trusted implementation. Initializing the treasury early (Activate) closes that window.
+- Gate 7, residual risk (`observed`, not pass/fail):
+  - Before any sweep, an outsider initialized Muse #3's fresh treasury to a guardian-trusted stand-in implementation.
+  - The vault's activation was a no-op (`TreasuryActivation(true, false)`) and it still forwarded the WETH there. On-chain, it cannot tell implementations apart.
+  - Exploiting this needs both of the following: the Tokenbound guardian owner (an EOA) trusts a hostile implementation, and someone initializes the treasury before the first sweep.
 - Fork actors are fresh random addresses. Anvil's default account #3 has an EIP-7702 delegation on Robinhood mainnet that re-enters NFT transfers.
 - Offline helper tests: `tests/nft-vault-fork.test.ts` (part of `npm test`).
 

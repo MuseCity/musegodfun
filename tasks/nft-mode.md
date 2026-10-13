@@ -78,6 +78,10 @@ The vault is the Doppler creator-fee beneficiary of every coin bound to that NFT
 - **Functions:**
   - `sweep(bytes32[] poolIds, address[] tokens)`: permissionless and non-reentrant. It calls `collectFees(poolId)` on both fee sources, then transfers each listed token's full balance, and ETH, to `treasury`.
     - It is balance-based, with no share-equality checks.
+    - Between the claims and the transfers, it activates the treasury, as ruled in Task 2b fix round 1:
+      - It calls the canonical registry's `createAccount`, which is idempotent, then `initialize` with the Tokenbound V3 implementation. Failures are ignored and recorded in `TreasuryActivation(treasury, created, initialized)`.
+      - If the treasury still has no code, it transfers nothing (`SweepFailed(token, TreasuryMissing())`).
+      - An account that someone initialized to another guardian-trusted implementation before the first sweep keeps it. This residual risk is recorded in fork gate 7.
     - Failures are isolated per source and per token, as in `contracts/src/MusegodFeeEngine.sol:200-218, 266-283`. Stock tokens can pause or restrict transfers, so one bad token never blocks the others.
   - `receive()`.
 - **Not present:** owner, upgrade, arbitrary call, `updateBeneficiary`, withdraw-to-anyone.

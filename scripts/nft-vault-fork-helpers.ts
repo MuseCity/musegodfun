@@ -74,10 +74,14 @@ export const vaultAbi = parseAbi([
   "function REHYPE() view returns (address)",
   "function BASE_INITIALIZER() view returns (address)",
   "function ROBINHOOD_INITIALIZER() view returns (address)",
+  "function ERC6551_REGISTRY() view returns (address)",
+  "function TOKENBOUND_V3_PROXY() view returns (address)",
+  "function TOKENBOUND_V3_IMPLEMENTATION() view returns (address)",
   "event FeeClaimFailed(bytes32 indexed poolId, address indexed source, bytes reason)",
   "event Swept(address indexed token, address indexed treasury, uint256 amount)",
   "event SweepFailed(address indexed token, bytes reason)",
-  "error InvalidConfiguration()", "error Unauthorized()", "error EtherTransferFailed()",
+  "event TreasuryActivation(address indexed treasury, bool created, bool initialized)",
+  "error InvalidConfiguration()", "error Unauthorized()", "error EtherTransferFailed()", "error TreasuryMissing()",
 ]);
 
 type Reference = { start: number; length: number };

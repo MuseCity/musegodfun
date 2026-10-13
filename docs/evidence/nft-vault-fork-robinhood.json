@@ -3,16 +3,16 @@
   "scope": "Isolated Anvil fork of Robinhood Chain mainnet state, execution chain id 4663. Every write is a local fork transaction from a fresh random address or from a mainnet account (CLAWGOD creator, Muse holder, guardian owner) impersonated on the fork only; the upstream proxy forwards reads only. No mainnet signing, broadcast, deployment or manifest change.",
   "status": "passed",
   "stage": "completed",
-  "observedAt": "2026-10-13T11:52:46.796Z",
-  "completedAt": "2026-10-13T11:54:44.952Z",
+  "observedAt": "2026-10-13T12:10:08.856Z",
+  "completedAt": "2026-10-13T12:11:47.916Z",
   "upstreamChainId": 4663,
   "executionChainId": 4663,
-  "runnerSha256": "97fe9e2b4148f2c7b97907d582afee6add7d317469302c252ca980df7594ece4",
-  "helpersSha256": "3cb2839b70209f4a92bb5c2bb858f61303c759700bf993927379fb01cf0616df",
+  "runnerSha256": "0ad96b7a1523c43b1dfe99efb28f56f9368fcb27e3d420cf50117321f3620160",
+  "helpersSha256": "8fc7910d577a97a3cb75ccf1eae5f81852ad381a45a3818d8f2d3c7b755a1f13",
   "anvil": "anvil Version: 1.0.0-v1.0.0",
   "build": {
-    "vaultInitCodeHash": "0x6fc7d0685e8d58a46916a79e3e4b4f02ab63f2cc3efa96aa12800dc62e9eb793",
-    "factoryRuntimeTemplateHash": "0xda00057fd2f1006286ce69179dceda729dc3e9146c0fcce9e51f93a016877357",
+    "vaultInitCodeHash": "0x9bca6b10994de2c8aafadff4eb9b326d558bfbbdb1f1d2282b378907b5f46fa7",
+    "factoryRuntimeTemplateHash": "0x0593f2fb97f55e87b91fb16a85c1043512e51557d0e819ef0e84792a3f34e02a",
     "immutableReferences": {
       "VAULT_INIT_CODE_HASH": [
         {
@@ -27,13 +27,13 @@
     }
   },
   "manifest": {
-    "vaultInitCodeHash": "0x6fc7d0685e8d58a46916a79e3e4b4f02ab63f2cc3efa96aa12800dc62e9eb793",
+    "vaultInitCodeHash": "0x9bca6b10994de2c8aafadff4eb9b326d558bfbbdb1f1d2282b378907b5f46fa7",
     "robinhoodStatus": "not_deployed",
-    "sha256": "a3b44a25091ed1f22dcc3ee81f90c09d5a1bc774108c02b591dd44a03cd57c72"
+    "sha256": "a8ef794e39a0870e9e1f5d1e3770b317321ac18ca6663909aacb85f8786bed7a"
   },
-  "forkBlockNumber": "87490562",
-  "forkBlockHash": "0xed9522235bc54c6492ec1e87618b1a8b85c42ff4db45bfaa405f91ccdf9f4708",
-  "forkBlockTimestamp": "1791892371",
+  "forkBlockNumber": "87500828",
+  "forkBlockHash": "0xb5f4af10cfeb013cea14f6764a8d92e9f13faf33322d564aab043b8d34bde49f",
+  "forkBlockTimestamp": "1791893411",
   "mainnetTransactionsSubmitted": false,
   "blockedUpstreamWrites": 0,
   "snapshotRestored": true,
@@ -58,23 +58,23 @@
     },
     "2_factory": {
       "status": "passed",
-      "deployer": "0x3Ff42A6F6EBDBff15269211920301659C096Cff2",
-      "factory": "0x4696C5Df2F6b08B8a5bF4168f25C791b6B160BBc",
+      "deployer": "0xd56D50E487384924f539B859Dc92Ecd3ed38F52E",
+      "factory": "0xc2852651C5E1aAefC02EAef8455dd130e43e08E5",
       "deployment": {
-        "hash": "0x0cce7ef20fe7850712f99e4c08db3a4e062c49fdd08476aa0297507901fb5db1",
-        "blockNumber": "87490563",
+        "hash": "0xe2c8f6426777f392436c3397d61dcf276c8ffb6eafea8fac59868020822f61a0",
+        "blockNumber": "87500829",
         "status": "success",
-        "gasUsed": "1094281"
+        "gasUsed": "1347843"
       },
       "factoryAddressScope": "fork-local; the mainnet address is fixed only at Task 13",
-      "runtimeLength": 4609,
+      "runtimeLength": 5727,
       "templateOffsetInInitCode": 110,
-      "templateHash": "0xda00057fd2f1006286ce69179dceda729dc3e9146c0fcce9e51f93a016877357",
-      "filledTemplateHash": "0x597cf0460fc58e6b70ba954c52b321a2dc353517d00501dcd4be8f85838a3bca",
-      "onchainRuntimeHash": "0x597cf0460fc58e6b70ba954c52b321a2dc353517d00501dcd4be8f85838a3bca",
-      "onchainVaultInitCodeHash": "0x6fc7d0685e8d58a46916a79e3e4b4f02ab63f2cc3efa96aa12800dc62e9eb793",
-      "libraryVaultForMuse1": "0x9CfFb6E3dfCAC3392859e7451Beb778770373ca4",
-      "factoryVaultForMuse1": "0x9CfFb6E3dfCAC3392859e7451Beb778770373ca4",
+      "templateHash": "0x0593f2fb97f55e87b91fb16a85c1043512e51557d0e819ef0e84792a3f34e02a",
+      "filledTemplateHash": "0x887bf689866d510c4d312b318320dd38088371c10372861ae429b668daf54abe",
+      "onchainRuntimeHash": "0x887bf689866d510c4d312b318320dd38088371c10372861ae429b668daf54abe",
+      "onchainVaultInitCodeHash": "0x9bca6b10994de2c8aafadff4eb9b326d558bfbbdb1f1d2282b378907b5f46fa7",
+      "libraryVaultForMuse1": "0x5E399688BE52B4392480FFb9adA70c54285b72b9",
+      "factoryVaultForMuse1": "0x5E399688BE52B4392480FFb9adA70c54285b72b9",
       "factoryTreasuryForMuse1": "0x1104626A8c21c88317D1b539c51a34451a0a162F",
       "factoryConstants": {
         "ERC6551_REGISTRY": "0x000000006551c19487814612e58FE06813775758",
@@ -122,7 +122,7 @@
       },
       "museHolder": "0x00A839dE7922491683f547a67795204763ff8237",
       "museHolderCodeLength": 0,
-      "vault": "0x2771ea66BECe4BFC292cE5d9727E7cF28C793aa9",
+      "vault": "0xD6A61eb63c58DAF7B0222D91Fa7fD59A3f71F39a",
       "vaultCodeBeforeDeploy": "0x",
       "treasury": "0x5952FaeFBc9b9EBc7371a84061A2Bd46124996d3",
       "treasuryCodeBefore": "0x",
@@ -130,8 +130,8 @@
         "initializer": {
           "accepted": true,
           "receipt": {
-            "hash": "0x023570f7414128290e84d0bd6aafed50778f58d5ddd0e70b08784ff56f312e91",
-            "blockNumber": "87490564",
+            "hash": "0x24f5f32dd572389be1f9d28b35734ebbdabf600546920e18f35d5b823fd87bed",
+            "blockNumber": "87500830",
             "status": "success",
             "gasUsed": "74191"
           },
@@ -141,8 +141,8 @@
         "rehype": {
           "accepted": true,
           "receipt": {
-            "hash": "0x290d472f32cfa935c48015f82d3e4e94dcd7253a5cc4b596c4baf0775c6ccf73",
-            "blockNumber": "87490565",
+            "hash": "0xbc6cde5d2c7a2fbdb563583d80a57058ddecbc7c765210ab4b6f0e76353ac2b0",
+            "blockNumber": "87500831",
             "status": "success",
             "gasUsed": "74094"
           },
@@ -151,18 +151,18 @@
         }
       },
       "traderFunding": {
-        "trader": "0xd7983912CACcE15F8B205b2405D6d9267ad1a5E7",
+        "trader": "0x1B64AdF6465572DbF90DAFC694879bd846e541d3",
         "kind": "WETH deposit of local Anvil ETH",
         "amount": "1000000000000000000",
-        "hash": "0xf6bd8ce06434124c94fb388612e7cfba7066a9fb2435a3b9acd8249eab7012c1",
-        "blockNumber": "87490566",
+        "hash": "0xb756d348c9c34071f39cb75ed6f8c8d031d80dc1ca471c755960779628985df5",
+        "blockNumber": "87500832",
         "status": "success",
         "gasUsed": "57647"
       },
       "trades": {
         "buy": {
-          "hash": "0xca730f8f9f248728bf963c21229d77459566342bd3395005bad2f8a44172ff58",
-          "blockNumber": "87490569",
+          "hash": "0xd6a00e67dd73b5d4d2e1f476a64eef49630dcc63722590fdabef9b5b576d23ea",
+          "blockNumber": "87500835",
           "status": "success",
           "gasUsed": "596325",
           "currencyIn": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
@@ -171,8 +171,8 @@
           "amountOut": "23842994780330447174840053"
         },
         "sell": {
-          "hash": "0x5f4048821c3a1cc3994d6fdded7226a49b2549a0a550ea0850a540dc62c2d6eb",
-          "blockNumber": "87490571",
+          "hash": "0xa3840c76e766334abeabfcae92e865522f565270a05a703f84cb190c4d9920b1",
+          "blockNumber": "87500837",
           "status": "success",
           "gasUsed": "359144",
           "currencyIn": "0x7ea969d8c90C92c056949D561960Af2ACCd6E113",
@@ -182,11 +182,11 @@
         }
       },
       "deploy": {
-        "hash": "0xaabb175ca24ec3fe2fc8b249a706eed934b3a8d30a7c1ff8bd5393ea150ed287",
-        "blockNumber": "87490572",
+        "hash": "0xf083a5bcd272e296d3d544352519a38a4d170846d7e54321df3efd4008f964d3",
+        "blockNumber": "87500838",
         "status": "success",
-        "gasUsed": "629360",
-        "returned": "0x2771ea66BECe4BFC292cE5d9727E7cF28C793aa9",
+        "gasUsed": "838399",
+        "returned": "0xD6A61eb63c58DAF7B0222D91Fa7fD59A3f71F39a",
         "events": [
           {
             "name": "VaultDeployed",
@@ -194,14 +194,14 @@
               "homeChainId": "4663",
               "nft": "0x13Ea3072b7215d4C9c2Ec4f498A08c5825129836",
               "tokenId": "2",
-              "vault": "0x2771ea66BECe4BFC292cE5d9727E7cF28C793aa9",
+              "vault": "0xD6A61eb63c58DAF7B0222D91Fa7fD59A3f71F39a",
               "treasury": "0x5952FaeFBc9b9EBc7371a84061A2Bd46124996d3"
             }
           }
         ],
-        "runtimeHash": "0xa84be5f52d9b77ca4fd490d26de48cde785437b70bc1fdfeb3f32f3061950423",
+        "runtimeHash": "0x9245a4d2e45fd43cacb46724b42393eeb3a05caa39be1271f6d62119db1adc01",
         "immutables": {
-          "factory": "0x4696C5Df2F6b08B8a5bF4168f25C791b6B160BBc",
+          "factory": "0xc2852651C5E1aAefC02EAef8455dd130e43e08E5",
           "homeChainId": "4663",
           "nft": "0x13Ea3072b7215d4C9c2Ec4f498A08c5825129836",
           "tokenId": "2",
@@ -211,11 +211,11 @@
         }
       },
       "sweep": {
-        "hash": "0x92af6c8700c356c00a5fee240f7ffbeff0539be8730df0008fa7f2dbd98f0933",
-        "blockNumber": "87490573",
+        "hash": "0xf74eb4d753a9932386b14f1c58694da25fd49e2b4bdabb7e846cdba7f80ea52c",
+        "blockNumber": "87500839",
         "status": "success",
-        "gasUsed": "1181799",
-        "caller": "0x3Ff42A6F6EBDBff15269211920301659C096Cff2",
+        "gasUsed": "1290352",
+        "caller": "0xd56D50E487384924f539B859Dc92Ecd3ed38F52E",
         "before": {
           "treasury": {
             "WETH": "0",
@@ -266,6 +266,14 @@
         },
         "vaultEvents": [
           {
+            "name": "TreasuryActivation",
+            "args": {
+              "treasury": "0x5952FaeFBc9b9EBc7371a84061A2Bd46124996d3",
+              "created": true,
+              "initialized": true
+            }
+          },
+          {
             "name": "Swept",
             "args": {
               "token": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
@@ -294,15 +302,30 @@
             "amount": "8003870572300650251304"
           }
         ]
+      },
+      "treasuryActivation": {
+        "events": [
+          {
+            "name": "TreasuryActivation",
+            "args": {
+              "treasury": "0x5952FaeFBc9b9EBc7371a84061A2Bd46124996d3",
+              "created": true,
+              "initialized": true
+            }
+          }
+        ],
+        "codeHashAfter": "0xd916b9ff89c3b679b6970ae49fb9af22b5b5199132f84f010d32c25b5c41fb3c",
+        "implementationSlotAfter": "0x41C8f39463A868d3A88af00cd0fe7102F30E44eC",
+        "ownerAfter": "0x00A839dE7922491683f547a67795204763ff8237"
       }
     },
     "4_zeroSharePush": {
       "status": "passed",
-      "zeroShareAccount": "0x19705D9f64916089B8ACe1Ca1A0D269a2E739F51",
+      "zeroShareAccount": "0x9E2D1198b039e77F3D9Ab47ea4b09c843D424477",
       "trades": {
         "buy": {
-          "hash": "0x141cba4a4b8bcb387daeca3eb9cc19f693baaad81a8eb4dd9bfd35294676452e",
-          "blockNumber": "87490575",
+          "hash": "0x410804fe12ba09611191a9314e7e89e45f246e5d6d0d17d72cdce9174ba74291",
+          "blockNumber": "87500841",
           "status": "success",
           "gasUsed": "499029",
           "currencyIn": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
@@ -311,8 +334,8 @@
           "amountOut": "23841395953323740045540488"
         },
         "sell": {
-          "hash": "0x9342be6f8a14e949f37cb65c8d1b3a8c747289eb67c8a60004ec15f051ac0f4c",
-          "blockNumber": "87490577",
+          "hash": "0x483572d797d4cf4004010873d2e187008adb7b9026e53f6e87b9ab55a25c808b",
+          "blockNumber": "87500843",
           "status": "success",
           "gasUsed": "359997",
           "currencyIn": "0x7ea969d8c90C92c056949D561960Af2ACCd6E113",
@@ -324,16 +347,16 @@
       "pushes": {
         "initializer": {
           "collect": {
-            "hash": "0x7dbc0282b2a0c5189cbaeb2be12354b3e62e58b8bbf4154d307b2d467e861ee6",
-            "blockNumber": "87490578",
+            "hash": "0xf3e1e6f7142bb4a832cf5e26b028408c58d37291fd042fd062de5da4f06c4712",
+            "blockNumber": "87500844",
             "status": "success",
             "gasUsed": "875707"
           },
           "updateBeneficiary": {
             "accepted": true,
             "receipt": {
-              "hash": "0x5696d26e0bef7d4c48e9a7b0a9901903098622da4cfc4bfbcb1bc78ffbc0f56c",
-              "blockNumber": "87490579",
+              "hash": "0xea5977f8bcbb7cc791980f19341da73d3ca483526217636fbf12e5c3cd339a64",
+              "blockNumber": "87500845",
               "status": "success",
               "gasUsed": "139460"
             }
@@ -348,8 +371,8 @@
         },
         "rehype": {
           "collect": {
-            "hash": "0x7929e39671ed306841141d31dd3adc6d8f1aed093f0a31a4c5cb7064e5108df4",
-            "blockNumber": "87490580",
+            "hash": "0x005c1b3e975003ef4f9368d4881cb7fb597fd179988d1017bf760735dc5815ed",
+            "blockNumber": "87500846",
             "status": "success",
             "gasUsed": "38647"
           },
@@ -357,8 +380,8 @@
             "accepted": false,
             "reason": "CallerNotBeneficiary()",
             "receipt": {
-              "hash": "0xa71349b799f9d1f7115d22ccdc4c9c88aa189550e605bb4d8d898404b6c38770",
-              "blockNumber": "87490581",
+              "hash": "0xc8aa13bd221d7001ecb8419ebe637f0c4ead58c47aff1b340cf69de2dab059c1",
+              "blockNumber": "87500847",
               "status": "reverted",
               "gasUsed": "29939"
             }
@@ -381,11 +404,11 @@
         "CLAWGOD": "8003333861013033831676"
       },
       "sweep": {
-        "hash": "0x302930f44602afc33c7ea456bb9f5707aeb74c427b409de274fcfb92ed455d69",
-        "blockNumber": "87490582",
+        "hash": "0x44ab426dfe205e8610b808f7c74b9c708b0eb58c11d56cbcca660caccedf9609",
+        "blockNumber": "87500848",
         "status": "success",
-        "gasUsed": "925496",
-        "caller": "0x3Ff42A6F6EBDBff15269211920301659C096Cff2",
+        "gasUsed": "940627",
+        "caller": "0xd56D50E487384924f539B859Dc92Ecd3ed38F52E",
         "before": {
           "treasury": {
             "WETH": "689157772702077",
@@ -436,6 +459,14 @@
         },
         "vaultEvents": [
           {
+            "name": "TreasuryActivation",
+            "args": {
+              "treasury": "0x5952FaeFBc9b9EBc7371a84061A2Bd46124996d3",
+              "created": true,
+              "initialized": false
+            }
+          },
+          {
             "name": "Swept",
             "args": {
               "token": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
@@ -473,17 +504,22 @@
     "5_tokenboundControl": {
       "status": "passed",
       "treasury": "0x5952FaeFBc9b9EBc7371a84061A2Bd46124996d3",
-      "creation": {
-        "hash": "0x5f0a3fcec4bcba6e3a1f30939fbcba6cc7ac869bf37e6d33d304e465b6901886",
-        "blockNumber": "87490583",
+      "alreadyActivatedBy": "the vault's first sweep (gate 3)",
+      "createAccountAgain": {
+        "hash": "0xe5984150162a92d30f0dafea4fc1f1a5c5b28b9884ff9ab4272c567c38e4dec8",
+        "blockNumber": "87500849",
         "status": "success",
-        "gasUsed": "94941"
+        "gasUsed": "25559"
       },
-      "initialization": {
-        "hash": "0x8793a5f0fae5247eb586f990176fc848c7d191a31e7edde21f9613d2d32eb097",
-        "blockNumber": "87490584",
-        "status": "success",
-        "gasUsed": "50608"
+      "initializeAgain": {
+        "accepted": false,
+        "reason": "AlreadyInitialized()",
+        "receipt": {
+          "hash": "0x8648ce5c29110e917283a798d1efc4927ac1c2a85bd008498216cbfbf815876c",
+          "blockNumber": "87500850",
+          "status": "reverted",
+          "gasUsed": "26622"
+        }
       },
       "implementation": "0x41C8f39463A868d3A88af00cd0fe7102F30E44eC",
       "token": [
@@ -499,12 +535,12 @@
       "asset": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
       "amountPerWithdrawal": "344578788154563",
       "oldHolder": "0x00A839dE7922491683f547a67795204763ff8237",
-      "newHolder": "0xd807D6d30397090F010239B77D0999f28A7ba9CB",
+      "newHolder": "0xBc9E900F19dBeFE7daE260CDA0a8CC7F911C622D",
       "holderExecute": {
         "accepted": true,
         "receipt": {
-          "hash": "0xa2b584bd03889b084caff1a19f99ee2f64cdc2fb76ae761e21d5a2cecde365cf",
-          "blockNumber": "87490585",
+          "hash": "0xee360c42de8550a035dd43cb66fc05778f1781811eaffdea3f84ff3e6e05fac0",
+          "blockNumber": "87500851",
           "status": "success",
           "gasUsed": "91125"
         }
@@ -515,8 +551,8 @@
         "call": "safeTransferFrom(holder, newHolder, 2) by the holder",
         "accepted": true,
         "receipt": {
-          "hash": "0xda8390d4a99011f94db74e71d4a2dc134e459825d5d62065a99c6c4fdef0f88d",
-          "blockNumber": "87490586",
+          "hash": "0xcd7619d6cc0311234d3af8b75453277831c26a4a3fe8136d24a5465edbb17e19",
+          "blockNumber": "87500852",
           "status": "success",
           "gasUsed": "123692"
         }
@@ -525,8 +561,8 @@
         "accepted": false,
         "reason": "NotAuthorized()",
         "receipt": {
-          "hash": "0x0143b770d3504ec2df920f72a9857b0633a25e86e277ccb1f3cb6a6bde8c0e97",
-          "blockNumber": "87490587",
+          "hash": "0x016634e9ca91a5c9ab5d8040d1fc61f1562f260fef0660f16c9ecb29894175e6",
+          "blockNumber": "87500853",
           "status": "reverted",
           "gasUsed": "45384"
         }
@@ -534,13 +570,13 @@
       "newHolderExecute": {
         "accepted": true,
         "receipt": {
-          "hash": "0x20d818b9baf7a1bede21ed67cd6d5f0d735a787cf808ff78b624f2daf9597669",
-          "blockNumber": "87490588",
+          "hash": "0x5a0476ab7cf3c380329926b5c222265b4123ef1b26457f88cdadb18b848b32ce",
+          "blockNumber": "87500854",
           "status": "success",
           "gasUsed": "88926"
         }
       },
-      "ownerAfter": "0xd807D6d30397090F010239B77D0999f28A7ba9CB"
+      "ownerAfter": "0xBc9E900F19dBeFE7daE260CDA0a8CC7F911C622D"
     },
     "6_guardian": {
       "status": "passed",
@@ -701,26 +737,26 @@
         "accepted": false,
         "reason": "NotAuthorized()",
         "receipt": {
-          "hash": "0xece070ee62185c84f9d45eb56e4ab6f8d5954753640368ac5509d02684b27339",
-          "blockNumber": "87490591",
+          "hash": "0x543d826f8976972fcbe9591de954d684dc98dec3073852596894ecfb977189fa",
+          "blockNumber": "87500857",
           "status": "reverted",
           "gasUsed": "39908"
         }
       },
       "markTrustedExecutor": {
-        "hash": "0x942c9a1ffb95532d00e4fa5e9308fce75906fa5ecd3c5937339c59348383f9f3",
-        "blockNumber": "87490592",
+        "hash": "0x21c72b1d19c2ac8d086accb74f3206fdf0bb8cd84602043808033caa5863df84",
+        "blockNumber": "87500858",
         "status": "success",
         "gasUsed": "47721"
       },
       "markTrustedImplementation": {
-        "implementation": "0x4696C5Df2F6b08B8a5bF4168f25C791b6B160BBc",
-        "hash": "0x17ba78f203e5780ec5bcc51a983fdcfadd7e6c0e2b2f302b36ced3699106e4a1",
-        "blockNumber": "87490593",
+        "implementation": "0xc2852651C5E1aAefC02EAef8455dd130e43e08E5",
+        "hash": "0x1c252c367f061dac11039a43ce5b4cffc05be9df7d5e40be9eee96b25070e473",
+        "blockNumber": "87500859",
         "status": "success",
         "gasUsed": "47689"
       },
-      "trustedExecutor": "0x8084A758BA755B146aa4ef5443E111A1be9Ba329",
+      "trustedExecutor": "0xD96B2F8325A0d0d8B86Eb5148279F2fA634adbC8",
       "sameChainExecute": {
         "target": "0x5952FaeFBc9b9EBc7371a84061A2Bd46124996d3",
         "asset": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
@@ -728,20 +764,20 @@
         "accepted": false,
         "reason": "NotAuthorized()",
         "receipt": {
-          "hash": "0x2a03c88366eb86e17c61686381cd2833e31fe73b4138028e89416995cf4ef59c",
-          "blockNumber": "87490594",
+          "hash": "0x1adaba6b33d117a0b7a89e065a3523e348c3dbab1735a0665704ccb97e6e7e91",
+          "blockNumber": "87500860",
           "status": "reverted",
           "gasUsed": "45384"
         }
       },
       "sameChainUpgradeTo": {
-        "implementation": "0x4696C5Df2F6b08B8a5bF4168f25C791b6B160BBc",
+        "implementation": "0xc2852651C5E1aAefC02EAef8455dd130e43e08E5",
         "implementationTrusted": true,
         "accepted": false,
         "reason": "NotAuthorized()",
         "receipt": {
-          "hash": "0xf8c513857432a5f13a2c08d0cf2e1dcc239baeeef1953078907d859bd81dbf6e",
-          "blockNumber": "87490595",
+          "hash": "0xb938be8e8c7394647e410d8b1b39c85b2e43743c8e03073c9a27b577c4a33ff6",
+          "blockNumber": "87500861",
           "status": "reverted",
           "gasUsed": "49397"
         }
@@ -750,53 +786,110 @@
       "foreignAfterTrust": {
         "accepted": true,
         "receipt": {
-          "hash": "0x033dc4d2c922db0d3a99b5226b0276e823f4298d988dcd69ceca0a50669f8567",
-          "blockNumber": "87490596",
+          "hash": "0x485c23241ee50ad6bf08c6a8e6747e3dbf8d06538cd5dc2906d848977dd1396f",
+          "blockNumber": "87500862",
           "status": "success",
           "gasUsed": "62908"
         }
       },
-      "initializationWindow": {
-        "uninitializedTreasury": "0x88149845B7674a343201eD513Fb23C1e92D071a1",
-        "nft": {
-          "chainId": 4663,
-          "contract": "0x13Ea3072b7215d4C9c2Ec4f498A08c5825129836",
-          "tokenId": "3"
-        },
-        "codeBefore": "0x",
-        "standInImplementation": "0x4696C5Df2F6b08B8a5bF4168f25C791b6B160BBc",
-        "caller": "0x8084A758BA755B146aa4ef5443E111A1be9Ba329",
-        "scope": "fork-local; the guardian owner was impersonated to trust the stand-in",
-        "initializedTreasuryReinitialize": {
-          "accepted": false,
-          "reason": "AlreadyInitialized()",
-          "receipt": {
-            "hash": "0x0c8a0c6ee4d9632b045f49084ae8871c9644ce2e039332948ffe798608f4ea76",
-            "blockNumber": "87490598",
-            "status": "reverted",
-            "gasUsed": "32058"
-          }
-        },
-        "uninitializedTreasuryInitialize": {
-          "accepted": true,
-          "receipt": {
-            "hash": "0x3a9df57c0ef962e73eef25dc888c3db97f8171af59aee6bb2251777e97588917",
-            "blockNumber": "87490599",
-            "status": "success",
-            "gasUsed": "56050"
-          }
-        },
-        "uninitializedTreasuryImplementationAfter": "0x4696C5Df2F6b08B8a5bF4168f25C791b6B160BBc"
+      "standInImplementation": "0xc2852651C5E1aAefC02EAef8455dd130e43e08E5",
+      "reinitializeSweptTreasury": {
+        "accepted": false,
+        "reason": "AlreadyInitialized()",
+        "receipt": {
+          "hash": "0x0a3c4363b01d2bd9c4133b24793c9a4d13a8c9bc84a883d3a124fcd8d9d5083f",
+          "blockNumber": "87500863",
+          "status": "reverted",
+          "gasUsed": "32058"
+        }
       }
+    },
+    "7_preActivationResidualRisk": {
+      "status": "observed",
+      "nft": {
+        "chainId": 4663,
+        "contract": "0x13Ea3072b7215d4C9c2Ec4f498A08c5825129836",
+        "tokenId": "3"
+      },
+      "treasury": "0x88149845B7674a343201eD513Fb23C1e92D071a1",
+      "vault": "0xaefE3e610CdEbBA8F8cbBabd8e7154A56D75ab91",
+      "standInImplementation": "0xc2852651C5E1aAefC02EAef8455dd130e43e08E5",
+      "outsider": "0xD96B2F8325A0d0d8B86Eb5148279F2fA634adbC8",
+      "createAccount": {
+        "hash": "0x3648a9e5d02735661acc06dbb7b548fa235fdd71127fa24e7e2064f267a43db9",
+        "blockNumber": "87500864",
+        "status": "success",
+        "gasUsed": "94941"
+      },
+      "outsiderInitialize": {
+        "accepted": true,
+        "receipt": {
+          "hash": "0x9beff41f42608f8e2681341ff65c76b3ad6557dab1472905f6f0556fe6f550ca",
+          "blockNumber": "87500865",
+          "status": "success",
+          "gasUsed": "56050"
+        }
+      },
+      "implementationBeforeSweep": "0xc2852651C5E1aAefC02EAef8455dd130e43e08E5",
+      "deploy": {
+        "hash": "0x17c4ecef9669840781310e42d98c5041f41720b9d6a37cbf6d30868d16d4e24b",
+        "blockNumber": "87500866",
+        "status": "success",
+        "gasUsed": "838399"
+      },
+      "funding": {
+        "kind": "WETH transfer from the fork trader standing in for fees",
+        "amount": "1000000000000000",
+        "hash": "0x1edb6c3c33a1ee49aeb7d5303920563041969c0680b0a8a09f127bd0fafd0dc6",
+        "blockNumber": "87500867",
+        "status": "success",
+        "gasUsed": "58699"
+      },
+      "sweep": {
+        "hash": "0x1d664311992f2695c3c1b9209738c46a8b9d5197365ecd2803f36521afff61ae",
+        "blockNumber": "87500868",
+        "status": "success",
+        "gasUsed": "79802",
+        "vaultEvents": [
+          {
+            "name": "TreasuryActivation",
+            "args": {
+              "treasury": "0x88149845B7674a343201eD513Fb23C1e92D071a1",
+              "created": true,
+              "initialized": false
+            }
+          },
+          {
+            "name": "Swept",
+            "args": {
+              "token": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+              "treasury": "0x88149845B7674a343201eD513Fb23C1e92D071a1",
+              "amount": "1000000000000000"
+            }
+          }
+        ],
+        "vaultOutflows": [
+          {
+            "token": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+            "to": "0x88149845B7674a343201eD513Fb23C1e92D071a1",
+            "amount": "1000000000000000"
+          }
+        ],
+        "treasuryDelta": "1000000000000000",
+        "vaultAfter": "0"
+      },
+      "implementationAfterSweep": "0xc2852651C5E1aAefC02EAef8455dd130e43e08E5",
+      "forwardedToNonCanonicalImplementation": true,
+      "finding": "Residual risk confirmed: an account initialized to a guardian-trusted non-V3 implementation before the first sweep keeps it, and the vault still forwards to it. Requires the Tokenbound guardian owner to trust a hostile implementation and someone to front-run the first sweep."
     }
   },
   "error": null,
   "actors": {
-    "deployer": "0x3Ff42A6F6EBDBff15269211920301659C096Cff2",
-    "trader": "0xd7983912CACcE15F8B205b2405D6d9267ad1a5E7",
-    "zeroShare": "0x19705D9f64916089B8ACe1Ca1A0D269a2E739F51",
-    "newHolder": "0xd807D6d30397090F010239B77D0999f28A7ba9CB",
-    "trustedExecutorCandidate": "0x8084A758BA755B146aa4ef5443E111A1be9Ba329",
+    "deployer": "0xd56D50E487384924f539B859Dc92Ecd3ed38F52E",
+    "trader": "0x1B64AdF6465572DbF90DAFC694879bd846e541d3",
+    "zeroShare": "0x9E2D1198b039e77F3D9Ab47ea4b09c843D424477",
+    "newHolder": "0xBc9E900F19dBeFE7daE260CDA0a8CC7F911C622D",
+    "trustedExecutorCandidate": "0xD96B2F8325A0d0d8B86Eb5148279F2fA634adbC8",
     "note": "Fresh random addresses with no code, funded and impersonated on the fork only"
   }
 }

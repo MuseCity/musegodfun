@@ -50,9 +50,13 @@ const MUSE_ID = 2n;
 const museRef = (tokenId: bigint): NftRef => ({ chainId: CHAIN_ID, contract: MUSES.contract, tokenId: tokenId.toString() });
 assert(sameAddress(ROBINHOOD_CONTRACTS.initializer, SOURCES.initializer) && sameAddress(ROBINHOOD_CONTRACTS.rehype, SOURCES.rehype));
 
-type GateName = "1_treasuryFormula" | "2_factory" | "3_counterfactualBeneficiary" | "4_zeroSharePush" | "5_tokenboundControl" | "6_guardian";
-type Gate = Record<string, unknown> & { status: "not_run" | "running" | "passed" | "failed" | "blocked" };
-const gateNames: GateName[] = ["1_treasuryFormula", "2_factory", "3_counterfactualBeneficiary", "4_zeroSharePush", "5_tokenboundControl", "6_guardian"];
+type GateName = "1_treasuryFormula" | "2_factory" | "3_counterfactualBeneficiary" | "4_zeroSharePush" | "5_tokenboundControl" | "6_guardian"
+  | "7_preActivationResidualRisk";
+// "observed" marks a documented residual risk: the gate records behaviour and never passes or fails on its outcome.
+type Gate = Record<string, unknown> & { status: "not_run" | "running" | "passed" | "observed" | "failed" | "blocked" };
+const gateNames: GateName[] = ["1_treasuryFormula", "2_factory", "3_counterfactualBeneficiary", "4_zeroSharePush", "5_tokenboundControl", "6_guardian",
+  "7_preActivationResidualRisk"];
+const FAILED_EVIDENCE = ".cache/nft-vault-fork-robinhood-failed.json";
 const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
 const serialize = (_key: string, value: unknown) => typeof value === "bigint" ? value.toString() : value;
 const evidence = {
@@ -79,8 +83,8 @@ catch (error) {
   const message = redact(error);
   console.error(`BLOCKED: the Robinhood fork did not start: ${message}`);
   evidence.status = isRateLimited(message) ? "blocked_rate_limited" : "failed"; evidence.error = message;
-  await mkdir("docs/evidence", { recursive: true });
-  await writeFile("docs/evidence/nft-vault-fork-robinhood-failed.json", JSON.stringify(evidence, serialize, 2) + "\n");
+  await mkdir(".cache", { recursive: true });
+  await writeFile(FAILED_EVIDENCE, JSON.stringify(evidence, serialize, 2) + "\n");
   process.exit(1);
 }
 const client = createPublicClient({ chain: robinhood, pollingInterval: 100, transport: http(fork.rpc, { timeout: 120_000, retryCount: 0 }) });
@@ -139,6 +143,8 @@ async function impersonate<T>(account: Address, run: () => Promise<T>) {
   await fork.rpcCall("anvil_impersonateAccount", [account]);
   try { return await run(); } finally { await fork.rpcCall("anvil_stopImpersonatingAccount", [account]); }
 }
+const implementationOf = async (account: Address) =>
+  getAddress(`0x${((await client.getStorageAt({ address: account, slot: ERC1967_SLOT })) ?? "0x").slice(2).padStart(64, "0").slice(-40)}`);
 const balanceOf = (token: Address, account: Address) => client.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [account] });
 const balances = async (account: Address) => ({ WETH: await balanceOf(WETH, account), CLAWGOD: await balanceOf(CLAWGOD, account) });
 const shares = (source: Address, account: Address) => client.readContract({ address: source, abi: feeSourceAbi, functionName: "getShares", args: [POOL_ID, account] });
@@ -213,6 +219,7 @@ async function gate(name: GateName, run: (record: Gate) => Promise<void>) {
   console.log(`Gate ${name}: running`);
   await run(record);
   if (record.status === "running") record.status = "passed";
+  else assert(record.status === "observed", `Gate ${name} ended as ${record.status}`);
   console.log(`Gate ${name}: ${record.status}`);
 }
 
@@ -362,8 +369,15 @@ try {
     g.deploy = { ...tx(deployment), returned: predicted.result, events: deployed.map((event) => ({ name: event.eventName, args: event.args })), runtimeHash: await codeHash(vault), immutables };
     assert.deepEqual(immutables, { factory, homeChainId: BigInt(CHAIN_ID), nft: MUSES.contract, tokenId: MUSE_ID, treasury, initializer: SOURCES.initializer, REHYPE: SOURCES.rehype });
 
+    assert.equal(await code(treasury), "0x", "The treasury must still be counterfactual before the first sweep");
     const swept = await sweep(deployer);
     g.sweep = swept;
+    const activation = swept.vaultEvents.filter((event) => event.name === "TreasuryActivation");
+    g.treasuryActivation = { events: activation, codeHashAfter: await codeHash(treasury), implementationSlotAfter: await implementationOf(treasury),
+      ownerAfter: await client.readContract({ address: treasury, abi: accountV3Abi, functionName: "owner" }) };
+    assert.deepEqual(activation, [{ name: "TreasuryActivation", args: { treasury, created: true, initialized: true } }]);
+    assert.equal(await implementationOf(treasury), TOKENBOUND_V3_IMPLEMENTATION, "The first sweep must initialize the treasury to V3");
+    assert.equal(await client.readContract({ address: treasury, abi: accountV3Abi, functionName: "owner" }), museHolder);
     for (const [name, move] of Object.entries(moves) as [keyof typeof SOURCES, { accepted: boolean }][])
       if (move.accepted) assert(swept.released[name].WETH + swept.released[name].CLAWGOD > 0n, `${name}: no fee accrued to the vault`);
     assert(swept.treasuryDelta.WETH + swept.treasuryDelta.CLAWGOD > 0n, "The treasury received nothing");
@@ -390,7 +404,10 @@ try {
         feesArrived: arrived.WETH + arrived.CLAWGOD > 0n, vaultShares: await shares(source, vault), zeroShareAccountShares: await shares(source, zeroShare) };
       assert.equal(await shares(source, vault), vaultSharesBefore[name as keyof typeof vaultSharesBefore], `${name}: a zero-share call changed the vault's shares`);
       assert.equal(await shares(source, zeroShare), 0n);
-      if (!update.accepted) assert.deepEqual(arrived, { WETH: 0n, CLAWGOD: 0n });
+      if (!update.accepted) {
+        assert.match(update.reason, /^\w+\(.*\)$/, `${name}: a rejection must decode as a custom error, not a raw RPC failure`);
+        assert.deepEqual(arrived, { WETH: 0n, CLAWGOD: 0n });
+      }
     }
     g.pushes = pushes;
     g.vaultSharesBefore = vaultSharesBefore;
@@ -410,10 +427,15 @@ try {
     const created = await client.simulateContract({ address: ERC6551_REGISTRY, abi: registryAbi, functionName: "createAccount",
       args: [TOKENBOUND_V3_PROXY, zeroHash, BigInt(CHAIN_ID), MUSES.contract, MUSE_ID], account: deployer });
     assert.equal(created.result, treasury);
+    // The vault's first sweep already activated this account; both steps are idempotent for anyone else.
+    const codeBefore = await codeHash(treasury);
     const creation = await send(deployer, ERC6551_REGISTRY, encodeFunctionData({ abi: registryAbi, functionName: "createAccount",
       args: [TOKENBOUND_V3_PROXY, zeroHash, BigInt(CHAIN_ID), MUSES.contract, MUSE_ID] }));
-    const initialization = await send(deployer, treasury, encodeFunctionData({ abi: accountProxyAbi, functionName: "initialize", args: [TOKENBOUND_V3_IMPLEMENTATION] }));
-    const implementation = getAddress(`0x${(await client.getStorageAt({ address: treasury, slot: ERC1967_SLOT }))!.slice(-40)}`);
+    assert.equal(await codeHash(treasury), codeBefore, "createAccount must not replace an existing account");
+    const initialization = await attempt(deployer, treasury, encodeFunctionData({ abi: accountProxyAbi, functionName: "initialize", args: [TOKENBOUND_V3_IMPLEMENTATION] }));
+    assert.equal(initialization.accepted, false, "A swept treasury must already be initialized");
+    assert.equal(initialization.reason, "AlreadyInitialized()");
+    const implementation = await implementationOf(treasury);
     const token = await client.readContract({ address: treasury, abi: accountV3Abi, functionName: "token" });
     const ownerBefore = await client.readContract({ address: treasury, abi: accountV3Abi, functionName: "owner" });
     assert.equal(implementation, TOKENBOUND_V3_IMPLEMENTATION);
@@ -425,7 +447,7 @@ try {
     assert(amount > 0n, "The treasury holds no swept fees to move");
     const withdraw = (to: Address) => encodeFunctionData({ abi: accountV3Abi, functionName: "execute",
       args: [asset, 0n, encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [to, amount] }), 0] });
-    Object.assign(g, { treasury, creation: tx(creation), initialization: tx(initialization), implementation, token, ownerBefore,
+    Object.assign(g, { treasury, alreadyActivatedBy: "the vault's first sweep (gate 3)", createAccountAgain: tx(creation), initializeAgain: initialization, implementation, token, ownerBefore,
       treasuryBalances: held, asset, amountPerWithdrawal: amount, oldHolder: museHolder, newHolder });
 
     const validator = await client.readContract({ address: MUSES.contract, abi: musesAbi, functionName: "getTransferValidator" });
@@ -535,25 +557,50 @@ try {
     // _authorizeUpgrade checks the implementation first; a guardian-trusted one reaches the executor check.
     const upgradeTo = await attempt(outsider, treasury, encodeFunctionData({ abi: accountV3Abi, functionName: "upgradeTo", args: [standIn] }));
     g.sameChainUpgradeTo = { implementation: standIn, implementationTrusted: true, ...upgradeTo };
-    assert.equal(upgradeTo.accepted, false, "A trusted executor upgraded a same-chain treasury");
+    if (upgradeTo.accepted) {
+      g.status = "blocked";
+      throw new Error("STOP: a guardian-trusted executor upgraded a same-chain treasury; D1 option (b) needs an owner decision");
+    }
     assert.equal(upgradeTo.reason, "NotAuthorized()");
     g.sameChainIsValidSigner = await client.readContract({ address: treasury, abi: accountV3Abi, functionName: "isValidSigner", args: [outsider, "0x"] });
     assert.notEqual(g.sameChainIsValidSigner, VALID_SIGNER_MAGIC);
     g.foreignAfterTrust = await attempt(outsider, foreign, noop);
     assert((g.foreignAfterTrust as { accepted: boolean }).accepted, "Control: the trusted executor could not act on the foreign-chain account, so the trust mark was not effective");
 
-    // Observation (not a gate condition): AccountProxy.initialize accepts any guardian-trusted implementation from any
-    // caller while an account is uninitialized. An initialized account rejects it.
-    const muse3Treasury = treasuryFor(museRef(3n));
-    const window: Record<string, unknown> = { uninitializedTreasury: muse3Treasury, nft: museRef(3n), codeBefore: await code(muse3Treasury),
-      standInImplementation: standIn, caller: outsider, scope: "fork-local; the guardian owner was impersonated to trust the stand-in" };
-    await send(deployer, ERC6551_REGISTRY, encodeFunctionData({ abi: registryAbi, functionName: "createAccount", args: [TOKENBOUND_V3_PROXY, zeroHash, BigInt(CHAIN_ID), MUSES.contract, 3n] }));
-    window.initializedTreasuryReinitialize = await attempt(outsider, treasury, encodeFunctionData({ abi: accountProxyAbi, functionName: "initialize", args: [standIn] }));
-    window.uninitializedTreasuryInitialize = await attempt(outsider, muse3Treasury, encodeFunctionData({ abi: accountProxyAbi, functionName: "initialize", args: [standIn] }));
-    window.uninitializedTreasuryImplementationAfter = getAddress(`0x${(await client.getStorageAt({ address: muse3Treasury, slot: ERC1967_SLOT }))!.slice(-40)}`);
-    assert.equal((window.initializedTreasuryReinitialize as { accepted: boolean }).accepted, false);
-    assert.equal((window.initializedTreasuryReinitialize as { reason: string }).reason, "AlreadyInitialized()");
-    g.initializationWindow = window;
+    g.standInImplementation = standIn;
+    g.reinitializeSweptTreasury = await attempt(outsider, treasury, encodeFunctionData({ abi: accountProxyAbi, functionName: "initialize", args: [standIn] }));
+    assert.equal((g.reinitializeSweptTreasury as { reason?: string }).reason, "AlreadyInitialized()", "An activated treasury must reject re-initialization");
+  });
+
+  await gate("7_preActivationResidualRisk", async (g) => {
+    // Documented residual risk, recorded rather than judged: before any sweep, an outsider initializes a fresh
+    // treasury to an implementation the guardian owner trusts (the stand-in from gate 6). The vault cannot tell
+    // implementations apart on-chain, so its activation step is a no-op and it forwards anyway.
+    const standIn = factory;
+    assert.equal(await client.readContract({ address: evidence.gates["6_guardian"].guardian as Address,
+      abi: guardianAbi, functionName: "isTrustedImplementation", args: [standIn] }), true);
+    let tokenId = 3n;
+    while (await code(treasuryFor(museRef(tokenId))) !== "0x") { tokenId++; assert(tokenId < 20n, "No fresh Muse treasury found"); }
+    const nft = museRef(tokenId), freshTreasury = treasuryFor(nft), freshVault = vaultFor(nft, factory);
+    g.nft = nft; g.treasury = freshTreasury; g.vault = freshVault; g.standInImplementation = standIn; g.outsider = outsider;
+    g.createAccount = tx(await send(outsider, ERC6551_REGISTRY, encodeFunctionData({ abi: registryAbi, functionName: "createAccount",
+      args: [TOKENBOUND_V3_PROXY, zeroHash, BigInt(CHAIN_ID), MUSES.contract, tokenId] })));
+    g.outsiderInitialize = await attempt(outsider, freshTreasury, encodeFunctionData({ abi: accountProxyAbi, functionName: "initialize", args: [standIn] }));
+    g.implementationBeforeSweep = await implementationOf(freshTreasury);
+    g.deploy = tx(await send(deployer, factory, encodeFunctionData({ abi: factoryAbi, functionName: "deploy", args: [BigInt(CHAIN_ID), MUSES.contract, tokenId] })));
+    const donation = parseEther("0.001");
+    g.funding = { kind: "WETH transfer from the fork trader standing in for fees", amount: donation,
+      ...tx(await send(trader, WETH, encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [freshVault, donation] }))) };
+    const before = await balanceOf(WETH, freshTreasury);
+    const receipt = await send(deployer, freshVault, encodeFunctionData({ abi: vaultAbi, functionName: "sweep", args: [[], [WETH]] }));
+    g.sweep = { ...tx(receipt), vaultEvents: vaultEvents(receipt, freshVault), vaultOutflows: vaultOutflows(receipt, freshVault),
+      treasuryDelta: await balanceOf(WETH, freshTreasury) - before, vaultAfter: await balanceOf(WETH, freshVault) };
+    g.implementationAfterSweep = await implementationOf(freshTreasury);
+    g.forwardedToNonCanonicalImplementation = g.implementationAfterSweep !== TOKENBOUND_V3_IMPLEMENTATION && (g.sweep as { treasuryDelta: bigint }).treasuryDelta > 0n;
+    g.finding = g.forwardedToNonCanonicalImplementation
+      ? "Residual risk confirmed: an account initialized to a guardian-trusted non-V3 implementation before the first sweep keeps it, and the vault still forwards to it. Requires the Tokenbound guardian owner to trust a hostile implementation and someone to front-run the first sweep."
+      : "The vault did not forward to a non-canonical implementation in this run.";
+    g.status = "observed";
   });
 
   evidence.status = "passed";
@@ -574,11 +621,11 @@ try {
   }
   if (evidence.blockedUpstreamWrites !== 0 && evidence.status === "passed") { evidence.status = "failed"; evidence.error = "An upstream write was attempted"; }
   evidence.completedAt = new Date().toISOString();
-  // A failed run never replaces the last passing evidence.
-  const path = evidence.status === "passed" ? "docs/evidence/nft-vault-fork-robinhood.json" : "docs/evidence/nft-vault-fork-robinhood-failed.json";
+  // A failed run never replaces the last passing evidence and stays out of git (.cache is ignored).
+  const path = evidence.status === "passed" ? "docs/evidence/nft-vault-fork-robinhood.json" : FAILED_EVIDENCE;
   const text = JSON.stringify(evidence, serialize, 2) + "\n";
   assert(!key || !text.includes(key), "Evidence must not contain the API key");
-  await mkdir("docs/evidence", { recursive: true });
+  await mkdir(path.startsWith(".cache") ? ".cache" : "docs/evidence", { recursive: true });
   await writeFile(path, text);
   console.log(JSON.stringify({ status: evidence.status, forkBlockNumber: evidence.forkBlockNumber, evidence: path,
     gates: Object.fromEntries(gateNames.map((name) => [name, evidence.gates[name].status])) }, serialize));
