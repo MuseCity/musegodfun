@@ -631,7 +631,33 @@ Task 2a, 2026-10-13 (artifact, build script and CI part of Task 2; the fork gate
 - Committed: `scripts/build-nft-vault.ts`, `contracts/artifacts/nft-vault-build.json`, the undeployed two-chain `contracts/artifacts/nft-vault-deployment.json`, the `build:nft-vault` npm script, the CI rebuild plus `git diff --exit-code` over both NFT artifact files, `assertForkExecutionChainId` in `scripts/robinhood-fork.ts`, and the tests `tests/nft-vault-artifacts.test.ts` and `tests/nft-fork-isolation.test.ts`. CI sets up the pinned Foundry before `npm test` because the artifact tests compile the contracts.
 - Deviation from the Step 1 sample: the compiler's factory runtime has the `VAULT_INIT_CODE_HASH` immutable zero-filled, so its hash is a template hash, not an on-chain code hash. The build JSON therefore names it `factoryRuntimeTemplateHash` and adds `immutableReferences` (variable name to `{start,length}` slots). The deployed runtime is the template with each slot set to `vaultInitCodeHash`; Task 13's verifier does that fill before comparing. The manifest keeps `factoryRuntimeHash` for the deployed runtime (`null` until deployment).
 - Reproducibility: the tests build in temporary Forge projects (twice, each from a clean compile) and require byte-identical JSON equal to the committed files; the committed artifacts are never rewritten by tests. The build refuses a changed init-code hash once any chain is no longer `not_deployed`.
-- Still pending in Task 2b: the fork gate script, its `test:nft-vault-fork` npm entry and `docs/evidence/nft-vault-fork-robinhood.json`. These need an isolated `ALCHEMY_API_KEY` (never the real `.env`), a direct `tsx` entry instead of `scripts/run.ts`, and Task 3's `treasuryFor`/`vaultFor`. Same-chain guardian-trusted executor behaviour remains unverified. No RPC, fork, deployment, flag change, migration or release has run.
+- Left to Task 2b at the time: the fork gate script, its `test:nft-vault-fork` npm entry and the evidence file. Task 2b (below) completed them.
+
+Task 2b, 2026-10-13 (Steps 3-4, the Robinhood fork gates): all six gates passed on an isolated Anvil fork of Robinhood mainnet at block 87490562, keeping chain id 4663. Evidence: [`docs/evidence/nft-vault-fork-robinhood.json`](../docs/evidence/nft-vault-fork-robinhood.json). Run: `npm run test:nft-vault-fork -- --chain robinhood`. It loads only `.env.fork` through `node --env-file`, and the upstream proxy forwards reads only. No mainnet transaction, deployment or manifest change.
+- Gate 1, treasury formula: the registry's `account(proxy, 0, 4663, Muses, 1)` equals `treasuryFor` (`0x1104…162F`).
+- Gate 2, factory:
+  - The committed init code contains the runtime template (offset 110, 4609 bytes, keccak = `factoryRuntimeTemplateHash`).
+  - Filling both `VAULT_INIT_CODE_HASH` slots with `vaultInitCodeHash` gives exactly the deployed runtime: hash `0x597c…3bca`. Task 13's `--verify` recipe holds.
+  - `VAULT_INIT_CODE_HASH()` matches the build and the manifest, and TS `vaultFor` equals `factory.vaultFor`.
+- Gate 3, counterfactual beneficiary on CLAWGOD (Ruling 3):
+  - The creator moved its initializer (0.665) and Rehype (0.70) shares to the undeployed vault of Muse #2. Both sources accepted.
+  - After a 0.05 WETH buy and a full sell, `deploy` returned the predicted vault.
+  - `sweep` paid the treasury exactly the vault's Release amounts: 0.000689157772702077 WETH and 8003.87 CLAWGOD. The vault ended empty, and every vault outflow went to the treasury.
+- Gate 4, zero-share push:
+  - Initializer: `updateBeneficiary` from a zero-share account is accepted. After a permissionless `collectFees`, it pushes the vault's accrued fees without a vault claim.
+  - Rehype: it rejects the same call with `CallerNotBeneficiary()`, so Rehype fees wait for `sweep`.
+  - The vault's shares were unchanged, and the next sweep forwarded everything.
+- Gate 5, Tokenbound control:
+  - `createAccount` and `initialize` work. The holder withdrew through `execute`, then transferred the Muse with `safeTransferFrom`; the transfer validator allowed it.
+  - After the transfer, the old holder gets `NotAuthorized()` and the new holder can withdraw.
+- Gate 6, guardian:
+  - AccountV3 guardian: `0x2FE5…5D57`, taken from the Sourcify (8453) exact-match constructor argument and read back from the Robinhood runtime, which is byte-identical. Guardian owner: `0x781b…F328`, an EOA.
+  - With the guardian owner impersonated, a guardian-trusted executor gets `NotAuthorized()` on the same-chain treasury, for both `execute` and `upgradeTo`. The same executor can act on a foreign-chain account (positive control).
+  - Source: in `AccountV3._isValidExecutor`, guardian trust sits only inside `if (chainId != block.chainid)` (src/AccountV3.sol:225-254).
+  - D1 stands.
+  - Observation: while a treasury is not yet initialized, anyone can initialize it to any guardian-trusted implementation. Initializing the treasury early (Activate) closes that window.
+- Fork actors are fresh random addresses. Anvil's default account #3 has an EIP-7702 delegation on Robinhood mainnet that re-enters NFT transfers.
+- Offline helper tests: `tests/nft-vault-fork.test.ts` (part of `npm test`).
 
 ### Task 3: Shared NFT library
 
