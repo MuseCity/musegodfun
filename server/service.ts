@@ -1155,15 +1155,16 @@ export class LaunchpadService {
     return { lp, trade, poolKey: state.poolKey };
   }
   /** An NFT's fee vault and Tokenbound treasury: both addresses are computed and checked for code; the balances are what the treasury and the
-   * vault hold of the NFT's bound coins and their paired assets (an asset whose read failed is left out, never shown as zero); the pending
-   * fees are the vault's per coin, and one coin's failed preview becomes an error entry instead of failing the answer. Public and keyed by
-   * user input, so a success is kept in memory for 15 seconds, within a bounded cache. */
+   * vault hold of the NFT's bound coins and their paired assets (a failed vault read is `vaultAmount: null`; an asset whose treasury read
+   * failed is left out; neither is ever shown as zero); the pending fees are the vault's per coin, and one coin's failed preview becomes an
+   * error entry instead of failing the answer. Public and keyed by user input, so a fully successful result is kept in memory for 15 seconds,
+   * within a bounded cache; a degraded one is returned but never cached. */
   async nftTreasury(raw: unknown): Promise<NftTreasury> {
     const nft = parseNftQuery(raw), chainId = deploymentChain(this.runtime.config);
     if (nft.chainId !== chainId) throw new NftLaunchError("NFT_CHAIN_UNSUPPORTED", "This NFT lives on another network; open it there.");
     const factory = await this.verifiedVaultFactory();
     if (!factory) throw new NftLaunchError("NFT_VAULT_UNAVAILABLE", "The NFT fee vault is not deployed and verified on this network.");
-    const key = `${chainId}:${nftKey(nft)}`, saved = NFT_TREASURY_CACHE.get(key);
+    const key = nftKey(nft), saved = NFT_TREASURY_CACHE.get(key);
     if (saved && Date.now() - saved.at < NFT_TREASURY_TTL_MS) return saved.value;
     const vault = vaultFor(nft, factory, this.runtime.nftVaultManifest?.vaultInitCodeHash), treasury = treasuryFor(nft);
     const coins = (await this.tokens()).filter((record) => isBoundNftCoin(record, nft));
@@ -1182,13 +1183,15 @@ export class LaunchpadService {
     ]);
     const balances = listed.flatMap((asset, index) => {
       const inTreasury = held[2 * index], inVault = held[2 * index + 1];
-      return inTreasury?.status === "success" && inVault?.status === "success"
-        ? [{ ...asset, amount: String(inTreasury.result), vaultAmount: String(inVault.result) }] : [];
+      return inTreasury?.status === "success"
+        ? [{ ...asset, amount: String(inTreasury.result), vaultAmount: inVault?.status === "success" ? String(inVault.result) : null }] : [];
     });
     const pendingFees = previews.map((preview, index) => preview.status === "fulfilled" ? { token: coins[index].address, ...preview.value }
       : { token: coins[index].address, error: redact(preview.reason, this.runtime.environment) });
     const hasCode = (code: Hex | undefined) => !!code && code !== "0x";
     const value: NftTreasury = { nft, vault, vaultDeployed: hasCode(vaultCode), treasury, treasuryDeployed: hasCode(treasuryCode), balances, pendingFees };
+    // A degraded answer (a failed balance read or fee preview) is returned, but the next request asks the chain again.
+    if (held.some((read) => read.status !== "success") || previews.some((preview) => preview.status !== "fulfilled")) return value;
     const now = Date.now();
     // Entries are inserted in time order, so the expired ones are at the front; then the oldest go once the cap is reached.
     for (const [cached, row] of NFT_TREASURY_CACHE) { if (now - row.at < NFT_TREASURY_TTL_MS) break; NFT_TREASURY_CACHE.delete(cached); }
@@ -1275,9 +1278,9 @@ async function withNftLocks<T>(keys: string[], run: () => Promise<T>): Promise<T
     return await run();
   } finally { for (const release of releases.reverse()) release(); }
 }
-// /api/* is no-store, so the public treasury view is cached here. Keys come from user input: successes only, at most 500 of them.
+// /api/* is no-store, so the public treasury view is cached here. Keys come from user input: fully successful results only, at most 500 of them.
 type NftTreasury = { nft: NftRef; vault: Address; vaultDeployed: boolean; treasury: Address; treasuryDeployed: boolean;
-  balances: { token: Address; symbol: string; amount: string; vaultAmount: string }[]; pendingFees: unknown[] };
+  balances: { token: Address; symbol: string; amount: string; vaultAmount: string | null }[]; pendingFees: unknown[] };
 const NFT_TREASURY_TTL_MS = 15_000, NFT_TREASURY_CACHE_MAX = 500;
 const NFT_TREASURY_CACHE = new Map<string, { at: number; value: NftTreasury }>();
 // A transaction's settled chain evidence at one receipt block is reused for

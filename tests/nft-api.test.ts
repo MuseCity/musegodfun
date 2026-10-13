@@ -219,10 +219,11 @@ const runtimeConfig = (vaultFactory: Address | null): RuntimeConfig => ({ mode: 
   blockReason: null, nftMode: { enabled: true, vaultFactory, launchFeeUsd: 10, freeCollections: [], verifiedCollections: [] } });
 const derived = (nft: NftRef) => ({ vault: vaultFor(nft, factory, deployedManifest.vaultInitCodeHash), treasury: treasuryFor(nft) });
 
-function treasuryFixture(rows: TokenRecord[], over: { factory?: Address | null; failFees?: Address[]; deployed?: Address[] } = {}) {
+function treasuryFixture(rows: TokenRecord[], over: { factory?: Address | null; deployed?: Address[] } = {}) {
   const calls = { codes: [] as string[], multicalls: [] as { address: Address; functionName: string; args: Address[] }[][], fees: [] as [Address, Address][] };
-  const state = { failMulticall: false };
-  const failing = new Set((over.failFees ?? []).map((a) => a.toLowerCase())), deployed = new Set((over.deployed ?? []).map((a) => a.toLowerCase()));
+  // Mutable faults: the whole multicall, single reads by their index in the multicall, and fee previews by coin address (lower-case).
+  const state = { failMulticall: false, failReads: new Set<number>(), failFees: new Set<string>() };
+  const deployed = new Set((over.deployed ?? []).map((a) => a.toLowerCase()));
   const service = Object.assign(Object.create(LaunchpadService.prototype), {
     runtime: { config: runtimeConfig(over.factory === undefined ? factory : over.factory), nftVaultManifest: deployedManifest },
     assertNetwork: async () => {},
@@ -232,13 +233,13 @@ function treasuryFixture(rows: TokenRecord[], over: { factory?: Address | null; 
       multicall: async ({ contracts }: { contracts: { address: Address; functionName: string; args: Address[] }[] }) => {
         calls.multicalls.push(contracts);
         if (state.failMulticall) throw new Error("rpc down");
-        // Distinct, checkable amounts: the contract's index; the second asset's vault read fails.
-        return contracts.map((_, index) => index === 3 ? { status: "failure", error: new Error("reverted") } : { status: "success", result: BigInt(index + 1) * 10n ** 18n });
+        // Distinct, checkable amounts: (the contract's index + 1) * 1e18.
+        return contracts.map((_, index) => state.failReads.has(index) ? { status: "failure", error: new Error("reverted") } : { status: "success", result: BigInt(index + 1) * 10n ** 18n });
       },
     },
     fees: async (token: Address, account: Address) => {
       calls.fees.push([token, account]);
-      if (failing.has(token.toLowerCase())) throw new Error("pool read failed at https://rpc.example/v2/secret-key");
+      if (state.failFees.has(token.toLowerCase())) throw new Error("pool read failed at https://rpc.example/v2/secret-key");
       return { lp: { fees0: 1n, fees1: 2n }, trade: { fees0: 3n, fees1: 4n }, poolKey: { hooks: account } };
     },
   }) as LaunchpadService;
@@ -261,9 +262,9 @@ test("nftTreasury derives both addresses, reads their code and the bound coins' 
   const assets = [a.address, b.address, rows[5].address, weth.address, musegod.address];
   assert.deepEqual(calls.multicalls[0].map((call) => [call.address, call.functionName, call.args[0]]),
     assets.flatMap((asset) => [[asset, "balanceOf", treasury], [asset, "balanceOf", vault]]));
-  // Asset b's vault read failed (index 3): an unknown balance is left out rather than reported as zero.
   assert.deepEqual(view.balances.map((row) => [row.token, row.symbol, row.amount, row.vaultAmount]), [
     [a.address, "C11", String(1n * 10n ** 18n), String(2n * 10n ** 18n)],
+    [b.address, "C12", String(3n * 10n ** 18n), String(4n * 10n ** 18n)],
     [rows[5].address, "SIXTEEN", String(5n * 10n ** 18n), String(6n * 10n ** 18n)],
     [weth.address, weth.symbol, String(7n * 10n ** 18n), String(8n * 10n ** 18n)],
     [musegod.address, musegod.symbol, String(9n * 10n ** 18n), String(10n * 10n ** 18n)],
@@ -284,11 +285,47 @@ test("an NFT with no coin still answers with its addresses, and no balance read 
 test("one failing fee preview becomes an error entry; the endpoint still answers", async () => {
   const nft = nftOf("105"), { vault } = derived(nft);
   const a = coin(31, { nft, nftVerification: verified }), b = coin(32, { nft, nftVerification: unverified });
-  const { service } = treasuryFixture([a, b], { failFees: [a.address] });
+  const { service, state } = treasuryFixture([a, b]);
+  state.failFees.add(a.address.toLowerCase());
   const view = await service.nftTreasury(`4663:${MUSES.contract}:105`);
   assert.deepEqual(view.pendingFees, [{ token: a.address, error: "pool read failed at [upstream]" },
     { token: b.address, lp: { fees0: 1n, fees1: 2n }, trade: { fees0: 3n, fees1: 4n }, poolKey: { hooks: vault } }]);
-  assert.deepEqual(view.balances.map((row) => row.token), [a.address, weth.address], "the balances are read independently of the previews");
+  assert.deepEqual(view.balances.map((row) => row.token), [a.address, b.address, weth.address], "the balances are read independently of the previews");
+});
+
+test("a failed vault balance keeps the treasury balance with vaultAmount null; a failed treasury balance drops the row; neither is cached", async () => {
+  const nft = nftOf("108");
+  const a = coin(51, { nft, nftVerification: verified }), b = coin(52, { nft, nftVerification: verified });
+  const { service, calls, state } = treasuryFixture([a, b]);
+  // Reads, in order: a.treasury, a.vault, b.treasury, b.vault, weth.treasury, weth.vault.
+  state.failReads = new Set([1, 2]);
+  const query = `4663:${MUSES.contract}:108`;
+  const rowOf = (view: Awaited<ReturnType<typeof service.nftTreasury>>) => view.balances.map((row) => [row.token, row.amount, row.vaultAmount]);
+  assert.deepEqual(rowOf(await service.nftTreasury(query)), [[a.address, String(1n * 10n ** 18n), null], [weth.address, String(5n * 10n ** 18n), String(6n * 10n ** 18n)]]);
+  assert.equal(calls.multicalls.length, 1);
+  await service.nftTreasury(query);
+  assert.equal(calls.multicalls.length, 2, "a degraded read is asked again, not served from memory");
+  state.failReads = new Set();
+  assert.equal((await service.nftTreasury(query)).balances.length, 3);
+  assert.equal(calls.multicalls.length, 3);
+  await service.nftTreasury(query);
+  assert.equal(calls.multicalls.length, 3, "once every read succeeds the result is cached");
+});
+
+test("a result with a failed fee preview is returned but not cached; the next clean one is", async () => {
+  const nft = nftOf("109");
+  const a = coin(61, { nft, nftVerification: verified });
+  const { service, calls, state } = treasuryFixture([a]);
+  const query = `4663:${MUSES.contract}:109`;
+  state.failFees.add(a.address.toLowerCase());
+  assert.equal(((await service.nftTreasury(query)).pendingFees[0] as { error?: string }).error, "pool read failed at [upstream]");
+  await service.nftTreasury(query);
+  assert.deepEqual([calls.multicalls.length, calls.fees.length], [2, 2], "the degraded answer hit the RPC again");
+  state.failFees.clear();
+  const clean = await service.nftTreasury(query);
+  assert.equal("error" in (clean.pendingFees[0] as object), false);
+  await service.nftTreasury(query);
+  assert.deepEqual([calls.multicalls.length, calls.fees.length], [3, 3], "the clean answer is cached");
 });
 
 test("an unverified factory or another chain's NFT is refused with a client error before any NFT read", async () => {
