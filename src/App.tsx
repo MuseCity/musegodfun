@@ -115,7 +115,9 @@ import {
 } from "./lib/opening-valuation";
 import { TOKEN_IMAGE_ACCEPT } from "./lib/token-image";
 import { prepareTokenImage } from "./lib/image-upload";
-import { transactionClient, useWallet, type Quote } from "./lib/wallet";
+import { transactionClient, useWallet, type Quote, type TradeSteps } from "./lib/wallet";
+import { ETH_BUY_ROUTE, EthBuyIncomplete, assertEthBuyResponse, defaultPayWith, ethBuyAvailable, ethBuyDisclosure, executeEthBuy, twoStepMinimum,
+  type EthBuyQuoteResponse, type PayWith, type SwapQuote } from "./lib/eth-buy";
 import type { LaunchPlan } from "../server/store";
 import { CURVE_POLICY, LAUNCH_CURVE_MAIN_END_USD } from "./lib/launch-curve";
 import LaunchCurve from "./components/LaunchCurve";
@@ -123,7 +125,6 @@ import { pendingLaunchResolution, terminalLaunchIsCanonical, type PendingLaunchR
 
 import TokenMarket from "./components/TokenMarket";
 import MusegodPage from "./components/MusegodPage";
-import { GetMusegodPanel } from "./components/MusegodTradePanel";
 import NftCoinCard from "./components/NftCoinCard";
 import NftPage, { MyNftTreasuries } from "./components/NftPage";
 import { MUSEGOD } from "./lib/musegod";
@@ -2924,11 +2925,24 @@ function TokenPage({
     [balance, setBalance] = useState<bigint | null>(null),
     [copied, setCopied] = useState(false),
     [sharing, setSharing] = useState(false),
-    [musegodBought, setMusegodBought] = useState(0),
+    // Pay with ETH (Robinhood, pair asset other than WETH): the user's explicit pick, the ETH balance, the quote and the outcome.
+    [payChoice, setPayChoice] = useState<PayWith | null>(null),
+    [ethBalance, setEthBalance] = useState<bigint | null>(null),
+    [ethQuote, setEthQuote] = useState<EthBuyQuoteResponse | null>(null),
+    [ethReceived, setEthReceived] = useState<{ amount: bigint | null } | null>(null),
+    [recovery, setRecovery] = useState(""),
     [clock, setClock] = useState(quoteNow());
+  // Until the user picks, the buy side pays ETH unless the wallet holds the pair asset and at least the amount entered.
+  const pairAsset = resource.data ? quoteAsset(resource.data.token) : null;
+  const ethPayable = side === "buy" && !!pairAsset && ethBuyAvailable(config, pairAsset.address);
+  const enteredPair = ethPayable && amount ? (() => { try { return parseAmount(amount, pairAsset!.decimals); } catch { return null; } })() : null;
+  const payWith: PayWith = ethPayable ? payChoice ?? defaultPayWith(wallet.account ? balance : null, enteredPair) : "pair";
+  const payingEth = payWith === "eth";
   useEffect(() => {
     generation.current++;
     setQuote(null);
+    setEthQuote(null);
+    setEthReceived(null);
     setHash(null);
     setError("");
     setBusy(false);
@@ -2936,12 +2950,15 @@ function TokenPage({
     return () => {
       generation.current++;
     };
-  }, [amount, side, slippage, wallet.revision, address]);
+  }, [amount, side, slippage, wallet.revision, address, payWith]);
+  useEffect(() => { setPayChoice(null); setRecovery(""); }, [address]);
+  const ethExpiresAt = ethQuote ? (ethQuote.mode === "direct" ? ethQuote.quote : ethQuote.conversion).expiresAt : null;
   useEffect(() => {
-    setClock(quoteNow(quote ?? undefined));
-    const timer = setInterval(() => setClock(quoteNow(quote ?? undefined)), 1000);
+    const anchor = quote ?? (ethQuote ? (ethQuote.mode === "direct" ? ethQuote.quote : ethQuote.conversion) : undefined);
+    setClock(quoteNow(anchor));
+    const timer = setInterval(() => setClock(quoteNow(anchor)), 1000);
     return () => clearInterval(timer);
-  }, [quote]);
+  }, [quote, ethQuote]);
   // Depend on the asset, not the response object, so a background detail
   // refresh does not blank and re-read the wallet balance.
   const balanceAsset = resource.data ? (side === "buy" ? resource.data.token.quoteAddress : resource.data.token.address) : null;
@@ -2960,7 +2977,15 @@ function TokenPage({
     return () => {
       active = false;
     };
-  }, [wallet.account, wallet.revision, balanceAsset, hash, musegodBought]);
+  }, [wallet.account, wallet.revision, balanceAsset, hash]);
+  useEffect(() => {
+    let active = true;
+    setEthBalance(null);
+    if (wallet.account && ethPayable && config)
+      wallet.balanceNative(config).then((value) => { if (active) setEthBalance(value); })
+        .catch((e) => { if (active) setError(`Could not load balance: ${errorMessage(e)}`); });
+    return () => { active = false; };
+  }, [wallet.account, wallet.revision, ethPayable, hash, config?.chainId, config?.deploymentChainId]);
   // Metadata stays readable while the pool state is unavailable; retry the
   // state quietly so trading resumes without a manual reload. A pool that
   // contradicts the listing is not transient and is not retried.
@@ -2997,14 +3022,15 @@ function TokenPage({
     stockStatus = stockResource.data?.find((s) =>
       sameAddress(s.address, stock.address),
     ),
-    inputDecimals = side === "buy" ? stock.decimals : 18,
+    inputDecimals = side === "buy" && !payingEth ? stock.decimals : 18,
     outputDecimals = side === "buy" ? 18 : stock.decimals,
-    inputSymbol = side === "buy" ? stock.symbol : token.symbol,
+    inputSymbol = side === "buy" ? payingEth ? "ETH" : stock.symbol : token.symbol,
     outputSymbol = side === "buy" ? token.symbol : stock.symbol;
   async function getQuote() {
     const request = ++generation.current;
     setBusy(true);
     setError("");
+    setRecovery("");
     setQuote(null);
     setHash(null);
     try {
@@ -3023,8 +3049,11 @@ function TokenPage({
   }
   async function execute() {
     if (!quote || !config) return;
+    // Buying with the pair asset is an explicit pick too: spending it must not flip the panel to ETH and hide the result.
+    if (ethPayable) setPayChoice("pair");
     setBusy(true);
     setError("");
+    setRecovery("");
     try {
       const tx = await wallet.trade(quote, config, setProgress);
       setHash(tx);
@@ -3037,10 +3066,73 @@ function TokenPage({
       setBusy(false);
     }
   }
+  const coinAsset = { chainId: 4663 as const, address: token.address, symbol: token.symbol, decimals: 18 };
+  const pairPayment = { chainId: 4663 as const, address: stock.address, symbol: stock.symbol, decimals: stock.decimals };
+  function choosePay(next: PayWith) {
+    setPayChoice(next);
+    setRecovery("");
+  }
+  async function getEthQuote() {
+    if (!wallet.account) return;
+    const request = ++generation.current, account = wallet.account;
+    setBusy(true);
+    setError("");
+    setRecovery("");
+    setEthQuote(null);
+    setEthReceived(null);
+    setHash(null);
+    try {
+      const amountIn = parseAmount(amount, 18);
+      const next = await api<EthBuyQuoteResponse>("/trade/eth-quote", { token: address, amountIn: amount, account, slippageBps: slippage });
+      assertEthBuyResponse(next, { coin: coinAsset, pair: pairPayment, account, amountIn, slippageBps: slippage });
+      if (request === generation.current) setEthQuote(next);
+    } catch (e) {
+      if (request === generation.current) setError(errorMessage(e));
+    } finally {
+      if (request === generation.current) setBusy(false);
+    }
+  }
+  async function executeEth() {
+    if (!ethQuote || !config || !wallet.account) return;
+    const plan = ethQuote, account = wallet.account, frozen = config;
+    // Buying with ETH is an explicit pick: a balance change during the buy must not switch the panel.
+    setPayChoice("eth");
+    setBusy(true);
+    setError("");
+    setRecovery("");
+    setEthReceived(null);
+    const steps: TradeSteps = { approve: `2/3 · Approve this ${stock.symbol} amount`,
+      router: `2/3 · Approve the trading router for ${stock.symbol}; approval expires in 5 minutes`,
+      swap: `3/3 · Confirm in your wallet: ${stock.symbol} → ${coinAsset.symbol}`, waiting: "3/3 · Waiting for on-chain confirmation" };
+    try {
+      const result = await executeEthBuy(plan, { coin: coinAsset, pair: pairPayment, account, slippageBps: slippage }, {
+        lifi: (q, target, step) => wallet.lifiTrade(q, target, frozen, step,
+          `Confirm in your wallet: ETH → ${target.kind === "coin" ? coinAsset.symbol : stock.symbol}`),
+        requote: (amountIn) => api<SwapQuote>("/quote", { address, side: "buy", amount: formatUnits(amountIn, stock.decimals), slippageBps: slippage }),
+        trade: (q) => wallet.trade(q, frozen, setProgress, steps),
+        logs: async (h) => (await transactionClient(frozen.chainId, frozen).getTransactionReceipt({ hash: h })).logs,
+        progress: setProgress,
+      });
+      setEthQuote(null);
+      setProgress("");
+      setHash(result.hash);
+      setEthReceived({ amount: result.received });
+    } catch (e) {
+      setProgress("");
+      if (e instanceof EthBuyIncomplete) {
+        setEthQuote(null);
+        setRecovery(e.message);
+        // Nothing is lost: offer the pair asset the wallet now holds, with exactly the amount received.
+        if (!e.pending) {
+          setPayChoice("pair");
+          if (e.pairReceived !== null) setAmount(formatUnits(e.pairReceived, stock.decimals));
+        }
+      } else setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
   const beneficiary = isFeeBeneficiary(token, wallet.account);
-  // A MUSEGOD-paired coin (every Muse coin): offer MUSEGOD for ETH first when the wallet holds less than the buy amount.
-  const buyAmount = side === "buy" && amount ? (() => { try { return parseAmount(amount, stock.decimals); } catch { return null; } })() : null;
-  const needsMusegod = sameAddress(stock.address, MUSEGOD.token) && !!wallet.account && balance !== null && buyAmount !== null && balance < buyAmount;
   const chainLabel = token.mode === "fork" ? "Fork test asset" : token.mode === "robinhood" ? "Robinhood Chain" : "Base";
   const canonicalUrl = `${location.origin}${tokenPath(token)}`;
   return (
@@ -3168,8 +3260,6 @@ function TokenPage({
             </details>
           </section>
         </div>
-        <div className="trade-column">
-        {needsMusegod && <GetMusegodPanel config={config} onConfirmed={() => setMusegodBought((n) => n + 1)} />}
         <section className="card trade-panel" id="trade" aria-labelledby="trade-title">
           <div className="trade-panel-heading">
             <h2 id="trade-title" className="card-title">Trade {token.symbol}</h2>
@@ -3195,6 +3285,18 @@ function TokenPage({
               Sell
             </button>
           </div>
+          {ethPayable && (
+            <div className="pay-with">
+              <span id="pay-with-label">Pay with</span>
+              <div className="segmented" role="group" aria-labelledby="pay-with-label">
+                {(["eth", "pair"] as const).map((option) => (
+                  <button type="button" key={option} aria-pressed={payWith === option} disabled={busy} onClick={() => choosePay(option)}>
+                    {option === "eth" ? "ETH" : stock.symbol}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           {stateInvalid ? (
             <Notice kind="error">The on-chain pool does not match this listing, so quotes and trades are disabled.</Notice>
           ) : stateUnavailable && (
@@ -3209,10 +3311,10 @@ function TokenPage({
               <span>You pay <b>{inputSymbol}</b></span>
               <span className="balance">
                 Balance:{" "}
-                <b>{balance === null ? (
+                <b>{(payingEth ? ethBalance : balance) === null ? (
                   "—"
                 ) : (
-                  <NumberText value={balance} decimals={inputDecimals} />
+                  <NumberText value={(payingEth ? ethBalance : balance)!} decimals={inputDecimals} />
                 )}</b>
               </span>
             </span>
@@ -3224,7 +3326,7 @@ function TokenPage({
               onChange={(e) => setAmount(e.target.value)}
               placeholder="0.00"
             />
-            {side === "buy" && balance !== null && (
+            {side === "buy" && !payingEth && balance !== null && (
               <StockShares
                 value={balance}
                 stock={stock}
@@ -3232,13 +3334,9 @@ function TokenPage({
               />
             )}
           </label>
-          {/* Always present, so the polite announcement fires when the MUSEGOD panel appears above, possibly off-screen. */}
-          <div className="trade-status" role="status">{needsMusegod && balance !== null && <p className="nft-warning">
-            You hold <NumberText value={balance} decimals={stock.decimals} /> MUSEGOD. <a href="#get-musegod">Get MUSEGOD with ETH first</a>
-          </p>}</div>
           <div className="quick-amounts">
             {side === "buy"
-              ? ["1", "5", "10"].map(
+              ? (payingEth ? ["0.001", "0.005", "0.01"] : ["1", "5", "10"]).map(
                   (value) => (
                     <button
                       type="button"
@@ -3246,7 +3344,7 @@ function TokenPage({
                       disabled={busy}
                       onClick={() => setAmount(value)}
                     >
-                      {value} {stock.symbol}
+                      {value} {inputSymbol}
                     </button>
                   ),
                 )
@@ -3268,7 +3366,8 @@ function TokenPage({
                     {percent}%
                   </button>
                 ))}
-            <button
+            {/* All the ETH would leave nothing for network fees. */}
+            {!payingEth && <button
               type="button"
               disabled={busy || balance === null}
               onClick={() =>
@@ -3277,7 +3376,7 @@ function TokenPage({
               }
             >
               Max
-            </button>
+            </button>}
           </div>
           <div className="trade-arrow" aria-hidden="true">
             <ArrowDown size={16} />
@@ -3287,7 +3386,9 @@ function TokenPage({
               <span>You receive (estimated) <b>{outputSymbol}</b></span>
             </span>
             <strong>
-              {quote ? (
+              {payingEth ? ethQuote ? (
+                <NumberText value={ethQuote.mode === "direct" ? ethQuote.quote.expectedOut : ethQuote.swapPreview.amountOut} decimals={18} />
+              ) : "—" : quote ? (
                 <NumberText value={quote.amountOut} decimals={outputDecimals} />
               ) : (
                 "—"
@@ -3302,7 +3403,34 @@ function TokenPage({
             )}
           </div>
           <SlippageControl value={slippage} disabled={busy} onChange={setSlippage} />
-          {quote && (
+          {payingEth && ethQuote && ethExpiresAt !== null && (
+            <>
+              <dl className="rows boxed quote-summary">
+                <div>
+                  <dt>Route</dt>
+                  <dd>{ethQuote.mode === "direct" ? ETH_BUY_ROUTE.direct : ETH_BUY_ROUTE.twoStep}</dd>
+                </div>
+                <div>
+                  <dt>Minimum received</dt>
+                  <dd>
+                    <NumberText value={ethQuote.mode === "direct" ? BigInt(ethQuote.quote.minimumOut)
+                      : twoStepMinimum(BigInt(ethQuote.swapPreview.amountOut), slippage)} decimals={18} />{" "}
+                    {token.symbol}
+                  </dd>
+                </div>
+                {BigInt((ethQuote.mode === "direct" ? ethQuote.quote : ethQuote.conversion).feeAmount) > 0n && <div>
+                  <dt>LI.FI fee (included)</dt>
+                  <dd><NumberText value={(ethQuote.mode === "direct" ? ethQuote.quote : ethQuote.conversion).feeAmount} decimals={18} /> ETH</dd>
+                </div>}
+                <div>
+                  <dt>Quote expires in</dt>
+                  <dd>{Math.max(0, Math.ceil((ethExpiresAt - clock) / 1000))} seconds</dd>
+                </div>
+              </dl>
+              {ethQuote.mode === "two-step" && <p className="nft-warning">{ethBuyDisclosure(stock.symbol, token.symbol)}</p>}
+            </>
+          )}
+          {!payingEth && quote && (
             <dl className="rows boxed quote-summary">
               <div>
                 <dt>Minimum received</dt>
@@ -3325,15 +3453,15 @@ function TokenPage({
           <button
             type="button"
             className="secondary full trade-quote"
-            disabled={busy || !amount || stateUnavailable}
-            onClick={() => void getQuote()}
+            disabled={busy || !amount || stateUnavailable || (payingEth && !wallet.account)}
+            onClick={() => void (payingEth ? getEthQuote() : getQuote())}
           >
             {busy ? (
               <LoaderCircle className="spin" size={16} />
             ) : (
               <RefreshCw size={16} />
             )}
-            Get on-chain quote
+            {payingEth ? "Get quote" : "Get on-chain quote"}
           </button>
           {wallet.account ? (
             <button
@@ -3341,14 +3469,13 @@ function TokenPage({
               className="primary large full"
               disabled={
                 busy ||
-                !quote ||
-                clock >= quote.expiresAt ||
+                (payingEth ? !ethQuote || ethExpiresAt === null || clock >= ethExpiresAt : !quote || clock >= quote.expiresAt) ||
                 !config?.writesEnabled ||
                 wallet.chainId !== config.chainId
               }
-              onClick={() => void execute()}
+              onClick={() => void (payingEth ? executeEth() : execute())}
             >
-              Confirm {side === "buy" ? "Buy" : "Sell"}
+              {payingEth ? "Buy with ETH" : `Confirm ${side === "buy" ? "Buy" : "Sell"}`}
               <ArrowUpRight size={16} />
             </button>
           ) : (
@@ -3365,15 +3492,23 @@ function TokenPage({
             <p className="launch-blocked">{config.blockReason}</p>
           )}
           {error && <Notice kind="error">{error}</Notice>}
+          {recovery && <p className="nft-warning" role="alert">{recovery}</p>}
           {stockResource.error && (
             <Notice kind="error">
               Could not load the stock multiplier. The share equivalent is unavailable. {stockResource.error}
             </Notice>
           )}
           {progress && <Notice>{progress}</Notice>}
+          {ethReceived && <p className="trade-received" role="status">
+            {ethReceived.amount !== null ? <>Received <NumberText value={ethReceived.amount} decimals={18} /> {token.symbol}.</>
+              : <>Bought {token.symbol}. Check your wallet balance for the amount.</>}
+          </p>}
           {hash && config && <TxLink hash={hash} config={config} />}
           <p className="trade-note">
-            Router approval is limited to this amount and valid for 5 minutes. Execution depends on slippage and liquidity and follows the stock token’s transfer rules. {token.symbol} does not represent ownership of {stock.name} stock.
+            {payingEth
+              ? <>Paying with ETH goes through LI.FI; its fee is included in the quote and network gas is extra. </>
+              : <>Router approval is limited to this amount and valid for 5 minutes. </>}
+            Execution depends on slippage and liquidity and follows the stock token’s transfer rules. {token.symbol} does not represent ownership of {stock.name} stock.
           </p>
           {token.mode !== "fork" && (
             <div className="doppler-entry">
@@ -3399,7 +3534,6 @@ function TokenPage({
             </div>
           )}
         </section>
-        </div>
       </div>
     </>
   );

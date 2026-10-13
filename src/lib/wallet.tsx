@@ -56,7 +56,9 @@ import {
 } from "./transactions";
 import { api, chainApi } from "./api";
 import { useNetwork } from "./network";
-import { assertFirstBuyPaymentQuote, firstBuyDiamondAbi, firstBuyPaymentRefreshInput, type FirstBuyPaymentQuote, type FirstBuyPaymentVerification } from "./first-buy-payment";
+import { assertFirstBuyPaymentQuote, firstBuyDiamondAbi, firstBuyPaymentRefreshInput, type FirstBuyPaymentQuote, type FirstBuyPaymentVerification,
+  type FirstBuySwapData } from "./first-buy-payment";
+import { assertLifiTradeQuote, executeLifiTrade, type LifiTradeTarget } from "./eth-buy";
 import { assertFirstBuyLaunchConfig, executeFirstBuyPayment } from "./first-buy-wallet";
 import { bundlerAbi } from "./first-buy-lock";
 import type { FirstBuyLockStatus } from "./launch-plan";
@@ -170,6 +172,34 @@ export function assertBuybackRequest(request: { method: string; params?: unknown
     (tx.chainId !== undefined && tx.chainId !== toHex(step.chainId)))
     throw new Error("The wallet request does not match the buyback batch");
 }
+/** The LI.FI diamond still routes this quote's selector to the verified facet runtime, and still whitelists every swap target
+ * and approval target. Read before simulating and again before every wallet request (first-buy payments and ETH buys). */
+async function verifyLifiRouter(client: ReturnType<typeof transactionClient>, frozen: FirstBuyPaymentQuote, swaps: FirstBuySwapData[]) {
+  const [facet, code] = await Promise.all([
+    frozen.protocol === "wrap" ? Promise.resolve(frozen.facet) : client.readContract({ address: frozen.router, abi: firstBuyDiamondAbi, functionName: "facetAddress", args: [frozen.transaction.data.slice(0, 10) as Hex] }),
+    client.getCode({ address: frozen.facet }),
+  ]);
+  if (!sameAddress(facet, frozen.facet) || !code || keccak256(code) !== frozen.facetRuntimeHash)
+    throw new Error("The payment router changed. Request a new quote after verification.");
+  for (const swap of swaps) {
+    const selector = swap.callData.slice(0, 10) as Hex;
+    const allowed = frozen.chainId === 4663
+      ? await client.readContract({ address: frozen.router, abi: firstBuyDiamondAbi, functionName: "isContractSelectorWhitelisted", args: [swap.callTo, selector] })
+      : (await client.readContract({ address: frozen.router, abi: firstBuyDiamondAbi, functionName: "isAddressWhitelisted", args: [swap.callTo] }) &&
+        await client.readContract({ address: frozen.router, abi: firstBuyDiamondAbi, functionName: "isFunctionSelectorWhitelisted", args: [selector] }));
+    if (!allowed) throw new Error("The payment route is no longer allowed by LI.FI. Preview again.");
+    if (!sameAddress(swap.approveTo, swap.callTo)) {
+      const approvalAllowed = frozen.chainId === 4663
+        ? await client.readContract({ address: frozen.router, abi: firstBuyDiamondAbi, functionName: "isContractSelectorWhitelisted", args: [swap.approveTo, "0xffffffff"] })
+        : await client.readContract({ address: frozen.router, abi: firstBuyDiamondAbi, functionName: "isAddressWhitelisted", args: [swap.approveTo] });
+      if (!approvalAllowed) throw new Error("The payment route approval target is no longer allowed by LI.FI.");
+    }
+  }
+}
+/** Progress copy for the pair → coin flow; a two-step ETH buy passes its own "2/3 … 3/3" wording. */
+export type TradeSteps = { approve: string; router: string; swap: string; waiting: string };
+const TRADE_STEPS: TradeSteps = { approve: "1/3 · Approve this transaction amount", router: "2/3 · Approve the trading router; approval expires in 5 minutes",
+  swap: "3/3 · Confirm the transaction in your wallet", waiting: "Waiting for onchain confirmation" };
 /** `send` extras: an NFT launch-fee payment passes its exact value (and, for ETH, the quote it must equal); `beforeSend` runs right
  * before the wallet receives the request, after every check that could still refuse it. */
 // `nft`: the NFT whose fee vault or treasury this call acts on; the guard derives every allowed address from it.
@@ -198,7 +228,11 @@ type WalletState = {
     quote: Quote,
     config: RuntimeConfig,
     progress: (message: string) => void,
+    steps?: TradeSteps,
   ) => Promise<Hash>;
+  /** One verified LI.FI transaction paid in ETH on Robinhood: a coin buy, or the first step of a two-step buy. */
+  lifiTrade: (quote: FirstBuyPaymentQuote, target: LifiTradeTarget, config: RuntimeConfig, progress: (message: string) => void,
+    confirmMessage: string) => Promise<{ hash: Hash; received: bigint | null }>;
   buyback: (step: BuybackStep, config: RuntimeConfig, onHash?: (hash: Hash) => void) => Promise<Hash>;
   engineAction: (action: EngineAction, config: RuntimeConfig, onHash?: (hash: Hash) => void) => Promise<Hash>;
   balance: (token: Address, config?: RuntimeConfig) => Promise<bigint>;
@@ -733,6 +767,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     quote: Quote,
     config: RuntimeConfig,
     progress: (message: string) => void,
+    steps: TradeSteps = TRADE_STEPS,
   ) {
     const publicClient = transactionClient(config.chainId, config);
     if (!account) throw new Error("Connect your wallet first");
@@ -759,7 +794,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       args: [expected, contracts.permit2],
     });
     if (allowance < amount) {
-      progress("1/3 · Approve this transaction amount");
+      progress(steps.approve);
       fresh();
       await signer(config, expected);
       const request = {
@@ -791,7 +826,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       permit[1] < Number(block.timestamp + 60n) ||
       permit[1] > Number(deadline)
     ) {
-      progress("2/3 · Approve the trading router; approval expires in 5 minutes");
+      progress(steps.router);
       fresh();
       await signer(config, expected);
       const request = {
@@ -840,14 +875,14 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       });
     fresh();
     await signer(config, expected);
-    progress("3/3 · Confirm the transaction in your wallet");
+    progress(steps.swap);
     const hash = await wallet.sendTransaction({
       to: tx.to,
       data: tx.data,
       value: 0n,
       gas: await fundedGas(publicClient, tx.to, tx.data, 0n, config, expected),
     });
-    progress(`Waiting for onchain confirmation · ${hash}`);
+    progress(`${steps.waiting} · ${hash}`);
     return confirmed(hash, config, expected, "swap");
   }
   async function balance(token: Address, config?: RuntimeConfig) {
@@ -896,27 +931,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       assertCurrent?.();
       if (frozen.intentId) await assertLaunchIntentLock(config, expected, frozen.intentId);
       assertFirstBuyLaunchConfig(config, current);
-      const swaps = assertFirstBuyPaymentQuote(frozen);
-      const [facet, code] = await Promise.all([
-        frozen.protocol === "wrap" ? Promise.resolve(frozen.facet) : client.readContract({ address: frozen.router, abi: firstBuyDiamondAbi, functionName: "facetAddress", args: [frozen.transaction.data.slice(0, 10) as Hex] }),
-        client.getCode({ address: frozen.facet }),
-      ]);
-      if (!sameAddress(facet, frozen.facet) || !code || keccak256(code) !== frozen.facetRuntimeHash)
-        throw new Error("The payment router changed. Request a new quote after verification.");
-      for (const swap of swaps) {
-        const selector = swap.callData.slice(0, 10) as Hex;
-        const allowed = frozen.chainId === 4663
-          ? await client.readContract({ address: frozen.router, abi: firstBuyDiamondAbi, functionName: "isContractSelectorWhitelisted", args: [swap.callTo, selector] })
-          : (await client.readContract({ address: frozen.router, abi: firstBuyDiamondAbi, functionName: "isAddressWhitelisted", args: [swap.callTo] }) &&
-            await client.readContract({ address: frozen.router, abi: firstBuyDiamondAbi, functionName: "isFunctionSelectorWhitelisted", args: [selector] }));
-        if (!allowed) throw new Error("The payment route is no longer allowed by LI.FI. Preview again.");
-        if (!sameAddress(swap.approveTo, swap.callTo)) {
-          const approvalAllowed = frozen.chainId === 4663
-            ? await client.readContract({ address: frozen.router, abi: firstBuyDiamondAbi, functionName: "isContractSelectorWhitelisted", args: [swap.approveTo, "0xffffffff"] })
-            : await client.readContract({ address: frozen.router, abi: firstBuyDiamondAbi, functionName: "isAddressWhitelisted", args: [swap.approveTo] });
-          if (!approvalAllowed) throw new Error("The payment route approval target is no longer allowed by LI.FI.");
-        }
-      }
+      await verifyLifiRouter(client, frozen, assertFirstBuyPaymentQuote(frozen));
       assertCurrent?.();
     };
     const signingWallet = (transaction: LaunchTransaction, frozen: FirstBuyPaymentQuote, beforeSend?: () => void) => signer(config, expected,
@@ -957,6 +972,36 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     if (verification.status !== "pending" && clearSubmission && !clearSubmission())
       throw new Error("The saved payment request changed. Check the current transaction before continuing.");
     return verification;
+  }
+  async function lifiTrade(quote: FirstBuyPaymentQuote, target: LifiTradeTarget, config: RuntimeConfig, progress: (message: string) => void,
+    confirmMessage: string) {
+    if (!account) throw new Error("Connect your wallet first");
+    config = Object.freeze({ ...config });
+    if (deploymentChain(config) !== 4663) throw new Error("Buying a coin with ETH is available on Robinhood Chain only.");
+    const expected = account, client = transactionClient(config.chainId, config);
+    const verify = (frozen: FirstBuyPaymentQuote, swaps: FirstBuySwapData[]) => verifyLifiRouter(client, frozen, swaps);
+    return executeLifiTrade(quote, target, expected, {
+      verify,
+      balance: () => client.getBalance({ address: expected }),
+      simulate: async (frozen) => {
+        const request = { account: expected, to: frozen.transaction.to, data: frozen.transaction.data, value: BigInt(frozen.transaction.value) };
+        await client.call(request).catch((error: unknown) => { throw simulationError(error); });
+        return client.estimateGas(request);
+      },
+      submit: async (frozen, gas) => {
+        gas = bufferedLaunchGas(gas, (await client.getBlock()).gasLimit);
+        await ensureGas(config, expected, BigInt(frozen.transaction.value), gas);
+        // Every wallet request re-runs the static and on-chain checks and must be exactly this transaction.
+        const wallet = await signer(config, expected, () => verify(frozen, assertLifiTradeQuote(frozen, target, expected)),
+          (request) => assertLaunchRequest(request, { ...frozen.transaction, from: expected, chainId: config.chainId }));
+        const hash = await wallet.sendTransaction({ to: frozen.transaction.to, data: frozen.transaction.data, value: BigInt(frozen.transaction.value), gas });
+        const confirmation = confirmed(hash, config, expected, "swap");
+        progress(`Waiting for on-chain confirmation · ${hash}`);
+        return confirmation;
+      },
+      logs: async (hash) => (await client.getTransactionReceipt({ hash })).logs,
+      progress,
+    }, confirmMessage);
   }
   async function claimFirstBuy(token: Address, config: RuntimeConfig, onHash?: (hash: Hash) => void) {
     if (!account) throw new Error("Connect the recipient wallet first");
@@ -1097,6 +1142,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         buyback: (...args) => exclusive(() => buyback(...args)),
         engineAction: (...args) => exclusive(() => engineAction(...args)),
         payFirstBuy: (...args) => exclusive(() => payFirstBuy(...args)),
+        lifiTrade: (...args) => exclusive(() => lifiTrade(...args)),
         claimFirstBuy: (...args) => exclusive(() => claimFirstBuy(...args)),
         balance,
         balanceNative,

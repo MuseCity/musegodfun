@@ -1,15 +1,13 @@
 const OPTIONS = [50, 100, 200, 500] as const;
 
-// `label`: the group's accessible name, distinct when two trade panels share a page.
-export default function SlippageControl({ value, disabled, onChange, label = "Maximum trade slippage" }: {
+export default function SlippageControl({ value, disabled, onChange }: {
   value: number;
   disabled?: boolean;
   onChange: (bps: number) => void;
-  label?: string;
 }) {
   return <div className="slippage-row">
     <span>Maximum slippage</span>
-    <div className="segmented mono compact" role="radiogroup" aria-label={label}>
+    <div className="segmented mono compact" role="radiogroup" aria-label="Maximum trade slippage">
       {OPTIONS.map((bps, index) => <button type="button" role="radio" key={bps} aria-checked={value === bps}
         tabIndex={value === bps ? 0 : -1} disabled={disabled} onClick={() => onChange(bps)}
         onKeyDown={(event) => {

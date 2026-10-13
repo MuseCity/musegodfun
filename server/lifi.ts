@@ -1,10 +1,10 @@
 import { BudgetUnavailable, recoveryBudget } from "./runtime-policy";
 import type { StoreBackend } from "./supabase-store";
-import { decodeFunctionData, formatUnits, getAddress, isAddress, keccak256, type Hex, type PublicClient, type Transport } from "viem";
+import { decodeFunctionData, formatUnits, getAddress, isAddress, keccak256, type Address, type Hex, type PublicClient, type Transport } from "viem";
 import { sameAddress } from "../src/lib/config";
-import { FIRST_BUY_PAYMENT_CONTRACTS, FIRST_BUY_PAYMENT_TTL, assertFirstBuyPaymentQuote, createDirectWrapQuote, wrappedEther, firstBuyDiamondAbi,
-  firstBuyInteger, firstBuyPaymentAbi, firstBuyPaymentAssets, firstBuyPaymentInput, firstBuyReceiptOutput,
-  type FirstBuyPaymentAsset, type FirstBuyPaymentChain, type FirstBuyPaymentQuote, type FirstBuyPaymentQuoteInput,
+import { FIRST_BUY_PAYMENT_CONTRACTS, FIRST_BUY_PAYMENT_TTL, assertEthBuyQuote, assertFirstBuyPaymentQuote, createDirectWrapQuote, ethBuyInput, wrappedEther,
+  firstBuyDiamondAbi, firstBuyInteger, firstBuyPaymentAbi, firstBuyPaymentAssets, firstBuyPaymentInput, firstBuyReceiptOutput,
+  type EthBuyQuoteInput, type FirstBuyPaymentAsset, type FirstBuyPaymentChain, type FirstBuyPaymentQuote, type FirstBuyPaymentQuoteInput,
   type FirstBuyPaymentVerification, type FirstBuyPrices, type FirstBuySwapData } from "../src/lib/first-buy-payment";
 
 export type FirstBuyPaymentDependencies = { client: PublicClient<Transport, any>; chainId: FirstBuyPaymentChain;
@@ -214,9 +214,20 @@ export class FirstBuyPaymentReader {
       if(!code || code==="0x" || (await bounded(()=>this.client.getBlock({blockNumber:block.number!}),message)).hash!==block.hash)throw new Error(message);
       return createDirectWrapQuote(this.chainId,normalized.account,normalized.amountIn,code,{number:block.number,hash:block.hash},quotedAt);
     }
+    return this.route(normalized, input.slippageBps, quotedAt, (quote) => assertFirstBuyPaymentQuote(quote, this.now()));
+  }
+  /** ETH → a listed coin in one same-chain transaction (Robinhood only). It runs every check of `quote` (diamond, facet and
+   * whitelist identity, same-chain steps, LIFI Fixed Fee only, exact sender and recipient) with the coin as the only output. */
+  async coinQuote(input: EthBuyQuoteInput): Promise<FirstBuyPaymentQuote> {
+    const quotedAt = this.now();
+    const normalized = ethBuyInput(this.chainId, input);
+    return this.route(normalized, input.slippageBps, quotedAt, (quote) => assertEthBuyQuote(quote, normalized.toToken, this.now()));
+  }
+  private async route(normalized: { account: Address; fromToken: FirstBuyPaymentAsset; toToken: FirstBuyPaymentAsset; amountIn: bigint },
+    slippageBps: number, quotedAt: number, assertQuote: (quote: FirstBuyPaymentQuote) => FirstBuySwapData[]): Promise<FirstBuyPaymentQuote> {
     const params = new URLSearchParams({ fromChain: String(this.chainId), toChain: String(this.chainId),
       fromToken: normalized.fromToken.address, toToken: normalized.toToken.address, fromAmount: normalized.amountIn.toString(),
-      fromAddress: normalized.account, toAddress: normalized.account, slippage: String(input.slippageBps / 10_000),
+      fromAddress: normalized.account, toAddress: normalized.account, slippage: String(slippageBps / 10_000),
       integrator: this.integrator, fee: "0", allowBridges: "none", skipSimulation: "false" });
     const raw = record(await this.request("quote", params)), action = record(raw.action), estimate = record(raw.estimate), tx = record(raw.transactionRequest);
     const fromToken = tokenMatches(action.fromToken, normalized.fromToken);
@@ -224,7 +235,7 @@ export class FirstBuyPaymentReader {
     const registry = FIRST_BUY_PAYMENT_CONTRACTS[this.chainId];
     if (action.fromChainId !== this.chainId || action.toChainId !== this.chainId ||
       !sameAddress(action.fromAddress ?? "", normalized.account) || !sameAddress(action.toAddress ?? "", normalized.account) ||
-      action.fromAmount !== normalized.amountIn.toString() || action.slippage !== input.slippageBps / 10_000 ||
+      action.fromAmount !== normalized.amountIn.toString() || action.slippage !== slippageBps / 10_000 ||
       estimate.fromAmount !== action.fromAmount || !sameAddress(estimate.approvalAddress ?? "", registry.diamond) ||
       tx.chainId !== this.chainId || !sameAddress(tx.from ?? "", normalized.account) || !sameAddress(tx.to ?? "", registry.diamond) ||
       typeof tx.data !== "string" || typeof tx.value !== "string" || !/^0x[\da-fA-F]{1,64}$/.test(tx.value) ||
@@ -246,7 +257,7 @@ export class FirstBuyPaymentReader {
     const quote: FirstBuyPaymentQuote = { protocol: "lifi", id: raw.id, transactionId: `0x${"0".repeat(64)}`,
       integrator: this.integrator, tool: raw.tool, chainId: this.chainId, account: normalized.account,
       fromToken: normalized.fromToken, toToken: normalized.toToken, amountIn: normalized.amountIn.toString(),
-      expectedOut: estimate.toAmount, minimumOut: estimate.toAmountMin, slippageBps: input.slippageBps,
+      expectedOut: estimate.toAmount, minimumOut: estimate.toAmountMin, slippageBps,
       quotedAt, expiresAt: quotedAt + FIRST_BUY_PAYMENT_TTL, router: registry.diamond, facet: registry.facet,
       facetRuntimeHash: registry.runtimeHash, blockNumber: "0", blockHash: `0x${"0".repeat(64)}`,
       transaction: { to: getAddress(tx.to), data: tx.data as Hex, value: BigInt(tx.value).toString() },
@@ -256,7 +267,7 @@ export class FirstBuyPaymentReader {
     // Decode only the fixed V3 ABI, before RPC checks or any wallet action.
     try { quote.transactionId = decodeFunctionData({ abi: firstBuyPaymentAbi, data: quote.transaction.data }).args[0]; }
     catch { throw new Error("LI.FI returned an unsupported payment transaction."); }
-    const swaps = assertFirstBuyPaymentQuote(quote, this.now());
+    const swaps = assertQuote(quote);
     const block = await this.identity(quote.transaction.data.slice(0, 10) as Hex, swaps);
     quote.blockNumber = block.number!.toString(); quote.blockHash = block.hash!;
     let gasUsd = 0n;
@@ -270,7 +281,7 @@ export class FirstBuyPaymentReader {
       gasUsd += BigInt(whole + fraction.padEnd(6, "0"));
       quote.gasFeeUsd = formatUnits(gasUsd, 6);
     }
-    assertFirstBuyPaymentQuote(quote, this.now());
+    assertQuote(quote);
     // Price fields are display estimates, never the launch opening-price source.
     quote.serverTime=this.now();
     return quote;

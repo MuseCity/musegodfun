@@ -2,12 +2,16 @@
 // "My NFT treasuries", against the built `dist` served on 127.0.0.1. Wallet, API and RPC are mocked in the page; every other request is
 // refused, and musegod.org art is a stubbed image, so nothing leaves the machine. Screenshots go to .cache/nft-ui/ (git-ignored).
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
-import { decodeAbiParameters, decodeFunctionData, encodeAbiParameters, encodeFunctionResult, erc20Abi, getAddress, keccak256, multicall3Abi, parseAbi,
-  toFunctionSelector, toHex } from 'viem';
-import { ROBINHOOD_STOCKS } from '../src/lib/config.ts';
+import { decodeAbiParameters, decodeFunctionData, encodeAbiParameters, encodeEventTopics, encodeFunctionData, encodeFunctionResult, erc20Abi, formatUnits,
+  getAddress, keccak256, multicall3Abi, parseAbi, parseUnits, toFunctionSelector, toHex } from 'viem';
+import { ROBINHOOD_CONTRACTS, ROBINHOOD_STOCKS } from '../src/lib/config.ts';
 import { FEE_POLICY } from '../src/lib/fee-policy.ts';
 import { MUSES, treasuryFor, vaultFor } from '../src/lib/nft-mode.ts';
+import { FIRST_BUY_PAYMENT_CONTRACTS, firstBuyFeeAbi, firstBuyPaymentAbi } from '../src/lib/first-buy-payment.ts';
+import { amountWords } from '../src/lib/eth-buy.ts';
+import { permit2Abi } from '../src/lib/protocol.ts';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const origin = process.env.BROWSER_ORIGIN || 'http://127.0.0.1:5191';
 assert(['127.0.0.1', 'localhost'].includes(new URL(origin).hostname), 'The NFT UI check must target a local server');
@@ -19,14 +23,42 @@ const musegod = ROBINHOOD_STOCKS.find(asset => asset.symbol === 'MUSEGOD').addre
 const museNft = { chainId: 4663, contract: MUSES.contract, tokenId: '1' };
 const vault = vaultFor(museNft, factory), museTreasury = treasuryFor(museNft);
 const blockHash = '0x' + 'bb'.repeat(32), blockTime = 1_800_000_000n, multicall3 = '0xca11bde05977b3631167028862be2a173976ca11';
+const zeroAddress = '0x0000000000000000000000000000000000000000';
 const accountAbi = parseAbi(['function execute(address to, uint256 value, bytes data, uint8 operation) payable returns (bytes)', 'function lock(uint256 lockedUntil)']);
 const vaultAbi = parseAbi(['function sweep(bytes32[] poolIds, address[] tokens)']);
-const selector = { lockedUntil: toFunctionSelector('lockedUntil()'), isLocked: toFunctionSelector('isLocked()'), ownerOf: toFunctionSelector('ownerOf(uint256)') };
+const selector = { lockedUntil: toFunctionSelector('lockedUntil()'), isLocked: toFunctionSelector('isLocked()'), ownerOf: toFunctionSelector('ownerOf(uint256)'),
+  facetAddress: toFunctionSelector('facetAddress(bytes4)'), whitelisted: toFunctionSelector('isContractSelectorWhitelisted(address,bytes4)'),
+  allowance: toFunctionSelector('allowance(address,address)'), permit2Allowance: toFunctionSelector('allowance(address,address,address)') };
+// Pay with ETH: the pinned LI.FI diamond and facet (its verified runtime is the unit-test fixture), a local swap target and the fee receiver.
+const lifi = FIRST_BUY_PAYMENT_CONTRACTS[4663], lifiDex = '0x603206D6105217DD972E4Ab30676A220CA393346';
+const lifiRuntime = JSON.parse(readFileSync(new URL('../tests/fixtures/lifi-4663-runtime.json', import.meta.url), 'utf8')).onchainBytecode;
+const transferAbi = parseAbi(['event Transfer(address indexed from, address indexed to, uint256 value)']);
+const directOut = 4_990n * 10n ** 18n, convertedExtra = 123_456_789n, swapOut = 49n * 10n ** 18n;
 const coin = (address, name, symbol, quoteAddress, extra = {}) => ({ address, name, symbol, description: `${name}: a local NFT UI fixture, never deployed.`, image: '',
   quoteAddress, creator: launcher, poolId: keccak256(toHex(address)), transactionHash: '0x' + 'cd'.repeat(32), blockNumber: '16',
   createdAt: Date.now() - 3_600_000, openingCap: '1', mode: 'robinhood', deploymentChainId: 4663, feePolicy: FEE_POLICY, feeTreasury: treasury,
   tradingFeeBps: 100, ...extra });
 const museCoin = coin('0x5555555555555555555555555555555555555555', 'Bard of the Muses', 'BARD', musegod, { nft: museNft, nftVerification: { status: 'verified' } });
+const poolKeyOf = row => ({ currency0: row.address, currency1: row.quoteAddress, fee: 8388608, tickSpacing: 10, hooks: '0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544' });
+// A LI.FI V3 native swap of `amountIn` ETH into `target` for `account`, the shape the server's verified reader returns.
+function lifiQuote(target, amountIn, expectedOut, account) {
+  const now = Date.now(), feeAmount = amountIn * 25n / 10_000n, minimumOut = expectedOut * 99n / 100n;
+  const swaps = [{ callTo: lifi.feeForwarder, approveTo: lifi.feeForwarder, sendingAssetId: zeroAddress, receivingAssetId: zeroAddress, fromAmount: amountIn,
+    requiresDeposit: true, callData: encodeFunctionData({ abi: firstBuyFeeAbi, functionName: 'forwardNativeFees',
+      args: [[{ recipient: '0xc06ebbefd94032b85424d51906e2a335efae264b', amount: feeAmount }]] }) },
+  { callTo: lifiDex, approveTo: lifiDex, sendingAssetId: zeroAddress, receivingAssetId: target.address, fromAmount: amountIn - feeAmount,
+    callData: '0x3f0bde251234', requiresDeposit: false }];
+  const transactionId = keccak256(toHex(`eth-buy-${target.symbol}-${now}`));
+  return { protocol: 'lifi', id: `fixture-${target.symbol}`, transactionId, integrator: 'musegodfun', tool: 'bitget', chainId: 4663, account,
+    fromToken: { chainId: 4663, address: zeroAddress, symbol: 'ETH', decimals: 18 }, toToken: target, amountIn: amountIn.toString(),
+    expectedOut: expectedOut.toString(), minimumOut: minimumOut.toString(), slippageBps: 100, quotedAt: now, expiresAt: now + 60_000, serverTime: now,
+    router: lifi.diamond, facet: lifi.facet, facetRuntimeHash: lifi.runtimeHash, blockNumber: '16', blockHash,
+    transaction: { to: lifi.diamond, value: amountIn.toString(), data: encodeFunctionData({ abi: firstBuyPaymentAbi, functionName: 'swapTokensMultipleV3NativeToERC20',
+      args: [transactionId, 'musegodfun', zeroAddress, account, minimumOut, swaps] }) },
+    approval: null, feeAmount: feeAmount.toString(), feeUsd: null, gasFeeUsd: null, amountInUsd: null };
+}
+const v4Quote = (row, amountIn) => ({ token: row.address, side: 'buy', amountIn: amountIn.toString(), amountOut: (amountIn * 2n).toString(), currencyIn: row.quoteAddress,
+  poolKey: poolKeyOf(row), slippageBps: 100, quotedAt: Date.now(), expiresAt: Date.now() + 60_000, serverTime: Date.now() });
 // A verified coin of a collection outside the allowlist: its badge still warns, because the badge follows the collection, not the status.
 const unverifiedCoin = coin('0x6666666666666666666666666666666666666666', 'Gallery Seven', 'GAL7', weth, { nft: { chainId: 4663, contract: collection, tokenId: '7' }, nftVerification: { status: 'verified' } });
 const rejectedCoin = coin('0x7777777777777777777777777777777777777777', 'Rejected Frame', 'REJ', weth, { nft: { chainId: 4663, contract: collection, tokenId: '8' }, nftVerification: { status: 'rejected', reason: 'Not an ERC-721 collection' } });
@@ -35,7 +67,6 @@ const plainCoin = coin('0x4444444444444444444444444444444444444444', 'Plain stoc
 const catalog = [museCoin, unverifiedCoin, rejectedCoin, hiddenCoin, plainCoin];
 // A rejected coin also bound to Muse #1: never listed for the NFT, but it still pays the vault, so the treasury view and the sweep include it.
 const rejectedMuseCoin = coin('0x9191919191919191919191919191919191919191', 'Late Bard', 'LATE', weth, { nft: museNft, nftVerification: { status: 'rejected', reason: 'already_launched' } });
-const zeroAddress = '0x0000000000000000000000000000000000000000';
 const baseConfig = { mode: 'robinhood', chainId: 4663, deploymentChainId: 4663, treasury, writesEnabled: true, controlRevision: 0, signingPaused: false,
   securityProtocol: 1, blockReason: null, nftMode: { enabled: true, vaultFactory: factory, launchFeeUsd: 10, freeCollections: [`4663:${MUSES.contract.toLowerCase()}`],
     verifiedCollections: [`4663:${MUSES.contract.toLowerCase()}`] } };
@@ -48,9 +79,11 @@ const browser = await chromium.launch({ headless: true });
 
 // `account: null`: an anonymous viewer (no wallet connected). `nftEnabled: false`: NFT mode is off on this network.
 async function open(path, { account = holder, owner = holder, locked = false, factoryDeployed = true, theme = 'light', viewport = { width: 1440, height: 1000 },
-  undeployed = false, holderless = false, statusFailures = 0, lockFailures = 0, chainHex = '0x1237', nftEnabled = true } = {}) {
+  undeployed = false, holderless = false, statusFailures = 0, lockFailures = 0, chainHex = '0x1237', nftEnabled = true, ethRoute = 'direct', rejectSends = [] } = {}) {
   const context = await browser.newContext({ viewport, colorScheme: theme });
-  const state = { sends: [], treasuryReads: 0, statusAccounts: [], multicalls: [], external: [], stubbed: [], pageErrors: [], statusFailures, lockFailures };
+  // `ethRoute`: what /trade/eth-quote answers ('direct' or 'two-step'). `rejectSends`: wallet requests (0-based) the fixture wallet rejects.
+  const state = { sends: [], attempts: 0, rejected: [], treasuryReads: 0, statusAccounts: [], multicalls: [], external: [], stubbed: [], pageErrors: [], statusFailures, lockFailures,
+    ethQuotes: [], ethQuoteResponses: [], v4Quotes: [], swapSpends: [] };
   const config = { ...baseConfig, nftMode: { ...baseConfig.nftMode, enabled: nftEnabled, vaultFactory: factoryDeployed ? factory : null } };
   await context.addInitScript(({ account, theme, chainHex }) => {
     localStorage.setItem('musegod.theme', theme);
@@ -67,12 +100,34 @@ async function open(path, { account = holder, owner = holder, locked = false, fa
     window.addEventListener('eip6963:requestProvider', announce); window.addEventListener('load', announce);
   }, { account, theme, chainHex });
   await context.exposeBinding('__nftSend', (_source, tx) => {
+    if (rejectSends.includes(state.attempts++)) { state.rejected.push(tx); throw new Error('User rejected the request.'); }
     const hash = keccak256(toHex(`nft-ui-send-${state.sends.length}-${tx.data}`));
     state.sends.push({ ...tx, hash });
+    // A swap through the trading router spends the MUSEGOD of the latest v4 quote.
+    if (tx.to.toLowerCase() === ROBINHOOD_CONTRACTS.router.toLowerCase()) state.swapSpends.push(parseUnits(state.v4Quotes.at(-1).amount, 18));
     return hash;
   });
-  const receipt = sent => ({ transactionHash: sent.hash, transactionIndex: '0x0', blockHash, blockNumber: '0x10', from: account, to: sent.to, cumulativeGasUsed: '0xea60',
-    gasUsed: '0xea60', contractAddress: null, logs: [], logsBloom: '0x' + '00'.repeat(256), status: '0x1', effectiveGasPrice: '0x1', type: '0x2' });
+  // What a confirmed send transferred to the wallet: a LI.FI buy delivers its quote's output token, the trading router delivers the coin.
+  const transferLog = (sent, token, value, index) => ({ address: token, topics: encodeEventTopics({ abi: transferAbi, eventName: 'Transfer', args: { from: lifiDex, to: account } }),
+    data: encodeAbiParameters([{ type: 'uint256' }], [value]), blockHash, blockNumber: '0x10', transactionHash: sent.hash, transactionIndex: '0x0', logIndex: toHex(index), removed: false });
+  const delivered = sent => {
+    if (sent.to.toLowerCase() === lifi.diamond.toLowerCase()) {
+      const swaps = decodeFunctionData({ abi: firstBuyPaymentAbi, data: sent.data }).args[5];
+      const output = swaps[swaps.length - 1].receivingAssetId;
+      const quoted = state.ethQuoteResponses.map(r => r.mode === 'direct' ? r.quote : r.conversion).find(q => q.transaction.data === sent.data);
+      return { token: output, value: output.toLowerCase() === musegod.toLowerCase() ? BigInt(quoted.minimumOut) + convertedExtra : directOut };
+    }
+    if (sent.to.toLowerCase() === ROBINHOOD_CONTRACTS.router.toLowerCase()) return { token: museCoin.address, value: swapOut };
+    return null;
+  };
+  const musegodBalance = () => 10n ** 18n + state.sends.map(delivered).filter(d => d?.token.toLowerCase() === musegod.toLowerCase()).reduce((sum, d) => sum + d.value, 0n)
+    - state.swapSpends.reduce((sum, value) => sum + value, 0n);
+  const receipt = sent => {
+    const output = delivered(sent);
+    return { transactionHash: sent.hash, transactionIndex: '0x0', blockHash, blockNumber: '0x10', from: account, to: sent.to, cumulativeGasUsed: '0xea60',
+      gasUsed: '0xea60', contractAddress: null, logs: output ? [transferLog(sent, output.token, output.value, 0)] : [], logsBloom: '0x' + '00'.repeat(256),
+      status: '0x1', effectiveGasPrice: '0x1', type: '0x2' };
+  };
   const block = () => ({ number: '0x20', hash: blockHash, parentHash: blockHash, timestamp: toHex(blockTime), gasLimit: '0x5f5e100', gasUsed: '0x0', baseFeePerGas: '0x1',
     difficulty: '0x0', totalDifficulty: '0x0', size: '0x0', extraData: '0x', logsBloom: '0x' + '00'.repeat(256), transactions: [], uncles: [], miner: treasury,
     mixHash: blockHash, nonce: '0x0000000000000000', sha3Uncles: blockHash, stateRoot: blockHash, receiptsRoot: blockHash, transactionsRoot: blockHash });
@@ -95,13 +150,20 @@ async function open(path, { account = holder, owner = holder, locked = false, fa
         return { success: false, returnData: '0x' };
       }) });
     }
-    // balanceOf: 1 MUSEGOD (less than a 5 MUSEGOD buy), plenty of everything else. Anything else is a successful simulation.
-    if (data?.startsWith('0x70a08231')) return toHex(to.toLowerCase() === musegod.toLowerCase() ? 10n ** 18n : 10n ** 20n, { size: 32 });
+    // balanceOf: 1 MUSEGOD (less than a 5 MUSEGOD buy) plus what LI.FI delivered, plenty of everything else.
+    if (data?.startsWith('0x70a08231')) return toHex(to.toLowerCase() === musegod.toLowerCase() ? musegodBalance() : 10n ** 20n, { size: 32 });
+    // The LI.FI diamond routes to the pinned facet and whitelists the fixture swap target.
+    if (to?.toLowerCase() === lifi.diamond.toLowerCase() && data.startsWith(selector.facetAddress)) return encodeAbiParameters([{ type: 'address' }], [lifi.facet]);
+    if (to?.toLowerCase() === lifi.diamond.toLowerCase() && data.startsWith(selector.whitelisted)) return encodeAbiParameters([{ type: 'bool' }], [true]);
+    // The wallet already approved Permit2 for MUSEGOD (so no ERC-20 approval); its Permit2 router allowance is empty.
+    if (data?.startsWith(selector.allowance)) return encodeAbiParameters([{ type: 'uint256' }], [2n ** 256n - 1n]);
+    if (data?.startsWith(selector.permit2Allowance)) return encodeAbiParameters([{ type: 'uint160' }, { type: 'uint48' }, { type: 'uint48' }], [0n, 0, 0]);
+    // Anything else is a successful simulation.
     return '0x';
   };
   // A vault or treasury has code once deployed: from the start, or (`undeployed`) after this page sent its deploy or activation.
   const sentTo = target => state.sends.some(sent => sent.to.toLowerCase() === target.toLowerCase());
-  const code = address => address.toLowerCase() === vault.toLowerCase() ? !undeployed || sentTo(factory)
+  const code = address => address.toLowerCase() === lifi.facet.toLowerCase() ? lifiRuntime : address.toLowerCase() === vault.toLowerCase() ? !undeployed || sentTo(factory)
     : address.toLowerCase() === museTreasury.toLowerCase() ? !undeployed || sentTo('0x000000006551c19487814612e58FE06813775758') : false;
   const rpc = item => {
     const result = item.method === 'eth_chainId' ? '0x1237' : item.method === 'eth_blockNumber' ? '0x20'
@@ -111,7 +173,7 @@ async function open(path, { account = holder, owner = holder, locked = false, fa
       : item.method === 'eth_estimateGas' ? '0xea60' : item.method === 'eth_call' ? call(item.params[0])
       : item.method === 'eth_getTransactionReceipt' ? (state.sends.find(sent => sent.hash === item.params[0]) ? receipt(state.sends.find(sent => sent.hash === item.params[0])) : null)
       : item.method === 'eth_getTransactionByHash' ? null
-      : item.method === 'eth_getCode' ? (code(item.params[0]) ? '0x6000' : '0x') : undefined;
+      : item.method === 'eth_getCode' ? (typeof code(item.params[0]) === 'string' ? code(item.params[0]) : code(item.params[0]) ? '0x6000' : '0x') : undefined;
     if (result === undefined) throw new Error('Unexpected fixture RPC ' + item.method);
     return { jsonrpc: '2.0', id: item.id, result };
   };
@@ -154,6 +216,22 @@ async function open(path, { account = holder, owner = holder, locked = false, fa
       return reply({ erc721: true, owner, controls: url.searchParams.get('account') === account, alreadyLaunched: true, free: muse, ...(muse ? { name: 'Bard', agentId: '6592' } : {}) });
     }
     if (path.startsWith('/api/first-buy-lock/')) return reply(null);
+    if (path === '/api/trade/eth-quote') {
+      state.ethQuotes.push(payload);
+      const row = catalog.find(entry => entry.address.toLowerCase() === payload.token.toLowerCase()), amountIn = parseUnits(payload.amountIn, 18);
+      const coinAsset = { chainId: 4663, address: getAddress(row.address), symbol: row.symbol, decimals: 18 };
+      const pair = { chainId: 4663, address: getAddress(musegod), symbol: 'MUSEGOD', decimals: 18 };
+      const conversion = lifiQuote(pair, amountIn, 25n * 10n ** 18n, payload.account);
+      const response = ethRoute === 'direct' ? { mode: 'direct', quote: lifiQuote(coinAsset, amountIn, 5_000n * 10n ** 18n, payload.account), serverTime: Date.now() }
+        : { mode: 'two-step', conversion, swapPreview: v4Quote(row, BigInt(conversion.minimumOut)), serverTime: Date.now() };
+      state.ethQuoteResponses.push(response);
+      return reply(response);
+    }
+    if (path === '/api/quote') {
+      state.v4Quotes.push(payload);
+      const row = catalog.find(entry => entry.address.toLowerCase() === payload.address.toLowerCase());
+      return reply(v4Quote(row, parseUnits(payload.amount, 18)));
+    }
     if (path === '/api/rpc') return reply(Array.isArray(payload) ? payload.map(rpc) : rpc(payload));
     return reply({ error: 'Unavailable fixture route' }, 404);
   });
@@ -238,25 +316,142 @@ try {
     assert(state.stubbed.length >= 1 && state.stubbed.every(url => url === 'https://musegod.org/muse/art/480/1.jpg'), 'only the Muse art is stubbed');
     await finish(run);
   });
-  await check('get_musegod_first', async () => {
-    const run = await open(tokenPath), { page } = run;
+  // Pay with ETH replaced the separate "Get MUSEGOD with ETH first" panel: one control in the coin's own trade panel.
+  await check('pay_with_default', async () => {
+    const run = await open(tokenPath), { page } = run, trade = page.locator('#trade'), payWith = trade.getByRole('group', { name: 'Pay with' });
+    const pressed = name => payWith.getByRole('button', { name, exact: true }).getAttribute('aria-pressed');
     await page.locator('#nft-card').getByText('Unlocked').waitFor();
-    assert.equal(await page.getByRole('heading', { name: 'Get MUSEGOD with ETH first' }).count(), 0);
-    await page.locator('#trade').getByLabel('Trade input amount').fill('5');
-    await page.getByRole('heading', { name: 'Get MUSEGOD with ETH first' }).waitFor();
-    assert.equal(await page.locator('#get-musegod').getByText('ETH ↔ MUSEGOD').count(), 1);
-    // The coin's panel says why, politely, right under the amount being typed, and links to the MUSEGOD panel.
-    const hint = page.locator('#trade [role="status"].trade-status');
-    assert.equal((await hint.textContent()).trim(), 'You hold 1 MUSEGOD. Get MUSEGOD with ETH first');
-    assert.equal(await hint.locator('.nft-warning').count(), 1);
-    assert.equal(await hint.getByRole('link', { name: 'Get MUSEGOD with ETH first' }).getAttribute('href'), '#get-musegod');
-    // Two trade panels, distinct accessible names.
-    for (const [role, name] of [['group', 'Trade side'], ['group', 'MUSEGOD trade side'], ['textbox', 'Trade input amount'], ['textbox', 'MUSEGOD trade input amount'],
-      ['radiogroup', 'Maximum trade slippage'], ['radiogroup', 'MUSEGOD maximum trade slippage']])
-      assert.equal(await page.getByRole(role, { name, exact: true }).count(), 1, `${role} ${name}`);
-    await page.locator('#trade').getByLabel('Trade input amount').fill('0.5');
-    await page.getByRole('heading', { name: 'Get MUSEGOD with ETH first' }).waitFor({ state: 'detached' });
-    assert.equal((await page.locator('#trade .trade-status').textContent()).trim(), '');
+    // The wallet holds 1 MUSEGOD: with no amount it pays MUSEGOD; above 1 MUSEGOD it pays ETH; at or below, MUSEGOD again.
+    await payWith.getByRole('button', { name: 'MUSEGOD', exact: true, pressed: true }).waitFor();
+    await trade.getByLabel('Trade input amount').fill('5');
+    await payWith.getByRole('button', { name: 'ETH', exact: true, pressed: true }).waitFor();
+    assert.equal(await trade.getByText('You pay ETH', { exact: true }).count(), 1);
+    await trade.getByLabel('Trade input amount').fill('0.5');
+    await payWith.getByRole('button', { name: 'MUSEGOD', exact: true, pressed: true }).waitFor();
+    // An explicit pick sticks.
+    await payWith.getByRole('button', { name: 'ETH', exact: true }).click();
+    await trade.getByLabel('Trade input amount').fill('0.25');
+    assert.equal(await pressed('ETH'), 'true');
+    assert.equal(await trade.getByRole('button', { name: 'Get quote', exact: true }).count(), 1);
+    // No separate MUSEGOD panel, link or status line anywhere on a token page.
+    assert.equal(await page.getByRole('heading', { name: /Get MUSEGOD/ }).count(), 0);
+    assert.equal(await page.locator('#get-musegod, .trade-status, .trade-column, .musegod-acquire').count(), 0);
+    assert.equal(await page.getByRole('link', { name: /Get MUSEGOD/ }).count(), 0);
+    assert.equal(await page.getByRole('textbox', { name: /trade input amount/i }).count(), 1, 'one trade panel');
+    // The sell side is unchanged.
+    await trade.getByRole('group', { name: 'Trade side' }).getByRole('button', { name: 'Sell' }).click();
+    await payWith.waitFor({ state: 'detached' });
+    await finish(run);
+    // A WETH-paired coin has no selector.
+    const plain = await open(`/token/robinhood/${plainCoin.address}`);
+    await plain.page.getByRole('heading', { name: 'Trade PLAIN' }).waitFor();
+    await plain.page.locator('#trade').getByLabel('Trade input amount').fill('5');
+    assert.equal(await plain.page.getByRole('group', { name: 'Pay with' }).count(), 0);
+    assert.equal(await plain.page.getByRole('button', { name: 'Get on-chain quote' }).count(), 1);
+    await finish(plain);
+  });
+  // Records every progress text of the coin's trade panel, so the order of the steps can be checked afterwards.
+  const recordProgress = page => page.evaluate(() => {
+    window.__progress = [];
+    new MutationObserver(() => {
+      const text = document.querySelector('#trade .notice[role="status"]')?.textContent?.trim();
+      if (text && window.__progress.at(-1) !== text) window.__progress.push(text);
+    }).observe(document.querySelector('#trade'), { subtree: true, childList: true, characterData: true });
+  });
+  async function ethQuoteFor(page, amount) {
+    const trade = page.locator('#trade');
+    await trade.getByRole('group', { name: 'Pay with' }).getByRole('button', { name: 'ETH', exact: true }).click();
+    await trade.getByLabel('Trade input amount').fill(amount);
+    await trade.getByRole('button', { name: 'Get quote', exact: true }).click();
+    return trade;
+  }
+  await check('eth_buy_direct', async () => {
+    const run = await open(tokenPath), { page, state } = run;
+    await page.locator('#nft-card').getByText('Unlocked').waitFor();
+    const trade = await ethQuoteFor(page, '0.001');
+    await trade.getByText('One step via LI.FI').waitFor();
+    assert.deepEqual(state.ethQuotes, [{ token: museCoin.address, amountIn: '0.001', account: holder, slippageBps: 100 }]);
+    assert.equal((await trade.locator('.trade-box.receive strong').textContent()).trim(), '5,000', 'the expected coin amount before confirming');
+    assert.equal(await trade.locator('.nft-warning', { hasText: 'No one-step route' }).count(), 0);
+    await trade.getByRole('button', { name: 'Buy with ETH' }).click();
+    await trade.getByRole('status').filter({ hasText: 'Received 4,990 BARD.' }).waitFor();
+    // Exactly one wallet confirmation: the frozen LI.FI transaction, paying the quoted ETH.
+    assert.equal(state.sends.length, 1);
+    const quote = state.ethQuoteResponses[0].quote;
+    assert.equal(state.sends[0].to.toLowerCase(), lifi.diamond.toLowerCase());
+    assert.equal(state.sends[0].data, quote.transaction.data);
+    assert.equal(BigInt(state.sends[0].value), 10n ** 15n);
+    const history = await page.evaluate(() => JSON.parse(localStorage.getItem('musegod.transactions.v1') || '[]'));
+    assert.deepEqual(history.map(row => [row.action, row.status]), [['swap', 'success']]);
+    await finish(run);
+  });
+  await check('eth_buy_two_step', async () => {
+    const run = await open(tokenPath, { ethRoute: 'two-step' }), { page, state } = run;
+    await page.locator('#nft-card').getByText('Unlocked').waitFor();
+    const trade = await ethQuoteFor(page, '0.02');
+    await trade.getByText('Two steps', { exact: true }).waitFor();
+    const disclosure = trade.locator('.nft-warning', { hasText: 'No one-step route right now.' });
+    assert.equal((await disclosure.textContent()).trim(),
+      'No one-step route right now. This buy takes 3 or 4 wallet confirmations: ETH → MUSEGOD, then MUSEGOD → BARD.');
+    await recordProgress(page);
+    await trade.getByRole('button', { name: 'Buy with ETH' }).click();
+    await trade.getByRole('status').filter({ hasText: 'Received 49 BARD.' }).waitFor();
+    // Three confirmations, in order: ETH → MUSEGOD on LI.FI, the Permit2 router approval, then the swap.
+    const conversion = state.ethQuoteResponses[0].conversion, received = BigInt(conversion.minimumOut) + convertedExtra;
+    assert.deepEqual(state.sends.map(sent => sent.to.toLowerCase()), [lifi.diamond, ROBINHOOD_CONTRACTS.permit2, ROBINHOOD_CONTRACTS.router].map(a => a.toLowerCase()));
+    assert.equal(state.sends[0].data, conversion.transaction.data);
+    assert.equal(BigInt(state.sends[0].value), 2n * 10n ** 16n);
+    // Step 2 uses exactly the MUSEGOD the conversion delivered, never the preview's minimum.
+    assert.deepEqual(state.v4Quotes, [{ address: museCoin.address, side: 'buy', amount: formatUnits(received, 18), slippageBps: 100 }]);
+    const approval = decodeFunctionData({ abi: permit2Abi, data: state.sends[1].data });
+    assert.equal(approval.functionName, 'approve');
+    assert.deepEqual(approval.args.slice(0, 3).map(String), [getAddress(musegod), ROBINHOOD_CONTRACTS.router, String(received)]);
+    assert(state.sends[2].data.toLowerCase().includes(received.toString(16).padStart(64, '0')), 'the swap spends the exact amount received');
+    const progress = await page.evaluate(() => window.__progress);
+    const steps = ['1/3 · Confirm in your wallet: ETH → MUSEGOD', '1/3 · Waiting for on-chain confirmation', '2/3 · Approve the trading router for MUSEGOD',
+      '3/3 · Confirm in your wallet: MUSEGOD → BARD', '3/3 · Waiting for on-chain confirmation'];
+    let at = -1;
+    for (const step of steps) {
+      const next = progress.findIndex((text, index) => index > at && text.startsWith(step));
+      assert(next > at, `progress "${step}" in order: ${JSON.stringify(progress)}`); at = next;
+    }
+    const history = await page.evaluate(() => JSON.parse(localStorage.getItem('musegod.transactions.v1') || '[]'));
+    assert.deepEqual(history.map(row => row.action), ['swap', 'approval', 'swap']);
+    await finish(run);
+  });
+  await check('pair_buy_keeps_its_choice', async () => {
+    // Paying with all of the MUSEGOD held (the default): afterwards the wallet holds none, yet the panel keeps MUSEGOD and the result.
+    const run = await open(tokenPath), { page, state } = run, trade = page.locator('#trade'), payWith = trade.getByRole('group', { name: 'Pay with' });
+    await page.locator('#nft-card').getByText('Unlocked').waitFor();
+    await payWith.getByRole('button', { name: 'MUSEGOD', exact: true, pressed: true }).waitFor();
+    await trade.getByLabel('Trade input amount').fill('1');
+    await trade.getByRole('button', { name: 'Get on-chain quote' }).click();
+    await trade.getByRole('button', { name: 'Confirm Buy' }).click();
+    await trade.getByText('Transaction confirmed').waitFor();
+    assert.deepEqual(state.sends.map(sent => sent.to.toLowerCase()), [ROBINHOOD_CONTRACTS.permit2, ROBINHOOD_CONTRACTS.router].map(a => a.toLowerCase()));
+    await trade.getByText('Balance: 0', { exact: true }).waitFor();
+    assert.equal(await payWith.getByRole('button', { name: 'MUSEGOD', exact: true }).getAttribute('aria-pressed'), 'true');
+    assert.equal(await trade.getByText('Transaction confirmed').count(), 1, 'the result stays on screen');
+    await finish(run);
+  });
+  await check('eth_buy_two_step_step2_rejected', async () => {
+    const run = await open(tokenPath, { ethRoute: 'two-step', rejectSends: [1] }), { page, state } = run;
+    await page.locator('#nft-card').getByText('Unlocked').waitFor();
+    const trade = await ethQuoteFor(page, '0.02');
+    await trade.getByText('Two steps', { exact: true }).waitFor();
+    await trade.getByRole('button', { name: 'Buy with ETH' }).click();
+    const conversion = state.ethQuoteResponses[0].conversion, received = BigInt(conversion.minimumOut) + convertedExtra;
+    const recovery = trade.locator('.nft-warning[role="alert"]');
+    await recovery.waitFor();
+    assert.equal((await recovery.textContent()).trim(), `You received ${amountWords(received, 18)} MUSEGOD. Buy BARD with MUSEGOD to finish.`);
+    // Nothing lost and no retry: the panel now pays MUSEGOD, prefilled with exactly what arrived.
+    await trade.getByRole('group', { name: 'Pay with' }).getByRole('button', { name: 'MUSEGOD', exact: true, pressed: true }).waitFor();
+    assert.equal(await trade.getByLabel('Trade input amount').inputValue(), formatUnits(received, 18));
+    assert.equal(await trade.getByText('You pay MUSEGOD', { exact: true }).count(), 1);
+    assert.equal(state.sends.length, 1, 'only the conversion went through');
+    assert.equal(state.rejected.length, 1);
+    assert.equal(state.rejected[0].to.toLowerCase(), ROBINHOOD_CONTRACTS.permit2.toLowerCase());
+    assert.equal(await trade.getByRole('button', { name: 'Get on-chain quote' }).count(), 1);
     await finish(run);
   });
   await check('delegate_view', async () => {
@@ -444,6 +639,8 @@ try {
     let run = await open(tokenPath, { theme, viewport });
     await run.page.locator('#nft-card').getByText('Unlocked').waitFor();
     await run.page.locator('#nft-card').getByText('BARD pool').first().waitFor();
+    // A MUSEGOD-paired coin, paying with ETH, with a one-step quote on screen.
+    await (await ethQuoteFor(run.page, '0.001')).getByText('One step via LI.FI').waitFor();
     await shoot(run.page, `token-${tag}`); await finish(run);
     run = await open(nftPagePath, { theme, viewport });
     await run.page.getByRole('link', { name: 'Bard of the Muses' }).waitFor();

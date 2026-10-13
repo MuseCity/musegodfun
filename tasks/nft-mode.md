@@ -201,7 +201,7 @@ The vault is the Doppler creator-fee beneficiary of every coin bound to that NFT
     - Activate treasury (Tokenbound `createAccount` plus initialize)
     - Withdraw and Lock (holder, through the treasury)
     - Deposit to treasury
-  - MUSEGOD-paired coins get the inline "Get MUSEGOD with ETH" panel, extracted from `src/components/MusegodPage.tsx`.
+  - MUSEGOD-paired coins (any non-WETH pair on Robinhood) buy with ETH from the coin's own trade panel ("Pay with: ETH | <pair>", via LI.FI); the separate "Get MUSEGOD with ETH first" panel was removed on 2026-10-14 at the owner's request.
 - **Creator-equals-beneficiary assumptions** must key on the vault for NFT coins, and the UI shows no creator claim for them:
   - `src/App.tsx:408-410, 809-815, 2948, 3266, 3349-3388, 3469-3481`
   - copy at `:1998, 2335, 2487, 2561`

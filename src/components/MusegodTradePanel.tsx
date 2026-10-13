@@ -40,19 +40,11 @@ export function useMusegodInfo(config: RuntimeConfig | null): MusegodState {
   return { info, infoError, revision, refresh: () => setRevision((n) => n + 1) };
 }
 
-/** The ETH ↔ MUSEGOD trade panel of the MUSEGOD page, also shown on a MUSEGOD-paired coin's page to buy MUSEGOD first. */
-export default function MusegodTradePanel({ config, musegod, title = `Trade ${MUSEGOD.symbol}`, id = "trade", titleId = "musegod-trade-title",
-  className = "", name = "", onHash, onConfirmed }: {
+/** The ETH ↔ MUSEGOD trade panel of the MUSEGOD page. */
+export default function MusegodTradePanel({ config, musegod, onHash }: {
   config: RuntimeConfig | null;
   musegod: MusegodState;
-  title?: string;
-  id?: string;
-  titleId?: string;
-  className?: string;
-  /** Prefixes the controls' accessible names when the panel shares a page with another trade panel. */
-  name?: string;
   onHash?: (hash: Hash | null) => void;
-  onConfirmed?: () => void;
 }) {
   const wallet = useWallet(), generation = useRef(0);
   const { info, infoError, revision, refresh } = musegod;
@@ -137,7 +129,6 @@ export default function MusegodTradePanel({ config, musegod, title = `Trade ${MU
         setConfirmed(true);
         setProgress("Transaction confirmed");
         refresh();
-        onConfirmed?.();
       }
     } catch (failure) {
       if (request === generation.current) {
@@ -155,9 +146,9 @@ export default function MusegodTradePanel({ config, musegod, title = `Trade ${MU
   const blockReason = info?.tradeBlockReason || config?.blockReason ||
     (!info ? infoError ? "Token verification is unavailable. Refresh to retry." : "Loading token verification…" : null);
   return (
-    <section className={`card trade-panel${className ? ` ${className}` : ""}`} id={id} aria-labelledby={titleId}>
-      <div className="trade-panel-heading"><h2 id={titleId} className="card-title">{title}</h2><span className="pill">ETH ↔ MUSEGOD</span></div>
-      <div className="trade-tabs" role="group" aria-label={name ? `${name} trade side` : "Trade side"}>
+    <section className="card trade-panel" id="trade" aria-labelledby="musegod-trade-title">
+      <div className="trade-panel-heading"><h2 id="musegod-trade-title" className="card-title">Trade {MUSEGOD.symbol}</h2><span className="pill">ETH ↔ MUSEGOD</span></div>
+      <div className="trade-tabs" role="group" aria-label="Trade side">
         <button type="button" aria-pressed={side === "buy"} className={side === "buy" ? "active" : ""} disabled={busy} onClick={() => setSide("buy")}>Buy</button>
         <button type="button" aria-pressed={side === "sell"} className={side === "sell" ? "active sell" : ""} disabled={busy} onClick={() => setSide("sell")}>Sell</button>
       </div>
@@ -166,7 +157,7 @@ export default function MusegodTradePanel({ config, musegod, title = `Trade ${MU
       <label className="trade-box pay">
         <span className="trade-box-head"><span>You pay <b>{inputSymbol}</b></span>
           <span className="balance">Balance: <b className="musegod-amount" title={exactAmount(balance)}>{amountText(balance)} {inputSymbol}</b></span></span>
-        <input aria-label={name ? `${name} trade input amount` : "Trade input amount"} inputMode="decimal" value={amount} disabled={busy} placeholder="0.00" onChange={(event) => setAmount(event.target.value)} />
+        <input aria-label="Trade input amount" inputMode="decimal" value={amount} disabled={busy} placeholder="0.00" onChange={(event) => setAmount(event.target.value)} />
       </label>
       {side === "sell" && <div className="quick-amounts">
         {[25, 50, 75, 100].map((percent) => <button type="button" key={percent} disabled={busy || balance === null}
@@ -175,7 +166,7 @@ export default function MusegodTradePanel({ config, musegod, title = `Trade ${MU
       <div className="trade-arrow" aria-hidden="true"><ArrowDown size={16} /></div>
       <div className="trade-box receive"><span className="trade-box-head"><span>You receive (estimated) <b>{outputSymbol}</b></span></span>
         <strong className="musegod-amount" title={exactAmount(quote?.amountOut ?? null)}>{amountText(quote?.amountOut ?? null)}</strong></div>
-      <SlippageControl value={slippage} disabled={busy} onChange={setSlippage} label={name ? `${name} maximum trade slippage` : undefined} />
+      <SlippageControl value={slippage} disabled={busy} onChange={setSlippage} />
       {quote && <dl className="rows boxed quote-summary">
         <div><dt>Minimum received</dt><dd className="musegod-amount" title={exactAmount(quote.minAmountOut)}>{amountText(quote.minAmountOut)} {outputSymbol}</dd></div>
         <div><dt>Quote expires in</dt><dd>{Math.max(0, Math.ceil((quote.expiresAt - clock) / 1000))} seconds</dd></div>
@@ -197,11 +188,4 @@ export default function MusegodTradePanel({ config, musegod, title = `Trade ${MU
       <button type="button" className="text-button full" disabled={busy} onClick={refresh}><RefreshCw size={13} /> Refresh token verification and balances</button>
     </section>
   );
-}
-
-/** A MUSEGOD-paired coin's page: buy MUSEGOD with ETH before buying the coin. */
-export function GetMusegodPanel({ config, onConfirmed }: { config: RuntimeConfig | null; onConfirmed: () => void }) {
-  const musegod = useMusegodInfo(config);
-  return <MusegodTradePanel config={config} musegod={musegod} title={`Get ${MUSEGOD.symbol} with ETH first`} id="get-musegod" titleId="get-musegod-title"
-    className="musegod-acquire" name={MUSEGOD.symbol} onConfirmed={onConfirmed} />;
 }

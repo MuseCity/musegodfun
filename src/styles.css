@@ -630,15 +630,13 @@ dialog.modal[open] { display: flex; flex-direction: column; gap: 16px; }
 
 /* Trade panel */
 .trade-panel { position: sticky; top: 24px; gap: 12px; }
-/* A coin page's right column: an optional MUSEGOD panel above the sticky trade panel. */
-.trade-column { display: flex; flex-direction: column; gap: 24px; min-width: 0; align-self: stretch; }
-.trade-column > .musegod-acquire { position: static; }
-.trade-status:empty { margin-top: -12px; }
+/* "Pay with: ETH | <pair>" on a pair-asset coin's buy side, sized for low vision like the money warnings. */
+.pay-with { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; font-size: 14px; line-height: 20px; font-weight: 600; }
+.pay-with .segmented button { min-height: 36px; padding: 0 16px; font-size: 14px; line-height: 20px; }
+.trade-received { margin: 0; font-size: 14px; line-height: 20px; font-weight: 600; color: var(--ink); }
 @media (max-width: 1179px) {
   .detail-layout { grid-template-columns: minmax(0, 1fr); }
   .detail-layout > .trade-panel { grid-row: 1; position: static; }
-  .detail-layout > .trade-column { grid-row: 1; align-self: start; }
-  .trade-column > .trade-panel { position: static; }
 }
 .trade-panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .trade-tabs { display: flex; gap: 4px; padding: 4px; border-radius: 14px; background: var(--surface-sunken); }

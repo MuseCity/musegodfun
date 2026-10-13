@@ -9,7 +9,7 @@ export function clientBucket(raw: string): string {
   const words = [...a, ...Array(Math.max(0, 8-a.length-b.length)).fill("0"), ...b];
   return words.slice(0, 4).map(word => parseInt(word, 16).toString(16)).join(":") + "::/64";
 }
-export const expensiveRoute = (path: string) => /\/(?:launch\/(?:prepare|simulate)|launch-fee-quote|first-buy\/(?:prices|quote)|token-images)$/.test(path.split("?")[0].replace(/\/+$/, "").toLowerCase());
+export const expensiveRoute = (path: string) => /\/(?:launch\/(?:prepare|simulate)|launch-fee-quote|first-buy\/(?:prices|quote)|trade\/eth-quote|token-images)$/.test(path.split("?")[0].replace(/\/+$/, "").toLowerCase());
 export type IngressClass = "read" | "workflow" | "recovery" | "upload";
 /** Separate pools keep long-running or abusive work from starving short page
  * reads or receipt recovery: every pool needs several sources to fill, and a
@@ -56,7 +56,8 @@ export class IngressLimiter {
     if (expensiveRoute(path)) row.expensive++;
     if (kind === "recovery") row.recovery++;
     const normalized = path.split("?")[0].replace(/\/+$/, "").toLowerCase();
-    const workflow = /\/(?:launch\/(?:prepare|simulate)|first-buy\/quote)$/.test(normalized);
+    // An ETH-buy quote is a page read (its ingress class), challenged and capped like a first-buy quote.
+    const workflow = /\/(?:launch\/(?:prepare|simulate)|first-buy\/quote|trade\/eth-quote)$/.test(normalized);
     const upload = normalized.endsWith("/token-images");
     row.riskTimes = row.riskTimes.filter((time) => time > now - 300_000);
     row.uploadTimes = row.uploadTimes.filter((time) => time > now - 300_000);
