@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import FeeBreakdown from "../src/components/FeeBreakdown";
+import FeeBreakdown, { FeeSplitBar } from "../src/components/FeeBreakdown";
 import { TRADING_FEE_BPS } from "../src/lib/trading-fee";
 
 const render = (policy?: string) => renderToStaticMarkup(createElement(FeeBreakdown, { policy }));
@@ -68,4 +68,15 @@ test("verified rates display independently of an unknown revenue policy", () => 
     assert.doesNotMatch(html, /Net fee distribution|70%|30%/);
     assert.match(render(policy), /trading fee has not been verified here/);
   }
+});
+
+test("an NFT coin's fee display names the NFT treasury, never a creator", () => {
+  const breakdown = renderToStaticMarkup(createElement(FeeBreakdown, { policy: "creator-70-musegod-v2", tradingFeeBps: 100, creatorLabel: "NFT treasury" }));
+  assert.match(breakdown, /<dt>NFT treasury<\/dt><dd>70%<\/dd>/);
+  assert.match(breakdown, /<dt>NFT treasury<\/dt><dd>66\.5%<\/dd>/);
+  assert.doesNotMatch(breakdown, /<dt>Creator<\/dt>/);
+  const bar = renderToStaticMarkup(createElement(FeeSplitBar, { policy: "creator-70-musegod-v2", tradingFeeBps: 100, creatorLabel: "NFT treasury" }));
+  assert.match(bar, /<\/i>NFT treasury<\/dt><dd>0\.665%<\/dd>/);
+  assert.doesNotMatch(bar, />Creator</);
+  assert.match(renderToStaticMarkup(createElement(FeeSplitBar, { policy: "creator-70-musegod-v2", tradingFeeBps: 100 })), /<\/i>Creator<\/dt>/);
 });

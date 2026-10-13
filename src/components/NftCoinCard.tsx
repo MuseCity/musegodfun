@@ -62,6 +62,8 @@ export function NftTreasuryCard({ config, nft, coins, coin, navigate }: {
   const [lock, setLock] = useState<{ lockedUntil: number; locked: boolean } | null>(null), [lockError, setLockError] = useState("");
   const [busy, setBusy] = useState(""), [progress, setProgress] = useState(""), [error, setError] = useState("");
   const [hash, setHash] = useState<Hex | null>(null);
+  // Code seen on-chain after a confirmed action: the server keeps a clean treasury view for 15 s, so Deploy and Activate never reappear.
+  const [onChain, setOnChain] = useState({ vault: false, treasury: false });
   const [withdrawAmounts, setWithdrawAmounts] = useState<Record<string, string>>({});
   const assets = [...new Map(coins.flatMap((entry) => [entry.address, entry.quoteAddress]).map((token) => [token.toLowerCase(), token])).values()];
   const [depositChoice, setDepositChoice] = useState(""), [depositAmount, setDepositAmount] = useState("");
@@ -84,7 +86,7 @@ export function NftTreasuryCard({ config, nft, coins, coin, navigate }: {
       .then((next) => { if (active) setStatus(next); }, (cause) => { if (active) setStatusError(errorMessage(cause)); });
     return () => { active = false; };
   }, [key, account, revision]);
-  const deployed = view?.treasuryDeployed === true;
+  const vaultDeployed = !!view?.vaultDeployed || onChain.vault, deployed = !!view?.treasuryDeployed || onChain.treasury;
   useEffect(() => {
     let active = true;
     setLock(null); setLockError("");
@@ -95,8 +97,14 @@ export function NftTreasuryCard({ config, nft, coins, coin, navigate }: {
   }, [key, deployed, revision]);
 
   const owner = !!account && !!status?.owner && sameAddress(status.owner, account);
-  const locked = !!lock?.locked;
-  const canSign = !!account && config.writesEnabled && wallet.chainId === config.chainId && !busy;
+  // Tokens sent to the treasury of a burned token or a non-ERC-721 could never be withdrawn.
+  const usable = !!status?.erc721 && !!status.owner, holderless = !!status && !usable;
+  // Withdraw and Lock wait for a successful lock read.
+  const locked = !!lock?.locked, lockKnown = lock !== null;
+  const signBlock = !account ? "" : !config.writesEnabled ? config.blockReason || "Transactions are currently disabled."
+    : wallet.chainId !== config.chainId ? `Switch your wallet to ${networkName(config)} to use these actions.` : "";
+  const canSign = !!account && !signBlock && !busy;
+  const retry = () => setRevision((n) => n + 1);
   async function run(label: string, build: () => Promise<Tx[]> | Tx[]) {
     setBusy(label); setError(""); setHash(null);
     try {
@@ -108,12 +116,18 @@ export function NftTreasuryCard({ config, nft, coins, coin, navigate }: {
         }, { nft }));
       }
       setProgress(`${label}: confirmed.`);
+      try {
+        const client = transactionClient(config.chainId, config);
+        const [vaultCode, treasuryCode] = await Promise.all([vault ? client.getCode({ address: vault }) : undefined, client.getCode({ address: treasury })]);
+        const hasCode = (code: Hex | undefined) => !!code && code !== "0x";
+        setOnChain((current) => ({ vault: current.vault || hasCode(vaultCode), treasury: current.treasury || hasCode(treasuryCode) }));
+      } catch { /* The next refresh reports the deployment. */ }
       setRevision((n) => n + 1);
     } catch (cause) {
       setError(errorMessage(cause)); setProgress("");
     } finally { setBusy(""); }
   }
-  const sweep = () => run("Sweep fees", () => [...(view?.vaultDeployed ? [] : [deployVaultTx(factory!, nft)]),
+  const sweep = () => run("Sweep fees", () => [...(vaultDeployed ? [] : [deployVaultTx(factory!, nft)]),
     sweepTx(vault!, coins.map((entry) => entry.poolId), assets)]);
   const lockFor = (days: number) => run("Lock treasury", async () => {
     const block = await transactionClient(config.chainId, config).getBlock();
@@ -124,10 +138,10 @@ export function NftTreasuryCard({ config, nft, coins, coin, navigate }: {
   const explorer = explorerFor(config);
   const pending = (view?.pendingFees ?? []).flatMap((entry) => {
     const coinOf = assetOf(entry.token, coins);
-    if ("error" in entry) return [{ key: entry.token, label: coinOf.symbol, text: "Fee preview unavailable" }];
+    if ("error" in entry) return [{ key: entry.token, label: `${coinOf.symbol} pool`, text: "Fee preview unavailable" }];
     return ([["currency0", "fees0"], ["currency1", "fees1"]] as const).map(([currency, field]) => {
       const asset = assetOf(entry.poolKey[currency], coins);
-      return { key: `${entry.token}:${currency}`, label: `${coinOf.symbol} pool`, text: `${amountText(BigInt(entry.trade[field]) + BigInt(entry.lp[field]), asset.decimals)} ${asset.symbol}` };
+      return { key: `${entry.token}:${currency}`, label: `${coinOf.symbol} pool · ${asset.symbol}`, text: amountText(BigInt(entry.trade[field]) + BigInt(entry.lp[field]), asset.decimals) };
     });
   });
   const lockText = !deployed ? "Not active yet" : lockError ? "Unavailable" : !lock ? "Reading…" : locked ? `Locked until ${dateText(lock.lockedUntil)}` : "Unlocked";
@@ -153,7 +167,7 @@ export function NftTreasuryCard({ config, nft, coins, coin, navigate }: {
             : coin.nftVerification?.status === "verified" ? "Verified" : "Unverified"}</dd></div>}
           {muse && status?.agentId && <div><dt>Agent</dt><dd className="sans">
             <a href={`${MUSE_SITE}/${nft.tokenId}.json`} target="_blank" rel="noreferrer">Agent #{status.agentId} (ERC-8004) ↗</a></dd></div>}
-          <div><dt>Holder</dt><dd>{status?.owner ? <AddressLink address={status.owner} config={config} /> : statusError ? "Unavailable" : "Reading…"}</dd></div>
+          <div><dt>Holder</dt><dd>{status?.owner ? <AddressLink address={status.owner} config={config} /> : statusError ? "Unavailable" : status ? "None" : "Reading…"}</dd></div>
           <div><dt>Fee vault</dt><dd>{vault ? <AddressLink address={vault} config={config} /> : "Not deployed"}</dd></div>
           <div><dt>Treasury</dt><dd><AddressLink address={treasury} config={config} /></dd></div>
           <div><dt>Treasury lock</dt><dd className="sans">{locked ? <span className="nft-warning">{lockText}</span> : lockText}</dd></div>
@@ -161,6 +175,9 @@ export function NftTreasuryCard({ config, nft, coins, coin, navigate }: {
       </div>
       <p className="nft-warning">Creator fees go to this NFT's treasury, and whoever holds the NFT controls it. {OWNERSHIP_CYCLE}</p>
       {!factory && <p className="nft-warning" role="note">The fee vault is not deployed on this network yet.</p>}
+      {holderless && <p className="nft-warning" role="note">This NFT has no holder, so its treasury cannot be used.</p>}
+      {statusError && <div className="notice error" role="alert"><TriangleAlert size={17} aria-hidden="true" /><span>The NFT holder could not be read: {statusError}
+        <button type="button" disabled={!!busy} onClick={retry}>Retry</button></span></div>}
       {viewError && <div className="notice error" role="alert"><TriangleAlert size={17} aria-hidden="true" /><span>Treasury balances could not be loaded: {viewError}</span></div>}
       {factory && <div className="nft-balances">
         <h3 className="nft-subtitle">Treasury balances</h3>
@@ -179,42 +196,47 @@ export function NftTreasuryCard({ config, nft, coins, coin, navigate }: {
 
       <div className="nft-actions">
         {!account && <button type="button" className="secondary" disabled={wallet.connecting} onClick={() => void wallet.connect()}>Connect wallet</button>}
+        {signBlock && <p className="nft-warning" role="status">{signBlock}</p>}
         {factory && <div className="nft-action">
           <h3 className="nft-subtitle"><Vault size={15} aria-hidden="true" /> Sweep</h3>
-          <p className="hint">Anyone can claim this NFT's creator fees into its treasury.{view && !view.vaultDeployed ? " The first sweep also deploys the fee vault." : ""}</p>
+          <p className="hint">Anyone can claim this NFT's creator fees into its treasury.{view && !vaultDeployed ? " The first sweep also deploys the fee vault." : ""}</p>
           <button type="button" className="primary" disabled={!canSign || !view || !coins.length} onClick={() => void sweep()}>Sweep fees to the treasury</button>
         </div>}
-        {view && !view.treasuryDeployed && <div className="nft-action">
+        {view && !deployed && usable && <div className="nft-action">
           <h3 className="nft-subtitle">Activate treasury</h3>
           <p className="hint">Creates the NFT's Tokenbound account so its holder can use it. Two wallet confirmations.</p>
           <button type="button" className="secondary" disabled={!canSign} onClick={() => void run("Activate treasury", () => activateTreasuryTxs(nft))}>Activate treasury</button>
         </div>}
         {deployed && <div className="nft-action">
           <h3 className="nft-subtitle"><LockKeyhole size={15} aria-hidden="true" /> Withdraw and lock</h3>
-          {!owner ? <p className="nft-warning">{status ? HOLDER_ONLY : "Checking the NFT holder…"}</p>
-            : locked ? <p className="nft-warning">Locked until {dateText(lock!.lockedUntil)}. Withdraw and Lock open after that date.</p> : null}
+          {!owner ? (statusError ? null : <p className="nft-warning">{status ? HOLDER_ONLY : "Checking the NFT holder…"}</p>)
+            : locked ? <p className="nft-warning">Locked until {dateText(lock!.lockedUntil)}. Withdraw and Lock open after that date.</p>
+            : lockError ? <div className="notice error" role="alert"><TriangleAlert size={17} aria-hidden="true" /><span>The treasury lock could not be read, so Withdraw and
+              Lock stay closed: {lockError} <button type="button" disabled={!!busy} onClick={retry}>Retry</button></span></div>
+            : !lockKnown ? <p className="hint" role="status">Reading the treasury lock…</p> : null}
           {owner && view?.balances.filter((row) => BigInt(row.amount) > 0n).map((row) => {
             const asset = assetOf(row.token, coins), id = `withdraw-${key}-${row.token}`;
             const value = withdrawAmounts[row.token] ?? formatUnits(BigInt(row.amount), asset.decimals);
             return <div className="nft-row" key={row.token}>
-              <label className="field" htmlFor={id}><span className="field-label">Withdraw {row.symbol}</span>
-                <input id={id} className="input mono" inputMode="decimal" value={value} disabled={!!busy || locked}
+              <label className="field" htmlFor={id}><span className="field-label">{row.symbol} amount to withdraw</span>
+                <input id={id} className="input mono" inputMode="decimal" value={value} disabled={!!busy || locked || !lockKnown}
                   onChange={(event) => setWithdrawAmounts((current) => ({ ...current, [row.token]: event.target.value }))} /></label>
-              <button type="button" className="secondary" disabled={!canSign || locked} onClick={() => void run(`Withdraw ${row.symbol}`, () =>
+              <button type="button" className="secondary" aria-label={`Withdraw ${row.symbol}`} disabled={!canSign || locked || !lockKnown} onClick={() => void run(`Withdraw ${row.symbol}`, () =>
                 [withdrawTx(nft, row.token, account!, parseAmount(value, asset.decimals))])}>Withdraw</button>
             </div>;
           })}
           {owner && <>
             <p className="nft-warning">{LOCK_COPY}</p>
             <div className="button-row" role="group" aria-label="Lock the treasury">
-              {LOCK_PRESET_DAYS.map((days) => <button type="button" key={days} className="secondary" disabled={!canSign || locked}
+              {LOCK_PRESET_DAYS.map((days) => <button type="button" key={days} className="secondary" disabled={!canSign || locked || !lockKnown}
                 onClick={() => void lockFor(days)}>Lock for {days} {days === 1 ? "day" : "days"}</button>)}
             </div>
           </>}
         </div>}
-        {view && depositToken && <div className="nft-action">
+        {view && depositToken && usable && <div className="nft-action">
           <h3 className="nft-subtitle">Deposit to treasury</h3>
           <p className="hint">Any wallet can add tokens, for example to move a first buy into the NFT.</p>
+          <p className="nft-warning">Only the NFT holder can withdraw deposits.</p>
           <div className="nft-row">
             <label className="field" htmlFor={`deposit-asset-${key}`}><span className="field-label">Deposit asset</span>
               <select id={`deposit-asset-${key}`} className="input" value={depositToken} disabled={!!busy} onChange={(event) => setDepositChoice(event.target.value)}>

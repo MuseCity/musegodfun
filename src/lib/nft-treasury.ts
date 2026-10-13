@@ -47,7 +47,8 @@ function exactCall(abi: Abi, data: Hex) {
  * - registry.createAccount(proxy, salt 0, this NFT) and treasury.initialize(implementation);
  * - treasury.lock(until), and treasury.execute as a plain call (operation 0) that withdraws to `account`: native ETH with no calldata, or
  *   an ERC-20 transfer(account, amount) with no ETH. The account itself only lets its owner execute or lock;
- * - an ERC-20 transfer(treasury, amount) to any token (a deposit). */
+ * - an ERC-20 transfer(treasury, amount) to any token (a deposit), except the NFT's own contract: a legacy collection with
+ *   transfer(address,uint256) would move the NFT into its own treasury, locking it forever. */
 export function isNftTreasuryTx(config: Pick<RuntimeConfig, "mode" | "deploymentChainId" | "nftMode">, nft: NftRef,
   tx: { to: Address; data: Hex; value: bigint }, account: Address): boolean {
   if (tx.value !== 0n || nft.chainId !== deploymentChain(config)) return false;
@@ -67,6 +68,7 @@ export function isNftTreasuryTx(config: Pick<RuntimeConfig, "mode" | "deployment
   if (sameAddress(tx.to, ERC6551_REGISTRY)) return same(tx.data, activateTreasuryTxs(nft)[0].data);
   if (factory && sameAddress(tx.to, factory)) return same(tx.data, deployVaultTx(factory, nft).data);
   if (factory && sameAddress(tx.to, vaultFor(nft, factory))) return exactCall(vaultAbi, tx.data)?.functionName === "sweep";
+  if (sameAddress(tx.to, nft.contract)) return false;
   const transfer = exactCall(erc20Abi, tx.data);
   return transfer?.functionName === "transfer" && sameAddress(transfer.args[0] as Address, treasury);
 }
@@ -78,7 +80,7 @@ const MULTICALL3 = robinhood.contracts.multicall3.address;
 /** The account's lock, read in one call through the RPC proxy. */
 export async function readTreasuryLock(client: MulticallReader, nft: NftRef): Promise<{ lockedUntil: number; locked: boolean }> {
   const treasury = treasuryFor(nft);
-  const [until, locked] = await client.multicall({ allowFailure: true, multicallAddress: MULTICALL3, contracts: [
+  const [until, locked] = await client.multicall({ allowFailure: true, multicallAddress: MULTICALL3, batchSize: 0, contracts: [
     { address: treasury, abi: accountAbi, functionName: "lockedUntil" }, { address: treasury, abi: accountAbi, functionName: "isLocked" }] });
   if (until?.status !== "success" || locked?.status !== "success") throw new Error("The treasury lock could not be read.");
   return { lockedUntil: Number(until.result), locked: locked.result === true };
@@ -99,7 +101,8 @@ export async function heldNftCoins(client: MulticallReader, tokens: TokenRecord[
   }
   const entries = [...byNft.values()], capped = nftCoins.length > NFT_OWNER_SCAN_LIMIT;
   if (!entries.length) return { held: [], capped };
-  const owners = await client.multicall({ allowFailure: true, multicallAddress: MULTICALL3, contracts: entries.map(({ nft }) =>
+  // batchSize 0: one eth_call, never viem's default 1024-byte chunks (8 requests for 200 NFTs).
+  const owners = await client.multicall({ allowFailure: true, multicallAddress: MULTICALL3, batchSize: 0, contracts: entries.map(({ nft }) =>
     ({ address: nft.contract, abi: erc721Abi, functionName: "ownerOf", args: [BigInt(nft.tokenId)] })) });
   return { held: entries.filter((_, index) => {
     const owner = owners[index];

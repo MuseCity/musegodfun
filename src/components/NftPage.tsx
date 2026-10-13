@@ -4,7 +4,7 @@ import type { Address } from "viem";
 import { chainApi } from "../lib/api";
 import { deploymentChain, shortAddress, type RuntimeConfig, type TokenRecord } from "../lib/config";
 import { isMuse, nftKey, type NftRef } from "../lib/nft-mode";
-import { NFT_OWNER_SCAN_LIMIT, heldNftCoins } from "../lib/nft-treasury";
+import { NFT_OWNER_SCAN_LIMIT, heldNftCoins, listedNftCoin } from "../lib/nft-treasury";
 import { nftPath, tokenPath } from "../lib/network";
 import { errorMessage } from "../lib/validation";
 import { transactionClient, useWallet } from "../lib/wallet";
@@ -64,11 +64,11 @@ export default function NftPage({ nft, config, navigate }: { nft: NftRef; config
   );
 }
 
-/** Rewards: the NFTs this wallet holds among the listed NFT coins, read with one `ownerOf` multicall over the first 200. */
+/** Rewards: the NFTs this wallet holds among the listed NFT coins (not rejected, not hidden), read with one `ownerOf` multicall over the first 200. */
 export function MyNftTreasuries({ tokens, config, navigate }: { tokens: TokenRecord[]; config: RuntimeConfig | null; navigate: (path: string) => void }) {
   const wallet = useWallet(), account = wallet.account;
   const [result, setResult] = useState<{ held: { nft: NftRef; coins: TokenRecord[] }[]; capped: boolean } | null>(null), [error, setError] = useState("");
-  const nftCoins = tokens.filter((token) => token.nft);
+  const nftCoins = tokens.filter(listedNftCoin);
   const scope = nftCoins.slice(0, NFT_OWNER_SCAN_LIMIT).map((token) => `${token.address}:${nftKey(token.nft!)}`).join(",");
   useEffect(() => {
     let active = true;

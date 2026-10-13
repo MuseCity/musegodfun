@@ -4,9 +4,11 @@ import { LP_FEE_PPM, TRADING_FEE_BPS } from "../lib/trading-fee";
 
 const percent = (bps: number) => `${bps / 100}%`;
 
-export default function FeeBreakdown({ policy, tradingFeeBps, children }: {
+// `creatorLabel`: an NFT coin's creator share goes to the NFT's treasury, so it is never labelled "Creator".
+export default function FeeBreakdown({ policy, tradingFeeBps, creatorLabel = "Creator", children }: {
   policy: string | undefined;
   tradingFeeBps?: number;
+  creatorLabel?: string;
   children?: ReactNode;
 }) {
   const shares = feePolicyFor(policy);
@@ -19,7 +21,7 @@ export default function FeeBreakdown({ policy, tradingFeeBps, children }: {
     {children}
   </div>;
   const gross = [
-    { label: "Creator", share: shares.creator },
+    { label: creatorLabel, share: shares.creator },
     { label: "MUSEGOD buyback budget", share: shares.buyback },
     { label: "Platform operating budget", share: shares.operations },
     { label: "Doppler", share: shares.protocol },
@@ -35,7 +37,7 @@ export default function FeeBreakdown({ policy, tradingFeeBps, children }: {
         <i className="platform" style={{ flex: shares.platformNet }} />
       </div>
       <dl className="fee-legend">
-        <div><dt>Creator</dt><dd>{percent(shares.creatorNet)}</dd></div>
+        <div><dt>{creatorLabel}</dt><dd>{percent(shares.creatorNet)}</dd></div>
         <div><dt>Platform</dt><dd>{percent(shares.platformNet)}</dd></div>
       </dl>
     </section>
@@ -64,12 +66,12 @@ export default function FeeBreakdown({ policy, tradingFeeBps, children }: {
 
 // Gross policy shares applied to a verified trading fee: where each trade's
 // fee goes, before the separate 0.05% LP fee. Unknown inputs render nothing.
-export function FeeSplitBar({ policy, tradingFeeBps }: { policy: string | undefined; tradingFeeBps?: number }) {
+export function FeeSplitBar({ policy, tradingFeeBps, creatorLabel = "Creator" }: { policy: string | undefined; tradingFeeBps?: number; creatorLabel?: string }) {
   const shares = feePolicyFor(policy);
   if (!shares || tradingFeeBps === undefined || !(TRADING_FEE_BPS as readonly number[]).includes(tradingFeeBps)) return null;
   const of = (share: number) => `${Number((tradingFeeBps * share / 1_000_000).toFixed(4))}%`;
   const parts = [
-    { key: "creator", label: "Creator", share: shares.creator },
+    { key: "creator", label: creatorLabel, share: shares.creator },
     { key: "buyback", label: "MUSEGOD buyback budget", share: shares.buyback },
     { key: "operations", label: "Operations", share: shares.operations },
     { key: "protocol", label: "Doppler", share: shares.protocol },

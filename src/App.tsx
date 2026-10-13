@@ -3098,7 +3098,7 @@ function TokenPage({
             <p className="body-copy">
               {token.description || "The creator has not added a description yet."}
             </p>
-            <FeeSplitBar policy={token.feePolicy} tradingFeeBps={token.tradingFeeBps} />
+            <FeeSplitBar policy={token.feePolicy} tradingFeeBps={token.tradingFeeBps} creatorLabel={token.nft ? "NFT treasury" : undefined} />
             <div className="about-facts">
               <span>Pool ID <code title={token.poolId}>{shortAddress(token.poolId)}</code></span>
               <span>Supply <span className="mono">1,000,000,000</span></span>
@@ -3151,7 +3151,7 @@ function TokenPage({
             </details>
             <details className="disclosure boxed">
               <summary>How fees are distributed</summary>
-              <FeeBreakdown policy={token.feePolicy} tradingFeeBps={token.tradingFeeBps}>
+              <FeeBreakdown policy={token.feePolicy} tradingFeeBps={token.tradingFeeBps} creatorLabel={token.nft ? "NFT treasury" : undefined}>
                 <Link href="/buyback" className="mechanism-link">View the buyback policy and status <ArrowUpRight size={14} /></Link>
               </FeeBreakdown>
             </details>
@@ -3228,6 +3228,10 @@ function TokenPage({
               />
             )}
           </label>
+          {/* Always present, so the polite announcement fires when the MUSEGOD panel appears above, possibly off-screen. */}
+          <div className="trade-status" role="status">{needsMusegod && balance !== null && <p className="nft-warning">
+            You hold <NumberText value={balance} decimals={stock.decimals} /> MUSEGOD. <a href="#get-musegod">Get MUSEGOD with ETH first</a>
+          </p>}</div>
           <div className="quick-amounts">
             {side === "buy"
               ? ["1", "5", "10"].map(

@@ -633,6 +633,7 @@ dialog.modal[open] { display: flex; flex-direction: column; gap: 16px; }
 /* A coin page's right column: an optional MUSEGOD panel above the sticky trade panel. */
 .trade-column { display: flex; flex-direction: column; gap: 24px; min-width: 0; align-self: stretch; }
 .trade-column > .musegod-acquire { position: static; }
+.trade-status:empty { margin-top: -12px; }
 @media (max-width: 1179px) {
   .detail-layout { grid-template-columns: minmax(0, 1fr); }
   .detail-layout > .trade-panel { grid-row: 1; position: static; }

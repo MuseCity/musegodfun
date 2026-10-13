@@ -1,8 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { concat, decodeFunctionData, encodeFunctionData, erc20Abi, parseAbi, type Address, type Hex } from "viem";
+import { concat, createPublicClient, custom, decodeFunctionData, encodeAbiParameters, encodeFunctionData, encodeFunctionResult, erc20Abi, multicall3Abi, parseAbi,
+  type Address, type Hex } from "viem";
 import { sweepTx, deployVaultTx, activateTreasuryTxs, withdrawTx, lockTx, depositTx, isNftTreasuryTx, heldNftCoins, lockTarget, nftBadge,
-  NFT_OWNER_SCAN_LIMIT } from "../src/lib/nft-treasury";
+  readTreasuryLock, NFT_OWNER_SCAN_LIMIT } from "../src/lib/nft-treasury";
 import { MUSES, treasuryFor, vaultFor, ERC6551_REGISTRY, TOKENBOUND_V3_PROXY, TOKENBOUND_V3_IMPLEMENTATION, type NftRef } from "../src/lib/nft-mode";
 import { allocateFeeIncome, FEE_POLICY } from "../src/lib/fee-policy";
 import type { RuntimeConfig } from "../src/lib/config";
@@ -98,6 +99,9 @@ test("the signing allowlist refuses a wrong vault, token id, implementation, rec
   refused({ to: token, data: encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [treasuryFor(nft), 7n] }) }, "approve to the token");
   refused({ to: treasuryFor(nft), data: "0xdeadbeef" }, "unknown selector to the treasury");
   refused({ to: token, data: "0x" }, "empty calldata");
+  // A legacy collection with transfer(address,uint256) would send the NFT into its own treasury: the ownership cycle.
+  refused({ to: nft.contract, data: encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [treasuryFor(nft), 1n] }) }, "the NFT into its treasury");
+  refused({ to: nft.contract.toLowerCase() as Address, data: depositTx(nft, nft.contract, 1n).data }, "the NFT into its treasury, lower case");
   refused({ to: ERC6551_REGISTRY, data: concat([activateTreasuryTxs(nft)[0].data, "0x00"]) }, "trailing bytes");
   refused({ to: treasuryFor(nft), data: concat([lockTx(nft, 1_800_000_000).data, "0x00"]) }, "lock with trailing bytes");
   refused({ to: token, data: concat([depositTx(nft, token, 7n).data, `0x${"00".repeat(32)}`]) }, "deposit with trailing bytes");
@@ -131,6 +135,25 @@ test("the holder's NFT coins come from one ownerOf multicall over at most the fi
   const none = await heldNftCoins(client as never, [plain], holder);
   assert.deepEqual(none, { held: [], capped: false });
   assert.equal(calls.length, 1, "no NFT coins, no read");
+});
+
+test("200 ownerOf reads and the lock read each reach the RPC proxy as exactly one request", async () => {
+  let requests = 0;
+  const client = createPublicClient({ transport: custom({ async request({ method, params }: { method: string; params: [{ data: Hex }] }) {
+    requests++;
+    assert.equal(method, "eth_call");
+    const [calls] = decodeFunctionData({ abi: multicall3Abi, data: params[0].data }).args as unknown as [readonly { callData: Hex }[]];
+    return encodeFunctionResult({ abi: multicall3Abi, functionName: "aggregate3", result: calls.map(({ callData }) => ({ success: true,
+      returnData: callData.startsWith("0x6352211e") ? encodeAbiParameters([{ type: "address" }], [holder]) : encodeAbiParameters([{ type: "uint256" }], [0n]) })) });
+  } }) });
+  const coins = Array.from({ length: NFT_OWNER_SCAN_LIMIT }, (_, index) => syntheticToken({
+    address: `0x${(index + 1).toString(16).padStart(40, "0")}` as Address, nft: { chainId: 4663, contract: MUSES.contract, tokenId: String(index) } }));
+  const result = await heldNftCoins(client, coins, holder);
+  assert.equal(requests, 1, "one eth_call for 200 NFTs (no 1024-byte chunking)");
+  assert.equal(result.held.length, NFT_OWNER_SCAN_LIMIT);
+  requests = 0;
+  assert.deepEqual(await readTreasuryLock(client, nft), { lockedUntil: 0, locked: false });
+  assert.equal(requests, 1);
 });
 
 test("a lock ends the preset number of days after the latest block", () => {

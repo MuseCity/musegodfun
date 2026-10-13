@@ -48,7 +48,7 @@ export default function MusegodPage({ config, navigate }: {
           <div className="token-header-line">
             <span className="token-header-pair">${MUSEGOD.symbol} · WETH pair</span>
             <button type="button" className="copy-chip" aria-label={copied ? "Token contract address copied" : "Copy token contract address"} onClick={() => {
-              void navigator.clipboard.writeText(MUSEGOD.token).then(() => setCopied(true))
+              void navigator.clipboard.writeText(MUSEGOD.token).then(() => { setCopied(true); setCopyError(""); })
                 .catch(() => setCopyError("Copy failed. Copy the address from the contract details."));
             }}>{copied ? <Check size={14} /> : <Copy size={14} />}<span className="mono">{copied ? "Copied" : shortAddress(MUSEGOD.token)}</span></button>
             <span className="social-links"><a href={MUSEGOD.sourceUrl} target="_blank" rel="noreferrer">View on Pools ↗</a></span>
