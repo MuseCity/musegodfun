@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { getAddress, isAddress, type Address, type PublicClient } from "viem";
 import { loadEnvironment, redact, runtimeFromEnv } from "../server/config";
 import { LaunchpadService } from "../server/service";
-import { NftLaunchError, nftRegistrationStatus, type NftRegistrationStatus } from "../server/nft-launch";
+import { NftLaunchError, nftRegistrationStatus, type NftRegistrationStatus, type RegistrationFee } from "../server/nft-launch";
 import type { StoreBackend } from "../server/supabase-store";
 import { isMuse, nftKey } from "../src/lib/nft-mode";
 import type { LaunchFee } from "../src/lib/launch-fee";
@@ -29,18 +29,20 @@ export async function reverifyNftCoin(deps: NftReverifyDeps, address: Address): 
   if (!block || !/^\d+$/.test(block) || !creator) return { line: `${address}: ${before}, unchanged (no receipt block or creator)` };
   const nft = record.nft, key = nftKey(nft), { launchFee, ...rest } = record;
   // Muse coins launch free and registration never persists a fee on them, so `keepFee` stays false for them.
-  let fee: { ok: boolean } | undefined, keepFee = false;
+  let fee: RegistrationFee | undefined, keepFee = false;
   if (!isMuse(nft)) {
     if (before === "unverified") {
-      // Registration verified, and so consumed, this fee before it read control: `unverified` only means the control read failed.
-      // Checking it again against a rotated treasury or quote key would un-consume a real payment.
-      keepFee = !!launchFee; fee = { ok: keepFee };
+      // An `unverified` coin with a fee: registration verified, and so consumed, it before the control read failed. Checking it again
+      // against a rotated treasury or quote key would un-consume a real payment. Without one, the fee could not be confirmed within
+      // 10 minutes and was left unspent: a coin that consumed no payment never becomes verified, and is never rejected for it either.
+      if (!launchFee) return { line: `${address}: unverified, unchanged (no launch fee was verified; its payment stays unspent)` };
+      keepFee = true; fee = "paid";
     } else {
       // No status: the record may predate the verified-fee-only rule, so its fee is only a claim until it verifies now.
-      fee = { ok: false };
+      fee = "invalid";
       if (launchFee) {
-        try { await deps.assertUnusedLaunchFee(launchFee, creator, record.address); fee = { ok: true }; keepFee = true; }
-        catch (error) { if (!(error instanceof NftLaunchError)) return { line: `${address}: ${before}, unchanged (launch-fee check unavailable)` }; }
+        try { await deps.assertUnusedLaunchFee(launchFee, creator, record.address); fee = "paid"; keepFee = true; }
+        catch (error) { if (!(error instanceof NftLaunchError) || error.retryable) return { line: `${address}: ${before}, unchanged (launch-fee check unavailable)` }; }
       }
     }
   }

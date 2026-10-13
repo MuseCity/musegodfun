@@ -33,6 +33,15 @@ test("draft rules run before RPC and return stable codes", () => {
   assert.equal(code(() => assertNftDraftRules({ ...draft, nft: undefined, name: "MUSEGOD", symbol: "MG" }, 4663, true)), "NFT_RESERVED_NAME");
 });
 
+test("MUSEGOD is reserved for every launch, normal and NFT, on both chains, in any spelling the normalised check sees", () => {
+  for (const [chainId, enabled] of [[4663, true], [4663, false], [8453, false]] as const) {
+    for (const name of ["MUSEGOD", "musegod", " Muse God ", "muse\tgod", "MUSE-GOD", "m.u.s.e.g.o.d", "Muse_God!"])
+      assert.equal(code(() => assertNftDraftRules({ ...draft, nft: undefined, name, symbol: "MG" }, chainId, enabled)), "NFT_RESERVED_NAME", `${chainId} ${name}`);
+    assert.equal(code(() => assertNftDraftRules({ ...draft, nft: undefined, name: "Muse", symbol: "MUSEGOD" }, chainId, enabled)), "NFT_RESERVED_NAME");
+    assert.equal(code(() => assertNftDraftRules({ ...draft, nft: undefined, name: "Muse Gods", symbol: "MUSEGODS" }, chainId, enabled)), "ok", "only the exact name");
+  }
+});
+
 test("control is the owner or a delegate.xyz delegate; non-ERC-721 contracts are refused", async () => {
   const owner = holder, delegate = "0xBBBB000000000000000000000000000000000002" as Address, stranger = "0xCCCC000000000000000000000000000000000003" as Address;
   const client = { readContract: async ({ functionName, args }: { functionName: string; args: unknown[] }) => {

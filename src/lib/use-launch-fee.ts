@@ -8,8 +8,8 @@ import { transactions } from "./transactions";
 import { errorMessage } from "./validation";
 import { transactionClient, useWallet } from "./wallet";
 import {
-  LAUNCH_FEE_LOCK, createFeePoller, launchFeeAfterSendError, launchFeeEthTx, launchFeeOf, launchFeeStableTx, launchFeeStorageKey, migrateLaunchFee,
-  parseLaunchFeeRecord, resolveLaunchFee, type DraftLaunchFee, type FeeResolution, type LaunchFeeAttempt, type LaunchFeeQuote,
+  FEE_QUOTE_TOO_HIGH, LAUNCH_FEE_LOCK, createFeePoller, launchFeeAfterSendError, launchFeeEthTx, launchFeeOf, launchFeeStableTx, launchFeeStorageKey,
+  parseLaunchFeeRecord, resolveLaunchFee, saneFeeQuote, type DraftLaunchFee, type FeeResolution, type LaunchFeeAttempt, type LaunchFeeQuote,
   type LaunchFeeRecord, type LaunchFeeState, type NonceMemo,
 } from "./nft-client";
 
@@ -41,10 +41,9 @@ export function useLaunchFee(config: RuntimeConfig, account: Address | null, dra
   const visible = (forKey: string) => alive.current && forKey === latest.current.key;
   const refresh = () => setRevision((value) => value + 1);
 
-  // Load (moving an earlier build's per-draft record once), and keep the draft's fee equal to the paid record.
+  // Load, and keep the draft's fee equal to the paid record.
   useEffect(() => {
     if (!key || !account) { setRecord(null); return; }
-    try { migrateLaunchFee(localStorage, config, account); } catch { /* Storage is unavailable. */ }
     const saved = read(key), fee = latest.current.draftFee;
     setRecord(saved);
     if (saved?.state === "paid") { if (fee?.txHash !== saved.fee.txHash) latest.current.onFee(saved.fee); }
@@ -161,6 +160,8 @@ export function useLaunchFee(config: RuntimeConfig, account: Address | null, dra
     setNotice("");
     try {
       const { wei, expiresAt, mac } = await chainApi<LaunchFeeQuote>(deploymentChain(config), `/launch-fee-quote?payer=${account}`);
+      // A quote above the ceiling is never shown as "about $10"; the wallet would refuse it anyway.
+      if (!saneFeeQuote({ wei })) { if (alive.current) { setEthQuote(null); setNotice(FEE_QUOTE_TOO_HIGH); } return; }
       if (alive.current) setEthQuote({ wei, expiresAt, mac });
     } catch (cause) { if (alive.current) setNotice(errorMessage(cause)); }
   }

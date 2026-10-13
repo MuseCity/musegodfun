@@ -1,8 +1,8 @@
 import { encodeFunctionData, erc20Abi, formatUnits, TransactionNotFoundError, TransactionReceiptNotFoundError, type Address, type Hex,
   type PublicClient } from "viem";
 import { z } from "zod";
-import { deploymentChain, sameAddress, type RuntimeConfig } from "./config";
-import { LAUNCH_FEE_STABLE } from "./launch-fee";
+import { deploymentChain, sameAddress, type RuntimeConfig, type TokenRecord } from "./config";
+import { LAUNCH_FEE_MAX_WEI, LAUNCH_FEE_STABLE } from "./launch-fee";
 import { isMuse, type NftRef, type NftStatus } from "./nft-mode";
 import { chainApi } from "./api";
 import { launchIntentStorageKey } from "./launch-intent";
@@ -16,18 +16,22 @@ export function launchFeeStableTx(config: FeeConfig) {
   if (!stable || !config.treasury) throw new Error("The launch fee cannot be paid with a stablecoin on this network.");
   return { to: stable.address, data: encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [config.treasury, stable.amount] }), value: 0n as const };
 }
+export const FEE_QUOTE_TOO_HIGH = "The ETH price quote is too high to be safe. Pay with USDG, or try again later.";
+/** A quote the wallet may pay: at most LAUNCH_FEE_MAX_WEI. */
+export const saneFeeQuote = (quote: Pick<LaunchFeeQuote, "wei">) => BigInt(quote.wei) <= LAUNCH_FEE_MAX_WEI;
 export function launchFeeEthTx(config: FeeConfig, quote: LaunchFeeQuote) {
   if (!config.treasury) throw new Error("The platform treasury is not configured.");
+  if (!saneFeeQuote(quote)) throw new Error(FEE_QUOTE_TOO_HIGH);
   return { to: config.treasury, data: "0x" as const, value: BigInt(quote.wei) };
 }
-/** Exactly a launch-fee payment: the 10 USDG transfer above, or a plain transfer of exactly the quoted wei to the treasury.
- * The wallet signs nothing near it; an ETH payment without its quote is refused. */
+/** Exactly a launch-fee payment: the 10 USDG transfer above, or a plain transfer of exactly the quoted wei to the treasury, never above
+ * LAUNCH_FEE_MAX_WEI. The wallet signs nothing near it; an ETH payment without its quote is refused. */
 export function isLaunchFeeTx(config: FeeConfig, tx: { to: Address; data: Hex; value: bigint }, quote?: LaunchFeeQuote): boolean {
   try {
     const stable = launchFeeStableTx(config);
     if (sameAddress(tx.to, stable.to) && tx.data.toLowerCase() === stable.data.toLowerCase() && tx.value === 0n) return true;
   } catch { /* No stablecoin fee on this network. */ }
-  return !!quote && !!config.treasury && sameAddress(tx.to, config.treasury) && tx.data === "0x" && tx.value === BigInt(quote.wei);
+  return !!quote && saneFeeQuote(quote) && !!config.treasury && sameAddress(tx.to, config.treasury) && tx.data === "0x" && tx.value === BigInt(quote.wei);
 }
 /** The quoted ETH, rounded up to 6 decimals so the page never shows less than the wallet will send. */
 export function formatFeeEth(wei: string): string {
@@ -56,6 +60,20 @@ export function nftReviewBlocker(nftMode: boolean, draft: Pick<LaunchInput, "nft
   if (fee === "sending") return "A launch fee payment may have been sent. Check its status in the NFT step before you continue.";
   if (fee === "pending") return "Your $10 launch fee payment is still confirming. Review opens once it has two confirmations.";
   return "Pay the $10 launch fee for this NFT first.";
+}
+/** The $10 in a non-Muse NFT draft's Launch cost (spec §6.5): paid, or still due before launch. Empty for Muses and normal drafts. */
+export function nftLaunchFeeCost(draft: Pick<LaunchInput, "nft" | "launchFee">): string {
+  return draft.nft && !isMuse(draft.nft) ? `$10 launch fee (${draft.launchFee ? "paid" : "due before launch"})` : "";
+}
+/** Rewards: whose creator share it is. NFT coins pay theirs to the NFT's treasury, so a launcher whose coins are all NFT coins is told
+ * that instead of "you keep", and a launcher with a mix gets one more sentence. `share`: the creator share, as a percent. */
+export function rewardsShareCopy(coins: Pick<TokenRecord, "nft">[], share: string): { lede: string; tile: string; allNft: boolean } {
+  const nftCoins = coins.filter((coin) => coin.nft).length;
+  if (nftCoins && nftCoins === coins.length) return { allNft: true, tile: "NFT treasury share",
+    lede: `All your launches are NFT coins. NFT coins pay their ${share} creator share to the NFT's treasury, which the NFT's holder controls.` };
+  const normal = `You keep ${share} of every trading fee on new launches. Fees stay on-chain until you claim them.`;
+  return { allNft: false, tile: "Your creator share",
+    lede: nftCoins ? `${normal} NFT coins pay their creator share to the NFT's treasury instead.` : normal };
 }
 /** NFT mode is saved with the draft, so a reload while the NFT check is pending stays in NFT mode. */
 export function savedNftMode(raw: string | null): boolean {
@@ -106,29 +124,6 @@ export function parseLaunchFeeRecord(raw: string | null): LaunchFeeRecord | null
     const parsed = recordSchema.safeParse(JSON.parse(raw || "null"));
     return parsed.success ? parsed.data as LaunchFeeRecord : null;
   } catch { return null; }
-}
-type KeyValueStorage = Pick<Storage, "getItem" | "setItem" | "removeItem" | "key" | "length">;
-/** Earlier builds kept the fee per draft at `<payment key of the intent>.launch-fee`. The first one found moves to the wallet's record
- * once, and only when the wallet has none; the others stay where they are. */
-export function migrateLaunchFee(storage: KeyValueStorage, config: Pick<RuntimeConfig, "chainId" | "mode" | "deploymentChainId">, account: Address) {
-  const target = launchFeeStorageKey(config, account), prefix = target.slice(0, -LAUNCH_FEE_LOCK.length);
-  if (storage.getItem(target)) return;
-  for (let index = 0; index < storage.length; index++) {
-    const key = storage.key(index);
-    if (!key || key === target || !key.startsWith(prefix) || !key.endsWith(`.${LAUNCH_FEE_LOCK}`)) continue;
-    try {
-      const { pending, ...fee } = JSON.parse(storage.getItem(key) || "null") ?? {};
-      const parsed = launchFeeSchema.safeParse(fee);
-      if (!parsed.success || (pending !== undefined && pending !== true)) continue;
-      const { txHash, asset, ...quote } = parsed.data as DraftLaunchFee & Partial<LaunchFeeQuote>;
-      const record: LaunchFeeRecord = pending
-        ? { state: "pending", asset, from: account, at: 0, txHash, ...(asset === "native" ? { quote: quote as LaunchFeeQuote } : {}) }
-        : { state: "paid", from: account, fee: parsed.data };
-      storage.setItem(target, JSON.stringify(record));
-      storage.removeItem(key);
-      return;
-    } catch { /* An unreadable record of an earlier build stays where it is. */ }
-  }
 }
 /** Drops the wallet's paid fee once it is spent: a registered coin consumed it, or prepare reported it used. */
 export function forgetLaunchFee(key: string, txHash: Hex) {

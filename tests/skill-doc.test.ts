@@ -59,3 +59,14 @@ test("the code sample runs on its own and builds the example link", () => {
   vm.runInNewContext(`${sample}\nresult = museDraftLink({ id: 1, name: "Example Muse One", symbol: "EXMPL", description: "Placeholder text. Replace it with words drawn from your own soul." });`, sandbox);
   assert.ok(doc.includes(sandbox.result), "the sample produces the link the file shows");
 });
+
+test("until NFT mode is live, the file says so near the top, plainly", () => {
+  const status = "NFT mode is not live yet. Until it is, a link imports every field except the NFT.";
+  assert.ok(doc.includes(status), "the status line is present");
+  assert.ok(doc.indexOf(status) < doc.indexOf("## 2."), "it comes before the NFT mode section");
+});
+
+test("the platform share is described as the app shows it: part buybacks, part operations", () => {
+  assert.doesNotMatch(doc, /platform share buys back and burns MUSEGOD\./, "not all of it buys back");
+  assert.match(doc, /The platform share is split: part is a budget to buy back and burn MUSEGOD, and part funds the platform's operations\./);
+});

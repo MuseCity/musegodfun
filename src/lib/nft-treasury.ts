@@ -1,7 +1,7 @@
 import { decodeFunctionData, encodeFunctionData, erc20Abi, erc721Abi, pad, parseAbi, type Abi, type Address, type EncodeFunctionDataParameters, type Hex,
   type PublicClient } from "viem";
 import { robinhood } from "viem/chains";
-import { deploymentChain, sameAddress, type RuntimeConfig, type TokenRecord } from "./config";
+import { deploymentChain, sameAddress, shortAddress, type RuntimeConfig, type TokenRecord } from "./config";
 import { ERC6551_REGISTRY, TOKENBOUND_V3_IMPLEMENTATION, TOKENBOUND_V3_PROXY, isMuse, nftKey, treasuryFor, vaultFor, type NftRef } from "./nft-mode";
 
 const vaultAbi = parseAbi(["function sweep(bytes32[] poolIds, address[] tokens)"]);
@@ -110,11 +110,13 @@ export async function heldNftCoins(client: MulticallReader, tokens: TokenRecord[
   }), capped };
 }
 
-/** The badge an NFT coin shows: "Muse #N", "NFT #N" for another verified collection, or a warning. A rejected coin shows none. */
-export function nftBadge(token: Pick<TokenRecord, "nft" | "nftVerification">): string | null {
+/** The badge an NFT coin shows, decided by the collection allowlist alone (D7), never by the coin's status: "Muse #N" for the Muses,
+ * otherwise the unverified-collection warning, which names the short contract address with `withContract` (where space allows: the NFT
+ * page and the token header). A rejected coin shows none. */
+export function nftBadge(token: Pick<TokenRecord, "nft" | "nftVerification">, { withContract = false } = {}): string | null {
   if (!token.nft || token.nftVerification?.status === "rejected") return null;
   if (isMuse(token.nft)) return `Muse #${token.nft.tokenId}`;
-  return token.nftVerification?.status === "verified" ? `NFT #${token.nft.tokenId}` : "NFT · unverified collection";
+  return `NFT · unverified collection${withContract ? ` · ${shortAddress(token.nft.contract)}` : ""}`;
 }
 /** An NFT coin as Explore lists it: bound, not rejected and not hidden. */
 export const listedNftCoin = (token: Pick<TokenRecord, "nft" | "nftVerification" | "hidden">) =>

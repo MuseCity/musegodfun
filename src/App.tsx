@@ -98,7 +98,7 @@ import {
 } from "./lib/validation";
 import { ApiError, api, chainApi } from "./lib/api";
 import { LaunchModeSwitch, NftLaunchStep, NFT_DISCLAIMER, NFT_ERROR_ID, NFT_FEE_ID, NFT_TOKEN_ID, type NftStepStatus } from "./components/NftLaunchStep";
-import { forgetLaunchFee, launchFeeStorageKey, musePrefill, nftReviewBlocker, prepareDraft, savedNftMode } from "./lib/nft-client";
+import { forgetLaunchFee, launchFeeStorageKey, musePrefill, nftLaunchFeeCost, nftReviewBlocker, prepareDraft, rewardsShareCopy, savedNftMode } from "./lib/nft-client";
 import { SAVED_LAUNCHES_NOTE, decodeDraftFragment, importDraftLink, isPristineDraft, type DraftFragment } from "./lib/draft-link";
 import { isMuse, treasuryFor, vaultFor } from "./lib/nft-mode";
 import { listedNftCoin } from "./lib/nft-treasury";
@@ -2111,6 +2111,8 @@ function CreatePage({
   const explorer = explorerFor(config);
   const launchShares = feePolicyFor(launchFeePolicy(config)) ?? FEE_SHARES;
   const creatorCut = `${Number((tradingFeeBps * launchShares.creator / 1_000_000).toFixed(4))}%`;
+  // An NFT coin's creator share goes to the NFT's treasury, never to the launcher (spec §6.5); a non-Muse NFT also costs $10.
+  const nftCoin = !!draft.nft, creatorRole = nftCoin ? "NFT treasury" : "Creator", nftFeeCost = nftLaunchFeeCost(draft);
   const buying = Number(firstBuy.amount || "0") > 0;
   const lockLabel = firstBuy.lockDays === 0 ? "No lock" : firstBuy.lockDays === 365 ? "1 year" : `${firstBuy.lockDays} days`;
   const uploadedSrc = tokenImageSrc({ image: draft.image }), imageSrc = uploadedSrc !== brokenImage ? uploadedSrc : "";
@@ -2438,7 +2440,7 @@ function CreatePage({
                 </details>
               </div>
               <p className="hint">
-                Buyers pay {stock.symbol}, and you earn fees from trading. Your meme’s price reflects both trading supply and demand and the quote asset’s price.
+                Buyers pay {stock.symbol}, and {nftCoin ? "the NFT's treasury earns" : "you earn"} fees from trading. Your meme’s price reflects both trading supply and demand and the quote asset’s price.
               </p>
               {status?.error && (
                 <Notice kind="error">
@@ -2457,7 +2459,7 @@ function CreatePage({
               <summary>
                 <span>
                   <b>Advanced options</b>
-                  <span className="hint">Trading fee {feePercent(tradingFeeBps)} · you earn {creatorCut} of every trade</span>
+                  <span className="hint">Trading fee {feePercent(tradingFeeBps)} · {nftCoin ? "the NFT's treasury earns" : "you earn"} {creatorCut} of every trade</span>
                 </span>
                 <span className="text-button">{advancedOpen ? "Done" : "Edit"} <ChevronDown size={14} /></span>
               </summary>
@@ -2609,10 +2611,11 @@ function CreatePage({
                 <div><dt>Opens at</dt><dd>{openingCapUsdLabel} valuation</dd></div>
                 <div><dt>Quote asset</dt><dd><span className="pair-label"><StockIcon stock={stock} />{stock.symbol} · permanent</span></dd></div>
                 <div><dt>Trading fee</dt><dd>{feePercent(tradingFeeBps)} + 0.05% LP</dd></div>
-                <div><dt>Your cut</dt><dd className="highlight">{creatorCut} of every trade</dd></div>
+                <div><dt>{nftCoin ? "NFT treasury share" : "Your cut"}</dt><dd className="highlight">{creatorCut} of every trade</dd></div>
                 <div><dt>First buy</dt><dd>{buying ? `${firstBuy.amount} ${paymentAsset.symbol}${firstBuy.lockDays ? ` · ${lockLabel} lock` : ""}` : "None"}</dd></div>
                 <div><dt>Liquidity</dt><dd className="sans">Locked · no graduation migration</dd></div>
-                <div><dt>Launch cost</dt><dd className="sans">{buying ? <>First buy + {chainName} gas</> : <>{chainName} gas only</>}</dd></div>
+                <div><dt>Launch cost</dt><dd className="sans">{nftFeeCost ? <>{nftFeeCost} + {buying ? "first buy + " : ""}{chainName} gas</>
+                  : buying ? <>First buy + {chainName} gas</> : <>{chainName} gas only</>}</dd></div>
               </dl>
             </div>
             <details className="disclosure sunken curve-disclosure">
@@ -2626,7 +2629,7 @@ function CreatePage({
             </details>
             <details className="disclosure sunken">
               <summary>How fees are distributed</summary>
-              <FeeBreakdown policy={launchFeePolicy(config)} tradingFeeBps={tradingFeeBps}>
+              <FeeBreakdown policy={launchFeePolicy(config)} tradingFeeBps={tradingFeeBps} creatorLabel={creatorRole}>
                 <Link href="/buyback" className="mechanism-link">View the buyback policy and status <ArrowUpRight size={14} /></Link>
               </FeeBreakdown>
             </details>
@@ -2690,7 +2693,7 @@ function CreatePage({
           </dl>}
           {draft.nft && <p className="nft-warning">{NFT_DISCLAIMER}</p>}
           <div className="review-earn">
-            <span>You earn <b className="mono">{creatorCut}</b> of every trade</span>
+            <span>{nftCoin ? "The NFT's treasury earns" : "You earn"} <b className="mono">{creatorCut}</b> of every trade</span>
             <span className="mono">Buyback {Number((tradingFeeBps * launchShares.buyback / 1_000_000).toFixed(4))}% · Operations {Number((tradingFeeBps * launchShares.operations / 1_000_000).toFixed(4))}% · Doppler {Number((tradingFeeBps * launchShares.protocol / 1_000_000).toFixed(4))}%</span>
           </div>
           <details className="disclosure">
@@ -2712,7 +2715,7 @@ function CreatePage({
               </div>
               <div>
                 <dt>Net fee distribution (after Doppler)</dt>
-                <dd className="sans">Creator {feePercent(FEE_SHARES.creatorNet)} · Platform {feePercent(FEE_SHARES.platformNet)}</dd>
+                <dd className="sans">{creatorRole} {feePercent(FEE_SHARES.creatorNet)} · Platform {feePercent(FEE_SHARES.platformNet)}</dd>
               </div>
               <div>
                 <dt>Nominal total fee</dt>
@@ -2720,7 +2723,7 @@ function CreatePage({
               </div>
               <div>
                 <dt>Total fee allocation equivalents</dt>
-                <dd className="sans">Creator {feePercent(FEE_SHARES.creator)} · Buyback budget {feePercent(FEE_SHARES.buyback)} · Operating budget {feePercent(FEE_SHARES.operations)} · Doppler {feePercent(FEE_SHARES.protocol)}</dd>
+                <dd className="sans">{creatorRole} {feePercent(FEE_SHARES.creator)} · Buyback budget {feePercent(FEE_SHARES.buyback)} · Operating budget {feePercent(FEE_SHARES.operations)} · Doppler {feePercent(FEE_SHARES.protocol)}</dd>
               </div>
               <div>
                 <dt>Buyback target / recipient</dt>
@@ -2744,7 +2747,8 @@ function CreatePage({
               </div>
               <div>
                 <dt>Launch cost</dt>
-                <dd className="sans">{buying ? `${firstBuy.amount} ${paymentAsset.symbol} + network gas` : "Network gas only"}</dd>
+                <dd className="sans">{nftFeeCost ? `${nftFeeCost} + ${buying ? `${firstBuy.amount} ${paymentAsset.symbol} + ` : ""}network gas`
+                  : buying ? `${firstBuy.amount} ${paymentAsset.symbol} + network gas` : "Network gas only"}</dd>
               </div>
               {buying && <div>
                 <dt>First buy slippage</dt><dd>{firstBuy.slippageBps / 100}%</dd>
@@ -3076,7 +3080,7 @@ function TokenPage({
             {token.tradingFeeBps !== undefined && <span className="chip sm sunken mono">{feePercent(token.tradingFeeBps)} + 0.05% LP fee</span>}
             {!stateInvalid && <span className="chip sm sunken"><LockKeyhole size={12} />Liquidity locked</span>}
             {!stateInvalid && stockStatus?.verified && <span className="chip sm up"><Check size={12} />Verified quote asset</span>}
-            <NftBadge token={token} />
+            <NftBadge token={token} withContract />
           </div>
         </div>
         <button type="button" className="secondary token-share" onClick={() => setSharing(true)}>
@@ -3636,16 +3640,19 @@ function Rewards({
     mine = tokens.filter((t) => isFeeBeneficiary(t, wallet.account));
   const shares = feePolicyFor(launchFeePolicy(config)) ?? FEE_SHARES;
   const locked = mine.filter((t) => t.firstBuyLock && wallet.account && sameAddress(t.firstBuyLock.recipient, wallet.account)).length;
+  // NFT coins pay their creator share to the NFT's treasury, not to the launcher.
+  const share = rewardsShareCopy(mine, feePercent(shares.creator));
   return (
     <>
       <div className="page-heading">
         <span className="eyebrow">CREATE. TRADE. EARN.</span>
         <h1 className="page-title">Every good meme earns its moment.</h1>
-        <p className="page-lede">You keep {feePercent(shares.creator)} of every trading fee on new launches. Fees stay on-chain until you claim them.</p>
+        <p className="page-lede">{share.lede}</p>
       </div>
       {wallet.account && <dl className="reward-stats">
         <div className="card halo"><dt>Your launches</dt><dd>{mine.length}{hasMore ? "+" : ""}</dd><dd className="hint">As creator or fee treasury in the loaded catalog</dd></div>
-        <div className="card"><dt>Your creator share</dt><dd>{feePercent(shares.creator)}</dd><dd className="hint">{feePercent(shares.creatorNet)} of fees after Doppler’s {feePercent(shares.protocol)}</dd></div>
+        <div className="card"><dt>{share.tile}</dt><dd>{feePercent(shares.creator)}</dd><dd className="hint">{share.allNft
+          ? "Paid to each NFT's treasury, not to you" : <>{feePercent(shares.creatorNet)} of fees after Doppler’s {feePercent(shares.protocol)}</>}</dd></div>
         <div className="card"><dt>Locked first buys</dt><dd>{locked}</dd><dd className="hint">Recorded at launch; check each lock’s on-chain status below</dd></div>
       </dl>}
       {!wallet.account ? (

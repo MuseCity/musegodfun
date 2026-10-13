@@ -27,11 +27,15 @@ const coin = (address, name, symbol, quoteAddress, extra = {}) => ({ address, na
   createdAt: Date.now() - 3_600_000, openingCap: '1', mode: 'robinhood', deploymentChainId: 4663, feePolicy: FEE_POLICY, feeTreasury: treasury,
   tradingFeeBps: 100, ...extra });
 const museCoin = coin('0x5555555555555555555555555555555555555555', 'Bard of the Muses', 'BARD', musegod, { nft: museNft, nftVerification: { status: 'verified' } });
-const unverifiedCoin = coin('0x6666666666666666666666666666666666666666', 'Gallery Seven', 'GAL7', weth, { nft: { chainId: 4663, contract: collection, tokenId: '7' }, nftVerification: { status: 'unverified' } });
+// A verified coin of a collection outside the allowlist: its badge still warns, because the badge follows the collection, not the status.
+const unverifiedCoin = coin('0x6666666666666666666666666666666666666666', 'Gallery Seven', 'GAL7', weth, { nft: { chainId: 4663, contract: collection, tokenId: '7' }, nftVerification: { status: 'verified' } });
 const rejectedCoin = coin('0x7777777777777777777777777777777777777777', 'Rejected Frame', 'REJ', weth, { nft: { chainId: 4663, contract: collection, tokenId: '8' }, nftVerification: { status: 'rejected', reason: 'Not an ERC-721 collection' } });
 const hiddenCoin = coin('0x8888888888888888888888888888888888888888', 'Hidden Muse coin', 'HIDE', musegod, { nft: { ...museNft, tokenId: '3' }, nftVerification: { status: 'verified' }, hidden: true });
 const plainCoin = coin('0x4444444444444444444444444444444444444444', 'Plain stock meme', 'PLAIN', weth);
 const catalog = [museCoin, unverifiedCoin, rejectedCoin, hiddenCoin, plainCoin];
+// A rejected coin also bound to Muse #1: never listed for the NFT, but it still pays the vault, so the treasury view and the sweep include it.
+const rejectedMuseCoin = coin('0x9191919191919191919191919191919191919191', 'Late Bard', 'LATE', weth, { nft: museNft, nftVerification: { status: 'rejected', reason: 'already_launched' } });
+const zeroAddress = '0x0000000000000000000000000000000000000000';
 const baseConfig = { mode: 'robinhood', chainId: 4663, deploymentChainId: 4663, treasury, writesEnabled: true, controlRevision: 0, signingPaused: false,
   securityProtocol: 1, blockReason: null, nftMode: { enabled: true, vaultFactory: factory, launchFeeUsd: 10, freeCollections: [`4663:${MUSES.contract.toLowerCase()}`],
     verifiedCollections: [`4663:${MUSES.contract.toLowerCase()}`] } };
@@ -42,16 +46,18 @@ const report = { scope: 'Local Chromium against vite preview of dist; mocked wal
 await mkdir('.cache/nft-ui', { recursive: true });
 const browser = await chromium.launch({ headless: true });
 
+// `account: null`: an anonymous viewer (no wallet connected). `nftEnabled: false`: NFT mode is off on this network.
 async function open(path, { account = holder, owner = holder, locked = false, factoryDeployed = true, theme = 'light', viewport = { width: 1440, height: 1000 },
-  undeployed = false, holderless = false, statusFailures = 0, lockFailures = 0, chainHex = '0x1237' } = {}) {
+  undeployed = false, holderless = false, statusFailures = 0, lockFailures = 0, chainHex = '0x1237', nftEnabled = true } = {}) {
   const context = await browser.newContext({ viewport, colorScheme: theme });
-  const state = { sends: [], treasuryReads: 0, multicalls: [], external: [], stubbed: [], pageErrors: [], statusFailures, lockFailures };
-  const config = factoryDeployed ? baseConfig : { ...baseConfig, nftMode: { ...baseConfig.nftMode, vaultFactory: null } };
+  const state = { sends: [], treasuryReads: 0, statusAccounts: [], multicalls: [], external: [], stubbed: [], pageErrors: [], statusFailures, lockFailures };
+  const config = { ...baseConfig, nftMode: { ...baseConfig.nftMode, enabled: nftEnabled, vaultFactory: factoryDeployed ? factory : null } };
   await context.addInitScript(({ account, theme, chainHex }) => {
     localStorage.setItem('musegod.theme', theme);
-    localStorage.setItem('musegod.wallet.v1', 'fun.musegod.localtest');
+    if (account) localStorage.setItem('musegod.wallet.v1', 'fun.musegod.localtest');
     const provider = { on() {}, removeListener() {}, async request({ method, params }) {
-      if (method === 'eth_accounts' || method === 'eth_requestAccounts') return [account];
+      if (method === 'eth_accounts') return account ? [account] : [];
+      if (method === 'eth_requestAccounts') return [account];
       if (method === 'eth_chainId') return chainHex;
       if (method === 'eth_sendTransaction') return window.__nftSend(params[0]);
       throw new Error('Unexpected fixture wallet method ' + method);
@@ -110,6 +116,7 @@ async function open(path, { account = holder, owner = holder, locked = false, fa
     return { jsonrpc: '2.0', id: item.id, result };
   };
   const treasuryView = () => ({ nft: museNft, vault, vaultDeployed: !undeployed, treasury: museTreasury, treasuryDeployed: !undeployed,
+    coins: [museCoin, rejectedMuseCoin].map(row => ({ token: row.address, symbol: row.symbol, poolId: row.poolId, quoteAddress: row.quoteAddress })),
     balances: [{ token: museCoin.address, symbol: 'BARD', amount: (12345n * 10n ** 17n).toString(), vaultAmount: '0' },
       { token: musegod, symbol: 'MUSEGOD', amount: (5678n * 10n ** 16n).toString(), vaultAmount: (10n ** 18n).toString() }],
     pendingFees: [{ token: museCoin.address, lp: { fees0: '0', fees1: (25n * 10n ** 16n).toString() }, trade: { fees0: (4n * 10n ** 18n).toString(), fees1: (75n * 10n ** 16n).toString() },
@@ -138,7 +145,7 @@ async function open(path, { account = holder, owner = holder, locked = false, fa
     }
     if (path === '/api/nft-treasury') { state.treasuryReads++; return factoryDeployed ? reply(treasuryView()) : reply({ error: 'No vault', code: 'NFT_VAULT_UNAVAILABLE' }, 422); }
     if (path === '/api/nft-status') {
-      // Only the connected account's read fails, so the zero-address read made before the wallet reconnects cannot use up the failure.
+      state.statusAccounts.push(url.searchParams.get('account'));
       if (state.statusFailures > 0 && url.searchParams.get('account')?.toLowerCase() === account.toLowerCase()) {
         state.statusFailures--; return reply({ error: 'The NFT status read failed in this fixture.' }, 500);
       }
@@ -155,7 +162,10 @@ async function open(path, { account = holder, owner = holder, locked = false, fa
   await page.goto(origin + path);
   return { context, page, state };
 }
+// NFT_UI_CASES=a,b runs only those checks (and no screenshots), for a focused rerun.
+const onlyCases = process.env.NFT_UI_CASES?.split(',');
 async function check(name, run) {
+  if (onlyCases && !onlyCases.includes(name)) return;
   await run();
   report.checks.push({ name, status: 'passed' });
   console.log('PASS nft-ui', name);
@@ -163,6 +173,7 @@ async function check(name, run) {
 async function finish({ context, state }) {
   assert.deepEqual(state.external, [], 'No request may leave 127.0.0.1');
   assert.deepEqual(state.pageErrors, []);
+  assert(!state.statusAccounts.some(account => account?.toLowerCase() === zeroAddress), 'no NFT status is read for the zero address');
   await context.close();
 }
 const noOverflow = page => page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, innerWidth }));
@@ -203,12 +214,13 @@ try {
     assert.equal(execute.args[1], 0n);
     assert.deepEqual(decodeFunctionData({ abi: erc20Abi, data: execute.args[2] }).args, [holder, 1000n * 10n ** 18n]);
     assert.equal(execute.args[3], 0);
-    // Sweep: the vault is deployed, so one call to exactly this NFT's vault for the coin's pool and both of its assets.
+    // Sweep: the vault is deployed, so one call to exactly this NFT's vault for every bound coin's pool and assets, the rejected coin's too.
     await card.getByRole('button', { name: 'Sweep fees to the treasury' }).click();
     await card.getByText('Sweep fees: confirmed.').waitFor();
     assert.equal(state.sends[1].to.toLowerCase(), vault.toLowerCase());
     assert.equal(state.sends[1].value ?? '0x0', '0x0');
-    assert.deepEqual(decodeFunctionData({ abi: vaultAbi, data: state.sends[1].data }).args, [[museCoin.poolId], [museCoin.address, musegod]]);
+    assert.deepEqual(decodeFunctionData({ abi: vaultAbi, data: state.sends[1].data }).args,
+      [[museCoin.poolId, rejectedMuseCoin.poolId], [museCoin.address, musegod, rejectedMuseCoin.address, weth]]);
     // Lock for 7 days from the latest block's timestamp.
     await card.getByRole('button', { name: 'Lock for 7 days' }).click();
     await card.getByText('Lock treasury: confirmed.').waitFor();
@@ -333,6 +345,52 @@ try {
     assert.equal(await card.getByRole('button', { name: 'Sweep fees to the treasury' }).isDisabled(), true);
     await finish(run);
   });
+  await check('anonymous_viewer', async () => {
+    // No wallet: the card reads no NFT status at all (never for the zero address) and treats the viewer as a non-holder.
+    const run = await open(tokenPath, { account: null }), { page, state } = run, card = page.locator('#nft-card');
+    await card.getByText('Connect a wallet to check').waitFor();
+    await card.getByText('Treasury balances').waitFor();
+    assert.equal(await card.getByRole('button', { name: 'Connect wallet' }).count(), 1);
+    assert.deepEqual(state.statusAccounts, [], 'no /nft-status read without a wallet');
+    assert.equal(await card.getByRole('button', { name: /^Withdraw/ }).count(), 0);
+    assert.equal(await card.getByRole('button', { name: /^Lock for/ }).count(), 0);
+    await finish(run);
+  });
+  await check('nft_mode_off', async () => {
+    // NFT mode off: the token page's card and the NFT page show one plain notice; no art, no musegod.org image, no NFT read, no action.
+    for (const path of [tokenPath, nftPagePath]) {
+      const run = await open(path, { nftEnabled: false }), { page, state } = run;
+      const notice = page.locator('.nft-warning', { hasText: 'NFT mode is not available on this network.' });
+      await notice.waitFor();
+      assert.equal(await notice.getAttribute('role'), 'status');
+      await page.waitForTimeout(500); // Any read the page would start on mount has started by now.
+      assert.deepEqual(state.stubbed, [], 'no musegod.org request');
+      assert.equal(await page.locator('img[src*="musegod.org"]').count(), 0);
+      assert.deepEqual([state.treasuryReads, state.statusAccounts.length], [0, 0], 'no nft-treasury or nft-status read');
+      for (const name of [/^Sweep/, /^Activate/, /^Withdraw/, /^Lock for/, /^Deposit/, /^Copy link/])
+        assert.equal(await page.getByRole('button', { name }).count(), 0, String(name));
+      if (path === tokenPath) assert.equal(await page.locator('#nft-card').getByText('Agent #6592 (ERC-8004)').count(), 0);
+      else assert.equal(await page.getByRole('link', { name: 'Bard of the Muses' }).count(), 0, 'no coin listing while dark');
+      await shoot(page, `dark-${path === tokenPath ? 'token' : 'nft-page'}-1440-light`);
+      await finish(run);
+    }
+    const run = await open('/rewards?chainId=4663', { nftEnabled: false }), { page, state } = run;
+    await page.getByRole('heading', { name: 'Every good meme earns its moment.' }).waitFor();
+    await page.getByRole('heading', { name: 'No launches for this wallet yet' }).waitFor();
+    await page.waitForTimeout(500);
+    assert.equal(await page.getByRole('heading', { name: /My NFT treasuries/ }).count(), 0);
+    assert.equal(state.multicalls.filter(calls => calls.every(item => item.selector === selector.ownerOf)).length, 0, 'no ownerOf scan while dark');
+    await finish(run);
+  });
+  await check('unverified_collection_badge', async () => {
+    // The badge follows the collection allowlist: a verified coin of another collection still warns, and the token header names the contract.
+    const run = await open(`/token/robinhood/${unverifiedCoin.address}`), { page } = run;
+    const header = page.locator('.token-header-meta .nft-badge');
+    await header.waitFor();
+    assert.equal((await header.textContent()).trim(), 'NFT · unverified collection · 0x9999…9999');
+    assert.equal(await header.evaluate(node => node.classList.contains('nft-warning')), true);
+    await finish(run);
+  });
   await check('nft_page', async () => {
     const run = await open(nftPagePath), { page, state } = run, card = page.locator('#nft-card');
     await page.getByRole('heading', { name: 'Muse #1', level: 1 }).waitFor();
@@ -359,6 +417,9 @@ try {
     await page.getByRole('link', { name: 'Plain stock meme' }).waitFor({ state: 'detached' });
     assert.deepEqual(await page.locator('.filter-chip[aria-pressed="true"]').allTextContents(), ['NFT coins 2']);
     await page.getByRole('link', { name: 'Gallery Seven' }).waitFor();
+    const galleryBadges = await page.locator('.nft-badge', { hasText: 'unverified collection' }).allTextContents();
+    assert(galleryBadges.length > 0 && galleryBadges.every(text => text.trim() === 'NFT · unverified collection'), `the Explore badge stays short: ${galleryBadges}`);
+    assert.equal(await page.getByText(/^NFT #7$/).count(), 0, 'a verified coin of an unlisted collection never shows a plain NFT badge');
     assert.equal(await page.getByRole('link', { name: 'Rejected Frame' }).count(), 0);
     assert.equal(await page.getByRole('link', { name: 'Plain stock meme' }).count(), 0);
     await museChip.click();
@@ -378,7 +439,7 @@ try {
     await finish(run);
   });
   // Screenshots: the token page of a Muse coin, the NFT page, and Explore filtered to NFT and Muse coins; 1440 and 390 px, light and dark.
-  for (const theme of ['light', 'dark']) for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
+  if (!onlyCases) for (const theme of ['light', 'dark']) for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
     const tag = `${viewport.width}-${theme}`;
     let run = await open(tokenPath, { theme, viewport });
     await run.page.locator('#nft-card').getByText('Unlocked').waitFor();
@@ -398,8 +459,10 @@ try {
     await run.page.getByRole('link', { name: 'Gallery Seven' }).waitFor({ state: 'detached' });
     await shoot(run.page, `explore-muse-${tag}`); await finish(run);
   }
-  report.checks.push({ name: 'screenshots_no_overflow', status: 'passed', count: report.screenshots.length });
-  console.log('PASS nft-ui screenshots', report.screenshots.length);
+  if (!onlyCases) {
+    report.checks.push({ name: 'screenshots_no_overflow', status: 'passed', count: report.screenshots.length });
+    console.log('PASS nft-ui screenshots', report.screenshots.length);
+  }
 } finally {
   await writeFile('.cache/nft-ui/report.json', JSON.stringify(report, null, 2));
   await browser.close();

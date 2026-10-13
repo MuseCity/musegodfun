@@ -46,7 +46,17 @@ test("an RPC failure asks for a retry within 10 minutes, then records unverified
 });
 test("an unpaid non-Muse coin is rejected for its badge but still registers", async () => {
   const nft = { ...muse, contract: "0x1111111111111111111111111111111111111111" as Address };
-  assert.equal((await nftRegistrationStatus({ ...base, nft, quoteAddress: weth.address, client: ownedBy(holder), fee: { ok: false } }) as { reason: string }).reason, "fee");
+  assert.equal((await nftRegistrationStatus({ ...base, nft, quoteAddress: weth.address, client: ownedBy(holder), fee: "invalid" }) as { reason: string }).reason, "fee");
+  assert.deepEqual(await nftRegistrationStatus({ ...base, nft, quoteAddress: weth.address, client: ownedBy(holder), fee: "paid" }), { status: "verified" });
+});
+test("a fee that could not be confirmed (past 10 minutes) leaves a controlled coin unverified, never rejected: fee", async () => {
+  const nft = { ...muse, contract: "0x1111111111111111111111111111111111111111" as Address };
+  const late = { ...base, nft, quoteAddress: weth.address, fee: "unconfirmed" as const, nowSeconds: 1000n + 601n };
+  assert.deepEqual(await nftRegistrationStatus({ ...late, client: ownedBy(holder) }), { status: "unverified", reason: "fee_unconfirmed" });
+  // The other rules are definite, so they still decide.
+  assert.equal((await nftRegistrationStatus({ ...late, client: ownedBy(other) }) as { reason: string }).reason, "not_controller");
+  assert.equal((await nftRegistrationStatus({ ...late, client: ownedBy(holder), existing: { address: other } as never }) as { reason: string }).reason, "already_launched");
+  assert.deepEqual(await nftRegistrationStatus({ ...late, client: ownedBy("fail") }), { status: "unverified", reason: "rpc" });
 });
 
 // ---- readNftControl: the node's failures propagate, the contract's answers do not -------------------------------------------
@@ -208,7 +218,10 @@ function coin(n: number, draftOver: Record<string, unknown>) {
 const feePayment = (hash: Hex) => ({ status: "success", transactionHash: hash, blockNumber: FEE_BLOCK, blockHash, from: creator, logs: [{ address: usdg.address,
   topics: encodeEventTopics({ abi: erc20Abi, eventName: "Transfer", args: { from: creator, to: treasury } }), data: encodeAbiParameters([{ type: "uint256" }], [usdg.amount]) }] });
 
-type Chain = { holder?: Address | "fail"; receiptAge?: bigint; delayMs?: number; payments?: Hex[] };
+/** `feeFault`: the fee payment is mined but has one confirmation, sits in a reorganized block, or its receipt read fails at the node.
+ * `feeReceipt`: fields that replace those of the exact payment (a definite mismatch). */
+type Chain = { holder?: Address | "fail"; receiptAge?: bigint; delayMs?: number; payments?: Hex[]; feeFault?: "unconfirmed" | "reorganized" | "rpc";
+  feeReceipt?: Record<string, unknown> };
 /** The service with the registration harness's stubs. Every NFT read is logged with the block it asked for ("latest" when none). */
 function registrar(store: Store, coins: Coin[], chain: Chain = {}) {
   const reads: string[] = [], now = BigInt(Math.floor(Date.now() / 1000));
@@ -221,10 +234,13 @@ function registrar(store: Store, coins: Coin[], chain: Chain = {}) {
       getTransactionReceipt: async ({ hash }: { hash: Hex }) => {
         const found = byHash(hash);
         if (found) return found.receipt;
-        if (chain.payments?.some((paid) => paid.toLowerCase() === hash.toLowerCase())) return feePayment(hash);
+        if (chain.payments?.some((paid) => paid.toLowerCase() === hash.toLowerCase())) {
+          if (chain.feeFault === "rpc") throw new HttpRequestError({ url: "https://rpc.fixture.test", status: 503 });
+          return { ...feePayment(hash), ...(chain.feeFault === "reorganized" ? { blockHash: `0x${"cc".repeat(32)}` } : {}), ...chain.feeReceipt };
+        }
         throw new TransactionReceiptNotFoundError({ hash });
       },
-      getBlockNumber: async () => FEE_BLOCK + 100n,
+      getBlockNumber: async () => chain.feeFault === "unconfirmed" ? FEE_BLOCK : FEE_BLOCK + 100n,
       getBlock: async ({ blockNumber }: { blockNumber: bigint }) => {
         const valuation = coins[0].plan.openingValuation!;
         return { hash: blockNumber === BigInt(valuation.blockNumber) ? valuation.blockHash : blockHash, timestamp: now - (chain.receiptAge ?? 30n) };
@@ -294,10 +310,12 @@ test("concurrent registrations of two coins for one NFT verify exactly one (the 
 }));
 
 test("only a verified launch fee persists: an unpaid claim is dropped and the coin is rejected: fee", withStore(async (store) => {
+  // A mined, canonical transfer of 9.999999 USDG: a definite mismatch.
   const claim = { asset: "stable" as const, txHash: `0x${"ee".repeat(32)}` as Hex };
   const unpaid = coin(3, { nft: plainNft, quoteAddress: weth.address, launchFee: claim });
   store.savePlan(unpaid.plan);
-  const { service, reads } = registrar(store, [unpaid]);
+  const { service, reads } = registrar(store, [unpaid], { payments: [claim.txHash], feeReceipt: { logs: [{ address: usdg.address,
+    topics: encodeEventTopics({ abi: erc20Abi, eventName: "Transfer", args: { from: creator, to: treasury } }), data: encodeAbiParameters([{ type: "uint256" }], [usdg.amount - 1n]) }] } });
   const record = await service.register(unpaid.hash);
   assert.equal(record.nftVerification?.reason, "fee");
   assert.equal("launchFee" in record, false, "the draft's unverified fee never reaches the record");
@@ -329,6 +347,57 @@ test("an RPC outage fails registration retryably for 10 minutes, then records un
   const { service, reads } = registrar(store, [first]);
   assert.deepEqual((await service.register(first.hash)).nftVerification, { status: "unverified", reason: "rpc" }, "only the operator CLI settles it");
   assert.equal(reads.length, 0);
+}));
+
+test("a fee still confirming, reorganized or unreadable fails registration retryably for 10 minutes, then records unverified and stays unconsumed", withStore(async (store) => {
+  const paid = `0x${"cd".repeat(32)}` as Hex, fee = { asset: "stable" as const, txHash: paid };
+  const cases: [string, Chain][] = [["not mined yet", { payments: [] }], ["one confirmation", { payments: [paid], feeFault: "unconfirmed" }],
+    ["reorganized block", { payments: [paid], feeFault: "reorganized" }], ["node failure", { payments: [paid], feeFault: "rpc" }]];
+  for (const [index, [why, chain]] of cases.entries()) {
+    const launch = coin(3 + index, { nft: { ...plainNft, tokenId: String(10 + index) }, quoteAddress: weth.address, launchFee: fee });
+    store.savePlan(launch.plan);
+    await assert.rejects(() => registrar(store, [launch], { ...chain, receiptAge: 30n }).service.register(launch.hash),
+      /The launch fee check is temporarily unavailable\. Registration will retry\./, why);
+    assert.equal(store.tokenByTxHash(launch.hash), null, `${why}: nothing is written while a retry is still useful`);
+    const late = await registrar(store, [launch], { ...chain, receiptAge: 601n }).service.register(launch.hash);
+    assert.deepEqual(late.nftVerification, { status: "unverified", reason: "fee_unconfirmed" }, why);
+    assert.equal("launchFee" in late, false, `${why}: an unconfirmed fee is never recorded as spent`);
+    assert.equal(store.tokenUsingLaunchFee(paid, creator), null, `${why}: the payment stays unconsumed`);
+  }
+}));
+
+test("a definite fee mismatch is rejected: fee at once, even for a coin under 10 minutes old", withStore(async (store) => {
+  const paid = `0x${"cd".repeat(32)}` as Hex, fee = { asset: "stable" as const, txHash: paid };
+  const transfer = (to: Address, amount: bigint) => ({ address: usdg.address, topics: encodeEventTopics({ abi: erc20Abi, eventName: "Transfer", args: { from: creator, to } }),
+    data: encodeAbiParameters([{ type: "uint256" }], [amount]) });
+  const cases: [string, Chain["feeReceipt"]][] = [["wrong amount", { logs: [transfer(treasury, usdg.amount + 1n)] }], ["wrong recipient", { logs: [transfer(getAddress(other), usdg.amount)] }],
+    ["wrong payer", { from: other }], ["wrong asset", { logs: [{ ...transfer(treasury, usdg.amount), address: weth.address }] }], ["reverted", { status: "reverted" }]];
+  for (const [index, [why, feeReceipt]] of cases.entries()) {
+    const launch = coin(3 + index, { nft: { ...plainNft, tokenId: String(20 + index) }, quoteAddress: weth.address, launchFee: fee });
+    store.savePlan(launch.plan);
+    const record = await registrar(store, [launch], { payments: [paid], feeReceipt, receiptAge: 30n }).service.register(launch.hash);
+    assert.deepEqual(record.nftVerification, { status: "rejected", reason: "fee" }, why);
+    assert.equal(record.launchFee, undefined, why);
+  }
+}));
+
+test("signing re-checks one coin per NFT: a plan for an NFT that has since got its verified coin cannot be signed", withStore(async (store) => {
+  const launch = coin(3, {}), rival = coin(4, {});
+  store.savePlan(launch.plan);
+  const { service } = registrar(store, [launch]);
+  const live = { ...service.runtime.config, writesEnabled: true, nftMode: { enabled: true, vaultFactory: "0x00000000000000000000000000000000000fac70" as Address,
+    launchFeeUsd: 10, freeCollections: [], verifiedCollections: [] } };
+  Object.assign(service, { runtime: { ...service.runtime, config: live }, config: async () => live });
+  const keys: string[] = [];
+  const verifiedNftCoin = store.verifiedNftCoin.bind(store);
+  store.verifiedNftCoin = (key, exclude) => { keys.push(`${key}|${exclude}`); return verifiedNftCoin(key, exclude); };
+  assert.equal((await service.validateLaunch(creator, launch.plan.data)).valid, true, "a preview is not a signature: no one-coin read");
+  assert.deepEqual(keys, []);
+  assert.equal((await service.validateLaunch(creator, launch.plan.data, true)).valid, true, "no other verified coin yet");
+  assert.deepEqual(keys, [`${nftKey(muse)}|${launch.token}`], "exactly one read, excluding this plan's own coin");
+  store.saveToken(syntheticToken({ mode: "fork", address: rival.token, transactionHash: rival.hash, nft: muse, nftVerification: { status: "verified" } }));
+  await assert.rejects(() => service.validateLaunch(creator, launch.plan.data, true), (error: unknown) =>
+    error instanceof NftLaunchError && error.code === "NFT_ALREADY_LAUNCHED" && error.message === "This NFT already has its coin.");
 }));
 
 test("register never blocks on the Muse pair rule or the flag: a Muse coin paired with WETH registers rejected: pair", withStore(async (store) => {
@@ -441,6 +510,16 @@ test("nft:reverify keeps an unverified coin's fee as registration verified it, w
   assert.deepEqual(await nftReverifyCommand(["4663", paid.address], deps), done(`${paid.address}: unverified -> verified`));
   assert.deepEqual(store.token(paid.address)?.launchFee, fee);
   assert.deepEqual(feeChecks, [], "the fee is not checked again");
+}));
+
+test("nft:reverify leaves an unverified coin whose fee could not be confirmed unchanged: it never consumed a payment", withStore(async (store) => {
+  const open = nftCoin(5, { nft: plainNft, quoteAddress: weth.address, nftVerification: { status: "unverified", reason: "fee_unconfirmed" } });
+  store.saveToken(open);
+  const { deps, reads, feeChecks } = cli(store, { fee: "ok" });
+  assert.deepEqual(await nftReverifyCommand(["4663", open.address], deps),
+    done(`${open.address}: unverified, unchanged (no launch fee was verified; its payment stays unspent)`));
+  assert.deepEqual(store.token(open.address), open, "never rejected: fee for a payment that could not be read");
+  assert.deepEqual([reads, feeChecks], [[], []]);
 }));
 
 test("nft:reverify re-checks the fee only on a record with no status, and drops one that does not verify", withStore(async (store) => {

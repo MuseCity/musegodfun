@@ -8,7 +8,7 @@ import { NFT_OWNER_SCAN_LIMIT, heldNftCoins, listedNftCoin } from "../lib/nft-tr
 import { nftPath, tokenPath } from "../lib/network";
 import { errorMessage } from "../lib/validation";
 import { transactionClient, useWallet } from "../lib/wallet";
-import { NftTreasuryCard, nftQuery } from "./NftCoinCard";
+import { NftModeUnavailable, NftTreasuryCard, nftQuery } from "./NftCoinCard";
 import { NftBadge } from "./TokenCard";
 
 function PageLink({ href, navigate, className, children }: { href: string; navigate: (path: string) => void; className?: string; children: ReactNode }) {
@@ -18,8 +18,21 @@ function PageLink({ href, navigate, className, children }: { href: string; navig
 }
 const nftName = (nft: NftRef) => isMuse(nft) ? `Muse #${nft.tokenId}` : `NFT #${nft.tokenId}`;
 
-/** `/nft/:chain/:contract/:id`: the NFT's listed coins (verified and unverified; never rejected or hidden) and its treasury. */
+/** `/nft/:chain/:contract/:id`: the NFT's listed coins (verified and unverified; never rejected or hidden) and its treasury. While NFT
+ * mode is off it shows a notice only: no listing, art, image or action. */
 export default function NftPage({ nft, config, navigate }: { nft: NftRef; config: RuntimeConfig | null; navigate: (path: string) => void }) {
+  if (!config) return <p className="hint" role="status">Loading the network…</p>;
+  if (config.nftMode?.enabled !== true) return (
+    <div className="page-heading">
+      <span className="eyebrow">NFT treasury</span>
+      <h1 className="page-title">{nftName(nft)}</h1>
+      <NftModeUnavailable />
+    </div>
+  );
+  return <NftTreasuryPage nft={nft} config={config} navigate={navigate} />;
+}
+
+function NftTreasuryPage({ nft, config, navigate }: { nft: NftRef; config: RuntimeConfig; navigate: (path: string) => void }) {
   const key = nftKey(nft);
   const [coins, setCoins] = useState<TokenRecord[] | null>(null), [coinsError, setCoinsError] = useState("");
   const [copied, setCopied] = useState("");
@@ -53,22 +66,22 @@ export default function NftPage({ nft, config, navigate }: { nft: NftRef; config
           : coins.length ? <ul className="nft-coin-list">{coins.map((coin) => <li key={coin.address}>
             <PageLink href={tokenPath(coin)} navigate={navigate} className="token-name">{coin.name}</PageLink>
             <span className="mono hint">${coin.symbol} · {shortAddress(coin.address)}</span>
-            <NftBadge token={coin} />
+            <NftBadge token={coin} withContract />
           </li>)}</ul>
           : <p className="hint">No listed coin is bound to this NFT yet.</p>}
       </section>
-      {!config ? <p className="hint" role="status">Loading the network…</p>
-        : deploymentChain(config) !== nft.chainId ? <div className="notice error" role="alert"><span>This NFT lives on another network.</span></div>
+      {deploymentChain(config) !== nft.chainId ? <div className="notice error" role="alert"><span>This NFT lives on another network.</span></div>
         : <NftTreasuryCard config={config} nft={nft} coins={coins ?? []} />}
     </>
   );
 }
 
-/** Rewards: the NFTs this wallet holds among the listed NFT coins (not rejected, not hidden), read with one `ownerOf` multicall over the first 200. */
+/** Rewards: the NFTs this wallet holds among the listed NFT coins (not rejected, not hidden), read with one `ownerOf` multicall over the first 200.
+ * Nothing is read or shown while NFT mode is off. */
 export function MyNftTreasuries({ tokens, config, navigate }: { tokens: TokenRecord[]; config: RuntimeConfig | null; navigate: (path: string) => void }) {
   const wallet = useWallet(), account = wallet.account;
   const [result, setResult] = useState<{ held: { nft: NftRef; coins: TokenRecord[] }[]; capped: boolean } | null>(null), [error, setError] = useState("");
-  const nftCoins = tokens.filter(listedNftCoin);
+  const nftCoins = config?.nftMode?.enabled === true ? tokens.filter(listedNftCoin) : [];
   const scope = nftCoins.slice(0, NFT_OWNER_SCAN_LIMIT).map((token) => `${token.address}:${nftKey(token.nft!)}`).join(",");
   useEffect(() => {
     let active = true;

@@ -162,22 +162,25 @@ Status, 2026-10-14: implemented on branch `codex/nft-mode-robinhood` and not rel
 **Rules**
 - A coin can be bound to one ERC-721 on the coin's own chain. Each NFT gets one coin, ever: once it has a `verified` coin, prepare refuses another with `NFT_ALREADY_LAUNCHED`, also after the NFT is sold.
 - The launcher must hold the NFT, or be its delegate.xyz v2 delegate (`0x0000…B493`) with rights `musegod.fun.launch` or unscoped.
-- Muses (`0x13Ea3072b7215d4C9c2Ec4f498A08c5825129836`) launch free and must pair with MUSEGOD. Other NFTs pay $10 per launch: exactly 10 USDG (`0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168`), or at least the ETH of a 60-second server quote, sent by the launcher to the operations wallet (`config.treasury`). One payment funds one coin; there are no refunds. A USDG transfer counts only from block 87,500,000. ETH quotes are signed under the plan-attestation key with their own domain and are refused without it.
-- `MUSEGOD` is a reserved name and symbol.
+- Muses (`0x13Ea3072b7215d4C9c2Ec4f498A08c5825129836`) launch free and must pair with MUSEGOD. Other NFTs pay $10 per launch: exactly 10 USDG (`0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168`), or at least the ETH of a 60-second server quote, sent by the launcher to the operations wallet (`config.treasury`). One payment funds one coin; there are no refunds. A USDG transfer counts only from block 87,500,000. ETH quotes are signed under the plan-attestation key with their own domain and are refused without it. The wallet refuses an ETH quote above 0.05 ETH.
+- A fee is accepted only when it was paid to the *current* `config.treasury`. Rotating the platform treasury therefore strands every fee paid to the old one and not yet used: it can no longer launch a coin. Before a rotation, check for paid, unused fees and refund them by hand.
+- `MUSEGOD` is a reserved name and symbol for every launch, normal and NFT, on both chains (Base and Robinhood), whether or not NFT mode is on. Letters and digits are compared, so spacing and punctuation do not get around it.
 - Fees: the creator's LP and hook shares go to the NFT's fee vault, `vaultFor(nft)` under `MusegodNftFeeVaultFactory` (CREATE2; no owner, upgrade or redirect). Anyone may `sweep` the vault: it claims both fee sources, activates the NFT's Tokenbound V3 (ERC-6551) treasury if needed, and forwards the fees there. The NFT holder controls the treasury, so selling the NFT moves control of the treasury and of all future fees. The fee engine keeps its own shares, as for any Robinhood launch.
 - On Robinhood, a caller without shares can push accrued fees to the vault only through the initializer; Rehype refuses such callers (`CallerNotBeneficiary()`), so its fees wait for `sweep`. The vault is balance-based, so nothing is lost.
 
 **Statuses.** Registration records `nftVerification` once and never blocks on it:
-- `verified`: the badge.
-- `rejected` with a reason (`pair`, `fee`, `already_launched`, `not_erc721`, `not_controller`): the coin stays registered and its fees still go to the vault, but it has no badge and is never listed as that NFT's coin.
-- `unverified` (`rpc`): an RPC outage lasted past 10 minutes; only `npm run nft:reverify` settles it. A record with `nft` and no status also counts as `unverified`.
+- `verified`: the NFT's one coin; prepare refuses another.
+- `rejected` with a reason (`pair`, `fee`, `already_launched`, `not_erc721`, `not_controller`): the coin stays registered and its fees still go to the vault (the treasury view, its balances and the sweep include it), but it has no badge and is never listed as that NFT's coin. `fee` is a definite mismatch only: wrong recipient, amount or asset, an invalid quote MAC, a non-plain ETH transfer, a wrong payer, a failed transaction or a payment already used.
+- `unverified`: `rpc` (an RPC outage lasted past 10 minutes) or `fee_unconfirmed` (the fee payment was still unmined, had one confirmation, sat in a reorganized block or could not be read 10 minutes after the coin's receipt). Until then, registration fails retryably. A `fee_unconfirmed` coin consumed no payment, so the payment stays usable. A record with `nft` and no status also counts as `unverified`. Only `npm run nft:reverify` settles an `unverified` record, and it leaves one without a verified fee as it is.
 
-A saved preview checks control at the latest block; a backup checks it at its receipt block.
+The badge depends on the collection alone, never on the status: "Muse #N" for the Muses, and "NFT · unverified collection" for every other collection, with its short contract address on the token header and the NFT page. A `rejected` coin has no badge.
 
-**APIs** (on `/api/chains/4663/…`; NFT refusals carry `NFT_*` codes):
+A saved preview checks control at the latest block; a backup checks it at its receipt block. Signing re-reads the one-coin rule: a plan for an NFT that has meanwhile got its verified coin is refused with `NFT_ALREADY_LAUNCHED`.
+
+**APIs** (on `/api/chains/4663/…`; NFT refusals carry `NFT_*` codes). While NFT mode is off, `nft-treasury` and `nft-status` answer 422 `NFT_MODE_UNAVAILABLE` before any RPC or database read, and the NFT page and the token page's NFT card show only "NFT mode is not available on this network." (no Muse art, no musegod.org image, no actions):
 - `config`: `nftMode {enabled, vaultFactory, launchFeeUsd, freeCollections, verifiedCollections}`. `vaultFactory` appears only after the deployed runtime hash matches the manifest.
 - `tokens?nft=<chainId>:<contract>:<tokenId>|any`: `verified` and `unverified` bound coins, never rejected or hidden ones, with `Access-Control-Allow-Origin: *`.
-- `nft-treasury?nft=…`: vault and treasury addresses, whether each is deployed, balances and pending fees.
+- `nft-treasury?nft=…`: vault and treasury addresses, whether each is deployed, every bound coin of any status (the sweep set), balances and pending fees.
 - `nft-status?nft=…&account=…`: control, the one-coin rule and the fee tier, for the create form.
 - `launch-fee-quote?payer=…`: the ETH quote.
 

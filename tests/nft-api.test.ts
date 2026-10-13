@@ -27,10 +27,12 @@ const symbols = (rows: { symbol: string }[]) => rows.map((row) => row.symbol).so
 const noHidden = { "4663": [], "8453": [] };
 
 // ---- HTTP: catalog, ?nft= filter, hide list, page route ----------------------------------------
-async function httpFixture(run: (entry: ReturnType<typeof createApp>, origin: string) => Promise<void>, configurePages?: (app: express.Express) => void) {
+// NFT mode is on unless `nftMode: false`: these surfaces are dark while it is off.
+async function httpFixture(run: (entry: ReturnType<typeof createApp>, origin: string) => Promise<void>, configurePages?: (app: express.Express) => void,
+  { nftMode = true } = {}) {
   const directory = mkdtempSync(join(tmpdir(), "nft-api-"));
   const runtime = runtimeFromEnv(4663, { NODE_ENV: "test", CHAIN_MODE: "fork", FORK_CHAIN_ID: "4663", DATA_DIR: directory,
-    PLATFORM_TREASURY: "0x2222222222222222222222222222222222222222" });
+    PLATFORM_TREASURY: "0x2222222222222222222222222222222222222222", ...(nftMode ? { NFT_MODE_ENABLED: "true" } : {}) });
   const entry = createApp(configurePages, "loopback", runtime);
   const server = entry.app.listen(0, "127.0.0.1"); await once(server, "listening");
   const bound = server.address(); assert(bound && typeof bound !== "string");
@@ -146,7 +148,7 @@ test("a malformed ?nft= is a 400 on both endpoints; the parser is strict about e
 test("/api/chains/:id/tokens?nft= reaches the selected chain and answers cross-origin", async () => {
   const directory = mkdtempSync(join(tmpdir(), "nft-api-dual-"));
   const runtime = runtimeFromEnv(4663, { NODE_ENV: "test", CHAIN_MODE: "fork", FORK_CHAIN_ID: "4663", DATA_DIR: directory,
-    PLATFORM_TREASURY: "0x2222222222222222222222222222222222222222" });
+    PLATFORM_TREASURY: "0x2222222222222222222222222222222222222222", NFT_MODE_ENABLED: "true" });
   const { app, services } = createDualChainApp(undefined, "loopback", [runtime]);
   const service = services.get(4663)!;
   service.tokens = async () => structuredClone(catalog().rows);
@@ -197,6 +199,60 @@ test("the treasury endpoint is a read-class API and refuses an unavailable facto
     assert.equal((await get(origin, "/api/nft-treasury")).status, 400, "the NFT is required");
     assert.equal((await get(origin, "/api/nft-treasury?nft=any")).status, 400, "any is only a catalog filter");
   });
+});
+
+test("while NFT mode is off, nft-status and nft-treasury answer 422 NFT_MODE_UNAVAILABLE before any read; the ?nft= listing stays empty", async () => {
+  await httpFixture(async ({ service }, origin) => {
+    let reads = 0, catalogReads = 0;
+    (service as unknown as { client: unknown }).client = new Proxy({}, { get: () => { reads++; throw new Error("no chain reads expected"); } });
+    const catalog = service.tokens.bind(service);
+    service.tokens = async () => { catalogReads++; return catalog(); };
+    service.store.verifiedNftCoin = () => { reads++; throw new Error("no database reads expected"); };
+    const account = "0x1111111111111111111111111111111111111111";
+    for (const path of [`/api/nft-treasury?nft=4663:${MUSES.contract}:1`, `/api/nft-status?nft=4663:${MUSES.contract}:1&account=${account}`,
+      "/api/nft-treasury?nft=garbage", "/api/nft-status"]) {
+      const response = await get(origin, path);
+      assert.equal(response.status, 422, path);
+      assert.deepEqual(await response.json(), { error: "NFT mode is not available on this network.", code: "NFT_MODE_UNAVAILABLE" }, path);
+    }
+    assert.equal(reads, 0, "no RPC or database read while dark");
+    assert.equal(catalogReads, 0, "not even the catalog");
+    const listing = await get(origin, "/api/tokens?nft=any");
+    assert.equal(listing.status, 200);
+    assert.deepEqual(await listing.json(), [], "the public listing stays, empty and harmless");
+  }, undefined, { nftMode: false });
+  // The chain-scoped routes the page uses are dark too.
+  const directory = mkdtempSync(join(tmpdir(), "nft-api-dark-"));
+  const runtime = runtimeFromEnv(4663, { NODE_ENV: "test", CHAIN_MODE: "fork", FORK_CHAIN_ID: "4663", DATA_DIR: directory,
+    PLATFORM_TREASURY: "0x2222222222222222222222222222222222222222" });
+  const { app, services } = createDualChainApp(undefined, "loopback", [runtime]);
+  const server = app.listen(0, "127.0.0.1"); await once(server, "listening");
+  const bound = server.address(); assert(bound && typeof bound !== "string");
+  try {
+    for (const path of [`/api/chains/4663/nft-treasury?nft=4663:${MUSES.contract}:1`,
+      `/api/chains/4663/nft-status?nft=4663:${MUSES.contract}:1&account=0x1111111111111111111111111111111111111111`]) {
+      const response = await get(`http://127.0.0.1:${bound.port}`, path);
+      assert.equal(response.status, 422, path);
+      assert.equal((await response.json()).code, "NFT_MODE_UNAVAILABLE", path);
+    }
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    for (const item of services.values()) item.store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("nftTreasury and nftStatus refuse with NFT_MODE_UNAVAILABLE before parsing or reading while the flag is off", async () => {
+  const { service, calls } = treasuryFixture([coin(71, { nft: nftOf("1"), nftVerification: verified })]);
+  (service as unknown as { runtime: { config: RuntimeConfig } }).runtime.config.nftMode!.enabled = false;
+  let catalogReads = 0;
+  service.tokens = async () => { catalogReads++; return []; };
+  assert.equal(await rejectionCode(() => service.nftTreasury(`4663:${MUSES.contract}:1`)), "NFT_MODE_UNAVAILABLE");
+  assert.equal(await rejectionCode(() => service.nftTreasury("garbage")), "NFT_MODE_UNAVAILABLE");
+  assert.equal(await rejectionCode(() => service.nftStatus(`4663:${MUSES.contract}:1`, "0x1111111111111111111111111111111111111111")), "NFT_MODE_UNAVAILABLE");
+  assert.deepEqual([calls.codes, calls.multicalls, calls.fees, catalogReads], [[], [], [], 0]);
+  (service as unknown as { runtime: { config: RuntimeConfig } }).runtime.config.nftMode = undefined;
+  assert.equal(await rejectionCode(() => service.nftTreasury(`4663:${MUSES.contract}:1`)), "NFT_MODE_UNAVAILABLE", "a runtime without nftMode is dark too");
 });
 
 test("the treasury endpoint passes the raw query to the service and serializes bigint amounts", async () => {
@@ -250,28 +306,48 @@ const rejectionCode = async (run: () => Promise<unknown>) => { try { await run()
 test("nftTreasury derives both addresses, reads their code and the bound coins' balances in one multicall, and previews fees for the vault", async () => {
   const nft = nftOf("101"), { vault, treasury } = derived(nft);
   const a = coin(11, { nft, nftVerification: verified }), b = coin(12, { nft, nftVerification: unverified, quoteAddress: musegod.address });
-  const rows = [a, b, coin(13, { nft, nftVerification: rejected }), coin(14, { nft: nftOf("102"), nftVerification: verified }), coin(15),
+  const c = coin(13, { nft, nftVerification: rejected });
+  const rows = [a, b, c, coin(14, { nft: nftOf("102"), nftVerification: verified }), coin(15),
     coin(16, { nft, nftVerification: verified, quoteAddress: weth.address, symbol: "SIXTEEN" })];
   const { service, calls } = treasuryFixture(rows, { deployed: [vault] });
   const view = await service.nftTreasury(`4663:${MUSES.contract.toLowerCase()}:101`);
   assert.deepEqual(view.nft, nft, "the NFT is normalized to the checksummed contract");
   assert.deepEqual({ vault: view.vault, vaultDeployed: view.vaultDeployed, treasury: view.treasury, treasuryDeployed: view.treasuryDeployed },
     { vault, vaultDeployed: true, treasury, treasuryDeployed: false });
-  // Bound coins (rejected and other NFTs excluded), then each distinct paired asset once.
+  // Every coin bound to this NFT, whatever its status (a rejected coin still pays the vault; other NFTs and normal coins are excluded),
+  // then each distinct paired asset once.
+  const bound = [a, b, c, rows[5]];
+  assert.deepEqual(view.coins, bound.map((row) => ({ token: row.address, symbol: row.symbol, poolId: row.poolId, quoteAddress: row.quoteAddress })),
+    "the sweep set: each bound coin's pool and assets");
   assert.equal(calls.multicalls.length, 1, "exactly one multicall");
-  const assets = [a.address, b.address, rows[5].address, weth.address, musegod.address];
+  const assets = [a.address, b.address, c.address, rows[5].address, weth.address, musegod.address];
   assert.deepEqual(calls.multicalls[0].map((call) => [call.address, call.functionName, call.args[0]]),
     assets.flatMap((asset) => [[asset, "balanceOf", treasury], [asset, "balanceOf", vault]]));
   assert.deepEqual(view.balances.map((row) => [row.token, row.symbol, row.amount, row.vaultAmount]), [
     [a.address, "C11", String(1n * 10n ** 18n), String(2n * 10n ** 18n)],
     [b.address, "C12", String(3n * 10n ** 18n), String(4n * 10n ** 18n)],
-    [rows[5].address, "SIXTEEN", String(5n * 10n ** 18n), String(6n * 10n ** 18n)],
-    [weth.address, weth.symbol, String(7n * 10n ** 18n), String(8n * 10n ** 18n)],
-    [musegod.address, musegod.symbol, String(9n * 10n ** 18n), String(10n * 10n ** 18n)],
+    [c.address, "C13", String(5n * 10n ** 18n), String(6n * 10n ** 18n)],
+    [rows[5].address, "SIXTEEN", String(7n * 10n ** 18n), String(8n * 10n ** 18n)],
+    [weth.address, weth.symbol, String(9n * 10n ** 18n), String(10n * 10n ** 18n)],
+    [musegod.address, musegod.symbol, String(11n * 10n ** 18n), String(12n * 10n ** 18n)],
   ]);
-  assert.deepEqual(calls.fees.map(([token]) => token), [a.address, b.address, rows[5].address]);
+  assert.deepEqual(calls.fees.map(([token]) => token), [a.address, b.address, c.address, rows[5].address]);
   assert(calls.fees.every(([, account]) => account === vault), "pending fees are those of the vault");
-  assert.deepEqual(view.pendingFees, [a, b, rows[5]].map((row) => ({ token: row.address, lp: { fees0: 1n, fees1: 2n }, trade: { fees0: 3n, fees1: 4n }, poolKey: { hooks: vault } })));
+  assert.deepEqual(view.pendingFees, bound.map((row) => ({ token: row.address, lp: { fees0: 1n, fees1: 2n }, trade: { fees0: 3n, fees1: 4n }, poolKey: { hooks: vault } })));
+});
+
+test("a rejected coin bound to the NFT is in the treasury view and its sweep set, but never in the public listing", async () => {
+  const nft = nftOf("1");
+  const listed = coin(81, { nft, nftVerification: verified }), refused = coin(82, { nft, nftVerification: rejected, quoteAddress: musegod.address });
+  const { service } = treasuryFixture([listed, refused]);
+  const view = await service.nftTreasury(`4663:${MUSES.contract}:1`);
+  assert.deepEqual(view.coins.map((row) => row.token), [listed.address, refused.address]);
+  assert.deepEqual(view.pendingFees.map((row) => (row as { token: Address }).token), [listed.address, refused.address]);
+  assert(view.balances.some((row) => row.token === refused.address), "its balance is shown");
+  await httpFixture(async ({ service: http }, origin) => {
+    http.tokens = async () => structuredClone([listed, refused]);
+    assert.deepEqual(symbols(await (await get(origin, `/api/tokens?nft=4663:${MUSES.contract}:1`)).json()), ["C81"]);
+  });
 });
 
 test("an NFT with no coin still answers with its addresses, and no balance read is made", async () => {

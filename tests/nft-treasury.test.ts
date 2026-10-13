@@ -161,14 +161,20 @@ test("a lock ends the preset number of days after the latest block", () => {
   assert.equal(lockTarget(1_800_000_000n, 30), 1_802_592_000);
 });
 
-test("the NFT badge names a Muse or warns about an unverified collection, and a rejected coin has none", () => {
-  const coin = (status: "verified" | "unverified" | "rejected", ref: NftRef = nft) => ({ nft: ref, nftVerification: { status } });
+test("the NFT badge follows the collection allowlist, never the coin's status; a rejected coin has none", () => {
+  const coin = (status: "verified" | "unverified" | "rejected" | undefined, ref: NftRef = nft) => ({ nft: ref, ...(status ? { nftVerification: { status } } : {}) });
+  const foreign = { ...nft, contract: "0x9999999999999999999999999999999999999999" as Address };
   assert.equal(nftBadge(coin("verified")), "Muse #1");
   assert.equal(nftBadge(coin("unverified", other)), "Muse #2");
-  assert.equal(nftBadge(coin("verified", { ...nft, contract: "0x9999999999999999999999999999999999999999" })), "NFT #1");
-  assert.equal(nftBadge(coin("unverified", { ...nft, contract: "0x9999999999999999999999999999999999999999" })), "NFT · unverified collection");
+  assert.equal(nftBadge(coin(undefined, other)), "Muse #2", "a record without a status is unverified");
+  for (const status of ["verified", "unverified", undefined] as const)
+    assert.equal(nftBadge(coin(status, foreign)), "NFT · unverified collection", `a ${status ?? "status-less"} coin of another collection still warns`);
   assert.equal(nftBadge(coin("rejected")), null);
+  assert.equal(nftBadge(coin("rejected", foreign)), null);
   assert.equal(nftBadge({}), null);
+  // Where space allows (the NFT page and the token header), an unverified collection names its contract (D7).
+  assert.equal(nftBadge(coin("verified", foreign), { withContract: true }), "NFT · unverified collection · 0x9999…9999");
+  assert.equal(nftBadge(coin("verified"), { withContract: true }), "Muse #1", "the allowlisted Muses need no address");
 });
 
 // ---- fee allocation ----------------------------------------------------------------------------

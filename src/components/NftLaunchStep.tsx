@@ -95,6 +95,8 @@ export function NftLaunchStep({ config, account, draft, error = "", feeRejected 
   useEffect(() => { latest.current.onStatus({ status: statusText, fee: fee.state }); }, [statusText, fee.state]);
   const stable = LAUNCH_FEE_STABLE[deploymentChain(config)], record = fee.record;
   const needsFee = !!nft && !isMuse(nft);
+  // A fee paid before the verified vault exists could not launch anything, so payment opens with it.
+  const vaultReady = !!config.nftMode?.vaultFactory, payBlocked = fee.paying || !config.writesEnabled || !vaultReady;
 
   return (
     <fieldset className="nft-step">
@@ -132,10 +134,13 @@ export function NftLaunchStep({ config, account, draft, error = "", feeRejected 
               <button type="button" className="secondary" disabled={fee.paying} onClick={fee.cancelEthQuote}>Cancel</button>
             </div>
           </div>
-          : needsFee ? <div className="button-row">
-            {stable && <button type="button" className="primary" disabled={fee.paying || !config.writesEnabled} onClick={fee.payStable}>Pay 10 {stable.symbol}</button>}
-            <button type="button" className="secondary" disabled={fee.paying || !config.writesEnabled} onClick={fee.requestEthQuote}>Pay with ETH</button>
-          </div> : null}
+          : needsFee ? <>
+            {!vaultReady && <p className="nft-warning" role="status">Launch-fee payment opens when the fee vault is available on this network.</p>}
+            <div className="button-row">
+              {stable && <button type="button" className="primary" disabled={payBlocked} onClick={fee.payStable}>Pay 10 {stable.symbol}</button>}
+              <button type="button" className="secondary" disabled={payBlocked} onClick={fee.requestEthQuote}>Pay with ETH</button>
+            </div>
+          </> : null}
         {record && record.state !== "paid" && !fee.paying && <div className="button-row">
           <button type="button" className="secondary" disabled={fee.checking} onClick={fee.checkAgain}>{fee.checking ? "Checking…" : "Check again"}</button>
           {fee.unknown && <button type="button" className="secondary" onClick={fee.discard}>No payment was sent — pay again</button>}

@@ -88,6 +88,29 @@ test("an unmined hash is an invalid fee, while a node failure propagates as itse
   assert.equal(await codeOf(verifyLaunchFeePayment(failing(new Error("rpc down")), args)), "Error: rpc down");
 });
 
+test("only a fee still confirming or from a reorganized block is retryable; every definite mismatch is final", async () => {
+  // "retry": NFT_FEE_INVALID marked retryable; "node": the node's own error; otherwise the final code.
+  const kind = async (p: Promise<unknown>) => p.then(() => "ok", (e) => e instanceof NftLaunchError ? (e.retryable ? `retry:${e.message}` : e.code) : "node");
+  const stable = { fee: { asset: "stable" as const, txHash: hash }, payer, recipient: ops, chainId: 4663 as const, keys: [key] };
+  const paid = { logs: [transferLog(payer, ops, usdg.amount)] };
+  const failing = (error: Error) => ({ getTransactionReceipt: async () => { throw error; } }) as never;
+  assert.equal(await kind(verifyLaunchFeePayment(failing(new TransactionReceiptNotFoundError({ hash })), stable)),
+    "retry:The launch fee payment is not valid: the transaction has not been mined yet.", "the wording prepare shows is unchanged");
+  assert.equal(await kind(verifyLaunchFeePayment(client(paid, {}, 1000n, BLOCK + 10n), stable)), "retry:The launch fee payment is not valid: wait for two confirmations.");
+  assert.equal(await kind(verifyLaunchFeePayment(client({ ...paid, blockHash: `0x${"33".repeat(32)}` }), stable)), "retry:The launch fee payment is not valid: the block was reorganized.");
+  assert.equal(await kind(verifyLaunchFeePayment(failing(new Error("rpc down")), stable)), "node");
+  const foreignToken = { ...transferLog(payer, ops, usdg.amount), address: "0x1111111111111111111111111111111111111111" as Address };
+  for (const [why, receipt] of [["wrong amount", { logs: [transferLog(payer, ops, usdg.amount - 1n)] }], ["wrong recipient", { logs: [transferLog(payer, stranger, usdg.amount)] }],
+    ["wrong asset", { logs: [foreignToken] }], ["wrong payer", { ...paid, from: stranger }], ["reverted", { ...paid, status: "reverted" }]] as const)
+    assert.equal(await kind(verifyLaunchFeePayment(client(receipt), stable)), "NFT_FEE_INVALID", why);
+  const wei = "5000000000000000", expiresAt = 2000;
+  const native = { ...stable, fee: { asset: "native" as const, txHash: hash, wei, expiresAt, mac: launchFeeQuoteMac(key, 4663, payer, wei, expiresAt) } };
+  assert.equal(await kind(verifyLaunchFeePayment(client({}, { value: 5000000000000000n }, 2000n), native)), "ok");
+  for (const [why, tx, args] of [["invalid MAC", {}, { ...native, keys: ["j".repeat(32)] }], ["not a plain transfer", { input: "0xdeadbeef" }, native],
+    ["wrong recipient", { to: stranger }, native], ["too little", { value: 4999999999999999n }, native]] as const)
+    assert.equal(await kind(verifyLaunchFeePayment(client({}, { value: 5000000000000000n, ...tx }, 2000n), args)), "NFT_FEE_INVALID", why);
+});
+
 test("an ETH payment needs the quoted wei, a valid MAC and a block within expiry plus 10 minutes", async () => {
   const wei = "5000000000000000", expiresAt = 2000;
   const fee = { asset: "native" as const, txHash: hash, wei, expiresAt, mac: launchFeeQuoteMac(key, 4663, payer, wei, expiresAt) };

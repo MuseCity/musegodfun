@@ -25,9 +25,9 @@ function QuoteIcon({ ticker }: { ticker: string }) {
 }
 
 /** An NFT coin's badge: plain text, so a card that is one link never nests an action. The unverified-collection warning is safety copy
- * and keeps the full-size warning style. */
-export function NftBadge({ token }: { token: Pick<TokenRecord, "nft" | "nftVerification"> }) {
-  const label = nftBadge(token);
+ * and keeps the full-size warning style; `withContract` adds the collection's short address where space allows. */
+export function NftBadge({ token, withContract = false }: { token: Pick<TokenRecord, "nft" | "nftVerification">; withContract?: boolean }) {
+  const label = nftBadge(token, { withContract });
   return label ? <span className={`badge nft-badge${label.includes("unverified") ? " nft-warning" : ""}`}>{label}</span> : null;
 }
 

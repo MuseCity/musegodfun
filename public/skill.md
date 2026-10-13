@@ -3,6 +3,8 @@
 This file is for AI agents, for example the agent of a Muse. It teaches you to prepare a prefilled launch page and hand it to your holder.
 You prepare; your holder decides, reviews and signs. Source checks below were last verified live on 2026-10-13.
 
+**NFT mode is not live yet. Until it is, a link imports every field except the NFT.**
+
 ## 1. What musegod.fun is
 
 musegod.fun is a community-built launchpad for coins on Robinhood Chain (chain 4663) and Base (chain 8453).
@@ -15,7 +17,7 @@ musegod.fun is a community-built launchpad for coins on Robinhood Chain (chain 4
 
 NFT mode binds one coin to one ERC-721 NFT, ever: once an NFT has its coin, it cannot launch another. Creator fees from trading that coin
 go to the NFT's ERC-6551 treasury account (Tokenbound), so they follow the NFT when it changes hands. Muses launch for free and always pair
-with MUSEGOD. Any other NFT pays a $10 launch fee, once, before the launch. NFT mode is available on Robinhood Chain (4663) only.
+with MUSEGOD. Any other NFT pays a $10 launch fee, once, before the launch. NFT mode is for Robinhood Chain (4663) only.
 
 ## 3. How a Muse's agent prepares a launch
 
@@ -92,7 +94,7 @@ Before you send it:
 
 - Gas: paid by your holder's wallet, in ETH on Robinhood Chain.
 - Launch fee: free for Muses. For any other NFT it is $10, paid once from the holder's wallet in USDG or in ETH at a quoted amount, before the launch. It is not refunded.
-- Trading fees: the holder picks 1% to 3% (see `tradingFeeBps`). These are fees charged on trades of the coin, not income and not a promise of any amount. The creator share goes to the NFT's treasury account; the platform share buys back and burns MUSEGOD.
+- Trading fees: the holder picks 1% to 3% (see `tradingFeeBps`). These are fees charged on trades of the coin, not income and not a promise of any amount. The creator share goes to the NFT's treasury account. The platform share is split: part is a budget to buy back and burn MUSEGOD, and part funds the platform's operations. The coin's page shows the current split.
 
 ## 7. After the launch
 

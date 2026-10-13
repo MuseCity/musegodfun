@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { ArrowRight, Gem, LockKeyhole, RefreshCw, TriangleAlert, Vault } from "lucide-react";
-import { formatUnits, zeroAddress, type Address, type Hex } from "viem";
+import { formatUnits, type Address, type Hex } from "viem";
 import { chainApi } from "../lib/api";
 import { deploymentChain, explorerFor, networkName, sameAddress, shortAddress, stockByAddress, type RuntimeConfig, type TokenRecord } from "../lib/config";
 import { isMuse, nftKey, treasuryFor, vaultFor, type NftRef, type NftStatus } from "../lib/nft-mode";
@@ -13,9 +13,10 @@ import { NftBadge } from "./TokenCard";
 
 type FeePair = { fees0: string; fees1: string };
 type PendingFee = { token: Address; lp: FeePair; trade: FeePair; poolKey: { currency0: Address; currency1: Address } } | { token: Address; error: string };
-/** `/nft-treasury`: the vault and treasury, what the treasury (`amount`) and vault hold of the bound coins and their pairs, and each coin's
- * fees still waiting in Doppler for the vault. */
+/** `/nft-treasury`: the vault and treasury, every coin bound to the NFT whatever its status (`coins`, the sweep set), what the treasury
+ * (`amount`) and vault hold of those coins and their pairs, and each coin's fees still waiting in Doppler for the vault. */
 type NftTreasuryView = { nft: NftRef; vault: Address; vaultDeployed: boolean; treasury: Address; treasuryDeployed: boolean;
+  coins: { token: Address; symbol: string; poolId: Hex; quoteAddress: Address }[];
   balances: { token: Address; symbol: string; amount: string; vaultAmount: string | null }[]; pendingFees: PendingFee[] };
 type Tx = { to: Address; data: Hex };
 
@@ -28,7 +29,7 @@ export function nftQuery(nft: NftRef) {
   return encodeURIComponent(`${nft.chainId}:${nft.contract}:${nft.tokenId}`);
 }
 /** A coin, a pair asset, or an address without a known symbol (shown as 18 decimals). */
-function assetOf(token: Address, coins: TokenRecord[]) {
+function assetOf(token: Address, coins: Pick<TokenRecord, "address" | "symbol">[]) {
   const coin = coins.find((entry) => sameAddress(entry.address, token));
   if (coin) return { symbol: coin.symbol, decimals: 18 };
   try { const stock = stockByAddress(token); return { symbol: stock.symbol, decimals: stock.decimals }; }
@@ -48,8 +49,14 @@ function AddressLink({ address, config }: { address: Address; config: RuntimeCon
     : <code title={address}>{shortAddress(address)}</code>;
 }
 
+export const NFT_MODE_UNAVAILABLE = "NFT mode is not available on this network.";
+/** While NFT mode is off the NFT surfaces stay dark: this notice only, with no art, no musegod.org image and no actions. */
+export function NftModeUnavailable() {
+  return <p className="nft-warning nft-banner" role="status">{NFT_MODE_UNAVAILABLE}</p>;
+}
+
 /** The bound NFT, its fee vault and Tokenbound treasury, and the treasury actions. `coin`: the token page's coin (its verification and
- * hidden state); `coins`: the coins whose fees the sweep claims. */
+ * hidden state); `coins`: the listed coins (deposit assets and names). The sweep claims every bound coin the treasury view reports. */
 export function NftTreasuryCard({ config, nft, coins, coin, navigate }: {
   config: RuntimeConfig; nft: NftRef; coins: TokenRecord[]; coin?: TokenRecord; navigate?: (path: string) => void;
 }) {
@@ -79,10 +86,12 @@ export function NftTreasuryCard({ config, nft, coins, coin, navigate }: {
       .then((next) => { if (active) { setView(next); setWithdrawAmounts({}); } }, (cause) => { if (active) setViewError(errorMessage(cause)); });
     return () => { active = false; };
   }, [key, factory, revision]);
+  // Only for a connected wallet: an anonymous viewer is not the holder, and no status is read for the zero address.
   useEffect(() => {
     let active = true;
     setStatusError("");
-    readNftStatus(config, nft, account ?? zeroAddress)
+    if (!account) { setStatus(null); return; }
+    readNftStatus(config, nft, account)
       .then((next) => { if (active) setStatus(next); }, (cause) => { if (active) setStatusError(errorMessage(cause)); });
     return () => { active = false; };
   }, [key, account, revision]);
@@ -127,8 +136,12 @@ export function NftTreasuryCard({ config, nft, coins, coin, navigate }: {
       setError(errorMessage(cause)); setProgress("");
     } finally { setBusy(""); }
   }
+  // Every coin bound to the NFT, rejected ones included (they still pay the vault): each pool, and each coin and paired asset once.
+  const bound = view?.coins ?? [];
+  const known = [...coins, ...bound.map((entry) => ({ address: entry.token, symbol: entry.symbol }))];
+  const sweepAssets = [...new Map(bound.flatMap((entry) => [entry.token, entry.quoteAddress]).map((token) => [token.toLowerCase(), token])).values()];
   const sweep = () => run("Sweep fees", () => [...(vaultDeployed ? [] : [deployVaultTx(factory!, nft)]),
-    sweepTx(vault!, coins.map((entry) => entry.poolId), assets)]);
+    sweepTx(vault!, bound.map((entry) => entry.poolId), sweepAssets)]);
   const lockFor = (days: number) => run("Lock treasury", async () => {
     const block = await transactionClient(config.chainId, config).getBlock();
     return [lockTx(nft, lockTarget(block.timestamp, days))];
@@ -137,10 +150,10 @@ export function NftTreasuryCard({ config, nft, coins, coin, navigate }: {
   const verified = muse || (config.nftMode?.verifiedCollections ?? []).includes(`${nft.chainId}:${nft.contract.toLowerCase()}`);
   const explorer = explorerFor(config);
   const pending = (view?.pendingFees ?? []).flatMap((entry) => {
-    const coinOf = assetOf(entry.token, coins);
+    const coinOf = assetOf(entry.token, known);
     if ("error" in entry) return [{ key: entry.token, label: `${coinOf.symbol} pool`, text: "Fee preview unavailable" }];
     return ([["currency0", "fees0"], ["currency1", "fees1"]] as const).map(([currency, field]) => {
-      const asset = assetOf(entry.poolKey[currency], coins);
+      const asset = assetOf(entry.poolKey[currency], known);
       return { key: `${entry.token}:${currency}`, label: `${coinOf.symbol} pool · ${asset.symbol}`, text: amountText(BigInt(entry.trade[field]) + BigInt(entry.lp[field]), asset.decimals) };
     });
   });
@@ -167,7 +180,8 @@ export function NftTreasuryCard({ config, nft, coins, coin, navigate }: {
             : coin.nftVerification?.status === "verified" ? "Verified" : "Unverified"}</dd></div>}
           {muse && status?.agentId && <div><dt>Agent</dt><dd className="sans">
             <a href={`${MUSE_SITE}/${nft.tokenId}.json`} target="_blank" rel="noreferrer">Agent #{status.agentId} (ERC-8004) ↗</a></dd></div>}
-          <div><dt>Holder</dt><dd>{status?.owner ? <AddressLink address={status.owner} config={config} /> : statusError ? "Unavailable" : status ? "None" : "Reading…"}</dd></div>
+          <div><dt>Holder</dt><dd>{status?.owner ? <AddressLink address={status.owner} config={config} /> : statusError ? "Unavailable" : status ? "None"
+            : account ? "Reading…" : "Connect a wallet to check"}</dd></div>
           <div><dt>Fee vault</dt><dd>{vault ? <AddressLink address={vault} config={config} /> : "Not deployed"}</dd></div>
           <div><dt>Treasury</dt><dd><AddressLink address={treasury} config={config} /></dd></div>
           <div><dt>Treasury lock</dt><dd className="sans">{locked ? <span className="nft-warning">{lockText}</span> : lockText}</dd></div>
@@ -183,7 +197,7 @@ export function NftTreasuryCard({ config, nft, coins, coin, navigate }: {
         <h3 className="nft-subtitle">Treasury balances</h3>
         {!view ? <p className="hint">{viewError ? "—" : "Reading…"}</p> : view.balances.length ? <dl className="rows boxed">
           {view.balances.map((row) => {
-            const asset = assetOf(row.token, coins);
+            const asset = assetOf(row.token, known);
             return <div key={row.token}><dt>{row.symbol}</dt><dd>{amountText(row.amount, asset.decimals)}
               {row.vaultAmount && BigInt(row.vaultAmount) > 0n && <span className="hint"> · {amountText(row.vaultAmount, asset.decimals)} in the vault</span>}</dd></div>;
           })}
@@ -200,7 +214,7 @@ export function NftTreasuryCard({ config, nft, coins, coin, navigate }: {
         {factory && <div className="nft-action">
           <h3 className="nft-subtitle"><Vault size={15} aria-hidden="true" /> Sweep</h3>
           <p className="hint">Anyone can claim this NFT's creator fees into its treasury.{view && !vaultDeployed ? " The first sweep also deploys the fee vault." : ""}</p>
-          <button type="button" className="primary" disabled={!canSign || !view || !coins.length} onClick={() => void sweep()}>Sweep fees to the treasury</button>
+          <button type="button" className="primary" disabled={!canSign || !view || !bound.length} onClick={() => void sweep()}>Sweep fees to the treasury</button>
         </div>}
         {view && !deployed && usable && <div className="nft-action">
           <h3 className="nft-subtitle">Activate treasury</h3>
@@ -215,7 +229,7 @@ export function NftTreasuryCard({ config, nft, coins, coin, navigate }: {
               Lock stay closed: {lockError} <button type="button" disabled={!!busy} onClick={retry}>Retry</button></span></div>
             : !lockKnown ? <p className="hint" role="status">Reading the treasury lock…</p> : null}
           {owner && view?.balances.filter((row) => BigInt(row.amount) > 0n).map((row) => {
-            const asset = assetOf(row.token, coins), id = `withdraw-${key}-${row.token}`;
+            const asset = assetOf(row.token, known), id = `withdraw-${key}-${row.token}`;
             const value = withdrawAmounts[row.token] ?? formatUnits(BigInt(row.amount), asset.decimals);
             return <div className="nft-row" key={row.token}>
               <label className="field" htmlFor={id}><span className="field-label">{row.symbol} amount to withdraw</span>
@@ -260,8 +274,12 @@ export function NftTreasuryCard({ config, nft, coins, coin, navigate }: {
   );
 }
 
-/** The token page's NFT card for a coin bound to an NFT. */
+/** The token page's NFT card for a coin bound to an NFT; only a notice while NFT mode is off. */
 export default function NftCoinCard({ token, config, navigate }: { token: TokenRecord; config: RuntimeConfig | null; navigate: (path: string) => void }) {
   if (!token.nft || !config) return null;
+  if (config.nftMode?.enabled !== true) return <section className="card nft-card" id="nft-card" aria-labelledby={`nft-card-${nftKey(token.nft)}`}>
+    <h2 id={`nft-card-${nftKey(token.nft)}`} className="card-title"><Gem size={18} aria-hidden="true" />Bound NFT</h2>
+    <NftModeUnavailable />
+  </section>;
   return <NftTreasuryCard config={config} nft={token.nft} coins={[token]} coin={token} navigate={navigate} />;
 }

@@ -7,21 +7,23 @@ import { LAUNCH_FEE_MIN_BLOCK, LAUNCH_FEE_MINING_GRACE_SECONDS, LAUNCH_FEE_QUOTE
 import { DELEGATE_REGISTRY_V2, NFT_LAUNCH_RIGHTS, NFT_VAULT_MANIFEST, isMuse, nftKey, vaultFactory, type NftChainId, type NftRef, type NftVaultManifest } from "../src/lib/nft-mode";
 import type { LaunchInput } from "../src/lib/validation";
 
-export type NftLaunchCode = "NFT_MODE_DISABLED" | "NFT_CHAIN_UNSUPPORTED" | "NFT_NOT_ERC721" | "NFT_NOT_CONTROLLED"
+export type NftLaunchCode = "NFT_MODE_DISABLED" | "NFT_MODE_UNAVAILABLE" | "NFT_CHAIN_UNSUPPORTED" | "NFT_NOT_ERC721" | "NFT_NOT_CONTROLLED"
   | "NFT_ALREADY_LAUNCHED" | "NFT_MUSE_PAIR_REQUIRED" | "NFT_RESERVED_NAME" | "NFT_FEE_REQUIRED" | "NFT_FEE_INVALID"
   | "NFT_FEE_USED" | "NFT_VAULT_UNAVAILABLE";
+/** `retryable`: the answer can still change (a fee payment still confirming, or in a reorganized block), so registration retries it
+ * like an RPC failure; prepare reports it like any other refusal. */
 export class NftLaunchError extends Error {
-  constructor(public code: NftLaunchCode, message: string) { super(message); this.name = "NftLaunchError"; }
+  constructor(public code: NftLaunchCode, message: string, readonly retryable = false) { super(message); this.name = "NftLaunchError"; }
 }
 const erc721Abi = parseAbi(["function supportsInterface(bytes4) view returns (bool)", "function ownerOf(uint256) view returns (address)"]);
 const delegateAbi = parseAbi(["function checkDelegateForERC721(address to, address from, address contract_, uint256 tokenId, bytes32 rights) view returns (bool)"]);
-const RESERVED = /^(?:musegod|muse\s*god)$/i;
 const MUSEGOD_TICKER = "MUSEGOD";
 
-/** CPU-only rules. Prepare calls this before any RPC; register never does (the badge rules replace it there). */
+/** CPU-only rules. Prepare calls this before any RPC; register never does (the badge rules replace it there). The reserved name applies
+ * to every launch, normal and NFT, on both chains; letters and digits are compared, so spacing and punctuation cannot get around it. */
 export function assertNftDraftRules(draft: LaunchInput, chainId: NftChainId, enabled: boolean): void {
   const normalized = (value: string) => value.replace(/[^a-z0-9]/gi, "");
-  if (RESERVED.test(draft.name.trim()) || normalized(draft.name).toUpperCase() === MUSEGOD_TICKER || draft.symbol.toUpperCase() === MUSEGOD_TICKER)
+  if (normalized(draft.name).toUpperCase() === MUSEGOD_TICKER || draft.symbol.toUpperCase() === MUSEGOD_TICKER)
     throw new NftLaunchError("NFT_RESERVED_NAME", "MUSEGOD is reserved for the official token.");
   if (!draft.nft) return;
   if (!enabled) throw new NftLaunchError("NFT_MODE_DISABLED", "NFT launches are not enabled on this network.");
@@ -33,8 +35,9 @@ export function assertNftDraftRules(draft: LaunchInput, chainId: NftChainId, ena
   }
 }
 
-/** A coin bound to an NFT (to `nft`, or to any NFT when omitted) that the public APIs list: `verified`, or `unverified`, which includes a
- * record registered before verification existed. A `rejected` coin keeps its record but is never offered as that NFT's coin. */
+/** A coin bound to an NFT (to `nft`, or to any NFT when omitted) that the public `?nft=` listing shows: `verified`, or `unverified`, which
+ * includes a record registered before verification existed. A `rejected` coin keeps its record, and its fees still reach the NFT's vault and
+ * treasury view, but it is never offered as that NFT's coin. */
 export function isBoundNftCoin(record: TokenRecord, nft?: NftRef): boolean {
   return !!record.nft && (!nft || nftKey(record.nft) === nftKey(nft)) && record.nftVerification?.status !== "rejected";
 }
@@ -96,26 +99,33 @@ export async function readMuseAgentId(client: Pick<PublicClient, "readContract">
 }
 
 export type NftRegistrationStatus = NonNullable<TokenRecord["nftVerification"]>;
+/** While the receipt block is at most 10 minutes old (spec §6.2), an answer that can still change fails registration retryably. */
+export const withinRetryWindow = (receiptTimestamp: bigint, nowSeconds: bigint) => nowSeconds - receiptTimestamp <= 600n;
+/** A non-Muse coin's launch fee at registration: verified and unused ("paid"), a definite mismatch or already used ("invalid"), or still
+ * unconfirmed 10 minutes after the coin's receipt (still confirming, in a reorganized block, or unreadable): "unconfirmed". */
+export type RegistrationFee = "paid" | "invalid" | "unconfirmed";
 /** The status an NFT coin is registered with, decided once. Register never blocks on it: the pair, fee, one-coin and control rules only
- * decide the badge. The caller holds the NFT's (and payment's) lock and passes the NFT's earliest other `verified` coin as `existing`.
+ * decide the status. The caller holds the NFT's (and payment's) lock and passes the NFT's earliest other `verified` coin as `existing`.
  * "retry" asks the caller to fail the registration retryably while the receipt block is at most 10 minutes old; after that an RPC
- * failure records `unverified`, which only `scripts/nft-reverify.ts` may later settle. */
+ * failure records `unverified` (`rpc`), and an unconfirmed fee leaves an otherwise verified coin `unverified` (`fee_unconfirmed`).
+ * Only `scripts/nft-reverify.ts` may later settle an `unverified` record. */
 export async function nftRegistrationStatus(args: { client: Pick<PublicClient, "readContract">; nft: NftRef; creator: Address; blockNumber?: bigint;
-  existing: TokenRecord | null; quoteAddress: Address; receiptTimestamp: bigint; nowSeconds: bigint; fee?: { ok: boolean } }):
+  existing: TokenRecord | null; quoteAddress: Address; receiptTimestamp: bigint; nowSeconds: bigint; fee?: RegistrationFee }):
   Promise<NftRegistrationStatus | "retry"> {
   const block = args.blockNumber === undefined ? undefined : String(args.blockNumber);
   const rejected = (reason: string): NftRegistrationStatus => ({ status: "rejected", reason, ...(block ? { block } : {}) });
   if (isMuse(args.nft)) {
     const musegod = ROBINHOOD_STOCKS.find((asset) => asset.symbol === MUSEGOD_TICKER)!;
     if (!sameAddress(musegod.address, args.quoteAddress)) return rejected("pair");
-  } else if (args.fee && !args.fee.ok) return rejected("fee");
+  } else if (args.fee === "invalid") return rejected("fee");
   if (args.existing) return rejected("already_launched");
   try {
     const control = await readNftControl(args.client, args.nft, args.creator, args.blockNumber);
     if (!control.erc721) return rejected("not_erc721");
-    return control.controls ? { status: "verified", ...(block ? { block } : {}) } : rejected("not_controller");
+    if (!control.controls) return rejected("not_controller");
+    return !isMuse(args.nft) && args.fee === "unconfirmed" ? { status: "unverified", reason: "fee_unconfirmed" } : { status: "verified", ...(block ? { block } : {}) };
   } catch {
-    return args.nowSeconds - args.receiptTimestamp <= 600n ? "retry" : { status: "unverified", reason: "rpc" };
+    return withinRetryWindow(args.receiptTimestamp, args.nowSeconds) ? "retry" : { status: "unverified", reason: "rpc" };
   }
 }
 
@@ -161,21 +171,23 @@ type FeeClient = {
 };
 /** Verifies that `payer` paid the launch fee to `recipient`: an exact stablecoin transfer mined since NFT mode began, or at least the
  * platform-quoted ETH in a plain transfer mined within the quote's window. Single use is the caller's job (`tokenUsingLaunchFee`).
- * Throws NFT_FEE_INVALID. */
+ * Throws NFT_FEE_INVALID: `retryable` while the payment is not mined, has one confirmation or sits in a reorganized block, final for a
+ * definite mismatch. Any other failure is the node's and propagates. */
 export async function verifyLaunchFeePayment(client: FeeClient, args: { fee: LaunchFee; payer: Address; recipient: Address; chainId: FeeChainId; keys: readonly string[] }):
   Promise<{ blockNumber: bigint }> {
   const invalid = (why: string) => new NftLaunchError("NFT_FEE_INVALID", `The launch fee payment is not valid: ${why}.`);
+  const pending = (why: string) => new NftLaunchError("NFT_FEE_INVALID", `The launch fee payment is not valid: ${why}.`, true);
   // A hash that is not mined yet is the payer's to retry; any other failure is the node's and propagates.
   const receipt = await client.getTransactionReceipt({ hash: args.fee.txHash }).catch((error: unknown) => {
-    throw error instanceof TransactionReceiptNotFoundError ? invalid("the transaction has not been mined yet") : error;
+    throw error instanceof TransactionReceiptNotFoundError ? pending("the transaction has not been mined yet") : error;
   });
   if (receipt.status !== "success") throw invalid("the transaction failed");
   if (receipt.transactionHash.toLowerCase() !== args.fee.txHash.toLowerCase()) throw invalid("the receipt belongs to another transaction");
-  if ((await client.getBlockNumber({ cacheTime: 0 })) < receipt.blockNumber + 1n) throw invalid("wait for two confirmations");
+  if ((await client.getBlockNumber({ cacheTime: 0 })) < receipt.blockNumber + 1n) throw pending("wait for two confirmations");
   if (!sameAddress(receipt.from, args.payer)) throw invalid("it was not sent by this wallet");
   // Both assets need a canonical receipt: its block must still be the chain's block at that height.
   const block = await client.getBlock({ blockNumber: receipt.blockNumber });
-  if (block.hash !== receipt.blockHash) throw invalid("the block was reorganized");
+  if (block.hash !== receipt.blockHash) throw pending("the block was reorganized");
   if (args.fee.asset === "stable") {
     const stable = LAUNCH_FEE_STABLE[args.chainId], minBlock = LAUNCH_FEE_MIN_BLOCK[args.chainId];
     if (!stable || minBlock === undefined) throw invalid("no stablecoin fee on this network");

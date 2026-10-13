@@ -11,8 +11,10 @@ import { MUSES, nftKey, type NftRef } from "../src/lib/nft-mode";
 import { launchIntentStorageKey } from "../src/lib/launch-intent";
 import {
   FEE_CANCELLED, FEE_REVERTED, FEE_UNCONFIRMED, createFeePoller, feePollDelay, formatFeeEth, isLaunchFeeTx, isUserRejection, launchFeeAfterSendError, launchFeeEthTx, launchFeeStableTx,
-  launchFeeStorageKey, migrateLaunchFee, musePrefill, nftReviewBlocker, parseLaunchFeeRecord, prepareDraft, readNftStatus, resolveLaunchFee, savedNftMode,
+  launchFeeStorageKey, musePrefill, nftLaunchFeeCost, nftReviewBlocker, parseLaunchFeeRecord, prepareDraft, readNftStatus, resolveLaunchFee, rewardsShareCopy, savedNftMode,
 } from "../src/lib/nft-client";
+import * as nftClient from "../src/lib/nft-client";
+import { LAUNCH_FEE_MAX_WEI } from "../src/lib/launch-fee";
 import { createApp } from "../server/app";
 import { ingressClass } from "../server/abuse";
 import { runtimeFromEnv } from "../server/config";
@@ -75,6 +77,39 @@ test("the wallet allows exactly the launch-fee transfers and nothing near them",
   assert.equal(isLaunchFeeTx(config, { to: treasury, data: "0x", value: 3333333333333334n }), false, "ETH without its quote");
   assert.equal(isLaunchFeeTx(config, { to: treasury, data: "0x12345678", value: 3333333333333334n }, quote), false, "ETH with calldata");
   assert.equal(isLaunchFeeTx(config, { to: account, data: "0x", value: 3333333333333334n }, quote), false, "ETH to someone else");
+});
+
+test("the wallet refuses an ETH fee quote above the 0.05 ETH sanity ceiling, even when it matches the quote", () => {
+  assert.equal(LAUNCH_FEE_MAX_WEI, 5n * 10n ** 16n, "0.05 ETH: $10 at an ETH price of $200 or more");
+  const at = { wei: String(LAUNCH_FEE_MAX_WEI), expiresAt: 1, mac: `0x${"11".repeat(32)}` as Hex }, above = { ...at, wei: String(LAUNCH_FEE_MAX_WEI + 1n) };
+  assert.equal(isLaunchFeeTx(config, { to: treasury, data: "0x", value: LAUNCH_FEE_MAX_WEI }, at), true, "exactly the ceiling is allowed");
+  assert.equal(isLaunchFeeTx(config, { to: treasury, data: "0x", value: LAUNCH_FEE_MAX_WEI + 1n }, above), false, "one wei above it is refused");
+  assert.equal(isLaunchFeeTx(config, { to: treasury, data: "0x", value: 10n ** 18n }, { ...at, wei: String(10n ** 18n) }), false, "a 1 ETH quote is refused");
+  assert.throws(() => launchFeeEthTx(config, above), /The ETH price quote is too high to be safe\. Pay with USDG, or try again later\./);
+  assert.equal(launchFeeEthTx(config, at).value, LAUNCH_FEE_MAX_WEI);
+});
+
+test("the earlier per-draft fee migration is gone", () => {
+  assert.equal("migrateLaunchFee" in nftClient, false);
+});
+
+test("Launch cost names the $10 only for a non-Muse NFT draft: paid, or due before launch", () => {
+  assert.equal(nftLaunchFeeCost({}), "");
+  assert.equal(nftLaunchFeeCost({ nft: muse() }), "", "Muses launch free");
+  assert.equal(nftLaunchFeeCost({ nft: muse(), launchFee: stableFee }), "");
+  assert.equal(nftLaunchFeeCost({ nft: other() }), "$10 launch fee (due before launch)");
+  assert.equal(nftLaunchFeeCost({ nft: other(), launchFee: stableFee }), "$10 launch fee (paid)");
+});
+
+test("Rewards says NFT coins pay their creator share to the NFT's treasury: in place of the claim when all are NFT coins, as one more sentence when mixed", () => {
+  const plain = {}, bound = { nft: other() };
+  const normal = "You keep 66.5% of every trading fee on new launches. Fees stay on-chain until you claim them.";
+  assert.deepEqual(rewardsShareCopy([], "66.5%"), { lede: normal, tile: "Your creator share", allNft: false });
+  assert.deepEqual(rewardsShareCopy([plain, plain], "66.5%"), { lede: normal, tile: "Your creator share", allNft: false });
+  assert.deepEqual(rewardsShareCopy([plain, bound], "66.5%"),
+    { lede: `${normal} NFT coins pay their creator share to the NFT's treasury instead.`, tile: "Your creator share", allNft: false });
+  assert.deepEqual(rewardsShareCopy([bound, { nft: muse() }], "66.5%"), { lede: "All your launches are NFT coins. NFT coins pay their 66.5% creator share to the NFT's treasury, which the NFT's holder controls.",
+    tile: "NFT treasury share", allNft: true });
 });
 
 test("the quoted ETH is shown rounded up, never below what the wallet sends", () => {
@@ -311,27 +346,6 @@ test("polling: Check again re-checks at once and restarts the back-off; a hidden
   poller.stop();
 });
 
-test("an earlier build's per-draft record moves to the wallet's record once", () => {
-  const store = new Map<string, string>();
-  const storage = { getItem: (key: string) => store.get(key) ?? null, setItem: (key: string, value: string) => void store.set(key, value),
-    removeItem: (key: string) => void store.delete(key), key: (index: number) => [...store.keys()][index] ?? null, get length() { return store.size; } };
-  const oldKey = (intent: string) => `${launchIntentStorageKey(config, account, intent, "payment")}.launch-fee`;
-  store.set(launchIntentStorageKey(config, account, "intent-11111111", "payment"), "{\"first-buy\":true}");
-  store.set(oldKey("intent-11111111"), JSON.stringify(stableFee));
-  migrateLaunchFee(storage, config, account);
-  assert.deepEqual(parseLaunchFeeRecord(store.get(launchFeeStorageKey(config, account))!), { state: "paid", from: account, fee: stableFee });
-  assert.equal(store.has(oldKey("intent-11111111")), false);
-  assert.equal(store.get(launchIntentStorageKey(config, account, "intent-11111111", "payment")), "{\"first-buy\":true}", "the first-buy record stays");
-  store.set(oldKey("intent-22222222"), JSON.stringify({ ...stableFee, txHash: `0x${"cd".repeat(32)}`, pending: true }));
-  migrateLaunchFee(storage, config, account);
-  assert.equal(store.has(oldKey("intent-22222222")), true, "never over an existing wallet record");
-  store.delete(launchFeeStorageKey(config, account));
-  migrateLaunchFee(storage, config, account);
-  assert.deepEqual(parseLaunchFeeRecord(store.get(launchFeeStorageKey(config, account))!),
-    { state: "pending", asset: "stable", from: account, at: 0, txHash: `0x${"cd".repeat(32)}` }, "an old pending payment keeps its hash");
-});
-
-
 test("a Muse name prefills only empty fields, and the symbol keeps up to 10 letters in upper case", () => {
   assert.deepEqual(musePrefill(draftOf({ name: "", symbol: "" }), "Bard of the 7 Seas"), { name: "Bard of the 7 Seas", symbol: "BARDOFTHES" });
   assert.deepEqual(musePrefill(draftOf({ name: "Mine", symbol: "" }), "Bard"), { symbol: "BARD" });
@@ -359,7 +373,7 @@ test("readNftStatus asks the deployment chain's API with the canonical query", a
 async function httpFixture(run: (entry: ReturnType<typeof createApp>, origin: string) => Promise<void>) {
   const directory = mkdtempSync(join(tmpdir(), "nft-status-"));
   const runtime = runtimeFromEnv(4663, { NODE_ENV: "test", CHAIN_MODE: "fork", FORK_CHAIN_ID: "4663", DATA_DIR: directory,
-    PLATFORM_TREASURY: "0x2222222222222222222222222222222222222222" });
+    PLATFORM_TREASURY: "0x2222222222222222222222222222222222222222", NFT_MODE_ENABLED: "true" });
   const entry = createApp(undefined, "loopback", runtime);
   const server = entry.app.listen(0, "127.0.0.1"); await once(server, "listening");
   const bound = server.address(); assert(bound && typeof bound !== "string");
@@ -403,7 +417,8 @@ function statusFixture(over: { owner?: Address; existing?: Set<string>; failName
   const calls: string[] = [];
   const state = { failName: !!over.failName, failAgent: !!over.failAgent };
   const service = Object.assign(Object.create(LaunchpadService.prototype), {
-    runtime: { config: { mode: "robinhood", chainId: 4663, deploymentChainId: 4663, treasury: null, writesEnabled: false, blockReason: null } },
+    runtime: { config: { mode: "robinhood", chainId: 4663, deploymentChainId: 4663, treasury: null, writesEnabled: false, blockReason: null,
+      nftMode: { enabled: true, vaultFactory: null, launchFeeUsd: 10, freeCollections: [], verifiedCollections: [] } } },
     assertNetwork: async () => {},
     store: { verifiedNftCoin: async (key: string) => over.existing?.has(key) ? { address: account } : null },
     client: {

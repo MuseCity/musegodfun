@@ -66,7 +66,7 @@ import { hasBaseLaunchActivationRecord } from "./base-activation-record";
 import { assertTrustedLaunchPolicy, engineLaunchCutover, ENGINE_MANIFEST, trustedLaunchPolicies, type EngineLaunchCutover } from "./launch-policy-registry";
 import { planAttestation, verifyPlanAttestation } from "./plan-attestation";
 import { BudgetUnavailable } from "./runtime-policy";
-import { NftLaunchError, assertNftDraftRules, inspectVaultFactory, isBoundNftCoin, launchFeeQuoteMac, nftRegistrationStatus, readMuseAgentId, readMuseName, readNftControl, verifyLaunchFeePayment, type NftRegistrationStatus } from "./nft-launch";
+import { NftLaunchError, assertNftDraftRules, inspectVaultFactory, launchFeeQuoteMac, nftRegistrationStatus, readMuseAgentId, readMuseName, readNftControl, verifyLaunchFeePayment, withinRetryWindow, type NftRegistrationStatus, type RegistrationFee } from "./nft-launch";
 import { isMuse, nftKey, treasuryFor, vaultFor, type NftRef, type NftStatus } from "../src/lib/nft-mode";
 import { LAUNCH_FEE_QUOTE_TTL, LAUNCH_FEE_STABLE, LAUNCH_FEE_USD, type LaunchFee } from "../src/lib/launch-fee";
 import type { EngineClaimPreview } from "../src/lib/buyback-engine";
@@ -598,6 +598,10 @@ export class LaunchpadService {
       if (plan.firstBuy?.lockDays && !config.launchLockAvailable)
         throw new Error("The first buy lock guard could not be verified. Run a new preview.");
     }
+    // One coin per NFT, re-read before a real signature: an NFT that got its verified coin since this preview would register this
+    // launch as rejected after its fee is spent.
+    if (signing && plan.draft.nft && await this.store.verifiedNftCoin(nftKey(plan.draft.nft), plan.tokenAddress))
+      throw new NftLaunchError("NFT_ALREADY_LAUNCHED", "This NFT already has its coin.");
     // Simulation is still an unsigned preview. Protect only when the client is
     // entering a real wallet signature; unknown submissions must not age out.
     if (signing) await this.store.protectPlan(plan.id);
@@ -951,23 +955,29 @@ export class LaunchpadService {
     return await this.store.tokenByTxHash(hash) ?? record;
   }
   /** An NFT coin's status and the launch fee it consumed, decided once at registration. The caller holds the NFT's and the payment's locks
-   * until the record is written. Register never blocks on the badge rules; it fails retryably only while an RPC outage is under 10 minutes old. */
+   * until the record is written. Register never blocks on the status rules; it fails retryably only while an RPC outage, or a fee payment
+   * still confirming or in a reorganized block, is under 10 minutes old (spec §6.2). */
   private async nftRegistration(args: { hash: Hex; plan: LaunchPlan; nft: NftRef; fee?: LaunchFee; saved: boolean; receiptBlock: bigint; receiptTimestamp: bigint }):
     Promise<{ nftVerification: NftRegistrationStatus; launchFee?: LaunchFee }> {
     // A record already written for this transaction keeps its status and fee: a repeated or concurrent registration, or a later attested
     // backup upgrading provenance, never decides it again.
     const stored = await this.store.tokenByTxHash(args.hash);
     if (stored?.nftVerification) return { nftVerification: stored.nftVerification, ...(stored.launchFee ? { launchFee: stored.launchFee } : {}) };
-    const { plan, nft } = args;
-    let feeOk: boolean | undefined, launchFee: LaunchFee | undefined;
+    const { plan, nft } = args, nowSeconds = BigInt(Math.floor(Date.now() / 1000));
+    let fee: RegistrationFee | undefined, launchFee: LaunchFee | undefined;
     if (!isMuse(nft)) {
-      feeOk = false;
+      fee = "invalid";
       if (args.fee) {
         try {
           await this.assertUnusedLaunchFee(args.fee, plan.creator, plan.tokenAddress);
-          feeOk = true; launchFee = { ...args.fee, txHash: args.fee.txHash.toLowerCase() as Hex };
-        // An invalid or already used payment only costs the badge; an RPC failure fails the registration retryably.
-        } catch (error) { if (!(error instanceof NftLaunchError)) throw error; }
+          fee = "paid"; launchFee = { ...args.fee, txHash: args.fee.txHash.toLowerCase() as Hex };
+        } catch (error) {
+          // A definite mismatch or an already used payment only costs the status. A payment not mined, with one confirmation, in a
+          // reorganized block or unreadable is retried for 10 minutes, then left unconsumed: the coin stays `unverified`, never `rejected: fee`.
+          if (error instanceof NftLaunchError && !error.retryable) fee = "invalid";
+          else if (withinRetryWindow(args.receiptTimestamp, nowSeconds)) throw new Error("The launch fee check is temporarily unavailable. Registration will retry.");
+          else fee = "unconfirmed";
+        }
       }
     }
     // Control can only be shown on the NFT's own chain. Prepare refuses another chain, so only a backup can carry one.
@@ -976,8 +986,7 @@ export class LaunchpadService {
         // Saved previews read the latest block (registration makes no historical-state read); backups read the receipt block.
         blockNumber: args.saved ? undefined : args.receiptBlock,
         existing: await this.store.verifiedNftCoin(nftKey(nft), plan.tokenAddress),
-        quoteAddress: plan.draft.quoteAddress, receiptTimestamp: args.receiptTimestamp, nowSeconds: BigInt(Math.floor(Date.now() / 1000)),
-        ...(feeOk === undefined ? {} : { fee: { ok: feeOk } }) });
+        quoteAddress: plan.draft.quoteAddress, receiptTimestamp: args.receiptTimestamp, nowSeconds, ...(fee ? { fee } : {}) });
     if (result === "retry") throw new Error("The NFT ownership check is temporarily unavailable. Registration will retry.");
     const nftVerification = result.status === "verified" || args.saved ? result : { ...result, block: String(args.receiptBlock) };
     return { nftVerification, ...(launchFee ? { launchFee } : {}) };
@@ -1155,12 +1164,17 @@ export class LaunchpadService {
     ]);
     return { lp, trade, poolKey: state.poolKey };
   }
+  /** The NFT surfaces stay dark while NFT mode is off: refused before any parsing, RPC or database read. */
+  private assertNftModeAvailable() {
+    if (this.runtime.config.nftMode?.enabled !== true) throw new NftLaunchError("NFT_MODE_UNAVAILABLE", "NFT mode is not available on this network.");
+  }
   /** An NFT's fee vault and Tokenbound treasury: both addresses are computed and checked for code; the balances are what the treasury and the
-   * vault hold of the NFT's bound coins and their paired assets (a failed vault read is `vaultAmount: null`; an asset whose treasury read
+   * vault hold of the NFT's bound coins (any status) and their paired assets (a failed vault read is `vaultAmount: null`; an asset whose treasury read
    * failed is left out; neither is ever shown as zero); the pending fees are the vault's per coin, and one coin's failed preview becomes an
    * error entry instead of failing the answer. Public and keyed by user input, so a fully successful result is kept in memory for 15 seconds,
    * within a bounded cache; a degraded one is returned but never cached. */
   async nftTreasury(raw: unknown): Promise<NftTreasury> {
+    this.assertNftModeAvailable();
     const nft = parseNftQuery(raw), chainId = deploymentChain(this.runtime.config);
     if (nft.chainId !== chainId) throw new NftLaunchError("NFT_CHAIN_UNSUPPORTED", "This NFT lives on another network; open it there.");
     const factory = await this.verifiedVaultFactory();
@@ -1168,7 +1182,8 @@ export class LaunchpadService {
     const key = nftKey(nft), saved = NFT_TREASURY_CACHE.get(key);
     if (saved && Date.now() - saved.at < NFT_TREASURY_TTL_MS) return saved.value;
     const vault = vaultFor(nft, factory, this.runtime.nftVaultManifest?.vaultInitCodeHash), treasury = treasuryFor(nft);
-    const coins = (await this.tokens()).filter((record) => isBoundNftCoin(record, nft));
+    // Every coin bound to this NFT, whatever its status: a rejected coin still pays the vault, so its balances, fees and sweep belong here.
+    const coins = (await this.tokens()).filter((record) => !!record.nft && nftKey(record.nft) === key);
     const assets = new Map<string, { token: Address; symbol: string }>();
     for (const coin of coins) assets.set(coin.address.toLowerCase(), { token: coin.address, symbol: coin.symbol });
     for (const coin of coins) {
@@ -1190,7 +1205,8 @@ export class LaunchpadService {
     const pendingFees = previews.map((preview, index) => preview.status === "fulfilled" ? { token: coins[index].address, ...preview.value }
       : { token: coins[index].address, error: redact(preview.reason, this.runtime.environment) });
     const hasCode = (code: Hex | undefined) => !!code && code !== "0x";
-    const value: NftTreasury = { nft, vault, vaultDeployed: hasCode(vaultCode), treasury, treasuryDeployed: hasCode(treasuryCode), balances, pendingFees };
+    const value: NftTreasury = { nft, vault, vaultDeployed: hasCode(vaultCode), treasury, treasuryDeployed: hasCode(treasuryCode),
+      coins: coins.map((coin) => ({ token: coin.address, symbol: coin.symbol, poolId: coin.poolId, quoteAddress: coin.quoteAddress })), balances, pendingFees };
     // A degraded answer (a failed balance read or fee preview) is returned, but the next request asks the chain again.
     if (held.some((read) => read.status !== "success") || previews.some((preview) => preview.status !== "fulfilled")) return value;
     const now = Date.now();
@@ -1205,6 +1221,7 @@ export class LaunchpadService {
    * and whether it launches free (a Muse). Prepare re-checks all of it. A Muse also gets its name and agent id; each successful read is kept
    * for the runtime's lifetime (so the memory is bounded by the Muses supply), a failed one is left out and asked again next time. */
   async nftStatus(rawNft: unknown, rawAccount: unknown): Promise<NftStatus> {
+    this.assertNftModeAvailable();
     const nft = parseNftQuery(rawNft), account = addressSchema.parse(rawAccount);
     if (nft.chainId !== deploymentChain(this.runtime.config)) throw new NftLaunchError("NFT_CHAIN_UNSUPPORTED", "This NFT must launch on its own network.");
     await this.assertNetwork();
@@ -1294,7 +1311,9 @@ async function withNftLocks<T>(keys: string[], run: () => Promise<T>): Promise<T
   } finally { for (const release of releases.reverse()) release(); }
 }
 // /api/* is no-store, so the public treasury view is cached here. Keys come from user input: fully successful results only, at most 500 of them.
+// `coins`: every coin bound to the NFT, whatever its status, with what a sweep needs (its pool and both assets).
 type NftTreasury = { nft: NftRef; vault: Address; vaultDeployed: boolean; treasury: Address; treasuryDeployed: boolean;
+  coins: { token: Address; symbol: string; poolId: Hex; quoteAddress: Address }[];
   balances: { token: Address; symbol: string; amount: string; vaultAmount: string | null }[]; pendingFees: unknown[] };
 const NFT_TREASURY_TTL_MS = 15_000, NFT_TREASURY_CACHE_MAX = 500;
 const NFT_TREASURY_CACHE = new Map<string, { at: number; value: NftTreasury }>();
