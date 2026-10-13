@@ -175,7 +175,8 @@ test("the two-step launch form resumes only a saved second step and checks ident
   assert.equal(launchIdentityIssue({ ...draft, website: "http://example.com" })?.field, "website");
   assert.equal(launchIdentityIssue({ ...draft, image: "javascript:alert(1)" })?.field, "image");
   // Every schema field must belong to a step, or an invalid value would stay hidden on the other one.
-  assert.deepEqual([...LAUNCH_IDENTITY_FIELDS, "tradingFeeBps", "quoteAddress"].sort(), Object.keys(launchSchema.shape).sort());
+  // nft and launchFee are not typed into a step: the NFT picker and the payment step attach them.
+  assert.deepEqual([...LAUNCH_IDENTITY_FIELDS, "tradingFeeBps", "quoteAddress", "nft", "launchFee"].sort(), Object.keys(launchSchema.shape).sort());
 });
 test("a successful launch resets its scoped, shared and migrated anonymous copies only", () => {
   const network = config(4663), draft = { ...restoreDraft(null, network), name: "Launched A", symbol: "TOKENA" };

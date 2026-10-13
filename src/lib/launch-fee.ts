@@ -1,0 +1,11 @@
+import { getAddress, type Address, type Hex } from "viem";
+import type { NftChainId } from "./nft-mode";
+
+export const LAUNCH_FEE_USD = 10;
+export const LAUNCH_FEE_QUOTE_TTL = 60_000;
+export const LAUNCH_FEE_MINING_GRACE_SECONDS = 600;
+export type LaunchFeeStable = { address: Address; symbol: string; decimals: 6; amount: bigint };
+export const LAUNCH_FEE_STABLE: Partial<Record<NftChainId, LaunchFeeStable>> = {
+  4663: { address: getAddress("0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168"), symbol: "USDG", decimals: 6, amount: 10_000_000n },
+};
+export type LaunchFee = { txHash: Hex; asset: "stable" | "native"; wei?: string; expiresAt?: number; mac?: Hex };

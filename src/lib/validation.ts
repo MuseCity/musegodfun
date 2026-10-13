@@ -25,6 +25,19 @@ export const addressSchema = z
 export const hashSchema = z
   .string()
   .regex(/^0x[0-9a-fA-F]{64}$/, "Invalid transaction hash format");
+export const nftRefSchema = z.object({
+  chainId: z.union([z.literal(8453), z.literal(4663)]),
+  contract: addressSchema,
+  // abort: the range check must never see a malformed string (BigInt throws on "1.0").
+  tokenId: z.string().regex(/^(?:0|[1-9]\d{0,77})$/, { error: "Enter the token number without leading zeros", abort: true })
+    .refine((value) => BigInt(value) < 2n ** 256n, "The token number is out of range"),
+}).strict();
+export const launchFeeSchema = z.discriminatedUnion("asset", [
+  z.object({ asset: z.literal("stable"), txHash: hashSchema.transform((h) => h.toLowerCase() as `0x${string}`) }).strict(),
+  z.object({ asset: z.literal("native"), txHash: hashSchema.transform((h) => h.toLowerCase() as `0x${string}`),
+    wei: z.string().regex(/^[1-9]\d{0,38}$/), expiresAt: z.number().int().positive(),
+    mac: z.string().regex(/^0x[0-9a-fA-F]{64}$/).transform((h) => h.toLowerCase() as `0x${string}`) }).strict(),
+]);
 export const amountSchema = z
   .string()
   .regex(
@@ -72,6 +85,8 @@ export const launchSchema = z
         return false;
       }
     }, "Select a supported pairing asset"),
+    nft: nftRefSchema.optional(),
+    launchFee: launchFeeSchema.optional(),
   })
   .strict();
 // Persisted drafts and already broadcast plans may predate fee selection.
@@ -124,6 +139,10 @@ export function restoreDraft(raw: string | null, config?: Pick<RuntimeConfig, "m
       const asset = config ? assets.find((candidate) => candidate.address.toLowerCase() === saved.quoteAddress.toLowerCase())
         : stockByAddress(saved.quoteAddress);
       if (asset) draft.quoteAddress = asset.address;
+    }
+    if (saved.nft !== undefined) {
+      const nft = nftRefSchema.safeParse(saved.nft);
+      if (nft.success) draft.nft = nft.data;
     }
   } catch {
     /* Corrupt or unsupported stored fields fall back to the defaults. */
