@@ -694,14 +694,17 @@ async function nftCase(page, state) {
         await statusIs('Launching for this NFT costs $10, paid before the launch.');
         await blocked('Your $10 launch fee payment is still confirming. Review opens once it has two confirmations.', 'nft-launch-fee');
       } else {
-        await page.getByText("A payment may have been sent. Check your wallet's activity.", { exact: true }).waitFor();
-        assert.equal(await payButtons(), 0);
-        // The nonce is unspent, so nothing proves the payment either way: only the user may clear it.
+        // The nonce is unspent, so nothing proves the payment either way: one undecided state, and only the user may clear it.
+        await page.getByText(/^We can't confirm this payment yet\. Check your wallet's activity\./).waitFor();
         await page.getByRole('button', { name: 'No payment was sent — pay again', exact: true }).waitFor();
+        assert.equal(await payButtons(), 0);
+        assert.equal(await page.getByText('Payment sent, waiting for confirmation.').count(), 0, 'never two contradicting states');
         assert.equal((await savedFee()).state, 'sending');
       }
-      // The payment is mined: the transfer found at the saved nonce (or the saved hash) is adopted.
+      // The payment is mined: the transfer found at the saved nonce (or the saved hash) is adopted. An undecided payment backs
+      // off to one minute, so the person checks again by hand.
       state.feeReceipt = true;
+      if (mode === 'nft_fee_sending_reload') await page.getByRole('button', { name: 'Check again', exact: true }).click();
       await page.getByText(/Launch fee paid\./).waitFor();
       assert.equal(await payButtons(), 0);
       assert.deepEqual(await savedFee(), { state: 'paid', from: before.from, fee: { asset: 'stable', txHash: state.sends[0].hash } });

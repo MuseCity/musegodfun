@@ -8,12 +8,13 @@ import { transactions } from "./transactions";
 import { errorMessage } from "./validation";
 import { transactionClient, useWallet } from "./wallet";
 import {
-  LAUNCH_FEE_LOCK, launchFeeAfterSendError, launchFeeEthTx, launchFeeOf, launchFeeStableTx, launchFeeStorageKey, migrateLaunchFee,
+  LAUNCH_FEE_LOCK, createFeePoller, launchFeeAfterSendError, launchFeeEthTx, launchFeeOf, launchFeeStableTx, launchFeeStorageKey, migrateLaunchFee,
   parseLaunchFeeRecord, resolveLaunchFee, type DraftLaunchFee, type FeeResolution, type LaunchFeeAttempt, type LaunchFeeQuote,
-  type LaunchFeeRecord, type LaunchFeeState,
+  type LaunchFeeRecord, type LaunchFeeState, type NonceMemo,
 } from "./nft-client";
 
-const POLL_MS = 4_000;
+/** Spent nonces per wallet record key: final once found, so each is searched once per page. */
+const NONCE_MEMOS = new Map<string, NonceMemo>();
 const read = (key: string) => { try { return parseLaunchFeeRecord(localStorage.getItem(key)); } catch { return null; } };
 const write = (key: string, record: LaunchFeeRecord | null) => {
   if (record) localStorage.setItem(key, JSON.stringify(record)); else localStorage.removeItem(key);
@@ -31,7 +32,7 @@ export function useLaunchFee(config: RuntimeConfig, account: Address | null, dra
   const wallet = useWallet();
   const key = account ? launchFeeStorageKey(config, account) : "";
   const [record, setRecord] = useState<LaunchFeeRecord | null>(null);
-  const [unknown, setUnknown] = useState(""), [notice, setNotice] = useState(""), [paying, setPaying] = useState(false);
+  const [unknown, setUnknown] = useState(""), [notice, setNotice] = useState(""), [paying, setPaying] = useState(false), [checking, setChecking] = useState(false);
   const [ethQuote, setEthQuote] = useState<LaunchFeeQuote | null>(null), [revision, setRevision] = useState(0);
   const latest = useRef({ onFee, draftFee, key });
   latest.current = { onFee, draftFee, key };
@@ -70,31 +71,54 @@ export function useLaunchFee(config: RuntimeConfig, account: Address | null, dra
       if (visible(forKey)) setUnknown("");
     } else if (visible(forKey)) setUnknown(outcome.reason);
   }
-  // A sent or possibly sent payment is checked on the chain now and every few seconds until it is decided. While this tab's own
-  // wallet request is open, the wallet decides first.
+  // A sent or possibly sent payment is checked on the chain until it is decided (see `feePollDelay`): by one tab per wallet at a time
+  // (a lock per chain and wallet; the others take over when it closes, and follow its writes), never while the page is hidden, and never
+  // while this tab's own wallet request is open, because the wallet decides first.
   const attempt = record && record.state !== "paid" ? record : null;
+  async function check(forKey: string): Promise<FeeResolution["status"]> {
+    const saved = read(forKey), current = saved && saved.state !== "paid" ? saved : null;
+    if (!current) { refresh(); return "failed"; } // Decided elsewhere: nothing left to check.
+    // The wallet records a speed-up or cancellation it saw on the original history row.
+    const hint = current.state === "pending"
+      ? transactions().find((row) => row.hash.toLowerCase() === current.txHash)?.replacement as Hex | undefined : undefined;
+    let memo = NONCE_MEMOS.get(forKey);
+    if (!memo) NONCE_MEMOS.set(forKey, memo = new Map());
+    if (visible(forKey)) setChecking(true);
+    try {
+      const outcome = await resolveLaunchFee(transactionClient(config.chainId, config), config, current, hint, memo);
+      apply(forKey, current, outcome);
+      return outcome.status;
+    } finally { if (visible(forKey)) setChecking(false); }
+  }
+  const poller = useRef<ReturnType<typeof createFeePoller> | null>(null);
   useEffect(() => {
     setUnknown("");
     if (!attempt || paying || !key) return;
-    const forKey = key;
-    let active = true, timer: ReturnType<typeof setTimeout> | undefined;
-    const check = async () => {
-      const current = stillAttempt(forKey, attempt.at);
-      if (!current) { refresh(); return; }
-      // The wallet records a speed-up or cancellation it saw on the original history row.
-      const hint = current.state === "pending"
-        ? transactions().find((row) => row.hash.toLowerCase() === current.txHash)?.replacement as Hex | undefined : undefined;
-      try {
-        const outcome = await resolveLaunchFee(transactionClient(config.chainId, config), config, current, hint);
-        if (!active) return;
-        apply(forKey, current, outcome);
-        if (outcome.status === "paid" || outcome.status === "failed") return;
-      } catch { /* The RPC is unavailable: ask again. */ }
-      if (active) timer = setTimeout(() => void check(), POLL_MS);
+    const forKey = key, abort = new AbortController();
+    let active = true, release = () => {};
+    const begin = () => {
+      if (!active) return;
+      poller.current = createFeePoller(() => check(forKey));
+      poller.current.start();
     };
-    void check();
-    return () => { active = false; clearTimeout(timer); };
+    if (typeof navigator !== "undefined" && navigator.locks) {
+      const held = new Promise<void>((resolve) => { release = resolve; });
+      navigator.locks.request(`musegod.launch-fee-poll.${forKey}`, { signal: abort.signal }, async () => { begin(); await held; }).catch(() => {});
+    } else begin();
+    const resume = () => poller.current?.resume();
+    document.addEventListener("visibilitychange", resume);
+    return () => {
+      active = false; abort.abort(); release();
+      poller.current?.stop(); poller.current = null;
+      document.removeEventListener("visibilitychange", resume);
+    };
   }, [key, attempt?.at, attempt?.state, paying]);
+  /** "Check again": at once, also in a tab that is not the one polling. */
+  function checkAgain() {
+    if (!key || checking) return;
+    if (poller.current) poller.current.now();
+    else void check(key).catch(() => { if (visible(key)) setNotice("The payment could not be checked. Try again in a minute."); });
+  }
 
   async function pay(asset: DraftLaunchFee["asset"], quote?: LaunchFeeQuote) {
     if (!account || !key || paying) return;
@@ -113,7 +137,7 @@ export function useLaunchFee(config: RuntimeConfig, account: Address | null, dra
           const pending: LaunchFeeRecord = { ...sending, state: "pending", txHash: txHash.toLowerCase() as Hex };
           write(forKey, pending);
           if (visible(forKey)) setRecord(pending);
-        }, { value: tx.value, feeQuote: quote, beforeSend: () => { write(forKey, sending); attemptAt = sending.at; } });
+        }, { value: tx.value, feeQuote: quote, beforeSend: () => { write(forKey, sending); attemptAt = sending.at; if (visible(forKey)) setRecord(sending); } });
       });
       // The wallet saw two confirmations of a successful receipt; a sped-up payment returns its new hash.
       const current = read(forKey);
@@ -164,6 +188,6 @@ export function useLaunchFee(config: RuntimeConfig, account: Address | null, dra
   }
 
   const state: LaunchFeeState = !record ? "none" : record.state;
-  return { state, record, unknown, notice, paying, ethQuote, payStable: () => void pay("stable"), requestEthQuote: () => void requestEthQuote(),
-    payEth: () => void payEth(), cancelEthQuote: () => setEthQuote(null), discard: () => void discard() };
+  return { state, record, unknown, notice, paying, checking, ethQuote, payStable: () => void pay("stable"), requestEthQuote: () => void requestEthQuote(),
+    payEth: () => void payEth(), cancelEthQuote: () => setEthQuote(null), discard: () => void discard(), checkAgain };
 }

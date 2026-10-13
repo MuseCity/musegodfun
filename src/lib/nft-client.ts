@@ -159,6 +159,7 @@ export function launchFeeAfterSendError(current: LaunchFeeRecord | null, attempt
 export const FEE_REVERTED = "The launch fee payment failed on-chain, so no fee was paid. You can pay again.";
 export const FEE_CANCELLED = "No fee was paid; the payment was cancelled.";
 export const FEE_MAYBE_SENT = "A payment may have been sent. Check your wallet's activity.";
+export const FEE_UNCONFIRMED = "We can't confirm this payment yet. Check your wallet's activity. If no payment left your wallet, choose \u201cNo payment was sent\u201d.";
 export type FeeResolution =
   | { status: "paid"; fee: DraftLaunchFee }
   | { status: "failed"; reason: string } // Definitely no fee: the caller removes the record.
@@ -166,13 +167,27 @@ export type FeeResolution =
   | { status: "unknown"; reason: string }; // No proof either way: the caller offers "No payment was sent — pay again".
 type FeeReader = Pick<PublicClient, "getBlockNumber" | "getTransactionReceipt" | "getTransaction" | "getTransactionCount" | "getBlock">;
 type ChainTransaction = Awaited<ReturnType<PublicClient["getTransaction"]>>;
+/** The mined transaction at a spent nonce, which never changes. */
+export type NonceTransaction = Pick<ChainTransaction, "hash" | "from" | "to" | "input" | "value" | "nonce">;
+/** Spent nonces of one wallet on one chain, found once and never searched again. */
+export type NonceMemo = Map<number, NonceTransaction>;
 const missing = (error: unknown) => {
   if (error instanceof TransactionReceiptNotFoundError || error instanceof TransactionNotFoundError) return null;
   throw error;
 };
+/** Exactly this attempt's fee: the asset it was paid in, so an ETH attempt never adopts a USDG transfer or the reverse. */
+export function launchFeeTxMatches(config: FeeConfig, attempt: Pick<LaunchFeeAttempt, "asset" | "from" | "quote">, tx: NonceTransaction): boolean {
+  if (!sameAddress(tx.from, attempt.from) || !tx.to) return false;
+  if (attempt.asset === "native")
+    return !!attempt.quote && !!config.treasury && sameAddress(tx.to, config.treasury) && tx.input === "0x" && tx.value === BigInt(attempt.quote.wei);
+  try {
+    const stable = launchFeeStableTx(config);
+    return sameAddress(tx.to, stable.to) && tx.input.toLowerCase() === stable.data.toLowerCase() && tx.value === 0n;
+  } catch { return false; }
+}
 /** The first block whose state counts more than `nonce` transactions from `from` holds that transaction (a binary search over
  * `eth_getTransactionCount`, from `low`, the head when the payment was requested). */
-export async function transactionAtNonce(client: FeeReader, from: Address, nonce: number, low: bigint, head: bigint): Promise<ChainTransaction | null> {
+export async function transactionAtNonce(client: FeeReader, from: Address, nonce: number, low: bigint, head: bigint): Promise<NonceTransaction | null> {
   const count = (blockNumber: bigint) => client.getTransactionCount({ address: from, blockNumber });
   let lo = low > head ? head : low, hi = head;
   if (await count(lo) > nonce) lo = 0n;
@@ -182,17 +197,20 @@ export async function transactionAtNonce(client: FeeReader, from: Address, nonce
   }
   const block = await client.getBlock({ blockNumber: lo, includeTransactions: true });
   const found = block.transactions.find((tx) => typeof tx !== "string" && sameAddress(tx.from, from) && tx.nonce === nonce);
-  return found && typeof found !== "string" ? found as ChainTransaction : null;
+  return found && typeof found !== "string" ? found : null;
 }
-/** Decides an attempt from the chain alone. A known hash's receipt decides first (also `hint`, a replacement the wallet reported);
- * otherwise the nonce does: unspent means not mined yet, and once spent the transaction at that nonce is adopted only when it is
- * exactly this fee (a speed-up keeps target, data and value). Throws on RPC failure; the caller asks again later. */
-export async function resolveLaunchFee(client: FeeReader, config: FeeConfig, record: LaunchFeeAttempt, hint?: Hex): Promise<FeeResolution> {
+/** Decides an attempt from the chain alone; throws on RPC failure, and the caller asks again later.
+ * 1. `hint`, a replacement the wallet reported, spent the same nonce: it is adopted when it is exactly this fee, otherwise it cancelled it.
+ * 2. The saved hash: its receipt decides, and while it is in the mempool the payment is waiting (its real nonce is then recorded).
+ * 3. The nonce, read at the same head the search ends at: unspent means not mined yet. A spent nonce is final, so the transaction at it
+ *    is found once (`memo`). It is adopted only when it is exactly this fee. Another transaction there proves no fee only for a nonce the
+ *    sent payment really used; for a predicted nonce the next three nonces are checked too, then the user decides. */
+export async function resolveLaunchFee(client: FeeReader, config: FeeConfig, record: LaunchFeeAttempt, hint?: Hex, memo: NonceMemo = new Map()):
+  Promise<FeeResolution> {
   const head = await client.getBlockNumber({ cacheTime: 0 });
-  const isFee = (tx: ChainTransaction) => sameAddress(tx.from, record.from) && !!tx.to &&
-    isLaunchFeeTx(config, { to: tx.to, data: tx.input, value: tx.value }, record.quote);
-  const settled = async (tx: ChainTransaction): Promise<FeeResolution | null> => {
-    const receipt = await client.getTransactionReceipt({ hash: tx.hash }).catch(missing);
+  const isFee = (tx: NonceTransaction) => launchFeeTxMatches(config, record, tx);
+  const settled = async (hash: Hex): Promise<FeeResolution | null> => {
+    const receipt = await client.getTransactionReceipt({ hash }).catch(missing);
     if (!receipt) return null;
     if (receipt.status !== "success") return { status: "failed", reason: FEE_REVERTED };
     if (head < receipt.blockNumber + 1n) return { status: "waiting" };
@@ -200,26 +218,72 @@ export async function resolveLaunchFee(client: FeeReader, config: FeeConfig, rec
   };
   if (hint) {
     const replacement = await client.getTransaction({ hash: hint }).catch(missing);
-    if (replacement && isFee(replacement) && (record.nonce === undefined || replacement.nonce === record.nonce)) {
-      const result = await settled(replacement);
-      if (result) return result;
-    }
+    if (replacement && replacement.blockNumber !== null && sameAddress(replacement.from, record.from))
+      return isFee(replacement) ? await settled(replacement.hash) ?? { status: "waiting" } : { status: "failed", reason: FEE_CANCELLED };
   }
   let nonce = record.nonce, nonceSeen = record.state === "pending" && !!record.nonceSeen;
   if (record.state === "pending") {
     const sent = await client.getTransaction({ hash: record.txHash }).catch(missing);
     if (sent && isFee(sent)) {
-      const result = await settled(sent);
+      const result = await settled(sent.hash);
       if (result) return result;
       return { status: "waiting", ...(record.nonceSeen && record.nonce === sent.nonce ? {} : { record: { ...record, nonce: sent.nonce, nonceSeen: true } }) };
     }
     if (sent) { nonce = sent.nonce; nonceSeen = true; }
   }
-  if (nonce === undefined) return { status: "unknown", reason: FEE_MAYBE_SENT };
-  const spent = await client.getTransactionCount({ address: record.from, blockTag: "latest" });
-  if (spent <= nonce) return record.state === "pending" ? { status: "waiting" } : { status: "unknown", reason: FEE_MAYBE_SENT };
-  const tx = await transactionAtNonce(client, record.from, nonce, BigInt(record.block ?? "0"), head);
-  if (tx && isFee(tx)) return await settled(tx) ?? { status: "waiting" };
-  // A different transaction spent the nonce. That proves no fee only when the nonce is the one the sent payment really used.
-  return tx && nonceSeen ? { status: "failed", reason: FEE_CANCELLED } : { status: "unknown", reason: FEE_MAYBE_SENT };
+  if (nonce === undefined) return { status: "unknown", reason: FEE_UNCONFIRMED };
+  const spent = await client.getTransactionCount({ address: record.from, blockNumber: head });
+  if (spent <= nonce) return record.state === "pending" ? { status: "waiting" } : { status: "unknown", reason: FEE_UNCONFIRMED };
+  const atNonce = async (n: number) => {
+    const saved = memo.get(n);
+    if (saved) return saved;
+    const found = await transactionAtNonce(client, record.from, n, BigInt(record.block ?? "0"), head);
+    if (found) memo.set(n, { hash: found.hash, from: found.from, to: found.to, input: found.input, value: found.value, nonce: found.nonce });
+    return found;
+  };
+  const first = await atNonce(nonce);
+  if (first && isFee(first)) return await settled(first.hash) ?? { status: "waiting" };
+  if (first && nonceSeen) return { status: "failed", reason: FEE_CANCELLED };
+  // The predicted nonce went elsewhere: the wallet may have queued other transactions before the payment.
+  for (let next = nonce + 1; first && next <= nonce + 3 && next < spent; next++) {
+    const tx = await atNonce(next);
+    if (tx && isFee(tx)) return await settled(tx.hash) ?? { status: "waiting" };
+  }
+  return { status: "unknown", reason: FEE_UNCONFIRMED };
+}
+
+// ---- how often an open attempt is checked ------------------------------------------------------
+export const FEE_POLL_WAITING_MS = 4_000;
+export const FEE_POLL_BACKOFF_MS = [60_000, 120_000, 300_000] as const;
+/** A payment waiting for its receipt costs about three reads and is checked every 4 s. An undecided one, or a failed check, backs off to
+ * 1, 2 and then 5 minutes, so an open tab never crowds the shared read budget. null: decided. */
+export function feePollDelay(status: FeeResolution["status"] | "error", slowChecks: number): number | null {
+  if (status === "paid" || status === "failed") return null;
+  if (status === "waiting") return FEE_POLL_WAITING_MS;
+  return FEE_POLL_BACKOFF_MS[Math.min(Math.max(slowChecks, 1), FEE_POLL_BACKOFF_MS.length) - 1];
+}
+type Timers = { set: (run: () => void, ms: number) => unknown; clear: (timer: unknown) => void };
+/** Runs `check` now and then as `feePollDelay` says. It pauses while the page is hidden (`resume` catches up) and `now` re-checks at once,
+ * restarting the back-off. */
+export function createFeePoller(check: () => Promise<FeeResolution["status"]>, hidden: () => boolean = () => typeof document !== "undefined" && document.hidden,
+  timers: Timers = { set: (run, ms) => setTimeout(run, ms), clear: (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>) }) {
+  let timer: unknown, slowChecks = 0, running = false, stopped = false, due = false;
+  async function run() {
+    timer = undefined;
+    if (stopped || running) return;
+    if (hidden()) { due = true; return; }
+    running = true;
+    const status = await check().catch(() => "error" as const);
+    running = false;
+    if (stopped) return;
+    slowChecks = status === "unknown" || status === "error" ? slowChecks + 1 : 0;
+    const delay = feePollDelay(status, slowChecks);
+    if (delay !== null) timer = timers.set(() => void run(), delay);
+  }
+  return {
+    start: () => void run(),
+    stop: () => { stopped = true; timers.clear(timer); },
+    now: () => { timers.clear(timer); slowChecks = 0; void run(); },
+    resume: () => { if (due && !hidden()) { due = false; void run(); } },
+  };
 }

@@ -3,7 +3,7 @@ import type { Address, Hex } from "viem";
 import { deploymentChain, explorerFor, type RuntimeConfig } from "../lib/config";
 import { LAUNCH_FEE_STABLE } from "../lib/launch-fee";
 import { MUSES, isMuse, nftKey, treasuryFor, type NftRef, type NftStatus } from "../lib/nft-mode";
-import { formatFeeEth, readNftStatus, type DraftLaunchFee, type LaunchFeeState } from "../lib/nft-client";
+import { FEE_MAYBE_SENT, formatFeeEth, readNftStatus, type DraftLaunchFee, type LaunchFeeState } from "../lib/nft-client";
 import { useLaunchFee } from "../lib/use-launch-fee";
 import { errorMessage, nftRefSchema, type LaunchInput } from "../lib/validation";
 
@@ -117,9 +117,13 @@ export function NftLaunchStep({ config, account, draft, error = "", feeRejected 
       {/* The fee state shows whenever a payment exists, even while the NFT check is pending or failed. */}
       {(record || needsFee || feeRejected) && <section className="nft-fee" aria-labelledby={NFT_FEE_ID}>
         <h3 id={NFT_FEE_ID} className="field-label" tabIndex={-1}>Launch fee: $10</h3>
+        {/* One state at a time: paid, undecided, waiting for confirmation, the wallet prompt, possibly sent, or the pay buttons. */}
         {record?.state === "paid" ? <p role="status">Launch fee paid. It covers one paid NFT launch from this wallet. <TxHash hash={record.fee.txHash} config={config} /></p>
+          : record && fee.unknown ? <p role="status" aria-live="polite" className="nft-warning">{fee.unknown}
+            {record.state === "pending" && <> <TxHash hash={record.txHash} config={config} /></>}</p>
           : record?.state === "pending" ? <p role="status" aria-live="polite">Payment sent, waiting for confirmation. <TxHash hash={record.txHash} config={config} /></p>
-          : record?.state === "sending" ? <p role="status" aria-live="polite" className="nft-warning">A payment may have been sent. Check your wallet's activity.</p>
+          : fee.paying ? <p role="status">Confirm the payment in your wallet.</p>
+          : record?.state === "sending" ? <p role="status" aria-live="polite" className="nft-warning">{FEE_MAYBE_SENT}</p>
           : fee.ethQuote ? <div className="nft-eth-quote">
             <p className="nft-amount">Pay {formatFeeEth(fee.ethQuote.wei)} ETH (about $10)</p>
             <p className="hint">This price is valid for one minute. Your wallet asks you to confirm the same amount.</p>
@@ -132,9 +136,9 @@ export function NftLaunchStep({ config, account, draft, error = "", feeRejected 
             {stable && <button type="button" className="primary" disabled={fee.paying || !config.writesEnabled} onClick={fee.payStable}>Pay 10 {stable.symbol}</button>}
             <button type="button" className="secondary" disabled={fee.paying || !config.writesEnabled} onClick={fee.requestEthQuote}>Pay with ETH</button>
           </div> : null}
-        {fee.paying && <p role="status">Confirm the payment in your wallet.</p>}
-        {record && record.state !== "paid" && fee.unknown && <div className="button-row">
-          <button type="button" className="secondary" onClick={fee.discard}>No payment was sent — pay again</button>
+        {record && record.state !== "paid" && !fee.paying && <div className="button-row">
+          <button type="button" className="secondary" disabled={fee.checking} onClick={fee.checkAgain}>{fee.checking ? "Checking…" : "Check again"}</button>
+          {fee.unknown && <button type="button" className="secondary" onClick={fee.discard}>No payment was sent — pay again</button>}
         </div>}
         {feeRejected && <div role="alert" className="nft-warning">
           <p>This payment could not be verified. {feeRejected} If it is still confirming, wait a minute and review again. Otherwise, pay a new fee.</p>

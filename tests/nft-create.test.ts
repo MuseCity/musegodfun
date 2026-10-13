@@ -10,7 +10,7 @@ import { ROBINHOOD_STOCKS } from "../src/lib/config";
 import { MUSES, nftKey, type NftRef } from "../src/lib/nft-mode";
 import { launchIntentStorageKey } from "../src/lib/launch-intent";
 import {
-  FEE_CANCELLED, FEE_MAYBE_SENT, FEE_REVERTED, formatFeeEth, isLaunchFeeTx, isUserRejection, launchFeeAfterSendError, launchFeeEthTx, launchFeeStableTx,
+  FEE_CANCELLED, FEE_REVERTED, FEE_UNCONFIRMED, createFeePoller, feePollDelay, formatFeeEth, isLaunchFeeTx, isUserRejection, launchFeeAfterSendError, launchFeeEthTx, launchFeeStableTx,
   launchFeeStorageKey, migrateLaunchFee, musePrefill, nftReviewBlocker, parseLaunchFeeRecord, prepareDraft, readNftStatus, resolveLaunchFee, savedNftMode,
 } from "../src/lib/nft-client";
 import { createApp } from "../server/app";
@@ -153,7 +153,8 @@ const stableTx = launchFeeStableTx(config);
 const txOf = (n: number, block: bigint, over: Partial<FakeTx> = {}): FakeTx => ({ hash: `0x${n.toString(16).padStart(64, "0")}`, from: account,
   to: stableTx.to, input: stableTx.data, value: 0n, nonce: n, block, ...over });
 const otherTx = (n: number, block: bigint) => txOf(n, block, { hash: `0x${(1000 + n).toString(16).padStart(64, "f")}`, to: account, input: "0x" });
-/** A chain: `mined` transactions with their blocks, `mempool` ones known but unmined, and receipt statuses. Every read is counted. */
+/** A chain: `mined` transactions with their blocks (a block past `head` is mined after the head was read), `mempool` ones known but
+ * unmined, and receipt statuses. Every read is recorded; `count@N` is a nonce count at block N. */
 function chain(head: bigint, mined: FakeTx[], mempool: FakeTx[] = [], reverted: Hex[] = []) {
   const reads: string[] = [];
   const client = {
@@ -166,12 +167,13 @@ function chain(head: bigint, mined: FakeTx[], mempool: FakeTx[] = [], reverted: 
     },
     getTransaction: async ({ hash }: { hash: Hex }) => {
       reads.push(`tx:${hash.slice(-4)}`);
-      const tx = [...mined, ...mempool].find((row) => row.hash === hash);
-      if (!tx) throw new TransactionNotFoundError({ hash });
-      return tx;
+      const mine = mined.find((row) => row.hash === hash), pending = mempool.find((row) => row.hash === hash);
+      if (mine) return { ...mine, blockNumber: mine.block };
+      if (pending) return { ...pending, blockNumber: null };
+      throw new TransactionNotFoundError({ hash });
     },
     getTransactionCount: async ({ address, blockNumber }: { address: Address; blockNumber?: bigint }) => {
-      reads.push(blockNumber === undefined ? "count:latest" : "count");
+      reads.push(blockNumber === undefined ? "count:latest" : `count@${blockNumber}`);
       return mined.filter((row) => row.from === address && (blockNumber === undefined || row.block <= blockNumber)).length;
     },
     getBlock: async ({ blockNumber }: { blockNumber: bigint }) => { reads.push(`block:${blockNumber}`); return { transactions: mined.filter((row) => row.block === blockNumber) }; },
@@ -179,22 +181,52 @@ function chain(head: bigint, mined: FakeTx[], mempool: FakeTx[] = [], reverted: 
   return { client: client as never, reads };
 }
 const history = [otherTx(0, 5n), otherTx(1, 40n), otherTx(2, 90n)];
+const searchReads = (reads: string[], head: bigint) => reads.filter((read) => read.startsWith("block:") || read.startsWith("count@") && read !== `count@${head}`);
 
 test("sending, then a reload: once the nonce is spent, the fee transfer found at that nonce is adopted", async () => {
   const sent = txOf(3, 104n);
   const { client, reads } = chain(110n, [...history, sent, otherTx(4, 107n)]);
   assert.deepEqual(await resolveLaunchFee(client, config, sending), { status: "paid", fee: { asset: "stable", txHash: sent.hash } });
   assert(reads.includes("block:104"), "the binary search lands on the block that holds nonce 3");
-  assert(reads.filter((read) => read === "count").length <= 10, "a binary search, not a block scan");
+  assert(searchReads(reads, 110n).length <= 10, "a binary search, not a block scan");
+  assert.equal(reads.includes("count:latest"), false, "the nonce is counted at the same head the search ends at");
   const young = chain(104n, [...history, sent]);
   assert.deepEqual(await resolveLaunchFee(young.client, config, sending), { status: "waiting" }, "one confirmation is not enough");
   const reverted = chain(110n, [...history, sent], [], [sent.hash]);
   assert.deepEqual(await resolveLaunchFee(reverted.client, config, sending), { status: "failed", reason: FEE_REVERTED });
 });
 test("sending with the nonce unspent, or spent by something else, stays undecided until the user clears it", async () => {
-  assert.deepEqual(await resolveLaunchFee(chain(110n, history).client, config, sending), { status: "unknown", reason: FEE_MAYBE_SENT });
-  assert.deepEqual(await resolveLaunchFee(chain(110n, [...history, otherTx(3, 104n)]).client, config, sending), { status: "unknown", reason: FEE_MAYBE_SENT },
-    "a predicted nonce spent by another transaction proves nothing: the wallet may have used the next one");
+  assert.deepEqual(await resolveLaunchFee(chain(110n, history).client, config, sending), { status: "unknown", reason: FEE_UNCONFIRMED });
+  assert.deepEqual(await resolveLaunchFee(chain(110n, [...history, otherTx(3, 104n)]).client, config, sending), { status: "unknown", reason: FEE_UNCONFIRMED },
+    "a predicted nonce spent by another transaction proves nothing: the wallet may have used a later one");
+  assert.match(FEE_UNCONFIRMED, /Check your wallet's activity\. If no payment left your wallet, choose .No payment was sent./);
+});
+test("a predicted nonce taken by another transaction: the fee is found up to three nonces later", async () => {
+  const fee = txOf(5, 106n);
+  const found = chain(110n, [...history, otherTx(3, 104n), otherTx(4, 105n), fee]);
+  assert.deepEqual(await resolveLaunchFee(found.client, config, sending), { status: "paid", fee: { asset: "stable", txHash: fee.hash } });
+  const tooFar = chain(110n, [...history, otherTx(3, 101n), otherTx(4, 102n), otherTx(5, 103n), otherTx(6, 104n), txOf(7, 105n)]);
+  assert.equal((await resolveLaunchFee(tooFar.client, config, sending)).status, "unknown", "the look-ahead is bounded to three nonces");
+});
+test("a spent nonce is searched once: with the memo, a later check makes no search reads", async () => {
+  const memo = new Map(), mined = [...history, otherTx(3, 104n), otherTx(4, 105n), otherTx(5, 106n), otherTx(6, 107n)];
+  const first = chain(110n, mined);
+  assert.equal((await resolveLaunchFee(first.client, config, sending, undefined, memo)).status, "unknown");
+  assert(searchReads(first.reads, 110n).length > 0);
+  assert.deepEqual([...memo.keys()].sort(), [3, 4, 5, 6]);
+  const again = chain(110n, mined);
+  assert.equal((await resolveLaunchFee(again.client, config, sending, undefined, memo)).status, "unknown");
+  assert.deepEqual(searchReads(again.reads, 110n), [], "no nonce search and no block read again");
+  assert.deepEqual(again.reads, ["head", "count@110"], "only the head and its nonce count");
+});
+test("an ETH attempt never adopts a USDG transfer, and a USDG attempt never adopts an ETH transfer", async () => {
+  const ethAttempt = { ...sending, asset: "native" as const, quote };
+  const usdgAtNonce = chain(110n, [...history, txOf(3, 104n)]);
+  assert.notEqual((await resolveLaunchFee(usdgAtNonce.client, config, ethAttempt)).status, "paid");
+  const ethAtNonce = chain(110n, [...history, txOf(3, 104n, { to: treasury, input: "0x", value: BigInt(quote.wei) })]);
+  assert.notEqual((await resolveLaunchFee(ethAtNonce.client, config, sending)).status, "paid");
+  assert.deepEqual(await resolveLaunchFee(ethAtNonce.client, config, ethAttempt),
+    { status: "paid", fee: { asset: "native", txHash: txOf(3, 104n).hash, wei: quote.wei, expiresAt: quote.expiresAt, mac: quote.mac } });
 });
 test("a pending payment waits in the mempool and records the nonce it really uses; it is paid after two confirmations", async () => {
   const sent = txOf(3, 0n);
@@ -205,6 +237,12 @@ test("a pending payment waits in the mempool and records the nonce it really use
   assert.deepEqual(await resolveLaunchFee(chain(109n, [...history, mined]).client, config, pendingOf(sent.hash)),
     { status: "paid", fee: { asset: "stable", txHash: sent.hash } });
 });
+test("a nonce spent only after the head was read is not spent yet", async () => {
+  // The original is gone; a later block spends nonce 3. Counting at "latest" would start a search that cannot find it below the head.
+  const lateSpent = chain(110n, [...history, otherTx(3, 111n)]);
+  assert.deepEqual(await resolveLaunchFee(lateSpent.client, config, pendingOf(`0x${"ab".repeat(32)}`, { nonceSeen: true })), { status: "waiting" });
+  assert.deepEqual(searchReads(lateSpent.reads, 110n), []);
+});
 test("pending, then replaced: a speed-up with the same transfer is adopted; a cancellation is cleared only for a nonce seen on chain", async () => {
   const original = txOf(3, 0n), speedUp = txOf(3, 106n, { hash: `0x${"5e".repeat(32)}` });
   // The original is gone from the node: only the spent nonce finds the replacement.
@@ -213,17 +251,64 @@ test("pending, then replaced: a speed-up with the same transfer is adopted; a ca
   assert(repriced.reads.includes("block:106"));
   const cancelled = chain(110n, [...history, otherTx(3, 106n)]);
   assert.deepEqual(await resolveLaunchFee(cancelled.client, config, pendingOf(original.hash, { nonceSeen: true })), { status: "failed", reason: FEE_CANCELLED });
-  assert.deepEqual(await resolveLaunchFee(cancelled.client, config, pendingOf(original.hash)), { status: "unknown", reason: FEE_MAYBE_SENT },
+  assert.deepEqual(await resolveLaunchFee(cancelled.client, config, pendingOf(original.hash)), { status: "unknown", reason: FEE_UNCONFIRMED },
     "a predicted nonce is never proof of a cancellation");
 });
-test("a replacement the wallet reported is adopted directly when it is the same transfer", async () => {
+test("a replacement the wallet reported is proof of the nonce: a speed-up is adopted, anything else cancelled the fee", async () => {
   const speedUp = txOf(3, 106n, { hash: `0x${"5e".repeat(32)}` }), { client, reads } = chain(110n, [...history, speedUp]);
   assert.deepEqual(await resolveLaunchFee(client, config, pendingOf(`0x${"ab".repeat(32)}`), speedUp.hash), { status: "paid", fee: { asset: "stable", txHash: speedUp.hash } });
-  assert.equal(reads.includes("count"), false, "no nonce search is needed");
+  assert.deepEqual(searchReads(reads, 110n), [], "no nonce search is needed");
+  // A same-tab wallet cancel clears at once, even for a predicted nonce, and never reaches "unknown".
+  const cancel = otherTx(3, 106n), cancelled = chain(110n, [...history, cancel]);
+  assert.deepEqual(await resolveLaunchFee(cancelled.client, config, pendingOf(`0x${"ab".repeat(32)}`), cancel.hash), { status: "failed", reason: FEE_CANCELLED });
   const ethFee = { ...pendingOf(`0x${"ab".repeat(32)}`), asset: "native" as const, quote };
   const wrongAmount = txOf(3, 106n, { hash: `0x${"5f".repeat(32)}`, to: treasury, input: "0x", value: 1n });
-  assert.notEqual((await resolveLaunchFee(chain(110n, [...history, wrongAmount]).client, config, ethFee, wrongAmount.hash)).status, "paid",
-    "an ETH transfer of another amount is never adopted");
+  assert.deepEqual(await resolveLaunchFee(chain(110n, [...history, wrongAmount]).client, config, ethFee, wrongAmount.hash),
+    { status: "failed", reason: FEE_CANCELLED }, "an ETH transfer of another amount is never adopted");
+  const unmined = otherTx(3, 0n), pendingHint = chain(110n, history, [unmined]);
+  assert.notEqual((await resolveLaunchFee(pendingHint.client, config, pendingOf(`0x${"ab".repeat(32)}`), unmined.hash)).status, "failed",
+    "an unmined hint proves nothing yet");
+});
+
+test("polling: an undecided payment is checked at most six times in ten minutes; a waiting one every 4 s", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const flush = async () => { for (let i = 0; i < 5; i++) await Promise.resolve(); };
+  const run = async (status: "unknown" | "waiting" | "paid", seconds: number, hidden = () => false) => {
+    let checks = 0;
+    const poller = createFeePoller(async () => { checks++; return status; }, hidden);
+    poller.start();
+    for (let second = 0; second < seconds; second++) { await flush(); t.mock.timers.tick(1_000); }
+    await flush();
+    poller.stop();
+    return { checks, poller };
+  };
+  const unknown = await run("unknown", 600);
+  assert(unknown.checks <= 6, `${unknown.checks} checks in 10 minutes`);
+  assert.equal(unknown.checks, 4, "now, then after 1, 2 and 5 minutes");
+  assert.equal((await run("waiting", 40)).checks, 11, "every 4 s while a receipt is awaited");
+  assert.equal((await run("paid", 600)).checks, 1, "a decided payment is never checked again");
+  assert.equal((await run("waiting", 60, () => true)).checks, 0, "nothing while the page is hidden");
+  assert.deepEqual([feePollDelay("unknown", 1), feePollDelay("unknown", 2), feePollDelay("unknown", 3), feePollDelay("unknown", 9), feePollDelay("error", 1)],
+    [60_000, 120_000, 300_000, 300_000, 60_000]);
+});
+test("polling: Check again re-checks at once and restarts the back-off; a hidden page catches up when shown", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const flush = async () => { for (let i = 0; i < 5; i++) await Promise.resolve(); };
+  let checks = 0, hidden = false;
+  const poller = createFeePoller(async () => { checks++; return "unknown"; }, () => hidden);
+  poller.start(); await flush();
+  t.mock.timers.tick(60_000); await flush();
+  assert.equal(checks, 2);
+  poller.now(); await flush();
+  assert.equal(checks, 3, "Check again runs at once");
+  t.mock.timers.tick(60_000); await flush();
+  assert.equal(checks, 4, "and the next automatic check is one minute later again");
+  hidden = true;
+  t.mock.timers.tick(120_000); await flush();
+  assert.equal(checks, 4, "paused while hidden");
+  hidden = false; poller.resume(); await flush();
+  assert.equal(checks, 5, "caught up when shown");
+  poller.stop();
 });
 
 test("an earlier build's per-draft record moves to the wallet's record once", () => {
