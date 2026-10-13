@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { once } from "node:events";
 import { TransactionReceiptNotFoundError, encodeEventTopics, erc20Abi, encodeAbiParameters, getAddress, type Address, type Hex } from "viem";
 import { launchFeeQuoteMac, verifyLaunchFeeQuoteMac, verifyLaunchFeePayment, NftLaunchError } from "../server/nft-launch";
-import { LAUNCH_FEE_STABLE, type LaunchFee } from "../src/lib/launch-fee";
+import { LAUNCH_FEE_MIN_BLOCK, LAUNCH_FEE_STABLE, type LaunchFee } from "../src/lib/launch-fee";
 import { LaunchpadService } from "../server/service";
 import { createApp } from "../server/app";
 import { runtimeFromEnv } from "../server/config";
@@ -22,9 +22,11 @@ const hash = `0x${"11".repeat(32)}` as Hex, stranger = getAddress("0xCCCC0000000
 const transferLog = (from: Address, to: Address, value: bigint) => ({ address: usdg.address,
   topics: encodeEventTopics({ abi: erc20Abi, eventName: "Transfer", args: { from, to } }),
   data: encodeAbiParameters([{ type: "uint256" }], [value]) });
-const client = (receipt: object, tx: object = {}, timestamp = 1000n, head = 100n) => ({
-  getTransactionReceipt: async () => ({ status: "success", blockNumber: 10n, blockHash: `0x${"22".repeat(32)}`, from: payer, logs: [], ...receipt }),
-  getTransaction: async () => ({ from: payer, to: ops, value: 0n, ...tx }),
+const BLOCK = LAUNCH_FEE_MIN_BLOCK[4663]!, txHash = hash;
+// The receipt sits 10 blocks after the first block that can hold a launch fee, with 90 more blocks on top of it.
+const client = (receipt: object, tx: object = {}, timestamp = 1000n, head = BLOCK + 100n) => ({
+  getTransactionReceipt: async () => ({ status: "success", transactionHash: txHash, blockNumber: BLOCK + 10n, blockHash: `0x${"22".repeat(32)}`, from: payer, logs: [], ...receipt }),
+  getTransaction: async () => ({ from: payer, to: ops, value: 0n, input: "0x", ...tx }),
   getBlock: async () => ({ hash: `0x${"22".repeat(32)}`, timestamp }),
   getBlockNumber: async () => head,
 }) as never;
@@ -62,7 +64,7 @@ test("a USDG payment needs an exact 10 USDG transfer from the payer to the opera
   assert.equal(await codeOf(verifyLaunchFeePayment(client({ logs: [transferLog(payer, ops, usdg.amount)] }), args)), "ok");
   assert.equal(await codeOf(verifyLaunchFeePayment(client({ logs: [transferLog(payer, ops, usdg.amount - 1n)] }), args)), "NFT_FEE_INVALID");
   assert.equal(await codeOf(verifyLaunchFeePayment(client({ logs: [transferLog(ops, payer, usdg.amount)] }), args)), "NFT_FEE_INVALID");
-  assert.equal(await codeOf(verifyLaunchFeePayment(client({ logs: [transferLog(payer, ops, usdg.amount)] }, {}, 1000n, 10n), args)), "NFT_FEE_INVALID");
+  assert.equal(await codeOf(verifyLaunchFeePayment(client({ logs: [transferLog(payer, ops, usdg.amount)] }, {}, 1000n, BLOCK + 10n), args)), "NFT_FEE_INVALID");
   assert.equal(await codeOf(verifyLaunchFeePayment(client({ status: "reverted", logs: [transferLog(payer, ops, usdg.amount)] }), args)), "NFT_FEE_INVALID");
 });
 
@@ -90,9 +92,9 @@ test("an ETH payment needs the quoted wei, a valid MAC and a block within expiry
   const args = { fee, payer, recipient: ops, chainId: 4663 as const, keys: [key] };
   assert.equal(await codeOf(verifyLaunchFeePayment(client({}, { value: 5000000000000000n }, 2000n + 600n), args)), "ok");
   assert.equal(await codeOf(verifyLaunchFeePayment(client({}, { value: 5000000000000000n }, 2000n + 601n), args)), "NFT_FEE_INVALID");
-  assert.equal(await codeOf(verifyLaunchFeePayment(client({}, { value: 4999999999999999n }), args)), "NFT_FEE_INVALID");
-  assert.equal(await codeOf(verifyLaunchFeePayment(client({}, { value: 5000000000000000n }), { ...args, keys: [] })), "NFT_FEE_INVALID");
-  assert.equal(await codeOf(verifyLaunchFeePayment(client({}, { value: 5000000000000000n, from: ops }), args)), "NFT_FEE_INVALID");
+  assert.equal(await codeOf(verifyLaunchFeePayment(client({}, { value: 4999999999999999n }, 2000n), args)), "NFT_FEE_INVALID");
+  assert.equal(await codeOf(verifyLaunchFeePayment(client({}, { value: 5000000000000000n }, 2000n), { ...args, keys: [] })), "NFT_FEE_INVALID");
+  assert.equal(await codeOf(verifyLaunchFeePayment(client({}, { value: 5000000000000000n, from: ops }, 2000n), args)), "NFT_FEE_INVALID");
 });
 
 test("an ETH payment also fails on a wrong recipient, a forged quote, a reorganized block or too few confirmations", async () => {
@@ -109,9 +111,49 @@ test("an ETH payment also fails on a wrong recipient, a forged quote, a reorgani
   assert.equal(await codeOf(verifyLaunchFeePayment(client({}, paid, 2000n), { ...args, fee: { ...fee, mac: undefined } })), "NFT_FEE_INVALID");
   assert.equal(await codeOf(verifyLaunchFeePayment(client({}, paid, 2000n), { ...args, fee: { asset: "native", txHash: hash } as LaunchFee })), "NFT_FEE_INVALID", "an unquoted ETH fee is refused");
   assert.equal(await codeOf(verifyLaunchFeePayment(client({ blockHash: `0x${"33".repeat(32)}` }, paid, 2000n), args)), "NFT_FEE_INVALID", "the receipt's block was reorganized away");
-  assert.equal(await codeOf(verifyLaunchFeePayment(client({}, paid, 2000n, 10n), args)), "NFT_FEE_INVALID", "one confirmation is not enough");
-  assert.equal(await codeOf(verifyLaunchFeePayment(client({}, paid, 2000n, 11n), args)), "ok", "two confirmations are");
+  assert.equal(await codeOf(verifyLaunchFeePayment(client({}, paid, 2000n, BLOCK + 10n), args)), "NFT_FEE_INVALID", "one confirmation is not enough");
+  assert.equal(await codeOf(verifyLaunchFeePayment(client({}, paid, 2000n, BLOCK + 11n), args)), "ok", "two confirmations are");
   assert.equal(await codeOf(verifyLaunchFeePayment(client({}, paid, 2000n), { ...args, chainId: 8453 as const })), "NFT_FEE_INVALID", "the MAC is bound to the chain");
+});
+
+test("a payment must be recent enough: a USDG transfer below the minimum block and an ETH payment that predates its quote are refused", async () => {
+  const stable = { fee: { asset: "stable" as const, txHash: hash }, payer, recipient: ops, chainId: 4663 as const, keys: [key] };
+  const paid = { logs: [transferLog(payer, ops, usdg.amount)] };
+  assert.equal(await codeOf(verifyLaunchFeePayment(client({ ...paid, blockNumber: BLOCK }, {}, 1000n, BLOCK + 1n), stable)), "ok", "the minimum block itself counts");
+  assert.equal(await codeOf(verifyLaunchFeePayment(client({ ...paid, blockNumber: BLOCK - 1n }), stable)), "NFT_FEE_INVALID", "an older exact transfer is not a launch fee");
+  assert.equal(await codeOf(verifyLaunchFeePayment(client({ ...paid, blockNumber: 1n }), stable)), "NFT_FEE_INVALID");
+  assert.equal(typeof LAUNCH_FEE_MIN_BLOCK[4663], "bigint");
+  assert.equal(LAUNCH_FEE_MIN_BLOCK[8453], undefined, "a chain without an entry accepts no stablecoin fee");
+
+  const wei = "5000000000000000", expiresAt = 2000;
+  const fee = { asset: "native" as const, txHash: hash, wei, expiresAt, mac: launchFeeQuoteMac(key, 4663, payer, wei, expiresAt) };
+  const native = { ...stable, fee };
+  const eth = { value: 5000000000000000n };
+  // The quote was issued 60 s before expiresAt, and 120 s of clock skew is allowed.
+  assert.equal(await codeOf(verifyLaunchFeePayment(client({}, eth, 2000n - 60n - 120n), native)), "ok");
+  assert.equal(await codeOf(verifyLaunchFeePayment(client({}, eth, 2000n - 60n - 121n), native)), "NFT_FEE_INVALID", "a payment that predates its quote");
+  assert.equal(await codeOf(verifyLaunchFeePayment(client({}, eth, 1n), native)), "NFT_FEE_INVALID");
+});
+
+test("both assets need a canonical receipt for this exact transaction and block", async () => {
+  const stable = { fee: { asset: "stable" as const, txHash: hash }, payer, recipient: ops, chainId: 4663 as const, keys: [key] };
+  const paid = { logs: [transferLog(payer, ops, usdg.amount)] };
+  const other = `0x${"44".repeat(32)}`;
+  assert.equal(await codeOf(verifyLaunchFeePayment(client({ ...paid, transactionHash: other }), stable)), "NFT_FEE_INVALID", "the receipt belongs to another transaction");
+  assert.equal(await codeOf(verifyLaunchFeePayment(client({ ...paid, transactionHash: hash.toUpperCase().replace("0X", "0x") }), stable)), "ok", "the hash compares case-insensitively");
+  assert.equal(await codeOf(verifyLaunchFeePayment(client({ ...paid, blockHash: `0x${"33".repeat(32)}` }), stable)), "NFT_FEE_INVALID", "a USDG receipt from a reorganized block");
+  const wei = "5000000000000000", expiresAt = 2000;
+  const native = { ...stable, fee: { asset: "native" as const, txHash: hash, wei, expiresAt, mac: launchFeeQuoteMac(key, 4663, payer, wei, expiresAt) } };
+  assert.equal(await codeOf(verifyLaunchFeePayment(client({ transactionHash: other }, { value: 5000000000000000n }, 2000n), native)), "NFT_FEE_INVALID");
+});
+
+test("an ETH payment must be a plain transfer with no calldata", async () => {
+  const wei = "5000000000000000", expiresAt = 2000;
+  const args = { fee: { asset: "native" as const, txHash: hash, wei, expiresAt, mac: launchFeeQuoteMac(key, 4663, payer, wei, expiresAt) },
+    payer, recipient: ops, chainId: 4663 as const, keys: [key] };
+  assert.equal(await codeOf(verifyLaunchFeePayment(client({}, { value: 5000000000000000n, input: "0x" }, 2000n), args)), "ok");
+  assert.equal(await codeOf(verifyLaunchFeePayment(client({}, { value: 5000000000000000n, input: "0xdeadbeef" }, 2000n), args)), "NFT_FEE_INVALID");
+  assert.equal(await codeOf(verifyLaunchFeePayment(client({}, { value: 5000000000000000n, input: "0x00" }, 2000n), args)), "NFT_FEE_INVALID");
 });
 
 // ---- stores ------------------------------------------------------------------------------
@@ -146,7 +188,7 @@ test("the Supabase store queries the same hash-and-creator predicate", async () 
   const found = await store.tokenUsingLaunchFee(hash.toUpperCase().replace("0X", "0x"), "0xAAAA000000000000000000000000000000000001");
   assert.equal(found?.symbol, "SYNTH");
   const query = decodeURIComponent(path);
-  for (const part of ["scope=eq.verify-fee", `payload->launchFee->>txHash=eq.${hash}`, `payload->>creator=ilike.${payer.toLowerCase()}`, "limit=1"])
+  for (const part of ["scope=eq.verify-fee", `payload->launchFee->>txHash=ilike.${hash}`, `payload->>creator=ilike.${payer.toLowerCase()}`, "limit=1"])
     assert(query.includes(part), `missing ${part} in ${query}`);
   store.request = async <T>() => [] as T;
   assert.equal(await store.tokenUsingLaunchFee(hash, payer), null);

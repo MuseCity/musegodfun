@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { TransactionReceiptNotFoundError, decodeEventLog, erc20Abi, keccak256, parseAbi, type Address, type Block, type Hex, type PublicClient, type Transaction, type TransactionReceipt } from "viem";
 import { ROBINHOOD_STOCKS, sameAddress } from "../src/lib/config";
-import { LAUNCH_FEE_MINING_GRACE_SECONDS, LAUNCH_FEE_STABLE, type LaunchFee } from "../src/lib/launch-fee";
+import { LAUNCH_FEE_MIN_BLOCK, LAUNCH_FEE_MINING_GRACE_SECONDS, LAUNCH_FEE_QUOTE_TTL, LAUNCH_FEE_STABLE, type LaunchFee } from "../src/lib/launch-fee";
 import { DELEGATE_REGISTRY_V2, NFT_LAUNCH_RIGHTS, NFT_VAULT_MANIFEST, isMuse, vaultFactory, type NftChainId, type NftRef, type NftVaultManifest } from "../src/lib/nft-mode";
 import type { LaunchInput } from "../src/lib/validation";
 
@@ -82,13 +82,14 @@ export function verifyLaunchFeeQuoteMac(keys: readonly string[], chainId: FeeCha
 
 // Only the fields read below, so a chain-specific client (extra receipt and block formatters) still fits.
 type FeeClient = {
-  getTransactionReceipt(args: { hash: Hex }): Promise<Pick<TransactionReceipt, "status" | "blockNumber" | "blockHash" | "from" | "logs">>;
-  getTransaction(args: { hash: Hex }): Promise<Pick<Transaction, "from" | "to" | "value">>;
+  getTransactionReceipt(args: { hash: Hex }): Promise<Pick<TransactionReceipt, "status" | "transactionHash" | "blockNumber" | "blockHash" | "from" | "logs">>;
+  getTransaction(args: { hash: Hex }): Promise<Pick<Transaction, "from" | "to" | "value" | "input">>;
   getBlock(args: { blockNumber: bigint }): Promise<Pick<Block, "hash" | "timestamp">>;
   getBlockNumber(args?: { cacheTime?: number }): Promise<bigint>;
 };
-/** Verifies that `payer` paid the launch fee to `recipient`: an exact stablecoin transfer, or at least the platform-quoted ETH mined by the
- * quote's expiry plus the mining grace. Single use is the caller's job (`tokenUsingLaunchFee`). Throws NFT_FEE_INVALID. */
+/** Verifies that `payer` paid the launch fee to `recipient`: an exact stablecoin transfer mined since NFT mode began, or at least the
+ * platform-quoted ETH in a plain transfer mined within the quote's window. Single use is the caller's job (`tokenUsingLaunchFee`).
+ * Throws NFT_FEE_INVALID. */
 export async function verifyLaunchFeePayment(client: FeeClient, args: { fee: LaunchFee; payer: Address; recipient: Address; chainId: FeeChainId; keys: readonly string[] }):
   Promise<{ blockNumber: bigint }> {
   const invalid = (why: string) => new NftLaunchError("NFT_FEE_INVALID", `The launch fee payment is not valid: ${why}.`);
@@ -97,11 +98,16 @@ export async function verifyLaunchFeePayment(client: FeeClient, args: { fee: Lau
     throw error instanceof TransactionReceiptNotFoundError ? invalid("the transaction has not been mined yet") : error;
   });
   if (receipt.status !== "success") throw invalid("the transaction failed");
+  if (receipt.transactionHash.toLowerCase() !== args.fee.txHash.toLowerCase()) throw invalid("the receipt belongs to another transaction");
   if ((await client.getBlockNumber({ cacheTime: 0 })) < receipt.blockNumber + 1n) throw invalid("wait for two confirmations");
   if (!sameAddress(receipt.from, args.payer)) throw invalid("it was not sent by this wallet");
+  // Both assets need a canonical receipt: its block must still be the chain's block at that height.
+  const block = await client.getBlock({ blockNumber: receipt.blockNumber });
+  if (block.hash !== receipt.blockHash) throw invalid("the block was reorganized");
   if (args.fee.asset === "stable") {
-    const stable = LAUNCH_FEE_STABLE[args.chainId];
-    if (!stable) throw invalid("no stablecoin fee on this network");
+    const stable = LAUNCH_FEE_STABLE[args.chainId], minBlock = LAUNCH_FEE_MIN_BLOCK[args.chainId];
+    if (!stable || minBlock === undefined) throw invalid("no stablecoin fee on this network");
+    if (receipt.blockNumber < minBlock) throw invalid("the payment predates NFT launches");
     const paid = receipt.logs.filter((log) => sameAddress(log.address, stable.address)).some((log) => {
       try {
         const event = decodeEventLog({ abi: erc20Abi, data: log.data, topics: log.topics });
@@ -114,10 +120,13 @@ export async function verifyLaunchFeePayment(client: FeeClient, args: { fee: Lau
   }
   if (!args.fee.wei || !args.fee.expiresAt || !verifyLaunchFeeQuoteMac(args.keys, args.chainId, args.payer, args.fee.wei, args.fee.expiresAt, args.fee.mac))
     throw invalid("the ETH quote is not platform-signed");
-  const [tx, block] = await Promise.all([client.getTransaction({ hash: args.fee.txHash }), client.getBlock({ blockNumber: receipt.blockNumber })]);
-  if (block.hash !== receipt.blockHash) throw invalid("the block was reorganized");
+  const tx = await client.getTransaction({ hash: args.fee.txHash });
   if (!sameAddress(tx.from, args.payer) || !tx.to || !sameAddress(tx.to, args.recipient) || tx.value < BigInt(args.fee.wei))
     throw invalid("the ETH amount or recipient is wrong");
+  // A plain value transfer only: calldata means a contract call, not a payment.
+  if (tx.input !== "0x") throw invalid("the ETH payment must be a plain transfer");
   if (block.timestamp > BigInt(args.fee.expiresAt + LAUNCH_FEE_MINING_GRACE_SECONDS)) throw invalid("the quote expired");
+  // The quote was issued LAUNCH_FEE_QUOTE_TTL before it expires; an older payment would settle a later, cheaper price. 120 s allows for clock skew.
+  if (block.timestamp < BigInt(args.fee.expiresAt) - BigInt(LAUNCH_FEE_QUOTE_TTL / 1000) - 120n) throw invalid("the payment predates its quote");
   return { blockNumber: receipt.blockNumber };
 }
