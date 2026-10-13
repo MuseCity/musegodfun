@@ -13,8 +13,14 @@ export async function startRobinhoodFork(upstreamUrl: string) {
   return startChainFork(upstreamUrl, 4663);
 }
 
-export async function startChainFork(upstreamUrl: string, deploymentChainId: 8453 | 4663, executionChainId: 31337 | 8453 = 31337) {
-  assert(executionChainId === 31337 || deploymentChainId === 8453, "Only a Base fork may retain Base's execution chain ID");
+export function assertForkExecutionChainId(deploymentChainId: number, executionChainId: number) {
+  assert(deploymentChainId === 8453 || deploymentChainId === 4663, "Unsupported fork deployment chain");
+  assert(executionChainId === 31337 || executionChainId === deploymentChainId,
+    "A fork execution chain must be isolated 31337 or its own deployment chain");
+}
+
+export async function startChainFork(upstreamUrl: string, deploymentChainId: 8453 | 4663, executionChainId: 31337 | 8453 | 4663 = 31337) {
+  assertForkExecutionChainId(deploymentChainId, executionChainId);
   assert.equal(new URL(upstreamUrl).protocol, "https:");
   const upstream = createPublicClient({
     chain: deploymentChainId === 8453 ? base : robinhood,

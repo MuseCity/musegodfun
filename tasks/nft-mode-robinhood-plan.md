@@ -74,7 +74,7 @@ Everything chain-specific is keyed by chain id, so `tasks/nft-mode-base-plan.md`
 | `contracts/src/MusegodNftFeeVault.sol` | Per-NFT fee vault: claim Doppler shares and forward balances to the treasury. Nothing else |
 | `contracts/src/MusegodNftFeeVaultFactory.sol` | Deterministic vault deployment, `vaultFor`, `treasuryFor` |
 | `contracts/test/MusegodNftFeeVault.t.sol` | Forge unit and fuzz tests with mock managers and registry |
-| `scripts/build-nft-vault.ts` | Builds artifacts and writes `contracts/artifacts/nft-vault-build.json` (bytecode, init-code hash, runtime hash) |
+| `scripts/build-nft-vault.ts` | Builds artifacts and writes `contracts/artifacts/nft-vault-build.json` (bytecode, init-code hash, runtime template hash, immutable slots) |
 | `contracts/artifacts/nft-vault-deployment.json` | Committed per-chain manifest (factory address, hashes, deployment receipt) |
 | `scripts/deploy-nft-vault.ts` | Owner-run factory deployment and `--verify`, nonce-predicted like `scripts/deploy-base-collector.ts` |
 | `scripts/test-nft-vault-fork.ts` | Anvil fork gates (`--chain robinhood` here, `--chain base` in the Base plan) |
@@ -535,7 +535,7 @@ Task 1 execution, 2026-10-13: the initial Forge run failed because both vault im
 - Produces: `contracts/artifacts/nft-vault-build.json` with this shape:
 
   ```json
-  {"compiler":"0.8.24","vaultInitCodeHash":"0x…","factoryBytecode":"0x…","factoryRuntimeHash":"0x…","sourceHashes":{"MusegodNftFeeVault.sol":"0x…","MusegodNftFeeVaultFactory.sol":"0x…"}}
+  {"compiler":"0.8.24","vaultInitCodeHash":"0x…","factoryBytecode":"0x…","factoryRuntimeTemplateHash":"0x…","immutableReferences":{"VAULT_INIT_CODE_HASH":[{"start":0,"length":32}]},"sourceHashes":{"MusegodNftFeeVault.sol":"0x…","MusegodNftFeeVaultFactory.sol":"0x…"}}
   ```
 
 - Produces: `contracts/artifacts/nft-vault-deployment.json`, `NftVaultManifest` (Task 3 reads it):
@@ -626,6 +626,12 @@ git commit -m "feat(contracts): build manifest and Robinhood fork gates for NFT 
 ```
 
 ---
+
+Task 2a, 2026-10-13 (artifact, build script and CI part of Task 2; the fork gate, Steps 3-4, is Task 2b and runs after Task 3):
+- Committed: `scripts/build-nft-vault.ts`, `contracts/artifacts/nft-vault-build.json`, the undeployed two-chain `contracts/artifacts/nft-vault-deployment.json`, the `build:nft-vault` npm script, the CI rebuild plus `git diff --exit-code` over both NFT artifact files, `assertForkExecutionChainId` in `scripts/robinhood-fork.ts`, and the tests `tests/nft-vault-artifacts.test.ts` and `tests/nft-fork-isolation.test.ts`. CI sets up the pinned Foundry before `npm test` because the artifact tests compile the contracts.
+- Deviation from the Step 1 sample: the compiler's factory runtime has the `VAULT_INIT_CODE_HASH` immutable zero-filled, so its hash is a template hash, not an on-chain code hash. The build JSON therefore names it `factoryRuntimeTemplateHash` and adds `immutableReferences` (variable name to `{start,length}` slots). The deployed runtime is the template with each slot set to `vaultInitCodeHash`; Task 13's verifier does that fill before comparing. The manifest keeps `factoryRuntimeHash` for the deployed runtime (`null` until deployment).
+- Reproducibility: the tests build in temporary Forge projects (twice, each from a clean compile) and require byte-identical JSON equal to the committed files; the committed artifacts are never rewritten by tests. The build refuses a changed init-code hash once any chain is no longer `not_deployed`.
+- Still pending in Task 2b: the fork gate script, its `test:nft-vault-fork` npm entry and `docs/evidence/nft-vault-fork-robinhood.json`. These need an isolated `ALCHEMY_API_KEY` (never the real `.env`), a direct `tsx` entry instead of `scripts/run.ts`, and Task 3's `treasuryFor`/`vaultFor`. Same-chain guardian-trusted executor behaviour remains unverified. No RPC, fork, deployment, flag change, migration or release has run.
 
 ### Task 3: Shared NFT library
 
@@ -2406,7 +2412,7 @@ Each step below needs the owner's explicit go-ahead in chat. Stop and ask before
 - [ ] **Step 2: Deploy the factory on Robinhood.**
   - Write `scripts/deploy-nft-vault.ts` modelled on `scripts/deploy-base-collector.ts`: nonce-predicted plain CREATE from `factoryBytecode`, with `--preflight`, `--deploy` and `--verify` modes.
   - The owner runs `--deploy` with their own key.
-  - Then run `--verify`: the runtime hash equals the build `factoryRuntimeHash`, and `VAULT_INIT_CODE_HASH()` equals the manifest.
+  - Then run `--verify`: the on-chain runtime hash equals the build `factoryRuntimeTemplateHash` template with every `immutableReferences.VAULT_INIT_CODE_HASH` slot filled with the build `vaultInitCodeHash`, and `VAULT_INIT_CODE_HASH()` equals the manifest.
   - Record the manifest entry `"4663": {"status":"deployed_verified", factory, factoryRuntimeHash, transactionHash, blockNumber}`.
   - Verify the factory on Sourcify.
 - [ ] **Step 3: Merge and publish with the flag off.** Commit the manifest. The owner merges to `master` with `NFT_MODE_ENABLED=false`; CI publishes and verifies both domains. Record this release as the NFT-compatible rollback floor.
