@@ -88,10 +88,13 @@ contract MusegodNftFeeVault is ReentrancyGuard {
         if (amount != 0) emit Swept(token, treasury, amount);
     }
 
+    /// @dev Low-level call so one source can never block the other. A typed try/catch decodes the return value
+    /// in this contract, so a source returning undecodable data (or having no code) would revert the whole
+    /// sweep outside the catch. The return data is ignored: collectFees pays to msg.sender and the amounts are
+    /// not needed. Only a revert is reported. A call to an address with no code returns ok = true and does
+    /// nothing, so that case claims nothing and emits nothing.
     function _claim(address source, bytes32 poolId) private {
-        try INftVaultFeeSource(source).collectFees(poolId) {}
-        catch (bytes memory reason) {
-            emit FeeClaimFailed(poolId, source, reason);
-        }
+        (bool ok, bytes memory reason) = source.call(abi.encodeCall(INftVaultFeeSource.collectFees, (poolId)));
+        if (!ok) emit FeeClaimFailed(poolId, source, reason);
     }
 }

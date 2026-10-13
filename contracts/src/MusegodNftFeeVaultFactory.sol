@@ -57,7 +57,9 @@ contract MusegodNftFeeVaultFactory {
     function deploy(uint256 homeChainId, address nft, uint256 tokenId) external returns (address vault) {
         vault = vaultFor(homeChainId, nft, tokenId);
         if (vault.code.length != 0) return vault;
-        if (homeChainId != block.chainid || nft.code.length == 0) revert InvalidConfiguration();
+        if (homeChainId != block.chainid || nft.code.length == 0 || TOKENBOUND_V3_PROXY.code.length == 0) {
+            revert InvalidConfiguration();
+        }
         address treasury = treasuryFor(homeChainId, nft, tokenId);
         parameters = Parameters(homeChainId, nft, tokenId, treasury);
         address deployed = address(new MusegodNftFeeVault{salt: saltFor(homeChainId, nft, tokenId)}());
