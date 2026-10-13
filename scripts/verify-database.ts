@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url";
 import { SupabaseStore } from "../server/supabase-store";
 import { loadEnvironment } from "../server/config";
 import { STOCKS, type TokenRecord } from "../src/lib/config";
-import type { LaunchPlan } from "../server/store";
+import { TokenUniqueConflict, type LaunchPlan, type TokenUniqueKind } from "../server/store";
 import { FEE_POLICY } from "../src/lib/fee-policy";
 import { BASE_BUYBACK_PROTOCOL, BASE_BUYBACK_VAULT, BASE_BUYBACK_RH_WETH, BASE_BUYBACK_WETH, type BaseFeeBatch } from "../src/lib/base-buyback";
 /** Disposable scopes only; the legacy probes use invalid commits and cannot mutate financial rows. */
@@ -129,12 +129,26 @@ try {
   await store.updateNftVerification({ ...proven, openingValuationUnverified: true, nftVerification: { status: "verified" } });
   assert.deepEqual(await connect(scope).token(proven.address), proven, "A write from an unproven read never downgrades a proven record");
   const launchFee = { asset: "stable" as const, txHash: `0x${"cd".repeat(32)}` as const };
-  const payerCoin = (n: number, letter: string): TokenRecord => ({ ...token, address: STOCKS[n].address, transactionHash: `0x${letter.repeat(64)}`, launchFee });
+  const payerCoin = (n: number, letter: string, fee: TokenRecord["launchFee"] = launchFee): TokenRecord =>
+    ({ ...token, address: STOCKS[n].address, transactionHash: `0x${letter.repeat(64)}`, launchFee: fee });
   await store.saveToken(payerCoin(9, "b"));
   assert.equal(await connect(scope).tokenUsingLaunchFee(launchFee.txHash, token.creator!, STOCKS[9].address), null, "A coin's own fee is not another use");
-  await store.saveToken(payerCoin(10, "c"));
-  assert.equal((await connect(scope).tokenUsingLaunchFee(launchFee.txHash, token.creator!, STOCKS[9].address))?.address, STOCKS[10].address,
-    "Another holder of the fee is found");
+  assert.equal((await connect(scope).tokenUsingLaunchFee(launchFee.txHash, token.creator!, STOCKS[10].address))?.address, STOCKS[9].address,
+    "The holder of the fee is found for any other coin");
+  // Migration 20261014120000: both guard indexes exist (a refusal names them) and refuse a duplicate, from any connection.
+  const refused = (kind: TokenUniqueKind) => (error: unknown) => error instanceof TokenUniqueConflict && error.kind === kind;
+  await assert.rejects(() => connect(scope).saveToken(payerCoin(10, "c", { ...launchFee, txHash: `0x${"CD".repeat(32)}` as `0x${string}` })), refused("launch_fee"),
+    "The launch-fee index refuses a second coin spending one payment, in any case");
+  assert.equal(await connect(scope).token(STOCKS[10].address), null, "The refused coin was not written");
+  await assert.rejects(() => store.saveToken(nftCoin(10, { transactionHash: `0x${"d".repeat(64)}`, nft: { ...nft, contract: nft.contract.toLowerCase() as `0x${string}` }, nftVerification: { status: "verified" } })),
+    refused("nft_verified"), "The verified-NFT index refuses a second verified coin for one NFT, whatever the contract's case");
+  const second = nftCoin(11, { transactionHash: `0x${"e".repeat(64)}`, nftVerification: { status: "unverified", reason: "rpc" } });
+  await store.saveToken(second);
+  await assert.rejects(() => connect(scope).updateNftVerification({ ...second, nftVerification: { status: "verified" } }), refused("nft_verified"),
+    "The verified-NFT index refuses the compare-and-swap of a second verified coin");
+  assert.equal((await connect(scope).token(second.address))?.nftVerification?.status, "unverified", "The refused compare-and-swap changed nothing");
+  await store.saveToken(nftCoin(12, { transactionHash: `0x${"f".repeat(64)}`, nftVerification: { status: "rejected", reason: "already_launched" } }));
+  assert.equal((await connect(scope).token(STOCKS[12].address))?.nftVerification?.reason, "already_launched", "Rejected and unverified coins for the NFT are allowed");
   await store.launchStatus(hash, "confirmed", blockHash);
   const queue = await connect(scope).pendingLaunches();
   assert.equal(queue.length, 1, "Replacement must leave the active queue");
@@ -220,6 +234,8 @@ try {
           "NFT verification compare-and-swap settles only unverified or absent statuses and never touches non-NFT records",
           "NFT verification compare-and-swap matches the provenance it read and never downgrades it",
           "launch-fee single use excludes only the coin itself",
+          "the launch-fee guard index refuses a second coin spending one payment, in any case",
+          "the verified-NFT guard index refuses a second verified coin (insert or compare-and-swap) and allows rejected and unverified ones",
           "backup restores token and canonical receipt identity",
           "orphan token removal",
           "buyback batch amounts and receipt history survive reconnect and upsert",

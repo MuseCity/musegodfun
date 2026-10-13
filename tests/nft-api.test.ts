@@ -112,7 +112,8 @@ test("cursor pages and token detail carry the hidden flag too", async () => {
   await httpFixture(async ({ service }, origin) => {
     const { hiddenAddress, rows } = catalog();
     setHiddenTokens({ "4663": [hiddenAddress], "8453": [] });
-    for (const row of [rows[0], rows[3]]) await service.store.saveToken(row);
+    // The database holds one verified coin per NFT, so the stored hidden coin is bound to another Muse.
+    for (const row of [rows[0], { ...rows[3], nft: nftOf("2") }]) await service.store.saveToken(row);
     const page = await (await get(origin, "/api/tokens?limit=10")).json();
     assert.deepEqual(page.items.map((row: TokenRecord) => [row.symbol, row.hidden]).sort(), [["C1", undefined], ["C4", true]]);
     service.tokenDetail = async (token) => ({ token: rows.find((row) => row.address === token)!, state: null });

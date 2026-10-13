@@ -12,7 +12,7 @@ import { NftLaunchError, assertNftDraftRules, readNftControl, verifyVaultFactory
 import { LaunchpadService } from "../server/service";
 import { createApp } from "../server/app";
 import { runtimeFromEnv } from "../server/config";
-import { Store } from "../server/store";
+import { Store, TokenUniqueConflict } from "../server/store";
 import { SupabaseStore } from "../server/supabase-store";
 import { syntheticToken } from "./fixtures";
 
@@ -209,22 +209,66 @@ test("verifyVaultFactory compares the deployed runtime hash, never the build tem
 });
 
 // ---- stores ------------------------------------------------------------------------------
+const storeCoin = (n: number, over: Partial<TokenRecord>) => syntheticToken({ mode: "robinhood", address: `0x${String(n).repeat(40)}` as Address,
+  transactionHash: `0x${String(n).repeat(64)}` as Hex, createdAt: 1_800_000_000_000 + n, ...over });
+const nftConflict = (error: unknown) => error instanceof TokenUniqueConflict && error.kind === "nft_verified";
+
 test("verifiedNftCoin finds only a verified coin for exactly this NFT and can exclude the coin being registered", () => {
   const directory = mkdtempSync(join(tmpdir(), "nft-store-"));
-  const store = new Store(directory, 4663);
-  const coin = (n: number, over: Partial<TokenRecord>) => syntheticToken({ mode: "robinhood", address: `0x${String(n).repeat(40)}` as Address,
-    transactionHash: `0x${String(n).repeat(64)}` as Hex, createdAt: 1_800_000_000_000 + n, ...over });
+  const store = new Store(directory, 4663), coin = storeCoin;
   try {
     store.saveToken(coin(1, { nft: { ...muse, contract: MUSES.contract.toLowerCase() as Address }, nftVerification: { status: "rejected" } }));
     store.saveToken(coin(2, { nft: muse, nftVerification: { status: "unverified" } }));
     store.saveToken(coin(3, { nft: { ...muse, tokenId: "2" }, nftVerification: { status: "verified" } }));
     store.saveToken(coin(4, {}));
     assert.equal(store.verifiedNftCoin(nftKey(muse)), null, "rejected, unverified, other-token and non-NFT records never reserve the NFT");
-    store.saveToken(coin(6, { nft: muse, nftVerification: { status: "verified" }, createdAt: 1_800_000_000_100 }));
     store.saveToken(coin(5, { nft: { ...muse, contract: MUSES.contract.toLowerCase() as Address }, nftVerification: { status: "verified" }, createdAt: 1_800_000_000_050 }));
-    assert.equal(store.verifiedNftCoin(nftKey(muse))?.address, `0x${"5".repeat(40)}`, "the earliest verified coin wins and the contract compares case-insensitively");
-    assert.equal(store.verifiedNftCoin(nftKey(muse), `0x${"5".repeat(40)}`.toUpperCase().replace("0X", "0x"))?.address, `0x${"6".repeat(40)}`);
+    assert.equal(store.verifiedNftCoin(nftKey(muse))?.address, `0x${"5".repeat(40)}`, "the contract compares case-insensitively");
+    assert.equal(store.verifiedNftCoin(nftKey(muse), `0x${"5".repeat(40)}`.toUpperCase().replace("0X", "0x")), null, "the coin itself is excluded");
     assert.equal(store.verifiedNftCoin(nftKey({ ...muse, tokenId: "3" })), null);
+  } finally { store.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("SQLite refuses a second verified coin for one NFT, by any writer and in any contract case, while rejected and unverified duplicates are allowed", () => {
+  const directory = mkdtempSync(join(tmpdir(), "nft-store-"));
+  const store = new Store(directory, 4663), lower = { ...muse, contract: MUSES.contract.toLowerCase() as Address };
+  try {
+    store.saveToken(storeCoin(1, { nft: muse, nftVerification: { status: "verified" } }));
+    assert.throws(() => store.saveToken(storeCoin(2, { nft: muse, nftVerification: { status: "verified", block: "9" } })), nftConflict, "a second verified insert");
+    assert.throws(() => store.saveToken(storeCoin(2, { nft: lower, nftVerification: { status: "verified" } })), nftConflict, "the contract compares case-insensitively");
+    assert.equal(store.token(`0x${"2".repeat(40)}`), null, "the refused coin was not written");
+    store.saveToken(storeCoin(2, { nft: lower, nftVerification: { status: "rejected", reason: "already_launched" } }));
+    store.saveToken(storeCoin(3, { nft: muse, nftVerification: { status: "unverified", reason: "rpc" } }));
+    store.saveToken(storeCoin(4, { nft: muse }));
+    store.saveToken(storeCoin(6, { nft: muse, nftVerification: { status: "rejected", reason: "not_controller" } }));
+    assert.throws(() => store.updateNftVerification({ ...storeCoin(3, { nft: muse }), nftVerification: { status: "verified" } }), nftConflict, "a compare-and-swap to verified");
+    assert.equal(store.token(`0x${"3".repeat(40)}`)?.nftVerification?.status, "unverified", "the refused write changed nothing");
+    store.updateNftVerification({ ...storeCoin(3, { nft: muse }), nftVerification: { status: "rejected", reason: "already_launched" } });
+    assert.equal(store.token(`0x${"3".repeat(40)}`)?.nftVerification?.reason, "already_launched");
+    // The key is the stored JSON's own types: chainId a number and tokenId a decimal string, exactly as verifiedNftCoin reads them.
+    store.saveToken(storeCoin(7, { nft: { ...muse, tokenId: "2" }, nftVerification: { status: "verified" } }));
+    store.saveToken(storeCoin(8, { nft: { ...muse, chainId: 8453 as never }, nftVerification: { status: "verified" } }));
+    store.saveToken(storeCoin(9, { nft: { ...muse, contract: weth.address }, nftVerification: { status: "verified" } }));
+    store.saveToken(storeCoin(1, { nft: muse, nftVerification: { status: "verified" } }));
+    assert.equal(store.tokens().length, 8, "other NFTs are no conflict, and registering the verified coin again is not a second one");
+    assert.equal(store.verifiedNftCoin(nftKey(muse))?.address, `0x${"1".repeat(40)}`);
+  } finally { store.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("SQLite answers both single-use lookups from the guard indexes, so a lookup and the database's refusal can never disagree", () => {
+  const directory = mkdtempSync(join(tmpdir(), "nft-store-"));
+  const store = new Store(directory, 4663);
+  try {
+    const statements: string[] = [], prepare = store.db.prepare.bind(store.db);
+    Object.assign(store.db, { prepare: (sql: string) => { statements.push(sql); return prepare(sql); } });
+    store.verifiedNftCoin(nftKey(muse), holder);
+    store.tokenUsingLaunchFee(`0x${"ab".repeat(32)}`, holder, holder);
+    Object.assign(store.db, { prepare });
+    assert.equal(statements.length, 2);
+    const plan = (sql: string, ...values: (string | number)[]) =>
+      (store.db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...values) as { detail: string }[]).map((row) => row.detail).join("; ");
+    assert.match(plan(statements[0], 4663, muse.contract.toLowerCase(), "1", ""), /USING INDEX tokens_nft_verified_once/);
+    assert.match(plan(statements[1], `0x${"ab".repeat(32)}`, holder.toLowerCase(), ""), /USING INDEX tokens_launch_fee_once/);
   } finally { store.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 

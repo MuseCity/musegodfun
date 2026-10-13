@@ -2453,6 +2453,7 @@ Each step below needs the owner's explicit go-ahead in chat. Stop and ask before
   - Record the manifest entry `"4663": {"status":"deployed_verified", factory, factoryRuntimeHash, transactionHash, blockNumber}`.
   - Verify the factory on Sourcify.
 - [ ] **Step 3: Merge and publish with the flag off.** Commit the manifest. The owner merges to `master` with `NFT_MODE_ENABLED=false`; CI publishes and verifies both domains. Record this release as the NFT-compatible rollback floor.
+- [ ] **Step 3b: Apply the single-use migration before enabling NFT mode.** The owner applies `supabase/migrations/20261014120000_nft_single_use_indexes.sql` to the production Supabase project (it creates the launch-fee and verified-NFT guard indexes on `musegod_tokens`; production has no NFT records yet, so it cannot fail on existing rows), then runs `npm run verify:database`, which checks that both indexes exist and refuse a duplicate. Do not turn the flag on before this passes.
 - [ ] **Step 4: Canary.** The owner sets `NFT_MODE_ENABLED=true` (a committed var change, so a release). With a real Muse:
   - launch;
   - confirm the `verified` badge and `?nft=`;

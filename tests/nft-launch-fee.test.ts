@@ -4,13 +4,13 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { once } from "node:events";
-import { TransactionNotFoundError, TransactionReceiptNotFoundError, encodeEventTopics, erc20Abi, encodeAbiParameters, getAddress, type Address, type Hex } from "viem";
+import { TransactionNotFoundError, TransactionReceiptNotFoundError, encodeEventTopics, encodeFunctionData, erc20Abi, encodeAbiParameters, getAddress, type Address, type Hex } from "viem";
 import { launchFeeQuoteMac, verifyLaunchFeeQuoteMac, verifyLaunchFeePayment, NftLaunchError } from "../server/nft-launch";
 import { LAUNCH_FEE_MIN_BLOCK, LAUNCH_FEE_STABLE, type LaunchFee } from "../src/lib/launch-fee";
 import { LaunchpadService } from "../server/service";
 import { createApp } from "../server/app";
 import { runtimeFromEnv } from "../server/config";
-import { Store } from "../server/store";
+import { Store, TokenUniqueConflict } from "../server/store";
 import { SupabaseStore } from "../server/supabase-store";
 import { ROBINHOOD_STOCKS, sameAddress, type RuntimeConfig } from "../src/lib/config";
 import { syntheticToken } from "./fixtures";
@@ -81,28 +81,60 @@ test("a USDG payment is refused when the stablecoin is another token, the sender
   assert.equal(await codeOf(verifyLaunchFeePayment(client({ logs: [transferLog(payer, ops, usdg.amount + 1n)] }), args)), "NFT_FEE_INVALID", "the stable fee is exact, not at-least");
 });
 
+const transferCall = (to: Address, amount: bigint) => encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [to, amount] });
 /** No receipt: the node knows the transaction (`pending`, still in its mempool, with `tx` replacing its fields), has never seen it
- * (`missing`), or its lookup fails. */
+ * (`missing`), or its lookup fails. By default the pending transaction is a real payer's USDG payment: transfer(treasury, 10 USDG) on USDG. */
 const unmined = (transaction: "pending" | "missing" | Error, tx: object = {}) => ({
   getTransactionReceipt: async () => { throw new TransactionReceiptNotFoundError({ hash }); },
   getTransaction: async () => {
     if (transaction instanceof Error) throw transaction;
     if (transaction === "missing") throw new TransactionNotFoundError({ hash });
-    return { from: payer, to: usdg.address, value: 0n, input: "0x", ...tx };
+    return { from: payer, to: usdg.address, value: 0n, input: transferCall(ops, usdg.amount), ...tx };
   },
 }) as never;
+// "retry:<kind>": NFT_FEE_INVALID that can still change; "node": the node's own error; otherwise the final code and message.
+const pendingKind = async (p: Promise<unknown>) => p.then(() => "ok", (e) => e instanceof NftLaunchError ? (e.retry ? `retry:${e.retry}` : `${e.code}:${e.message}`) : "node");
+const show = (value: unknown) => JSON.stringify(value, (_k, v) => typeof v === "bigint" ? String(v) : v);
 
-test("a transaction still in the mempool is only a pending payment when it can still become one: another sender's, or a wrong ETH transfer, is final", async () => {
-  const kind = async (p: Promise<unknown>) => p.then(() => "ok", (e) => e instanceof NftLaunchError ? (e.retry ? `retry:${e.retry}` : `${e.code}:${e.message}`) : "node");
-  const stable = { fee: { asset: "stable" as const, txHash: hash }, payer, recipient: ops, chainId: 4663 as const, keys: [key] };
-  assert.equal(await kind(verifyLaunchFeePayment(unmined("pending", { to: stranger }), stable)), "retry:unconfirmed", "a token payment may go through a wallet contract");
-  assert.equal(await kind(verifyLaunchFeePayment(unmined("pending", { from: stranger }), stable)),
-    "NFT_FEE_INVALID:The launch fee payment is not valid: it was not sent by this wallet.");
+test("a pending ETH payment counts as unconfirmed only with the platform's quote MAC and exactly its wei; any other shape is final at once", async () => {
   const wei = "5000000000000000", expiresAt = 2000;
-  const native = { ...stable, fee: { asset: "native" as const, txHash: hash, wei, expiresAt, mac: launchFeeQuoteMac(key, 4663, payer, wei, expiresAt) } };
-  assert.equal(await kind(verifyLaunchFeePayment(unmined("pending", { to: ops, value: 5000000000000000n }), native)), "retry:unconfirmed");
-  for (const tx of [{ to: stranger, value: 5000000000000000n }, { to: ops, value: 1n }, { to: ops, value: 5000000000000000n, input: "0xdeadbeef" }, { to: null, value: 5000000000000000n }])
-    assert.match(await kind(verifyLaunchFeePayment(unmined("pending", tx), native)), /^NFT_FEE_INVALID:/, JSON.stringify(tx, (_k, v) => typeof v === "bigint" ? String(v) : v));
+  const fee = { asset: "native" as const, txHash: hash, wei, expiresAt, mac: launchFeeQuoteMac(key, 4663, payer, wei, expiresAt) };
+  const native = { fee, payer, recipient: ops, chainId: 4663 as const, keys: [key] };
+  const exact = { to: ops, value: 5000000000000000n, input: "0x" };
+  assert.equal(await pendingKind(verifyLaunchFeePayment(unmined("pending", exact), native)), "retry:unconfirmed", "a real payer's quoted transfer, still in the mempool");
+  assert.equal(await pendingKind(verifyLaunchFeePayment(unmined("pending", exact), { ...native, keys: ["n".repeat(32), key] })), "retry:unconfirmed",
+    "a quote signed before a key rotation still counts");
+  const cases: [string, object, typeof native][] = [
+    ["a quote MAC the platform never signed", exact, { ...native, fee: { ...fee, mac: launchFeeQuoteMac("x".repeat(32), 4663, payer, wei, expiresAt) } }],
+    ["no MAC", exact, { ...native, fee: { ...fee, mac: undefined as never } }],
+    ["a MAC for another payer", exact, { ...native, fee: { ...fee, mac: launchFeeQuoteMac(key, 4663, stranger, wei, expiresAt) } }],
+    ["no key to check the MAC", exact, { ...native, keys: [] }],
+    ["a claim that lowers the signed wei", { ...exact, value: 1n }, { ...native, fee: { ...fee, wei: "1" } }],
+    ["one wei", { ...exact, value: 1n }, native],
+    ["one wei short", { ...exact, value: 4999999999999999n }, native],
+    ["more than the quote", { ...exact, value: 5000000000000001n }, native],
+    ["another recipient", { ...exact, to: stranger }, native],
+    ["a contract creation", { ...exact, to: null }, native],
+    ["calldata", { ...exact, input: "0xdeadbeef" }, native],
+    ["another sender", { ...exact, from: stranger }, native],
+  ];
+  for (const [why, tx, args] of cases)
+    assert.match(await pendingKind(verifyLaunchFeePayment(unmined("pending", tx), args)), /^NFT_FEE_INVALID:/, `${why}: ${show(tx)}`);
+});
+
+test("a pending USDG payment counts as unconfirmed only as a direct transfer(treasury, 10 USDG) on USDG; a wrong transfer is final, anything else is missing", async () => {
+  const stable = { fee: { asset: "stable" as const, txHash: hash }, payer, recipient: ops, chainId: 4663 as const, keys: [key] };
+  assert.equal(await pendingKind(verifyLaunchFeePayment(unmined("pending"), stable)), "retry:unconfirmed", "exactly transfer(treasury, 10 USDG), sent to USDG");
+  // Not a payment the mempool can show: it retries inside the window and settles rejected: fee after it, like a hash never seen.
+  const missing: [string, object][] = [["a wallet-contract or router call", { to: stranger }], ["another token's transfer", { to: stranger, input: transferCall(ops, usdg.amount) }],
+    ["USDG without calldata", { input: "0x" }], ["another USDG function", { input: encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [ops, usdg.amount] }) }],
+    ["undecodable USDG calldata", { input: "0xa9059cbb" }], ["a contract creation", { to: null }]];
+  for (const [why, tx] of missing) assert.equal(await pendingKind(verifyLaunchFeePayment(unmined("pending", tx), stable)), "retry:missing", why);
+  // A decodable USDG transfer that is not exactly the fee can never become it.
+  const wrong: [string, object][] = [["another recipient", { input: transferCall(stranger, usdg.amount) }], ["one unit short", { input: transferCall(ops, usdg.amount - 1n) }],
+    ["one unit more", { input: transferCall(ops, usdg.amount + 1n) }], ["another sender", { from: stranger }]];
+  for (const [why, tx] of wrong) assert.match(await pendingKind(verifyLaunchFeePayment(unmined("pending", tx), stable)), /^NFT_FEE_INVALID:/, why);
+  assert.match(await pendingKind(verifyLaunchFeePayment(unmined("pending"), { ...stable, chainId: 8453 as const })), /^NFT_FEE_INVALID:/, "a chain without a stablecoin fee");
 });
 
 test("an unmined hash is an invalid fee, while a node failure propagates as itself", async () => {
@@ -238,34 +270,84 @@ test("another wallet's coin carrying the hash does not consume it", () => {
   } finally { store.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
-test("single use excludes only the coin itself: another coin holding the fee still counts, whichever row comes first", () => {
+const feeConflict = (error: unknown) => error instanceof TokenUniqueConflict && error.kind === "launch_fee";
+
+test("single use excludes only the coin itself, and the database refuses a second coin holding the fee, in any case", () => {
   const directory = mkdtempSync(join(tmpdir(), "nft-fee-store-"));
   const store = new Store(directory, 4663);
   const self = getAddress("0x3333333333333333333333333333333333333333"), rival = getAddress("0x4444444444444444444444444444444444444444");
-  const holding = (address: Address, n: string) => syntheticToken({ mode: "robinhood", address, transactionHash: `0x${n.repeat(64)}`, creator: payer,
-    launchFee: { asset: "stable", txHash: lettered } });
+  const holding = (address: Address, n: string, txHash: Hex = lettered) => syntheticToken({ mode: "robinhood", address, transactionHash: `0x${n.repeat(64)}`, creator: payer,
+    launchFee: { asset: "stable", txHash } });
   try {
     store.saveToken(holding(self, "5"));
     assert.equal(store.tokenUsingLaunchFee(lettered, payer, self), null, "the coin's own record is not another use");
     assert.equal(store.tokenUsingLaunchFee(lettered, payer, self.toLowerCase())?.address, undefined);
-    store.saveToken(holding(rival, "6"));
-    assert.equal(store.tokenUsingLaunchFee(lettered, payer, self)?.address, rival, "the other holder is found even when the first row is the coin itself");
-    assert.equal(store.tokenUsingLaunchFee(lettered, payer, rival)?.address, self);
+    assert.equal(store.tokenUsingLaunchFee(lettered, payer, rival)?.address, self, "any other coin finds the holder");
+    assert.throws(() => store.saveToken(holding(rival, "6")), feeConflict, "a second coin spending the fee is refused");
+    assert.throws(() => store.saveToken(holding(rival, "6", upper(lettered))), feeConflict, "whatever the hash's case");
+    assert.equal(store.token(rival), null, "the refused coin was not written");
+    store.saveToken(holding(self, "5"));
+    assert.equal(store.tokens().length, 1, "registering the same coin again is not a second use");
+    // A claim is not a spend: an unconfirmed fee's coin keeps it in nftVerification.feeClaim, which neither the lookup nor the index reads.
+    store.saveToken(syntheticToken({ mode: "robinhood", address: rival, transactionHash: `0x${"6".repeat(64)}`, creator: payer,
+      nftVerification: { status: "unverified", reason: "fee_unconfirmed", feeClaim: { asset: "stable", txHash: lettered } } }));
+    assert.equal(store.tokenUsingLaunchFee(lettered, payer, self), null);
+    store.saveToken(holding(getAddress("0x7777777777777777777777777777777777777777"), "7", `0x${"cd".repeat(32)}`));
+    assert.equal(store.tokens().length, 3, "another fee is no conflict");
   } finally { store.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
-test("assertUnusedLaunchFee with self refuses a fee another coin also holds", async () => {
+test("assertUnusedLaunchFee with self refuses a fee another coin holds, and accepts the holder itself", async () => {
   const directory = mkdtempSync(join(tmpdir(), "nft-fee-service-"));
   const store = new Store(directory, 4663);
   const self = getAddress("0x3333333333333333333333333333333333333333"), rival = getAddress("0x4444444444444444444444444444444444444444");
   const fee: LaunchFee = { asset: "stable", txHash: hash };
   try {
     const { service } = feeService({ store });
-    store.saveToken(syntheticToken({ mode: "robinhood", address: self, transactionHash: `0x${"5".repeat(64)}`, creator: payer, launchFee: fee }));
     assert.equal(await codeOf(service.assertUnusedLaunchFee(fee, payer, self)), "ok");
     store.saveToken(syntheticToken({ mode: "robinhood", address: rival, transactionHash: `0x${"6".repeat(64)}`, creator: payer, launchFee: fee }));
     assert.equal(await codeOf(service.assertUnusedLaunchFee(fee, payer, self)), "NFT_FEE_USED");
+    assert.equal(await codeOf(service.assertUnusedLaunchFee(fee, payer, rival)), "ok");
   } finally { store.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("Supabase: a 409 with code 23505 naming a guard index is that conflict; any other 409 stays a plain database failure", async () => {
+  const store = new SupabaseStore("https://fixture.supabase.co", "test-server-key", "verify-fee");
+  const original = globalThis.fetch, sent: string[] = [];
+  let reply = { status: 204, body: "" };
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    sent.push(`${init?.method} ${decodeURIComponent(String(url))}`);
+    return new Response(reply.body || null, { status: reply.status });
+  }) as typeof fetch;
+  // PostgREST's body for a unique violation.
+  const postgres = (constraint: string, code = "23505") => JSON.stringify({ code, details: "Key (...)=(...) already exists.", hint: null,
+    message: `duplicate key value violates unique constraint "${constraint}"` });
+  const coin = syntheticToken({ mode: "robinhood", creator: payer, launchFee: { asset: "stable", txHash: lettered } });
+  const nft = { chainId: 4663 as const, contract: stranger, tokenId: "1" };
+  const verified = { ...coin, nft, nftVerification: { status: "verified" as const } };
+  try {
+    reply = { status: 409, body: postgres("musegod_tokens_launch_fee_once") };
+    await assert.rejects(store.saveToken(coin), feeConflict, "the launch-fee index");
+    assert.match(sent.at(-1) ?? "", /^POST https:\/\/fixture\.supabase\.co\/rest\/v1\/musegod_tokens\?on_conflict=scope,address$/, "the token insert itself");
+    await assert.rejects(store.updateNftVerification(verified), feeConflict, "a PATCH meets the same index");
+    reply = { status: 409, body: postgres("musegod_tokens_nft_verified_once") };
+    for (const write of [() => store.saveToken(verified), () => store.updateNftVerification(verified), () => store.upgradeTokenProvenance(verified)])
+      await assert.rejects(write(), (error: unknown) => error instanceof TokenUniqueConflict && error.kind === "nft_verified", "the verified-NFT index");
+    const plain: [string, number, string][] = [
+      ["the primary key", 409, postgres("musegod_tokens_pkey")],
+      ["the transaction-hash key", 409, postgres("musegod_tokens_scope_tx_hash_key")],
+      ["an index whose name only begins like a guard's", 409, postgres("musegod_tokens_launch_fee_once_old")],
+      ["another code naming a guard index", 409, postgres("musegod_tokens_nft_verified_once", "23P01")],
+      ["a body that is not JSON", 409, "conflict"],
+      ["an empty body", 409, ""],
+      ["a guard index named on another status", 400, postgres("musegod_tokens_launch_fee_once")],
+    ];
+    for (const [why, status, body] of plain) {
+      reply = { status, body };
+      await assert.rejects(store.saveToken(coin), (error: unknown) => !(error instanceof TokenUniqueConflict) && error instanceof Error &&
+        error.message === `Database request failed (${status}). Check the server configuration and migrations.`, why);
+    }
+  } finally { globalThis.fetch = original; }
 });
 
 test("the Supabase store queries the same hash-and-creator predicate", async () => {

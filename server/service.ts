@@ -53,7 +53,7 @@ import {
 } from "../src/lib/validation";
 import { SupabaseStore, type StoreBackend } from "./supabase-store";
 import { z } from "zod";
-import { Store, type LaunchPlan } from "./store";
+import { Store, TokenUniqueConflict, type LaunchPlan } from "./store";
 import { CURVE_POLICY } from "../src/lib/launch-curve";
 import { launchGuardAbi } from "../src/lib/launch-guard";
 import { assertLaunchPlanValidity, LAUNCH_SIGNING_TTL, restorePrepared, serializePrepared, type FirstBuyLockStatus, type LaunchPrepareOptions } from "../src/lib/launch-plan";
@@ -947,7 +947,19 @@ export class LaunchpadService {
       await withNftLocks([`nft:${nftKey(nft)}`, ...(fee ? [`fee:${fee.txHash.toLowerCase()}`] : [])], async () => {
         const settled = await this.nftRegistration({ hash, plan, nft, fee, saved: !!savedPlan, receiptBlock: receipt.blockNumber, receiptTimestamp: block.timestamp });
         record = { ...token, nft, nftVerification: settled.nftVerification, ...(settled.launchFee ? { launchFee: settled.launchFee } : {}) };
-        await save();
+        // Another process (`nft:reverify`, another runtime) may have spent this fee or verified this NFT's coin since the checks above; the
+        // database then refuses the write. That is the status the checks would have given had they seen it: a used fee is `rejected: fee`
+        // and spends nothing, an NFT that has its coin is `rejected: already_launched` (a paid fee stays spent, as at registration). The coin
+        // still registers. Each refusal removes the conflicting claim, so at most two refusals precede the write.
+        for (let refusals = 0; ; refusals++) {
+          try { await save(); break; } catch (error) {
+            if (!(error instanceof TokenUniqueConflict) || refusals === 2) throw error;
+            const rejected = { status: "rejected" as const, reason: error.kind === "launch_fee" ? "fee" : "already_launched",
+              ...(savedPlan ? {} : { block: String(receipt.blockNumber) }) };
+            const { launchFee: spent, ...rest } = record;
+            record = { ...rest, nftVerification: rejected, ...(spent && error.kind === "nft_verified" ? { launchFee: spent } : {}) };
+          }
+        }
       });
     }
     this.invalidateTokens();
@@ -1293,7 +1305,8 @@ const TOKEN_STATE_DEADLINE_MS = 8_000;
 const RECOVERY_VERIFICATION_CONCURRENCY = 4;
 const RECOVERY_VERIFICATIONS_PER_MINUTE = 60;
 // Per-NFT and per-payment registration locks. Module-level because refreshRuntime rebuilds the service; in-process only (the Worker routes
-// each chain to one Durable Object). Keys are taken in sorted order, so registrations that share keys cannot deadlock.
+// each chain to one Durable Object). Keys are taken in sorted order, so registrations that share keys cannot deadlock. Across processes the
+// database's guard indexes (TOKEN_UNIQUE_INDEXES) refuse the second write; these locks only let one process decide in order.
 const NFT_LOCKS = new Map<string, Promise<void>>();
 async function withNftLocks<T>(keys: string[], run: () => Promise<T>): Promise<T> {
   const releases: (() => void)[] = [];

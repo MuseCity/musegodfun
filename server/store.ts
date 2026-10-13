@@ -11,6 +11,40 @@ function assertSequence(value: unknown): asserts value is string {
   if (typeof value !== "string" || !/^(?:0|[1-9]\d*)$/.test(value) || BigInt(value) >= 2n ** 256n) throw new Error("Invalid history sequence");
 }
 export type { LaunchPlan } from "../src/lib/launch-plan";
+/** NFT mode's two single-use rules, enforced by the database for every writer (each server runtime and `npm run nft:reverify`): one
+ * launch-fee payment funds one coin (`launch_fee`), and each NFT has at most one `verified` coin (`nft_verified`). Partial unique indexes
+ * whose expressions are exactly the predicates of `tokenUsingLaunchFee` and `verifiedNftCoin`, in SQLite (below) and in Supabase
+ * (`supabase/migrations/20261014120000_nft_single_use_indexes.sql`, scoped). A refusal is recognised by index name only. */
+export const TOKEN_UNIQUE_INDEXES = {
+  launch_fee: { sqlite: "tokens_launch_fee_once", postgres: "musegod_tokens_launch_fee_once" },
+  nft_verified: { sqlite: "tokens_nft_verified_once", postgres: "musegod_tokens_nft_verified_once" },
+} as const;
+export type TokenUniqueKind = keyof typeof TOKEN_UNIQUE_INDEXES;
+const TOKEN_UNIQUE_KINDS = Object.keys(TOKEN_UNIQUE_INDEXES) as TokenUniqueKind[];
+/** The database refused a token write: another coin already spent this launch fee, or already holds this NFT `verified`. Registration
+ * settles the coin `rejected: fee` or `rejected: already_launched`; `nft:reverify` reports a CONFLICT. */
+export class TokenUniqueConflict extends Error {
+  constructor(readonly kind: TokenUniqueKind) {
+    super(kind === "launch_fee" ? "This launch fee was already used by another coin." : "This NFT already has its verified coin.");
+    this.name = "TokenUniqueConflict";
+  }
+}
+/** SQLITE_CONSTRAINT_UNIQUE (2067) on one of the guard indexes, by name; null for any other error. */
+export function sqliteTokenConflict(error: unknown): TokenUniqueConflict | null {
+  if (!(error instanceof Error) || (error as { errcode?: unknown }).errcode !== 2067) return null;
+  const kind = TOKEN_UNIQUE_KINDS.find((name) => error.message.includes(`UNIQUE constraint failed: index '${TOKEN_UNIQUE_INDEXES[name].sqlite}'`));
+  return kind ? new TokenUniqueConflict(kind) : null;
+}
+/** A PostgREST error body for Postgres code 23505 on one of the guard indexes, by name; null for any other body, including the
+ * `(scope,address)` and `(scope,tx_hash)` keys. */
+export function postgresTokenConflict(body: string): TokenUniqueConflict | null {
+  let error: unknown;
+  try { error = JSON.parse(body); } catch { return null; }
+  const { code, message } = (error ?? {}) as { code?: unknown; message?: unknown };
+  if (code !== "23505" || typeof message !== "string") return null;
+  const kind = TOKEN_UNIQUE_KINDS.find((name) => message.includes(`"${TOKEN_UNIQUE_INDEXES[name].postgres}"`));
+  return kind ? new TokenUniqueConflict(kind) : null;
+}
 export type BuybackBatchRecord = Record<string, unknown> & { id: string };
 export type BuybackBatchPageRecord = BuybackBatchRecord & { updatedAt: number; sequence: string };
 export function assertBuybackBatchId(id: unknown): asserts id is string {
@@ -43,6 +77,11 @@ export class Store {
     this.db.exec(
       "PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS plans (id TEXT PRIMARY KEY, creator TEXT NOT NULL, data TEXT NOT NULL, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS tokens (address TEXT PRIMARY KEY, tx_hash TEXT UNIQUE NOT NULL, created_at INTEGER NOT NULL, payload TEXT NOT NULL);",
     );
+    // TOKEN_UNIQUE_INDEXES: the stored JSON keeps nft.chainId a number and nft.tokenId a decimal string, as verifiedNftCoin reads them.
+    this.db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS ${TOKEN_UNIQUE_INDEXES.launch_fee.sqlite} ON tokens(lower(json_extract(payload,'$.launchFee.txHash')))
+        WHERE json_extract(payload,'$.launchFee.txHash') IS NOT NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS ${TOKEN_UNIQUE_INDEXES.nft_verified.sqlite} ON tokens(json_extract(payload,'$.nft.chainId'),
+        lower(json_extract(payload,'$.nft.contract')), json_extract(payload,'$.nft.tokenId')) WHERE json_extract(payload,'$.nftVerification.status')='verified';`);
     this.db.exec(
       "CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
     );
@@ -339,39 +378,36 @@ export class Store {
       .get(creator.toLowerCase(), data) as { payload: string } | undefined;
     return row ? unpackPlan(JSON.parse(row.payload)) : null;
   }
+  /** Runs one token write; a refusal by a TOKEN_UNIQUE_INDEXES guard becomes a TokenUniqueConflict. */
+  private writeToken(write: () => unknown) {
+    try { write(); } catch (error) { throw sqliteTokenConflict(error) ?? error; }
+  }
+  /** A token is written once: a second registration of the same launch (address or transaction) changes nothing. Any other refusal
+   * throws, so the guard indexes surface as a TokenUniqueConflict. */
   saveToken(token: TokenRecord) {
-    this.db
-      .prepare("INSERT OR IGNORE INTO tokens VALUES(?,?,?,?)")
-      .run(
-        token.address.toLowerCase(),
-        token.transactionHash,
-        token.createdAt,
-        JSON.stringify(token),
-      );
+    this.writeToken(() => this.db
+      .prepare("INSERT INTO tokens VALUES(?,?,?,?) ON CONFLICT(address) DO NOTHING ON CONFLICT(tx_hash) DO NOTHING")
+      .run(token.address.toLowerCase(), token.transactionHash, token.createdAt, JSON.stringify(token)));
   }
   /** Provenance only ever improves: replaces a token record still marked with
    * an unverified opening valuation by the same launch, now proven. */
   upgradeTokenProvenance(token: TokenRecord) {
     if (token.openingValuationUnverified || !token.transactionHash) return;
-    this.db
+    this.writeToken(() => this.db
       .prepare("UPDATE tokens SET payload=? WHERE address=? AND lower(tx_hash)=lower(?) AND json_extract(payload,'$.openingValuationUnverified') IS NOT NULL")
-      .run(JSON.stringify(token), token.address.toLowerCase(), token.transactionHash);
+      .run(JSON.stringify(token), token.address.toLowerCase(), token.transactionHash));
   }
   /** Re-verification only settles an open NFT status: it replaces the record of the same launch only while that record has `nft`, a
    * status of `unverified` or none, and the opening-valuation provenance the caller read (so a concurrent provenance upgrade is never
-   * reverted). Verified and rejected statuses are final, and records without `nft` are never touched. A `verified` write also applies
-   * only while no other coin holds that NFT verified: one statement, so the one-coin check and the write cannot interleave. */
+   * reverted). Verified and rejected statuses are final, and records without `nft` are never touched. The guard indexes refuse a write
+   * that would give the NFT a second `verified` coin or spend a fee another coin holds (a TokenUniqueConflict). */
   updateNftVerification(token: TokenRecord) {
     if (!token.nft || !token.transactionHash || !token.nftVerification) return;
-    const verified = token.nftVerification.status === "verified";
-    this.db
+    this.writeToken(() => this.db
       .prepare(`UPDATE tokens SET payload=? WHERE address=? AND lower(tx_hash)=lower(?) AND json_extract(payload,'$.nft') IS NOT NULL
         AND (json_extract(payload,'$.nftVerification.status') IS NULL OR json_extract(payload,'$.nftVerification.status')='unverified')
-        AND json_extract(payload,'$.openingValuationUnverified') IS ?${verified ? `
-        AND NOT EXISTS (SELECT 1 FROM tokens other WHERE json_extract(other.payload,'$.nft.chainId')=? AND lower(json_extract(other.payload,'$.nft.contract'))=?
-          AND json_extract(other.payload,'$.nft.tokenId')=? AND json_extract(other.payload,'$.nftVerification.status')='verified' AND other.address<>tokens.address)` : ""}`)
-      .run(JSON.stringify(token), token.address.toLowerCase(), token.transactionHash, token.openingValuationUnverified ? 1 : null,
-        ...(verified ? [token.nft.chainId, token.nft.contract.toLowerCase(), token.nft.tokenId] : []));
+        AND json_extract(payload,'$.openingValuationUnverified') IS ?`)
+      .run(JSON.stringify(token), token.address.toLowerCase(), token.transactionHash, token.openingValuationUnverified ? 1 : null));
   }
   tokens(): TokenRecord[] {
     return (
@@ -380,7 +416,8 @@ export class Store {
         .all() as { payload: string }[]
     ).map((r) => JSON.parse(r.payload));
   }
-  /** The first registered coin whose NFT identity passed verification. Rejected and unverified records never reserve an NFT. */
+  /** The NFT's one coin whose identity passed verification (the verified-NFT guard index answers it, so there is at most one).
+   * Rejected and unverified records never reserve an NFT. */
   verifiedNftCoin(key: string, excludeAddress?: string): TokenRecord | null {
     const [chainId, contract, tokenId] = key.split(":");
     const row = this.db.prepare(`SELECT payload FROM tokens WHERE json_extract(payload,'$.nft.chainId')=? AND lower(json_extract(payload,'$.nft.contract'))=?
@@ -389,10 +426,12 @@ export class Store {
     return row ? JSON.parse(row.payload) : null;
   }
   /** The coin that already spent this launch-fee payment. A fee belongs to its payer: another wallet's coin carrying the hash never consumes it.
-   * `excludeAddress` (the coin being registered or re-verified) is filtered in the query, so another holder is found whichever row comes first. */
+   * `excludeAddress` (the coin being registered or re-verified) is filtered in the query, so another holder is found whichever row comes first.
+   * The launch-fee guard index answers it; it holds the hash alone, because a `launchFee` is stored only once it verified as sent by the
+   * coin's creator, so a hash already names its one payer. */
   tokenUsingLaunchFee(txHash: string, creator: string, excludeAddress?: string): TokenRecord | null {
-    const row = this.db.prepare(`SELECT payload FROM tokens WHERE lower(json_extract(payload,'$.launchFee.txHash'))=? AND lower(json_extract(payload,'$.creator'))=?
-      AND address<>? LIMIT 1`).get(txHash.toLowerCase(), creator.toLowerCase(), (excludeAddress ?? "").toLowerCase()) as { payload: string } | undefined;
+    const row = this.db.prepare(`SELECT payload FROM tokens WHERE json_extract(payload,'$.launchFee.txHash') IS NOT NULL
+      AND lower(json_extract(payload,'$.launchFee.txHash'))=? AND lower(json_extract(payload,'$.creator'))=? AND address<>? LIMIT 1`).get(txHash.toLowerCase(), creator.toLowerCase(), (excludeAddress ?? "").toLowerCase()) as { payload: string } | undefined;
     return row ? JSON.parse(row.payload) : null;
   }
   token(address: string): TokenRecord | null {

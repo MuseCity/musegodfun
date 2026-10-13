@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { CallExecutionError, ContractFunctionExecutionError, ContractFunctionRevertedError, ContractFunctionZeroDataError, ExecutionRevertedError,
-  HttpRequestError, TimeoutError, TransactionNotFoundError, TransactionReceiptNotFoundError, WebSocketRequestError, decodeEventLog, erc20Abi, hexToBytes, isHex, keccak256, parseAbi, size,
+  HttpRequestError, TimeoutError, TransactionNotFoundError, TransactionReceiptNotFoundError, WebSocketRequestError, decodeEventLog, decodeFunctionData, erc20Abi, hexToBytes, isHex, keccak256, parseAbi, size,
   type Address, type Block, type Hex, type PublicClient, type Transaction, type TransactionReceipt } from "viem";
 import { ROBINHOOD_STOCKS, sameAddress, type TokenRecord } from "../src/lib/config";
 import { LAUNCH_FEE_MIN_BLOCK, LAUNCH_FEE_MINING_GRACE_SECONDS, LAUNCH_FEE_QUOTE_TTL, LAUNCH_FEE_STABLE, type LaunchFee } from "../src/lib/launch-fee";
@@ -11,8 +11,9 @@ export type NftLaunchCode = "NFT_MODE_DISABLED" | "NFT_MODE_UNAVAILABLE" | "NFT_
   | "NFT_ALREADY_LAUNCHED" | "NFT_MUSE_PAIR_REQUIRED" | "NFT_RESERVED_NAME" | "NFT_FEE_REQUIRED" | "NFT_FEE_INVALID"
   | "NFT_FEE_USED" | "NFT_VAULT_UNAVAILABLE";
 /** `retry`: a fee answer that can still change, so registration retries it for 10 minutes like an RPC failure. "unconfirmed": the payment
- * exists but has fewer than two confirmations or sits in a reorganized block (then it settles `unverified`). "missing": the chain has
- * neither the transaction nor a receipt (then it settles `rejected: fee`). Prepare reports both like any other refusal. */
+ * exists but has fewer than two confirmations or sits in a reorganized block, or it is still in the mempool in exactly a payment's shape
+ * (then it settles `unverified`). "missing": the chain has neither the transaction nor a receipt, or only a pending transaction that is
+ * not a payment it can judge (then it settles `rejected: fee`). Prepare reports both like any other refusal. */
 export class NftLaunchError extends Error {
   constructor(public code: NftLaunchCode, message: string, readonly retry?: "unconfirmed" | "missing") { super(message); this.name = "NftLaunchError"; }
 }
@@ -175,6 +176,13 @@ export function verifyLaunchFeeQuoteMac(keys: readonly string[], chainId: FeeCha
   return keys.some((key) => timingSafeEqual(Buffer.from(launchFeeQuoteMac(key, chainId, payer, wei, expiresAt).slice(2), "hex"), supplied));
 }
 
+/** An ERC-20 `transfer(to, amount)` call, or null for any other or undecodable calldata. */
+function decodeTransferCall(input: Hex): { to: Address; amount: bigint } | null {
+  try {
+    const call = decodeFunctionData({ abi: erc20Abi, data: input });
+    return call.functionName === "transfer" ? { to: call.args[0], amount: call.args[1] } : null;
+  } catch { return null; }
+}
 // Only the fields read below, so a chain-specific client (extra receipt and block formatters) still fits.
 type FeeClient = {
   getTransactionReceipt(args: { hash: Hex }): Promise<Pick<TransactionReceipt, "status" | "transactionHash" | "blockNumber" | "blockHash" | "from" | "logs">>;
@@ -183,18 +191,21 @@ type FeeClient = {
   getBlockNumber(args?: { cacheTime?: number }): Promise<bigint>;
 };
 /** Verifies that `payer` paid the launch fee to `recipient`: an exact stablecoin transfer mined since NFT mode began, or at least the
- * platform-quoted ETH in a plain transfer mined within the quote's window. Single use is the caller's job (`tokenUsingLaunchFee`).
- * Throws NFT_FEE_INVALID: with `retry` "unconfirmed" while a known payment is unmined, has one confirmation or sits in a reorganized
- * block, "missing" while the chain has neither the transaction nor a receipt, and final for a definite mismatch. Any other failure is
- * the node's and propagates. */
+ * platform-quoted ETH in a plain transfer mined within the quote's window. Single use is the caller's job (`tokenUsingLaunchFee`, and the
+ * database's launch-fee guard index). Throws NFT_FEE_INVALID: with `retry` "unconfirmed" while a payment of exactly the right shape is
+ * unmined, or a mined one has one confirmation or sits in a reorganized block; "missing" while the chain has neither the transaction nor
+ * a receipt, or only a pending transaction it cannot judge as a payment; and final for a definite mismatch. Any other failure is the
+ * node's and propagates. */
 export async function verifyLaunchFeePayment(client: FeeClient, args: { fee: LaunchFee; payer: Address; recipient: Address; chainId: FeeChainId; keys: readonly string[] }):
   Promise<{ blockNumber: bigint }> {
   const invalid = (why: string) => new NftLaunchError("NFT_FEE_INVALID", `The launch fee payment is not valid: ${why}.`);
   const pending = (why: string, retry: "unconfirmed" | "missing" = "unconfirmed") =>
     new NftLaunchError("NFT_FEE_INVALID", `The launch fee payment is not valid: ${why}.`, retry);
-  // Without a receipt, the transaction itself says whether the payment is still in the mempool or does not exist (yet). The payer may
-  // retry either; any other failure is the node's and propagates. A pending transaction that can never become this payment (another
-  // sender's, or an ETH transfer to someone else, of too little or with calldata) is already a definite mismatch.
+  // Without a receipt, the transaction itself says whether the payment is still in the mempool or does not exist (yet). Any other failure
+  // is the node's and propagates. Only a pending transaction in exactly a payment's shape is "unconfirmed", so a stuck transaction that
+  // is no payment can never keep a coin listed: an ETH transfer needs the platform's quote MAC and exactly its wei, sent plain to the
+  // recipient; a stablecoin payment must be a direct transfer(recipient, amount) call on the stablecoin. One that can never become this
+  // payment is a definite mismatch at once; any other pending transaction (a wallet contract's call, for one) is "missing".
   const receipt = await client.getTransactionReceipt({ hash: args.fee.txHash }).catch(async (error: unknown) => {
     if (!(error instanceof TransactionReceiptNotFoundError)) throw error;
     const sent = await client.getTransaction({ hash: args.fee.txHash }).catch((lookup: unknown) => {
@@ -204,9 +215,18 @@ export async function verifyLaunchFeePayment(client: FeeClient, args: { fee: Lau
     if (!sent) throw pending("the transaction has not been mined yet", "missing");
     if (!sameAddress(sent.from, args.payer)) throw invalid("it was not sent by this wallet");
     if (args.fee.asset === "native") {
-      if (!sent.to || !sameAddress(sent.to, args.recipient) || !args.fee.wei || !/^\d{1,78}$/.test(args.fee.wei) || sent.value < BigInt(args.fee.wei))
-        throw invalid("the ETH amount or recipient is wrong");
+      if (!args.fee.wei || !/^\d{1,78}$/.test(args.fee.wei) || !args.fee.expiresAt ||
+        !verifyLaunchFeeQuoteMac(args.keys, args.chainId, args.payer, args.fee.wei, args.fee.expiresAt, args.fee.mac))
+        throw invalid("the ETH quote is not platform-signed");
+      if (!sent.to || !sameAddress(sent.to, args.recipient) || sent.value !== BigInt(args.fee.wei)) throw invalid("the ETH amount or recipient is wrong");
       if (sent.input !== "0x") throw invalid("the ETH payment must be a plain transfer");
+    } else {
+      const stable = LAUNCH_FEE_STABLE[args.chainId];
+      if (!stable) throw invalid("no stablecoin fee on this network");
+      const call = sent.to && sameAddress(sent.to, stable.address) ? decodeTransferCall(sent.input) : null;
+      if (!call) throw pending("the transaction has not been mined yet", "missing");
+      if (!sameAddress(call.to, args.recipient) || call.amount !== stable.amount)
+        throw invalid(`expected exactly ${stable.amount} ${stable.symbol} raw units to the operations wallet`);
     }
     throw pending("the transaction has not been mined yet");
   });

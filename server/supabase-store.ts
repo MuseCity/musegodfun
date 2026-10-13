@@ -2,7 +2,7 @@ import type { Hex } from "viem";
 import { packPlan, unpackPlan } from "./plan-storage";
 import { defaultRuntimeControl, type RuntimeControl, type BudgetName, type BudgetResult } from "./runtime-policy";
 import type { TokenRecord } from "../src/lib/config";
-import { assertBuybackBatchId, assertBuybackAuditRecord, type Store, type LaunchPlan, type BuybackBatchRecord, type BuybackBatchPageRecord } from "./store";
+import { assertBuybackBatchId, assertBuybackAuditRecord, postgresTokenConflict, type Store, type LaunchPlan, type BuybackBatchRecord, type BuybackBatchPageRecord } from "./store";
 function assertSequence(value: unknown): asserts value is string {
   if (typeof value !== "string" || !/^(?:0|[1-9]\d*)$/.test(value) || BigInt(value) >= 2n ** 256n) throw new Error("Invalid history sequence");
 }
@@ -43,10 +43,15 @@ export class SupabaseStore implements StoreBackend {
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: AbortSignal.timeout(15000),
     });
-    if (!response.ok)
+    if (!response.ok) {
+      // PostgREST answers a unique violation with 409 and Postgres code 23505. Only the NFT-mode guard indexes, named in the message, are
+      // a domain outcome (TokenUniqueConflict); every other failure, including the (scope,address) and (scope,tx_hash) keys, stays generic.
+      const conflict = response.status === 409 ? postgresTokenConflict(await response.text().catch(() => "")) : null;
+      if (conflict) throw conflict;
       throw new Error(
         `Database request failed (${response.status}). Check the server configuration and migrations.`,
       );
+    }
     const raw = await response.text();
     return (raw ? JSON.parse(raw) : undefined) as T;
   }
@@ -225,8 +230,9 @@ export class SupabaseStore implements StoreBackend {
     );
   }
   /** The compare-and-swap of Store.updateNftVerification, including the provenance match. PostgREST `not.in` skips NULLs, so an unverified
-   * and an absent status are matched by two explicit requests; the first one's write no longer matches the second's filter. The one-coin
-   * guard of a `verified` write is NOT atomic here (PostgREST has no correlated NOT EXISTS): callers re-read `verifiedNftCoin` afterwards. */
+   * and an absent status are matched by two explicit requests; the first one's write no longer matches the second's filter. The guard
+   * indexes of migration 20261014120000 refuse a second `verified` coin for the NFT or a second spend of the fee atomically, in the
+   * database, whichever process writes first: the refusal is a TokenUniqueConflict. */
   async updateNftVerification(token: TokenRecord) {
     if (!token.nft || !token.transactionHash || !token.nftVerification) return;
     const row = `musegod_tokens?${this.where()}&address=eq.${encodeURIComponent(token.address.toLowerCase())}` +

@@ -4,6 +4,7 @@ import { getAddress, isAddress, type Address, type PublicClient } from "viem";
 import { loadEnvironment, redact, runtimeFromEnv } from "../server/config";
 import { LaunchpadService } from "../server/service";
 import { nftRegistrationStatus, settleLaunchFee, type NftRegistrationStatus, type RegistrationFee } from "../server/nft-launch";
+import { TokenUniqueConflict } from "../server/store";
 import type { StoreBackend } from "../server/supabase-store";
 import { isMuse, nftKey } from "../src/lib/nft-mode";
 import type { LaunchFee } from "../src/lib/launch-fee";
@@ -11,7 +12,7 @@ import type { LaunchFee } from "../src/lib/launch-fee";
 export type NftReverifyDeps = {
   chainId: 4663 | 8453;
   client: Pick<PublicClient, "readContract">;
-  store: Pick<StoreBackend, "token" | "verifiedNftCoin" | "updateNftVerification">;
+  store: Pick<StoreBackend, "token" | "verifiedNftCoin" | "tokenUsingLaunchFee" | "updateNftVerification">;
   assertUnusedLaunchFee(fee: LaunchFee, payer: Address, self?: Address): Promise<void>;
 };
 type Outcome = { line: string; failed?: true };
@@ -58,12 +59,16 @@ export async function reverifyNftCoin(deps: NftReverifyDeps, address: Address): 
       receiptTimestamp, nowSeconds, ...(fee ? { fee } : {}) });
   if (result === "retry" || result.status === "unverified") return { line: `${address}: ${before}, unchanged (RPC unavailable)` };
   // A settled status drops the claim; only a verified fee is kept, as the coin's spent `launchFee`.
-  await deps.store.updateNftVerification({ ...rest, ...(spent ? { launchFee: spent } : {}), nftVerification: result });
-  // The server may have verified another coin for this NFT since the check above. SQLite refuses such a write atomically; Supabase
-  // cannot, so a second verified coin may now exist. Either way it is a conflict for the operator, never a silent second badge.
-  if (result.status === "verified") {
-    const other = await deps.store.verifiedNftCoin(key, record.address);
-    if (other) return { line: `CONFLICT ${key} ${address} ${other.address}`, failed: true };
+  try {
+    await deps.store.updateNftVerification({ ...rest, ...(spent ? { launchFee: spent } : {}), nftVerification: result });
+  } catch (error) {
+    if (!(error instanceof TokenUniqueConflict)) throw error;
+    // The server registered another coin since the checks above, with this NFT verified or this fee spent, and the database refused the
+    // write (both stores, atomically). A conflict for the operator, never a silent second badge or a second use of one payment.
+    const conflict = error.kind === "nft_verified" ? key : spent!.txHash.toLowerCase();
+    const other = await Promise.resolve().then(() => error.kind === "nft_verified" ? deps.store.verifiedNftCoin(key, record.address)
+      : deps.store.tokenUsingLaunchFee(conflict, creator, record.address)).catch(() => null);
+    return { line: `CONFLICT ${conflict} ${address} ${other?.address ?? "unknown"}`, failed: true };
   }
   const after = (await deps.store.token(address))?.nftVerification;
   const line = `${address}: ${before} -> ${after?.status ?? "none"}${after?.reason ? ` (${after.reason})` : ""}`;
