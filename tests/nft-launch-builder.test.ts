@@ -3,10 +3,10 @@ import assert from "node:assert/strict";
 import { DopplerSDK, airlockAbi, computePoolId } from "@whetstone-research/doppler-sdk/evm";
 import { createPublicClient, encodeFunctionData, http, keccak256, type Address, type Hex } from "viem";
 import { ROBINHOOD_CONTRACTS, ROBINHOOD_STOCKS, STOCKS, WAD, contractsFor, type RuntimeConfig } from "../src/lib/config";
-import { buildLaunch, tokenMetadata, launchFeeData, assertNftFeeCalldata } from "../src/lib/protocol";
+import { buildLaunch, tokenMetadata, launchFeeData, assertEngineFeeCalldata, assertNftFeeCalldata } from "../src/lib/protocol";
 import { MUSES, vaultFor, treasuryFor, type NftVaultManifest } from "../src/lib/nft-mode";
 import { syntheticOpeningValuation } from "./fixtures";
-import { FEE_POLICY, FEE_SHARES } from "../src/lib/fee-policy";
+import { ENGINE_FEE_POLICY, FEE_POLICY, FEE_SHARES } from "../src/lib/fee-policy";
 import { CURVE_POLICY } from "../src/lib/launch-curve";
 import { serializePrepared, type LaunchPlan } from "../src/lib/launch-plan";
 import { assertAcceptedLaunchRefresh, assertLaunchWalletPlan } from "../src/lib/launch-wallet";
@@ -60,12 +60,65 @@ test("an NFT launch refuses to build when the factory is not deployed", () => {
     undefined, 4663, undefined, false, undefined, missing), /not deployed and verified/);
 });
 
-test("a pre-NFT plan re-encodes to identical calldata", () => {
-  const plain = { ...draft, nft: undefined }, fixed = valuation();
-  const a = encoded(sdk(), plain, creator, treasury, owner, fixed, undefined, 4663);
-  const b = encoded(sdk(), JSON.parse(JSON.stringify(plain)), creator, treasury, owner, fixed, undefined, 4663);
-  assert.equal(a.poolInitializerData, b.poolInitializerData);
-  assert.equal(a.tokenFactoryData, b.tokenFactoryData);
+// Golden pins. These hashes were computed from src/lib/protocol.ts at commit 00e1ac7 (before Task 4) with the
+// same fixed inputs, so a match proves normal-mode calldata is byte-identical to the pre-NFT build.
+const FROZEN_NOW = 1_800_000_000_000;
+const engine = "0x3333333333333333333333333333333333333333" as Address;
+const GOLDEN = {
+  "robinhood-plain": { pool: "0x553aef174f07c128729c6eb10a712f322b21856f20ca86fb04f0dbb4be8ed7b1", token: "0x8410c6f0e343e93f5fad2234550f3d7fd4906f730eda8a6152bcd291538dcf94" },
+  "robinhood-engine": { pool: "0xfcaf4fe1eb80f7124b87291a11c890340f3ef4942ebe8858827b89703e7bf0d1", token: "0x8c6a8c97b5bccbb4b404103bc34eaeb300f1dfea884a01dc4234fa5abdf75c2c" },
+  "base-engine": { pool: "0xc74fd5cb29d4e3d2c2c97f0bbb3cd39ddd18eaff192b166bdcb23032abf7df05", token: "0xc597357f83b93f45ac3923e16dffe8c193dba924dd6e1f9b0023b820e466e501" },
+} as const;
+
+test("normal-mode calldata is byte-identical to the pre-NFT build (golden hashes from 00e1ac7)", (t) => {
+  t.mock.method(Date, "now", () => FROZEN_NOW);
+  const salt = `0x${"11".repeat(32)}` as Hex;
+  const pre = (quoteAddress: Address) => ({ name: "Bard", symbol: "BARD", description: "d", image: "", quoteAddress, tradingFeeBps: 100 });
+  const rpc = () => createPublicClient({ transport: http("http://127.0.0.1:9") });
+  const robinhood = new DopplerSDK<4663>({ publicClient: rpc(), chainId: 4663 }), base = new DopplerSDK<8453>({ publicClient: rpc(), chainId: 8453 });
+  const hashes = (name: keyof typeof GOLDEN, sdk: DopplerSDK<8453 | 4663>, chainId: 8453 | 4663, quote: Address, feeEngine?: Address, input = pre(quote)) => {
+    const valuation = syntheticOpeningValuation(quote, "100", { chainId, quotedAt: FROZEN_NOW });
+    const params = sdk.factory.encodeCreateMulticurveParams(buildLaunch(sdk, input, creator, treasury, owner, valuation, salt, chainId, feeEngine));
+    return { name, pool: keccak256(params.poolInitializerData), token: keccak256(params.tokenFactoryData) };
+  };
+  for (const [name, sdk, chainId, quote, feeEngine] of [
+    ["robinhood-plain", robinhood, 4663, musegod.address, undefined], ["robinhood-engine", robinhood, 4663, musegod.address, engine],
+    ["base-engine", base, 8453, STOCKS[0].address, engine]] as const) {
+    const got = hashes(name, sdk, chainId, quote, feeEngine);
+    assert.deepEqual({ pool: got.pool, token: got.token }, GOLDEN[name], name);
+  }
+  // A draft that carries an explicit undefined `nft` (the shape the form now produces) is the same launch.
+  const explicitUndefined = hashes("robinhood-plain", robinhood, 4663, musegod.address, undefined, { ...pre(musegod.address), nft: undefined } as never);
+  assert.deepEqual({ pool: explicitUndefined.pool, token: explicitUndefined.token }, GOLDEN["robinhood-plain"]);
+});
+
+test("fee engine + NFT (the Robinhood production combination) keeps engine shares and pays the creator shares to the vault", () => {
+  const vault = vaultFor(draft.nft, factory, manifest.vaultInitCodeHash);
+  const params = encoded(sdk(), draft, creator, treasury, owner, valuation(), undefined, 4663, engine, false, undefined, manifest);
+  assert.doesNotThrow(() => assertEngineFeeCalldata({ feePolicy: ENGINE_FEE_POLICY, feeEngine: engine, creator, feeTreasury: treasury }, params.poolInitializerData));
+  assert.doesNotThrow(() => assertNftFeeCalldata({ draft, creator }, params.poolInitializerData, 4663, manifest));
+  const { pool, hook } = launchFeeData(params.poolInitializerData);
+  const bps = (value: number) => WAD * BigInt(value) / 10_000n;
+  const byAddress = (rows: readonly { beneficiary: Address; shares: bigint }[]) => Object.fromEntries(rows.map((row) => [row.beneficiary, row.shares]));
+  assert.deepEqual(byAddress(pool.beneficiaries), { [owner]: bps(500), [vault]: bps(6650), [treasury]: bps(570), [engine]: bps(2280) });
+  assert.deepEqual(byAddress(hook.feeBeneficiaries), { [vault]: bps(7000), [treasury]: bps(600), [engine]: bps(2400) });
+  const properties = tokenMetadata(draft, valuation(), 4663, engine, false, undefined, manifest).properties as Record<string, unknown>;
+  assert.equal(properties.feePolicy, ENGINE_FEE_POLICY); assert.equal(properties.feeEngine, engine);
+  assert.deepEqual(properties.nft, { chainId: 4663, contract: MUSES.contract, tokenId: "1", vault, treasury: treasuryFor(draft.nft) });
+});
+
+test("an NFT vault that collides with another beneficiary is refused before shares can merge", () => {
+  // A CREATE2 preimage for DEAD or the zero address cannot be constructed, so those two entries of the shared
+  // list are not exercised; the creator, treasury and protocol-owner collisions are built by setting that party to the vault.
+  const vault = vaultFor(draft.nft, factory, manifest.vaultInitCodeHash);
+  const build = (c: Address, tr: Address, o: Address, feeEngine?: Address) => () =>
+    buildLaunch(sdk(), draft, c, tr, o, valuation(), undefined, 4663, feeEngine, false, undefined, manifest);
+  assert.doesNotThrow(build(creator, treasury, owner));
+  assert.throws(build(vault, treasury, owner), /NFT fee vault must be a distinct beneficiary/);
+  assert.throws(build(creator, vault, owner), /NFT fee vault must be a distinct beneficiary/);
+  assert.throws(build(creator, treasury, vault), /NFT fee vault must be a distinct beneficiary/);
+  assert.throws(build(vault.toLowerCase() as Address, treasury, owner), /NFT fee vault must be a distinct beneficiary/, "address case does not matter");
+  assert.throws(build(creator, treasury, owner, vault), /fee engine must be a distinct beneficiary/, "the fee engine cannot be the vault either");
 });
 
 // Wiring: every surface that re-checks a plan must enforce the NFT fee binding.

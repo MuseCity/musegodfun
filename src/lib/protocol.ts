@@ -150,6 +150,9 @@ export function buildLaunch(
     stock = stockByAddress(draft.quoteAddress);
   // An NFT launch pays both creator shares to the NFT's derived fee vault; the launcher still signs and buys.
   const creatorShareRecipient = nftFeeRecipient(draft, chainId, manifest) ?? creator;
+  // beneficiaries() merges equal addresses, which would silently resize a share; refuse a vault that collides with another party.
+  if (draft.nft && [creator, treasury, protocolOwner, DEAD, "0x0000000000000000000000000000000000000000"].some((address) => sameAddress(creatorShareRecipient, address)))
+    throw new Error("The NFT fee vault must be a distinct beneficiary on the selected chain");
   if (stock.chainId !== chainId) throw new Error("The paired asset is on a different deployment network");
   if (recovery) assertHistoricalOpeningValuation(openingValuation, stock.address, chainId);
   else assertOpeningValuation(openingValuation, stock.address, chainId);
