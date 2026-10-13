@@ -9,7 +9,7 @@ export function clientBucket(raw: string): string {
   const words = [...a, ...Array(Math.max(0, 8-a.length-b.length)).fill("0"), ...b];
   return words.slice(0, 4).map(word => parseInt(word, 16).toString(16)).join(":") + "::/64";
 }
-export const expensiveRoute = (path: string) => /\/(?:launch\/(?:prepare|simulate)|first-buy\/(?:prices|quote)|token-images)$/.test(path.split("?")[0].replace(/\/+$/, "").toLowerCase());
+export const expensiveRoute = (path: string) => /\/(?:launch\/(?:prepare|simulate)|launch-fee-quote|first-buy\/(?:prices|quote)|token-images)$/.test(path.split("?")[0].replace(/\/+$/, "").toLowerCase());
 export type IngressClass = "read" | "workflow" | "recovery" | "upload";
 /** Separate pools keep long-running or abusive work from starving short page
  * reads or receipt recovery: every pool needs several sources to fill, and a
@@ -30,7 +30,7 @@ export function ingressClass(path: string): IngressClass {
   const normalized = path.split("?")[0].replace(/\/+$/, "").toLowerCase().replace(/^\/api\/chains\/(?:8453|4663)(?=\/)/, "/api");
   if (normalized.endsWith("/token-images")) return "upload";
   if (/\/(?:launch\/(?:register|track)|first-buy\/verify|buyback\/batches\/[^/]+\/(?:track|reconcile))$/.test(normalized)) return "recovery";
-  if (/\/(?:launch\/(?:prepare|simulate|validate)|first-buy\/(?:prices|quote)|quote|buyback\/(?:engine\/)?quote|buyback\/batches)$/.test(normalized)) return "workflow";
+  if (/\/(?:launch\/(?:prepare|simulate|validate)|launch-fee-quote|first-buy\/(?:prices|quote)|quote|buyback\/(?:engine\/)?quote|buyback\/batches)$/.test(normalized)) return "workflow";
   return "read";
 }
 type Row = { at: number; count: number; expensive: number; recovery: number; riskTimes: number[]; uploadTimes: number[] };

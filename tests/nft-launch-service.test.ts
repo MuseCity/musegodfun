@@ -127,7 +127,7 @@ test("NFT and reserved-name rules refuse before any RPC", async () => {
   assert.equal(await outcome(() => undeployed.service.prepare(draft, holder, CURVE_POLICY)), "NFT_VAULT_UNAVAILABLE");
   const reserved = prepareFixture();
   assert.equal(await outcome(() => reserved.service.prepare({ ...draft, nft: undefined, name: "Muse God" }, holder, CURVE_POLICY)), "NFT_RESERVED_NAME");
-  for (const { calls } of [off, undeployed, reserved]) assert.equal(calls.network, 0);
+  for (const { calls } of [off, undeployed, reserved]) { assert.equal(calls.network, 0); assert.equal(calls.codeReads, 0, "not even the factory code is read"); }
 });
 
 test("a factory whose runtime hash differs from the manifest makes prepare refuse with NFT_VAULT_UNAVAILABLE", async () => {
@@ -159,6 +159,35 @@ test("the factory identity is verified once per runtime; an RPC failure only blo
   assert.equal(flaky.calls.codeReads, 1);
   (flaky.service as unknown as { nftFactoryCheck: { at: number } }).nftFactoryCheck.at -= 61_000;
   assert.equal((await flaky.service.config(true)).nftMode?.vaultFactory, factory, "a later successful read recovers");
+});
+
+test("empty factory code is a transient verdict: it blocks for a minute, then a deployed factory is picked up", async () => {
+  for (const empty of ["0x", undefined] as const) {
+    let deployed = false;
+    const late = prepareFixture({ getCode: async () => deployed ? factoryCode : empty });
+    assert.equal((await late.service.config(true)).nftMode?.vaultFactory, null);
+    deployed = true;
+    assert.equal((await late.service.config(true)).nftMode?.vaultFactory, null, "held for the short backoff, not re-read on every request");
+    assert.equal(late.calls.codeReads, 1);
+    (late.service as unknown as { nftFactoryCheck: { at: number } }).nftFactoryCheck.at -= 61_000;
+    assert.equal((await late.service.config(true)).nftMode?.vaultFactory, factory, `a factory deployed after an empty read (${String(empty)}) is found without a restart`);
+    assert.equal(late.calls.codeReads, 2);
+    assert.equal((await late.service.config(true)).nftMode?.vaultFactory, factory);
+    assert.equal(late.calls.codeReads, 2, "and then the match is final");
+  }
+  const foreign = prepareFixture({ getCode: async () => "0x6002600255" });
+  await foreign.service.config(true);
+  assert.equal((foreign.service as unknown as { nftFactoryCheck: { ttl: number } }).nftFactoryCheck.ttl, Infinity, "only a definitive mismatch is permanent");
+});
+
+test("NFT mode is Robinhood-only and off unless NFT_MODE_ENABLED is exactly true", () => {
+  const base = { NODE_ENV: "test", PLATFORM_TREASURY: "0x2222222222222222222222222222222222222222" };
+  assert.equal(runtimeFromEnv(8453, { ...base, NFT_MODE_ENABLED: "true" }).config.nftMode?.enabled, false, "Base stays locked even when the flag is true");
+  assert.equal(runtimeFromEnv(8453, base).config.nftMode?.enabled, false);
+  assert.equal(runtimeFromEnv(4663, base).config.nftMode?.enabled, false, "unset is off");
+  assert.equal(runtimeFromEnv(4663, { ...base, NFT_MODE_ENABLED: "false" }).config.nftMode?.enabled, false);
+  assert.equal(runtimeFromEnv(4663, { ...base, NFT_MODE_ENABLED: "TRUE" }).config.nftMode?.enabled, false, "only the exact string true enables it");
+  assert.equal(runtimeFromEnv(4663, { ...base, NFT_MODE_ENABLED: "true" }).config.nftMode?.enabled, true);
 });
 
 test("verifyVaultFactory compares the deployed runtime hash, never the build template hash", async () => {

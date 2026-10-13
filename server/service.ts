@@ -12,6 +12,7 @@ import {
   erc20Abi,
   http,
   keccak256,
+  parseUnits,
   stringToBytes,
   zeroAddress,
   type Address,
@@ -64,9 +65,9 @@ import { hasBaseLaunchActivationRecord } from "./base-activation-record";
 import { assertTrustedLaunchPolicy, engineLaunchCutover, ENGINE_MANIFEST, trustedLaunchPolicies, type EngineLaunchCutover } from "./launch-policy-registry";
 import { planAttestation, verifyPlanAttestation } from "./plan-attestation";
 import { BudgetUnavailable } from "./runtime-policy";
-import { NftLaunchError, assertNftDraftRules, readNftControl, verifyVaultFactory } from "./nft-launch";
+import { NftLaunchError, assertNftDraftRules, inspectVaultFactory, launchFeeQuoteMac, readNftControl, verifyLaunchFeePayment } from "./nft-launch";
 import { isMuse, nftKey } from "../src/lib/nft-mode";
-import type { LaunchFee } from "../src/lib/launch-fee";
+import { LAUNCH_FEE_QUOTE_TTL, LAUNCH_FEE_STABLE, LAUNCH_FEE_USD, type LaunchFee } from "../src/lib/launch-fee";
 import type { EngineClaimPreview } from "../src/lib/buyback-engine";
 
 import { runtimeFromEnv, mainnetRpcUrl, redact } from "./config";
@@ -356,7 +357,8 @@ export class LaunchpadService {
       // The declared factory is a candidate until its deployed runtime hash matches the manifest.
       ...(declaredNftMode ? { nftMode: { ...declaredNftMode, vaultFactory: await this.verifiedVaultFactory() } } : {}) };
   }
-  /** One-time identity check of the NFT fee-vault factory. A definitive verdict lasts for the runtime's lifetime; an RPC failure only blocks briefly. */
+  /** Identity check of the NFT fee-vault factory. A match or a foreign runtime lasts for the runtime's lifetime; empty code (not deployed yet,
+   * or a lagging node) and an RPC failure only block for a minute, so neither can disable NFT mode until restart. */
   private async verifiedVaultFactory(): Promise<Address | null> {
     if (!this.runtime.config.nftMode?.vaultFactory) return null;
     const saved = this.nftFactoryCheck;
@@ -364,9 +366,9 @@ export class LaunchpadService {
     this.nftFactoryRequest ??= (async () => {
       try {
         await this.assertNetwork();
-        const value = await verifyVaultFactory(this.client, deploymentChain(this.runtime.config), this.runtime.nftVaultManifest);
-        this.nftFactoryCheck = { at: Date.now(), ttl: Infinity, value };
-        return value;
+        const { factory, final } = await inspectVaultFactory(this.client, deploymentChain(this.runtime.config), this.runtime.nftVaultManifest);
+        this.nftFactoryCheck = { at: Date.now(), ttl: final ? Infinity : 60_000, value: factory };
+        return factory;
       } catch {
         this.nftFactoryCheck = { at: Date.now(), ttl: 60_000, value: null };
         return null;
@@ -374,9 +376,32 @@ export class LaunchpadService {
     })().finally(() => { this.nftFactoryRequest = undefined; });
     return this.nftFactoryRequest;
   }
-  /** Task 6 replaces this with the on-chain launch-fee payment check. Until then a fee can never be accepted. */
-  private async assertUnusedLaunchFee(_fee: LaunchFee, _payer: Address): Promise<void> {
-    throw new NftLaunchError("NFT_FEE_INVALID", "Launch-fee verification is not available yet.");
+  /** A platform-signed ETH price for the $10 launch fee, bound to the payer and valid for LAUNCH_FEE_QUOTE_TTL.
+   * Fails closed without the plan-attestation key: Releases cannot add secrets, so that key signs these quotes too (under its own domain). */
+  async launchFeeQuote(rawPayer: unknown) {
+    const payer = addressSchema.parse(rawPayer), chainId = deploymentChain(this.runtime.config);
+    if (this.runtime.config.nftMode?.enabled !== true) throw new NftLaunchError("NFT_MODE_DISABLED", "NFT launches are not enabled on this network.");
+    const key = this.runtime.secrets?.planAttestationKey;
+    if (!key) throw new NftLaunchError("NFT_FEE_INVALID", "ETH launch-fee quotes are unavailable on this deployment; pay with the stablecoin.");
+    const weth = launchAssetsFor(this.runtime.config).find((asset) => asset.symbol === "WETH");
+    if (!weth) throw new NftLaunchError("NFT_FEE_INVALID", "No ETH price reference on this network.");
+    // The WETH opening valuation's quotePriceUsd is the USD price of one WETH (1 ETH), from the same LI.FI reference the launch itself uses.
+    const { quotePriceUsd } = await this.openingValuation(weth.address);
+    const priceWad = typeof quotePriceUsd === "string" && /^(?:0|[1-9]\d{0,20})(?:\.\d{1,18})?$/.test(quotePriceUsd) ? parseUnits(quotePriceUsd, 18) : 0n;
+    if (priceWad <= 0n) throw new NftLaunchError("NFT_FEE_INVALID", "The ETH price is unavailable.");
+    // Exact integer arithmetic, rounded up so a quote never undercharges the $10.
+    const wei = ((BigInt(LAUNCH_FEE_USD) * 10n ** 36n + priceWad - 1n) / priceWad).toString();
+    const expiresAt = Math.floor((Date.now() + LAUNCH_FEE_QUOTE_TTL) / 1000);
+    const stable = LAUNCH_FEE_STABLE[chainId];
+    return { wei, expiresAt, mac: launchFeeQuoteMac(key, chainId, payer, wei, expiresAt), stable: stable ? { address: stable.address, amount: String(stable.amount) } : null };
+  }
+  /** The fee was paid on-chain by `payer` to the platform treasury and has not already launched a coin. Throws NFT_FEE_INVALID or NFT_FEE_USED. */
+  async assertUnusedLaunchFee(fee: LaunchFee, payer: Address): Promise<void> {
+    const chainId = deploymentChain(this.runtime.config), treasury = this.runtime.config.treasury;
+    if (!treasury) throw new Error("The platform treasury is not configured.");
+    const keys = [this.runtime.secrets?.planAttestationKey, ...(this.runtime.secrets?.planAttestationPreviousKeys ?? [])].filter((k): k is string => !!k);
+    await verifyLaunchFeePayment(this.client, { fee, payer, recipient: treasury, chainId, keys });
+    if (await this.store.tokenUsingLaunchFee(fee.txHash, payer)) throw new NftLaunchError("NFT_FEE_USED", "This launch fee was already used.");
   }
   async openingValuation(quoteAddress: Address): Promise<LifiOpeningValuation> {
     const chainId = deploymentChain(this.runtime.config), key = `${chainId}:${quoteAddress.toLowerCase()}:${launchFeePolicy(this.runtime.config)}:${this.runtime.lifi?.integrator ?? ""}`;
@@ -461,7 +486,7 @@ export class LaunchpadService {
       if (!control.controls) throw new NftLaunchError("NFT_NOT_CONTROLLED", "Connect the wallet that holds this NFT, or one it delegated to.");
       if (existing) throw new NftLaunchError("NFT_ALREADY_LAUNCHED", "This NFT already has its coin.");
       if (!isMuse(draft.nft) && !draft.launchFee) throw new NftLaunchError("NFT_FEE_REQUIRED", "Pay the $10 launch fee for this NFT first.");
-      if (!isMuse(draft.nft)) await this.assertUnusedLaunchFee(draft.launchFee!, creator); // Task 6 supplies the real check
+      if (!isMuse(draft.nft)) await this.assertUnusedLaunchFee(draft.launchFee!, creator);
     }
     // The HTTP route already checked this request's live configuration. Reuse it
     // for read-only preparation; the actual signing validation reads it afresh.

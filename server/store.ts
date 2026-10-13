@@ -372,6 +372,12 @@ export class Store {
       .get(Number(chainId), contract.toLowerCase(), tokenId, (excludeAddress ?? "").toLowerCase()) as { payload: string } | undefined;
     return row ? JSON.parse(row.payload) : null;
   }
+  /** The coin that already spent this launch-fee payment. A fee belongs to its payer: another wallet's coin carrying the hash never consumes it. */
+  tokenUsingLaunchFee(txHash: string, creator: string): TokenRecord | null {
+    const row = this.db.prepare(`SELECT payload FROM tokens WHERE lower(json_extract(payload,'$.launchFee.txHash'))=? AND lower(json_extract(payload,'$.creator'))=? LIMIT 1`)
+      .get(txHash.toLowerCase(), creator.toLowerCase()) as { payload: string } | undefined;
+    return row ? JSON.parse(row.payload) : null;
+  }
   token(address: string): TokenRecord | null {
     const row = this.db
       .prepare("SELECT payload FROM tokens WHERE address=?")

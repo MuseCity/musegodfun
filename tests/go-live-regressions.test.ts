@@ -84,6 +84,9 @@ test("page reads need several sources to fill and recovery is bounded without ch
   assert.equal(ingressClass("/api/chains/8453/launch/register?x=1"), "recovery");
   assert.equal(ingressClass("/api/buyback/batches/abc/track"), "recovery");
   assert.equal(ingressClass("/api/musegod/quote"), "workflow");
+  assert.equal(ingressClass("/api/chains/4663/launch-fee-quote"), "workflow");
+  assert.equal(ingressClass("/api/chains/4663/launch-fee-quote?payer=0xabc"), "workflow", "the query string does not change the class");
+  assert.equal(ingressClass("/api/launch-fee-quote/"), "workflow");
   assert.equal(ingressClass("/api/rpc"), "read");
   const recovery = new IngressLimiter(), open = Array.from({ length: INGRESS_CLASSES.recovery.perSource }, () => recovery.admit("192.0.2.50", "/api/launch/register", 1000));
   const third = recovery.admit("192.0.2.50", "/api/launch/register", 1000);
@@ -94,6 +97,13 @@ test("page reads need several sources to fill and recovery is bounded without ch
   const limited = recovery.admit("192.0.2.51", "/api/launch/register", 2000 + RECOVERY_PER_MINUTE);
   assert.equal(limited.status, 429); assert.equal(limited.challenge, false, "recovery is rate-limited without a challenge");
   const later = recovery.admit("192.0.2.51", "/api/launch/register", 63_000); assert.equal(later.status, undefined); later.release();
+});
+
+test("the ETH launch-fee quote counts against the per-source expensive-request limit", () => {
+  const limiter = new IngressLimiter();
+  for (let i = 0; i < 20; i++) limiter.admit("203.0.113.7", "/api/chains/4663/launch-fee-quote?payer=0xabc", 1000 + i).release();
+  assert.equal(limiter.admit("203.0.113.7", "/api/chains/4663/launch-fee-quote?payer=0xabc", 1100).status, 429);
+  assert.equal(limiter.admit("203.0.113.8", "/api/chains/4663/launch-fee-quote?payer=0xabc", 1100).status, undefined, "another source is unaffected");
 });
 
 test("a hung pool state read still returns stored metadata well before the client's 35 second deadline", async (context) => {

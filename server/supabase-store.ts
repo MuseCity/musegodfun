@@ -242,6 +242,11 @@ export class SupabaseStore implements StoreBackend {
       `&order=created_at.asc&select=payload&limit=1`);
     return rows[0]?.payload ?? null;
   }
+  async tokenUsingLaunchFee(txHash: string, creator: string): Promise<TokenRecord | null> {
+    const rows = await this.request<{ payload: TokenRecord }[]>(`musegod_tokens?${this.where()}&payload->launchFee->>txHash=eq.${encodeURIComponent(txHash.toLowerCase())}` +
+      `&payload->>creator=ilike.${encodeURIComponent(creator.toLowerCase())}&select=payload&limit=1`);
+    return rows[0]?.payload ?? null;
+  }
   async token(address: string) {
     const rows = await this.request<{ payload: TokenRecord }[]>(
       `musegod_tokens?${this.where()}&address=eq.${address.toLowerCase()}&select=payload`,

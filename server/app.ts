@@ -357,6 +357,8 @@ app.get(
   }),
 );
 
+// A platform-signed ETH price for the $10 NFT launch fee; the stablecoin fee needs no quote.
+app.get("/api/launch-fee-quote", route(async (req, res) => res.json(await service.launchFeeQuote(req.query.payer))));
 app.post(
   "/api/launch/validate",
   route(async (req, res) => {

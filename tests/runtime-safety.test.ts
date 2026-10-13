@@ -47,7 +47,7 @@ test("both chain stores share persistent provider budget, reserve capacity and c
 test("IPv6 /64 addresses share limits while other clients retain capacity",()=>{
   assert.equal(clientBucket("2001:db8:abcd:1::1"),clientBucket("2001:0db8:abcd:0001:aaaa::2"));
   assert.equal(clientBucket("::ffff:192.0.2.1"),"192.0.2.1");
-  for(const path of ["/api/first-buy/prices?pairedAsset=test","/api/LAUNCH/PREPARE/","/api/chains/4663/token-images"])assert.equal(expensiveRoute(path),true);
+  for(const path of ["/api/first-buy/prices?pairedAsset=test","/api/LAUNCH/PREPARE/","/api/chains/4663/token-images","/api/chains/4663/launch-fee-quote?payer=0x1"])assert.equal(expensiveRoute(path),true);
   const limiter=new IngressLimiter();
   const active=Array.from({length:SOURCE_CONCURRENCY},()=>limiter.admit("2001:db8:abcd:1::1","/api/rpc",1));
   assert.equal(limiter.admit("2001:db8:abcd:1::2","/api/rpc",1).status,429);
