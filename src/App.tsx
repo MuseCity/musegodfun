@@ -96,7 +96,7 @@ import {
   type LaunchInput,
 } from "./lib/validation";
 import { ApiError, api, chainApi } from "./lib/api";
-import { LaunchModeSwitch, NftLaunchStep, NFT_DISCLAIMER, NFT_ERROR_ID, NFT_FEE_ID, NFT_STATUS_ID, NFT_TOKEN_ID } from "./components/NftLaunchStep";
+import { LaunchModeSwitch, NftLaunchStep, NFT_DISCLAIMER, NFT_ERROR_ID, NFT_FEE_ID, NFT_TOKEN_ID, type NftStepStatus } from "./components/NftLaunchStep";
 import { forgetLaunchFee, launchFeeStorageKey, musePrefill, nftReviewBlocker, prepareDraft, savedNftMode } from "./lib/nft-client";
 import { isMuse, treasuryFor, vaultFor } from "./lib/nft-mode";
 import { useNetwork, tokenPath } from "./lib/network";
@@ -1118,6 +1118,8 @@ function CreatePage({
     [step, setStep] = useState<LaunchStep>(() => launchDraftStep(initialSavedDraft()));
   // NFT mode is a choice of its own: while its NFT check is pending the draft has no `nft`, yet review stays blocked.
   const [nftMode, setNftMode] = useState(() => savedNftMode(initialSavedDraft())), [draftRevision, setDraftRevision] = useState(0);
+  // The NFT step's status and fee state decide whether review may open; a launch-fee rejection from prepare waits for the user there.
+  const [nftStep, setNftStep] = useState<NftStepStatus>({ status: "", fee: "none" }), [nftFeeRejected, setNftFeeRejected] = useState("");
   const [query, setQuery] = useState(""),
     [category, setCategory] = useState<AssetCategory>("all"),
     [showAllAssets, setShowAllAssets] = useState(false),
@@ -1200,6 +1202,9 @@ function CreatePage({
     sameAddress(paymentAttempt.quote.fromToken.address, paymentAsset.address) &&
     paymentAttempt.quote.amountIn === (() => { try { return parseAmount(firstBuy.amount, paymentAsset.decimals).toString(); } catch { return ""; } })();
   const paymentPairSupported = !paymentAttempt || assets.some((asset) => sameAddress(asset.address, paymentAttempt.quote.toToken.address));
+  // A Muse coin's pair is locked to MUSEGOD, so a conversion into another asset cannot become its first buy.
+  const directPair = paymentPairSupported && (!paymentAttempt || !draft.nft || !isMuse(draft.nft) ||
+    assets.some((asset) => asset.symbol === "MUSEGOD" && sameAddress(asset.address, paymentAttempt.quote.toToken.address)));
   useEffect(() => {
     if (!backgroundRefreshAllowed || !paymentPrices.data) return;
     const snapshot = paymentPrices.data;
@@ -1379,14 +1384,22 @@ function CreatePage({
   function showNftRejection(code: string, message: string) {
     setReview(false);
     if (code === "NFT_RESERVED_NAME") { showInvalidField("name", message); return; }
+    setStep(1);
+    if (code === "NFT_FEE_INVALID") {
+      // The payment may still be confirming; the stored fee is dropped only when the user asks for a new one.
+      setNftFeeRejected(message);
+      requestAnimationFrame(() => document.getElementById(NFT_FEE_ID)?.focus());
+      return;
+    }
     if (code === "NFT_FEE_USED" && config && wallet.account && draft.launchFee) {
-      forgetLaunchFee(launchFeeStorageKey(config, wallet.account, intentId), draft.launchFee.txHash);
+      forgetLaunchFee(launchFeeStorageKey(config, wallet.account), draft.launchFee.txHash);
       update("launchFee", undefined);
     }
-    setStep(1); setInvalidField("nft"); setError(message);
+    setInvalidField("nft"); setError(message);
     requestAnimationFrame(() => document.getElementById(["NFT_NOT_CONTROLLED", "NFT_ALREADY_LAUNCHED"].includes(code) ? NFT_TOKEN_ID : NFT_ERROR_ID)?.focus());
   }
-  function update<K extends keyof LaunchInput>(key: K, value: LaunchInput[K]) {
+  // `quiet` keeps the page's notices and errors: the NFT step's own checks and the stored fee change the draft without the user.
+  function update<K extends keyof LaunchInput>(key: K, value: LaunchInput[K], quiet = false) {
     if (draft[key] !== value) currentPlan.current = null;
     if (key === "image") {
       imageUpload.current++;
@@ -1398,9 +1411,10 @@ function CreatePage({
     if (key === "quoteAddress" && !sameAddress(String(value), draft.quoteAddress))
       setFirstBuy((previous) => ({ ...previous, amount: "0", payAddress: String(value), lockDays: 0 }));
     if (key === "quoteAddress") setPaymentQuote(null);
-    setInvalidField("");
     setReview(false);
     setPlan(null);
+    if (quiet) return;
+    setInvalidField("");
     setError("");
     setMessage("");
   }
@@ -1496,7 +1510,7 @@ function CreatePage({
       setError("A launch transaction is already submitted. Recover its status before preparing another launch.");
       return;
     }
-    const nftBlock = nftReviewBlocker(nftMode, draft, document.getElementById(NFT_STATUS_ID)?.textContent ?? "");
+    const nftBlock = nftReviewBlocker(nftMode, draft, nftStep.status, nftStep.fee);
     if (nftBlock) {
       setStep(1); setInvalidField("nft"); setError(nftBlock);
       requestAnimationFrame(() => document.getElementById(draft.nft ? NFT_FEE_ID : NFT_TOKEN_ID)?.focus());
@@ -1727,7 +1741,7 @@ function CreatePage({
   async function register(hash: Hex, request = generation.current, backup: LaunchPlan | null = currentPlan.current, stillCurrent = () => true) {
     const token = await api<TokenRecord>("/launch/register", { hash, ...(backup ? { recoveryPlan: backup } : {}) });
     if (config) updateTransaction(hash, config.chainId, { registered: true }, config.deploymentChainId);
-    if (config && token.creator && token.launchFee) forgetLaunchFee(launchFeeStorageKey(config, token.creator, intentId), token.launchFee.txHash);
+    if (config && token.creator && token.launchFee) forgetLaunchFee(launchFeeStorageKey(config, token.creator), token.launchFee.txHash);
     let consumedPayment = false;
     if (config && token.creator) {
       const key = paymentKey(config, token.creator, intentId);
@@ -2090,9 +2104,12 @@ function CreatePage({
                 </div>
               </div>
               {(config.nftMode?.enabled || nftMode) && <LaunchModeSwitch nftMode={nftMode} disabled={busy} onChange={chooseNftMode} />}
-              {nftMode && <NftLaunchStep key={draftRevision} config={config} account={wallet.account} draft={draft} intentId={intentId}
-                error={invalidField === "nft" ? error : ""} onChange={(nft) => update("nft", nft)} onFeePaid={(fee) => update("launchFee", fee)}
-                onPrefill={(name) => { for (const [field, value] of Object.entries(musePrefill(draft, name))) update(field as "name" | "symbol", value); }} />}
+              {nftMode && <NftLaunchStep key={draftRevision} config={config} account={wallet.account} draft={draft}
+                error={invalidField === "nft" ? error : ""} feeRejected={nftFeeRejected} onChange={(nft, user) => update("nft", nft, !user)}
+                onCheck={() => { if (invalidField === "nft") { setInvalidField(""); setError(""); } }}
+                onFee={(fee) => { update("launchFee", fee, true); setNftFeeRejected(""); if (fee && invalidField === "nft") { setInvalidField(""); setError(""); } }}
+                onStatus={setNftStep}
+                onPrefill={(name) => { for (const [field, value] of Object.entries(musePrefill(draft, name))) update(field as "name" | "symbol", value, true); }} />}
               <div className="identity-fields">
                 <button
                   type="button"
@@ -2414,16 +2431,16 @@ function CreatePage({
               {paymentAttempt.actualOutput && <button type="button" className="text-button" disabled={busy} onClick={() => {
                 if (!wallet.account) return;
                 generation.current++;
-                if (paymentPairSupported && !museLocked) setDraft((draft) => ({ ...draft, quoteAddress: paymentAttempt.quote.toToken.address }));
-                setFirstBuy(paymentPairSupported ? { ...firstBuy, payAddress: paymentAttempt.quote.toToken.address,
+                if (directPair) setDraft((draft) => ({ ...draft, quoteAddress: paymentAttempt.quote.toToken.address }));
+                setFirstBuy(directPair ? { ...firstBuy, payAddress: paymentAttempt.quote.toToken.address,
                   amount: formatUnits(BigInt(paymentAttempt.actualOutput!), paymentAttempt.quote.toToken.decimals) }
                   : { ...firstBuy, payAddress: stock.address, amount: "0", lockDays: 0 });
                 setPlan(null); setPaymentQuote(null); setPaymentAttempt(null);
                 localStorage.removeItem(paymentKey(config, wallet.account, intentId));
                 goToStep(2);
-                setMessage(paymentPairSupported ? "Use the paired asset in your wallet directly. You can adjust the first buy amount."
+                setMessage(directPair ? "Use the paired asset in your wallet directly. You can adjust the first buy amount."
                   : `${paymentAttempt.quote.toToken.symbol} stays in your wallet. Choose a new first buy for the current paired asset.`);
-              }}>{paymentPairSupported ? "Use paired asset directly" : "Keep tokens and start a new first buy"}</button>}
+              }}>{directPair ? "Use paired asset directly" : "Keep tokens and start a new first buy"}</button>}
             </div>
             <p className="hint">A completed conversion stays in your wallet if you cancel or the launch fails. This check never sends another conversion.</p>
           </section>}
@@ -2608,7 +2625,7 @@ function CreatePage({
             {!isMuse(draft.nft) && draft.launchFee && <div className="tile"><dt>Launch fee</dt><dd>$10, paid, non-refundable</dd></div>}
             <div className="tile wide"><dt>Creator fees</dt><dd className="sans">To the NFT's treasury; they follow the NFT when it is sold. The current holder can withdraw at any time, including before a sale.</dd></div>
           </dl>}
-          {draft.nft && <p className="hint">{NFT_DISCLAIMER}</p>}
+          {draft.nft && <p className="nft-warning">{NFT_DISCLAIMER}</p>}
           <div className="review-earn">
             <span>You earn <b className="mono">{creatorCut}</b> of every trade</span>
             <span className="mono">Buyback {Number((tradingFeeBps * launchShares.buyback / 1_000_000).toFixed(4))}% · Operations {Number((tradingFeeBps * launchShares.operations / 1_000_000).toFixed(4))}% · Doppler {Number((tradingFeeBps * launchShares.protocol / 1_000_000).toFixed(4))}%</span>

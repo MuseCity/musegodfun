@@ -34,7 +34,7 @@ import { contractsFor, deploymentChain, networkName, sameAddress, stockByAddress
 import { MUSEGOD_BUYBACK } from "./fee-policy";
 import { RELAY_APPROVAL_PROXY, RELAY_DEPOSITORY, type BuybackStep, type BuybackBatch } from "./buyback";
 import { assertSigningEnabled, errorMessage, simulationError } from "./validation";
-import { isLaunchFeeTx } from "./nft-client";
+import { isLaunchFeeTx, type LaunchFeeQuote } from "./nft-client";
 import { permit2Abi, swapTransaction } from "./protocol";
 import type { V4PoolKey } from "@whetstone-research/doppler-sdk/evm";
 import {
@@ -168,6 +168,9 @@ export function assertBuybackRequest(request: { method: string; params?: unknown
     (tx.chainId !== undefined && tx.chainId !== toHex(step.chainId)))
     throw new Error("The wallet request does not match the buyback batch");
 }
+/** `send` extras: an NFT launch-fee payment passes its exact value (and, for ETH, the quote it must equal); `beforeSend` runs right
+ * before the wallet receives the request, after every check that could still refuse it. */
+type SendOptions = { value?: bigint; feeQuote?: LaunchFeeQuote; beforeSend?: () => void };
 type WalletState = {
   account: Address | null;
   chainId: number | null;
@@ -182,7 +185,7 @@ type WalletState = {
     data: Hex,
     config: RuntimeConfig,
     onHash?: (hash: Hash) => void,
-    value?: bigint,
+    options?: SendOptions,
   ) => Promise<Hash>;
   launch: (plan: LaunchPlan, config: RuntimeConfig, progress: (message: string) => void,
     onHash?: (hash: Hash) => void, assertCurrent?: () => void, onPlan?: (plan: LaunchPlan) => void) => Promise<Hash>;
@@ -500,21 +503,21 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     data: Hex,
     config: RuntimeConfig,
     onHash?: (hash: Hash) => void,
-    value = 0n,
+    { value = 0n, feeQuote, beforeSend }: SendOptions = {},
   ) {
     const publicClient = transactionClient(config.chainId, config);
     if (!account) throw new Error("Connect your wallet first");
     const expected = account;
     const contracts = contractsFor(config);
     // Fee claims, or exactly an NFT launch-fee payment to the platform treasury.
-    const launchFee = isLaunchFeeTx(config, { to, data, value });
+    const launchFee = isLaunchFeeTx(config, { to, data, value }, feeQuote);
     if (!launchFee && (value !== 0n ||
       ![contracts.initializer, contracts.rehype].some((a) =>
         sameAddress(a, to),
       ))
     )
       throw new Error("The transaction target is not allowed");
-    const wallet = await signer(config, expected);
+    const wallet = await signer(config, expected, undefined, undefined, beforeSend);
     await publicClient
       .call({ account: expected, to, data, value })
       .catch((error: unknown) => {

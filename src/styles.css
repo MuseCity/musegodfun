@@ -723,6 +723,10 @@ dialog.modal[open] { display: flex; flex-direction: column; gap: 16px; }
 .nft-step .text-button { align-self: flex-start; }
 .nft-status { font-size: 14px; line-height: 20px; font-weight: 600; color: var(--ink); }
 .nft-step .field-error { margin: 0; font-size: 14px; line-height: 20px; font-weight: 600; }
+/* Money and legal warnings stay readable at full size (the owner has low vision). */
+.nft-warning { font-size: 14px; line-height: 20px; font-weight: 600; color: var(--ink); }
+.nft-eth-quote { display: flex; flex-direction: column; gap: 8px; }
+.nft-amount { font-family: var(--font-mono); font-size: 22px; line-height: 28px; font-weight: 600; color: var(--ink); }
 .nft-fee { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
 .nft-fee h3:focus { outline: none; }
 .social-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr)); gap: 12px; }

@@ -1,21 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import type { Address, Hex } from "viem";
 import { deploymentChain, explorerFor, type RuntimeConfig } from "../lib/config";
-import { chainApi } from "../lib/api";
 import { LAUNCH_FEE_STABLE } from "../lib/launch-fee";
-import { withLaunchIntentLock } from "../lib/launch-intent";
 import { MUSES, isMuse, nftKey, treasuryFor, type NftRef, type NftStatus } from "../lib/nft-mode";
-import {
-  launchFeeEthTx, launchFeeOf, launchFeeStableTx, launchFeeStorageKey, parseLaunchFeeRecord, readNftStatus, settleLaunchFee,
-  type DraftLaunchFee, type LaunchFeeQuote, type LaunchFeeRecord,
-} from "../lib/nft-client";
-import { updateTransaction } from "../lib/transactions";
+import { formatFeeEth, readNftStatus, type DraftLaunchFee, type LaunchFeeState } from "../lib/nft-client";
+import { useLaunchFee } from "../lib/use-launch-fee";
 import { errorMessage, nftRefSchema, type LaunchInput } from "../lib/validation";
-import { transactionClient, useWallet } from "../lib/wallet";
 
-/** Element ids the create form uses to show why review waits and to move focus to the field to fix. */
-export const NFT_STATUS_ID = "nft-launch-status", NFT_TOKEN_ID = "nft-launch-token", NFT_ERROR_ID = "nft-launch-error", NFT_FEE_ID = "nft-launch-fee";
+/** Element ids the create form uses to move focus to the field to fix. */
+export const NFT_TOKEN_ID = "nft-launch-token", NFT_ERROR_ID = "nft-launch-error", NFT_FEE_ID = "nft-launch-fee";
 export const NFT_DISCLAIMER = "Not investment advice. musegod.fun does not endorse NFT collections; an unverified collection may imitate another.";
+/** What the create form needs from the step to decide whether review may open. */
+export type NftStepStatus = { status: string; fee: LaunchFeeState };
 
 export function LaunchModeSwitch({ nftMode, disabled, onChange }: { nftMode: boolean; disabled?: boolean; onChange: (nftMode: boolean) => void }) {
   return (
@@ -28,44 +24,45 @@ export function LaunchModeSwitch({ nftMode, disabled, onChange }: { nftMode: boo
   );
 }
 
-const readFee = (key: string) => { try { return parseLaunchFeeRecord(localStorage.getItem(key)); } catch { return null; } };
-function writeFee(key: string, record: LaunchFeeRecord | null) {
-  if (record) localStorage.setItem(key, JSON.stringify(record)); else localStorage.removeItem(key);
-}
 function TxHash({ hash, config }: { hash: Hex; config: RuntimeConfig }) {
   const explorer = explorerFor(config);
   return <><code className="wrap">{hash}</code>{explorer && <> <a href={`${explorer}/tx/${hash}`} target="_blank" rel="noreferrer">View transaction</a></>}</>;
 }
 
-/** Step one of an NFT launch: the NFT, its live check, and the $10 fee for a paid collection. `onChange` reports a confirmed NFT only,
- * and `undefined` while a check is pending or failed, so review can never proceed as a normal coin. */
-export function NftLaunchStep({ config, account, draft, intentId, error = "", onChange, onFeePaid, onPrefill }: {
-  config: RuntimeConfig; account: Address | null; draft: LaunchInput; intentId: string; error?: string;
-  onChange: (nft: NftRef | undefined) => void; onFeePaid: (fee: DraftLaunchFee) => void; onPrefill?: (museName: string) => void;
+/** Step one of an NFT launch: the NFT, its live check, and the wallet's $10 fee. `onChange` reports a confirmed NFT only, and
+ * `undefined` while a check is pending or failed (`user`: the person changed the NFT), so review can never proceed as a normal coin. */
+export function NftLaunchStep({ config, account, draft, error = "", feeRejected = "", onChange, onCheck, onFee, onPrefill, onStatus }: {
+  config: RuntimeConfig; account: Address | null; draft: LaunchInput; error?: string; feeRejected?: string;
+  onChange: (nft: NftRef | undefined, user: boolean) => void; onCheck: () => void; onFee: (fee: DraftLaunchFee | undefined) => void;
+  onPrefill?: (museName: string) => void; onStatus: (status: NftStepStatus) => void;
 }) {
-  const nft = draft.nft, wallet = useWallet();
+  const nft = draft.nft;
   const [contract, setContract] = useState<string>(nft?.contract ?? MUSES.contract);
   const [tokenId, setTokenId] = useState(nft?.tokenId ?? "");
   const [status, setStatus] = useState<NftStatus | null>(null);
   const [checkError, setCheckError] = useState("");
   // Parent callbacks are read through a ref, so a new callback identity never re-runs the check.
-  const latest = useRef({ onChange, onFeePaid, onPrefill });
-  latest.current = { onChange, onFeePaid, onPrefill };
+  const latest = useRef({ onChange, onCheck, onFee, onPrefill, onStatus });
+  latest.current = { onChange, onCheck, onFee, onPrefill, onStatus };
   // The NFT the parent holds; a report that would not change it is skipped, so `undefined` is never sent twice in a row.
   const reported = useRef("");
   reported.current = nft ? nftKey(nft) : "";
-  const report = (next?: NftRef) => {
+  const report = (next: NftRef | undefined, user: boolean) => {
     const key = next ? nftKey(next) : "";
     if (key === reported.current) return;
     reported.current = key;
-    latest.current.onChange(next);
+    latest.current.onChange(next, user);
   };
-  const prefilled = useRef("");
+  const edited = useRef(false), prefilled = useRef("");
+  const edit = (apply: () => void) => { edited.current = true; apply(); };
   const parsed = nftRefSchema.safeParse({ chainId: deploymentChain(config), contract, tokenId });
   const candidate = parsed.success ? parsed.data : null, candidateKey = candidate ? nftKey(candidate) : "";
   useEffect(() => {
+    const user = edited.current;
+    edited.current = false;
     setStatus(null); setCheckError("");
-    report(undefined);
+    latest.current.onCheck();
+    report(undefined, user);
     if (!account || !candidate) return;
     let active = true;
     const timer = setTimeout(() => {
@@ -73,7 +70,7 @@ export function NftLaunchStep({ config, account, draft, intentId, error = "", on
         if (!active) return;
         setStatus(result);
         if (!result.erc721 || !result.controls || result.alreadyLaunched) return;
-        report(candidate);
+        report(candidate, user);
         if (result.free && result.name && prefilled.current !== candidateKey) {
           prefilled.current = candidateKey;
           latest.current.onPrefill?.(result.name);
@@ -94,88 +91,10 @@ export function NftLaunchStep({ config, account, draft, intentId, error = "", on
     : status.free ? "Muse launches are free. Muse coins pair with MUSEGOD."
     : "Launching for this NFT costs $10, paid before the launch.";
 
-  // ---- the $10 fee: saved with its hash when sent, attached to the draft only after two confirmations ----
-  const feeKey = account ? launchFeeStorageKey(config, account, intentId) : "";
-  const currentKey = useRef(feeKey);
-  currentKey.current = feeKey;
-  const [pendingFee, setPendingFee] = useState<LaunchFeeRecord | null>(null);
-  const [paying, setPaying] = useState(false), [checking, setChecking] = useState(false), [payError, setPayError] = useState("");
-  // The hash this form is already waiting for, through the wallet or a receipt check.
-  const watching = useRef("");
-  const alive = useRef(true);
-  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
-  const visible = (key: string) => alive.current && key === currentKey.current;
-  function paid(key: string, fee: DraftLaunchFee) {
-    writeFee(key, fee);
-    if (visible(key)) { setPendingFee(null); latest.current.onFeePaid(fee); }
-  }
-  async function settle(key: string, record: LaunchFeeRecord) {
-    if (watching.current === record.txHash) return;
-    watching.current = record.txHash;
-    if (visible(key)) { setChecking(true); setPayError(""); }
-    try {
-      const outcome = await settleLaunchFee(transactionClient(config.chainId, config), record);
-      const saved = readFee(key);
-      if (!saved?.pending || saved.txHash !== record.txHash) {
-        // Another tab settled or replaced it first: show what it saved.
-        if (visible(key)) { setPendingFee(saved?.pending ? saved : null); if (saved && !saved.pending) latest.current.onFeePaid(saved); }
-        return;
-      }
-      if (outcome.status === "paid") {
-        // A reload ended the wallet's own wait, so its history row is settled here.
-        if (outcome.fee.txHash === record.txHash) updateTransaction(record.txHash, config.chainId, { status: "success" }, config.deploymentChainId);
-        paid(key, outcome.fee);
-      }
-      else {
-        writeFee(key, null);
-        if (visible(key)) { setPendingFee(null); setPayError(outcome.reason); }
-      }
-    } catch {
-      if (visible(key)) setPayError("The payment is still confirming. Check it again in a moment. It will not be sent twice.");
-    } finally {
-      watching.current = "";
-      if (visible(key)) setChecking(false);
-    }
-  }
-  const hasFee = !!draft.launchFee;
-  useEffect(() => {
-    if (!feeKey) { setPendingFee(null); return; }
-    const saved = readFee(feeKey);
-    setPendingFee(saved?.pending ? saved : null);
-    if (!saved) return;
-    if (!saved.pending) { if (!hasFee) latest.current.onFeePaid(saved); return; }
-    void settle(feeKey, saved);
-  }, [feeKey, hasFee]);
-  async function pay(asset: DraftLaunchFee["asset"]) {
-    if (!account || !feeKey || paying) return;
-    const key = feeKey;
-    let sent = null as LaunchFeeRecord | null; // Set when the wallet returns the hash.
-    setPaying(true); setPayError("");
-    try {
-      await withLaunchIntentLock(config, account, intentId, async () => {
-        if (readFee(key)) throw new Error("A launch fee payment is already saved for this draft. Reload the page to see it.");
-        const quote = asset === "native"
-          ? await chainApi<LaunchFeeQuote>(deploymentChain(config), `/launch-fee-quote?payer=${account}`) : undefined;
-        const tx = quote ? launchFeeEthTx(config, quote) : launchFeeStableTx(config);
-        const hash = await wallet.send(tx.to, tx.data, config, (txHash) => {
-          sent = { ...launchFeeOf(asset, txHash, quote), pending: true };
-          watching.current = sent.txHash;
-          writeFee(key, sent);
-          if (visible(key)) setPendingFee(sent);
-        }, tx.value);
-        // The wallet waited for two confirmations of a successful receipt; a repriced payment returns its new hash.
-        const saved = readFee(key);
-        if (sent && saved?.pending && saved.txHash === sent.txHash) paid(key, launchFeeOf(asset, hash, quote));
-      });
-    } catch (cause) {
-      if (sent) { watching.current = ""; await settle(key, sent); }
-      else if (visible(key)) setPayError(errorMessage(cause));
-    } finally {
-      if (sent && watching.current === sent.txHash) watching.current = "";
-      if (alive.current) setPaying(false);
-    }
-  }
-  const stable = LAUNCH_FEE_STABLE[deploymentChain(config)];
+  const fee = useLaunchFee(config, account, draft.launchFee, (next) => latest.current.onFee(next));
+  useEffect(() => { latest.current.onStatus({ status: statusText, fee: fee.state }); }, [statusText, fee.state]);
+  const stable = LAUNCH_FEE_STABLE[deploymentChain(config)], record = fee.record;
+  const needsFee = !!nft && !isMuse(nft);
 
   return (
     <fieldset className="nft-step">
@@ -183,41 +102,52 @@ export function NftLaunchStep({ config, account, draft, intentId, error = "", on
       <label className="field">
         <span className="field-label">Collection contract</span>
         <input aria-label="Collection contract" className="mono" value={contract} spellCheck={false} autoComplete="off"
-          onChange={(event) => setContract(event.target.value.trim())} />
+          onChange={(event) => edit(() => setContract(event.target.value.trim()))} />
       </label>
       {contract.toLowerCase() !== MUSES.contract.toLowerCase() &&
-        <button type="button" className="text-button" onClick={() => setContract(MUSES.contract)}>Use Muses</button>}
+        <button type="button" className="text-button" onClick={() => edit(() => setContract(MUSES.contract))}>Use Muses</button>}
       <label className="field">
         <span className="field-label">Token number</span>
         <input id={NFT_TOKEN_ID} name="nftTokenId" aria-label="Token number" value={tokenId} inputMode="numeric" autoComplete="off"
-          aria-invalid={!!error} aria-describedby={error ? `${NFT_STATUS_ID} ${NFT_ERROR_ID}` : NFT_STATUS_ID}
-          onChange={(event) => setTokenId(event.target.value.trim())} />
+          aria-invalid={!!error} aria-describedby={error ? `nft-launch-status ${NFT_ERROR_ID}` : "nft-launch-status"}
+          onChange={(event) => edit(() => setTokenId(event.target.value.trim()))} />
       </label>
-      <p id={NFT_STATUS_ID} className="nft-status" role="status" aria-live="polite">{statusText}</p>
+      <p id="nft-launch-status" className="nft-status" role="status" aria-live="polite">{statusText}</p>
       {error && <p id={NFT_ERROR_ID} className="field-error" role="alert" tabIndex={-1}>{error}</p>}
-      {nft && !isMuse(nft) && <section className="nft-fee" aria-labelledby={NFT_FEE_ID}>
+      {/* The fee state shows whenever a payment exists, even while the NFT check is pending or failed. */}
+      {(record || needsFee || feeRejected) && <section className="nft-fee" aria-labelledby={NFT_FEE_ID}>
         <h3 id={NFT_FEE_ID} className="field-label" tabIndex={-1}>Launch fee: $10</h3>
-        {draft.launchFee ? <p role="status">Launch fee paid. <TxHash hash={draft.launchFee.txHash} config={config} /></p>
-          : pendingFee ? <>
-            <p role="status" aria-live="polite">Payment sent, waiting for confirmation. <TxHash hash={pendingFee.txHash} config={config} /></p>
-            {!checking && !paying && <div className="button-row">
-              <button type="button" className="secondary" onClick={() => void settle(feeKey, pendingFee)}>Check payment again</button>
-            </div>}
-          </>
-          : <>
+        {record?.state === "paid" ? <p role="status">Launch fee paid. It covers one paid NFT launch from this wallet. <TxHash hash={record.fee.txHash} config={config} /></p>
+          : record?.state === "pending" ? <p role="status" aria-live="polite">Payment sent, waiting for confirmation. <TxHash hash={record.txHash} config={config} /></p>
+          : record?.state === "sending" ? <p role="status" aria-live="polite" className="nft-warning">A payment may have been sent. Check your wallet's activity.</p>
+          : fee.ethQuote ? <div className="nft-eth-quote">
+            <p className="nft-amount">Pay {formatFeeEth(fee.ethQuote.wei)} ETH (about $10)</p>
+            <p className="hint">This price is valid for one minute. Your wallet asks you to confirm the same amount.</p>
             <div className="button-row">
-              {stable && <button type="button" className="primary" disabled={paying || !config.writesEnabled} onClick={() => void pay("stable")}>
-                Pay 10 {stable.symbol}</button>}
-              <button type="button" className="secondary" disabled={paying || !config.writesEnabled} onClick={() => void pay("native")}>Pay with ETH</button>
+              <button type="button" className="primary" disabled={fee.paying} onClick={fee.payEth}>Pay {formatFeeEth(fee.ethQuote.wei)} ETH</button>
+              <button type="button" className="secondary" disabled={fee.paying} onClick={fee.cancelEthQuote}>Cancel</button>
             </div>
-            {paying && <p role="status">Confirm the payment in your wallet.</p>}
-          </>}
-        <p className="hint">The $10 goes to the platform treasury and is non-refundable. Pay once; your wallet confirms the exact amount.</p>
-        {payError && <p className="field-error" role="alert">{payError}</p>}
+          </div>
+          : needsFee ? <div className="button-row">
+            {stable && <button type="button" className="primary" disabled={fee.paying || !config.writesEnabled} onClick={fee.payStable}>Pay 10 {stable.symbol}</button>}
+            <button type="button" className="secondary" disabled={fee.paying || !config.writesEnabled} onClick={fee.requestEthQuote}>Pay with ETH</button>
+          </div> : null}
+        {fee.paying && <p role="status">Confirm the payment in your wallet.</p>}
+        {record && record.state !== "paid" && fee.unknown && <div className="button-row">
+          <button type="button" className="secondary" onClick={fee.discard}>No payment was sent — pay again</button>
+        </div>}
+        {feeRejected && <div role="alert" className="nft-warning">
+          <p>This payment could not be verified. {feeRejected} If it is still confirming, wait a minute and review again. Otherwise, pay a new fee.</p>
+          {record?.state === "paid" && <div className="button-row">
+            <button type="button" className="secondary" onClick={fee.discard}>Pay a new fee</button>
+          </div>}
+        </div>}
+        {fee.notice && <p className="field-error" role="alert">{fee.notice}</p>}
+        <p className="nft-warning">The $10 goes to the platform treasury and is non-refundable.</p>
       </section>}
-      {nft ? <p className="hint">Creator fees go to this NFT's treasury <code className="wrap">{treasuryFor(nft)}</code> and follow the NFT when it is sold.
-        {isMuse(nft) ? "" : " Unverified collection: musegod.fun does not endorse it."}</p> : null}
-      <p className="hint">{NFT_DISCLAIMER}</p>
+      {nft ? <p className="hint">Creator fees go to this NFT's treasury <code className="wrap">{treasuryFor(nft)}</code> and follow the NFT when it is sold.</p> : null}
+      {nft && !isMuse(nft) ? <p className="nft-warning">Unverified collection: musegod.fun does not endorse it.</p> : null}
+      <p className="nft-warning">{NFT_DISCLAIMER}</p>
     </fieldset>
   );
 }

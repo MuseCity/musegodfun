@@ -4,14 +4,14 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { once } from "node:events";
-import { decodeFunctionData, erc20Abi, getAddress, stringToHex, type Address, type Hex } from "viem";
+import { decodeFunctionData, erc20Abi, getAddress, stringToHex, TransactionNotFoundError, TransactionReceiptNotFoundError, UserRejectedRequestError, type Address, type Hex } from "viem";
 import { restoreDraft, type LaunchInput } from "../src/lib/validation";
 import { ROBINHOOD_STOCKS } from "../src/lib/config";
 import { MUSES, nftKey, type NftRef } from "../src/lib/nft-mode";
 import { launchIntentStorageKey } from "../src/lib/launch-intent";
 import {
-  isLaunchFeeTx, launchFeeEthTx, launchFeeStableTx, launchFeeStorageKey, musePrefill, nftReviewBlocker, parseLaunchFeeRecord,
-  prepareDraft, readNftStatus, savedNftMode, settleLaunchFee,
+  FEE_CANCELLED, FEE_MAYBE_SENT, FEE_REVERTED, formatFeeEth, isLaunchFeeTx, isUserRejection, launchFeeAfterSendError, launchFeeEthTx, launchFeeStableTx,
+  launchFeeStorageKey, migrateLaunchFee, musePrefill, nftReviewBlocker, parseLaunchFeeRecord, prepareDraft, readNftStatus, resolveLaunchFee, savedNftMode,
 } from "../src/lib/nft-client";
 import { createApp } from "../server/app";
 import { ingressClass } from "../server/abuse";
@@ -64,18 +64,25 @@ test("a chain without a stablecoin fee, or a missing treasury, cannot build a fe
 });
 
 test("the wallet allows exactly the launch-fee transfers and nothing near them", () => {
-  const stable = launchFeeStableTx(config);
+  const stable = launchFeeStableTx(config), quote = { wei: "3333333333333334", expiresAt: 1, mac: `0x${"11".repeat(32)}` as Hex };
   assert.equal(isLaunchFeeTx(config, stable), true);
   assert.equal(isLaunchFeeTx(config, { ...stable, value: 1n }), false, "no ETH may ride along with the stablecoin transfer");
   assert.equal(isLaunchFeeTx(config, { ...stable, data: `${stable.data.slice(0, -2)}01` as Hex }), false, "another amount");
   assert.equal(isLaunchFeeTx(config, { ...stable, to: weth.address }), false, "another token");
-  assert.equal(isLaunchFeeTx(config, { to: treasury, data: "0x", value: 1n }), true, "a plain ETH transfer to the treasury");
-  assert.equal(isLaunchFeeTx(config, { to: treasury, data: "0x", value: 0n }), false, "an empty transfer");
-  assert.equal(isLaunchFeeTx(config, { to: treasury, data: "0x12345678", value: 1n }), false, "ETH with calldata");
-  assert.equal(isLaunchFeeTx(config, { to: account, data: "0x", value: 1n }), false, "ETH to someone else");
+  assert.equal(isLaunchFeeTx(config, { to: treasury, data: "0x", value: 3333333333333334n }, quote), true, "exactly the quoted wei to the treasury");
+  for (const value of [3333333333333333n, 3333333333333335n, 1n, 0n])
+    assert.equal(isLaunchFeeTx(config, { to: treasury, data: "0x", value }, quote), false, `not ${value} wei`);
+  assert.equal(isLaunchFeeTx(config, { to: treasury, data: "0x", value: 3333333333333334n }), false, "ETH without its quote");
+  assert.equal(isLaunchFeeTx(config, { to: treasury, data: "0x12345678", value: 3333333333333334n }, quote), false, "ETH with calldata");
+  assert.equal(isLaunchFeeTx(config, { to: account, data: "0x", value: 3333333333333334n }, quote), false, "ETH to someone else");
 });
 
-// Ruling 1: the fee is consumed per creator, not per NFT, so it survives NFT changes; only a paid NFT draft sends it.
+test("the quoted ETH is shown rounded up, never below what the wallet sends", () => {
+  assert.equal(formatFeeEth("3333333333333334"), "0.003334");
+  assert.equal(formatFeeEth("3000000000000000"), "0.003");
+  assert.equal(formatFeeEth("1"), "0.000001");
+});
+
 test("prepare carries a launch fee only for a paid NFT draft", () => {
   assert.deepEqual(prepareDraft(draftOf({ nft: other(), launchFee: stableFee })).launchFee, stableFee);
   assert.equal("launchFee" in prepareDraft(draftOf({ nft: muse(), launchFee: stableFee })), false, "a Muse is free; its prepare omits any fee");
@@ -90,9 +97,12 @@ test("review waits in NFT mode until the NFT is confirmed and, for a paid NFT, t
   assert.equal(nftReviewBlocker(true, draftOf(), status), status, "the step's status is the reason");
   assert.match(nftReviewBlocker(true, draftOf(), "") ?? "", /NFT/, "an empty status still blocks");
   assert.equal(nftReviewBlocker(true, draftOf({ nft: other() }), ""), "Pay the $10 launch fee for this NFT first.");
-  assert.equal(nftReviewBlocker(true, draftOf({ nft: other(), launchFee: stableFee }), ""), null);
-  assert.equal(nftReviewBlocker(true, draftOf({ nft: muse() }), ""), null, "Muses are free");
+  assert.match(nftReviewBlocker(true, draftOf({ nft: other() }), "", "pending") ?? "", /still confirming/, "a pending payment says so");
+  assert.match(nftReviewBlocker(true, draftOf({ nft: other() }), "", "sending") ?? "", /may have been sent/);
+  assert.equal(nftReviewBlocker(true, draftOf({ nft: other(), launchFee: stableFee }), "", "paid"), null);
+  assert.equal(nftReviewBlocker(true, draftOf({ nft: muse() }), "", "pending"), null, "Muses are free");
 });
+
 
 test("the NFT mode choice is restored from a saved draft", () => {
   assert.equal(savedNftMode(JSON.stringify({ name: "x", nftMode: true })), true, "NFT mode with a check still pending");
@@ -102,54 +112,140 @@ test("the NFT mode choice is restored from a saved draft", () => {
   assert.equal(savedNftMode(null), false);
 });
 
-// Ruling 3: a sent payment is persisted with its hash before confirmation and is re-checked on chain before use.
-test("the launch-fee record lives under the intent's payment kind without replacing the first-buy payment", () => {
-  const intent = "intent-12345678", key = launchFeeStorageKey(config, account, intent);
-  const firstBuyPayment = launchIntentStorageKey(config, account, intent, "payment");
-  assert(key.startsWith(firstBuyPayment), "scoped to the same chain, wallet and intent as other payments");
-  assert.notEqual(key, firstBuyPayment, "the first-buy conversion record keeps its own key");
-  assert.notEqual(key, launchFeeStorageKey(config, account, "intent-87654321"));
-  assert.throws(() => launchFeeStorageKey(config, account, "bad"));
+// Ruling 3 (fix round 1): the fee is recorded per creator, with its nonce, before the wallet can broadcast it.
+test("the launch-fee record is per chain and wallet, under the payment kind, apart from every draft's first-buy payment", () => {
+  const key = launchFeeStorageKey(config, account);
+  assert.equal(key, launchIntentStorageKey(config, account, "launch-fee", "payment"));
+  assert.notEqual(key, launchIntentStorageKey(config, account, "intent-12345678", "payment"));
+  assert.notEqual(key, launchFeeStorageKey(config, getAddress("0x3333333333333333333333333333333333333333")), "another wallet");
+  assert.notEqual(key, launchFeeStorageKey({ mode: "fork", chainId: 31337, deploymentChainId: 4663 } as never, account), "another chain");
 });
 
-test("a stored launch-fee record round-trips with its pending marker; anything malformed is ignored", () => {
-  const native = { asset: "native", txHash: `0x${"CD".repeat(32)}`, wei: "5000000000000000", expiresAt: 1_800_000_000, mac: `0x${"11".repeat(32)}` };
-  assert.deepEqual(parseLaunchFeeRecord(JSON.stringify({ ...stableFee, pending: true })), { ...stableFee, pending: true });
-  assert.deepEqual(parseLaunchFeeRecord(JSON.stringify(stableFee)), stableFee);
-  assert.deepEqual(parseLaunchFeeRecord(JSON.stringify({ ...native, pending: true })), { ...native, txHash: native.txHash.toLowerCase(), pending: true });
-  for (const raw of [null, "", "{", "[]", JSON.stringify({ asset: "stable" }), JSON.stringify({ ...stableFee, extra: 1 }),
-    JSON.stringify({ ...native, wei: "0" }), JSON.stringify({ ...stableFee, pending: "yes" })])
+const quote = { wei: "3333333333333334", expiresAt: 1_800_000_000, mac: `0x${"11".repeat(32)}` as Hex };
+const sending = { state: "sending" as const, asset: "stable" as const, from: account, nonce: 3, block: "100", at: 1_800_000_000_000 };
+const pendingOf = (txHash: Hex, over: object = {}) => ({ ...sending, state: "pending" as const, txHash, ...over });
+test("a stored record round-trips in every state; anything malformed is ignored", () => {
+  const records = [sending, pendingOf(stableFee.txHash), pendingOf(stableFee.txHash, { nonceSeen: true }), { ...sending, asset: "native", quote },
+    { state: "paid", from: account, fee: stableFee }];
+  for (const record of records) assert.deepEqual(parseLaunchFeeRecord(JSON.stringify(record)), record);
+  assert.equal(parseLaunchFeeRecord(JSON.stringify(pendingOf(`0x${"AB".repeat(32)}`)))?.state === "pending" &&
+    (parseLaunchFeeRecord(JSON.stringify(pendingOf(`0x${"AB".repeat(32)}`))) as { txHash: string }).txHash, `0x${"ab".repeat(32)}`);
+  for (const raw of [null, "", "{", "[]", JSON.stringify(stableFee), JSON.stringify({ ...stableFee, pending: true }),
+    JSON.stringify({ ...sending, nonce: undefined }), JSON.stringify({ ...sending, asset: "native" }), JSON.stringify({ ...sending, extra: 1 }),
+    JSON.stringify({ ...sending, nonce: -1 }), JSON.stringify({ state: "paid", from: account, fee: { ...stableFee, extra: 1 } })])
     assert.equal(parseLaunchFeeRecord(raw), null, String(raw));
 });
 
-function receiptClient(receipt: { status: "success" | "reverted"; transactionHash: Hex }, replaced?: { reason: string; hash: Hex }) {
-  const calls: { hash: Hex; confirmations?: number }[] = [];
-  return { calls, client: { waitForTransactionReceipt: async (args: { hash: Hex; confirmations?: number; onReplaced?: (r: never) => void }) => {
-    calls.push({ hash: args.hash, confirmations: args.confirmations });
-    if (replaced) args.onReplaced?.({ reason: replaced.reason, transaction: { hash: replaced.hash } } as never);
-    return receipt;
-  } } };
+test("only a wallet rejection before any hash clears an attempt; any other failure keeps it for the nonce check", () => {
+  const rejection = { name: "TransactionExecutionError", cause: new UserRejectedRequestError(new Error("User rejected the request.")) };
+  assert.equal(isUserRejection(rejection), true);
+  assert.equal(isUserRejection({ code: 4001 }), true);
+  assert.equal(isUserRejection(new Error("Wallet disconnected before returning the transaction hash")), false);
+  assert.equal(launchFeeAfterSendError(sending, sending.at, rejection), null, "sending, then rejected: cleared");
+  assert.deepEqual(launchFeeAfterSendError(sending, sending.at, new Error("disconnected")), sending, "sending, then unknown: kept");
+  const pending = pendingOf(stableFee.txHash);
+  assert.deepEqual(launchFeeAfterSendError(pending, sending.at, rejection), pending, "a hash exists: kept");
+  assert.deepEqual(launchFeeAfterSendError(sending, sending.at + 1, rejection), sending, "another attempt is never touched");
+});
+
+type FakeTx = { hash: Hex; from: Address; to: Address; input: Hex; value: bigint; nonce: number; block: bigint };
+const stableTx = launchFeeStableTx(config);
+const txOf = (n: number, block: bigint, over: Partial<FakeTx> = {}): FakeTx => ({ hash: `0x${n.toString(16).padStart(64, "0")}`, from: account,
+  to: stableTx.to, input: stableTx.data, value: 0n, nonce: n, block, ...over });
+const otherTx = (n: number, block: bigint) => txOf(n, block, { hash: `0x${(1000 + n).toString(16).padStart(64, "f")}`, to: account, input: "0x" });
+/** A chain: `mined` transactions with their blocks, `mempool` ones known but unmined, and receipt statuses. Every read is counted. */
+function chain(head: bigint, mined: FakeTx[], mempool: FakeTx[] = [], reverted: Hex[] = []) {
+  const reads: string[] = [];
+  const client = {
+    getBlockNumber: async () => { reads.push("head"); return head; },
+    getTransactionReceipt: async ({ hash }: { hash: Hex }) => {
+      reads.push(`receipt:${hash.slice(-4)}`);
+      const tx = mined.find((row) => row.hash === hash);
+      if (!tx) throw new TransactionReceiptNotFoundError({ hash });
+      return { transactionHash: hash, status: reverted.includes(hash) ? "reverted" : "success", blockNumber: tx.block, from: tx.from };
+    },
+    getTransaction: async ({ hash }: { hash: Hex }) => {
+      reads.push(`tx:${hash.slice(-4)}`);
+      const tx = [...mined, ...mempool].find((row) => row.hash === hash);
+      if (!tx) throw new TransactionNotFoundError({ hash });
+      return tx;
+    },
+    getTransactionCount: async ({ address, blockNumber }: { address: Address; blockNumber?: bigint }) => {
+      reads.push(blockNumber === undefined ? "count:latest" : "count");
+      return mined.filter((row) => row.from === address && (blockNumber === undefined || row.block <= blockNumber)).length;
+    },
+    getBlock: async ({ blockNumber }: { blockNumber: bigint }) => { reads.push(`block:${blockNumber}`); return { transactions: mined.filter((row) => row.block === blockNumber) }; },
+  };
+  return { client: client as never, reads };
 }
-test("a pending fee becomes usable only after two confirmations of a successful receipt", async () => {
-  const hash = stableFee.txHash, { client, calls } = receiptClient({ status: "success", transactionHash: hash });
-  assert.deepEqual(await settleLaunchFee(client as never, { ...stableFee, pending: true }), { status: "paid", fee: stableFee });
-  assert.deepEqual(calls, [{ hash, confirmations: 2 }]);
+const history = [otherTx(0, 5n), otherTx(1, 40n), otherTx(2, 90n)];
+
+test("sending, then a reload: once the nonce is spent, the fee transfer found at that nonce is adopted", async () => {
+  const sent = txOf(3, 104n);
+  const { client, reads } = chain(110n, [...history, sent, otherTx(4, 107n)]);
+  assert.deepEqual(await resolveLaunchFee(client, config, sending), { status: "paid", fee: { asset: "stable", txHash: sent.hash } });
+  assert(reads.includes("block:104"), "the binary search lands on the block that holds nonce 3");
+  assert(reads.filter((read) => read === "count").length <= 10, "a binary search, not a block scan");
+  const young = chain(104n, [...history, sent]);
+  assert.deepEqual(await resolveLaunchFee(young.client, config, sending), { status: "waiting" }, "one confirmation is not enough");
+  const reverted = chain(110n, [...history, sent], [], [sent.hash]);
+  assert.deepEqual(await resolveLaunchFee(reverted.client, config, sending), { status: "failed", reason: FEE_REVERTED });
 });
-test("a reverted, cancelled or replaced fee payment is refused; a repriced one keeps its new hash", async () => {
-  const hash = stableFee.txHash, newer = `0x${"ef".repeat(32)}` as Hex;
-  const reverted = await settleLaunchFee(receiptClient({ status: "reverted", transactionHash: hash }).client as never, { ...stableFee, pending: true });
-  assert.equal(reverted.status, "failed");
-  for (const reason of ["cancelled", "replaced"]) {
-    const result = await settleLaunchFee(receiptClient({ status: "success", transactionHash: newer }, { reason, hash: newer }).client as never, stableFee);
-    assert.equal(result.status, "failed", reason);
-  }
-  const repriced = await settleLaunchFee(receiptClient({ status: "success", transactionHash: newer }, { reason: "repriced", hash: newer }).client as never, stableFee);
-  assert.deepEqual(repriced, { status: "paid", fee: { ...stableFee, txHash: newer } });
+test("sending with the nonce unspent, or spent by something else, stays undecided until the user clears it", async () => {
+  assert.deepEqual(await resolveLaunchFee(chain(110n, history).client, config, sending), { status: "unknown", reason: FEE_MAYBE_SENT });
+  assert.deepEqual(await resolveLaunchFee(chain(110n, [...history, otherTx(3, 104n)]).client, config, sending), { status: "unknown", reason: FEE_MAYBE_SENT },
+    "a predicted nonce spent by another transaction proves nothing: the wallet may have used the next one");
 });
-test("a receipt wait that times out or fails propagates, so the pending record stays", async () => {
-  const client = { waitForTransactionReceipt: async () => { throw new Error("Timed out while waiting for transaction"); } };
-  await assert.rejects(() => settleLaunchFee(client as never, { ...stableFee, pending: true }), /Timed out/);
+test("a pending payment waits in the mempool and records the nonce it really uses; it is paid after two confirmations", async () => {
+  const sent = txOf(3, 0n);
+  assert.deepEqual(await resolveLaunchFee(chain(110n, history, [sent]).client, config, pendingOf(sent.hash)),
+    { status: "waiting", record: pendingOf(sent.hash, { nonceSeen: true }) });
+  const mined = { ...sent, block: 108n };
+  assert.deepEqual(await resolveLaunchFee(chain(108n, [...history, mined]).client, config, pendingOf(sent.hash)), { status: "waiting" });
+  assert.deepEqual(await resolveLaunchFee(chain(109n, [...history, mined]).client, config, pendingOf(sent.hash)),
+    { status: "paid", fee: { asset: "stable", txHash: sent.hash } });
 });
+test("pending, then replaced: a speed-up with the same transfer is adopted; a cancellation is cleared only for a nonce seen on chain", async () => {
+  const original = txOf(3, 0n), speedUp = txOf(3, 106n, { hash: `0x${"5e".repeat(32)}` });
+  // The original is gone from the node: only the spent nonce finds the replacement.
+  const repriced = chain(110n, [...history, speedUp]);
+  assert.deepEqual(await resolveLaunchFee(repriced.client, config, pendingOf(original.hash)), { status: "paid", fee: { asset: "stable", txHash: speedUp.hash } });
+  assert(repriced.reads.includes("block:106"));
+  const cancelled = chain(110n, [...history, otherTx(3, 106n)]);
+  assert.deepEqual(await resolveLaunchFee(cancelled.client, config, pendingOf(original.hash, { nonceSeen: true })), { status: "failed", reason: FEE_CANCELLED });
+  assert.deepEqual(await resolveLaunchFee(cancelled.client, config, pendingOf(original.hash)), { status: "unknown", reason: FEE_MAYBE_SENT },
+    "a predicted nonce is never proof of a cancellation");
+});
+test("a replacement the wallet reported is adopted directly when it is the same transfer", async () => {
+  const speedUp = txOf(3, 106n, { hash: `0x${"5e".repeat(32)}` }), { client, reads } = chain(110n, [...history, speedUp]);
+  assert.deepEqual(await resolveLaunchFee(client, config, pendingOf(`0x${"ab".repeat(32)}`), speedUp.hash), { status: "paid", fee: { asset: "stable", txHash: speedUp.hash } });
+  assert.equal(reads.includes("count"), false, "no nonce search is needed");
+  const ethFee = { ...pendingOf(`0x${"ab".repeat(32)}`), asset: "native" as const, quote };
+  const wrongAmount = txOf(3, 106n, { hash: `0x${"5f".repeat(32)}`, to: treasury, input: "0x", value: 1n });
+  assert.notEqual((await resolveLaunchFee(chain(110n, [...history, wrongAmount]).client, config, ethFee, wrongAmount.hash)).status, "paid",
+    "an ETH transfer of another amount is never adopted");
+});
+
+test("an earlier build's per-draft record moves to the wallet's record once", () => {
+  const store = new Map<string, string>();
+  const storage = { getItem: (key: string) => store.get(key) ?? null, setItem: (key: string, value: string) => void store.set(key, value),
+    removeItem: (key: string) => void store.delete(key), key: (index: number) => [...store.keys()][index] ?? null, get length() { return store.size; } };
+  const oldKey = (intent: string) => `${launchIntentStorageKey(config, account, intent, "payment")}.launch-fee`;
+  store.set(launchIntentStorageKey(config, account, "intent-11111111", "payment"), "{\"first-buy\":true}");
+  store.set(oldKey("intent-11111111"), JSON.stringify(stableFee));
+  migrateLaunchFee(storage, config, account);
+  assert.deepEqual(parseLaunchFeeRecord(store.get(launchFeeStorageKey(config, account))!), { state: "paid", from: account, fee: stableFee });
+  assert.equal(store.has(oldKey("intent-11111111")), false);
+  assert.equal(store.get(launchIntentStorageKey(config, account, "intent-11111111", "payment")), "{\"first-buy\":true}", "the first-buy record stays");
+  store.set(oldKey("intent-22222222"), JSON.stringify({ ...stableFee, txHash: `0x${"cd".repeat(32)}`, pending: true }));
+  migrateLaunchFee(storage, config, account);
+  assert.equal(store.has(oldKey("intent-22222222")), true, "never over an existing wallet record");
+  store.delete(launchFeeStorageKey(config, account));
+  migrateLaunchFee(storage, config, account);
+  assert.deepEqual(parseLaunchFeeRecord(store.get(launchFeeStorageKey(config, account))!),
+    { state: "pending", asset: "stable", from: account, at: 0, txHash: `0x${"cd".repeat(32)}` }, "an old pending payment keeps its hash");
+});
+
 
 test("a Muse name prefills only empty fields, and the symbol keeps up to 10 letters in upper case", () => {
   assert.deepEqual(musePrefill(draftOf({ name: "", symbol: "" }), "Bard of the 7 Seas"), { name: "Bard of the 7 Seas", symbol: "BARDOFTHES" });
