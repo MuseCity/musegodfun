@@ -44,6 +44,7 @@
     "build:buyback-engine": "tsx scripts/build-buyback-artifacts.ts",
     "build:base-collector": "tsx scripts/build-base-collector.ts",
     "build:nft-vault": "tsx scripts/build-nft-vault.ts",
+    "nft:reverify": "tsx scripts/run.ts scripts/nft-reverify.ts",
     "verify:base-collector": "tsx scripts/deploy-base-collector.ts --verify",
     "preflight:base-collector": "tsx scripts/deploy-base-collector.ts --preflight",
     "test:base-collector": "forge test --root contracts --match-contract \"MusegodBaseFeeCollector.*\"",

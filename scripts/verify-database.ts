@@ -105,6 +105,24 @@ try {
   assert.equal((await connect(scope).tokenByTxHash(hash))?.openingValuationUnverified, undefined, "A proven opening valuation upgrades it in place");
   await store.upgradeTokenProvenance({ ...token, openingValuationUnverified: true });
   assert.equal((await connect(scope).tokenByTxHash(hash))?.openingValuationUnverified, undefined, "Provenance never downgrades");
+  // NFT re-verification settles only an open status (unverified or absent) and never touches a record without `nft`.
+  const nft = { chainId: 4663 as const, contract: STOCKS[7].address, tokenId: "1" };
+  const nftCoin = (n: number, over: Partial<TokenRecord>): TokenRecord =>
+    ({ ...token, address: STOCKS[n].address, transactionHash: `0x${String(n + 3).repeat(64)}`, nft, ...over });
+  const unverified = nftCoin(4, { nftVerification: { status: "unverified", reason: "rpc" } });
+  await store.saveToken(unverified);
+  await store.updateNftVerification({ ...unverified, nftVerification: { status: "verified", block: "1" } });
+  assert.equal((await connect(scope).token(unverified.address))?.nftVerification?.status, "verified", "An unverified NFT status is settled in place");
+  await store.updateNftVerification({ ...unverified, nftVerification: { status: "rejected", reason: "not_controller" } });
+  assert.equal((await connect(scope).token(unverified.address))?.nftVerification?.status, "verified", "A settled NFT status is final");
+  const absent = nftCoin(5, {});
+  await store.saveToken(absent);
+  await store.updateNftVerification({ ...absent, nftVerification: { status: "rejected", reason: "already_launched" } });
+  assert.equal((await connect(scope).token(absent.address))?.nftVerification?.reason, "already_launched", "An NFT record with no status counts as unverified");
+  const plain: TokenRecord = { ...token, address: STOCKS[6].address, transactionHash: `0x${"9".repeat(64)}` };
+  await store.saveToken(plain);
+  await store.updateNftVerification({ ...plain, nft, nftVerification: { status: "verified" } });
+  assert.deepEqual(await connect(scope).token(plain.address), plain, "A record without nft is never touched");
   await store.launchStatus(hash, "confirmed", blockHash);
   const queue = await connect(scope).pendingLaunches();
   assert.equal(queue.length, 1, "Replacement must leave the active queue");
@@ -187,6 +205,7 @@ try {
           "launch plan and pending hash survive reconnect",
           "fee policy and original treasury survive reconnect and backup restore",
           "idempotent token registration and replacement status",
+          "NFT verification compare-and-swap settles only unverified or absent statuses and never touches non-NFT records",
           "backup restores token and canonical receipt identity",
           "orphan token removal",
           "buyback batch amounts and receipt history survive reconnect and upsert",

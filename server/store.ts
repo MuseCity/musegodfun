@@ -357,6 +357,15 @@ export class Store {
       .prepare("UPDATE tokens SET payload=? WHERE address=? AND lower(tx_hash)=lower(?) AND json_extract(payload,'$.openingValuationUnverified') IS NOT NULL")
       .run(JSON.stringify(token), token.address.toLowerCase(), token.transactionHash);
   }
+  /** Re-verification only settles an open NFT status: it replaces the record of the same launch only while that record has `nft` and a
+   * status of `unverified` or none. Verified and rejected statuses are final, and records without `nft` are never touched. */
+  updateNftVerification(token: TokenRecord) {
+    if (!token.nft || !token.transactionHash || !token.nftVerification) return;
+    this.db
+      .prepare(`UPDATE tokens SET payload=? WHERE address=? AND lower(tx_hash)=lower(?) AND json_extract(payload,'$.nft') IS NOT NULL
+        AND (json_extract(payload,'$.nftVerification.status') IS NULL OR json_extract(payload,'$.nftVerification.status')='unverified')`)
+      .run(JSON.stringify(token), token.address.toLowerCase(), token.transactionHash);
+  }
   tokens(): TokenRecord[] {
     return (
       this.db

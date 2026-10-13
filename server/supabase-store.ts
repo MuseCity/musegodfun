@@ -224,6 +224,15 @@ export class SupabaseStore implements StoreBackend {
       "PATCH", { payload: token }, "return=minimal",
     );
   }
+  /** The same compare-and-swap as Store.updateNftVerification. PostgREST `not.in` skips NULLs, so an unverified and an absent status are
+   * matched by two explicit requests; the first one's write no longer matches the second's filter. */
+  async updateNftVerification(token: TokenRecord) {
+    if (!token.nft || !token.transactionHash || !token.nftVerification) return;
+    const row = `musegod_tokens?${this.where()}&address=eq.${encodeURIComponent(token.address.toLowerCase())}` +
+      `&tx_hash=eq.${encodeURIComponent(token.transactionHash.toLowerCase())}&payload->nft=not.is.null`;
+    await this.request(`${row}&payload->nftVerification->>status=eq.unverified`, "PATCH", { payload: token }, "return=minimal");
+    await this.request(`${row}&payload->nftVerification=is.null`, "PATCH", { payload: token }, "return=minimal");
+  }
   async tokens(): Promise<TokenRecord[]> {
     const result: TokenRecord[] = [];
     for (let offset = 0; ; offset += 1000) {

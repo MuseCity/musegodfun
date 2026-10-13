@@ -65,8 +65,8 @@ import { hasBaseLaunchActivationRecord } from "./base-activation-record";
 import { assertTrustedLaunchPolicy, engineLaunchCutover, ENGINE_MANIFEST, trustedLaunchPolicies, type EngineLaunchCutover } from "./launch-policy-registry";
 import { planAttestation, verifyPlanAttestation } from "./plan-attestation";
 import { BudgetUnavailable } from "./runtime-policy";
-import { NftLaunchError, assertNftDraftRules, inspectVaultFactory, launchFeeQuoteMac, readNftControl, verifyLaunchFeePayment } from "./nft-launch";
-import { isMuse, nftKey } from "../src/lib/nft-mode";
+import { NftLaunchError, assertNftDraftRules, inspectVaultFactory, launchFeeQuoteMac, nftRegistrationStatus, readNftControl, verifyLaunchFeePayment, type NftRegistrationStatus } from "./nft-launch";
+import { isMuse, nftKey, type NftRef } from "../src/lib/nft-mode";
 import { LAUNCH_FEE_QUOTE_TTL, LAUNCH_FEE_STABLE, LAUNCH_FEE_USD, type LaunchFee } from "../src/lib/launch-fee";
 import type { EngineClaimPreview } from "../src/lib/buyback-engine";
 
@@ -395,13 +395,15 @@ export class LaunchpadService {
     const stable = LAUNCH_FEE_STABLE[chainId];
     return { wei, expiresAt, mac: launchFeeQuoteMac(key, chainId, payer, wei, expiresAt), stable: stable ? { address: stable.address, amount: String(stable.amount) } : null };
   }
-  /** The fee was paid on-chain by `payer` to the platform treasury and has not already launched a coin. Throws NFT_FEE_INVALID or NFT_FEE_USED. */
-  async assertUnusedLaunchFee(fee: LaunchFee, payer: Address): Promise<void> {
+  /** The fee was paid on-chain by `payer` to the platform treasury and has not already launched a coin (other than `self`, the coin being
+   * registered or re-verified). Throws NFT_FEE_INVALID or NFT_FEE_USED; any other error is an RPC or configuration failure. */
+  async assertUnusedLaunchFee(fee: LaunchFee, payer: Address, self?: Address): Promise<void> {
     const chainId = deploymentChain(this.runtime.config), treasury = this.runtime.config.treasury;
     if (!treasury) throw new Error("The platform treasury is not configured.");
     const keys = [this.runtime.secrets?.planAttestationKey, ...(this.runtime.secrets?.planAttestationPreviousKeys ?? [])].filter((k): k is string => !!k);
     await verifyLaunchFeePayment(this.client, { fee, payer, recipient: treasury, chainId, keys });
-    if (await this.store.tokenUsingLaunchFee(fee.txHash, payer)) throw new NftLaunchError("NFT_FEE_USED", "This launch fee was already used.");
+    const used = await this.store.tokenUsingLaunchFee(fee.txHash, payer);
+    if (used && !(self && sameAddress(used.address, self))) throw new NftLaunchError("NFT_FEE_USED", "This launch fee was already used.");
   }
   async openingValuation(quoteAddress: Address): Promise<LifiOpeningValuation> {
     const chainId = deploymentChain(this.runtime.config), key = `${chainId}:${quoteAddress.toLowerCase()}:${launchFeePolicy(this.runtime.config)}:${this.runtime.lifi?.integrator ?? ""}`;
@@ -893,8 +895,10 @@ export class LaunchpadService {
     const attestation = savedPlan ? undefined : [plan.attestation, stored?.attestation]
       .find((value) => verifyPlanAttestation(keys, deploymentChain(this.runtime.config), plan.id, value));
     const attested = !!savedPlan || attestation !== undefined;
+    // A launch fee is persisted only after it verifies below; the draft's own is only a claim (a backup can name anyone's payment).
+    const { launchFee: _claimedFee, ...listing } = draft;
     const token: TokenRecord = {
-      ...draft,
+      ...listing,
       ...(attested ? {} : { openingValuationUnverified: true as const }),
       tradingFeeBps,
       openingCap: plan.draft.openingCap ?? (plan.openingValuation ? openingCapInQuote(plan.openingValuation) : ""),
@@ -929,11 +933,53 @@ export class LaunchpadService {
     // first registered from an unattested backup becomes verified once an
     // attested backup or a retained key proves its opening valuation, in
     // whichever order concurrent registrations land.
-    await this.store.saveToken(token);
-    await this.store.upgradeTokenProvenance(token);
+    let record = token;
+    const save = async () => { await this.store.saveToken(record); await this.store.upgradeTokenProvenance(record); };
+    if (!draft.nft) await save();
+    else {
+      const nft = draft.nft, fee = isMuse(nft) ? undefined : draft.launchFee;
+      // The one-coin and single-use checks hold until the record that makes them true is written.
+      await withNftLocks([`nft:${nftKey(nft)}`, ...(fee ? [`fee:${fee.txHash.toLowerCase()}`] : [])], async () => {
+        const settled = await this.nftRegistration({ hash, plan, nft, fee, saved: !!savedPlan, receiptBlock: receipt.blockNumber, receiptTimestamp: block.timestamp });
+        record = { ...token, nft, nftVerification: settled.nftVerification, ...(settled.launchFee ? { launchFee: settled.launchFee } : {}) };
+        await save();
+      });
+    }
     this.invalidateTokens();
     await this.store.launchStatus(hash, "confirmed", receipt.blockHash);
-    return await this.store.tokenByTxHash(hash) ?? token;
+    return await this.store.tokenByTxHash(hash) ?? record;
+  }
+  /** An NFT coin's status and the launch fee it consumed, decided once at registration. The caller holds the NFT's and the payment's locks
+   * until the record is written. Register never blocks on the badge rules; it fails retryably only while an RPC outage is under 10 minutes old. */
+  private async nftRegistration(args: { hash: Hex; plan: LaunchPlan; nft: NftRef; fee?: LaunchFee; saved: boolean; receiptBlock: bigint; receiptTimestamp: bigint }):
+    Promise<{ nftVerification: NftRegistrationStatus; launchFee?: LaunchFee }> {
+    // A record already written for this transaction keeps its status and fee: a repeated or concurrent registration, or a later attested
+    // backup upgrading provenance, never decides it again.
+    const stored = await this.store.tokenByTxHash(args.hash);
+    if (stored?.nftVerification) return { nftVerification: stored.nftVerification, ...(stored.launchFee ? { launchFee: stored.launchFee } : {}) };
+    const { plan, nft } = args;
+    let feeOk: boolean | undefined, launchFee: LaunchFee | undefined;
+    if (!isMuse(nft)) {
+      feeOk = false;
+      if (args.fee) {
+        try {
+          await this.assertUnusedLaunchFee(args.fee, plan.creator, plan.tokenAddress);
+          feeOk = true; launchFee = { ...args.fee, txHash: args.fee.txHash.toLowerCase() as Hex };
+        // An invalid or already used payment only costs the badge; an RPC failure fails the registration retryably.
+        } catch (error) { if (!(error instanceof NftLaunchError)) throw error; }
+      }
+    }
+    // Control can only be shown on the NFT's own chain. Prepare refuses another chain, so only a backup can carry one.
+    const result = nft.chainId !== deploymentChain(this.runtime.config) ? { status: "rejected" as const, reason: "not_controller" }
+      : await nftRegistrationStatus({ client: this.client, nft, creator: plan.creator,
+        // Saved previews read the latest block (registration makes no historical-state read); backups read the receipt block.
+        blockNumber: args.saved ? undefined : args.receiptBlock,
+        existing: await this.store.verifiedNftCoin(nftKey(nft), plan.tokenAddress),
+        quoteAddress: plan.draft.quoteAddress, receiptTimestamp: args.receiptTimestamp, nowSeconds: BigInt(Math.floor(Date.now() / 1000)),
+        ...(feeOk === undefined ? {} : { fee: { ok: feeOk } }) });
+    if (result === "retry") throw new Error("The NFT ownership check is temporarily unavailable. Registration will retry.");
+    const nftVerification = result.status === "verified" || args.saved ? result : { ...result, block: String(args.receiptBlock) };
+    return { nftVerification, ...(launchFee ? { launchFee } : {}) };
   }
   private reconciling = false;
   private reconcileCursor?: Hex;
@@ -1169,6 +1215,23 @@ const TOKEN_STATE_DEADLINE_MS = 8_000;
 // SDK parameters. Real recoveries are rare; this leaves ample headroom.
 const RECOVERY_VERIFICATION_CONCURRENCY = 4;
 const RECOVERY_VERIFICATIONS_PER_MINUTE = 60;
+// Per-NFT and per-payment registration locks. Module-level because refreshRuntime rebuilds the service; in-process only (the Worker routes
+// each chain to one Durable Object). Keys are taken in sorted order, so registrations that share keys cannot deadlock.
+const NFT_LOCKS = new Map<string, Promise<void>>();
+async function withNftLocks<T>(keys: string[], run: () => Promise<T>): Promise<T> {
+  const releases: (() => void)[] = [];
+  try {
+    for (const key of [...new Set(keys)].sort()) {
+      const previous = NFT_LOCKS.get(key) ?? Promise.resolve();
+      let release!: () => void;
+      const current = new Promise<void>((resolve) => { release = resolve; }), tail = previous.then(() => current);
+      NFT_LOCKS.set(key, tail);
+      releases.push(() => { release(); if (NFT_LOCKS.get(key) === tail) NFT_LOCKS.delete(key); });
+      await previous;
+    }
+    return await run();
+  } finally { for (const release of releases.reverse()) release(); }
+}
 // A transaction's settled chain evidence at one receipt block is reused for
 // this long; a failure that could still change only briefly, so a later retry
 // can succeed.

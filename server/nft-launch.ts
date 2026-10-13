@@ -1,6 +1,8 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { TransactionReceiptNotFoundError, decodeEventLog, erc20Abi, keccak256, parseAbi, type Address, type Block, type Hex, type PublicClient, type Transaction, type TransactionReceipt } from "viem";
-import { ROBINHOOD_STOCKS, sameAddress } from "../src/lib/config";
+import { CallExecutionError, ContractFunctionExecutionError, ContractFunctionRevertedError, ContractFunctionZeroDataError, ExecutionRevertedError,
+  HttpRequestError, TimeoutError, TransactionReceiptNotFoundError, WebSocketRequestError, decodeEventLog, erc20Abi, keccak256, parseAbi,
+  type Address, type Block, type Hex, type PublicClient, type Transaction, type TransactionReceipt } from "viem";
+import { ROBINHOOD_STOCKS, sameAddress, type TokenRecord } from "../src/lib/config";
 import { LAUNCH_FEE_MIN_BLOCK, LAUNCH_FEE_MINING_GRACE_SECONDS, LAUNCH_FEE_QUOTE_TTL, LAUNCH_FEE_STABLE, type LaunchFee } from "../src/lib/launch-fee";
 import { DELEGATE_REGISTRY_V2, NFT_LAUNCH_RIGHTS, NFT_VAULT_MANIFEST, isMuse, vaultFactory, type NftChainId, type NftRef, type NftVaultManifest } from "../src/lib/nft-mode";
 import type { LaunchInput } from "../src/lib/validation";
@@ -31,20 +33,61 @@ export function assertNftDraftRules(draft: LaunchInput, chainId: NftChainId, ena
   }
 }
 
-/** Owner, or a delegate.xyz v2 delegate for this token, contract or wallet (rights musegod.fun.launch or unscoped). */
+/** True only for the contract's own answer: a revert, no code or no such function, or return bytes that do not decode as the ABI says.
+ * Everything else (HTTP, timeout, rate limit, a node error such as -32603 without revert data, an unknown failure) belongs to the node
+ * and propagates, so an outage never reads as "not an ERC-721" or "not the holder". */
+export function isContractAnswer(error: unknown): boolean {
+  if (!(error instanceof ContractFunctionExecutionError)) return false;
+  if (error.walk((e) => e instanceof HttpRequestError || e instanceof TimeoutError || e instanceof WebSocketRequestError)) return false;
+  const { cause } = error;
+  if (cause instanceof ContractFunctionZeroDataError) return true;
+  const reverted = error.walk((e) => e instanceof ExecutionRevertedError) !== null;
+  // viem also maps a bare -32603 internal error to a revert; only revert data or an execution-reverted node error proves one.
+  if (cause instanceof ContractFunctionRevertedError) return (cause.raw !== undefined && cause.raw !== "0x") || reverted;
+  // The call failed without a revert: the node's failure. No failed call at all: the call returned bytes that did not decode.
+  return error.walk((e) => e instanceof CallExecutionError) ? reverted : true;
+}
+const answered = <T>(fallback: T) => (error: unknown): T => { if (isContractAnswer(error)) return fallback; throw error; };
+
+/** Owner, or a delegate.xyz v2 delegate for this token, contract or wallet (rights musegod.fun.launch or unscoped).
+ * A contract's revert or undecodable answer reads as false/null; an RPC or transport failure throws. */
 export async function readNftControl(client: Pick<PublicClient, "readContract">, nft: NftRef, account: Address, blockNumber?: bigint):
   Promise<{ erc721: boolean; owner: Address | null; controls: boolean }> {
   const at = blockNumber === undefined ? {} : { blockNumber };
   const erc721 = await client.readContract({ address: nft.contract, abi: erc721Abi, functionName: "supportsInterface", args: ["0x80ac58cd"], ...at })
-    .catch(() => false);
+    .catch(answered(false));
   if (!erc721) return { erc721: false, owner: null, controls: false };
   const owner = await client.readContract({ address: nft.contract, abi: erc721Abi, functionName: "ownerOf", args: [BigInt(nft.tokenId)], ...at })
-    .catch(() => null) as Address | null;
+    .catch(answered(null)) as Address | null;
   if (!owner || owner === "0x0000000000000000000000000000000000000000") return { erc721: true, owner: null, controls: false };
   if (sameAddress(owner, account)) return { erc721: true, owner, controls: true };
   const delegated = await client.readContract({ address: DELEGATE_REGISTRY_V2, abi: delegateAbi, functionName: "checkDelegateForERC721",
-    args: [account, owner, nft.contract, BigInt(nft.tokenId), NFT_LAUNCH_RIGHTS], ...at }).catch(() => false);
+    args: [account, owner, nft.contract, BigInt(nft.tokenId), NFT_LAUNCH_RIGHTS], ...at }).catch(answered(false));
   return { erc721: true, owner, controls: delegated === true };
+}
+
+export type NftRegistrationStatus = NonNullable<TokenRecord["nftVerification"]>;
+/** The status an NFT coin is registered with, decided once. Register never blocks on it: the pair, fee, one-coin and control rules only
+ * decide the badge. The caller holds the NFT's (and payment's) lock and passes the NFT's earliest other `verified` coin as `existing`.
+ * "retry" asks the caller to fail the registration retryably while the receipt block is at most 10 minutes old; after that an RPC
+ * failure records `unverified`, which only `scripts/nft-reverify.ts` may later settle. */
+export async function nftRegistrationStatus(args: { client: Pick<PublicClient, "readContract">; nft: NftRef; creator: Address; blockNumber?: bigint;
+  existing: TokenRecord | null; quoteAddress: Address; receiptTimestamp: bigint; nowSeconds: bigint; fee?: { ok: boolean } }):
+  Promise<NftRegistrationStatus | "retry"> {
+  const block = args.blockNumber === undefined ? undefined : String(args.blockNumber);
+  const rejected = (reason: string): NftRegistrationStatus => ({ status: "rejected", reason, ...(block ? { block } : {}) });
+  if (isMuse(args.nft)) {
+    const musegod = ROBINHOOD_STOCKS.find((asset) => asset.symbol === MUSEGOD_TICKER)!;
+    if (!sameAddress(musegod.address, args.quoteAddress)) return rejected("pair");
+  } else if (args.fee && !args.fee.ok) return rejected("fee");
+  if (args.existing) return rejected("already_launched");
+  try {
+    const control = await readNftControl(args.client, args.nft, args.creator, args.blockNumber);
+    if (!control.erc721) return rejected("not_erc721");
+    return control.controls ? { status: "verified", ...(block ? { block } : {}) } : rejected("not_controller");
+  } catch {
+    return args.nowSeconds - args.receiptTimestamp <= 600n ? "retry" : { status: "unverified", reason: "rpc" };
+  }
 }
 
 /** What the chain says about the manifest factory. `final` is false when no runtime code came back (not deployed yet, or a lagging node),

@@ -23,6 +23,8 @@ const transferLog = (from: Address, to: Address, value: bigint) => ({ address: u
   topics: encodeEventTopics({ abi: erc20Abi, eventName: "Transfer", args: { from, to } }),
   data: encodeAbiParameters([{ type: "uint256" }], [value]) });
 const BLOCK = LAUNCH_FEE_MIN_BLOCK[4663]!, txHash = hash;
+// Case-insensitivity needs a hash with a-f letters: upper-casing a digits-only hash changes nothing.
+const lettered = `0x${"ab".repeat(32)}` as Hex, upper = (value: string) => value.toUpperCase().replace("0X", "0x") as Hex;
 // The receipt sits 10 blocks after the first block that can hold a launch fee, with 90 more blocks on top of it.
 const client = (receipt: object, tx: object = {}, timestamp = 1000n, head = BLOCK + 100n) => ({
   getTransactionReceipt: async () => ({ status: "success", transactionHash: txHash, blockNumber: BLOCK + 10n, blockHash: `0x${"22".repeat(32)}`, from: payer, logs: [], ...receipt }),
@@ -140,7 +142,9 @@ test("both assets need a canonical receipt for this exact transaction and block"
   const paid = { logs: [transferLog(payer, ops, usdg.amount)] };
   const other = `0x${"44".repeat(32)}`;
   assert.equal(await codeOf(verifyLaunchFeePayment(client({ ...paid, transactionHash: other }), stable)), "NFT_FEE_INVALID", "the receipt belongs to another transaction");
-  assert.equal(await codeOf(verifyLaunchFeePayment(client({ ...paid, transactionHash: hash.toUpperCase().replace("0X", "0x") }), stable)), "ok", "the hash compares case-insensitively");
+  assert.notEqual(upper(lettered), lettered);
+  assert.equal(await codeOf(verifyLaunchFeePayment(client({ ...paid, transactionHash: upper(lettered) }), { ...stable, fee: { ...stable.fee, txHash: lettered } })), "ok",
+    "the hash compares case-insensitively");
   assert.equal(await codeOf(verifyLaunchFeePayment(client({ ...paid, blockHash: `0x${"33".repeat(32)}` }), stable)), "NFT_FEE_INVALID", "a USDG receipt from a reorganized block");
   const wei = "5000000000000000", expiresAt = 2000;
   const native = { ...stable, fee: { asset: "native" as const, txHash: hash, wei, expiresAt, mac: launchFeeQuoteMac(key, 4663, payer, wei, expiresAt) } };
@@ -162,10 +166,11 @@ test("a used fee is refused for the same payer", () => {
   const store = new Store(directory, 4663);
   try {
     assert.equal(store.tokenUsingLaunchFee(hash, payer), null);
-    store.saveToken(syntheticToken({ mode: "robinhood", creator: payer, launchFee: { asset: "stable", txHash: hash } }));
-    assert.equal(store.tokenUsingLaunchFee(hash, payer)?.symbol, "SYNTH");
-    assert.equal(store.tokenUsingLaunchFee(hash.toUpperCase().replace("0X", "0x") as Hex, payer)?.symbol, "SYNTH", "the hash compares case-insensitively");
-    assert.equal(store.tokenUsingLaunchFee(hash, payer.toLowerCase()) !== null, true, "the creator compares case-insensitively");
+    store.saveToken(syntheticToken({ mode: "robinhood", creator: payer, launchFee: { asset: "stable", txHash: lettered } }));
+    assert.equal(store.tokenUsingLaunchFee(lettered, payer)?.symbol, "SYNTH");
+    assert.equal(store.tokenUsingLaunchFee(upper(lettered), payer)?.symbol, "SYNTH", "the hash compares case-insensitively");
+    assert.notEqual(payer.toLowerCase(), payer);
+    assert.equal(store.tokenUsingLaunchFee(lettered, payer.toLowerCase()) !== null, true, "the creator compares case-insensitively");
   } finally { store.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
@@ -185,10 +190,10 @@ test("the Supabase store queries the same hash-and-creator predicate", async () 
   const store = new SupabaseStore("https://fixture.supabase.co", "test-server-key", "verify-fee");
   let path = "";
   store.request = async <T>(requested: string) => { path = requested; return [{ payload: syntheticToken({ creator: payer, launchFee: { asset: "stable", txHash: hash } }) }] as T; };
-  const found = await store.tokenUsingLaunchFee(hash.toUpperCase().replace("0X", "0x"), "0xAAAA000000000000000000000000000000000001");
+  const found = await store.tokenUsingLaunchFee(upper(lettered), "0xAAAA000000000000000000000000000000000001");
   assert.equal(found?.symbol, "SYNTH");
   const query = decodeURIComponent(path);
-  for (const part of ["scope=eq.verify-fee", `payload->launchFee->>txHash=ilike.${hash}`, `payload->>creator=ilike.${payer.toLowerCase()}`, "limit=1"])
+  for (const part of ["scope=eq.verify-fee", `payload->launchFee->>txHash=ilike.${lettered}`, `payload->>creator=ilike.${payer.toLowerCase()}`, "limit=1"])
     assert(query.includes(part), `missing ${part} in ${query}`);
   store.request = async <T>() => [] as T;
   assert.equal(await store.tokenUsingLaunchFee(hash, payer), null);
