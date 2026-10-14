@@ -21,19 +21,23 @@ const buyTx = (n: number, block: bigint, over: Partial<FakeTx> = {}): FakeTx => 
   input: data, value: 10n ** 15n, nonce: n, block, ...over });
 const otherTx = (n: number, block: bigint) => buyTx(n, block, { hash: `0x${(1000 + n).toString(16).padStart(64, "f")}`, to: account, input: "0x", value: 0n });
 const blockHashOf = (block: bigint) => `0x${block.toString(16).padStart(64, "b")}` as Hex;
-function chain(head: bigint, mined: FakeTx[], { mempool = [] as FakeTx[], reverted = [] as Hex[] } = {}) {
+/** `stale`: transactions the node still answers a receipt for, in a block that is no longer the chain's block at its height. */
+function chain(head: bigint, mined: FakeTx[], { mempool = [] as FakeTx[], reverted = [] as Hex[], stale = [] as FakeTx[] } = {}) {
   const reads: string[] = [];
   const client = {
     getBlockNumber: async () => { reads.push("head"); return head; },
     getTransactionReceipt: async ({ hash }: { hash: Hex }) => {
+      reads.push(`receipt:${hash.slice(-4)}`);
+      const old = stale.find((row) => row.hash === hash);
+      if (old) return { transactionHash: hash, status: "success", blockNumber: old.block, blockHash: `0x${"0c".repeat(32)}` };
       const tx = mined.find((row) => row.hash === hash);
       if (!tx) throw new TransactionReceiptNotFoundError({ hash });
       return { transactionHash: hash, status: reverted.includes(hash) ? "reverted" : "success", blockNumber: tx.block, blockHash: blockHashOf(tx.block) };
     },
     getTransaction: async ({ hash }: { hash: Hex }) => {
       const mine = mined.find((row) => row.hash === hash), pending = mempool.find((row) => row.hash === hash);
-      if (mine) return { ...mine, blockNumber: mine.block };
-      if (pending) return { ...pending, blockNumber: null };
+      if (mine) return { ...mine, blockNumber: mine.block, blockHash: blockHashOf(mine.block) };
+      if (pending) return { ...pending, blockNumber: null, blockHash: null };
       throw new TransactionNotFoundError({ hash });
     },
     getTransactionCount: async ({ address, blockNumber }: { address: Address; blockNumber: bigint }) => {
@@ -122,4 +126,48 @@ test("a spent nonce is searched once per page: a later check of the same record 
   const again = chain(110n, mined);
   assert.equal((await resolveEthBuy(again.client, sending, undefined, memo)).status, "unknown");
   assert.deepEqual(again.reads, ["head", "count@110"], "only the head and its nonce count");
+});
+
+// ---- round 5 P2: only stable chain state decides or is remembered -----------------------------------------------------------------
+test("a reorganization replaces a found buy before it was stable: the sped-up transaction is adopted, never the vanished one", async () => {
+  const memo = new Map(), original = buyTx(3, 105n), speedUp = buyTx(3, 106n, { hash: `0x${"5e".repeat(32)}` });
+  // First check: the original at the recorded nonce has one confirmation.
+  assert.deepEqual(await resolveEthBuy(chain(105n, [...history, original]).client, sending, undefined, memo), { status: "waiting" });
+  assert.equal(memo.size, 0, "a transaction with one confirmation is never remembered");
+  // The block is reorganized away; the sped-up copy of the same buy is mined at the same nonce.
+  assert.deepEqual(await resolveEthBuy(chain(107n, [...history, speedUp]).client, sending, undefined, memo), { status: "bought", hash: speedUp.hash });
+  assert.equal(memo.get(3)?.hash, speedUp.hash, "remembered once stable");
+});
+
+test("a remembered buy whose receipt vanished, or no longer lies in the canonical block, is forgotten and the nonce searched again", async () => {
+  const original = buyTx(3, 104n), speedUp = buyTx(3, 108n, { hash: `0x${"5e".repeat(32)}` });
+  for (const [why, after] of [["vanished", chain(112n, [...history, speedUp])], ["stale receipt", chain(112n, [...history, speedUp], { stale: [original] })]] as const) {
+    const memo = new Map();
+    assert.deepEqual(await resolveEthBuy(chain(110n, [...history, original]).client, sending, undefined, memo), { status: "bought", hash: original.hash });
+    assert.equal(memo.get(3)?.hash, original.hash, "stable: two confirmations in the canonical block");
+    // A deeper reorganization replaced it: the remembered entry no longer decides, so the search runs again and finds the replacement.
+    assert.deepEqual(await resolveEthBuy(after.client, sending, undefined, memo), { status: "bought", hash: speedUp.hash }, why);
+    assert(after.reads.some((read) => read.startsWith("block:")), `${why}: searched again`);
+    assert.equal(memo.get(3)?.hash, speedUp.hash, why);
+  }
+});
+
+test("another transaction at a nonce the buy used cancels it only once stable, whether found at the nonce or reported by the wallet", async () => {
+  const sent = buyTx(3, 0n), other = otherTx(3, 110n), memo = new Map();
+  assert.deepEqual(await resolveEthBuy(chain(110n, [...history, other]).client, pendingOf(sent.hash, { nonceSeen: true }), undefined, memo), { status: "waiting" },
+    "one confirmation of another transaction never clears the record");
+  assert.equal(memo.size, 0);
+  assert.deepEqual(await resolveEthBuy(chain(111n, [...history, other]).client, pendingOf(sent.hash, { nonceSeen: true }), undefined, memo),
+    { status: "failed", reason: ETH_BUY_CANCELLED });
+  assert.deepEqual(await resolveEthBuy(chain(110n, [...history, other]).client, pendingOf(sent.hash), other.hash), { status: "waiting" }, "a reported replacement too");
+  assert.deepEqual(await resolveEthBuy(chain(111n, [...history, other]).client, pendingOf(sent.hash), other.hash), { status: "failed", reason: ETH_BUY_CANCELLED });
+});
+
+test("a sent buy the node has no trace of, with its nonce unspent, offers No payment was sent once 120 s passed; one the node holds keeps waiting", async () => {
+  const lost = pendingOf(`0x${"ab".repeat(32)}`), grace = 120_000; // SEND_UNSEEN_GRACE_MS
+  assert.deepEqual(await resolveEthBuy(chain(110n, history).client, lost, undefined, new Map(), lost.at + 5_000), { status: "waiting" }, "still propagating");
+  assert.deepEqual(await resolveEthBuy(chain(110n, history).client, lost, undefined, new Map(), lost.at + grace), { status: "unknown", reason: ETH_BUY_UNCONFIRMED });
+  const held = buyTx(3, 0n, { hash: `0x${"ab".repeat(32)}` });
+  assert.equal((await resolveEthBuy(chain(110n, history, { mempool: [held] }).client, lost, undefined, new Map(), lost.at + 3_600_000)).status, "waiting",
+    "a transaction the node holds unmined is the wallet's to speed up or cancel");
 });

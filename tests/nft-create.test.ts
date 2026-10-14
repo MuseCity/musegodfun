@@ -266,8 +266,8 @@ function chain(head: bigint, mined: FakeTx[], mempool: FakeTx[] = [], reverted: 
     getTransaction: async ({ hash }: { hash: Hex }) => {
       reads.push(`tx:${hash.slice(-4)}`);
       const mine = mined.find((row) => row.hash === hash), pending = mempool.find((row) => row.hash === hash);
-      if (mine) return { ...mine, blockNumber: mine.block };
-      if (pending) return { ...pending, blockNumber: null };
+      if (mine) return { ...mine, blockNumber: mine.block, blockHash: blockHashOf(mine.block) };
+      if (pending) return { ...pending, blockNumber: null, blockHash: null };
       throw new TransactionNotFoundError({ hash });
     },
     getTransactionCount: async ({ address, blockNumber }: { address: Address; blockNumber?: bigint }) => {
@@ -361,8 +361,21 @@ test("a receipt whose block is no longer the canonical block at its height decid
 test("a nonce spent only after the head was read is not spent yet", async () => {
   // The original is gone; a later block spends nonce 3. Counting at "latest" would start a search that cannot find it below the head.
   const lateSpent = chain(110n, [...history, otherTx(3, 111n)]);
-  assert.deepEqual(await resolveLaunchFee(lateSpent.client, config, pendingOf(`0x${"ab".repeat(32)}`, { nonceSeen: true })), { status: "waiting" });
+  assert.deepEqual(await resolveLaunchFee(lateSpent.client, config, pendingOf(`0x${"ab".repeat(32)}`, { nonceSeen: true }), undefined, new Map(), sending.at + 5_000),
+    { status: "waiting" });
   assert.deepEqual(searchReads(lateSpent.reads, 110n), []);
+});
+// Round 5 P2: the shared machinery remembers only stable transactions, so the launch fee gets the same reorganization safety.
+test("a fee payment replaced by a speed-up in a reorganization before it was stable is adopted, and nothing unstable is remembered", async () => {
+  const memo = new Map(), original = txOf(3, 105n), speedUp = txOf(3, 106n, { hash: `0x${"5e".repeat(32)}` });
+  assert.deepEqual(await resolveLaunchFee(chain(105n, [...history, original]).client, config, sending, undefined, memo), { status: "waiting" });
+  assert.equal(memo.size, 0);
+  assert.deepEqual(await resolveLaunchFee(chain(107n, [...history, speedUp]).client, config, sending, undefined, memo),
+    { status: "paid", fee: { asset: "stable", txHash: speedUp.hash } });
+  // A pending payment the node has no trace of, its nonce unspent: waiting while it may propagate, then the user decides.
+  const lost = pendingOf(`0x${"ab".repeat(32)}`);
+  assert.deepEqual(await resolveLaunchFee(chain(110n, history).client, config, lost, undefined, new Map(), lost.at + 5_000), { status: "waiting" });
+  assert.deepEqual(await resolveLaunchFee(chain(110n, history).client, config, lost, undefined, new Map(), lost.at + 120_000), { status: "unknown", reason: FEE_UNCONFIRMED });
 });
 test("pending, then replaced: a speed-up with the same transfer is adopted; a cancellation is cleared only for a nonce seen on chain", async () => {
   const original = txOf(3, 0n), speedUp = txOf(3, 106n, { hash: `0x${"5e".repeat(32)}` });

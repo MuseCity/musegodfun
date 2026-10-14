@@ -8,14 +8,14 @@ import { transactions } from "./transactions";
 import { errorMessage } from "./validation";
 import { transactionClient, useWallet } from "./wallet";
 import {
-  FEE_QUOTE_TOO_HIGH, LAUNCH_FEE_LOCK, launchFeeClearedNotice, launchFeeEthTx, launchFeeOf, launchFeeStableTx, launchFeeStorageKey,
+  FEE_QUOTE_TOO_HIGH, FEE_TAKEN, LAUNCH_FEE_LOCK, launchFeeClearedNotice, launchFeeEthTx, launchFeeOf, launchFeeStableTx, launchFeeStorageKey,
   parseLaunchFeeRecord, resolveLaunchFee, saneFeeQuote, type DraftLaunchFee, type FeeResolution, type LaunchFeeAttempt, type LaunchFeeQuote,
   type LaunchFeeRecord, type LaunchFeeState,
 } from "./nft-client";
-import { attemptAfterSendError, type NonceMemo, type SendPollStatus } from "./send-record";
+import { attemptAfterSendError, recordAtBroadcast, type NonceMemo, type SendPollStatus } from "./send-record";
 import { useSendPoll } from "./use-send-poll";
 
-/** Spent nonces per wallet record key: final once found, so each is searched once per page. */
+/** Spent nonces per wallet record key: each stable one is searched once per page (send-record.ts NonceMemo). */
 const NONCE_MEMOS = new Map<string, NonceMemo>();
 const read = (key: string) => { try { return parseLaunchFeeRecord(localStorage.getItem(key)); } catch { return null; } };
 const write = (key: string, record: LaunchFeeRecord | null) => {
@@ -115,7 +115,12 @@ export function useLaunchFee(config: RuntimeConfig, account: Address | null, dra
           const pending: LaunchFeeRecord = { ...sending, state: "pending", txHash: txHash.toLowerCase() as Hex };
           write(forKey, pending);
           if (visible(forKey)) setRecord(pending);
-        }, { value: tx.value, feeQuote: quote, beforeSend: () => { write(forKey, sending); attemptAt = sending.at; if (visible(forKey)) setRecord(sending); } });
+        }, { value: tx.value, feeQuote: quote, beforeSend: async () => {
+          // At the wallet request itself, and before every resend: the lock again, and never over another attempt's record.
+          await recordAtBroadcast(sending, { assertHeld, read: () => read(forKey), write: (record) => write(forKey, record), taken: FEE_TAKEN });
+          attemptAt = sending.at;
+          if (visible(forKey)) setRecord(sending);
+        } });
       });
       // The wallet saw two confirmations of a successful receipt; a sped-up payment returns its new hash.
       const current = read(forKey);

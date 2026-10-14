@@ -1,18 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import type { Address, Hash, Hex } from "viem";
 import { deploymentChain, type RuntimeConfig } from "./config";
-import { ETH_BUY_LOCK, ETH_BUY_UNRESOLVED, ethBuyStorageKey, parseEthBuyRecord, resolveEthBuy, type EthBuyRecord, type EthBuyResolution,
+import { ETH_BUY_LOCK, ETH_BUY_TAKEN, ETH_BUY_UNRESOLVED, ethBuyStorageKey, parseEthBuyRecord, resolveEthBuy, type EthBuyRecord, type EthBuyResolution,
   type EthBuyTarget } from "./eth-buy-record";
 import { ETH_BUY_CHAIN, type FirstBuyPaymentQuote } from "./first-buy-payment";
 import { receivedFromLogs } from "./eth-buy";
 import { withLaunchIntentLock } from "./launch-intent";
-import { attemptAfterSendError, type NonceMemo, type SendPollStatus } from "./send-record";
+import { attemptAfterSendError, recordAtBroadcast, type NonceMemo, type SendPollStatus } from "./send-record";
 import { transactions } from "./transactions";
 import { useSendPoll } from "./use-send-poll";
 import { errorMessage } from "./validation";
 import { transactionClient } from "./wallet";
 
-/** Spent nonces per record key: final once found, so each is searched once per page. */
+/** Spent nonces per record key: each stable one is searched once per page (send-record.ts NonceMemo). */
 const NONCE_MEMOS = new Map<string, NonceMemo>();
 const read = (key: string) => { try { return parseEthBuyRecord(localStorage.getItem(key)); } catch { return null; } };
 const write = (key: string, record: EthBuyRecord | null) => {
@@ -25,8 +25,9 @@ const lockError = (cause: unknown) => /another tab|already being submitted in th
   ? new Error("Another tab of this wallet is buying with ETH. Finish there first.") : cause;
 /** A recorded buy the chain proved: the transaction and what it delivered (null when its receipt could not be read). */
 export type EthBuyAdopted = { hash: Hex; target: EthBuyTarget; received: bigint | null };
-/** The hooks one LI.FI wallet request runs under: `beforeSend` writes the record right before the wallet receives it, `onHash` upgrades it. */
-export type EthBuySendHooks = { beforeSend: () => void; onHash: (hash: Hash) => void };
+/** The hooks one LI.FI wallet request runs under: `beforeSend` re-verifies the lease and writes the record right before the wallet receives
+ * it (and before every resend), `onHash` upgrades it. */
+export type EthBuySendHooks = { beforeSend: () => Promise<void>; onHash: (hash: Hash) => void };
 
 /** The wallet's ETH-buy record on this network (shared by every coin page and tab of the wallet), the guard every LI.FI ETH transaction is
  * sent under, and the chain checks that settle one whose outcome the wallet never reported. */
@@ -104,8 +105,9 @@ export function useEthBuyRecord(config: RuntimeConfig | null, account: Address |
     } catch (cause) { if (visible(forKey)) setNotice(errorMessage(lockError(cause))); }
   }
   /** Sends one LI.FI ETH transaction (`quote`) under the record. Inside this wallet's cross-tab lock it refuses while a record exists, reads
-   * the account's pending nonce and the head, and hands `send` the hooks that write the record right before the wallet receives the
-   * request and upgrade it at the hash. `send` resolves once the wallet saw two canonical confirmations of a successful receipt, which
+   * the account's pending nonce and the head, and hands `send` the hooks: at the wallet request itself, and before every resend, the lock is
+   * verified again and another attempt's record is never overwritten (`recordAtBroadcast`), then the record is written; at the hash it is
+   * upgraded. `send` resolves once the wallet saw two canonical confirmations of a successful receipt, which
    * decides the buy and removes the record. A rejection or unprocessed refusal before any hash removes it too; anything else keeps it for
    * the chain checks. */
   async function guard<T>(quote: FirstBuyPaymentQuote, target: EthBuyTarget, send: (hooks: EthBuySendHooks) => Promise<T>): Promise<T> {
@@ -121,7 +123,11 @@ export function useEthBuyRecord(config: RuntimeConfig | null, account: Address |
         const sendingRecord: EthBuyRecord = { state: "sending", from, nonce, block: block.toString(), at: Date.now(), quoteId: quote.id,
           tx: { to: quote.transaction.to, data: quote.transaction.data.toLowerCase() as Hex, value: quote.transaction.value }, target };
         return send({
-          beforeSend: () => { write(forKey, sendingRecord); attemptAt = sendingRecord.at; if (visible(forKey)) setRecord(sendingRecord); },
+          beforeSend: async () => {
+            await recordAtBroadcast(sendingRecord, { assertHeld, read: () => read(forKey), write: (record) => write(forKey, record), taken: ETH_BUY_TAKEN });
+            attemptAt = sendingRecord.at;
+            if (visible(forKey)) setRecord(sendingRecord);
+          },
           onHash: (hash) => {
             if (!stillAttempt(forKey, sendingRecord.at)) return;
             const pending: EthBuyRecord = { ...sendingRecord, state: "pending", txHash: hash.toLowerCase() as Hex };

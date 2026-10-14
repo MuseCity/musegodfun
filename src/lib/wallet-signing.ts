@@ -43,6 +43,9 @@ export function walletRefusedUnsent(error: unknown) {
   const code = rpcCode(error);
   return code !== undefined && UNPROCESSED.has(code);
 }
+/** Runs right before the wallet receives a send (`resend`: viem's resend of the same request after an unprocessed refusal). It may await,
+ * for one to re-verify a cross-tab lease; the wallet request follows it with nothing awaited in between. A throw sends nothing. */
+export type BeforeSend = (resend: boolean) => void | Promise<void>;
 export type SigningHooks = {
   /** The flow's exact allowlist; it sees every request this policy forwards. */
   guardRequest?: (request: WalletRequest) => void;
@@ -51,7 +54,7 @@ export type SigningHooks = {
   /** Records the one transaction this signer may broadcast, after every other check and right before the wallet receives it.
    * `resend`: the same transaction again, after the wallet refused it without processing it (viem's `wallet_sendTransaction`
    * retry). */
-  beforeSend?: (resend: boolean) => void;
+  beforeSend?: BeforeSend;
 };
 type Attempt = { params: string; settled: boolean; refusal?: { error: unknown } };
 const deepFreeze = <T,>(value: T): T => {
@@ -96,7 +99,7 @@ export function signingRequest(provider: { request: (request: WalletRequest) => 
     const current: Attempt = last = { params, settled: false };
     try {
       await validate();
-      beforeSend?.(resend);
+      await beforeSend?.(resend);
     } catch (error) {
       last = previous; // Nothing reached the wallet.
       throw error;

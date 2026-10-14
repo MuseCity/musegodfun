@@ -160,6 +160,7 @@ export function launchFeeClearedNotice(error: unknown) {
 export const FEE_REVERTED = "The launch fee payment failed on-chain, so no fee was paid. You can pay again.";
 export const FEE_CANCELLED = "No fee was paid; the payment was cancelled.";
 export const FEE_MAYBE_SENT = "A payment may have been sent. Check your wallet's activity.";
+export const FEE_TAKEN = "Another launch fee payment from this wallet was recorded meanwhile, so this one was not sent. Check it here before you pay again.";
 export const FEE_UNCONFIRMED = "We can't confirm this payment yet. Check your wallet's activity. If no payment left your wallet, choose \u201cNo payment was sent\u201d.";
 export type FeeResolution =
   | { status: "paid"; fee: DraftLaunchFee }
@@ -179,8 +180,8 @@ export function launchFeeTxMatches(config: FeeConfig, attempt: Pick<LaunchFeeAtt
 /** Decides an attempt from the chain alone (`resolveSentTransaction`, matching exactly this attempt's fee); throws on RPC failure, and the
  * caller asks again later. `hint`: a replacement the wallet reported. */
 export async function resolveLaunchFee(client: SendReader, config: FeeConfig, record: LaunchFeeAttempt, hint?: Hex,
-  memo: NonceMemo = new Map()): Promise<FeeResolution> {
-  const result = await resolveSentTransaction(client, record, (tx) => launchFeeTxMatches(config, record, tx), hint, memo);
+  memo: NonceMemo = new Map(), now = Date.now()): Promise<FeeResolution> {
+  const result = await resolveSentTransaction(client, record, (tx) => launchFeeTxMatches(config, record, tx), hint, memo, now);
   switch (result.status) {
     case "confirmed": return { status: "paid", fee: launchFeeOf(record.asset, result.hash, record.quote) };
     case "reverted": return { status: "failed", reason: FEE_REVERTED };

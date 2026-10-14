@@ -67,7 +67,7 @@ import { executeMusegodTrade } from "./musegod-trade";
 import type { LaunchPlan, LaunchTransaction } from "./launch-plan";
 import { assertLaunchRequest, assertLaunchWalletPlan, bufferedLaunchGas, executeLaunchPlan, launchDraftInput, type LaunchSimulation } from "./launch-wallet";
 import { engineTransaction, type EngineAction } from "./buyback-engine";
-import { isTransactionSend, signingRequest, walletRefusedUnsent, type WalletRequest } from "./wallet-signing";
+import { isTransactionSend, signingRequest, walletRefusedUnsent, type BeforeSend, type WalletRequest } from "./wallet-signing";
 declare global {
   interface Window {
     ethereum?: Provider;
@@ -210,9 +210,9 @@ const TRADE_STEPS: TradeSteps = { approve: "1/3 · Approve this transaction amou
   swap: "3/3 · Confirm the transaction in your wallet", waiting: "Waiting for onchain confirmation" };
 /** `send` extras: an NFT launch-fee payment passes its exact value (and, for ETH, the quote it must equal); `beforeSend` runs right
  * before the wallet receives the request (and again before viem's `wallet_sendTransaction` resend of it), after every check that
- * could still refuse it. */
+ * could still refuse it, and may itself refuse (a lost cross-tab lease, another attempt's record). */
 // `nft`: the NFT whose fee vault or treasury this call acts on; the guard derives every allowed address from it.
-type SendOptions = { value?: bigint; feeQuote?: LaunchFeeQuote; beforeSend?: () => void; nft?: NftRef };
+type SendOptions = { value?: bigint; feeQuote?: LaunchFeeQuote; beforeSend?: BeforeSend; nft?: NftRef };
 type WalletState = {
   account: Address | null;
   chainId: number | null;
@@ -245,7 +245,7 @@ type WalletState = {
    * right before the wallet receives it (and before viem's resend of it), after every check that could still refuse it: it writes the
    * caller's anti-duplicate record (use-eth-buy-record.ts), so ETH is never sent without one. */
   lifiTrade: (quote: FirstBuyPaymentQuote, target: LifiTradeTarget, config: RuntimeConfig, progress: (message: string) => void,
-    confirmMessage: string, onHash: ((hash: Hash) => void) | undefined, options: { beforeSend: () => void }) => Promise<{ hash: Hash; received: bigint | null }>;
+    confirmMessage: string, onHash: ((hash: Hash) => void) | undefined, options: { beforeSend: BeforeSend }) => Promise<{ hash: Hash; received: bigint | null }>;
   buyback: (step: BuybackStep, config: RuntimeConfig, onHash?: (hash: Hash) => void) => Promise<Hash>;
   engineAction: (action: EngineAction, config: RuntimeConfig, onHash?: (hash: Hash) => void) => Promise<Hash>;
   balance: (token: Address, config?: RuntimeConfig) => Promise<bigint>;
@@ -415,7 +415,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
   }
   async function signer(config: RuntimeConfig, expected: Address, validateAction?: (current: RuntimeConfig) => Promise<unknown>,
-    guardRequest?: (request: WalletRequest) => void, beforeSend?: (resend: boolean) => void) {
+    guardRequest?: (request: WalletRequest) => void, beforeSend?: BeforeSend) {
     assertSigningEnabled(config);
     assertTransactionStorage();
     const p = controller.current?.selected?.provider;
@@ -600,7 +600,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   }
   async function submitTrackedLaunch(transaction: LaunchTransaction, config: RuntimeConfig, expected: Address, gas: bigint,
     context: { kind: "approval" | "launch" | "payment"; intentId?: string; planId?: Hex; tokenAddress?: Address; quote?: FirstBuyPaymentQuote },
-    signingWallet: (beforeSend: (resend: boolean) => void) => ReturnType<typeof signer>) {
+    signingWallet: (beforeSend: BeforeSend) => ReturnType<typeof signer>) {
     const marker = context.intentId ? launchIntentStorageKey(config, expected, context.intentId, "submission") : null;
     const saved = { transaction, account: expected, chainId: config.chainId,
       deploymentChainId: deploymentChain(config), ...context, at: Date.now() };
@@ -628,7 +628,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       restartTimeout();
     });
     const submission = (async () => {
-      const wallet = await signingWallet((resend) => {
+      const wallet = await signingWallet(async (resend) => {
+        // The intent's cross-tab lease, verified (renewed) at the send itself and before every resend: a tab suspended past its lease
+        // never sends after another tab took the intent over.
+        if (context.intentId) await assertLaunchIntentLock(config, expected, context.intentId);
         // A timed-out preflight must never reach the provider later. A request
         // already handed to the wallet remains owned by this frozen intent.
         if (timedOut || performance.now() >= timeoutAt) {
@@ -671,7 +674,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   }
   async function confirmLaunchApproval(transaction: LaunchTransaction, config: RuntimeConfig, expected: Address, gas: bigint,
     context: { intentId?: string; planId?: Hex; quote?: FirstBuyPaymentQuote },
-    signingWallet: (beforeSend: (resend: boolean) => void) => ReturnType<typeof signer>, onHash?: (hash: Hash) => void) {
+    signingWallet: (beforeSend: BeforeSend) => ReturnType<typeof signer>, onHash?: (hash: Hash) => void) {
     const { hash, clearMarker } = await submitTrackedLaunch(transaction, config, expected, gas,
       { ...context, kind: "approval" }, signingWallet);
     onHash?.(hash);
@@ -723,7 +726,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         throw new Error("The launch preview has changed. Run a new preview.");
       assertCurrent?.();
     };
-    const signingWallet = (transaction: LaunchTransaction, frozen: LaunchPlan, beforeSend?: (resend: boolean) => void) => signer(config, expected,
+    const signingWallet = (transaction: LaunchTransaction, frozen: LaunchPlan, beforeSend?: BeforeSend) => signer(config, expected,
       (current) => validate(frozen, current, true),
       (request) => assertLaunchRequest(request, { ...transaction, from: expected, chainId: config.chainId }), beforeSend);
     return executeLaunchPlan(plan, config, expected, {
@@ -946,7 +949,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       await verifyLifiRouter(client, frozen, assertFirstBuyPaymentQuote(frozen));
       assertCurrent?.();
     };
-    const signingWallet = (transaction: LaunchTransaction, frozen: FirstBuyPaymentQuote, beforeSend?: (resend: boolean) => void) => signer(config, expected,
+    const signingWallet = (transaction: LaunchTransaction, frozen: FirstBuyPaymentQuote, beforeSend?: BeforeSend) => signer(config, expected,
       (current) => validate(frozen, current), (request) => assertLaunchRequest(request, { ...transaction, from: expected, chainId: config.chainId }), beforeSend);
     const hash = await executeFirstBuyPayment(quote, config, expected, {
       validate: (frozen) => validate(frozen, config),
@@ -986,7 +989,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     return verification;
   }
   async function lifiTrade(quote: FirstBuyPaymentQuote, target: LifiTradeTarget, config: RuntimeConfig, progress: (message: string) => void,
-    confirmMessage: string, onHash: ((hash: Hash) => void) | undefined, { beforeSend }: { beforeSend: () => void }) {
+    confirmMessage: string, onHash: ((hash: Hash) => void) | undefined, { beforeSend }: { beforeSend: BeforeSend }) {
     if (!account) throw new Error("Connect your wallet first");
     config = Object.freeze({ ...config });
     if (deploymentChain(config) !== 4663) throw new Error("Buying a coin with ETH is available on Robinhood Chain only.");
@@ -1005,7 +1008,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         await ensureGas(config, expected, BigInt(frozen.transaction.value), gas);
         // Every wallet request re-runs the static and on-chain checks and must be exactly this transaction; `beforeSend` records it last.
         const wallet = await signer(config, expected, () => verify(frozen, assertLifiTradeQuote(frozen, target, expected)),
-          (request) => assertLaunchRequest(request, { ...frozen.transaction, from: expected, chainId: config.chainId }), () => beforeSend());
+          (request) => assertLaunchRequest(request, { ...frozen.transaction, from: expected, chainId: config.chainId }), beforeSend);
         const hash = await wallet.sendTransaction({ to: frozen.transaction.to, data: frozen.transaction.data, value: BigInt(frozen.transaction.value), gas });
         const confirmation = confirmed(hash, config, expected, "swap");
         onHash?.(hash);
