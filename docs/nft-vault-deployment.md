@@ -134,7 +134,7 @@ Submit these to Sourcify for chain 4663, together with the factory address and i
 
 Preflight and verify never assume mainnet. They run only against one of these:
 
-- **A proven Robinhood mainnet endpoint.** This is the built-in Alchemy RPC (no `--rpc`; the key comes from `.env.fork`) or `--rpc https://rpc.mainnet.chain.robinhood.com`. The URL must be HTTPS with no user or port, and the endpoint's block 82,283,004 must have the hash recorded for the launch-guard V2 deployment. Only this kind of endpoint writes the committed manifest and evidence.
+- **A proven Robinhood mainnet endpoint.** This is the built-in Alchemy RPC (no `--rpc`; the key comes from `.env.fork`) or `--rpc https://rpc.mainnet.chain.robinhood.com`. The URL must be HTTPS with no user or port, and the host must be exactly one of those two names (a trailing dot is refused; case is normalized by the URL parser). The endpoint's block 82,283,004 must have the hash recorded for the launch-guard V2 deployment. Only this kind of endpoint writes the committed manifest and evidence.
 - **A local node:** a loopback URL, or a node that reports itself as Anvil, Hardhat or Ganache. It writes only `.cache/nft-vault-rehearsal-4663/` copies.
 
 Any other RPC is refused before anything is read or written, including a node that hides `web3_clientVersion`.

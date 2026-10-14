@@ -49,11 +49,12 @@ export const DEPENDENCIES = {
   rehype: ROBINHOOD_CONTRACTS.rehype, robinhoodInitializer: ROBINHOOD_CONTRACTS.initializer, muses: MUSES.contract,
 } as const;
 const MUSE_1: NftRef = { chainId: 4663, contract: MUSES.contract, tokenId: "1" };
-/** Robinhood mainnet endpoints whose identity HTTPS authenticates. A fork shares mainnet's history, so only the endpoint can prove mainnet. */
-const MAINNET_ENDPOINTS: Readonly<Record<string, string>> = {
-  "robinhood-mainnet.g.alchemy.com": "Alchemy Robinhood mainnet endpoint",
-  "rpc.mainnet.chain.robinhood.com": "official Robinhood public RPC",
-};
+/** Robinhood mainnet endpoints whose identity HTTPS authenticates. A fork shares mainnet's history, so only the endpoint can prove mainnet.
+ * A Map, so a hostname such as `constructor` or `__proto__` never matches an inherited object member. Exact names only: a trailing dot is refused. */
+const MAINNET_ENDPOINTS: ReadonlyMap<string, string> = new Map([
+  ["robinhood-mainnet.g.alchemy.com", "Alchemy Robinhood mainnet endpoint"],
+  ["rpc.mainnet.chain.robinhood.com", "official Robinhood public RPC"],
+]);
 /** The launch-guard V2 Robinhood deployment block (docs/evidence/launch-guard-v2-mainnet.json). A matching hash shows a known endpoint serves
  * Robinhood mainnet history; it cannot tell a fork taken later from mainnet, because the fork returns the same hash. */
 export const MAINNET_ANCHOR = { blockNumber: 82_283_004n, hash: "0x422a24b256eb31539a7cdf14c5c6e3401e10fd1d9d686bf6b34f55659f087e62" as Hex } as const;
@@ -74,11 +75,12 @@ export const USAGE = [
   "  --rehearse                                                       starts one fork from .env.fork: preflight, deploy-local, verify, stop",
   "  --sourcify-input                                                 writes the factory's standard JSON compiler input; never submits it",
 ].join("\n");
-const MODE_FLAGS: Record<string, readonly string[]> = {
-  "--preflight": ["--deployer", "--rpc"], "--verify": ["--tx", "--rpc", "--deployer", "--nonce"],
-  "--deploy-local": ["--rpc"], "--rehearse": [], "--sourcify-input": [],
-};
-const KNOWN_FLAGS = new Set(Object.values(MODE_FLAGS).flat());
+/** Maps and Sets only: arguments are user input, and a plain-object lookup would match inherited members such as `constructor`. */
+const MODE_FLAGS: ReadonlyMap<string, readonly string[]> = new Map([
+  ["--preflight", ["--deployer", "--rpc"]], ["--verify", ["--tx", "--rpc", "--deployer", "--nonce"]],
+  ["--deploy-local", ["--rpc"]], ["--rehearse", []], ["--sourcify-input", []],
+]);
+const KNOWN_FLAGS: ReadonlySet<string> = new Set([...MODE_FLAGS.values()].flat());
 const SIGNER_FLAG = /^-{1,2}(private[-_]?keys?|keys?|mnemonics?|mnemonic-[a-z-]+|keystore|account|ledger|trezor|aws|gcp|interactive|unlocked|password(-file)?|seed|signer|sk)(=|$)/i;
 const KEY_LIKE = /^(0x)?[0-9a-fA-F]{64}$/;
 const NO_KEY = "This script never takes a private key or signer: the owner signs the CREATE with their own tool.";
@@ -88,14 +90,14 @@ export function parseArgs(argv: readonly string[]): CliArgs {
   const [mode, ...rest] = argv;
   if (mode === undefined) throw new Error(USAGE);
   refuseSecret(mode);
-  const allowed = MODE_FLAGS[mode];
+  const allowed = MODE_FLAGS.get(mode);
   if (!allowed) throw new Error(`Unknown mode${/^--[a-z][a-z-]*$/.test(mode) ? ` ${mode}` : ""}.\n${USAGE}`);
   const values = new Map<string, string>();
   for (let index = 0; index < rest.length; index++) {
     const flag = rest[index];
     refuseSecret(flag);
     // Values are never echoed: a mistyped argument may be a secret.
-    if (!KNOWN_FLAGS.has(flag) && !MODE_FLAGS[flag]) throw new Error(`Unexpected argument at position ${index + 2}.\n${USAGE}`);
+    if (!KNOWN_FLAGS.has(flag) && !MODE_FLAGS.has(flag)) throw new Error(`Unexpected argument at position ${index + 2}.\n${USAGE}`);
     if (!allowed.includes(flag)) throw new Error(`${flag} is not accepted by ${mode}`);
     if (values.has(flag)) throw new Error(`Duplicate ${flag}`);
     const value = rest[++index];
@@ -131,7 +133,9 @@ export function parseArgs(argv: readonly string[]): CliArgs {
     }
     return { mode: "verify", tx: tx.toLowerCase() as Hex, ...(rpc !== undefined ? { rpc } : {}), ...explicit };
   }
-  return mode === "--rehearse" ? { mode: "rehearse" } : { mode: "sourcify-input" };
+  if (mode === "--rehearse") return { mode: "rehearse" };
+  if (mode === "--sourcify-input") return { mode: "sourcify-input" };
+  throw new Error(`Unknown mode.\n${USAGE}`);
 }
 
 function assertHttpUrl(url: string) {
@@ -155,7 +159,7 @@ function knownMainnetEndpoint(url: string) {
   try {
     const parsed = new URL(url);
     if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.port) return null;
-    return MAINNET_ENDPOINTS[parsed.hostname] ?? null;
+    return MAINNET_ENDPOINTS.get(parsed.hostname) ?? null;
   } catch { return null; }
 }
 /**

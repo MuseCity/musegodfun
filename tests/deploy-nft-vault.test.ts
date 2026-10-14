@@ -316,6 +316,27 @@ test("a remote node whose web3_clientVersion is blocked is unproven, even though
   }
 });
 
+test("the mainnet allowlist matches own entries only: inherited keys and a trailing dot are unproven", async () => {
+  // Codex review 1 acceptance: a plain-object lookup returned Object.prototype members for these hostnames, and with the shared
+  // anchor matching, a fork served there counted as mainnet.
+  for (const host of ["constructor", "__proto__", "toString", "hasOwnProperty", "valueOf", "robinhood-mainnet.g.alchemy.com.",
+    "rpc.mainnet.chain.robinhood.com."]) {
+    assert.equal((await nodeKind(probe(), `https://${host}/v2/x`)).kind, "unproven", host);
+  }
+  // The URL parser lowercases the host; the exact canonical name is then an own entry.
+  assert.equal((await nodeKind(probe(), "https://ROBINHOOD-MAINNET.G.ALCHEMY.COM/v2/x")).kind, "mainnet");
+});
+
+test("the parser matches modes and flags by own entries only", () => {
+  for (const mode of ["constructor", "__proto__", "toString", "hasOwnProperty", "valueOf"]) {
+    assert.throws(() => parseArgs([mode]), (error: Error) => /Unknown mode/.test(error.message) && !error.message.includes(mode), mode);
+  }
+  for (const flag of ["constructor", "__proto__", "toString", "hasOwnProperty"]) {
+    assert.throws(() => parseArgs(["--rehearse", flag, "x"]), /Unexpected argument/, flag);
+    assert.throws(() => parseArgs(["--preflight", "--deployer", DEPLOYER, flag, "x"]), /Unexpected argument/, flag);
+  }
+});
+
 test("a known mainnet endpoint is refused when its anchor block hash differs or cannot be read", async () => {
   assert.equal((await nodeKind(probe({ anchorHash: `0x${"11".repeat(32)}` }), KEYED_URL)).kind, "unproven");
   assert.equal((await nodeKind(probe({ anchorFails: true }), OFFICIAL_RPC)).kind, "unproven");
