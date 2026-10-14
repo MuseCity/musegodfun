@@ -880,7 +880,44 @@
       "serviceRoleExecuteGuards": true,
       "anonReadClaims": false
     },
-    "verifyDatabase": "npm run verify:database PASS (Supabase persistence, concurrency and backup/restore, including the NFT guard and launch-claim probes)",
-    "neverReapply": "The migration is not idempotent; do not apply it again."
+    "verifyDatabase": "npm run verify:database PASS at 2026-10-14T14:15:56.871Z (full output under verifyDatabaseRun; the script rewrites this file, so its output is merged here to keep the history)",
+    "neverReapply": "The migration is not idempotent; do not apply it again.",
+    "verifyDatabaseRun": {
+      "observedAt": "2026-10-14T14:15:56.871Z",
+      "backend": "Supabase",
+      "project": "vrhzgmulcyqqzkkforsl",
+      "scope": "isolated verification rows only",
+      "checks": [
+        "health",
+        "native internal-audit CAS RPC exists and rejects stale expectations",
+        "legacy unbounded ledger RPCs are absent from the server Data API",
+        "atomic concurrent quota",
+        "quota survives reconnect",
+        "snapshot readback",
+        "consistent backup / empty target restore",
+        "restore preserves quota",
+        "nonempty restore rejected",
+        "launch plan and pending hash survive reconnect",
+        "fee policy and original treasury survive reconnect and backup restore",
+        "idempotent token registration and replacement status",
+        "NFT verification compare-and-swap settles only unverified or absent statuses and never touches non-NFT records",
+        "NFT verification compare-and-swap matches the provenance it read and never downgrades it",
+        "launch-fee single use excludes only the coin itself",
+        "musegod_nft_guards_ready() reports both NFT single-use guard indexes and the launch claim",
+        "the pre-sign launch claim is granted when free, refused to another owner while live and freed by release",
+        "the launch-fee guard index refuses a second coin spending one payment, in any case",
+        "the verified-NFT guard index refuses a second verified coin (insert or compare-and-swap) and allows rejected and unverified ones",
+        "backup restores token and canonical receipt identity",
+        "orphan token removal",
+        "buyback batch amounts and receipt history survive reconnect and upsert",
+        "buyback batch scope isolation and 24-hour cleanup retention",
+        "version-3 backup preserves runtime control revision and transaction history",
+        "legacy ledger data is preserved by the unchanged database backup / restore functions",
+        "unknown Base source submission nonce, original hash, gas and replacement evidence survive backup restore",
+        "source batch keyset pages preserve independent historical rows",
+        "version-1 backup without buyback batches restores successfully",
+        "restore cannot overwrite a scope containing only buyback batches"
+      ]
+    }
   }
 }
