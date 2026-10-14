@@ -80,12 +80,13 @@ const browser = await chromium.launch({ headless: true });
 // `account: null`: an anonymous viewer (no wallet connected). `nftEnabled: false`: NFT mode is off on this network.
 async function open(path, { account = holder, owner = holder, locked = false, factoryDeployed = true, theme = 'light', viewport = { width: 1440, height: 1000 },
   undeployed = false, holderless = false, statusFailures = 0, lockFailures = 0, chainHex = '0x1237', nftEnabled = true, ethRoute = 'direct', rejectSends = [],
-  musegodHeld = 10n ** 18n, holdSend = -1, walletEvent = null, coinHeld = 10n ** 20n, holdPairBalance = false } = {}) {
+  musegodHeld = 10n ** 18n, holdSend = -1, walletEvent = null, coinHeld = 10n ** 20n, holdPairBalance = false, unreadableConversion = false } = {}) {
   const context = await browser.newContext({ viewport, colorScheme: theme });
   // `ethRoute`: what /trade/eth-quote answers ('direct' or 'two-step'). `rejectSends`: wallet requests (0-based) the fixture wallet rejects.
   // `musegodHeld`: the wallet's MUSEGOD before any trade. `holdSend`: a wallet request that waits until `state.releaseSend()`.
   // `walletEvent`: { attempt, event, value }: the wallet emits that provider event while handling that request.
   // `coinHeld`: the wallet's balance of every other token. `holdPairBalance`: MUSEGOD balance reads wait for `state.releaseBalance()`.
+  // `unreadableConversion`: an ETH → MUSEGOD conversion's receipt carries no MUSEGOD Transfer (its amount cannot be read).
   const state = { sends: [], attempts: 0, rejected: [], treasuryReads: 0, statusAccounts: [], multicalls: [], external: [], stubbed: [], pageErrors: [], statusFailures, lockFailures,
     ethQuotes: [], ethQuoteResponses: [], v4Quotes: [], swapSpends: [], held: null, releaseSend: () => {} };
   const holding = new Promise(resolve => { state.releaseSend = resolve; });
@@ -130,6 +131,7 @@ async function open(path, { account = holder, owner = holder, locked = false, fa
       const swaps = decodeFunctionData({ abi: firstBuyPaymentAbi, data: sent.data }).args[5];
       const output = swaps[swaps.length - 1].receivingAssetId;
       const quoted = state.ethQuoteResponses.map(r => r.mode === 'direct' ? r.quote : r.conversion).find(q => q.transaction.data === sent.data);
+      if (unreadableConversion && output.toLowerCase() === musegod.toLowerCase()) return null;
       return { token: output, value: output.toLowerCase() === musegod.toLowerCase() ? BigInt(quoted.minimumOut) + convertedExtra : directOut };
     }
     if (sent.to.toLowerCase() === ROBINHOOD_CONTRACTS.router.toLowerCase()) return { token: museCoin.address, value: swapOut };
@@ -386,9 +388,21 @@ try {
     assert.equal(await page.locator('#get-musegod, .trade-status, .trade-column, .musegod-acquire').count(), 0);
     assert.equal(await page.getByRole('link', { name: /Get MUSEGOD/ }).count(), 0);
     assert.equal(await page.getByRole('textbox', { name: /trade input amount/i }).count(), 1, 'one trade panel');
-    // The sell side is unchanged.
-    await trade.getByRole('group', { name: 'Trade side' }).getByRole('button', { name: 'Sell' }).click();
+    // R2: a side switch changes the input unit (ETH or MUSEGOD on Buy, BARD on Sell), so it empties a typed amount and says so.
+    const sides = trade.getByRole('group', { name: 'Trade side' });
+    await trade.getByLabel('Trade input amount').fill('5000');
+    await sides.getByRole('button', { name: 'Sell' }).click();
     await payWith.waitFor({ state: 'detached' });
+    assert.equal(await trade.getByLabel('Trade input amount').inputValue(), '', '"5000" ETH never becomes "5000" BARD');
+    await live.locator('.nft-warning', { hasText: 'Amount cleared. Enter it in BARD.' }).waitFor();
+    await trade.getByLabel('Trade input amount').fill('1');
+    assert.equal(await live.locator('.nft-warning').count(), 0);
+    await sides.getByRole('button', { name: 'Sell' }).click();
+    assert.equal(await trade.getByLabel('Trade input amount').inputValue(), '1', 'the same side keeps the amount');
+    await sides.getByRole('button', { name: 'Buy' }).click();
+    await pressed('ETH').waitFor();
+    assert.equal(await trade.getByLabel('Trade input amount').inputValue(), '', '"1" BARD never becomes "1" ETH');
+    await live.locator('.nft-warning', { hasText: 'Amount cleared. Enter it in ETH.' }).waitFor();
     await finish(run);
     // A wallet without MUSEGOD pays ETH; a typed ETH amount stays ETH and never shows the MUSEGOD hint.
     const empty = await open(tokenPath, { musegodHeld: 0n }), emptyTrade = empty.page.locator('#trade');
@@ -417,23 +431,20 @@ try {
     assert.equal(await earlyTrade.getByText('Balance: 0', { exact: true }).count(), 1);
     assert.equal((await earlyTrade.locator('.trade-live').textContent()).trim(), 'You hold less than the amount entered in MUSEGOD. Pay with ETH?', 'announced once');
     await finish(early);
-    // (2) Typed on Sell, then Buy, then the balance loads: the unit is the one Buy showed, never re-chosen by the load. The
-    // Sell-side balance (here 0 BARD, which would have meant ETH) never decides it either.
-    const carried = await open(tokenPath, { musegodHeld: 0n, coinHeld: 0n, holdPairBalance: true }), carriedTrade = carried.page.locator('#trade');
+    // (2) Typed on Sell, then Buy: the switch empties the field (R2). The empty Buy field then takes its default from the pair
+    // balance (1 MUSEGOD: MUSEGOD), never from the Sell-side balance (0 BARD, which would have meant ETH); the note names it.
+    const carried = await open(tokenPath, { coinHeld: 0n }), carriedTrade = carried.page.locator('#trade');
     await carried.page.locator('#nft-card').getByText('Unlocked').waitFor();
     await carriedTrade.getByRole('group', { name: 'Trade side' }).getByRole('button', { name: 'Sell' }).click();
     await carriedTrade.getByText('You pay BARD', { exact: true }).waitFor();
     await carriedTrade.getByText('Balance: 0', { exact: true }).waitFor();
     await carriedTrade.getByLabel('Trade input amount').fill('5');
-    const readsBefore = carried.state.pairBalanceReads;
     await carriedTrade.getByRole('group', { name: 'Trade side' }).getByRole('button', { name: 'Buy' }).click();
     const carriedPay = carriedTrade.getByRole('group', { name: 'Pay with' });
+    await carriedTrade.getByText('Balance: 1', { exact: true }).waitFor();
     await carriedPay.getByRole('button', { name: 'MUSEGOD', exact: true, pressed: true }).waitFor();
-    for (let i = 0; i < 200 && carried.state.pairBalanceReads <= readsBefore; i++) await carried.page.waitForTimeout(25);
-    carried.state.releaseBalance();
-    await carriedTrade.locator('.pay-hint', { hasText: 'You hold less than 5 MUSEGOD. Pay with ETH?' }).waitFor();
-    assert.equal(await carriedPay.getByRole('button', { name: 'MUSEGOD', exact: true }).getAttribute('aria-pressed'), 'true', 'the unit is unchanged');
-    assert.equal(await carriedTrade.getByLabel('Trade input amount').inputValue(), '5');
+    assert.equal(await carriedTrade.getByLabel('Trade input amount').inputValue(), '');
+    await carriedTrade.locator('.trade-live .nft-warning', { hasText: 'Amount cleared. Enter it in MUSEGOD.' }).waitFor();
     await finish(carried);
     // No wallet: the pair asset, so the read-only on-chain quote works; ETH asks for a wallet first.
     const anonymous = await open(tokenPath, { account: null }), anonTrade = anonymous.page.locator('#trade');
@@ -569,6 +580,22 @@ try {
     // The balances are read again: the MUSEGOD now held covers the prefilled amount, so no "hold less" hint.
     await trade.getByText(`Balance: ${Number(formatUnits(10n ** 18n + received, 18)).toLocaleString('en-US', { maximumFractionDigits: 8 })}`, { exact: true }).waitFor();
     assert.equal(await trade.getByText(/You hold less than/).count(), 0);
+    assert.equal(await trade.getByRole('link', { name: 'View ETH → MUSEGOD transaction' }).getAttribute('href'), `https://robinhoodchain.blockscout.com/tx/${state.sends[0].hash}`);
+    await finish(run);
+  });
+  await check('eth_buy_unreadable_conversion', async () => {
+    // R1: the conversion confirmed but its MUSEGOD amount cannot be read. The panel pays MUSEGOD and never keeps the ETH number.
+    const run = await open(tokenPath, { ethRoute: 'two-step', unreadableConversion: true }), { page, state } = run;
+    await page.locator('#nft-card').getByText('Unlocked').waitFor();
+    const trade = await ethQuoteFor(page, '0.02');
+    await trade.getByText('Two steps', { exact: true }).waitFor();
+    await trade.getByRole('button', { name: 'Buy with ETH' }).click();
+    const live = trade.locator('.trade-live[role="status"]');
+    await live.locator('.nft-warning', { hasText: 'Your ETH → MUSEGOD conversion is confirmed. Buy BARD with MUSEGOD to finish.' }).waitFor();
+    await trade.getByRole('group', { name: 'Pay with' }).getByRole('button', { name: 'MUSEGOD', exact: true, pressed: true }).waitFor();
+    assert.equal(await trade.getByLabel('Trade input amount').inputValue(), '', '"0.02" ETH never becomes "0.02" MUSEGOD');
+    await live.locator('.nft-warning', { hasText: 'Amount cleared. Enter it in MUSEGOD.' }).waitFor();
+    assert.equal(state.sends.length, 1, 'no step 2 without a known amount');
     assert.equal(await trade.getByRole('link', { name: 'View ETH → MUSEGOD transaction' }).getAttribute('href'), `https://robinhoodchain.blockscout.com/tx/${state.sends[0].hash}`);
     await finish(run);
   });

@@ -2936,8 +2936,8 @@ function TokenPage({
     [frozenPay, setFrozenPay] = useState<PayWith | null>(null),
     // The asset `balance` was read for: right after a side switch it still holds the other side's balance.
     [balanceFor, setBalanceFor] = useState<Address | null>(null),
-    // "Amount cleared. Enter it in <unit>." after a switch emptied a typed amount.
-    [unitNote, setUnitNote] = useState(""),
+    // "Amount cleared. Enter it in <unit>." after a unit change emptied a typed amount (shown with the current unit).
+    [amountCleared, setAmountCleared] = useState(false),
     // Re-reads both balances after an ETH buy, finished or not.
     [balanceTick, setBalanceTick] = useState(0),
     [clock, setClock] = useState(quoteNow());
@@ -2950,16 +2950,13 @@ function TokenPage({
   // (and that clears the field). Sell, or an empty field, resets it.
   if (ethPayable && amount && frozenPay === null) setFrozenPay(fallbackPay);
   if ((!ethPayable || !amount) && frozenPay !== null) setFrozenPay(null);
-  if (amount && unitNote) setUnitNote("");
+  if (amount && amountCleared) setAmountCleared(false);
   const payWith: PayWith = ethPayable ? resolvePayWith({ choice: payChoice, frozen: frozenPay, amount, fallback: fallbackPay }) : "pair";
   const payingEth = payWith === "eth";
   const enteredPair = ethPayable && !payingEth && amount ? (() => { try { return parseAmount(amount, pairAsset!.decimals); } catch { return null; } })() : null;
   // Paying with the pair asset, the wallet holds less than the amount: offer ETH, never convert the typed amount. Not next to
   // the result of a buy of that amount (`hash`), which spent the balance it would compare against.
   const shortfall = !!wallet.account && !hash && pairShortfall(pairBalance, enteredPair);
-  // The account and network a buy started with; its result is dropped only if they differ when it ends.
-  const walletNow = useRef({ account: wallet.account, chainId: wallet.chainId });
-  useEffect(() => { walletNow.current = { account: wallet.account, chainId: wallet.chainId }; }, [wallet.account, wallet.chainId]);
   // Inputs, page and real account or network changes reset the quote; a wallet event that leaves the account and network
   // unchanged keeps the quote, the progress and any result.
   useEffect(() => {
@@ -2975,7 +2972,7 @@ function TokenPage({
       generation.current++;
     };
   }, [amount, side, slippage, wallet.account, wallet.chainId, address, payWith]);
-  useEffect(() => { setPayChoice(null); setEthNote(null); setUnitNote(""); }, [address]);
+  useEffect(() => { setPayChoice(null); setEthNote(null); setAmountCleared(false); }, [address]);
   const ethExpiresAt = ethQuote ? (ethQuote.mode === "direct" ? ethQuote.quote : ethQuote.conversion).expiresAt : null;
   useEffect(() => {
     const anchor = quote ?? (ethQuote ? (ethQuote.mode === "direct" ? ethQuote.quote : ethQuote.conversion) : undefined);
@@ -3075,8 +3072,12 @@ function TokenPage({
     if (!quote || !config) return;
     // Buying with the pair asset is an explicit pick too: spending it must not flip the panel to ETH and hide the result.
     if (ethPayable) setPayChoice("pair");
-    // A result belongs to the account and network it started with (another coin's page is another component).
-    const started = walletNow.current, live = () => walletNow.current.account === started.account && walletNow.current.chainId === started.chainId;
+    // A result belongs to the account and network it started with (another coin's page is another component). The wallet's
+    // own state is read, so an account change is seen at once, not after the next render.
+    const started = wallet.connection(), live = () => {
+      const now = wallet.connection();
+      return now.account === started.account && now.chainId === started.chainId;
+    };
     setBusy(true);
     setError("");
     setEthNote(null);
@@ -3096,14 +3097,21 @@ function TokenPage({
   }
   const coinAsset = { chainId: 4663 as const, address: token.address, symbol: token.symbol, decimals: 18 };
   const pairPayment = { chainId: 4663 as const, address: stock.address, symbol: stock.symbol, decimals: stock.decimals };
-  // Switching the unit never reinterprets a typed number: it empties the field and says so.
+  // A unit change never reinterprets a typed number: it empties the field and says so.
+  function clearForNewUnit() {
+    if (!amount) return;
+    setAmount("");
+    setAmountCleared(true);
+  }
   function choosePay(next: PayWith) {
-    if (next !== payWith && amount) {
-      setAmount("");
-      setUnitNote(`Amount cleared. Enter it in ${next === "eth" ? "ETH" : stock.symbol}.`);
-    }
+    if (next !== payWith) clearForNewUnit();
     setPayChoice(next);
     setEthNote(null);
+  }
+  // Buy pays the pair asset or ETH and Sell pays the coin, so switching sides always changes the input unit.
+  function chooseSide(next: "buy" | "sell") {
+    if (next !== side) clearForNewUnit();
+    setSide(next);
   }
   async function getEthQuote() {
     if (!wallet.account) return;
@@ -3130,8 +3138,12 @@ function TokenPage({
     const plan = ethQuote, account = wallet.account, frozen = config, pairDecimals = stock.decimals;
     // Buying with ETH is an explicit pick: a balance change during the buy must not switch the panel.
     setPayChoice("eth");
-    // A result belongs to the account and network it started with (another coin's page is another component).
-    const started = walletNow.current, live = () => walletNow.current.account === started.account && walletNow.current.chainId === started.chainId;
+    // A result belongs to the account and network it started with (another coin's page is another component). The wallet's
+    // own state is read, so an account change is seen at once, not after the next render.
+    const started = wallet.connection(), live = () => {
+      const now = wallet.connection();
+      return now.account === started.account && now.chainId === started.chainId;
+    };
     const show = (message: string) => { if (live()) setProgress(message); };
     setBusy(true);
     setError("");
@@ -3161,7 +3173,9 @@ function TokenPage({
         // transaction is never offered as something to finish.
         if (!e.pending) {
           setPayChoice("pair");
+          // The ETH amount is never left standing as a pair amount: exactly what arrived, or an empty field and the note.
           if (e.pairReceived !== null) setAmount(formatUnits(e.pairReceived, pairDecimals));
+          else { setAmount(""); setAmountCleared(true); }
         }
       } else setError(errorMessage(e));
     } finally {
@@ -3308,7 +3322,7 @@ function TokenPage({
               aria-pressed={side === "buy"}
               className={side === "buy" ? "active" : ""}
               disabled={busy}
-              onClick={() => setSide("buy")}
+              onClick={() => chooseSide("buy")}
             >
               Buy
             </button>
@@ -3317,7 +3331,7 @@ function TokenPage({
               aria-pressed={side === "sell"}
               className={side === "sell" ? "active sell" : ""}
               disabled={busy}
-              onClick={() => setSide("sell")}
+              onClick={() => chooseSide("sell")}
             >
               Sell
             </button>
@@ -3495,7 +3509,7 @@ function TokenPage({
             {payingEth && !wallet.account && <p className="nft-warning">Connect a wallet to pay with ETH.</p>}
             {/* Announced once when the shortfall appears; the visible hint and its button sit under the amount, outside this region. */}
             {shortfall && <p className="visually-hidden">You hold less than the amount entered in {stock.symbol}. Pay with ETH?</p>}
-            {ethPayable && !amount && unitNote && <p className="nft-warning">{unitNote}</p>}
+            {!amount && amountCleared && <p className="nft-warning">Amount cleared. Enter it in {inputSymbol}.</p>}
             {payingEth && ethQuote?.mode === "two-step" && <p className="nft-warning">{ethBuyDisclosure(stock.symbol, token.symbol)}</p>}
             {progress && <p className="trade-progress">{progress}</p>}
             {ethNote && <p className="nft-warning">{ethNote.message}</p>}

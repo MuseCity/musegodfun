@@ -213,6 +213,8 @@ type WalletState = {
   /** True from mount until the remembered wallet's reconnect has settled (or there was none to reconnect). */
   restoring: boolean;
   revision: number;
+  /** The selected wallet's account and network right now, updated synchronously by wallet events (before any re-render). */
+  connection: () => { account: Address | null; chainId: number | null };
   connect: () => Promise<void>;
   disconnect: () => void;
   switchChain: (chainId: number) => Promise<void>;
@@ -1137,6 +1139,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         connecting,
         restoring,
         revision,
+        connection: () => ({ account: controller.current!.state.account, chainId: controller.current!.state.chainId }),
         connect,
         disconnect,
         switchChain,
