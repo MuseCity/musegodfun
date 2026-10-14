@@ -10,8 +10,9 @@ import { errorMessage, nftRefSchema, type LaunchInput } from "../lib/validation"
 /** Element ids the create form uses to move focus to the field to fix. */
 export const NFT_TOKEN_ID = "nft-launch-token", NFT_ERROR_ID = "nft-launch-error", NFT_FEE_ID = "nft-launch-fee";
 export const NFT_DISCLAIMER = "Not investment advice. musegod.fun does not endorse NFT collections; an unverified collection may imitate another.";
-/** What the create form needs from the step to decide whether review may open. */
-export type NftStepStatus = { status: string; fee: LaunchFeeState };
+/** What the create form needs from the step to decide whether review may open. `checked`: the live check passed for the NFT the draft
+ * holds (a restored NFT stays in the draft while it is checked again, so the draft alone does not say it passed). */
+export type NftStepStatus = { status: string; fee: LaunchFeeState; checked: boolean };
 
 export function LaunchModeSwitch({ nftMode, disabled, onChange }: { nftMode: boolean; disabled?: boolean; onChange: (nftMode: boolean) => void }) {
   return (
@@ -29,8 +30,10 @@ function TxHash({ hash, config }: { hash: Hex; config: RuntimeConfig }) {
   return <><code className="wrap">{hash}</code>{explorer && <> <a href={`${explorer}/tx/${hash}`} target="_blank" rel="noreferrer">View transaction</a></>}</>;
 }
 
-/** Step one of an NFT launch: the NFT, its live check, and the wallet's $10 fee. `onChange` reports a confirmed NFT only, and
- * `undefined` while a check is pending or failed (`user`: the person changed the NFT), so review can never proceed as a normal coin. */
+/** Step one of an NFT launch: the NFT, its live check, and the wallet's $10 fee. `onChange` reports a confirmed NFT, and `undefined` when
+ * the person changes the NFT or the check says no (not ERC-721, not controlled, already launched); `user`: the person changed the NFT.
+ * The NFT the draft already holds (a reload, another tab, a draft link) stays while it is checked again, and through a check that could
+ * not run (the error shows with Retry); `checked` in the status tells review whether the check passed, so review never proceeds on it. */
 export function NftLaunchStep({ config, account, draft, error = "", feeRejected = "", onChange, onCheck, onFee, onPrefill, onStatus }: {
   config: RuntimeConfig; account: Address | null; draft: LaunchInput; error?: string; feeRejected?: string;
   onChange: (nft: NftRef | undefined, user: boolean) => void; onCheck: () => void; onFee: (fee: DraftLaunchFee | undefined) => void;
@@ -39,8 +42,8 @@ export function NftLaunchStep({ config, account, draft, error = "", feeRejected 
   const nft = draft.nft;
   const [contract, setContract] = useState<string>(nft?.contract ?? MUSES.contract);
   const [tokenId, setTokenId] = useState(nft?.tokenId ?? "");
-  const [status, setStatus] = useState<NftStatus | null>(null);
-  const [checkError, setCheckError] = useState("");
+  const [status, setStatus] = useState<NftStatus | null>(null), [statusFor, setStatusFor] = useState("");
+  const [checkError, setCheckError] = useState(""), [attempt, setAttempt] = useState(0);
   // Parent callbacks are read through a ref, so a new callback identity never re-runs the check.
   const latest = useRef({ onChange, onCheck, onFee, onPrefill, onStatus });
   latest.current = { onChange, onCheck, onFee, onPrefill, onStatus };
@@ -57,19 +60,22 @@ export function NftLaunchStep({ config, account, draft, error = "", feeRejected 
   const edit = (apply: () => void) => { edited.current = true; apply(); };
   const parsed = nftRefSchema.safeParse({ chainId: deploymentChain(config), contract, tokenId });
   const candidate = parsed.success ? parsed.data : null, candidateKey = candidate ? nftKey(candidate) : "";
+  // The check a result belongs to: a result for an earlier NFT, account or attempt never counts for the current one.
+  const run = `${candidateKey}|${account ?? ""}|${config.chainId}|${config.deploymentChainId}|${attempt}`;
   useEffect(() => {
     const user = edited.current;
     edited.current = false;
     setStatus(null); setCheckError("");
     latest.current.onCheck();
-    report(undefined, user);
+    // The NFT the draft already holds is checked again without being dropped; any other NFT is not in the draft until it passes.
+    if (user || !candidate || reported.current !== candidateKey) report(undefined, user);
     if (!account || !candidate) return;
     let active = true;
     const timer = setTimeout(() => {
       readNftStatus(config, candidate, account).then((result) => {
         if (!active) return;
-        setStatus(result);
-        if (!result.erc721 || !result.controls || result.alreadyLaunched) return;
+        setStatus(result); setStatusFor(run);
+        if (!result.erc721 || !result.controls || result.alreadyLaunched) { report(undefined, user); return; }
         report(candidate, user);
         if (result.free && result.name && prefilled.current !== candidateKey) {
           prefilled.current = candidateKey;
@@ -78,21 +84,23 @@ export function NftLaunchStep({ config, account, draft, error = "", feeRejected 
       }, (cause: unknown) => { if (active) setCheckError(errorMessage(cause)); });
     }, 400);
     return () => { active = false; clearTimeout(timer); };
-  }, [candidateKey, account, config.chainId, config.deploymentChainId]);
+  }, [candidateKey, account, config.chainId, config.deploymentChainId, attempt]);
+  const current = statusFor === run ? status : null;
+  const passed = !!account && !!candidate && !checkError && !!current && current.erc721 && current.controls && !current.alreadyLaunched;
 
   const statusText = !account ? "Connect the wallet that holds the NFT."
     : tokenId && !parsed.success ? parsed.error.issues[0]?.message ?? "Check the contract and token number."
     : !candidate ? "Enter the token number to check it."
     : checkError ? checkError
-    : !status ? "Checking this NFT…"
-    : !status.erc721 ? "This contract is not an ERC-721 collection."
-    : !status.controls ? "This wallet does not hold the NFT and has no delegation for it."
-    : status.alreadyLaunched ? "This NFT already has its coin."
-    : status.free ? "Muse launches are free. Muse coins pair with MUSEGOD."
+    : !current ? "Checking this NFT…"
+    : !current.erc721 ? "This contract is not an ERC-721 collection."
+    : !current.controls ? "This wallet does not hold the NFT and has no delegation for it."
+    : current.alreadyLaunched ? "This NFT already has its coin."
+    : current.free ? "Muse launches are free. Muse coins pair with MUSEGOD."
     : "Launching for this NFT costs $10, paid before the launch.";
 
   const fee = useLaunchFee(config, account, draft.launchFee, (next) => latest.current.onFee(next));
-  useEffect(() => { latest.current.onStatus({ status: statusText, fee: fee.state }); }, [statusText, fee.state]);
+  useEffect(() => { latest.current.onStatus({ status: statusText, fee: fee.state, checked: passed }); }, [statusText, fee.state, passed]);
   const stable = LAUNCH_FEE_STABLE[deploymentChain(config)], record = fee.record;
   const needsFee = !!nft && !isMuse(nft);
   // A fee paid before the verified vault exists could not launch anything, so payment opens with it.
@@ -115,6 +123,7 @@ export function NftLaunchStep({ config, account, draft, error = "", feeRejected 
           onChange={(event) => edit(() => setTokenId(event.target.value.trim()))} />
       </label>
       <p id="nft-launch-status" className="nft-status" role="status" aria-live="polite">{statusText}</p>
+      {checkError && account && candidate && <button type="button" className="text-button" onClick={() => setAttempt((value) => value + 1)}>Retry</button>}
       {error && <p id={NFT_ERROR_ID} className="field-error" role="alert" tabIndex={-1}>{error}</p>}
       {/* The fee state shows whenever a payment exists, even while the NFT check is pending or failed. */}
       {(record || needsFee || feeRejected) && <section className="nft-fee" aria-labelledby={NFT_FEE_ID}>

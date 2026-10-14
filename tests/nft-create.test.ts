@@ -133,11 +133,20 @@ test("review waits in NFT mode until the NFT is confirmed and, for a paid NFT, t
   assert.equal(nftReviewBlocker(false, draftOf(), status), null, "Normal mode is never blocked by the NFT step");
   assert.equal(nftReviewBlocker(true, draftOf(), status), status, "the step's status is the reason");
   assert.match(nftReviewBlocker(true, draftOf(), "") ?? "", /NFT/, "an empty status still blocks");
-  assert.equal(nftReviewBlocker(true, draftOf({ nft: other() }), ""), "Pay the $10 launch fee for this NFT first.");
-  assert.match(nftReviewBlocker(true, draftOf({ nft: other() }), "", "pending") ?? "", /still confirming/, "a pending payment says so");
-  assert.match(nftReviewBlocker(true, draftOf({ nft: other() }), "", "sending") ?? "", /may have been sent/);
-  assert.equal(nftReviewBlocker(true, draftOf({ nft: other(), launchFee: stableFee }), "", "paid"), null);
-  assert.equal(nftReviewBlocker(true, draftOf({ nft: muse() }), "", "pending"), null, "Muses are free");
+  assert.equal(nftReviewBlocker(true, draftOf({ nft: other() }), "", "none", true), "Pay the $10 launch fee for this NFT first.");
+  assert.match(nftReviewBlocker(true, draftOf({ nft: other() }), "", "pending", true) ?? "", /still confirming/, "a pending payment says so");
+  assert.match(nftReviewBlocker(true, draftOf({ nft: other() }), "", "sending", true) ?? "", /may have been sent/);
+  assert.equal(nftReviewBlocker(true, draftOf({ nft: other(), launchFee: stableFee }), "", "paid", true), null);
+  assert.equal(nftReviewBlocker(true, draftOf({ nft: muse() }), "", "pending", true), null, "Muses are free");
+});
+
+// A restored NFT stays in the draft while the step checks it again: review waits for the step's check, not only for `draft.nft`.
+test("review stays blocked while the NFT step re-checks an NFT the draft already holds", () => {
+  for (const status of ["Checking this NFT…", "Connect the wallet that holds the NFT.", "The NFT status could not be read. Retry."])
+    for (const nft of [muse(), other()])
+      assert.equal(nftReviewBlocker(true, draftOf({ nft, launchFee: stableFee }), status, "paid", false), status, `${status} (${nft.contract})`);
+  assert.match(nftReviewBlocker(true, draftOf({ nft: muse() }), "") ?? "", /NFT/, "a step that reported nothing has not checked: blocked");
+  assert.equal(nftReviewBlocker(true, draftOf({ nft: muse() }), "Muse launches are free. Muse coins pair with MUSEGOD.", "none", true), null);
 });
 
 

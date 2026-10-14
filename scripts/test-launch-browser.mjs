@@ -27,7 +27,7 @@ const tokenLookupModes = new Set(['token_detail_pending', 'token_detail_error', 
 const timeoutModes = new Set(['approval_timeout', 'payment_timeout', 'launch_timeout', 'approval_timeout_reject']);
 const recoveryRaceModes = new Set(['payment_marker_race', 'launch_marker_race', 'payment_status_race', 'payment_submit_race', 'payment_submit_record_race']);
 // NFT mode: the mode switch, the Muse pair lock, the $10 fee card before review and prepare's NFT rejections. No launch is signed.
-const nftModes = new Set(['nft_muse_free', 'nft_paid_usdg', 'nft_paid_eth', 'nft_fee_sending_reload', 'nft_not_controlled', 'nft_already_launched', 'nft_draft_link_during_reconnect', 'nft_draft_link_locked_wallet', 'nft_fee_no_vault']);
+const nftModes = new Set(['nft_reload_keeps_nft', 'nft_muse_free', 'nft_paid_usdg', 'nft_paid_eth', 'nft_fee_sending_reload', 'nft_not_controlled', 'nft_already_launched', 'nft_draft_link_during_reconnect', 'nft_draft_link_locked_wallet', 'nft_fee_no_vault']);
 const feeWei = '3333333333333334';
 const muses = '0x13Ea3072b7215d4C9c2Ec4f498A08c5825129836', paidCollection = '0x9999999999999999999999999999999999999999';
 const usdg = '0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168', musegodAsset = ROBINHOOD_STOCKS.find(x => x.symbol === 'MUSEGOD');
@@ -213,6 +213,8 @@ async function casePage(mode, viewport = { width: 1440, height: 1000 }) {
     if (path === '/api/nft-status') {
       const [chainId, contract, tokenId] = (url.searchParams.get('nft') || '').split(':');
       state.nftStatusRequests.push({ chainId, contract, tokenId, account: url.searchParams.get('account') });
+      if (state.failNftStatus) return reply({ error: 'The NFT status could not be read right now.' }, 503);
+      if (state.holdNftStatus) await new Promise(resolve => (state.nftStatusResolvers ||= []).push(resolve));
       const muse = contract?.toLowerCase() === muses.toLowerCase();
       return reply({ erc721: true, owner: tokenId === '7' ? treasury : creator, controls: tokenId !== '7', alreadyLaunched: tokenId === '9', free: muse,
         ...(muse ? { name: 'Bard', agentId: '6592' } : {}) });
@@ -846,7 +848,80 @@ async function twoTabsDraftCase(context, page, pageErrors) {
   await autosaveSettled(page);
   assert.equal(await storedDraftName(page), '', 'the stored draft stays cleared');
 }
+// A reload keeps the chosen NFT: the step checks the restored NFT again without dropping it, so neither the reloading tab's autosave nor
+// an unedited second tab ever loses it. Review waits for the check; a check that cannot run keeps the NFT and offers Retry.
+async function nftReloadCase(page, state) {
+  const context = page.context(), errors = [], muse1 = { chainId: 4663, contract: muses, tokenId: '1' };
+  const free = 'Muse launches are free. Muse coins pair with MUSEGOD.', checking = 'Checking this NFT…';
+  const statusIs = (target, text) => target.waitForFunction(text => document.getElementById('nft-launch-status')?.textContent === text, text);
+  const tokenOf = target => target.getByLabel('Token number', { exact: true }).inputValue();
+  // Shown only while the draft holds the NFT.
+  const bound = target => target.getByText(/^Creator fees go to this NFT's treasury/);
+  const storedNft = async target => (await storedDraft(target))?.nft;
+  await page.getByRole('button', { name: 'Connect wallet', exact: true }).click();
+  const choose = page.getByRole('button', { name: /Local acceptance wallet/ }); if (await choose.count()) await choose.click();
+  await page.getByRole('button', { name: /^Wallet account / }).waitFor();
+  await page.getByRole('radio', { name: 'NFT', exact: true }).check();
+  await page.getByLabel('Token number', { exact: true }).fill('1');
+  await statusIs(page, free);
+  await page.waitForFunction(() => document.querySelector('input[name="name"]')?.value === 'Bard');
+  await autosaveSettled(page);
+  assert.deepEqual(await storedNft(page), muse1);
+  // A second tab holds the same draft and is not edited.
+  const second = await context.newPage(); second.on('pageerror', e => errors.push(e.message));
+  await second.goto(origin + '/create?chainId=4663');
+  await statusIs(second, free);
+  await autosaveSettled(second);
+  assert.equal(await tokenOf(second), '1');
+  // The first tab reloads while its NFT check is held open.
+  state.holdNftStatus = true;
+  await page.reload();
+  await page.getByRole('button', { name: /^Wallet account / }).waitFor();
+  await statusIs(page, checking);
+  assert.equal(await tokenOf(page), '1');
+  await autosaveSettled(page);
+  assert.deepEqual(await storedNft(page), muse1, 'a reload never saves the draft without its NFT');
+  await bound(page).waitFor();
+  // Review stays blocked during the re-check, although the draft holds the NFT.
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await page.getByRole('button', { name: 'Review and continue', exact: true }).click();
+  await page.locator('#nft-launch-error').getByText(checking, { exact: true }).waitFor();
+  assert.equal(await page.getByRole('dialog').count(), 0); assert.equal(state.prepareRequests.length, 0, 'no preflight before the check passes');
+  assert.equal(await bound(page).isVisible(), true);
+  // The unedited second tab follows the first tab's saves (its step moves with them), never to a draft without the NFT.
+  assert.deepEqual(await storedNft(second), muse1); assert.equal(await tokenOf(second), '1');
+  // The check passes: review opens with the NFT.
+  state.holdNftStatus = false; state.nftStatusResolvers.splice(0).forEach(resolve => resolve());
+  await statusIs(page, free);
+  await bound(second).waitFor(); await statusIs(second, free);
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await page.getByRole('button', { name: 'Review and continue', exact: true }).click();
+  await waitForFixture(() => state.prepareRequests.length > 0, 'the NFT prepare request');
+  assert.deepEqual(state.prepareRequests[0].draft.nft, muse1);
+  await page.getByRole('button', { name: 'Confirm launch · Sign in wallet', exact: true }).waitFor();
+  // A check that cannot run keeps the NFT, says why and offers Retry; review stays blocked until it passes.
+  state.failNftStatus = true;
+  await page.reload();
+  // The draft was saved on its second step; the NFT step is on the first.
+  await page.getByRole('button', { name: /^Wallet account / }).waitFor();
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
+  await page.getByRole('button', { name: 'Retry', exact: true }).waitFor();
+  await statusIs(page, 'The NFT status could not be read right now.');
+  await bound(page).waitFor();
+  await autosaveSettled(page);
+  assert.deepEqual(await storedNft(page), muse1, 'a failed check never drops the NFT');
+  state.failNftStatus = false;
+  await page.getByRole('button', { name: 'Retry', exact: true }).click();
+  await statusIs(page, free);
+  await autosaveSettled(page); await autosaveSettled(second);
+  assert.deepEqual(await storedNft(page), muse1);
+  assert.equal(await tokenOf(page), '1'); assert.equal(await tokenOf(second), '1'); assert.equal(await bound(second).isVisible(), true);
+  assert.deepEqual(errors, []);
+  await page.screenshot({ path: '.cache/launch-browser-nft_reload_keeps_nft.png', fullPage: true }); report.screenshots.push('.cache/launch-browser-nft_reload_keeps_nft.png');
+  state.nftChecks = { reloadKeptStoredNft: true, unEditedTabKeptNft: true, reviewBlockedWhileRechecking: true, failedCheckKeptNftWithRetry: true };
+}
 async function nftCase(page, state) {
+  if (state.mode === 'nft_reload_keeps_nft') return nftReloadCase(page, state);
   if (state.mode === 'nft_draft_link_during_reconnect') return draftLinkCase(page, state);
   if (state.mode === 'nft_draft_link_locked_wallet') return lockedWalletCase(page, state);
   const mode = state.mode, nftRadio = page.getByRole('radio', { name: 'NFT', exact: true });
@@ -1021,7 +1096,7 @@ async function nftCase(page, state) {
   await page.screenshot({ path: `.cache/launch-browser-${mode}.png`, fullPage: true }); report.screenshots.push(`.cache/launch-browser-${mode}.png`);
 }
 try {
-  for (const mode of (process.env.BROWSER_CASES?.split(',') || ['success','plain','duplicate','stale_page','reject_approval','wallet_refuses_sends','expiry','account_change','network_change','simulation_failure','two_tabs','two_tabs_draft','unknown_send','approval_unknown','approval_pending','wrap_flow','wrap_price_change','delayed_config','unknown_fetch','approval_timeout','payment_timeout','launch_timeout','approval_timeout_reject','payment_marker_race','launch_marker_race','payment_status_race','payment_submit_race','payment_submit_record_race','wrap_late_launch_recovery','wrap_near_expiry','idle_review','hidden_review','idle_plain','token_detail_pending','token_detail_error','token_detail_state_unavailable','token_detail_unregistered_backup','token_detail_invalid_pool','token_detail_unverified_opening','history_track_backoff','nft_muse_free','nft_paid_usdg','nft_paid_eth','nft_fee_sending_reload','nft_not_controlled','nft_already_launched','nft_draft_link_during_reconnect','nft_draft_link_locked_wallet','nft_fee_no_vault'])) {
+  for (const mode of (process.env.BROWSER_CASES?.split(',') || ['success','plain','duplicate','stale_page','reject_approval','wallet_refuses_sends','expiry','account_change','network_change','simulation_failure','two_tabs','two_tabs_draft','unknown_send','approval_unknown','approval_pending','wrap_flow','wrap_price_change','delayed_config','unknown_fetch','approval_timeout','payment_timeout','launch_timeout','approval_timeout_reject','payment_marker_race','launch_marker_race','payment_status_race','payment_submit_race','payment_submit_record_race','wrap_late_launch_recovery','wrap_near_expiry','idle_review','hidden_review','idle_plain','token_detail_pending','token_detail_error','token_detail_state_unavailable','token_detail_unregistered_backup','token_detail_invalid_pool','token_detail_unverified_opening','history_track_backoff','nft_muse_free','nft_paid_usdg','nft_paid_eth','nft_fee_sending_reload','nft_not_controlled','nft_already_launched','nft_draft_link_during_reconnect','nft_draft_link_locked_wallet','nft_fee_no_vault','nft_reload_keeps_nft'])) {
     const {context,page,state,pageErrors}=await casePage(mode);
     const plain = plainModes.has(mode);
     if (mode === 'success') {
@@ -1171,6 +1246,13 @@ try {
     }
     else if (mode==='approval_pending') {
       await page.getByLabel('Transaction hash from your wallet').waitFor();
+      // The marker gains its hash, and the history its row, only after the wallet answers.
+      await waitForFixture(() => state.sends.length > 0, 'the approval reaching the wallet');
+      await page.waitForFunction(() => {
+        const key = Object.keys(localStorage).find(key => key.startsWith('musegod.launch.submission.') && localStorage.getItem(key));
+        const hash = key && JSON.parse(localStorage.getItem(key) || 'null')?.hash;
+        return !!hash && (JSON.parse(localStorage.getItem('musegod.transactions.v1') || '[]')).some(row => row.hash === hash);
+      });
       const marker=await page.evaluate(() => {
         const key=Object.keys(localStorage).find(key=>key.startsWith('musegod.launch.submission.') && localStorage.getItem(key));
         return { key,value:JSON.parse(localStorage.getItem(key)),history:JSON.parse(localStorage.getItem('musegod.transactions.v1')) };

@@ -1140,10 +1140,11 @@ function CreatePage({
     }),
     [firstBuy, setFirstBuy] = useState<FirstBuyDraft>(() => firstBuyDraft(config, initialSavedDraft())),
     [step, setStep] = useState<LaunchStep>(() => launchDraftStep(initialSavedDraft()));
-  // NFT mode is a choice of its own: while its NFT check is pending the draft has no `nft`, yet review stays blocked.
+  // NFT mode is a choice of its own: while a new NFT's check is pending the draft has no `nft` (a restored NFT stays while it is checked
+  // again), and review stays blocked until the step's check passes.
   const [nftMode, setNftMode] = useState(() => savedNftMode(initialSavedDraft())), [draftRevision, setDraftRevision] = useState(0);
   // The NFT step's status and fee state decide whether review may open; a launch-fee rejection from prepare waits for the user there.
-  const [nftStep, setNftStep] = useState<NftStepStatus>({ status: "", fee: "none" }), [nftFeeRejected, setNftFeeRejected] = useState("");
+  const [nftStep, setNftStep] = useState<NftStepStatus>({ status: "", fee: "none", checked: false }), [nftFeeRejected, setNftFeeRejected] = useState("");
   const [query, setQuery] = useState(""),
     [category, setCategory] = useState<AssetCategory>("all"),
     [showAllAssets, setShowAllAssets] = useState(false),
@@ -1174,9 +1175,11 @@ function CreatePage({
     const key = launchIntentStorageKey(config, wallet.account, intentId, "draft");
     try { draftBasis.current = { key, raw: localStorage.getItem(key), payload: loadedPayload(initialSavedDraft(), intentId) }; } catch { /* Storage unavailable. */ }
   }
-  // A review, payment or submission in progress: another tab's draft must not replace the form under it.
-  const formHeld = useRef(false);
-  formHeld.current = busy || review || !!plan || !!paymentQuote || !!paymentAttempt;
+  // A review, payment or submission in progress: another tab's draft must not replace the form under it. The autosave runs again when it
+  // ends, so an unedited form then takes a draft another tab saved meanwhile (the listener reads the ref). The other hold, NFT mode with
+  // no NFT yet, ends with a change to the draft or NFT mode, which the autosave already follows.
+  const held = busy || review || !!plan || !!paymentQuote || !!paymentAttempt, formHeld = useRef(held);
+  formHeld.current = held;
   const [submissionUnknown, setSubmissionUnknown] = useState(false);
   const [recoveryHash, setRecoveryHash] = useState("");
   const currentPlan = useRef<LaunchPlan | null>(null);
@@ -1387,7 +1390,7 @@ function CreatePage({
       }
     }, 250);
     return () => clearTimeout(timer);
-  }, [draft, firstBuy, step, nftMode, config?.chainId, config?.deploymentChainId, intentId, wallet.account]);
+  }, [draft, firstBuy, step, nftMode, config?.chainId, config?.deploymentChainId, intentId, wallet.account, held]);
   // Another tab saved this intent's draft. A tab with no local edits, or still showing a blank draft, takes it now (see `draftAutosave`),
   // so its creator edits the latest draft rather than over it. A tab with its own edits keeps them, and the last tab to save wins.
   useEffect(() => {
@@ -1624,10 +1627,10 @@ function CreatePage({
       setError("A launch transaction is already submitted. Recover its status before preparing another launch.");
       return;
     }
-    const nftBlock = nftReviewBlocker(nftMode, draft, nftStep.status, nftStep.fee);
+    const nftBlock = nftReviewBlocker(nftMode, draft, nftStep.status, nftStep.fee, nftStep.checked);
     if (nftBlock) {
       setStep(1); setInvalidField("nft"); setError(nftBlock);
-      requestAnimationFrame(() => document.getElementById(draft.nft ? NFT_FEE_ID : NFT_TOKEN_ID)?.focus());
+      requestAnimationFrame(() => document.getElementById(draft.nft && nftStep.checked ? NFT_FEE_ID : NFT_TOKEN_ID)?.focus());
       return;
     }
     const result = launchSchema.safeParse(draft);

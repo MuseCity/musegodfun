@@ -251,6 +251,11 @@ test("an autosave holds NFT input and an open review, keeps an unedited tab in s
   assert.equal(draftAutosave(null, nftTyping, undefined, network), "write", "its own draft still saves");
   assert.equal(draftAutosave(empty, nftTyping, read(empty), network), "write");
   assert.equal(draftAutosave(named, nftChosen, read(null), network), "write", "a chosen NFT is a draft: the last writer wins");
+  // Another tab's draft dropped its NFT (its step was re-checking): an unedited tab that holds the NFT keeps it rather than follow.
+  assert.equal(draftAutosave(nftTyping, nftChosen, synced(nftChosen), network), "hold");
+  assert.equal(draftAutosave(save({ name: "NFT draft" }, { nftMode: true }), save({ name: "NFT draft", nft: JSON.parse(nftChosen).nft }, { nftMode: true }),
+    synced(save({ name: "NFT draft", nft: JSON.parse(nftChosen).nft }, { nftMode: true })), network), "hold");
+  assert.equal(draftAutosave(empty, nftChosen, synced(nftChosen), network), "adopt", "a cleared draft (NFT mode off) is still followed");
   // A review, payment or submission in progress holds the form instead of adopting under it; nothing else changes.
   assert.equal(draftAutosave(named, empty, read(null), network, true), "hold");
   assert.equal(draftAutosave(renamed, named, synced(named), network, true), "hold");

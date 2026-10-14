@@ -52,7 +52,8 @@ export type DraftBasis = { raw: string | null; payload?: string };
  *   so it follows the newer draft, a cleared one included (a stale tab never undoes another tab's "Clear draft"); or this tab's draft is
  *   blank and the stored one is not (another tab saved a named draft after this tab loaded). The tab takes the stored draft.
  * - "hold": it would adopt, but the form holds what the stored draft cannot carry: NFT mode with no NFT chosen yet (the NFT step's typed,
- *   unconfirmed input; NFT mode alone is not a draft, so it never writes over a named one), or `holding`. It neither writes nor adopts.
+ *   unconfirmed input; NFT mode alone is not a draft, so it never writes over a named one), an NFT the stored draft lacks while it is in
+ *   NFT mode (another tab's step dropped it), or `holding`. It neither writes nor adopts.
  * localStorage has no cross-tab compare-and-set. Another tab's write can still land between this read and this tab's write, and a write
  * from another tab reaches this one only after a short propagation delay. The window for a lost draft shrank from the 250 ms autosave
  * delay to that gap; it is not zero. */
@@ -62,10 +63,12 @@ export function draftAutosave(stored: string | null, payload: string, basis: Dra
   if (stored === null) return "write";
   if (basis && stored === basis.raw) return unedited ? "unchanged" : "write";
   if (!unedited && (!isBlankDraft(payload, config) || isBlankDraft(stored, config))) return "write";
-  return holding || nftInputPending(payload) ? "hold" : "adopt";
+  const ours = nftState(payload), theirs = nftState(stored);
+  return holding || ours === "pending" || ours === "chosen" && theirs === "pending" ? "hold" : "adopt";
 }
-function nftInputPending(raw: string) {
-  try { const saved = JSON.parse(raw); return saved?.nftMode === true && !saved.nft; } catch { return false; }
+// NFT mode with no NFT yet ("pending"), an NFT chosen, or neither.
+function nftState(raw: string): "pending" | "chosen" | "none" {
+  try { const saved = JSON.parse(raw); return saved?.nft ? "chosen" : saved?.nftMode === true ? "pending" : "none"; } catch { return "none"; }
 }
 export function launchDraftKey(config: RuntimeConfig) {
   return `musegod.launch.draft.${config.chainId}${config.mode === "fork" ? `.${deploymentChain(config)}` : ""}`;
