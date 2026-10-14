@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "kind": "nft-vault-factory-deployment",
+  "chainId": 4663,
+  "rehearsal": true,
+  "rpc": "local Anvil fork (loopback)",
+  "verifiedAt": "2026-10-14T12:05:43.585Z",
+  "verifiedAtBlock": "88353228",
+  "factory": "0x7d3915E77e1761a357813084102C7E3EFFEA456A",
+  "deployer": "0x56d1caC202AbcdcedE5E1757803eebE3149D9a90",
+  "nonce": 0,
+  "transactionHash": "0xb7a6f0d3f370ec09357e4b718c558c40a13a70917a807d9a60af6f0d7711e220",
+  "blockNumber": "88353227",
+  "blockHash": "0x693c783c8e5a61974316f4e7ab815411437e3a76e0422333606112699be80f13",
+  "confirmations": "2",
+  "gasUsed": "1347843",
+  "effectiveGasPrice": "1017514001",
+  "costWei": "1371449123649843",
+  "costEth": "0.001371449123649843",
+  "runtimeHash": "0x887bf689866d510c4d312b318320dd38088371c10372861ae429b668daf54abe",
+  "runtimeBytes": 5727,
+  "expected": {
+    "runtimeHash": "0x887bf689866d510c4d312b318320dd38088371c10372861ae429b668daf54abe",
+    "runtimeBytes": 5727,
+    "vaultInitCodeHash": "0x9bca6b10994de2c8aafadff4eb9b326d558bfbbdb1f1d2282b378907b5f46fa7",
+    "factoryRuntimeTemplateHash": "0x0593f2fb97f55e87b91fb16a85c1043512e51557d0e819ef0e84792a3f34e02a",
+    "creationCodeKeccak256": "0xde64e3c4c97baedb43c1fc432b3b95469173610f8af9f32da048ad94103143c7",
+    "factoryCompilerInputSha256": "0aff3c5e348da5672ed6380c0bef1562208160be704c3491b12eac62c4f6b80a"
+  },
+  "onchain": {
+    "VAULT_INIT_CODE_HASH": "0x9bca6b10994de2c8aafadff4eb9b326d558bfbbdb1f1d2282b378907b5f46fa7",
+    "vaultForMuse1": "0xD78C599245ACAF7DB4Dd82A702f03cEEE9D40d74",
+    "treasuryForMuse1": "0x1104626A8c21c88317D1b539c51a34451a0a162F",
+    "ERC6551_REGISTRY": "0x000000006551c19487814612e58FE06813775758",
+    "TOKENBOUND_V3_PROXY": "0x55266d75D1a14E4572138116aF39863Ed6596E7F"
+  },
+  "library": {
+    "vaultForMuse1": "0xD78C599245ACAF7DB4Dd82A702f03cEEE9D40d74",
+    "treasuryForMuse1": "0x1104626A8c21c88317D1b539c51a34451a0a162F"
+  },
+  "checks": {
+    "receiptSuccess": true,
+    "contractCreation": true,
+    "receiptCanonical": true,
+    "confirmations": true,
+    "sender": true,
+    "nonce": true,
+    "creationCode": true,
+    "transactionChainId": true,
+    "predictedAddress": true,
+    "runtimeHash": true,
+    "vaultInitCodeHash": true,
+    "vaultForMuse1": true,
+    "treasuryForMuse1": true,
+    "factoryConstants": true,
+    "stillCanonical": true
+  },
+  "manifestEntry": {
+    "status": "deployed_verified",
+    "factory": "0x7d3915E77e1761a357813084102C7E3EFFEA456A",
+    "factoryRuntimeHash": "0x887bf689866d510c4d312b318320dd38088371c10372861ae429b668daf54abe",
+    "transactionHash": "0xb7a6f0d3f370ec09357e4b718c558c40a13a70917a807d9a60af6f0d7711e220",
+    "blockNumber": 88353227
+  },
+  "preflight": {
+    "observedAt": "2026-10-14T12:05:43.276Z",
+    "blockNumber": "88353226",
+    "predictedFactory": "0x7d3915E77e1761a357813084102C7E3EFFEA456A"
+  },
+  "toolSha256": "2d69e46c4f41197f8f50781dc63bc3038b082a9483af3bcaf9218f877f04eed2",
+  "signedOrBroadcastByThisTool": false
+}

@@ -1,0 +1,112 @@
+{
+  "kind": "nft-vault-factory-rehearsal",
+  "status": "passed",
+  "startedAt": "2026-10-14T12:05:34.343Z",
+  "scope": "Loopback Anvil fork of Robinhood keeping chain id 4663. The upstream proxy forwards reads only. No mainnet transaction, committed manifest or committed evidence is written.",
+  "mainnetTransactionsSubmitted": false,
+  "forkBlockNumber": "88353226",
+  "preflight": {
+    "ready": true,
+    "failures": [],
+    "deployer": "0x56d1caC202AbcdcedE5E1757803eebE3149D9a90",
+    "nonce": 0,
+    "predictedFactory": "0x7d3915E77e1761a357813084102C7E3EFFEA456A",
+    "expectedRuntimeHash": "0x887bf689866d510c4d312b318320dd38088371c10372861ae429b668daf54abe",
+    "gas": {
+      "estimate": "1347843",
+      "limit": "1617412",
+      "bufferPercent": 20
+    },
+    "fees": {
+      "baseFeePerGas": "20016000",
+      "maxPriorityFeePerGas": "1000000000",
+      "maxFeePerGas": "2040032000",
+      "rule": "maxFeePerGas = 2 x (latest base fee + suggested priority fee)"
+    },
+    "dependencies": {
+      "erc6551Registry": {
+        "address": "0x000000006551c19487814612e58FE06813775758",
+        "runtimeHash": "0xda1d5b06e579f9e42e59b00fbc22939896ecb38dc8830d40de0a2508fecd6735",
+        "runtimeBytes": 571
+      },
+      "tokenboundV3Proxy": {
+        "address": "0x55266d75D1a14E4572138116aF39863Ed6596E7F",
+        "runtimeHash": "0x7f2b4bea519ba5fe0e8e3cf054654f18480c4416fc71370b31f37848688afdb0",
+        "runtimeBytes": 902
+      },
+      "tokenboundV3Implementation": {
+        "address": "0x41C8f39463A868d3A88af00cd0fe7102F30E44eC",
+        "runtimeHash": "0xdf5eeb80b53e48dfd667fff5264976de4004fdd27eef4f6b954d182109f0f85b",
+        "runtimeBytes": 14924
+      },
+      "rehype": {
+        "address": "0x5F9eB5f6726Fe88D5e39867967F5b833d2fA3215",
+        "runtimeHash": "0xca528b4107bfb1d7ffbf3ec3f03103fb800d826f7d8717b450a14b51a2b81196",
+        "runtimeBytes": 18479
+      },
+      "robinhoodInitializer": {
+        "address": "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544",
+        "runtimeHash": "0xc41a91106002f15bf70ae266824317f3f3ac638ac72ca5253bae395fa47ee631",
+        "runtimeBytes": 25533
+      },
+      "muses": {
+        "address": "0x13Ea3072b7215d4C9c2Ec4f498A08c5825129836",
+        "runtimeHash": "0x7eeacae5a5e953bb97468e78dc4424d260028063b548afd07c7db10bef65d3cb",
+        "runtimeBytes": 24507
+      }
+    },
+    "ownerCommand": "cast send --rpc-url <their RPC> --chain 4663 --from 0x56d1caC202AbcdcedE5E1757803eebE3149D9a90 --nonce 0 --gas-limit 1617412 --priority-gas-price 1000000000 --gas-price 2040032000 <their signer flags> --create \"$(cat .cache/nft-vault-rehearsal-4663/factory.create.hex)\""
+  },
+  "castCommandAccepted": true,
+  "deployment": {
+    "factory": "0x7d3915E77e1761a357813084102C7E3EFFEA456A",
+    "transactionHash": "0xb7a6f0d3f370ec09357e4b718c558c40a13a70917a807d9a60af6f0d7711e220",
+    "blockNumber": "88353227",
+    "gasUsed": "1347843",
+    "costEth": "0.001371449123649843",
+    "runtimeHash": "0x887bf689866d510c4d312b318320dd38088371c10372861ae429b668daf54abe"
+  },
+  "verification": {
+    "receiptSuccess": true,
+    "contractCreation": true,
+    "receiptCanonical": true,
+    "confirmations": true,
+    "sender": true,
+    "nonce": true,
+    "creationCode": true,
+    "transactionChainId": true,
+    "predictedAddress": true,
+    "runtimeHash": true,
+    "vaultInitCodeHash": true,
+    "vaultForMuse1": true,
+    "treasuryForMuse1": true,
+    "factoryConstants": true,
+    "stillCanonical": true
+  },
+  "onchain": {
+    "VAULT_INIT_CODE_HASH": "0x9bca6b10994de2c8aafadff4eb9b326d558bfbbdb1f1d2282b378907b5f46fa7",
+    "vaultForMuse1": "0xD78C599245ACAF7DB4Dd82A702f03cEEE9D40d74",
+    "treasuryForMuse1": "0x1104626A8c21c88317D1b539c51a34451a0a162F",
+    "ERC6551_REGISTRY": "0x000000006551c19487814612e58FE06813775758",
+    "TOKENBOUND_V3_PROXY": "0x55266d75D1a14E4572138116aF39863Ed6596E7F"
+  },
+  "wouldWriteManifestEntry": {
+    "status": "deployed_verified",
+    "factory": "0x7d3915E77e1761a357813084102C7E3EFFEA456A",
+    "factoryRuntimeHash": "0x887bf689866d510c4d312b318320dd38088371c10372861ae429b668daf54abe",
+    "transactionHash": "0xb7a6f0d3f370ec09357e4b718c558c40a13a70917a807d9a60af6f0d7711e220",
+    "blockNumber": 88353227
+  },
+  "recorded": {
+    "manifest": "temporary copy written (the committed manifest is unchanged)",
+    "paths": {
+      "preflight": ".cache/nft-vault-rehearsal-4663/preflight.json",
+      "createHex": ".cache/nft-vault-rehearsal-4663/factory.create.hex",
+      "manifest": ".cache/nft-vault-rehearsal-4663/nft-vault-deployment.json",
+      "evidence": ".cache/nft-vault-rehearsal-4663/nft-vault-factory-4663.json",
+      "summary": ".cache/nft-vault-rehearsal-4663/summary.json"
+    }
+  },
+  "blockedUpstreamWrites": 0,
+  "completedAt": "2026-10-14T12:05:43.591Z"
+}

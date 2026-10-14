@@ -25,6 +25,36 @@ Status: not deployed. `contracts/artifacts/nft-vault-deployment.json` keeps `"46
 
 Outputs stay in `.cache/nft-vault-rehearsal-4663/`, including the manifest the verify would write. The committed manifest and evidence are never written from a local node. `--deploy-local --rpc http://127.0.0.1:<port>` does the same against an existing loopback Anvil fork. It refuses any other URL.
 
+The 2026-10-14 rehearsal passed at fork block 88,353,226:
+
+- [summary](evidence/nft-vault-factory-rehearsal-4663.json) and [verify evidence](evidence/nft-vault-factory-rehearsal-4663-verify.json);
+- `toolSha256` equals the committed script;
+- all 15 verify checks passed;
+- the fork factory runtime hash is `0x887b…4abe`;
+- gas used was 1,347,843;
+- zero upstream writes.
+
+These are fork-local results, not a mainnet deployment.
+
+## Before the preflight: the deployer's nonce
+
+The factory address is derived from the deployer and its nonce, so nothing else may send from the deployer between the preflight and the CREATE.
+
+`0xd5C256e6411a6835543F2bCd763341639e3Cf56f` is the documented deployment wallet (`roles.deploymentWallet` in `docs/evidence/base-owner-proposal.json`). It is also the Base Collector, buyback and launch-guard deployer, and the canary budget wallet. It is not a repo keeper:
+
+- `scripts/buyback-keeper.ts` and `scripts/base-buyback-keeper.ts` sign only with their own `MUSEGOD_KEEPER_PRIVATE_KEY`;
+- the gas keeper is `0xd3f11a4DDcED57aC4E41F8CE7fD323959667e278`;
+- its Splits module entries are `enabled: false`.
+
+Even so, its Robinhood nonce was 6 at the launch-guard V2 deployment (2026-10-07) and 388 at the 2026-10-14 preflight. Something outside this repository sends from it: a bot, a wallet script or manual use.
+
+Before signing, the owner must identify that sender and do one of the following:
+
+- **Pause it** until the CREATE is mined and verified; or
+- **Use a dedicated fresh deployment account.** It must have no code and be funded with at least the preflight's `balance.requiredWei`. Run the preflight with `--deployer <that account>`. The predicted factory address changes with the account; that is expected, and verify follows the new report.
+
+Run the preflight **immediately before signing**. Right before sending, `cast nonce --block pending --rpc-url <their RPC> <deployer>` must still print the report's `nonce`. If it does not, do not send; rerun the preflight.
+
 ## 1. Preflight
 
 ```sh
@@ -61,7 +91,7 @@ cast send --rpc-url <their RPC> --chain 4663 --from <deployer> --nonce <n> --gas
 
 - The owner picks the signer: `--keystore`/`--account`, `--ledger`, or a wallet with the same fields.
 - In cast 1.x, `--create` is a subcommand. Every option must come before it, or cast rejects the command.
-- The nonce must be exactly `n`, because the factory address is derived from it. Send nothing else from the deployer between the preflight and this transaction.
+- The nonce must be exactly `n`, because the factory address is derived from it. Send nothing else from the deployer between the preflight and this transaction (see "Before the preflight" above).
 - Send it once. A stuck transaction may only be replaced with the same nonce, the same data and zero value.
 
 ## 3. Verify
