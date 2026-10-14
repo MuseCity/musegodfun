@@ -72,39 +72,64 @@ test("runtime migration enforces service-only control, shared quotas and compati
       SET ROLE service_role;
       DO $$ BEGIN IF public.musegod_nft_guards_ready() IS NOT TRUE THEN RAISE EXCEPTION 'guards lost'; END IF; END $$;
       RESET ROLE;`);
-    // Pre-sign launch claims (20261014120000): all or nothing per scope, renewed by the same owner, refused to another owner until they expire,
+    // Pre-sign launch claims (20261014120000): all or nothing per scope, renewed by the same owner, refused to another owner until they expire
+    // unless the holder is an unsubmitted plan in the claimant's lineage, never moved or taken over once submitted until the safety expiry,
     // released by a scoped DELETE, service-only, and required by the readiness check.
     sql(`SET ROLE service_role;
       DO $$ DECLARE r text[]; BEGIN
-        r:=public.musegod_claim_launch('robinhood','0xa',ARRAY['nft:4663:0xc0:1','fee:0xab'],1300000,1000000); IF r<>'{}' THEN RAISE EXCEPTION 'free claim refused: %',r; END IF;
-        r:=public.musegod_claim_launch('robinhood','0xa',ARRAY['nft:4663:0xc0:1','fee:0xab'],1300010,1000010); IF r<>'{}' THEN RAISE EXCEPTION 'same plan refused: %',r; END IF;
-        r:=public.musegod_claim_launch('robinhood','0xb',ARRAY['nft:4663:0xc0:2','fee:0xab'],1300020,1000020); IF r<>ARRAY['fee:0xab'] THEN RAISE EXCEPTION 'held fee not reported: %',r; END IF;
+        r:=public.musegod_claim_launch('robinhood','0xa',ARRAY['nft:4663:0xc0:1','fee:0xab'],'{}',false,1300000,1000000); IF r<>'{}' THEN RAISE EXCEPTION 'free claim refused: %',r; END IF;
+        r:=public.musegod_claim_launch('robinhood','0xa',ARRAY['nft:4663:0xc0:1','fee:0xab'],'{}',false,1300010,1000010); IF r<>'{}' THEN RAISE EXCEPTION 'same plan refused: %',r; END IF;
+        r:=public.musegod_claim_launch('robinhood','0xb',ARRAY['nft:4663:0xc0:2','fee:0xab'],'{}',false,1300020,1000020); IF r<>ARRAY['fee:0xab'] THEN RAISE EXCEPTION 'held fee not reported: %',r; END IF;
         IF EXISTS(SELECT 1 FROM public.musegod_launch_claims WHERE claim='nft:4663:0xc0:2') THEN RAISE EXCEPTION 'a refused claim took its free key'; END IF;
-        r:=public.musegod_claim_launch('base','0xb',ARRAY['nft:4663:0xc0:1','fee:0xab'],1300020,1000020); IF r<>'{}' THEN RAISE EXCEPTION 'scopes share claims: %',r; END IF;
-        r:=public.musegod_claim_launch('robinhood','0xb',ARRAY['nft:4663:0xc0:1'],1600009,1300009); IF r<>ARRAY['nft:4663:0xc0:1'] THEN RAISE EXCEPTION 'renewal lost: %',r; END IF;
-        r:=public.musegod_claim_launch('robinhood','0xb',ARRAY['nft:4663:0xc0:1'],1600010,1300010); IF r<>'{}' THEN RAISE EXCEPTION 'expired claim not taken over: %',r; END IF;
+        r:=public.musegod_claim_launch('base','0xb',ARRAY['nft:4663:0xc0:1','fee:0xab'],'{}',false,1300020,1000020); IF r<>'{}' THEN RAISE EXCEPTION 'scopes share claims: %',r; END IF;
+        r:=public.musegod_claim_launch('robinhood','0xb',ARRAY['nft:4663:0xc0:1'],'{}',false,1600009,1300009); IF r<>ARRAY['nft:4663:0xc0:1'] THEN RAISE EXCEPTION 'renewal lost: %',r; END IF;
+        r:=public.musegod_claim_launch('robinhood','0xb',ARRAY['nft:4663:0xc0:1'],'{}',false,1600010,1300010); IF r<>'{}' THEN RAISE EXCEPTION 'expired claim not taken over: %',r; END IF;
         IF (SELECT owner FROM public.musegod_launch_claims WHERE scope='robinhood' AND claim='nft:4663:0xc0:1')<>'0xb' THEN RAISE EXCEPTION 'takeover not recorded'; END IF;
         IF EXISTS(SELECT 1 FROM public.musegod_launch_claims WHERE scope='robinhood' AND owner='0xa') THEN RAISE EXCEPTION 'expired claims kept'; END IF;
       END $$;
+      DO $$ DECLARE r text[]; k text[]:=ARRAY['nft:4663:0xc0:3','fee:0xcd']; held text[]:=ARRAY['fee:0xcd','nft:4663:0xc0:3']; BEGIN
+        r:=public.musegod_claim_launch('robinhood','0x1',k,'{}',false,2300000,2000000); IF r<>'{}' THEN RAISE EXCEPTION 'lineage root refused: %',r; END IF;
+        r:=public.musegod_claim_launch('robinhood','0x2',k,ARRAY['0x9'],false,2300001,2000001); IF r<>held THEN RAISE EXCEPTION 'a lineage without the holder moved it: %',r; END IF;
+        r:=public.musegod_claim_launch('robinhood','0x2',k,ARRAY['0x1'],false,2300002,2000002); IF r<>'{}' THEN RAISE EXCEPTION 'a refresh did not take its parent''s claim: %',r; END IF;
+        r:=public.musegod_claim_launch('robinhood','0x3',k,ARRAY['0x1'],false,2300003,2000003); IF r<>held THEN RAISE EXCEPTION 'a racing sibling took the claim: %',r; END IF;
+        r:=public.musegod_claim_launch('robinhood','0x2',k,'{}',true,2600003,2000003); IF r<>'{}' THEN RAISE EXCEPTION 'submission refused: %',r; END IF;
+        r:=public.musegod_claim_launch('robinhood','0x2',k,'{}',false,2300004,2000004); IF r<>'{}' THEN RAISE EXCEPTION 'own renewal refused: %',r; END IF;
+        IF (SELECT count(*) FROM public.musegod_launch_claims WHERE scope='robinhood' AND owner='0x2' AND submitted AND expires_at=2600003)<>2 THEN
+          RAISE EXCEPTION 'a renewal unsubmitted or shortened the claims'; END IF;
+        r:=public.musegod_claim_launch('robinhood','0x4',k,ARRAY['0x2'],false,2300005,2000005); IF r<>held THEN RAISE EXCEPTION 'a submitted claim moved: %',r; END IF;
+        r:=public.musegod_claim_launch('robinhood','0x4',k,'{}',false,2600005,2300005); IF r<>held THEN RAISE EXCEPTION 'a submitted claim was taken over: %',r; END IF;
+        DELETE FROM public.musegod_launch_claims WHERE scope='robinhood' AND owner='0x2' AND NOT submitted;
+        IF (SELECT count(*) FROM public.musegod_launch_claims WHERE scope='robinhood' AND owner='0x2')<>2 THEN RAISE EXCEPTION 'an unsubmitted release removed a submission'; END IF;
+        r:=public.musegod_claim_launch('robinhood','0x4',k,'{}',false,2900003,2600003); IF r<>'{}' THEN RAISE EXCEPTION 'the safety expiry did not free it: %',r; END IF;
+        r:=public.musegod_claim_launch('robinhood','0x4',k,'{}',true,3500004,2900004); IF r<>'{}' THEN RAISE EXCEPTION 'a sent plan could not revive its expired claim: %',r; END IF;
+        r:=public.musegod_claim_launch('robinhood','0x1',k,'{}',true,3500005,2900005); IF r<>held THEN RAISE EXCEPTION 'a submission took another plan''s claim: %',r; END IF;
+      END $$;
       DO $$ DECLARE bad record; BEGIN
-        FOR bad IN SELECT * FROM (VALUES ('robinhood','0xc',ARRAY[]::text[],1300000::bigint,1000000::bigint),('robinhood','0xc',ARRAY['nft:a','nft:a'],1300000,1000000),
-          ('robinhood','0xc',ARRAY['nft:a','fee:b','nft:c'],1300000,1000000),('robinhood','0xc',ARRAY['coin:a'],1300000,1000000),('robinhood','0xc',ARRAY['nft:a',NULL],1300000,1000000),
-          ('robinhood','0xc',ARRAY['nft:a'],1000000,1000000),('robinhood','',ARRAY['nft:a'],1300000,1000000),('other','0xc',ARRAY['nft:a'],1300000,1000000)) AS v(s,p,c,e,n) LOOP
-          BEGIN PERFORM public.musegod_claim_launch(bad.s,bad.p,bad.c,bad.e,bad.n); RAISE EXCEPTION 'accepted: %',bad;
+        FOR bad IN SELECT * FROM (VALUES ('robinhood','0xc',ARRAY[]::text[],'{}'::text[],false,1300000::bigint,1000000::bigint),
+          ('robinhood','0xc',ARRAY['nft:a','nft:a'],'{}',false,1300000,1000000),('robinhood','0xc',ARRAY['nft:a','fee:b','nft:c'],'{}',false,1300000,1000000),
+          ('robinhood','0xc',ARRAY['coin:a'],'{}',false,1300000,1000000),('robinhood','0xc',ARRAY['nft:a',NULL],'{}',false,1300000,1000000),
+          ('robinhood','0xc',ARRAY['nft:a'],'{}',false,1000000,1000000),('robinhood','',ARRAY['nft:a'],'{}',false,1300000,1000000),
+          ('other','0xc',ARRAY['nft:a'],'{}',false,1300000,1000000),('robinhood','0xc',ARRAY['nft:a'],NULL,false,1300000,1000000),
+          ('robinhood','0xc',ARRAY['nft:a'],ARRAY['0xc'],false,1300000,1000000),('robinhood','0xc',ARRAY['nft:a'],ARRAY['0xd',NULL],false,1300000,1000000),
+          ('robinhood','0xc',ARRAY['nft:a'],'{}',NULL,1300000,1000000)) AS v(s,o,c,l,sub,e,n) LOOP
+          BEGIN PERFORM public.musegod_claim_launch(bad.s,bad.o,bad.c,bad.l,bad.sub,bad.e,bad.n); RAISE EXCEPTION 'accepted: %',bad;
           EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'Invalid launch claim' THEN RAISE; END IF; END;
         END LOOP;
       END $$;
       DELETE FROM public.musegod_launch_claims WHERE scope='robinhood' AND owner='0xb';
-      DO $$ BEGIN IF public.musegod_claim_launch('robinhood','0xc',ARRAY['nft:4663:0xc0:1','fee:0xab'],1600020,1300020)<>'{}' THEN RAISE EXCEPTION 'release did not free the claims'; END IF;
+      DO $$ BEGIN IF public.musegod_claim_launch('robinhood','0xc',ARRAY['nft:4663:0xc0:1','fee:0xab'],'{}',false,1600020,1300020)<>'{}' THEN RAISE EXCEPTION 'release did not free the claims'; END IF;
         IF (SELECT count(*) FROM public.musegod_launch_claims WHERE scope='base' AND owner='0xb')<>2 THEN RAISE EXCEPTION 'release crossed scopes'; END IF; END $$;
       RESET ROLE; SET ROLE anon;
-      DO $$ BEGIN BEGIN PERFORM public.musegod_claim_launch('robinhood','0xd',ARRAY['nft:a'],2,1); RAISE EXCEPTION 'public claim function'; EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+      DO $$ BEGIN BEGIN PERFORM public.musegod_claim_launch('robinhood','0xd',ARRAY['nft:a'],'{}',false,2,1); RAISE EXCEPTION 'public claim function'; EXCEPTION WHEN insufficient_privilege THEN NULL; END;
         BEGIN PERFORM * FROM public.musegod_launch_claims; RAISE EXCEPTION 'public claim table'; EXCEPTION WHEN insufficient_privilege THEN NULL; END; END $$;
       RESET ROLE; SET ROLE authenticated;
-      DO $$ BEGIN BEGIN PERFORM public.musegod_claim_launch('robinhood','0xd',ARRAY['nft:a'],2,1); RAISE EXCEPTION 'authenticated claim function'; EXCEPTION WHEN insufficient_privilege THEN NULL; END; END $$;
+      DO $$ BEGIN BEGIN PERFORM public.musegod_claim_launch('robinhood','0xd',ARRAY['nft:a'],'{}',false,2,1); RAISE EXCEPTION 'authenticated claim function'; EXCEPTION WHEN insufficient_privilege THEN NULL; END; END $$;
       RESET ROLE;
-      BEGIN; DROP FUNCTION public.musegod_claim_launch(text,text,text[],bigint,bigint);
+      BEGIN; DROP FUNCTION public.musegod_claim_launch(text,text,text[],text[],boolean,bigint,bigint);
       DO $$ BEGIN IF public.musegod_nft_guards_ready() THEN RAISE EXCEPTION 'a missing claim function was not reported'; END IF; END $$;
+      ROLLBACK;
+      BEGIN; ALTER TABLE public.musegod_launch_claims DROP COLUMN submitted;
+      DO $$ BEGIN IF public.musegod_nft_guards_ready() THEN RAISE EXCEPTION 'a missing submitted column was not reported'; END IF; END $$;
       ROLLBACK;
       BEGIN; DROP TABLE public.musegod_launch_claims;
       DO $$ BEGIN IF public.musegod_nft_guards_ready() THEN RAISE EXCEPTION 'a missing claim table was not reported'; END IF; END $$;
@@ -120,12 +145,12 @@ test("runtime migration enforces service-only control, shared quotas and compati
     holder.stdout.on("data",chunk=>{holderOutput+=chunk;});holder.stderr.on("data",chunk=>{holderOutput+=chunk;});
     const holderExit=once(holder,"close");
     // The pipe is written asynchronously: let the session receive its statements before the synchronous polling below.
-    await new Promise<void>(resolve=>holder.stdin.end("SET ROLE service_role; BEGIN; SELECT public.musegod_claim_launch('robinhood','0xe',ARRAY['nft:4663:0xc0:9'],1700000,1400000); SELECT pg_sleep(3); COMMIT;",()=>resolve()));
+    await new Promise<void>(resolve=>holder.stdin.end("SET ROLE service_role; BEGIN; SELECT public.musegod_claim_launch('robinhood','0xe',ARRAY['nft:4663:0xc0:9'],'{}',false,1700000,1400000); SELECT pg_sleep(3); COMMIT;",()=>resolve()));
     // Wait until the first session has made its claim and sleeps inside its still-open transaction.
     let claimed=false;
     for(let i=0;i<100&&!claimed;i++)claimed=execFileSync("docker",[...psql,"-c","SELECT count(*) FROM pg_stat_activity WHERE state='active' AND query LIKE 'SELECT pg_sleep(3)%'"],{encoding:"utf8"}).trim()==="1";
     assert.equal(claimed,true,`the first session holds its uncommitted claim: ${holderOutput}`);
-    const contender=execFileSync("docker",[...psql,"-c","SET ROLE service_role; SELECT public.musegod_claim_launch('robinhood','0xf',ARRAY['nft:4663:0xc0:9'],1700000,1400000);"],{encoding:"utf8"});
+    const contender=execFileSync("docker",[...psql,"-c","SET ROLE service_role; SELECT public.musegod_claim_launch('robinhood','0xf',ARRAY['nft:4663:0xc0:9'],'{}',false,1700000,1400000);"],{encoding:"utf8"});
     assert.match(contender,/^\{nft:4663:0xc0:9\}$/m,"the contending plan is refused once the first commits");
     assert.equal((await holderExit)[0],0,holderOutput);
     assert.match(holderOutput,/^\{\}$/m,"the first plan's claim was granted");

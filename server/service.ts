@@ -634,19 +634,60 @@ export class LaunchpadService {
       validityVersion: plan.validityVersion, signingExpiresAt: plan.signingExpiresAt, intentId: plan.intentId, serverTime: Date.now() };
   }
   /** Before a real signature, an NFT plan claims its NFT and, unless it is a Muse, its fee payment in the database, all or nothing, for one
-   * signing window from now (renewed each time the launch signs; released by its registration). The database's single-use indexes refuse a
-   * second coin only at registration, after both irreversible creations; the claim stops another launch, in any tab or process, at signing.
-   * Only once the launch holds its claim are both rules re-read, so a coin registered since its preview is seen. */
+   * signing window from now (renewed each time the plan signs; held as submitted once its creation is sent; released by its registration).
+   * The database's single-use indexes refuse a second coin only at registration, after both irreversible creations; the claim stops another
+   * plan, in any tab or process, at signing. A plan that refreshes the holder (the plan signed after a first-buy approval, or a re-confirmed
+   * price) takes over its unsubmitted claim through its verified lineage. Only once the plan holds its claim are both rules re-read, so a coin
+   * registered since its preview is seen; a failed re-read authorizes nothing and frees the claim at once. */
   private async claimNftLaunch(plan: LaunchPlan, nft: NftRef) {
     const fee = isMuse(nft) ? undefined : plan.draft.launchFee;
     if (!isMuse(nft) && !fee) throw new NftLaunchError("NFT_FEE_REQUIRED", "Pay the $10 launch fee for this NFT first.");
-    const held = await this.store.claimLaunch(launchClaimOwner(plan), nftLaunchKeys(nft, fee), Date.now() + LAUNCH_SIGNING_TTL);
+    const keys = nftLaunchKeys(nft, fee), expiresAt = Date.now() + LAUNCH_SIGNING_TTL;
+    let held = await this.store.claimLaunch(plan.id, keys, expiresAt);
+    const lineage = held.length && plan.previousPlanId ? await this.launchLineage(plan, keys) : [];
+    if (lineage.length) held = await this.store.claimLaunch(plan.id, keys, expiresAt, { lineage });
     if (held.some((claim) => claim.startsWith("nft:")))
       throw new NftLaunchError("NFT_LAUNCH_IN_PROGRESS", "A launch for this NFT is already being signed. Finish it or wait a few minutes.");
     if (held.length) throw new NftLaunchError("NFT_FEE_IN_USE", "This launch fee is already attached to another launch being signed.");
-    if (await this.store.verifiedNftCoin(nftKey(nft), plan.tokenAddress))
-      throw new NftLaunchError("NFT_ALREADY_LAUNCHED", "This NFT already has its coin.");
-    if (fee) await this.assertUnusedLaunchFee(fee, plan.creator, plan.tokenAddress);
+    try {
+      if (await this.store.verifiedNftCoin(nftKey(nft), plan.tokenAddress))
+        throw new NftLaunchError("NFT_ALREADY_LAUNCHED", "This NFT already has its coin.");
+      if (fee) await this.assertUnusedLaunchFee(fee, plan.creator, plan.tokenAddress);
+    } catch (error) {
+      // A claim held as submitted stays: this plan's creation was already sent.
+      await this.releaseNftClaims(plan.id, { unsubmittedOnly: true });
+      throw error;
+    }
+  }
+  /** The earlier plans this one refreshes, nearest first: each server-stored `previousPlanId`, which prepare verified as the same creator,
+   * NFT and fee (re-checked here). The walk stops at the first plan too old to still hold a signing claim (a plan signs only inside its
+   * signing window and its claim lasts one window more); every earlier plan is older still. */
+  private async launchLineage(plan: LaunchPlan, keys: string[]): Promise<string[]> {
+    const lineage: string[] = [], oldest = Date.now() - 2 * LAUNCH_SIGNING_TTL;
+    for (let id = plan.previousPlanId; id && id !== plan.id && !lineage.includes(id);) {
+      const previous = await this.store.getPlan(id);
+      if (!previous || previous.recovered || !previous.draft.nft || !sameAddress(previous.creator, plan.creator) || previous.preparedAt < oldest ||
+        nftLaunchKeys(previous.draft.nft, isMuse(previous.draft.nft) ? undefined : previous.draft.launchFee).join() !== keys.join()) break;
+      lineage.push(id);
+      id = previous.previousPlanId;
+    }
+    return lineage;
+  }
+  /** The wallet sent this NFT plan's creation: its claims are held as submitted, never taken over or moved, until registration or a proven
+   * revert releases them, or the recovery window ends for a creation that never lands. Never blocks tracking or registration. */
+  private async submitNftClaims(plan: LaunchPlan, hash: Hex) {
+    const nft = plan.draft.nft!;
+    await Promise.resolve().then(() => this.store.claimLaunch(plan.id, nftLaunchKeys(nft, isMuse(nft) ? undefined : plan.draft.launchFee),
+      Date.now() + RECOVERY_RESULT_TTL_MS, { submitted: true })).then((held) => {
+      // Another plan took the claim (this creation was sent after its signing claim expired): registration settles the conflict.
+      if (held.length) console.error(JSON.stringify({ event: "nft_launch_claim_lost", planId: plan.id, hash, held }));
+    }, (error: unknown) => console.error(JSON.stringify({ event: "nft_launch_claim_submit_failed", planId: plan.id, hash,
+      error: error instanceof Error ? error.message : String(error) })));
+  }
+  /** Frees a plan's claims; a failure only leaves them to expire. */
+  private async releaseNftClaims(planId: string, options?: { unsubmittedOnly?: boolean }) {
+    await Promise.resolve().then(() => this.store.releaseLaunchClaims(planId, options)).catch((error: unknown) =>
+      console.error(JSON.stringify({ event: "nft_launch_claims_release_failed", planId, error: error instanceof Error ? error.message : String(error) })));
   }
   async simulateLaunch(creator: Address, data: Hex) {
     await this.validateLaunch(creator, data);
@@ -691,6 +732,7 @@ export class LaunchpadService {
       assertHistoricalOpeningValuation(plan.openingValuation, plan.draft.quoteAddress, deploymentChain(this.runtime.config));
     assertLaunchTransaction(plan, tx, this.contracts);
     await this.store.trackLaunch(hash, plan.id);
+    if (plan.draft.nft) await this.submitNftClaims(plan, hash);
   }
   async register(hash: Hex, recoveryPlan?: LaunchPlan): Promise<TokenRecord> {
     hash = hash.toLowerCase() as Hex;
@@ -983,6 +1025,8 @@ export class LaunchpadService {
     if (!draft.nft) await save();
     else {
       const nft = draft.nft, fee = isMuse(nft) ? undefined : draft.launchFee;
+      // The creation is on-chain: its claims hold, as submitted, while registration decides (it can retry for minutes).
+      await this.submitNftClaims(plan, hash);
       // The one-coin and single-use checks hold until the record that makes them true is written.
       await withNftLocks(nftLaunchKeys(nft, fee), async () => {
         const settled = await this.nftRegistration({ hash, plan, nft, fee, saved: !!savedPlan, receiptBlock: receipt.blockNumber, receiptTimestamp: block.timestamp });
@@ -1001,10 +1045,8 @@ export class LaunchpadService {
           }
         }
       });
-      // The launch is decided, verified or rejected: its pre-sign claims are freed. Registration never reads claims, and a failed release
-      // only leaves them to expire.
-      await Promise.resolve().then(() => this.store.releaseLaunchClaims(launchClaimOwner(plan))).catch((error: unknown) =>
-        console.error(JSON.stringify({ event: "nft_launch_claims_release_failed", planId: plan.id, error: error instanceof Error ? error.message : String(error) })));
+      // The launch is decided, verified or rejected: its claims are freed. Registration never reads claims.
+      await this.releaseNftClaims(plan.id);
     }
     this.invalidateTokens();
     await this.store.launchStatus(hash, "confirmed", receipt.blockHash);
@@ -1101,6 +1143,9 @@ export class LaunchpadService {
             await this.store.removeToken(row.hash);
             this.invalidateTokens();
             await this.store.launchStatus(row.hash, "failed");
+            // The creation reverted in a canonical, confirmed block: it launched nothing, so its NFT and fee are free again.
+            const failed = await Promise.resolve().then(() => this.store.getPlan(row.planId)).catch(() => null);
+            if (failed?.draft.nft) await this.releaseNftClaims(failed.id);
           } else await this.register(row.hash);
         } catch {
           /* Upstream absence or timeout is not evidence of failure. Retry after restart or next tick. */
@@ -1356,12 +1401,6 @@ const NFT_LOCKS = new Map<string, Promise<void>>();
 /** The keys of one NFT launch: its NFT and, for a paid NFT, its fee payment. Shared by the registration locks and the pre-sign claims. */
 function nftLaunchKeys(nft: NftRef, fee?: LaunchFee): string[] {
   return [`nft:${nftKey(nft)}`, ...(fee ? [`fee:${fee.txHash.toLowerCase()}`] : [])];
-}
-/** Who holds a launch's pre-sign claims: its intent with its creator. Prepare keeps both across every refresh of a plan, so the plan signed
- * after a first-buy approval (always a refresh) or a re-confirmed price keeps the claims its earlier plan took. The client's intent lock
- * already lets one intent submit one creation at a time; a plan without an intent owns its claims by its id. */
-function launchClaimOwner(plan: LaunchPlan): string {
-  return plan.intentId && /^[a-zA-Z0-9_-]{8,100}$/.test(plan.intentId) ? `intent:${plan.creator.toLowerCase()}:${plan.intentId}` : plan.id;
 }
 async function withNftLocks<T>(keys: string[], run: () => Promise<T>): Promise<T> {
   const releases: (() => void)[] = [];
