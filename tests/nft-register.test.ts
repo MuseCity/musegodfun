@@ -575,6 +575,37 @@ test("registration releases a plan's claims whatever its status, and is never bl
   assert.deepEqual(logged.map((line) => JSON.parse(line)), [{ event: "nft_launch_claims_release_failed", planId: third.plan.id, error: "database down" }]);
 }));
 
+test("NFT mode's kill switch stops signing too: a plan prepared while on is refused once the flag is off or the guards are missing; normal launches and registration are unaffected", withStore(async (store) => {
+  const launch = coin(3, {}), plain = coin(4, { nft: undefined });
+  store.savePlan(launch.plan); store.savePlan(plain.plan);
+  const unavailable = "NFT_MODE_UNAVAILABLE: NFT mode is not available on this network.";
+  const claimed: string[] = [], claim = store.claimLaunch.bind(store);
+  store.claimLaunch = (owner, claims, expiresAt, now) => { claimed.push(owner); return claim(owner, claims, expiresAt, now); };
+  const protectedPlans = () => (store.db.prepare("SELECT id FROM protected_plans ORDER BY id").all() as { id: string }[]).map((row) => row.id);
+  // The flag goes off (a new runtime configuration).
+  const off = signingService(store, [launch, plain]);
+  Object.assign(off, { runtime: { ...off.runtime, config: { ...off.runtime.config, nftMode: { ...off.runtime.config.nftMode!, enabled: false } } } });
+  assert.equal(await signingCode(off.validateLaunch(creator, launch.plan.data, true)), unavailable, "the flag is off");
+  assert.equal(await signingCode(off.validateLaunch(creator, launch.plan.data)), "ok", "a preview is not a signature");
+  // The database guards are missing (a runtime that has not seen them ready).
+  const ready = store.nftGuardsReady.bind(store);
+  store.nftGuardsReady = () => false;
+  const missing = signingService(store, [launch, plain]);
+  assert.equal(await signingCode(missing.validateLaunch(creator, launch.plan.data, true)), unavailable, "the guards are missing");
+  assert.deepEqual(claimed, [], "refused before any claim");
+  assert.deepEqual(protectedPlans(), [], "and before the plan is protected");
+  // Normal launches are unaffected either way.
+  assert.equal(await signingCode(off.validateLaunch(creator, plain.plan.data, true)), "ok");
+  assert.equal(await signingCode(missing.validateLaunch(creator, plain.plan.data, true)), "ok");
+  assert.deepEqual(claimed, []);
+  // With NFT mode effective again, the same plan signs.
+  store.nftGuardsReady = ready;
+  assert.equal(await signingCode(signingService(store, [launch, plain]).validateLaunch(creator, launch.plan.data, true)), "ok");
+  assert.equal(claimed.length, 1);
+  // Registration of a launch already sent is never gated by the switch.
+  assert.equal((await off.register(launch.hash)).nftVerification?.status, "verified");
+}));
+
 test("a normal launch never claims or releases anything", withStore(async (store) => {
   const plain = coin(3, { nft: undefined });
   store.savePlan(plain.plan);

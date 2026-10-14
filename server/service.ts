@@ -621,7 +621,12 @@ export class LaunchpadService {
       if (plan.firstBuy?.lockDays && !config.launchLockAvailable)
         throw new Error("The first buy lock guard could not be verified. Run a new preview.");
     }
-    if (signing && plan.draft.nft) await this.claimNftLaunch(plan, plan.draft.nft);
+    if (signing && plan.draft.nft) {
+      // The kill switch stops new signatures too, not only new previews: NFT mode as prepare and /config see it (the flag and the
+      // database guards), before any claim or protection. Registration of launches already sent is never gated.
+      if (!(await this.nftModeEnabled())) throw new NftLaunchError("NFT_MODE_UNAVAILABLE", "NFT mode is not available on this network.");
+      await this.claimNftLaunch(plan, plan.draft.nft);
+    }
     // Simulation is still an unsigned preview. Protect only when the client is
     // entering a real wallet signature; unknown submissions must not age out.
     if (signing) await this.store.protectPlan(plan.id);
