@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -93,9 +93,11 @@ function assertCompilerInputReproduces(input: string, factory: ForgeArtifact, va
 
 /** Runs Forge (writing only the ignored contracts/out and cache), then derives every committed build artifact in memory. */
 export function compileNftVault(options: { root?: string; offline?: boolean; quiet?: boolean } = {}): NftVaultCompilation {
-  const root = options.root ?? process.cwd();
-  execFileSync("forge", ["build", "--root", "contracts", ...(options.offline ? ["--offline"] : [])],
-    { cwd: root, stdio: options.quiet ? ["ignore", 2, 2] : "inherit" });
+  const root = resolve(options.root ?? process.cwd());
+  const contracts = join(root, "contracts");
+  assert(!existsSync(join(contracts, ".env")), "contracts/.env must not exist: Forge loads .env from its cwd");
+  execFileSync("forge", ["build", "--root", ".", ...(options.offline ? ["--offline"] : [])],
+    { cwd: contracts, stdio: options.quiet ? ["ignore", 2, 2] : "inherit" });
   const artifact = (name: string) => JSON.parse(readFileSync(join(root, `contracts/out/${name}.sol/${name}.json`), "utf8")) as ForgeArtifact;
   const vault = artifact("MusegodNftFeeVault");
   const factory = artifact(FACTORY_CONTRACT.name);

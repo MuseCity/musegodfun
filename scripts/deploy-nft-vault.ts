@@ -242,10 +242,12 @@ export type UnsignedCreate = {
 /** cast 1.x parses `--create` as a subcommand, so every option must come before it. */
 export function castSendArgs(tx: UnsignedCreate, rpc: string, signer: readonly string[], data: string): string[] {
   return ["send", "--rpc-url", rpc, "--chain", String(tx.chainId), "--from", tx.from, "--nonce", String(tx.nonce),
-    "--gas-limit", tx.gas, "--priority-gas-price", tx.maxPriorityFeePerGas, "--gas-price", tx.maxFeePerGas, ...signer, "--create", data];
+    "--value", tx.value, "--gas-limit", tx.gas, "--priority-gas-price", tx.maxPriorityFeePerGas, "--gas-price", tx.maxFeePerGas, ...signer, "--create", data];
 }
 export function ownerCommand(tx: UnsignedCreate) {
-  return ["cast", ...castSendArgs(tx, "<their RPC>", ["<their signer flags>"], `"$(cat ${tx.data.file})"`)].join(" ");
+  const file = `'${resolve(tx.data.file).replaceAll("'", "'\\''")}'`;
+  const send = ["cast", ...castSendArgs(tx, "<their RPC>", ["<their signer flags>"], '"$CODE"')].join(" ");
+  return `CODE="$(cat ${file})" && [ "$(cast keccak "$CODE")" = ${tx.data.keccak256} ] && ${send}`;
 }
 
 /** JSON for every file or console output: refuses any secret and any URL, so no keyed RPC can leak into evidence. */
@@ -296,6 +298,7 @@ export type PreflightInput = {
   deployer: Address; build: NftVaultBuild; compilerInput: string; manifest: NftVaultManifest;
   fresh: Pick<NftVaultCompilation, "build" | "compilerInput" | "factoryRuntimeTemplate">;
   rpcLabel: string; rehearsal: boolean; createHexPath: string; secrets: readonly string[];
+  previous?: PreflightReport;
 };
 export type PreflightReport = {
   schemaVersion: 1; kind: "nft-vault-factory-preflight"; rehearsal: boolean; rpc: string; observedAt: string; chainId: number;
@@ -340,6 +343,13 @@ export async function preflight(client: PreflightClient, input: PreflightInput):
 
   const block = await client.getBlock({ blockTag: "latest" });
   assert(block.number !== null && block.hash && typeof block.baseFeePerGas === "bigint", "The latest block has no EIP-1559 base fee");
+  const previous = input.previous;
+  if (previous?.kind === "nft-vault-factory-preflight" && previous.chainId === CHAIN_ID && previous.ready === true
+    && previous.rehearsal === input.rehearsal) {
+    const code = await client.getCode({ address: previous.predictedFactory, blockNumber: block.number });
+    assert(isEmptyCode(code) || keccak256(code!) !== expected.hash,
+      `the factory is already deployed at ${previous.predictedFactory}; run verify with --tx`);
+  }
   const nonce = await client.getTransactionCount({ address: deployer, blockTag: "latest" });
   const pendingNonce = await client.getTransactionCount({ address: deployer, blockTag: "pending" });
   check("nonceSettled", nonce === pendingNonce,
@@ -398,7 +408,8 @@ export async function preflight(client: PreflightClient, input: PreflightInput):
         `The nonce MUST be ${nonce}: the factory address ${predictedFactory} is derived from it. If the deployer sends any other transaction first, do not deploy; rerun --preflight.`,
         "Send it exactly once. If it is stuck, speed it up only with the same nonce, the same data and zero value, then verify whichever hash was mined.",
         "--chain 4663 signs for Robinhood only. <their RPC> is the owner's own Robinhood RPC.",
-        "After two confirmations run: npm run verify:nft-vault -- --tx <transaction hash>",
+        input.rehearsal ? "After two confirmations run: npm run verify:nft-vault -- --tx <transaction hash>"
+          : "Wait until the receipt block is finalized (typically about 15-30 min), then run: npm run verify:nft-vault -- --tx <transaction hash>",
       ],
     } : {}),
     mainnetTransactionsSubmitted: false,
@@ -470,6 +481,14 @@ export async function verifyDeployment(client: VerifyClient, input: VerifyInput)
   const finalConfirmations = finalHead - receipt.blockNumber + 1n;
   need("finalConfirmations", finalConfirmations >= MIN_CONFIRMATIONS,
     `After the reads the transaction has ${finalConfirmations} confirmation(s) (the head moved back); wait for ${MIN_CONFIRMATIONS} and rerun`);
+  let finalizedBlockNumber: bigint | null = null;
+  if (input.node === "mainnet") {
+    const finalized = await client.getBlock({ blockTag: "finalized" });
+    assert(finalized.number !== null, "The RPC returned no finalized block number; refusing to record");
+    finalizedBlockNumber = finalized.number;
+    need("receiptFinalized", receipt.blockNumber <= finalizedBlockNumber,
+      `The receipt block ${receipt.blockNumber} is not finalized (finalized block ${finalizedBlockNumber}); wait and rerun`);
+  }
   need("stillCanonical", (await client.getBlock({ blockNumber: receipt.blockNumber })).hash === receipt.blockHash,
     "The receipt's block reorganized during verification; rerun");
 
@@ -482,6 +501,7 @@ export async function verifyDeployment(client: VerifyClient, input: VerifyInput)
     nodeProof: input.nodeProof, rpc: input.rpcLabel, verifiedAt: new Date().toISOString(), verifiedAtBlock: head.toString(), finalHead: finalHead.toString(),
     factory, deployer: getAddress(input.deployer), nonce: Number(input.nonce), transactionHash: receipt.transactionHash.toLowerCase(),
     blockNumber: receipt.blockNumber.toString(), blockHash: receipt.blockHash, confirmations: finalConfirmations.toString(),
+    finalizedBlockNumber: finalizedBlockNumber?.toString() ?? null,
     gasUsed: receipt.gasUsed.toString(), effectiveGasPrice: receipt.effectiveGasPrice.toString(), costWei: costWei.toString(), costEth: formatEther(costWei),
     runtimeHash, runtimeBytes: (code!.length - 2) / 2,
     expected: { runtimeHash: expected.hash, runtimeBytes: expected.bytes, vaultInitCodeHash: build.vaultInitCodeHash,
@@ -511,11 +531,11 @@ async function localRpc(rpc: string, method: string, params: unknown[] = []) {
   assert(!body.error, `Local ${method} failed: ${body.error?.message ?? ""}`);
   return body.result;
 }
-async function loadCommitted() {
+async function loadCommitted(root = process.cwd()) {
   return {
-    build: JSON.parse(await readFile(PATHS.build, "utf8")) as NftVaultBuild,
-    compilerInput: existsSync(PATHS.compilerInput) ? await readFile(PATHS.compilerInput, "utf8") : "",
-    manifest: JSON.parse(await readFile(PATHS.manifest, "utf8")) as NftVaultManifest,
+    build: JSON.parse(await readFile(resolve(root, PATHS.build), "utf8")) as NftVaultBuild,
+    compilerInput: existsSync(resolve(root, PATHS.compilerInput)) ? await readFile(resolve(root, PATHS.compilerInput), "utf8") : "",
+    manifest: JSON.parse(await readFile(resolve(root, PATHS.manifest), "utf8")) as NftVaultManifest,
   };
 }
 async function write(path: string, text: string) {
@@ -523,19 +543,32 @@ async function write(path: string, text: string) {
   await writeFile(path, text);
 }
 
-async function runPreflight(client: ReturnType<typeof rpcClient>, deployer: Address, kind: "mainnet" | "local", rpcLabel: string, secrets: string[]) {
+export async function runPreflight(client: PreflightClient, deployer: Address, kind: "mainnet" | "local", rpcLabel: string, secrets: string[],
+  options: { root?: string; compile?: (options: { root: string; offline: boolean; quiet: boolean }) => PreflightInput["fresh"] } = {}) {
+  const root = options.root ?? process.cwd();
   const paths = recordTargets(kind);
-  const committed = await loadCommitted();
-  const fresh = compileNftVault({ offline: true, quiet: true });
-  const report = await preflight(client, { deployer, ...committed, fresh, rpcLabel, rehearsal: kind === "local", createHexPath: paths.createHex, secrets });
-  const text = serializeSafe(report, secrets);
-  if (report.ready) await write(paths.createHex, committed.build.factoryBytecode);
-  await write(paths.preflight, text);
-  return { report, text, path: paths.preflight };
+  const failedPath = paths.preflight.replace(/\.json$/, ".failed.json");
+  try {
+    const committed = await loadCommitted(root);
+    const fresh = (options.compile ?? compileNftVault)({ root, offline: true, quiet: true });
+    const previous = existsSync(resolve(root, paths.preflight))
+      ? JSON.parse(await readFile(resolve(root, paths.preflight), "utf8")) as PreflightReport : undefined;
+    const report = await preflight(client, { deployer, ...committed, fresh, previous, rpcLabel, rehearsal: kind === "local",
+      createHexPath: resolve(root, paths.createHex), secrets });
+    const text = serializeSafe(report, secrets);
+    if (report.ready) await write(resolve(root, paths.createHex), committed.build.factoryBytecode);
+    const path = report.ready ? paths.preflight : failedPath;
+    await write(resolve(root, path), text);
+    return { report, text, path };
+  } catch (error) {
+    await write(resolve(root, failedPath), serializeSafe({ kind: "nft-vault-factory-preflight", ready: false,
+      rehearsal: kind === "local", failures: [safeForkError(error, secrets)] }, secrets));
+    throw error;
+  }
 }
 
-async function recordVerification(result: Awaited<ReturnType<typeof verifyDeployment>>, build: NftVaultBuild, manifest: NftVaultManifest,
-  kind: "mainnet" | "local", secrets: string[]) {
+export async function recordVerification(result: Awaited<ReturnType<typeof verifyDeployment>>, build: NftVaultBuild, manifest: NftVaultManifest,
+  kind: "mainnet" | "local", secrets: string[], root = process.cwd()) {
   const { manifest: manifestPath, evidence: evidencePath } = recordTargets(kind);
   const paths = { manifest: manifestPath, evidence: evidencePath };
   if (manifest.chains["4663"]?.status === "deployed_verified") {
@@ -544,25 +577,27 @@ async function recordVerification(result: Awaited<ReturnType<typeof verifyDeploy
   }
   const next = applyVerifiedDeployment(manifest, result.entry, { vaultInitCodeHash: build.vaultInitCodeHash, factoryRuntimeHash: result.expected.hash });
   assert(isDeepStrictEqual(next.chains["4663"], result.manifestEntry), "The manifest entry differs from the verified evidence");
-  await write(paths.evidence, serializeSafe(result.evidence, secrets));
-  await write(paths.manifest, serializeManifest(next));
+  await write(resolve(root, paths.evidence), serializeSafe(result.evidence, secrets));
+  await write(resolve(root, paths.manifest), serializeManifest(next));
   return { manifest: kind === "local" ? "temporary copy written (the committed manifest is unchanged)" : "contracts/artifacts/nft-vault-deployment.json updated for 4663 only", paths };
 }
 
-async function runVerify(args: Extract<CliArgs, { mode: "verify" }>, key: string) {
+export async function runVerify(args: Extract<CliArgs, { mode: "verify" }>, key: string,
+  options: { root?: string; client?: VerifyClient & NodeProbeClient; log?: (text: string) => void } = {}) {
+  const root = options.root ?? process.cwd();
   const rpc = args.rpc ?? robinhoodUpstreamUrl(key);
   const secrets = [key, rpc].filter(Boolean);
-  const client = rpcClient(rpc);
+  const client = options.client ?? rpcClient(rpc);
   const node = await nodeKind(client, rpc);
   const kind = requireProven(node);
   const local = kind === "local";
-  const committed = await loadCommitted();
+  const committed = await loadCommitted(root);
   let report: PreflightReport | undefined;
   let deployer = args.deployer, nonce = args.nonce;
   if (deployer === undefined || nonce === undefined) {
     const path = recordTargets(kind).preflight;
-    assert(existsSync(path), `No preflight report at ${path}; run --preflight first, or pass --deployer and --nonce`);
-    report = JSON.parse(await readFile(path, "utf8")) as PreflightReport;
+    assert(existsSync(resolve(root, path)), `No preflight report at ${path}; run --preflight first, or pass --deployer and --nonce`);
+    report = JSON.parse(await readFile(resolve(root, path), "utf8")) as PreflightReport;
     assert(report.kind === "nft-vault-factory-preflight" && report.chainId === CHAIN_ID && report.ready === true && report.rehearsal === local,
       `${path} is not a ready ${local ? "local" : "Robinhood mainnet"} preflight report`);
     deployer = report.deployer; nonce = BigInt(report.nonce);
@@ -570,9 +605,17 @@ async function runVerify(args: Extract<CliArgs, { mode: "verify" }>, key: string
   const rpcLabel = args.rpc ? (local ? "local node" : "explicit --rpc, a known mainnet endpoint (URL not recorded)") : ALCHEMY_LABEL;
   const result = await verifyDeployment(client, { tx: args.tx, deployer, nonce, build: committed.build, manifest: committed.manifest,
     preflight: report, node: kind, nodeProof: node.proof, rpcLabel });
-  const recorded = await recordVerification(result, committed.build, committed.manifest, kind, secrets);
-  console.log(serializeSafe({ status: "verified", factory: result.entry.factory, transactionHash: result.evidence.transactionHash,
+  const recorded = await recordVerification(result, committed.build, committed.manifest, kind, secrets, root);
+  (options.log ?? console.log)(serializeSafe({ status: "verified", factory: result.entry.factory, transactionHash: result.evidence.transactionHash,
     blockNumber: result.evidence.blockNumber, costEth: result.evidence.costEth, checks: result.evidence.checks, ...recorded }, secrets).trimEnd());
+}
+
+/** Foundry loads .env from cwd even with a scrubbed process environment. Check existence only; never read it. */
+export function rehearsalCastOptions(root = process.cwd()) {
+  const cwd = resolve(root, PATHS.rehearsal);
+  assert(!existsSync(resolve(cwd, ".env")), "The rehearsal cwd .env must not exist: cast loads .env from its cwd");
+  return { cwd, encoding: "utf8" as const, env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "" },
+    maxBuffer: 16 * 1024 * 1024, timeout: 180_000 };
 }
 
 /** One loopback Anvil fork (its own, or a given one): preflight for a fork-unlocked deployer, the owner's cast command, verify. */
@@ -610,7 +653,7 @@ async function rehearse(rpcGiven: string | undefined, key: string) {
     // The owner's exact cast command; only the signer flags differ (--unlocked: the fork signs for the impersonated deployer).
     const committed = await loadCommitted();
     const output = execFileSync("cast", castSendArgs(report.unsignedTransaction, rpc, ["--unlocked"], committed.build.factoryBytecode),
-      { encoding: "utf8", env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "" }, maxBuffer: 16 * 1024 * 1024, timeout: 180_000 });
+      rehearsalCastOptions());
     let tx = /transactionHash\s+(0x[0-9a-fA-F]{64})/.exec(output)?.[1]?.toLowerCase() as Hex | undefined;
     if (!tx) {
       // Another cast output format: find the mined transaction by its sender and nonce instead.

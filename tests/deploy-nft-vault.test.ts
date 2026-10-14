@@ -1,8 +1,14 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { test } from "node:test";
+import childProcess from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { test, type TestContext } from "node:test";
 import { getAddress, keccak256, type Address, type Hex } from "viem";
 import type { NftVaultBuild } from "../scripts/build-nft-vault";
+import * as buildTools from "../scripts/build-nft-vault";
+import * as deployTools from "../scripts/deploy-nft-vault";
 import {
   MAINNET_ANCHOR, PATHS, REHEARSAL_PATHS, applyVerifiedDeployment, assertLoopbackRpc, expectedFactoryRuntime, factoryRuntimeTemplate, feePlan,
   nodeKind, parseArgs, predictFactoryAddress, preflight, recordTargets, serializeManifest, serializeSafe, verifyDeployment,
@@ -214,7 +220,8 @@ test("a ready preflight prints the exact unsigned CREATE and an owner command, w
     data: { file: PATHS.createHex, bytes: (build.factoryBytecode.length - 2) / 2, keccak256: keccak256(build.factoryBytecode) },
     gas: "1617412", maxFeePerGas: "20000000", maxPriorityFeePerGas: "0",
   });
-  assert.match(report.ownerCommand!, /^cast send --rpc-url <their RPC> --chain 4663 --from 0x[0-9a-fA-F]{40} --nonce 7 --gas-limit 1617412 --priority-gas-price 0 --gas-price 20000000 <their signer flags> --create "\$\(cat \.cache\/nft-vault-factory-4663\.create\.hex\)"$/);
+  assert.equal(report.ownerCommand, `CODE="$(cat '${resolve(PATHS.createHex)}')" && [ "$(cast keccak "$CODE")" = ${keccak256(build.factoryBytecode)} ] && `
+    + `cast send --rpc-url <their RPC> --chain 4663 --from ${DEPLOYER} --nonce 7 --value 0 --gas-limit 1617412 --priority-gas-price 0 --gas-price 20000000 <their signer flags> --create "$CODE"`);
   const text = textOf(report);
   for (const forbidden of [KEY, "alchemy.com", "://"]) assert(!text.includes(forbidden), `the report contains ${forbidden}`);
 });
@@ -364,21 +371,31 @@ const RECEIPT_BLOCK = 88_000_000n;
 const RECEIPT_BLOCK_HASH = `0x${"bb".repeat(32)}` as Hex;
 const FACTORY = predictFactoryAddress(DEPLOYER, 7n);
 const MUSE_1 = { chainId: 4663, contract: MUSES.contract, tokenId: "1" } as const;
-type VerifyFake = { heads?: bigint[]; receipt?: Record<string, unknown>; transaction?: Record<string, unknown> };
+type VerifyFake = { heads?: bigint[]; receipt?: Record<string, unknown>; transaction?: Record<string, unknown>;
+  chainId?: number; blockHashes?: Hex[]; finalized?: bigint | null; finalizedError?: boolean; code?: Hex; reads?: Record<string, unknown>; calls?: string[] };
 function fakeVerifyClient(fake: VerifyFake = {}): VerifyClient {
   const heads = [...(fake.heads ?? [RECEIPT_BLOCK + 1n])];
+  const blockHashes = [...(fake.blockHashes ?? [RECEIPT_BLOCK_HASH])];
   const reads: Record<string, unknown> = { VAULT_INIT_CODE_HASH: build.vaultInitCodeHash, vaultFor: vaultFor(MUSE_1, FACTORY, build.vaultInitCodeHash),
-    treasuryFor: treasuryFor(MUSE_1), ERC6551_REGISTRY, TOKENBOUND_V3_PROXY };
+    treasuryFor: treasuryFor(MUSE_1), ERC6551_REGISTRY, TOKENBOUND_V3_PROXY, ...fake.reads };
   return {
-    getChainId: async () => 4663,
+    getChainId: async () => fake.chainId ?? 4663,
     getBlockNumber: async () => (heads.length > 1 ? heads.shift()! : heads[0]),
     getTransactionReceipt: async ({ hash }: { hash: Hex }) => ({ status: "success", to: null, contractAddress: FACTORY.toLowerCase(),
       blockNumber: RECEIPT_BLOCK, blockHash: RECEIPT_BLOCK_HASH, from: DEPLOYER.toLowerCase(), transactionHash: hash, gasUsed: 1_347_843n,
       effectiveGasPrice: 20_036_000n, ...fake.receipt }),
-    getBlock: async ({ blockNumber }: { blockNumber: bigint }) => ({ hash: blockNumber === RECEIPT_BLOCK ? RECEIPT_BLOCK_HASH : `0x${"cc".repeat(32)}` }),
+    getBlock: async ({ blockNumber, blockTag }: { blockNumber?: bigint; blockTag?: string }) => {
+      fake.calls?.push(blockTag ?? String(blockNumber));
+      if (blockTag === "finalized") {
+        if (fake.finalizedError) throw new Error("finalized tag unavailable");
+        return { number: fake.finalized === undefined ? RECEIPT_BLOCK : fake.finalized, hash: RECEIPT_BLOCK_HASH };
+      }
+      if (blockNumber === MAINNET_ANCHOR.blockNumber) return { number: blockNumber, hash: MAINNET_ANCHOR.hash };
+      return { number: blockNumber, hash: blockHashes.length > 1 ? blockHashes.shift()! : blockHashes[0] };
+    },
     getTransaction: async ({ hash }: { hash: Hex }) => ({ hash, from: DEPLOYER.toLowerCase(), nonce: 7, to: null, value: 0n, input: build.factoryBytecode,
       chainId: 4663, gas: 1_639_961n, maxFeePerGas: 40_072_000n, maxPriorityFeePerGas: 0n, ...fake.transaction }),
-    getCode: async () => expectedFactoryRuntime(build).runtime,
+    getCode: async () => fake.code ?? expectedFactoryRuntime(build).runtime,
     readContract: async ({ functionName }: { functionName: string }) => reads[functionName],
   } as unknown as VerifyClient;
 }
@@ -412,4 +429,227 @@ test("verify accepts the winning same-nonce speed-up of the CREATE and refuses a
   await assert.rejects(verifyDeployment(fakeVerifyClient({ receipt: { status: "reverted" } }), verifyInput(speedUp)), /reverted/);
   await assert.rejects(verifyDeployment(fakeVerifyClient({ transaction: { input: `${build.factoryBytecode}00` } }), verifyInput(speedUp)), /creation code/);
   await assert.rejects(verifyDeployment(fakeVerifyClient({ transaction: { nonce: 8 } }), verifyInput(speedUp)), /nonce/);
+});
+
+test("mainnet verify refuses a receipt that is not finalized, or a missing finalized block", async () => {
+  await assert.rejects(verifyDeployment(fakeVerifyClient({ finalized: RECEIPT_BLOCK - 1n }), verifyInput(HASH)), /not finalized/);
+  await assert.rejects(verifyDeployment(fakeVerifyClient({ finalized: null }), verifyInput(HASH)), /finalized block/);
+  await assert.rejects(verifyDeployment(fakeVerifyClient({ finalizedError: true }), verifyInput(HASH)), /finalized tag unavailable/);
+});
+
+test("mainnet records finality and checks canonicality after reading finalized; local needs only two confirmations", async () => {
+  const calls: string[] = [];
+  const mainnet = await verifyDeployment(fakeVerifyClient({ finalized: RECEIPT_BLOCK + 5n, calls }), verifyInput(HASH));
+  assert.equal(mainnet.evidence.finalizedBlockNumber, String(RECEIPT_BLOCK + 5n));
+  assert.deepEqual(calls.slice(-2), ["finalized", String(RECEIPT_BLOCK)]);
+  const localCalls: string[] = [];
+  const local = await verifyDeployment(fakeVerifyClient({ finalizedError: true, calls: localCalls }), { ...verifyInput(HASH), node: "local" });
+  assert.equal(local.evidence.finalizedBlockNumber, null);
+  assert.equal(local.evidence.confirmations, "2");
+  assert(!localCalls.includes("finalized"));
+});
+
+const OTHER_ADDRESS = getAddress("0x1111111111111111111111111111111111111111");
+const OTHER_HASH = `0x${"12".repeat(32)}` as Hex;
+const refusalCases: [string, VerifyFake, RegExp][] = [
+  ["runtimeHash", { code: "0x6001600055" }, /runtime hash/],
+  ["receiptCanonical", { blockHashes: [OTHER_HASH, RECEIPT_BLOCK_HASH] }, /not canonical/],
+  ["stillCanonical", { blockHashes: [RECEIPT_BLOCK_HASH, OTHER_HASH] }, /reorganized during/],
+  ["sender transaction", { transaction: { from: OTHER_ADDRESS } }, /sender/],
+  ["sender receipt", { receipt: { from: OTHER_ADDRESS } }, /sender/],
+  ["vaultInitCodeHash", { reads: { VAULT_INIT_CODE_HASH: OTHER_HASH } }, /VAULT_INIT_CODE_HASH/],
+  ["vaultForMuse1", { reads: { vaultFor: OTHER_ADDRESS } }, /TS vaultFor/],
+  ["treasuryForMuse1", { reads: { treasuryFor: OTHER_ADDRESS } }, /TS treasuryFor/],
+  ["factoryConstants registry", { reads: { ERC6551_REGISTRY: OTHER_ADDRESS } }, /constant differs/],
+  ["factoryConstants proxy", { reads: { TOKENBOUND_V3_PROXY: OTHER_ADDRESS } }, /constant differs/],
+  ["predictedAddress", { receipt: { contractAddress: OTHER_ADDRESS } }, /not the predicted/],
+  ["transactionChainId", { transaction: { chainId: 8453 } }, /signed for another chain/],
+  // A later head is sufficient: this isolates the first confirmations check from finalConfirmations.
+  ["confirmations", { heads: [RECEIPT_BLOCK, RECEIPT_BLOCK + 2n] }, /1 confirmation/],
+  ["zero value", { transaction: { value: 1n } }, /zero value/],
+  ["chain-id assert", { chainId: 8453 }, /chain 4663/],
+];
+for (const [name, fake, message] of refusalCases) test(`verify refuses ${name}`, async () => {
+  await assert.rejects(verifyDeployment(fakeVerifyClient(fake), verifyInput(HASH)), message);
+});
+
+test("verify cross-checks the report predictedFactory and expectedRuntimeHash, and the manifest/build hash", async () => {
+  const report = await preflight(fakeClient(), preflightInput());
+  await assert.rejects(verifyDeployment(fakeVerifyClient(), { ...verifyInput(HASH), preflight: { ...report, predictedFactory: OTHER_ADDRESS } }), /not the predicted/);
+  await assert.rejects(verifyDeployment(fakeVerifyClient(), { ...verifyInput(HASH), preflight: { ...report, expectedRuntimeHash: OTHER_HASH } }), /expected another runtime/);
+  await assert.rejects(verifyDeployment(fakeVerifyClient(), { ...verifyInput(HASH), manifest: { ...undeployed(), vaultInitCodeHash: OTHER_HASH } }), /differs from the build/);
+});
+
+// Each filesystem test owns a scratch root. Neither real reports nor committed deployment files are written.
+function scratch(t: TestContext) {
+  const root = mkdtempSync(join(tmpdir(), "nft-vault-tooling-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const put = (path: string, value: unknown) => {
+    mkdirSync(dirname(join(root, path)), { recursive: true });
+    writeFileSync(join(root, path), typeof value === "string" ? value : JSON.stringify(value));
+  };
+  put(PATHS.build, build); put(PATHS.compilerInput, compilerInput); put(PATHS.manifest, undeployed());
+  return { root, put, read: (path: string) => readFileSync(join(root, path), "utf8") };
+}
+
+test("the owner command sends from another cwd only after the file exists and its keccak matches", async (t) => {
+  const { root, put } = scratch(t);
+  // Include a quote and shell metacharacters to exercise path quoting. All cast calls use a shell stub, never Foundry.
+  const file = join(root, "code '$(must-not-run).hex");
+  const report = await preflight(fakeClient(), preflightInput({ createHexPath: file }));
+  const command = report.ownerCommand!.replace("<their RPC>", "unused").replace("<their signer flags>", "--unused");
+  const marker = join(root, "sent");
+  const stub = `cast() { if [ "$1" = keccak ]; then if [ "$2" = '${build.factoryBytecode}' ]; then printf '%s' '${keccak256(build.factoryBytecode)}'; else printf '%s' '${OTHER_HASH}'; fi; else printf '%s' sent > '${marker}'; fi; }; `;
+  const run = () => childProcess.spawnSync("sh", ["-c", stub + command], { cwd: tmpdir(), encoding: "utf8" });
+  assert.notEqual(run().status, 0, "a missing file must stop before cast send");
+  assert(!existsSync(marker));
+  put("code '$(must-not-run).hex", "0x1234");
+  assert.notEqual(run().status, 0, "a mismatching keccak must stop before cast send");
+  assert(!existsSync(marker));
+  put("code '$(must-not-run).hex", build.factoryBytecode);
+  assert.equal(run().status, 0);
+  assert.equal(readFileSync(marker, "utf8"), "sent");
+});
+
+test("Forge ignores a planted repo .env by spawning in contracts with --root . (spawn simulation only)", (t) => {
+  const { root, put } = scratch(t);
+  put(".env", "FOUNDRY_OPTIMIZER_RUNS=777\n"); // Never read this fixture or any existing .env.
+  mkdirSync(join(root, "contracts"), { recursive: true });
+  let captured: { command: string; args: readonly string[]; cwd?: string } | undefined;
+  const stop = new Error("captured spawn; no Forge executed");
+  const mock = t.mock.method(childProcess, "execFileSync", (command: string, args: readonly string[], options: { cwd?: string }) => {
+    captured = { command, args, cwd: options.cwd }; throw stop;
+  });
+  syncBuiltinESMExports();
+  try {
+    assert.throws(() => buildTools.compileNftVault({ root, offline: true, quiet: true }), (error) => error === stop);
+    assert.deepEqual(captured, { command: "forge", args: ["build", "--root", ".", "--offline"], cwd: join(root, "contracts") });
+    assert(!existsSync(join(captured!.cwd!, ".env")));
+  } finally { mock.mock.restore(); syncBuiltinESMExports(); }
+});
+
+test("Forge refuses contracts/.env before spawning; rehearsal cast refuses .env in its cwd", (t) => {
+  const { root, put } = scratch(t);
+  put("contracts/.env", "FOUNDRY_OPTIMIZER_RUNS=777\n");
+  const mock = t.mock.method(childProcess, "execFileSync", () => { throw new Error("must not spawn"); });
+  syncBuiltinESMExports();
+  try {
+    assert.throws(() => buildTools.compileNftVault({ root, offline: true }), /contracts.*\.env.*must not exist/);
+    assert.equal(mock.mock.callCount(), 0);
+  } finally { mock.mock.restore(); syncBuiltinESMExports(); }
+  mkdirSync(join(root, PATHS.rehearsal), { recursive: true });
+  const options = deployTools.rehearsalCastOptions(root);
+  assert.equal(options.cwd, join(root, PATHS.rehearsal));
+  assert.deepEqual(Object.keys(options.env).sort(), ["HOME", "PATH"]);
+  put(`${PATHS.rehearsal}/.env`, "ETH_RPC_URL=must-not-use\n");
+  assert.throws(() => deployTools.rehearsalCastOptions(root), /\.env.*must not exist/);
+});
+
+test("a failed preflight preserves the ready report and creation code, and writes a separate failed report", async (t) => {
+  const { root, read } = scratch(t);
+  const options = { root, compile: () => preflightInput().fresh };
+  const first = await deployTools.runPreflight(fakeClient(), DEPLOYER, "mainnet", "fake client", [], options);
+  const readyText = read(PATHS.preflight), code = read(PATHS.createHex);
+  assert(first.report.ready);
+  assert(first.report.ownerCommand?.includes(`cat '${join(root, PATHS.createHex)}'`));
+  const failed = await deployTools.runPreflight(fakeClient({ pending: 8 }), DEPLOYER, "mainnet", "fake client", [], options);
+  assert.equal(failed.report.ready, false);
+  assert.equal(failed.path, PATHS.preflight.replace(".json", ".failed.json"));
+  assert.equal(read(PATHS.preflight), readyText);
+  assert.equal(read(PATHS.createHex), code);
+  assert.equal(JSON.parse(read(failed.path)).ready, false);
+});
+
+test("preflight refuses a second CREATE when the previous ready predicted factory is already deployed", async (t) => {
+  const { root, read } = scratch(t);
+  const options = { root, compile: () => preflightInput().fresh };
+  await deployTools.runPreflight(fakeClient(), DEPLOYER, "mainnet", "fake client", [], options);
+  const readyText = read(PATHS.preflight), code = read(PATHS.createHex);
+  const client = fakeClient({ latest: 8 });
+  const getCode = client.getCode;
+  client.getCode = (async (args: { address: Address }) => args.address.toLowerCase() === FACTORY.toLowerCase()
+    ? expectedFactoryRuntime(build).runtime : getCode(args)) as PreflightClient["getCode"];
+  await assert.rejects(deployTools.runPreflight(client, DEPLOYER, "mainnet", "fake client", [], options),
+    new RegExp(`the factory is already deployed at ${FACTORY}; run verify with --tx`));
+  assert.equal(read(PATHS.preflight), readyText);
+  assert.equal(read(PATHS.createHex), code);
+  assert.match(read(PATHS.preflight.replace(".json", ".failed.json")), /already deployed/);
+});
+
+test("recordVerification writes matching mainnet files, preserves Base, and a same-entry rerun writes nothing", async (t) => {
+  const { root, read, put } = scratch(t);
+  const result = await verifyDeployment(fakeVerifyClient(), verifyInput(HASH));
+  await deployTools.recordVerification(result, build, undeployed(), "mainnet", [], root);
+  const recorded = JSON.parse(read(PATHS.manifest)) as NftVaultManifest;
+  assert.deepEqual(recorded.chains["4663"], result.manifestEntry);
+  assert.deepEqual(recorded.chains["8453"], undeployed().chains["8453"]);
+  assert.equal(recorded.vaultInitCodeHash, build.vaultInitCodeHash);
+  assert.deepEqual(JSON.parse(read(PATHS.evidence)).manifestEntry, result.manifestEntry);
+  // Sentinel formatting and absent evidence detect any unnecessary writes on the already-recorded path.
+  put(PATHS.manifest, `${read(PATHS.manifest)}\n`);
+  const manifestText = read(PATHS.manifest);
+  rmSync(join(root, PATHS.evidence));
+  const rerun = await deployTools.recordVerification(result, build, recorded, "mainnet", [], root);
+  assert.match(rerun.manifest, /unchanged/);
+  assert.equal(read(PATHS.manifest), manifestText);
+  assert(!existsSync(join(root, PATHS.evidence)));
+  await assert.rejects(deployTools.recordVerification(result, build, { ...recorded, chains: { ...recorded.chains,
+    "4663": { ...recorded.chains["4663"], factory: OTHER_ADDRESS } } }, "mainnet", [], root), /already records a different/);
+});
+
+function runVerifyFixture(fake: VerifyFake = {}): VerifyClient & NodeProbeClient {
+  return { ...fakeVerifyClient(fake), request: probe({ version: "Geth/v1.14" }).request } as VerifyClient & NodeProbeClient;
+}
+
+test("runVerify refuses rehearsal, not-ready and wrong-kind/chain reports for mainnet without writing", async (t) => {
+  const { root, put, read } = scratch(t);
+  const report = await preflight(fakeClient(), preflightInput());
+  const manifestText = read(PATHS.manifest);
+  for (const changed of [{ rehearsal: true }, { ready: false }, { kind: "other" }, { chainId: 8453 }]) {
+    put(PATHS.preflight, { ...report, ...changed });
+    await assert.rejects(deployTools.runVerify({ mode: "verify", tx: HASH, rpc: OFFICIAL_RPC }, "", {
+      root, client: runVerifyFixture(), log: () => {},
+    }), /not a ready Robinhood mainnet preflight report/);
+    assert.equal(read(PATHS.manifest), manifestText);
+    assert(!existsSync(join(root, PATHS.evidence)));
+  }
+});
+
+test("runVerify records a finalized mainnet deployment and reruns without rewriting its evidence", async (t) => {
+  const { root, put, read } = scratch(t);
+  put(PATHS.preflight, await preflight(fakeClient(), preflightInput()));
+  const args = { mode: "verify", tx: HASH, rpc: OFFICIAL_RPC } as const;
+  const options = { root, client: runVerifyFixture(), log: () => {} };
+  await deployTools.runVerify(args, "", options);
+  const manifestText = read(PATHS.manifest), evidenceText = read(PATHS.evidence);
+  assert.equal(JSON.parse(evidenceText).finalizedBlockNumber, String(RECEIPT_BLOCK));
+  await deployTools.runVerify(args, "", options);
+  assert.equal(read(PATHS.manifest), manifestText);
+  assert.equal(read(PATHS.evidence), evidenceText);
+});
+
+test("runVerify refuses unfinalized mainnet before recording any files", async (t) => {
+  const { root, read } = scratch(t);
+  const manifestText = read(PATHS.manifest);
+  await assert.rejects(deployTools.runVerify({ mode: "verify", tx: HASH, rpc: OFFICIAL_RPC, deployer: DEPLOYER, nonce: 7n }, "", {
+    root, client: runVerifyFixture({ finalized: RECEIPT_BLOCK - 1n }), log: () => {},
+  }), /not finalized/);
+  assert.equal(read(PATHS.manifest), manifestText);
+  assert(!existsSync(join(root, PATHS.evidence)));
+});
+
+test("runVerify on local writes only REHEARSAL_PATHS and refuses a mainnet report there", async (t) => {
+  const { root, put, read } = scratch(t);
+  const manifestText = read(PATHS.manifest);
+  const report = await preflight(fakeClient(), preflightInput({ rehearsal: true }));
+  put(REHEARSAL_PATHS.preflight, { ...report, rehearsal: false });
+  const args = { mode: "verify", tx: HASH, rpc: "http://127.0.0.1:8545" } as const;
+  const options = { root, client: runVerifyFixture({ finalizedError: true }), log: () => {} };
+  await assert.rejects(deployTools.runVerify(args, "", options), /not a ready local/);
+  put(REHEARSAL_PATHS.preflight, report);
+  await deployTools.runVerify(args, "", options);
+  assert.equal(read(PATHS.manifest), manifestText);
+  assert(!existsSync(join(root, PATHS.evidence)));
+  assert.equal(JSON.parse(read(REHEARSAL_PATHS.evidence)).rehearsal, true);
+  assert.equal(JSON.parse(read(REHEARSAL_PATHS.manifest)).chains["4663"].factory, FACTORY);
 });
