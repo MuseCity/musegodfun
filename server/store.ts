@@ -56,6 +56,17 @@ export function assertLaunchClaim(owner: string, claims: string[], expiresAt: nu
     !Array.isArray(lineage) || !lineage.every(planId) || new Set(lineage).size !== lineage.length || lineage.includes(owner) ||
     !Number.isSafeInteger(now) || now < 0 || !Number.isSafeInteger(expiresAt) || expiresAt <= now) throw new Error("Invalid launch claim");
 }
+/** What a provenance upgrade writes over `stored`, the row as read: `token`, the same launch now proven, except that a settled NFT outcome
+ * stands. A `verified` or `rejected` status is final, and a `launchFee` is a spent payment the launch-fee guard index protects; both are
+ * kept exactly as stored (`nft`, `nftVerification` and `launchFee` together). An open status (`unverified` or none) without a spent fee is
+ * settled by `token`'s own decision, as registration and `nft:reverify` settle one. */
+export function provenanceUpgrade(token: TokenRecord, stored: TokenRecord): TokenRecord {
+  const status = stored.nftVerification?.status;
+  if (status !== "verified" && status !== "rejected" && !stored.launchFee) return token;
+  const { nft: _nft, nftVerification: _status, launchFee: _fee, ...rest } = token;
+  return { ...rest, ...(stored.nft ? { nft: stored.nft } : {}), ...(stored.nftVerification ? { nftVerification: stored.nftVerification } : {}),
+    ...(stored.launchFee ? { launchFee: stored.launchFee } : {}) };
+}
 export type BuybackBatchRecord = Record<string, unknown> & { id: string };
 export type BuybackBatchPageRecord = BuybackBatchRecord & { updatedAt: number; sequence: string };
 export function assertBuybackBatchId(id: unknown): asserts id is string {
@@ -452,13 +463,19 @@ export class Store {
       .prepare("INSERT INTO tokens VALUES(?,?,?,?) ON CONFLICT(address) DO NOTHING ON CONFLICT(tx_hash) DO NOTHING")
       .run(token.address.toLowerCase(), token.transactionHash, token.createdAt, JSON.stringify(token)));
   }
-  /** Provenance only ever improves: replaces a token record still marked with
-   * an unverified opening valuation by the same launch, now proven. */
+  /** Provenance only ever improves: replaces a token record still marked with an unverified opening valuation by the same launch, now
+   * proven, keeping a settled NFT outcome (`provenanceUpgrade`). The read and the write share one BEGIN IMMEDIATE transaction, so a status
+   * or fee another process (`nft:reverify`) writes in between is never overwritten. */
   upgradeTokenProvenance(token: TokenRecord) {
     if (token.openingValuationUnverified || !token.transactionHash) return;
-    this.writeToken(() => this.db
-      .prepare("UPDATE tokens SET payload=? WHERE address=? AND lower(tx_hash)=lower(?) AND json_extract(payload,'$.openingValuationUnverified') IS NOT NULL")
-      .run(JSON.stringify(token), token.address.toLowerCase(), token.transactionHash));
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const row = this.db.prepare("SELECT payload FROM tokens WHERE address=? AND lower(tx_hash)=lower(?) AND json_extract(payload,'$.openingValuationUnverified') IS NOT NULL")
+        .get(token.address.toLowerCase(), token.transactionHash) as { payload: string } | undefined;
+      if (row) this.writeToken(() => this.db.prepare("UPDATE tokens SET payload=? WHERE address=?")
+        .run(JSON.stringify(provenanceUpgrade(token, JSON.parse(row.payload))), token.address.toLowerCase()));
+      this.db.exec("COMMIT");
+    } catch (error) { this.db.exec("ROLLBACK"); throw error; }
   }
   /** Re-verification only settles an open NFT status: it replaces the record of the same launch only while that record has `nft`, a
    * status of `unverified` or none, and the opening-valuation provenance the caller read (so a concurrent provenance upgrade is never

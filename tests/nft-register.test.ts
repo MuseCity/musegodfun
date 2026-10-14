@@ -725,6 +725,41 @@ test("tracking fails retryably when the submitted mark cannot be stored, never r
   assert.equal(claimRow(store, museClaim)?.submitted, 1, "the next reconcile pass holds it as submitted");
 }));
 
+// Round 4 F6: the client aborts /launch/track after 35 s (src/lib/api.ts) and retries only a 503 it receives, so tracking must answer first.
+test("tracking answers its 503 within 20 s of its start even when every submitted mark hangs or times out, well inside the client's 35 s abort", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1_800_000_000_000 });
+  const flush = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
+  // `attempt`: what one submitted mark does — never answer (a hung request), or fail after Supabase's own 15 s timeout.
+  for (const [why, attempt, expectedMarks] of [["hung", () => new Promise<string[]>(() => {}), 1],
+    ["15 s timeout", () => new Promise<string[]>((_, reject) => setTimeout(() => reject(new Error("The operation was aborted due to timeout")), 15_000)), 2]] as const) {
+    const directory = mkdtempSync(join(tmpdir(), "nft-track-budget-")), store = new Store(directory, 31337);
+    const original = console.error;
+    console.error = () => {};
+    try {
+      const sent = coin(3, {});
+      store.savePlan(sent.plan);
+      const service = signingService(store, [sent]), claim = store.claimLaunch.bind(store);
+      let marks = 0;
+      store.claimLaunch = ((owner, claims, expiresAt, options) => {
+        if (options?.submitted) { marks++; return attempt(); }
+        return claim(owner, claims, expiresAt, options);
+      }) as Store["claimLaunch"];
+      const started = Date.now();
+      let settled: unknown = "open";
+      const outcome = (): unknown => settled;
+      service.trackLaunch(sent.hash, sent.plan.id).then(() => { settled = "ok"; }, (error: unknown) => { settled = error; });
+      for (let second = 0; second < 19; second++) { await flush(); t.mock.timers.tick(1_000); }
+      await flush();
+      assert.equal(outcome(), "open", `${why}: still trying before the budget ends`);
+      for (let second = 19; second < 21 && outcome() === "open"; second++) { t.mock.timers.tick(1_000); await flush(); }
+      assert(outcome() instanceof LaunchClaimUnavailable, `${why}: a retryable 503, got ${String(outcome())}`);
+      assert(Date.now() - started <= 20_000, `${why}: answered after ${Date.now() - started} ms`);
+      assert.equal(marks, expectedMarks, `${why}: attempts while the budget lasts`);
+      assert.deepEqual(store.pendingLaunches().map((row) => row.hash), [sent.hash], `${why}: the hash is still queued for reconcile`);
+    } finally { console.error = original; store.close(); rmSync(directory, { recursive: true, force: true }); }
+  }
+});
+
 test("/api/launch/track answers 503 with a one-second Retry-After when the submitted mark cannot be stored, which the client's API layer retries", async () => {
   const directory = mkdtempSync(join(tmpdir(), "nft-track-http-"));
   const runtime = runtimeFromEnv(4663, { NODE_ENV: "test", CHAIN_MODE: "fork", FORK_CHAIN_ID: "4663", DATA_DIR: directory, PLATFORM_TREASURY: treasury });
@@ -952,6 +987,85 @@ test("a provenance upgrade the database refuses settles rejected: already_launch
   assert.equal(store.verifiedNftCoin(nftKey(muse))?.address, rival.address);
 }));
 
+
+// Round 4 F2: the upgrade's whole-payload write could revert a verdict and fee that `nft:reverify` wrote after the registration read the row.
+test("SQLite: a provenance upgrade never reverts a status the CLI settled meanwhile, nor drops the fee it consumed", withStore(async (store) => {
+  const paidNft = { ...plainNft, tokenId: "83" };
+  const unproven = nftCoin(3, { nft: paidNft, quoteAddress: weth.address, openingValuationUnverified: true,
+    nftVerification: { status: "unverified", reason: "fee_unconfirmed", feeClaim: stableClaim } });
+  store.saveToken(unproven);
+  // The attested registration read the row (unverified), so its record carries that status and no fee.
+  const { openingValuationUnverified: _, ...proven } = unproven;
+  // Meanwhile `nft:reverify` confirmed the fee: the coin is verified and spends the payment.
+  store.updateNftVerification({ ...unproven, launchFee: stableClaim, nftVerification: { status: "verified", block: "10" } });
+  store.upgradeTokenProvenance(proven);
+  const stored = store.token(unproven.address)!;
+  assert.equal(stored.openingValuationUnverified, undefined, "provenance still improves");
+  assert.deepEqual(stored.nftVerification, { status: "verified", block: "10" }, "the settled status stands");
+  assert.deepEqual(stored.launchFee, stableClaim, "the consumed fee stands");
+  assert.equal(store.tokenUsingLaunchFee(paidFee, creator)?.address, unproven.address, "the payment stays spent");
+  assert.equal(store.verifiedNftCoin(nftKey(paidNft))?.address, unproven.address, "the NFT keeps its verified coin");
+  // A rejected status is settled too: an upgrade built from an unverified read never reopens it.
+  const rejected = nftCoin(4, { nft: { ...paidNft, tokenId: "84" }, openingValuationUnverified: true, nftVerification: { status: "unverified", reason: "rpc" } });
+  store.saveToken(rejected);
+  store.updateNftVerification({ ...rejected, nftVerification: { status: "rejected", reason: "not_controller" } });
+  const { openingValuationUnverified: __, ...rejectedProven } = rejected;
+  store.upgradeTokenProvenance(rejectedProven);
+  assert.deepEqual(store.token(rejected.address)?.nftVerification, { status: "rejected", reason: "not_controller" });
+  assert.equal(store.token(rejected.address)?.openingValuationUnverified, undefined);
+  // An open status without a consumed fee is still settled by the upgrade's own decision, as before.
+  const open = nftCoin(5, { nft: { ...paidNft, tokenId: "85" }, openingValuationUnverified: true, nftVerification: { status: "unverified", reason: "rpc" } });
+  store.saveToken(open);
+  const { openingValuationUnverified: ___, ...openProven } = open;
+  store.upgradeTokenProvenance({ ...openProven, nftVerification: { status: "rejected", reason: "already_launched" } });
+  assert.deepEqual(store.token(open.address)?.nftVerification, { status: "rejected", reason: "already_launched" });
+}));
+
+test("Supabase: a provenance upgrade is a compare-and-swap on the NFT fields it read, re-read and retried a bounded number of times", async () => {
+  const store = new SupabaseStore("https://fixture.supabase.co", "test-server-key", "verify-nft");
+  const unproven = nftCoin(3, { nft: { ...plainNft, tokenId: "86" }, quoteAddress: weth.address, openingValuationUnverified: true,
+    nftVerification: { status: "unverified", reason: "fee_unconfirmed", feeClaim: stableClaim } });
+  const settled = { ...unproven, launchFee: stableClaim, nftVerification: { status: "verified" as const, block: "10" } };
+  const { openingValuationUnverified: _, ...proven } = unproven;
+  const calls: { path: string; method: string; body: unknown; prefer?: string }[] = [];
+  // The CLI settles the row between the upgrade's first read and its first write.
+  const reads = [unproven, settled];
+  let patches = 0;
+  store.request = async <T>(path: string, method = "GET", body?: unknown, prefer?: string) => {
+    calls.push({ path: decodeURIComponent(path), method, body, prefer });
+    if (method === "GET") return [{ payload: reads[Math.min(patches, reads.length - 1)] }] as T;
+    patches++;
+    return (patches === 1 ? [] : [{ address: unproven.address.toLowerCase() }]) as T;
+  };
+  await store.upgradeTokenProvenance(proven);
+  const writes = calls.filter((call) => call.method === "PATCH");
+  assert.equal(writes.length, 2, "the write that matched nothing is retried after a fresh read");
+  assert.equal(calls.filter((call) => call.method === "GET").length, 2);
+  const row = ["musegod_tokens?scope=eq.verify-nft", `address=eq.${unproven.address.toLowerCase()}`, `tx_hash=eq.${unproven.transactionHash!.toLowerCase()}`,
+    "payload->>openingValuationUnverified=eq.true"];
+  for (const part of [...row, "payload->nftVerification->>status=eq.unverified", "payload->launchFee=is.null", `payload->nftVerification->feeClaim->>txHash=eq.${paidFee}`])
+    assert(writes[0].path.includes(part), `first write: missing ${part} in ${writes[0].path}`);
+  for (const part of [...row, "payload->nftVerification->>status=eq.verified", `payload->launchFee->>txHash=eq.${paidFee}`, "payload->nftVerification->feeClaim=is.null"])
+    assert(writes[1].path.includes(part), `second write: missing ${part} in ${writes[1].path}`);
+  assert(writes.every((call) => call.prefer === "return=representation" && call.path.includes("select=address")), "each write reports the rows it changed");
+  const written = (writes[1].body as { payload: TokenRecord }).payload;
+  assert.equal(written.openingValuationUnverified, undefined);
+  assert.deepEqual([written.nftVerification, written.launchFee], [settled.nftVerification, stableClaim], "the settled status and the consumed fee are kept");
+  // A row that keeps changing fails the registration retryably instead of writing over it.
+  calls.length = 0; patches = 0;
+  store.request = async <T>(path: string, method = "GET", body?: unknown, prefer?: string) => {
+    calls.push({ path: decodeURIComponent(path), method, body, prefer });
+    return (method === "GET" ? [{ payload: unproven }] : []) as T;
+  };
+  await assert.rejects(store.upgradeTokenProvenance(proven), /changed while its provenance was upgraded/);
+  assert.equal(calls.filter((call) => call.method === "PATCH").length, 3, "bounded");
+  // Nothing to upgrade: no write at all.
+  calls.length = 0;
+  store.request = async <T>(path: string, method = "GET", body?: unknown, prefer?: string) => { calls.push({ path: decodeURIComponent(path), method, body, prefer }); return [] as T; };
+  await store.upgradeTokenProvenance(proven);
+  await store.upgradeTokenProvenance(unproven);
+  assert.deepEqual(calls.map((call) => call.method), ["GET"], "an already proven row is never written; an unproven record never upgrades");
+});
 
 test("updateNftVerification settles only an unverified or absent status, and never a record without nft", withStore(async (store) => {
   const open = nftCoin(3, { nftVerification: { status: "unverified", reason: "rpc" } }), bare = nftCoin(4), plain = nftCoin(5, { nft: undefined });

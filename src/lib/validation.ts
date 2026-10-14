@@ -223,9 +223,11 @@ export function minimumOutput(amount: bigint, bps: number) {
 export function errorMessage(error: unknown) {
   if (error instanceof z.ZodError)
     return error.issues[0]?.message ?? "Check your input";
-  const e = error as { shortMessage?: string; message?: string; code?: number };
+  const e = error as { shortMessage?: string; message?: string; details?: string; code?: number };
   if (e?.code === 4001) return "You cancelled the wallet request. You can make changes and try again.";
-  const detail = e?.shortMessage || e?.message || "";
+  // viem reports an error that is no JSON-RPC error, such as a signing check's refusal, as an unknown RPC error; its own words are the details.
+  const short = e?.shortMessage === "An unknown RPC error occurred." && e.details ? e.details : e?.shortMessage;
+  const detail = short || e?.message || "";
   if (
     /ContractPaused|PolicyUnauthorized|policy.*(rejected|denied)|transfer.*(blocked|restricted)/i.test(
       detail,
@@ -235,7 +237,7 @@ export function errorMessage(error: unknown) {
       0,
       500,
     );
-  return (e?.shortMessage || e?.message || "The action could not be completed. Try again.").slice(
+  return (short || e?.message || "The action could not be completed. Try again.").slice(
     0,
     500,
   );

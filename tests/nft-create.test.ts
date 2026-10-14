@@ -4,18 +4,21 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { once } from "node:events";
-import { decodeFunctionData, erc20Abi, getAddress, stringToHex, TransactionNotFoundError, TransactionReceiptNotFoundError, UserRejectedRequestError,
+import { createWalletClient, custom, decodeFunctionData, erc20Abi, getAddress, stringToHex, TransactionNotFoundError, TransactionReceiptNotFoundError, UnknownRpcError, UserRejectedRequestError,
   InvalidInputRpcError, InvalidParamsRpcError, MethodNotFoundRpcError, MethodNotSupportedRpcError, type Address, type Hex } from "viem";
-import { restoreDraft, type LaunchInput } from "../src/lib/validation";
+import { robinhood } from "viem/chains";
+import { errorMessage, restoreDraft, type LaunchInput } from "../src/lib/validation";
+import { signingRequest } from "../src/lib/wallet-signing";
 import { ROBINHOOD_STOCKS } from "../src/lib/config";
 import { MUSES, nftKey, type NftRef } from "../src/lib/nft-mode";
 import { launchIntentStorageKey } from "../src/lib/launch-intent";
 import {
-  FEE_CANCELLED, FEE_REVERTED, FEE_UNCONFIRMED, FEE_WALLET_CANCELLED, FEE_WALLET_REFUSED, createFeePoller, feePollDelay, formatFeeEth, isLaunchFeeTx, isUserRejection,
-  launchFeeAfterSendError, launchFeeClearedNotice, launchFeeEthTx, launchFeeStableTx,
+  FEE_CANCELLED, FEE_NFT_MODE_OFF, FEE_REVERTED, FEE_UNCONFIRMED, assertLaunchFeePayable, FEE_WALLET_CANCELLED, FEE_WALLET_REFUSED, formatFeeEth, isLaunchFeeTx,
+  launchFeeClearedNotice, launchFeeEthTx, launchFeeStableTx,
   launchFeeStorageKey, musePrefill, nftLaunchFeeCost, nftReviewBlocker, parseLaunchFeeRecord, prepareDraft, readNftStatus, resolveLaunchFee, rewardsShareCopy, savedNftMode,
 } from "../src/lib/nft-client";
 import * as nftClient from "../src/lib/nft-client";
+import { attemptAfterSendError, createSendPoller, isUserRejection, sendPollDelay } from "../src/lib/send-record";
 import { LAUNCH_FEE_MAX_WEI } from "../src/lib/launch-fee";
 import { createApp } from "../server/app";
 import { ingressClass } from "../server/abuse";
@@ -89,6 +92,25 @@ test("the wallet refuses an ETH fee quote above the 0.05 ETH sanity ceiling, eve
   assert.equal(isLaunchFeeTx(config, { to: treasury, data: "0x", value: 10n ** 18n }, { ...at, wei: String(10n ** 18n) }), false, "a 1 ETH quote is refused");
   assert.throws(() => launchFeeEthTx(config, above), /The ETH price quote is too high to be safe\. Pay with USDG, or try again later\./);
   assert.equal(launchFeeEthTx(config, at).value, LAUNCH_FEE_MAX_WEI);
+});
+
+// Round 4 F3: a page opened while NFT mode was on must not pay a fee once the operator switched it off.
+test("a launch fee is payable only while the fresh configuration has NFT mode on with a verified vault factory", () => {
+  const factory = getAddress("0xfac7000000000000000000000000000000000001");
+  const nftMode = { enabled: true, vaultFactory: factory, launchFeeUsd: 10, freeCollections: [], verifiedCollections: [] };
+  assert.doesNotThrow(() => assertLaunchFeePayable({ nftMode }));
+  for (const [why, current] of [["NFT mode off", { nftMode: { ...nftMode, enabled: false } }], ["no verified vault factory", { nftMode: { ...nftMode, vaultFactory: null } }],
+    ["a runtime without NFT mode", {}]] as const)
+    assert.throws(() => assertLaunchFeePayable(current), (error: unknown) => error instanceof Error && error.message === FEE_NFT_MODE_OFF, why);
+  assert.equal(FEE_NFT_MODE_OFF, "NFT mode is not available on this network right now; no payment was sent.");
+});
+test("a refusal a signing check throws reaches the page in its own words, not as viem's unknown RPC error", async () => {
+  const wallet = createWalletClient({ account, chain: robinhood, transport: custom({ request: signingRequest({ request: async () => "0x1237" }, {
+    validate: async () => assertLaunchFeePayable({}) }) }, { retryCount: 0 }) });
+  const sent = await wallet.sendTransaction({ to: treasury, data: "0x", value: 1n, gas: 21_000n, maxFeePerGas: 1n, maxPriorityFeePerGas: 1n, nonce: 0 })
+    .then(() => null, (error: unknown) => error);
+  assert.equal(errorMessage(sent), FEE_NFT_MODE_OFF);
+  assert.equal(errorMessage(new UnknownRpcError(new Error(""))), "An unknown RPC error occurred.", "without details, viem's own words stay");
 });
 
 test("the earlier per-draft fee migration is gone", () => {
@@ -195,11 +217,11 @@ test("only a wallet rejection before any hash clears an attempt; any other failu
   assert.equal(isUserRejection(rejection), true);
   assert.equal(isUserRejection({ code: 4001 }), true);
   assert.equal(isUserRejection(new Error("Wallet disconnected before returning the transaction hash")), false);
-  assert.equal(launchFeeAfterSendError(sending, sending.at, rejection), null, "sending, then rejected: cleared");
-  assert.deepEqual(launchFeeAfterSendError(sending, sending.at, new Error("disconnected")), sending, "sending, then unknown: kept");
+  assert.equal(attemptAfterSendError(sending, sending.at, rejection), null, "sending, then rejected: cleared");
+  assert.deepEqual(attemptAfterSendError(sending, sending.at, new Error("disconnected")), sending, "sending, then unknown: kept");
   const pending = pendingOf(stableFee.txHash);
-  assert.deepEqual(launchFeeAfterSendError(pending, sending.at, rejection), pending, "a hash exists: kept");
-  assert.deepEqual(launchFeeAfterSendError(sending, sending.at + 1, rejection), sending, "another attempt is never touched");
+  assert.deepEqual(attemptAfterSendError(pending, sending.at, rejection), pending, "a hash exists: kept");
+  assert.deepEqual(attemptAfterSendError(sending, sending.at + 1, rejection), sending, "another attempt is never touched");
   assert.equal(launchFeeClearedNotice(rejection), FEE_WALLET_CANCELLED, "the user's own rejection keeps its wording");
   assert.equal(launchFeeClearedNotice({ code: 4001 }), FEE_WALLET_CANCELLED);
 });
@@ -208,17 +230,17 @@ test("a wallet that refused the payment request unprocessed clears the attempt w
   // What viem throws when eth_sendTransaction and its wallet_sendTransaction retry were both refused as unsupported or malformed.
   for (const Refusal of [MethodNotSupportedRpcError, MethodNotFoundRpcError, InvalidParamsRpcError]) {
     const refused = { name: "TransactionExecutionError", cause: new Refusal(new Error("The wallet refused eth_sendTransaction")) };
-    assert.equal(launchFeeAfterSendError(sending, sending.at, refused), null, `${Refusal.name}: nothing was sent, cleared`);
+    assert.equal(attemptAfterSendError(sending, sending.at, refused), null, `${Refusal.name}: nothing was sent, cleared`);
     assert.equal(launchFeeClearedNotice(refused), FEE_WALLET_REFUSED, Refusal.name);
     assert.notEqual(launchFeeClearedNotice(refused), FEE_WALLET_CANCELLED);
     const pending = pendingOf(stableFee.txHash);
-    assert.deepEqual(launchFeeAfterSendError(pending, sending.at, refused), pending, "a hash exists: kept");
-    assert.deepEqual(launchFeeAfterSendError(sending, sending.at + 1, refused), sending, "another attempt is never touched");
+    assert.deepEqual(attemptAfterSendError(pending, sending.at, refused), pending, "a hash exists: kept");
+    assert.deepEqual(attemptAfterSendError(sending, sending.at + 1, refused), sending, "another attempt is never touched");
   }
   assert.equal(FEE_WALLET_REFUSED, "Your wallet refused the payment request, and nothing was sent. You can try again or use another wallet.");
   // A generic wallet error may follow a broadcast: the record stays for the nonce check.
   for (const ambiguous of [{ name: "TransactionExecutionError", cause: new InvalidInputRpcError(new Error("invalid input")) }, { code: -32603 }, new Error("x")])
-    assert.deepEqual(launchFeeAfterSendError(sending, sending.at, ambiguous), sending);
+    assert.deepEqual(attemptAfterSendError(sending, sending.at, ambiguous), sending);
 });
 
 type FakeTx = { hash: Hex; from: Address; to: Address; input: Hex; value: bigint; nonce: number; block: bigint };
@@ -227,8 +249,10 @@ const txOf = (n: number, block: bigint, over: Partial<FakeTx> = {}): FakeTx => (
   to: stableTx.to, input: stableTx.data, value: 0n, nonce: n, block, ...over });
 const otherTx = (n: number, block: bigint) => txOf(n, block, { hash: `0x${(1000 + n).toString(16).padStart(64, "f")}`, to: account, input: "0x" });
 /** A chain: `mined` transactions with their blocks (a block past `head` is mined after the head was read), `mempool` ones known but
- * unmined, and receipt statuses. Every read is recorded; `count@N` is a nonce count at block N. */
-function chain(head: bigint, mined: FakeTx[], mempool: FakeTx[] = [], reverted: Hex[] = []) {
+ * unmined, receipt statuses, and receipts whose block was since reorganized away (`orphaned`). Every read is recorded; `count@N` is a nonce
+ * count at block N, `block:N` a block read with its transactions (the nonce search), `canonical:N` the block hash check of a receipt. */
+const blockHashOf = (block: bigint) => `0x${block.toString(16).padStart(64, "b")}` as Hex;
+function chain(head: bigint, mined: FakeTx[], mempool: FakeTx[] = [], reverted: Hex[] = [], orphaned: Hex[] = []) {
   const reads: string[] = [];
   const client = {
     getBlockNumber: async () => { reads.push("head"); return head; },
@@ -236,7 +260,8 @@ function chain(head: bigint, mined: FakeTx[], mempool: FakeTx[] = [], reverted: 
       reads.push(`receipt:${hash.slice(-4)}`);
       const tx = mined.find((row) => row.hash === hash);
       if (!tx) throw new TransactionReceiptNotFoundError({ hash });
-      return { transactionHash: hash, status: reverted.includes(hash) ? "reverted" : "success", blockNumber: tx.block, from: tx.from };
+      return { transactionHash: hash, status: reverted.includes(hash) ? "reverted" : "success", blockNumber: tx.block, from: tx.from,
+        blockHash: orphaned.includes(hash) ? `0x${"0c".repeat(32)}` : blockHashOf(tx.block) };
     },
     getTransaction: async ({ hash }: { hash: Hex }) => {
       reads.push(`tx:${hash.slice(-4)}`);
@@ -249,7 +274,10 @@ function chain(head: bigint, mined: FakeTx[], mempool: FakeTx[] = [], reverted: 
       reads.push(blockNumber === undefined ? "count:latest" : `count@${blockNumber}`);
       return mined.filter((row) => row.from === address && (blockNumber === undefined || row.block <= blockNumber)).length;
     },
-    getBlock: async ({ blockNumber }: { blockNumber: bigint }) => { reads.push(`block:${blockNumber}`); return { transactions: mined.filter((row) => row.block === blockNumber) }; },
+    getBlock: async ({ blockNumber, includeTransactions }: { blockNumber: bigint; includeTransactions?: boolean }) => {
+      reads.push(`${includeTransactions ? "block" : "canonical"}:${blockNumber}`);
+      return { hash: blockHashOf(blockNumber), transactions: includeTransactions ? mined.filter((row) => row.block === blockNumber) : [] };
+    },
   };
   return { client: client as never, reads };
 }
@@ -310,6 +338,26 @@ test("a pending payment waits in the mempool and records the nonce it really use
   assert.deepEqual(await resolveLaunchFee(chain(109n, [...history, mined]).client, config, pendingOf(sent.hash)),
     { status: "paid", fee: { asset: "stable", txHash: sent.hash } });
 });
+// Round 4 F4: as the server's verifyLaunchFeePayment does, a receipt decides only after two confirmations on the canonical chain.
+test("a failed payment also waits for two confirmations: a reverted receipt in the latest block keeps the record", async () => {
+  const sent = txOf(3, 104n);
+  assert.deepEqual(await resolveLaunchFee(chain(104n, [...history, sent], [], [sent.hash]).client, config, sending), { status: "waiting" },
+    "one confirmation of a failure never reopens payment");
+  assert.deepEqual(await resolveLaunchFee(chain(104n, [...history, sent], [], [sent.hash]).client, config, pendingOf(sent.hash)), { status: "waiting" });
+  assert.deepEqual(await resolveLaunchFee(chain(105n, [...history, sent], [], [sent.hash]).client, config, pendingOf(sent.hash)), { status: "failed", reason: FEE_REVERTED });
+});
+test("a receipt whose block is no longer the canonical block at its height decides nothing, a success or a failure, and is checked again", async () => {
+  const sent = txOf(3, 104n);
+  for (const reverted of [[], [sent.hash]]) {
+    const orphan = chain(110n, [...history, sent], [], reverted, [sent.hash]);
+    assert.deepEqual(await resolveLaunchFee(orphan.client, config, pendingOf(sent.hash)), { status: "waiting" }, `reverted: ${reverted.length > 0}`);
+    assert(orphan.reads.includes("canonical:104"), "the receipt's block is read at its height");
+    assert.deepEqual(await resolveLaunchFee(orphan.client, config, sending), { status: "waiting" }, "also when found through the nonce");
+  }
+  const canonical = chain(110n, [...history, sent]);
+  assert.deepEqual(await resolveLaunchFee(canonical.client, config, pendingOf(sent.hash)), { status: "paid", fee: { asset: "stable", txHash: sent.hash } });
+  assert(canonical.reads.includes("canonical:104"));
+});
 test("a nonce spent only after the head was read is not spent yet", async () => {
   // The original is gone; a later block spends nonce 3. Counting at "latest" would start a search that cannot find it below the head.
   const lateSpent = chain(110n, [...history, otherTx(3, 111n)]);
@@ -346,9 +394,9 @@ test("a replacement the wallet reported is proof of the nonce: a speed-up is ado
 test("polling: an undecided payment is checked at most six times in ten minutes; a waiting one every 4 s", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const flush = async () => { for (let i = 0; i < 5; i++) await Promise.resolve(); };
-  const run = async (status: "unknown" | "waiting" | "paid", seconds: number, hidden = () => false) => {
+  const run = async (status: "unknown" | "waiting" | "decided", seconds: number, hidden = () => false) => {
     let checks = 0;
-    const poller = createFeePoller(async () => { checks++; return status; }, hidden);
+    const poller = createSendPoller(async () => { checks++; return status; }, hidden);
     poller.start();
     for (let second = 0; second < seconds; second++) { await flush(); t.mock.timers.tick(1_000); }
     await flush();
@@ -359,16 +407,16 @@ test("polling: an undecided payment is checked at most six times in ten minutes;
   assert(unknown.checks <= 6, `${unknown.checks} checks in 10 minutes`);
   assert.equal(unknown.checks, 4, "now, then after 1, 2 and 5 minutes");
   assert.equal((await run("waiting", 40)).checks, 11, "every 4 s while a receipt is awaited");
-  assert.equal((await run("paid", 600)).checks, 1, "a decided payment is never checked again");
+  assert.equal((await run("decided", 600)).checks, 1, "a decided payment is never checked again");
   assert.equal((await run("waiting", 60, () => true)).checks, 0, "nothing while the page is hidden");
-  assert.deepEqual([feePollDelay("unknown", 1), feePollDelay("unknown", 2), feePollDelay("unknown", 3), feePollDelay("unknown", 9), feePollDelay("error", 1)],
+  assert.deepEqual([sendPollDelay("unknown", 1), sendPollDelay("unknown", 2), sendPollDelay("unknown", 3), sendPollDelay("unknown", 9), sendPollDelay("error", 1)],
     [60_000, 120_000, 300_000, 300_000, 60_000]);
 });
 test("polling: Check again re-checks at once and restarts the back-off; a hidden page catches up when shown", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const flush = async () => { for (let i = 0; i < 5; i++) await Promise.resolve(); };
   let checks = 0, hidden = false;
-  const poller = createFeePoller(async () => { checks++; return "unknown"; }, () => hidden);
+  const poller = createSendPoller(async () => { checks++; return "unknown"; }, () => hidden);
   poller.start(); await flush();
   t.mock.timers.tick(60_000); await flush();
   assert.equal(checks, 2);

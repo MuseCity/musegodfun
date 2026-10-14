@@ -70,6 +70,7 @@ import { planAttestation, verifyPlanAttestation } from "./plan-attestation";
 import { BudgetUnavailable } from "./runtime-policy";
 import { NftLaunchError, assertNftDraftRules, inspectVaultFactory, launchFeeQuoteMac, nftRegistrationStatus, readMuseAgentId, readMuseName, readNftControl, settleLaunchFee, verifyLaunchFeePayment, type NftRegistrationStatus, type RegistrationFee } from "./nft-launch";
 import { isMuse, nftKey, treasuryFor, vaultFor, type NftRef, type NftStatus } from "../src/lib/nft-mode";
+import { ERC1967_IMPLEMENTATION_SLOT, treasuryInitialized } from "../src/lib/nft-treasury";
 import { LAUNCH_FEE_QUOTE_TTL, LAUNCH_FEE_STABLE, LAUNCH_FEE_USD, type LaunchFee } from "../src/lib/launch-fee";
 import type { EngineClaimPreview } from "../src/lib/buyback-engine";
 
@@ -693,17 +694,32 @@ export class LaunchpadService {
       Date.now() + RECOVERY_RESULT_TTL_MS, { submitted: true });
     if (held.length && report) console.error(JSON.stringify({ event: "nft_launch_claim_lost", planId: plan.id, hash, held }));
   }
-  /** Tracking reports success only once the mark is stored: three attempts with the RPC transport's short backoff (250 ms, then 500 ms),
-   * then LaunchClaimUnavailable, a 503 the client's API layer retries. The hash is already queued, so the next reconcile pass marks it too. */
-  private async trackNftClaims(plan: LaunchPlan, hash: Hex) {
-    for (let attempt = 0; ; attempt++) {
-      try { return await this.markNftClaimsSubmitted(plan, hash); }
-      catch (error) {
-        if (attempt < 2) { await new Promise((resolve) => setTimeout(resolve, 250 * 2 ** attempt)); continue; }
-        console.error(JSON.stringify({ event: "nft_launch_claim_submit_failed", planId: plan.id, hash, error: error instanceof Error ? error.message : String(error) }));
-        throw new LaunchClaimUnavailable();
+  /** Tracking reports success only once the mark is stored: up to three attempts with the RPC transport's short backoff (250 ms, then
+   * 500 ms), all inside `deadline` (TRACK_DEADLINE_MS from the request's start): each attempt waits at most for what is left of it, and no
+   * attempt or backoff starts past it. Then LaunchClaimUnavailable, a 503 the client's API layer retries, reaches the client well before
+   * its own 35 s abort (src/lib/api.ts). An attempt cut off at the deadline may still land later, which only marks the claim submitted
+   * (an idempotent renewal). The hash is already queued, so the next reconcile pass marks it too. */
+  private async trackNftClaims(plan: LaunchPlan, hash: Hex, deadline: number) {
+    let failure: unknown = new Error("The tracking deadline passed before the submitted mark was stored.");
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt) {
+        const backoff = 250 * 2 ** (attempt - 1);
+        if (Date.now() + backoff >= deadline) break;
+        await new Promise((resolve) => setTimeout(resolve, backoff));
       }
+      const left = deadline - Date.now();
+      if (left <= 0) break;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const mark = this.markNftClaimsSubmitted(plan, hash);
+      mark.catch(() => {}); // An attempt cut off at the deadline settles unobserved.
+      try {
+        return await Promise.race([mark, new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error("The submitted mark did not answer before the tracking deadline.")), left);
+        })]);
+      } catch (error) { failure = error; } finally { clearTimeout(timer); }
     }
+    console.error(JSON.stringify({ event: "nft_launch_claim_submit_failed", planId: plan.id, hash, error: failure instanceof Error ? failure.message : String(failure) }));
+    throw new LaunchClaimUnavailable();
   }
   /** Reconcile's defense in depth, for a queued creation that has not settled (no receipt yet, an unreadable one, or a registration that is
    * still retrying): holds its NFT plan's claims as submitted for another recovery window from this pass, never taking another plan's. Not
@@ -757,6 +773,7 @@ export class LaunchpadService {
     return { valid: true, gas: String(gas), amountOut, simulatedAt: Date.now() };
   }
   async trackLaunch(hash: Hex, planId: string) {
+    const deadline = Date.now() + TRACK_DEADLINE_MS;
     hash = hash.toLowerCase() as Hex;
     await this.assertNetwork();
     const tx = await this.client.getTransaction({ hash });
@@ -767,7 +784,7 @@ export class LaunchpadService {
       assertHistoricalOpeningValuation(plan.openingValuation, plan.draft.quoteAddress, deploymentChain(this.runtime.config));
     assertLaunchTransaction(plan, tx, this.contracts);
     await this.store.trackLaunch(hash, plan.id);
-    if (plan.draft.nft) await this.trackNftClaims(plan, hash);
+    if (plan.draft.nft) await this.trackNftClaims(plan, hash, deadline);
   }
   async register(hash: Hex, recoveryPlan?: LaunchPlan): Promise<TokenRecord> {
     hash = hash.toLowerCase() as Hex;
@@ -1331,8 +1348,9 @@ export class LaunchpadService {
     }
     const listed = [...assets.values()];
     const reads = listed.flatMap(({ token }) => [treasury, vault].map((holder) => ({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [holder] }) as const));
-    const [vaultCode, treasuryCode, held, previews] = await Promise.all([
+    const [vaultCode, treasuryCode, implementation, held, previews] = await Promise.all([
       this.client.getCode({ address: vault }), this.client.getCode({ address: treasury }),
+      this.client.getStorageAt({ address: treasury, slot: ERC1967_IMPLEMENTATION_SLOT }),
       reads.length ? this.client.multicall({ contracts: reads, allowFailure: true }) : Promise.resolve([]),
       Promise.allSettled(coins.map((coin) => this.fees(coin.address, vault))),
     ]);
@@ -1345,6 +1363,7 @@ export class LaunchpadService {
       : { token: coins[index].address, error: redact(preview.reason, this.runtime.environment) });
     const hasCode = (code: Hex | undefined) => !!code && code !== "0x";
     const value: NftTreasury = { nft, vault, vaultDeployed: hasCode(vaultCode), treasury, treasuryDeployed: hasCode(treasuryCode),
+      treasuryInitialized: hasCode(treasuryCode) && treasuryInitialized(implementation),
       coins: coins.map((coin) => ({ token: coin.address, symbol: coin.symbol, poolId: coin.poolId, quoteAddress: coin.quoteAddress })), balances, pendingFees };
     // A degraded answer (a failed balance read or fee preview) is returned, but the next request asks the chain again.
     if (held.some((read) => read.status !== "success") || previews.some((preview) => preview.status !== "fulfilled")) return value;
@@ -1456,7 +1475,8 @@ async function withNftLocks<T>(keys: string[], run: () => Promise<T>): Promise<T
 }
 // /api/* is no-store, so the public treasury view is cached here. Keys come from user input: fully successful results only, at most 500 of them.
 // `coins`: every coin bound to the NFT, whatever its status, with what a sweep needs (its pool and both assets).
-type NftTreasury = { nft: NftRef; vault: Address; vaultDeployed: boolean; treasury: Address; treasuryDeployed: boolean;
+// `treasuryDeployed`: the account was created (it has code); `treasuryInitialized`: its activation finished (`initialize` set Tokenbound V3).
+type NftTreasury = { nft: NftRef; vault: Address; vaultDeployed: boolean; treasury: Address; treasuryDeployed: boolean; treasuryInitialized: boolean;
   coins: { token: Address; symbol: string; poolId: Hex; quoteAddress: Address }[];
   balances: { token: Address; symbol: string; amount: string; vaultAmount: string | null }[]; pendingFees: unknown[] };
 const NFT_TREASURY_TTL_MS = 15_000, NFT_TREASURY_CACHE_MAX = 500;
@@ -1465,6 +1485,8 @@ const NFT_TREASURY_CACHE = new Map<string, { at: number; value: NftTreasury }>()
 // this long; a failure that could still change only briefly, so a later retry
 // can succeed.
 const RECOVERY_RESULT_TTL_MS = 600_000;
+// `/launch/track` answers within this long of its start: the client aborts it after 35 s and retries only a 503 it receives (src/lib/api.ts).
+const TRACK_DEADLINE_MS = 20_000;
 const RECOVERY_TRANSIENT_RETRY_MS = 15_000;
 type RememberedCheck = { promise: Promise<void>; settledAt?: number; ttl: number };
 // A stored recovered preview keeps only known LaunchPlan fields.

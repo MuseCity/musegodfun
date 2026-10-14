@@ -2,7 +2,7 @@ import type { Hex } from "viem";
 import { packPlan, unpackPlan } from "./plan-storage";
 import { defaultRuntimeControl, type RuntimeControl, type BudgetName, type BudgetResult } from "./runtime-policy";
 import type { TokenRecord } from "../src/lib/config";
-import { assertBuybackBatchId, assertBuybackAuditRecord, assertLaunchClaim, postgresTokenConflict, type LaunchClaimOptions, type Store, type LaunchPlan, type BuybackBatchRecord, type BuybackBatchPageRecord } from "./store";
+import { assertBuybackBatchId, assertBuybackAuditRecord, assertLaunchClaim, postgresTokenConflict, provenanceUpgrade, type LaunchClaimOptions, type Store, type LaunchPlan, type BuybackBatchRecord, type BuybackBatchPageRecord } from "./store";
 function assertSequence(value: unknown): asserts value is string {
   if (typeof value !== "string" || !/^(?:0|[1-9]\d*)$/.test(value) || BigInt(value) >= 2n ** 256n) throw new Error("Invalid history sequence");
 }
@@ -233,12 +233,25 @@ export class SupabaseStore implements StoreBackend {
       "resolution=ignore-duplicates,return=minimal",
     );
   }
+  /** Store.upgradeTokenProvenance as a compare-and-swap: the row is read, `provenanceUpgrade` decides what to write, and the write matches the
+   * NFT fields that were read (status, spent fee, fee claim). A write that matches nothing (another process settled the row meanwhile) is
+   * retried from a fresh read, at most three times; then registration fails retryably rather than writing over the row. */
   async upgradeTokenProvenance(token: TokenRecord) {
     if (token.openingValuationUnverified || !token.transactionHash) return;
-    await this.request(
-      `musegod_tokens?${this.where()}&address=eq.${encodeURIComponent(token.address.toLowerCase())}&tx_hash=eq.${encodeURIComponent(token.transactionHash.toLowerCase())}&payload->>openingValuationUnverified=eq.true`,
-      "PATCH", { payload: token }, "return=minimal",
-    );
+    const row = `musegod_tokens?${this.where()}&address=eq.${encodeURIComponent(token.address.toLowerCase())}` +
+      `&tx_hash=eq.${encodeURIComponent(token.transactionHash.toLowerCase())}&payload->>openingValuationUnverified=eq.true`;
+    const matches = (value: string | undefined, path: string, field: string) =>
+      value === undefined ? `&${path}=is.null` : `&${path}->>${field}=eq.${encodeURIComponent(value)}`;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const [read] = await this.request<{ payload: TokenRecord }[]>(`${row}&select=payload&limit=1`);
+      if (!read) return;
+      const stored = read.payload;
+      const written = await this.request<unknown[]>(`${row}${matches(stored.nftVerification?.status, "payload->nftVerification", "status")}` +
+        `${matches(stored.launchFee?.txHash, "payload->launchFee", "txHash")}${matches(stored.nftVerification?.feeClaim?.txHash, "payload->nftVerification->feeClaim", "txHash")}` +
+        "&select=address", "PATCH", { payload: provenanceUpgrade(token, stored) }, "return=representation");
+      if (Array.isArray(written) && written.length) return;
+    }
+    throw new Error("The token record changed while its provenance was upgraded. Registration will retry.");
   }
   /** The compare-and-swap of Store.updateNftVerification, including the provenance match. PostgREST `not.in` skips NULLs, so an unverified
    * and an absent status are matched by two explicit requests; the first one's write no longer matches the second's filter. The guard

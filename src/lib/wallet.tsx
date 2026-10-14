@@ -34,7 +34,7 @@ import { contractsFor, deploymentChain, networkName, sameAddress, stockByAddress
 import { MUSEGOD_BUYBACK } from "./fee-policy";
 import { RELAY_APPROVAL_PROXY, RELAY_DEPOSITORY, type BuybackStep, type BuybackBatch } from "./buyback";
 import { assertSigningEnabled, errorMessage, simulationError } from "./validation";
-import { isLaunchFeeTx, type LaunchFeeQuote } from "./nft-client";
+import { assertLaunchFeePayable, isLaunchFeeTx, type LaunchFeeQuote } from "./nft-client";
 import { isNftTreasuryTx } from "./nft-treasury";
 import type { NftRef } from "./nft-mode";
 import { permit2Abi, swapTransaction } from "./protocol";
@@ -241,9 +241,11 @@ type WalletState = {
     progress: (message: string) => void,
     steps?: TradeSteps,
   ) => Promise<Hash>;
-  /** One verified LI.FI transaction paid in ETH on Robinhood: a coin buy, or the first step of a two-step buy. */
+  /** One verified LI.FI transaction paid in ETH on Robinhood: a coin buy, or the first step of a two-step buy. `beforeSend`, required, runs
+   * right before the wallet receives it (and before viem's resend of it), after every check that could still refuse it: it writes the
+   * caller's anti-duplicate record (use-eth-buy-record.ts), so ETH is never sent without one. */
   lifiTrade: (quote: FirstBuyPaymentQuote, target: LifiTradeTarget, config: RuntimeConfig, progress: (message: string) => void,
-    confirmMessage: string, onHash?: (hash: Hash) => void) => Promise<{ hash: Hash; received: bigint | null }>;
+    confirmMessage: string, onHash: ((hash: Hash) => void) | undefined, options: { beforeSend: () => void }) => Promise<{ hash: Hash; received: bigint | null }>;
   buyback: (step: BuybackStep, config: RuntimeConfig, onHash?: (hash: Hash) => void) => Promise<Hash>;
   engineAction: (action: EngineAction, config: RuntimeConfig, onHash?: (hash: Hash) => void) => Promise<Hash>;
   balance: (token: Address, config?: RuntimeConfig) => Promise<bigint>;
@@ -578,7 +580,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       ))
     )
       throw new Error("The transaction target is not allowed");
-    const wallet = await signer(config, expected, undefined, undefined, beforeSend);
+    // A launch fee also needs NFT mode on the fresh configuration the signer reads before the wallet request, not the page's.
+    const wallet = await signer(config, expected, launchFee ? async (current) => assertLaunchFeePayable(current) : undefined, undefined, beforeSend);
     await publicClient
       .call({ account: expected, to, data, value })
       .catch((error: unknown) => {
@@ -983,7 +986,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     return verification;
   }
   async function lifiTrade(quote: FirstBuyPaymentQuote, target: LifiTradeTarget, config: RuntimeConfig, progress: (message: string) => void,
-    confirmMessage: string, onHash?: (hash: Hash) => void) {
+    confirmMessage: string, onHash: ((hash: Hash) => void) | undefined, { beforeSend }: { beforeSend: () => void }) {
     if (!account) throw new Error("Connect your wallet first");
     config = Object.freeze({ ...config });
     if (deploymentChain(config) !== 4663) throw new Error("Buying a coin with ETH is available on Robinhood Chain only.");
@@ -1000,9 +1003,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       submit: async (frozen, gas) => {
         gas = bufferedLaunchGas(gas, (await client.getBlock()).gasLimit);
         await ensureGas(config, expected, BigInt(frozen.transaction.value), gas);
-        // Every wallet request re-runs the static and on-chain checks and must be exactly this transaction.
+        // Every wallet request re-runs the static and on-chain checks and must be exactly this transaction; `beforeSend` records it last.
         const wallet = await signer(config, expected, () => verify(frozen, assertLifiTradeQuote(frozen, target, expected)),
-          (request) => assertLaunchRequest(request, { ...frozen.transaction, from: expected, chainId: config.chainId }));
+          (request) => assertLaunchRequest(request, { ...frozen.transaction, from: expected, chainId: config.chainId }), () => beforeSend());
         const hash = await wallet.sendTransaction({ to: frozen.transaction.to, data: frozen.transaction.data, value: BigInt(frozen.transaction.value), gas });
         const confirmation = confirmed(hash, config, expected, "swap");
         onHash?.(hash);

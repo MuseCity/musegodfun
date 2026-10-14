@@ -27,7 +27,7 @@ const tokenLookupModes = new Set(['token_detail_pending', 'token_detail_error', 
 const timeoutModes = new Set(['approval_timeout', 'payment_timeout', 'launch_timeout', 'approval_timeout_reject']);
 const recoveryRaceModes = new Set(['payment_marker_race', 'launch_marker_race', 'payment_status_race', 'payment_submit_race', 'payment_submit_record_race']);
 // NFT mode: the mode switch, the Muse pair lock, the $10 fee card before review and prepare's NFT rejections. No launch is signed.
-const nftModes = new Set(['nft_reload_keeps_nft', 'nft_muse_free', 'nft_paid_usdg', 'nft_paid_eth', 'nft_fee_sending_reload', 'nft_not_controlled', 'nft_already_launched', 'nft_draft_link_during_reconnect', 'nft_draft_link_locked_wallet', 'nft_fee_no_vault']);
+const nftModes = new Set(['nft_reload_keeps_nft', 'nft_muse_free', 'nft_paid_usdg', 'nft_paid_eth', 'nft_fee_sending_reload', 'nft_not_controlled', 'nft_already_launched', 'nft_draft_link_during_reconnect', 'nft_draft_link_locked_wallet', 'nft_fee_no_vault', 'nft_fee_mode_off']);
 const feeWei = '3333333333333334';
 const muses = '0x13Ea3072b7215d4C9c2Ec4f498A08c5825129836', paidCollection = '0x9999999999999999999999999999999999999999';
 const usdg = '0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168', musegodAsset = ROBINHOOD_STOCKS.find(x => x.symbol === 'MUSEGOD');
@@ -175,7 +175,9 @@ async function casePage(mode, viewport = { width: 1440, height: 1000 }) {
     const path = url.pathname.replace(/^\/api\/chains\/4663(?=\/|$)/, '/api');
     if (path === '/api/config') {
       if (!state.configurationReleased) await new Promise(resolve => state.releaseConfiguration.push(resolve));
-      return reply(mode === 'stale_page' ? { ...config, curvePolicy: 'old-curve-v1' } : mode === 'nft_fee_no_vault' ? noVaultConfig : nftModes.has(mode) ? nftConfig : config);
+      // nft_fee_mode_off: the operator switches NFT mode off after the page loaded with it on (`state.nftModeOff`).
+      return reply(mode === 'stale_page' ? { ...config, curvePolicy: 'old-curve-v1' } : mode === 'nft_fee_no_vault' ? noVaultConfig
+        : state.nftModeOff ? { ...nftConfig, nftMode: { ...nftConfig.nftMode, enabled: false } } : nftModes.has(mode) ? nftConfig : config);
     }
     if (path === '/api/stocks') return reply(ROBINHOOD_STOCKS.map(x=>({ ...x, verified: true, blockNumber: '16', totalSupply: '1000000000000000000000000', multiplierWad: null })));
     if (path === '/api/tokens') return reply(mode.startsWith('token_detail_') ? Array.from({length:50},(_,index)=>({
@@ -1109,6 +1111,20 @@ async function nftCase(page, state) {
       ...(mode === 'nft_paid_usdg' ? { pendingFeeSurvivedReload: true, reviewSaysStillConfirming: true } : {}),
       ...(mode === 'nft_fee_sending_reload' ? { sendingSurvivedReloadWithoutHash: true, noPayButtonAfterReload: true, adoptedByNonce: true } : {}),
       ...(mode === 'nft_paid_eth' ? { ethAmountShownFirst: true, exactQuotedWei: true } : {}) };
+  } else if (mode === 'nft_fee_mode_off') {
+    // The page still shows NFT mode on; the fresh configuration read right before the wallet request refuses the payment.
+    await page.getByLabel('Collection contract', { exact: true }).fill(paidCollection);
+    await tokenInput.fill('5');
+    await statusIs('Launching for this NFT costs $10, paid before the launch.');
+    const pay = page.getByRole('button', { name: 'Pay 10 USDG', exact: true });
+    await pay.waitFor();
+    state.nftModeOff = true;
+    await pay.click();
+    await page.locator('.nft-fee .field-error', { hasText: 'NFT mode is not available on this network right now; no payment was sent.' }).waitFor();
+    assert.equal(state.sends.length, 0, 'the payment never reached the wallet');
+    assert.equal(state.refusedSends, 0, 'not even a refused send method');
+    assert.deepEqual(await page.evaluate(() => Object.keys(localStorage).filter(key => key.endsWith('.launch-fee'))), [], 'no fee record was saved');
+    state.nftChecks = { modeSwitch: true, staleNftModeRefusedBeforeWallet: true, noFeeRecord: true };
   } else if (mode === 'nft_fee_no_vault') {
     // Without a verified fee vault a paid fee could launch nothing, so payment stays closed and says why.
     await page.getByLabel('Collection contract', { exact: true }).fill(paidCollection);
@@ -1143,7 +1159,7 @@ async function nftCase(page, state) {
   await page.screenshot({ path: `.cache/launch-browser-${mode}.png`, fullPage: true }); report.screenshots.push(`.cache/launch-browser-${mode}.png`);
 }
 try {
-  for (const mode of (process.env.BROWSER_CASES?.split(',') || ['success','plain','duplicate','stale_page','reject_approval','wallet_refuses_sends','expiry','account_change','network_change','simulation_failure','two_tabs','two_tabs_draft','unknown_send','approval_unknown','approval_pending','wrap_flow','wrap_price_change','delayed_config','unknown_fetch','approval_timeout','payment_timeout','launch_timeout','approval_timeout_reject','payment_marker_race','launch_marker_race','payment_status_race','payment_submit_race','payment_submit_record_race','wrap_late_launch_recovery','wrap_near_expiry','idle_review','hidden_review','idle_plain','token_detail_pending','token_detail_error','token_detail_state_unavailable','token_detail_unregistered_backup','token_detail_invalid_pool','token_detail_unverified_opening','history_track_backoff','nft_muse_free','nft_paid_usdg','nft_paid_eth','nft_fee_sending_reload','nft_not_controlled','nft_already_launched','nft_draft_link_during_reconnect','nft_draft_link_locked_wallet','nft_fee_no_vault','nft_reload_keeps_nft'])) {
+  for (const mode of (process.env.BROWSER_CASES?.split(',') || ['success','plain','duplicate','stale_page','reject_approval','wallet_refuses_sends','expiry','account_change','network_change','simulation_failure','two_tabs','two_tabs_draft','unknown_send','approval_unknown','approval_pending','wrap_flow','wrap_price_change','delayed_config','unknown_fetch','approval_timeout','payment_timeout','launch_timeout','approval_timeout_reject','payment_marker_race','launch_marker_race','payment_status_race','payment_submit_race','payment_submit_record_race','wrap_late_launch_recovery','wrap_near_expiry','idle_review','hidden_review','idle_plain','token_detail_pending','token_detail_error','token_detail_state_unavailable','token_detail_unregistered_backup','token_detail_invalid_pool','token_detail_unverified_opening','history_track_backoff','nft_muse_free','nft_paid_usdg','nft_paid_eth','nft_fee_sending_reload','nft_not_controlled','nft_already_launched','nft_draft_link_during_reconnect','nft_draft_link_locked_wallet','nft_fee_no_vault','nft_fee_mode_off','nft_reload_keeps_nft'])) {
     const {context,page,state,pageErrors}=await casePage(mode);
     const plain = plainModes.has(mode);
     if (mode === 'success') {

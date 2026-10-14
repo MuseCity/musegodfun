@@ -5,9 +5,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { once } from "node:events";
-import { getAddress, keccak256, type Address, type Hex } from "viem";
+import { getAddress, keccak256, pad, type Address, type Hex } from "viem";
 import { ROBINHOOD_STOCKS, type RuntimeConfig, type TokenRecord } from "../src/lib/config";
-import { MUSES, NFT_VAULT_MANIFEST, treasuryFor, vaultFor, type NftRef, type NftVaultManifest } from "../src/lib/nft-mode";
+import { MUSES, NFT_VAULT_MANIFEST, TOKENBOUND_V3_IMPLEMENTATION, treasuryFor, vaultFor, type NftRef, type NftVaultManifest } from "../src/lib/nft-mode";
+import { ERC1967_IMPLEMENTATION_SLOT } from "../src/lib/nft-treasury";
 import { createApp, createDualChainApp, knownPage, setHiddenTokens } from "../server/app";
 import { ingressClass } from "../server/abuse";
 import { runtimeFromEnv } from "../server/config";
@@ -276,8 +277,11 @@ const runtimeConfig = (vaultFactory: Address | null): RuntimeConfig => ({ mode: 
   blockReason: null, nftMode: { enabled: true, vaultFactory, launchFeeUsd: 10, freeCollections: [], verifiedCollections: [] } });
 const derived = (nft: NftRef) => ({ vault: vaultFor(nft, factory, deployedManifest.vaultInitCodeHash), treasury: treasuryFor(nft) });
 
-function treasuryFixture(rows: TokenRecord[], over: { factory?: Address | null; deployed?: Address[] } = {}) {
-  const calls = { codes: [] as string[], multicalls: [] as { address: Address; functionName: string; args: Address[] }[][], fees: [] as [Address, Address][] };
+// `initialized`: accounts whose ERC-1967 implementation slot holds Tokenbound V3 (an active treasury); any other account reads zero there.
+function treasuryFixture(rows: TokenRecord[], over: { factory?: Address | null; deployed?: Address[]; initialized?: Address[] } = {}) {
+  const calls = { codes: [] as string[], multicalls: [] as { address: Address; functionName: string; args: Address[] }[][], fees: [] as [Address, Address][],
+    slots: [] as [Address, Hex][] };
+  const initialized = new Set((over.initialized ?? []).map((a) => a.toLowerCase()));
   // Mutable faults: the whole multicall, single reads by their index in the multicall, and fee previews by coin address (lower-case).
   const state = { failMulticall: false, failReads: new Set<number>(), failFees: new Set<string>() };
   const deployed = new Set((over.deployed ?? []).map((a) => a.toLowerCase()));
@@ -288,6 +292,10 @@ function treasuryFixture(rows: TokenRecord[], over: { factory?: Address | null; 
     tokens: async () => structuredClone(rows),
     client: {
       getCode: async ({ address: target }: { address: Address }) => { calls.codes.push(target); return target === factory ? factoryCode : deployed.has(target.toLowerCase()) ? "0x6001" : "0x"; },
+      getStorageAt: async ({ address: target, slot }: { address: Address; slot: Hex }) => {
+        calls.slots.push([target, slot]);
+        return initialized.has(target.toLowerCase()) ? pad(TOKENBOUND_V3_IMPLEMENTATION, { size: 32 }) : pad("0x00", { size: 32 });
+      },
       multicall: async ({ contracts }: { contracts: { address: Address; functionName: string; args: Address[] }[] }) => {
         calls.multicalls.push(contracts);
         if (state.failMulticall) throw new Error("rpc down");
@@ -336,6 +344,17 @@ test("nftTreasury derives both addresses, reads their code and the bound coins' 
   assert.deepEqual(calls.fees.map(([token]) => token), [a.address, b.address, c.address, rows[5].address]);
   assert(calls.fees.every(([, account]) => account === vault), "pending fees are those of the vault");
   assert.deepEqual(view.pendingFees, bound.map((row) => ({ token: row.address, lp: { fees0: 1n, fees1: 2n }, trade: { fees0: 3n, fees1: 4n }, poolKey: { hooks: vault } })));
+});
+
+test("nftTreasury tells a created treasury from an initialized one by its ERC-1967 implementation slot", async () => {
+  for (const [why, deployed, initialized] of [["not created", false, false], ["created, initialize not done", true, false], ["active", true, true]] as const) {
+    const nft = nftOf(why === "active" ? "111" : why === "not created" ? "112" : "113"), { treasury } = derived(nft);
+    const { service, calls } = treasuryFixture([coin(91, { nft, nftVerification: verified })],
+      { deployed: deployed ? [treasury] : [], initialized: initialized ? [treasury] : [] });
+    const view = await service.nftTreasury(`4663:${MUSES.contract}:${nft.tokenId}`);
+    assert.deepEqual([view.treasuryDeployed, view.treasuryInitialized], [deployed, initialized], why);
+    assert.deepEqual(calls.slots, [[treasury, ERC1967_IMPLEMENTATION_SLOT]], `${why}: the treasury's implementation slot, read once`);
+  }
 });
 
 test("a rejected coin bound to the NFT is in the treasury view and its sweep set, but never in the public listing", async () => {

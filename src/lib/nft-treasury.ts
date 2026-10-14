@@ -17,11 +17,22 @@ export const sweepTx = (vault: Address, poolIds: Hex[], tokens: Address[]): Tx =
   ({ to: vault, data: encodeFunctionData({ abi: vaultAbi, functionName: "sweep", args: [poolIds, tokens] }) });
 export const deployVaultTx = (factory: Address, nft: NftRef): Tx =>
   ({ to: factory, data: encodeFunctionData({ abi: factoryAbi, functionName: "deploy", args: [BigInt(nft.chainId), nft.contract, BigInt(nft.tokenId)] }) });
+/** The second activation step alone, `initialize(TOKENBOUND_V3_IMPLEMENTATION)` on the treasury: it finishes an activation whose account
+ * was created but never initialized. */
+export const finishActivationTx = (nft: NftRef): Tx =>
+  ({ to: treasuryFor(nft), data: encodeFunctionData({ abi: accountAbi, functionName: "initialize", args: [TOKENBOUND_V3_IMPLEMENTATION] }) });
 export const activateTreasuryTxs = (nft: NftRef): Tx[] => [
   { to: ERC6551_REGISTRY, data: encodeFunctionData({ abi: registryAbi, functionName: "createAccount",
     args: [TOKENBOUND_V3_PROXY, pad("0x00", { size: 32 }), BigInt(nft.chainId), nft.contract, BigInt(nft.tokenId)] }) },
-  { to: treasuryFor(nft), data: encodeFunctionData({ abi: accountAbi, functionName: "initialize", args: [TOKENBOUND_V3_IMPLEMENTATION] }) },
+  finishActivationTx(nft),
 ];
+/** EIP-1967's implementation slot, keccak256("eip1967.proxy.implementation") - 1. The Tokenbound account proxy keeps its implementation there
+ * once `initialize` ran; until then it is zero and the account answers nothing (its lock cannot be read, nothing can be withdrawn). */
+export const ERC1967_IMPLEMENTATION_SLOT = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc" as const;
+/** The treasury finished activation: its implementation slot (`eth_getStorageAt`) holds exactly Tokenbound V3. */
+export function treasuryInitialized(slot: Hex | undefined): boolean {
+  try { return !!slot && slot !== "0x" && BigInt(slot) === BigInt(TOKENBOUND_V3_IMPLEMENTATION); } catch { return false; }
+}
 /** Treasury `execute(target, value, data, 0)`: a plain call, never a delegatecall. Native ETH travels inside execute, not on the outer call. */
 export function withdrawTx(nft: NftRef, token: Address | "native", to: Address, amount: bigint): Tx {
   const call = token === "native" ? { target: to, value: amount, data: "0x" as Hex }

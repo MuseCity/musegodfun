@@ -117,7 +117,9 @@ import { TOKEN_IMAGE_ACCEPT } from "./lib/token-image";
 import { prepareTokenImage } from "./lib/image-upload";
 import { transactionClient, useWallet, type Quote } from "./lib/wallet";
 import { ETH_BUY_ROUTE, EthBuyIncomplete, amountWords, assertEthBuyResponse, defaultPayWith, ethBuyAvailable, ethBuyDisclosure, executeEthBuy,
-  pairShortfall, resolvePayWith, twoStepLabels, twoStepMinimum, type EthBuyQuoteResponse, type PayWith, type SwapQuote } from "./lib/eth-buy";
+  pairShortfall, resolvePayWith, twoStepLabels, twoStepMinimum, type EthBuyQuoteResponse, type LifiTradeTarget, type PayWith, type SwapQuote } from "./lib/eth-buy";
+import { ETH_BUY_MAYBE_SENT, ETH_BUY_UNRESOLVED, ETH_BUY_WAITING, type EthBuyTarget } from "./lib/eth-buy-record";
+import { useEthBuyRecord, type EthBuyAdopted } from "./lib/use-eth-buy-record";
 import type { LaunchPlan } from "../server/store";
 import { CURVE_POLICY, LAUNCH_CURVE_MAIN_END_USD } from "./lib/launch-curve";
 import LaunchCurve from "./components/LaunchCurve";
@@ -2968,6 +2970,14 @@ function CreatePage({
   );
 }
 
+/** A recorded ETH buy the chain proved after the wallet never reported it: what it delivered, and for the first of two steps what is left. */
+function EthBuyAdoptedText({ adopted }: { adopted: EthBuyAdopted }) {
+  const { target, received } = adopted;
+  const amount = received !== null ? <NumberText value={received} decimals={target.decimals} /> : null;
+  return <p className="trade-received">{target.kind === "coin"
+    ? amount ? <>Your ETH buy confirmed: received {amount} {target.symbol}.</> : <>Your ETH buy of {target.symbol} confirmed. Check your wallet balance for the amount.</>
+    : <>Your ETH → {target.symbol} conversion confirmed{amount ? <>: you received {amount} {target.symbol}</> : null}. Buy {target.coin} with {target.symbol} to finish.</>}</p>;
+}
 function TokenPage({
   address,
   config,
@@ -3013,6 +3023,9 @@ function TokenPage({
     // Re-reads both balances after an ETH buy, finished or not.
     [balanceTick, setBalanceTick] = useState(0),
     [clock, setClock] = useState(quoteNow());
+  // The wallet's unsettled LI.FI ETH buy on this network, if any: no ETH quote and no ETH buy until it is settled.
+  const ethBuy = useEthBuyRecord(config, wallet.account), ethHeld = !!ethBuy.record;
+  useEffect(() => { if (ethBuy.adopted) setBalanceTick((n) => n + 1); }, [ethBuy.adopted]);
   const pairAsset = resource.data ? quoteAsset(resource.data.token) : null;
   const ethPayable = side === "buy" && !!pairAsset && ethBuyAvailable(config, pairAsset.address);
   // Only the pair-asset balance decides the default, and only on the buy side of a pair-asset coin.
@@ -3187,6 +3200,8 @@ function TokenPage({
   }
   async function getEthQuote() {
     if (!wallet.account) return;
+    if (ethHeld) { setError(ETH_BUY_UNRESOLVED); return; }
+    ethBuy.clearAdopted();
     const request = ++generation.current, account = wallet.account;
     setBusy(true);
     setError("");
@@ -3222,9 +3237,15 @@ function TokenPage({
     setEthNote(null);
     setEthDone(null);
     try {
+      // What each LI.FI transaction delivers, as its record names it.
+      const recorded = (target: LifiTradeTarget): EthBuyTarget => target.kind === "coin"
+        ? { kind: "coin", token: coinAsset.address, symbol: coinAsset.symbol, decimals: 18, coin: coinAsset.symbol }
+        : { kind: "conversion", token: pairPayment.address, symbol: pairPayment.symbol, decimals: pairPayment.decimals, coin: coinAsset.symbol };
       const result = await executeEthBuy(plan, { coin: coinAsset, pair: pairPayment, account, slippageBps: slippage }, {
-        lifi: (q, target, step, onHash) => wallet.lifiTrade(q, target, frozen, step,
-          `Confirm in your wallet: ETH → ${target.kind === "coin" ? coinAsset.symbol : pairPayment.symbol}`, onHash),
+        // Every LI.FI transaction is sent under the wallet's ETH-buy record, so a broadcast without a returned hash is never paid twice.
+        lifi: (q, target, step, onHash) => ethBuy.guard(q, recorded(target), (hooks) => wallet.lifiTrade(q, target, frozen, step,
+          `Confirm in your wallet: ETH → ${target.kind === "coin" ? coinAsset.symbol : pairPayment.symbol}`,
+          (hash) => { hooks.onHash(hash); onHash(hash); }, { beforeSend: hooks.beforeSend })),
         requote: (amountIn) => api<SwapQuote>("/quote", { address, side: "buy", amount: formatUnits(amountIn, pairDecimals), slippageBps: slippage }),
         trade: (q) => wallet.trade(q, frozen, show, twoStepLabels(pairPayment.symbol, coinAsset.symbol)),
         logs: async (h) => (await transactionClient(frozen.chainId, frozen).getTransactionReceipt({ hash: h })).logs,
@@ -3589,11 +3610,19 @@ function TokenPage({
               {ethDone.received !== null ? <>Received <NumberText value={ethDone.received} decimals={18} /> {token.symbol}.</>
                 : <>Bought {token.symbol}. Check your wallet balance for the amount.</>}
             </p>}
+            {ethPayable && ethBuy.record && !ethBuy.sending && <p className="nft-warning">
+              {ethBuy.unknown || (ethBuy.record.state === "pending" ? ETH_BUY_WAITING : ETH_BUY_MAYBE_SENT)}</p>}
+            {ethPayable && ethBuy.notice && <p className="nft-warning">{ethBuy.notice}</p>}
+            {ethPayable && ethBuy.adopted && <EthBuyAdoptedText adopted={ethBuy.adopted} />}
           </div>
+          {ethPayable && ethBuy.record && !ethBuy.sending && <div className="button-row">
+            <button type="button" className="secondary" disabled={ethBuy.checking} onClick={ethBuy.checkAgain}>{ethBuy.checking ? "Checking…" : "Check again"}</button>
+            {ethBuy.unknown && <button type="button" className="secondary" onClick={ethBuy.discard}>No payment was sent</button>}
+          </div>}
           <button
             type="button"
             className="secondary full trade-quote"
-            disabled={busy || !amount || stateUnavailable || (payingEth && !wallet.account)}
+            disabled={busy || !amount || stateUnavailable || (payingEth && (!wallet.account || ethHeld))}
             onClick={() => void (payingEth ? getEthQuote() : getQuote())}
           >
             {busy ? (
@@ -3609,7 +3638,7 @@ function TokenPage({
               className="primary large full"
               disabled={
                 busy ||
-                (payingEth ? !ethQuote || ethExpiresAt === null || clock >= ethExpiresAt : !quote || clock >= quote.expiresAt) ||
+                (payingEth ? !ethQuote || ethExpiresAt === null || clock >= ethExpiresAt || ethHeld : !quote || clock >= quote.expiresAt) ||
                 !config?.writesEnabled ||
                 wallet.chainId !== config.chainId
               }
@@ -3637,6 +3666,9 @@ function TokenPage({
               Could not load the stock multiplier. The share equivalent is unavailable. {stockResource.error}
             </Notice>
           )}
+          {config && ethPayable && (ethBuy.record?.state === "pending" || ethBuy.adopted) && <div className="trade-links">
+            <TxLink hash={ethBuy.record?.state === "pending" ? ethBuy.record.txHash : ethBuy.adopted!.hash} config={config} label="View ETH buy transaction" />
+          </div>}
           {config && (ethDone || ethNote) ? <div className="trade-links">
             {(ethDone?.conversionHash ?? ethNote?.conversionHash) &&
               <TxLink hash={(ethDone?.conversionHash ?? ethNote?.conversionHash)!} config={config} label={`View ETH → ${stock.symbol} transaction`} />}

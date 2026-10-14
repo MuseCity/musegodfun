@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { concat, createPublicClient, custom, decodeFunctionData, encodeAbiParameters, encodeFunctionData, encodeFunctionResult, erc20Abi, multicall3Abi, parseAbi,
-  type Address, type Hex } from "viem";
-import { sweepTx, deployVaultTx, activateTreasuryTxs, withdrawTx, lockTx, depositTx, isNftTreasuryTx, heldNftCoins, lockTarget, nftBadge,
-  readTreasuryLock, NFT_OWNER_SCAN_LIMIT } from "../src/lib/nft-treasury";
+import { concat, createPublicClient, custom, decodeFunctionData, encodeAbiParameters, encodeFunctionData, encodeFunctionResult, erc20Abi, keccak256, multicall3Abi, pad, parseAbi,
+  stringToHex, toHex, type Address, type Hex } from "viem";
+import { sweepTx, deployVaultTx, activateTreasuryTxs, finishActivationTx, withdrawTx, lockTx, depositTx, isNftTreasuryTx, heldNftCoins, lockTarget, nftBadge,
+  readTreasuryLock, treasuryInitialized, ERC1967_IMPLEMENTATION_SLOT, NFT_OWNER_SCAN_LIMIT } from "../src/lib/nft-treasury";
 import { MUSES, treasuryFor, vaultFor, ERC6551_REGISTRY, TOKENBOUND_V3_PROXY, TOKENBOUND_V3_IMPLEMENTATION, type NftRef } from "../src/lib/nft-mode";
 import { allocateFeeIncome, FEE_POLICY } from "../src/lib/fee-policy";
 import type { RuntimeConfig } from "../src/lib/config";
@@ -21,6 +21,18 @@ test("activation creates the canonical account and initializes Tokenbound V3", (
   assert.deepEqual(decodeFunctionData({ abi: registryAbi, data: create.data }).args, [TOKENBOUND_V3_PROXY, `0x${"00".repeat(32)}`, 4663n, MUSES.contract, 1n]);
   assert.equal(init.to, treasuryFor(nft));
   assert.deepEqual(decodeFunctionData({ abi: accountAbi, data: init.data }).args, [TOKENBOUND_V3_IMPLEMENTATION]);
+});
+
+// Round 4 F5: a treasury whose createAccount confirmed but whose initialize did not is told apart from an active one, and finished.
+test("the treasury is initialized exactly when its ERC-1967 implementation slot holds Tokenbound V3; finishing sends only the initialize step", () => {
+  assert.equal(ERC1967_IMPLEMENTATION_SLOT, toHex(BigInt(keccak256(stringToHex("eip1967.proxy.implementation"))) - 1n, { size: 32 }));
+  assert.equal(treasuryInitialized(pad(TOKENBOUND_V3_IMPLEMENTATION, { size: 32 })), true);
+  assert.equal(treasuryInitialized(pad(TOKENBOUND_V3_IMPLEMENTATION.toLowerCase() as Hex, { size: 32 })), true);
+  for (const value of [undefined, "0x", pad("0x00", { size: 32 }), pad(TOKENBOUND_V3_PROXY, { size: 32 }), "0xnot-hex"] as (Hex | undefined)[])
+    assert.equal(treasuryInitialized(value), false, String(value));
+  assert.deepEqual(finishActivationTx(nft), activateTreasuryTxs(nft)[1], "exactly the second activation step");
+  assert.equal(isNftTreasuryTx({ mode: "robinhood", deploymentChainId: 4663, nftMode: null as never }, nft, { ...finishActivationTx(nft), value: 0n }, holder), true,
+    "the guard's own initialize predicate accepts it");
 });
 
 test("withdraw executes an ERC-20 transfer from the treasury; lock and deposit target the treasury", () => {

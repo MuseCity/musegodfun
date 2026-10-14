@@ -8,10 +8,12 @@ import { transactions } from "./transactions";
 import { errorMessage } from "./validation";
 import { transactionClient, useWallet } from "./wallet";
 import {
-  FEE_QUOTE_TOO_HIGH, LAUNCH_FEE_LOCK, createFeePoller, launchFeeAfterSendError, launchFeeClearedNotice, launchFeeEthTx, launchFeeOf, launchFeeStableTx, launchFeeStorageKey,
+  FEE_QUOTE_TOO_HIGH, LAUNCH_FEE_LOCK, launchFeeClearedNotice, launchFeeEthTx, launchFeeOf, launchFeeStableTx, launchFeeStorageKey,
   parseLaunchFeeRecord, resolveLaunchFee, saneFeeQuote, type DraftLaunchFee, type FeeResolution, type LaunchFeeAttempt, type LaunchFeeQuote,
-  type LaunchFeeRecord, type LaunchFeeState, type NonceMemo,
+  type LaunchFeeRecord, type LaunchFeeState,
 } from "./nft-client";
+import { attemptAfterSendError, type NonceMemo, type SendPollStatus } from "./send-record";
+import { useSendPoll } from "./use-send-poll";
 
 /** Spent nonces per wallet record key: final once found, so each is searched once per page. */
 const NONCE_MEMOS = new Map<string, NonceMemo>();
@@ -70,13 +72,12 @@ export function useLaunchFee(config: RuntimeConfig, account: Address | null, dra
       if (visible(forKey)) setUnknown("");
     } else if (visible(forKey)) setUnknown(outcome.reason);
   }
-  // A sent or possibly sent payment is checked on the chain until it is decided (see `feePollDelay`): by one tab per wallet at a time
-  // (a lock per chain and wallet; the others take over when it closes, and follow its writes), never while the page is hidden, and never
-  // while this tab's own wallet request is open, because the wallet decides first.
+  // A sent or possibly sent payment is checked on the chain until it is decided (useSendPoll): by one tab per wallet at a time, never while
+  // the page is hidden, and never while this tab's own wallet request is open, because the wallet decides first.
   const attempt = record && record.state !== "paid" ? record : null;
-  async function check(forKey: string): Promise<FeeResolution["status"]> {
+  async function check(forKey: string): Promise<SendPollStatus> {
     const saved = read(forKey), current = saved && saved.state !== "paid" ? saved : null;
-    if (!current) { refresh(); return "failed"; } // Decided elsewhere: nothing left to check.
+    if (!current) { refresh(); return "decided"; } // Decided elsewhere: nothing left to check.
     // The wallet records a speed-up or cancellation it saw on the original history row.
     const hint = current.state === "pending"
       ? transactions().find((row) => row.hash.toLowerCase() === current.txHash)?.replacement as Hex | undefined : undefined;
@@ -86,37 +87,15 @@ export function useLaunchFee(config: RuntimeConfig, account: Address | null, dra
     try {
       const outcome = await resolveLaunchFee(transactionClient(config.chainId, config), config, current, hint, memo);
       apply(forKey, current, outcome);
-      return outcome.status;
+      return outcome.status === "paid" || outcome.status === "failed" ? "decided" : outcome.status;
     } finally { if (visible(forKey)) setChecking(false); }
   }
-  const poller = useRef<ReturnType<typeof createFeePoller> | null>(null);
-  useEffect(() => {
-    setUnknown("");
-    if (!attempt || paying || !key) return;
-    const forKey = key, abort = new AbortController();
-    let active = true, release = () => {};
-    const begin = () => {
-      if (!active) return;
-      poller.current = createFeePoller(() => check(forKey));
-      poller.current.start();
-    };
-    if (typeof navigator !== "undefined" && navigator.locks) {
-      const held = new Promise<void>((resolve) => { release = resolve; });
-      navigator.locks.request(`musegod.launch-fee-poll.${forKey}`, { signal: abort.signal }, async () => { begin(); await held; }).catch(() => {});
-    } else begin();
-    const resume = () => poller.current?.resume();
-    document.addEventListener("visibilitychange", resume);
-    return () => {
-      active = false; abort.abort(); release();
-      poller.current?.stop(); poller.current = null;
-      document.removeEventListener("visibilitychange", resume);
-    };
-  }, [key, attempt?.at, attempt?.state, paying]);
+  useEffect(() => { setUnknown(""); }, [key, attempt?.at, attempt?.state, paying]);
+  const poll = useSendPoll(key, attempt, paying, check);
   /** "Check again": at once, also in a tab that is not the one polling. */
   function checkAgain() {
     if (!key || checking) return;
-    if (poller.current) poller.current.now();
-    else void check(key).catch(() => { if (visible(key)) setNotice("The payment could not be checked. Try again in a minute."); });
+    if (!poll.now()) void check(key).catch(() => { if (visible(key)) setNotice("The payment could not be checked. Try again in a minute."); });
   }
 
   async function pay(asset: DraftLaunchFee["asset"], quote?: LaunchFeeQuote) {
@@ -145,7 +124,7 @@ export function useLaunchFee(config: RuntimeConfig, account: Address | null, dra
       else refresh();
       if (visible(forKey)) setEthQuote(null);
     } catch (cause) {
-      const current = attemptAt ? read(forKey) : null, kept = launchFeeAfterSendError(current, attemptAt, cause);
+      const current = attemptAt ? read(forKey) : null, kept = attemptAfterSendError(current, attemptAt, cause);
       if (current && !kept) write(forKey, null);
       if (visible(forKey)) {
         setRecord(attemptAt ? kept : read(forKey));

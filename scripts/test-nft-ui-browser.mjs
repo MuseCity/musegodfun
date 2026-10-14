@@ -8,7 +8,7 @@ import { decodeAbiParameters, decodeFunctionData, encodeAbiParameters, encodeEve
   getAddress, keccak256, multicall3Abi, parseAbi, parseUnits, toFunctionSelector, toHex } from 'viem';
 import { ROBINHOOD_CONTRACTS, ROBINHOOD_STOCKS } from '../src/lib/config.ts';
 import { FEE_POLICY } from '../src/lib/fee-policy.ts';
-import { MUSES, treasuryFor, vaultFor } from '../src/lib/nft-mode.ts';
+import { MUSES, TOKENBOUND_V3_IMPLEMENTATION, treasuryFor, vaultFor } from '../src/lib/nft-mode.ts';
 import { FIRST_BUY_PAYMENT_CONTRACTS, firstBuyFeeAbi, firstBuyPaymentAbi } from '../src/lib/first-buy-payment.ts';
 import { amountWords } from '../src/lib/eth-buy.ts';
 import { permit2Abi } from '../src/lib/protocol.ts';
@@ -28,7 +28,9 @@ const museNft = { chainId: 4663, contract: MUSES.contract, tokenId: '1' };
 const vault = vaultFor(museNft, factory), museTreasury = treasuryFor(museNft);
 const blockHash = '0x' + 'bb'.repeat(32), blockTime = 1_800_000_000n, multicall3 = '0xca11bde05977b3631167028862be2a173976ca11';
 const zeroAddress = '0x0000000000000000000000000000000000000000';
-const accountAbi = parseAbi(['function execute(address to, uint256 value, bytes data, uint8 operation) payable returns (bytes)', 'function lock(uint256 lockedUntil)']);
+const accountAbi = parseAbi(['function execute(address to, uint256 value, bytes data, uint8 operation) payable returns (bytes)', 'function lock(uint256 lockedUntil)',
+  'function initialize(address implementation)']);
+const initializeData = encodeFunctionData({ abi: accountAbi, functionName: 'initialize', args: [TOKENBOUND_V3_IMPLEMENTATION] });
 const vaultAbi = parseAbi(['function sweep(bytes32[] poolIds, address[] tokens)']);
 const selector = { lockedUntil: toFunctionSelector('lockedUntil()'), isLocked: toFunctionSelector('isLocked()'), ownerOf: toFunctionSelector('ownerOf(uint256)'),
   facetAddress: toFunctionSelector('facetAddress(bytes4)'), whitelisted: toFunctionSelector('isContractSelectorWhitelisted(address,bytes4)'),
@@ -83,16 +85,22 @@ const browser = await chromium.launch({ headless: true });
 
 // `account: null`: an anonymous viewer (no wallet connected). `nftEnabled: false`: NFT mode is off on this network.
 async function open(path, { account = holder, owner = holder, locked = false, factoryDeployed = true, theme = 'light', viewport = { width: 1440, height: 1000 },
-  undeployed = false, holderless = false, statusFailures = 0, lockFailures = 0, chainHex = '0x1237', nftEnabled = true, ethRoute = 'direct', rejectSends = [],
-  musegodHeld = 10n ** 18n, holdSend = -1, walletEvent = null, coinHeld = 10n ** 20n, holdPairBalance = false, unreadableConversion = false } = {}) {
+  undeployed = false, uninitialized = false, holderless = false, statusFailures = 0, lockFailures = 0, chainHex = '0x1237', nftEnabled = true, ethRoute = 'direct', rejectSends = [],
+  musegodHeld = 10n ** 18n, holdSend = -1, walletEvent = null, coinHeld = 10n ** 20n, holdPairBalance = false, unreadableConversion = false, failSend = null } = {}) {
   const context = await browser.newContext({ viewport, colorScheme: theme });
   // `ethRoute`: what /trade/eth-quote answers ('direct' or 'two-step'). `rejectSends`: wallet requests (0-based) the fixture wallet rejects.
   // `musegodHeld`: the wallet's MUSEGOD before any trade. `holdSend`: a wallet request that waits until `state.releaseSend()`.
   // `walletEvent`: { attempt, event, value }: the wallet emits that provider event while handling that request.
   // `coinHeld`: the wallet's balance of every other token. `holdPairBalance`: MUSEGOD balance reads wait for `state.releaseBalance()`.
   // `unreadableConversion`: an ETH → MUSEGOD conversion's receipt carries no MUSEGOD Transfer (its amount cannot be read).
+  // `failSend`: { attempt, code, broadcast }: the wallet answers that request with an EIP-1193 error of `code` and no hash; with `broadcast`
+  // it did broadcast it, held unmined (`state.lost`) until `state.mineLost()`.
+  // `uninitialized`: the treasury account was created but its initialize never confirmed: it has code, its lock cannot be read until this
+  // page sends initialize, and the server's view keeps saying so (its cache).
   const state = { sends: [], attempts: 0, refusedSends: 0, rejected: [], treasuryReads: 0, statusAccounts: [], multicalls: [], external: [], stubbed: [], pageErrors: [], statusFailures, lockFailures,
-    ethQuotes: [], ethQuoteResponses: [], v4Quotes: [], swapSpends: [], held: null, releaseSend: () => {} };
+    ethQuotes: [], ethQuoteResponses: [], v4Quotes: [], swapSpends: [], held: null, releaseSend: () => {}, lost: [] };
+  // The broadcast the wallet never reported is mined: it takes the next nonce, like any other send.
+  state.mineLost = () => { state.sends.push(...state.lost.splice(0)); };
   const holding = new Promise(resolve => { state.releaseSend = resolve; });
   let balanceReleased = !holdPairBalance;
   const balanceGate = new Promise(resolve => { state.releaseBalance = () => { balanceReleased = true; resolve(); }; });
@@ -109,7 +117,12 @@ async function open(path, { account = holder, owner = holder, locked = false, fa
       if (method === 'eth_sendTransaction' && walletSend !== method) {
         await window.__nftRefusedSend(); throw Object.assign(new Error('Method not supported'), { code: -32004 });
       }
-      if (method === walletSend) return window.__nftSend(params[0]);
+      if (method === walletSend) {
+        // An error crosses the binding as plain data, so its EIP-1193 code survives.
+        const result = await window.__nftSend(params[0]);
+        if (result && typeof result === 'object') throw Object.assign(new Error(result.fail.message), { code: result.fail.code });
+        return result;
+      }
       throw new Error('Unexpected fixture wallet method ' + method);
     } };
     const announce = () => window.dispatchEvent(new CustomEvent('eip6963:announceProvider', { detail: { info: { uuid: '11111111-2222-4333-8444-555555555555',
@@ -124,6 +137,10 @@ async function open(path, { account = holder, owner = holder, locked = false, fa
       await new Promise(resolve => setTimeout(resolve, 500));
     }
     if (rejectSends.includes(attempt)) { state.rejected.push(tx); throw new Error('User rejected the request.'); }
+    if (failSend?.attempt === attempt) {
+      if (failSend.broadcast) state.lost.push({ ...tx, hash: keccak256(toHex(`nft-ui-lost-${state.lost.length}-${tx.data}`)) });
+      return { fail: { code: failSend.code, message: failSend.code === 4001 ? 'User rejected the request.' : 'Internal error' } };
+    }
     if (attempt === holdSend) { state.held = tx; await holding; }
     const hash = keccak256(toHex(`nft-ui-send-${state.sends.length}-${tx.data}`));
     state.sends.push({ ...tx, hash });
@@ -153,15 +170,20 @@ async function open(path, { account = holder, owner = holder, locked = false, fa
       gasUsed: '0xea60', contractAddress: null, logs: output ? [transferLog(sent, output.token, output.value, 0)] : [], logsBloom: '0x' + '00'.repeat(256),
       status: '0x1', effectiveGasPrice: '0x1', type: '0x2' };
   };
-  const block = () => ({ number: '0x20', hash: blockHash, parentHash: blockHash, timestamp: toHex(blockTime), gasLimit: '0x5f5e100', gasUsed: '0x0', baseFeePerGas: '0x1',
-    difficulty: '0x0', totalDifficulty: '0x0', size: '0x0', extraData: '0x', logsBloom: '0x' + '00'.repeat(256), transactions: [], uncles: [], miner: treasury,
+  // Every send is mined in block 16 at its own nonce (its index); a full block 16 lists them, as the nonce search reads it.
+  const minedTransaction = (sent, nonce) => ({ hash: sent.hash, from: account, to: sent.to, input: sent.data, value: sent.value ?? '0x0', nonce: toHex(nonce),
+    gas: '0xea60', gasPrice: '0x1', blockHash, blockNumber: '0x10', transactionIndex: toHex(nonce), type: '0x0', v: '0x1b', r: '0x1', s: '0x1', chainId: '0x1237' });
+  const block = (number = '0x20', full = false) => ({ number: '0x20', hash: blockHash, parentHash: blockHash, timestamp: toHex(blockTime), gasLimit: '0x5f5e100', gasUsed: '0x0', baseFeePerGas: '0x1',
+    difficulty: '0x0', totalDifficulty: '0x0', size: '0x0', extraData: '0x', logsBloom: '0x' + '00'.repeat(256),
+    transactions: full && number === '0x10' ? state.sends.map(minedTransaction) : [], uncles: [], miner: treasury,
     mixHash: blockHash, nonce: '0x0000000000000000', sha3Uncles: blockHash, stateRoot: blockHash, receiptsRoot: blockHash, transactionsRoot: blockHash });
   const call = ({ to, data }) => {
     if (to?.toLowerCase() === multicall3) {
       const [calls] = decodeFunctionData({ abi: multicall3Abi, data }).args;
       state.multicalls.push(calls.map(item => ({ target: item.target, selector: item.callData.slice(0, 10) })));
-      const failLock = state.lockFailures > 0 && calls.some(item => item.callData.startsWith(selector.lockedUntil));
-      if (failLock) state.lockFailures--;
+      const lockRead = calls.some(item => item.callData.startsWith(selector.lockedUntil));
+      const failLock = lockRead && (state.lockFailures > 0 || uninitialized && !initializedNow());
+      if (failLock && state.lockFailures > 0) state.lockFailures--;
       return encodeFunctionResult({ abi: multicall3Abi, functionName: 'aggregate3', result: calls.map(({ target, callData }) => {
         const head = callData.slice(0, 10);
         if (failLock) return { success: false, returnData: '0x' };
@@ -188,11 +210,13 @@ async function open(path, { account = holder, owner = holder, locked = false, fa
   };
   // A vault or treasury has code once deployed: from the start, or (`undeployed`) after this page sent its deploy or activation.
   const sentTo = target => state.sends.some(sent => sent.to.toLowerCase() === target.toLowerCase());
+  const initializedNow = () => state.sends.some(sent => sent.to.toLowerCase() === museTreasury.toLowerCase() && sent.data === initializeData);
   const code = address => address.toLowerCase() === lifi.facet.toLowerCase() ? lifiRuntime : address.toLowerCase() === vault.toLowerCase() ? !undeployed || sentTo(factory)
     : address.toLowerCase() === museTreasury.toLowerCase() ? !undeployed || sentTo('0x000000006551c19487814612e58FE06813775758') : false;
   const rpc = item => {
     const result = item.method === 'eth_chainId' ? '0x1237' : item.method === 'eth_blockNumber' ? '0x20'
-      : item.method === 'eth_getBlockByNumber' || item.method === 'eth_getBlockByHash' ? block()
+      : item.method === 'eth_getBlockByNumber' ? block(item.params?.[0], item.params?.[1] === true) : item.method === 'eth_getBlockByHash' ? block()
+      : item.method === 'eth_getTransactionCount' ? toHex(['pending', 'latest'].includes(item.params[1]) || BigInt(item.params[1]) >= 16n ? state.sends.length : 0)
       : item.method === 'eth_getBalance' ? toHex(10n ** 20n) : item.method === 'eth_gasPrice' ? '0x2' : item.method === 'eth_maxPriorityFeePerGas' ? '0x1'
       : item.method === 'eth_feeHistory' ? { oldestBlock: '0x20', baseFeePerGas: ['0x1', '0x1'], gasUsedRatio: [0], reward: [['0x1']] }
       : item.method === 'eth_estimateGas' ? '0xea60' : item.method === 'eth_call' ? call(item.params[0])
@@ -203,6 +227,7 @@ async function open(path, { account = holder, owner = holder, locked = false, fa
     return { jsonrpc: '2.0', id: item.id, result };
   };
   const treasuryView = () => ({ nft: museNft, vault, vaultDeployed: !undeployed, treasury: museTreasury, treasuryDeployed: !undeployed,
+    treasuryInitialized: !undeployed && !uninitialized,
     coins: [museCoin, rejectedMuseCoin].map(row => ({ token: row.address, symbol: row.symbol, poolId: row.poolId, quoteAddress: row.quoteAddress })),
     balances: [{ token: museCoin.address, symbol: 'BARD', amount: (12345n * 10n ** 17n).toString(), vaultAmount: '0' },
       { token: musegod, symbol: 'MUSEGOD', amount: (5678n * 10n ** 16n).toString(), vaultAmount: (10n ** 18n).toString() }],
@@ -609,6 +634,73 @@ try {
     assert.equal(await trade.getByRole('link', { name: 'View ETH → MUSEGOD transaction' }).getAttribute('href'), `https://robinhoodchain.blockscout.com/tx/${state.sends[0].hash}`);
     await finish(run);
   });
+  // Round 4 F1: the wallet broadcast a LI.FI ETH buy but answered without a hash. The record saved before the request keeps the wallet from
+  // paying again until the chain or the user settles it.
+  await check('eth_buy_lost_answer', async () => {
+    const recordKey = `musegod.eth-buy.v1.4663.4663.${holder.toLowerCase()}`;
+    const savedRecord = page => page.evaluate(key => JSON.parse(localStorage.getItem(key) || 'null'), recordKey);
+    const run = await open(tokenPath, { failSend: { attempt: 0, code: -32000, broadcast: true } }), { page, state } = run;
+    await page.locator('#nft-card').getByText('Unlocked').waitFor();
+    let trade = await ethQuoteFor(page, '0.001');
+    await trade.getByText('One step via LI.FI').waitFor();
+    const quote = state.ethQuoteResponses[0].quote;
+    await trade.getByRole('button', { name: 'Buy with ETH' }).click();
+    const live = () => page.locator('#trade .trade-live[role="status"]');
+    await live().getByText(/^We can't confirm this ETH buy yet\. Check your wallet's activity\./).waitFor();
+    const saved = await savedRecord(page);
+    assert.equal(saved.state, 'sending', 'saved before the wallet request, without a hash');
+    assert.equal(saved.nonce, 0); assert.equal(saved.from.toLowerCase(), holder.toLowerCase());
+    assert.deepEqual(saved.tx, { to: quote.transaction.to, data: quote.transaction.data.toLowerCase(), value: quote.transaction.value });
+    assert.equal(saved.quoteId, quote.id);
+    assert.equal(await trade.getByRole('button', { name: 'Buy with ETH' }).isDisabled(), true, 'no second buy of the same quote');
+    assert.equal(await trade.getByRole('button', { name: 'Get quote', exact: true }).isDisabled(), true, 'no new ETH quote');
+    assert.equal(await trade.getByRole('button', { name: 'No payment was sent', exact: true }).count(), 1);
+    assert.equal(await live().locator('button').count(), 0, 'its buttons sit outside the live region');
+    // A reload keeps the record and the refusal.
+    await page.reload();
+    await page.locator('#nft-card').getByText('Unlocked').waitFor();
+    trade = page.locator('#trade');
+    await trade.getByRole('group', { name: 'Pay with' }).getByRole('button', { name: 'ETH', exact: true }).click();
+    await trade.getByLabel('Trade input amount').fill('0.001');
+    await live().getByText(/^We can't confirm this ETH buy yet\./).waitFor();
+    assert.equal(await trade.getByRole('button', { name: 'Get quote', exact: true }).isDisabled(), true);
+    assert.deepEqual(state.ethQuotes.length, 1, 'no quote was requested again');
+    // The lost broadcast is mined: the exact transaction at the saved nonce is adopted and shown, once.
+    state.mineLost();
+    await trade.getByRole('button', { name: 'Check again', exact: true }).click();
+    await live().getByText('Your ETH buy confirmed: received 4,990 BARD.', { exact: true }).waitFor();
+    assert.equal(await savedRecord(page), null, 'settled');
+    assert.equal(await trade.getByRole('link', { name: 'View ETH buy transaction' }).getAttribute('href'), `https://robinhoodchain.blockscout.com/tx/${state.sends[0].hash}`);
+    assert.equal(state.attempts, 1, 'the wallet was asked once');
+    assert.equal(await trade.getByRole('button', { name: 'Get quote', exact: true }).isEnabled(), true, 'buying with ETH opens again');
+    await finish(run);
+    // The wallet never broadcast it: only the user's explicit choice clears the record, and the next buy goes through once.
+    const unsent = await open(tokenPath, { failSend: { attempt: 0, code: -32000, broadcast: false } });
+    await unsent.page.locator('#nft-card').getByText('Unlocked').waitFor();
+    trade = await ethQuoteFor(unsent.page, '0.001');
+    await trade.getByText('One step via LI.FI').waitFor();
+    await trade.getByRole('button', { name: 'Buy with ETH' }).click();
+    await trade.getByRole('button', { name: 'No payment was sent', exact: true }).click();
+    await trade.getByRole('button', { name: 'No payment was sent', exact: true }).waitFor({ state: 'detached' });
+    assert.equal(await savedRecord(unsent.page), null);
+    await trade.getByRole('button', { name: 'Get quote', exact: true }).click();
+    await trade.getByRole('button', { name: 'Buy with ETH' }).click();
+    await trade.getByRole('status').filter({ hasText: 'Received 4,990 BARD.' }).waitFor();
+    assert.equal(unsent.state.sends.length, 1, 'one transaction, after the user cleared the unsent one');
+    assert.equal(await savedRecord(unsent.page), null, 'a confirmed buy leaves no record');
+    await finish(unsent);
+    // A definite rejection (4001) before any hash clears the record at once.
+    const rejected = await open(tokenPath, { failSend: { attempt: 0, code: 4001, broadcast: false } });
+    await rejected.page.locator('#nft-card').getByText('Unlocked').waitFor();
+    trade = await ethQuoteFor(rejected.page, '0.001');
+    await trade.getByText('One step via LI.FI').waitFor();
+    await trade.getByRole('button', { name: 'Buy with ETH' }).click();
+    await trade.locator('.notice.error', { hasText: /User rejected the request|You cancelled the wallet request/ }).waitFor();
+    assert.equal(await savedRecord(rejected.page), null);
+    assert.equal(await trade.getByRole('button', { name: 'No payment was sent', exact: true }).count(), 0);
+    assert.equal(await trade.getByRole('button', { name: 'Get quote', exact: true }).isEnabled(), true);
+    await finish(rejected);
+  });
   await check('eth_buy_result_stays_on_its_page', async () => {
     // The wallet answers after the user moved to another coin: nothing from that buy lands on the new page.
     const run = await open(tokenPath, { holdSend: 0 }), { page, state } = run;
@@ -724,6 +816,32 @@ try {
     assert.equal(state.sends.length, 5, 'the second sweep does not deploy again');
     assert.equal(state.sends[4].to.toLowerCase(), vault.toLowerCase());
     assert(state.treasuryReads >= 3 && (await card.getByRole('button', { name: 'Activate treasury' }).count()) === 0);
+    await finish(run);
+  });
+  await check('treasury_finish_activation', async () => {
+    // The account was created but its initialize never confirmed: only "Finish activation" is offered, and it sends initialize alone.
+    const run = await open(tokenPath, { uninitialized: true }), { page, state } = run, card = page.locator('#nft-card');
+    const lockReads = () => state.multicalls.filter(calls => calls.some(item => item.selector === selector.lockedUntil)).length;
+    const finishActivation = card.getByRole('button', { name: 'Finish activation', exact: true });
+    await finishActivation.waitFor();
+    await card.getByText('Activation not finished', { exact: true }).waitFor();
+    await card.getByText('The treasury account exists, but its activation did not finish', { exact: false }).waitFor();
+    assert.equal(await card.getByRole('button', { name: 'Activate treasury' }).count(), 0, 'the account is never created again');
+    for (const name of [/^Withdraw/, /^Lock for/]) assert.equal(await card.getByRole('button', { name }).count(), 0, `${name} waits for the activation`);
+    assert.equal(await card.getByText(/treasury lock could not be read/).count(), 0, 'no lock error for an account that cannot answer yet');
+    assert.equal(lockReads(), 0, 'the lock is not read before the activation');
+    await finishActivation.click();
+    await card.getByText('Finish activation: confirmed.').waitFor();
+    assert.equal(state.sends.length, 1, 'one wallet confirmation');
+    assert.equal(state.sends[0].to.toLowerCase(), museTreasury.toLowerCase());
+    assert.equal(state.sends[0].data, initializeData, 'exactly initialize(Tokenbound V3)');
+    assert.equal(BigInt(state.sends[0].value ?? '0x0'), 0n);
+    // The server still reports the old view for 15 s; the confirmed initialize is the activation.
+    await finishActivation.waitFor({ state: 'detached' });
+    await card.getByText('Unlocked').waitFor();
+    await card.getByRole('button', { name: 'Withdraw BARD' }).waitFor();
+    assert.equal(await card.getByRole('button', { name: 'Lock for 7 days' }).isEnabled(), true);
+    assert(lockReads() >= 1);
     await finish(run);
   });
   await check('lock_read_failure', async () => {

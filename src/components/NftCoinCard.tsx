@@ -5,7 +5,7 @@ import { chainApi } from "../lib/api";
 import { deploymentChain, explorerFor, networkName, sameAddress, shortAddress, stockByAddress, type RuntimeConfig, type TokenRecord } from "../lib/config";
 import { isMuse, nftKey, treasuryFor, vaultFor, type NftRef, type NftStatus } from "../lib/nft-mode";
 import { readNftStatus } from "../lib/nft-client";
-import { LOCK_PRESET_DAYS, activateTreasuryTxs, depositTx, deployVaultTx, lockTarget, lockTx, readTreasuryLock, sweepTx, withdrawTx } from "../lib/nft-treasury";
+import { LOCK_PRESET_DAYS, activateTreasuryTxs, depositTx, deployVaultTx, finishActivationTx, lockTarget, lockTx, readTreasuryLock, sweepTx, withdrawTx } from "../lib/nft-treasury";
 import { nftPath } from "../lib/network";
 import { errorMessage, parseAmount } from "../lib/validation";
 import { transactionClient, useWallet } from "../lib/wallet";
@@ -13,9 +13,10 @@ import { NftBadge } from "./TokenCard";
 
 type FeePair = { fees0: string; fees1: string };
 type PendingFee = { token: Address; lp: FeePair; trade: FeePair; poolKey: { currency0: Address; currency1: Address } } | { token: Address; error: string };
-/** `/nft-treasury`: the vault and treasury, every coin bound to the NFT whatever its status (`coins`, the sweep set), what the treasury
- * (`amount`) and vault hold of those coins and their pairs, and each coin's fees still waiting in Doppler for the vault. */
-type NftTreasuryView = { nft: NftRef; vault: Address; vaultDeployed: boolean; treasury: Address; treasuryDeployed: boolean;
+/** `/nft-treasury`: the vault and treasury (created: `treasuryDeployed`; activation finished: `treasuryInitialized`), every coin bound to the
+ * NFT whatever its status (`coins`, the sweep set), what the treasury (`amount`) and vault hold of those coins and their pairs, and each
+ * coin's fees still waiting in Doppler for the vault. */
+type NftTreasuryView = { nft: NftRef; vault: Address; vaultDeployed: boolean; treasury: Address; treasuryDeployed: boolean; treasuryInitialized: boolean;
   coins: { token: Address; symbol: string; poolId: Hex; quoteAddress: Address }[];
   balances: { token: Address; symbol: string; amount: string; vaultAmount: string | null }[]; pendingFees: PendingFee[] };
 type Tx = { to: Address; data: Hex };
@@ -69,8 +70,9 @@ export function NftTreasuryCard({ config, nft, coins, coin, navigate }: {
   const [lock, setLock] = useState<{ lockedUntil: number; locked: boolean } | null>(null), [lockError, setLockError] = useState("");
   const [busy, setBusy] = useState(""), [progress, setProgress] = useState(""), [error, setError] = useState("");
   const [hash, setHash] = useState<Hex | null>(null);
-  // Code seen on-chain after a confirmed action: the server keeps a clean treasury view for 15 s, so Deploy and Activate never reappear.
-  const [onChain, setOnChain] = useState({ vault: false, treasury: false });
+  // What confirmed actions proved on-chain: the server keeps a clean treasury view for 15 s, so Deploy and Activate never reappear. The vault
+  // and the treasury account by their code; the activation by its confirmed initialize step.
+  const [onChain, setOnChain] = useState({ vault: false, treasury: false, initialized: false });
   const [withdrawAmounts, setWithdrawAmounts] = useState<Record<string, string>>({});
   const assets = [...new Map(coins.flatMap((entry) => [entry.address, entry.quoteAddress]).map((token) => [token.toLowerCase(), token])).values()];
   const [depositChoice, setDepositChoice] = useState(""), [depositAmount, setDepositAmount] = useState("");
@@ -95,15 +97,18 @@ export function NftTreasuryCard({ config, nft, coins, coin, navigate }: {
       .then((next) => { if (active) setStatus(next); }, (cause) => { if (active) setStatusError(errorMessage(cause)); });
     return () => { active = false; };
   }, [key, account, revision]);
-  const vaultDeployed = !!view?.vaultDeployed || onChain.vault, deployed = !!view?.treasuryDeployed || onChain.treasury;
+  const vaultDeployed = !!view?.vaultDeployed || onChain.vault;
+  // Activation is two steps: the account is created, then initialized. Until it is initialized it answers nothing, so the lock is not read
+  // and Withdraw and Lock stay hidden; only "Finish activation" is offered.
+  const initialized = !!view?.treasuryInitialized || onChain.initialized, deployed = !!view?.treasuryDeployed || onChain.treasury || initialized;
   useEffect(() => {
     let active = true;
     setLock(null); setLockError("");
-    if (!deployed) return;
+    if (!initialized) return;
     readTreasuryLock(transactionClient(config.chainId, config), nft)
       .then((next) => { if (active) setLock(next); }, (cause) => { if (active) setLockError(errorMessage(cause)); });
     return () => { active = false; };
-  }, [key, deployed, revision]);
+  }, [key, initialized, revision]);
 
   const owner = !!account && !!status?.owner && sameAddress(status.owner, account);
   // Tokens sent to the treasury of a burned token or a non-ERC-721 could never be withdrawn.
@@ -116,25 +121,35 @@ export function NftTreasuryCard({ config, nft, coins, coin, navigate }: {
   const retry = () => setRevision((n) => n + 1);
   async function run(label: string, build: () => Promise<Tx[]> | Tx[]) {
     setBusy(label); setError(""); setHash(null);
+    let confirmed = 0, activated = false;
     try {
       const steps = await build();
+      const finish = finishActivationTx(nft);
       for (const [index, step] of steps.entries()) {
         setProgress(steps.length > 1 ? `${label}: step ${index + 1} of ${steps.length}. Confirm it in your wallet.` : `${label}: confirm it in your wallet.`);
         setHash(await wallet.send(step.to, step.data, config, (submitted) => {
           setHash(submitted); setProgress(`${label}: waiting for on-chain confirmation.`);
         }, { nft }));
+        confirmed++;
+        // A successful initialize receipt is the activation: the account accepts it only once, and only with this implementation.
+        if (sameAddress(step.to, finish.to) && step.data.toLowerCase() === finish.data.toLowerCase()) activated = true;
       }
       setProgress(`${label}: confirmed.`);
-      try {
-        const client = transactionClient(config.chainId, config);
-        const [vaultCode, treasuryCode] = await Promise.all([vault ? client.getCode({ address: vault }) : undefined, client.getCode({ address: treasury })]);
-        const hasCode = (code: Hex | undefined) => !!code && code !== "0x";
-        setOnChain((current) => ({ vault: current.vault || hasCode(vaultCode), treasury: current.treasury || hasCode(treasuryCode) }));
-      } catch { /* The next refresh reports the deployment. */ }
-      setRevision((n) => n + 1);
     } catch (cause) {
       setError(errorMessage(cause)); setProgress("");
-    } finally { setBusy(""); }
+    } finally {
+      // Whatever confirmed shows at once, also when a later step failed (a created account whose initialize was refused).
+      if (confirmed) {
+        try {
+          const client = transactionClient(config.chainId, config);
+          const [vaultCode, treasuryCode] = await Promise.all([vault ? client.getCode({ address: vault }) : undefined, client.getCode({ address: treasury })]);
+          const hasCode = (code: Hex | undefined) => !!code && code !== "0x";
+          setOnChain((current) => ({ vault: current.vault || hasCode(vaultCode), treasury: current.treasury || hasCode(treasuryCode), initialized: current.initialized || activated }));
+        } catch { setOnChain((current) => ({ ...current, initialized: current.initialized || activated })); /* The next refresh reports the deployment. */ }
+        setRevision((n) => n + 1);
+      }
+      setBusy("");
+    }
   }
   // Every coin bound to the NFT, rejected ones included (they still pay the vault): each pool, and each coin and paired asset once.
   const bound = view?.coins ?? [];
@@ -157,7 +172,8 @@ export function NftTreasuryCard({ config, nft, coins, coin, navigate }: {
       return { key: `${entry.token}:${currency}`, label: `${coinOf.symbol} pool · ${asset.symbol}`, text: amountText(BigInt(entry.trade[field]) + BigInt(entry.lp[field]), asset.decimals) };
     });
   });
-  const lockText = !deployed ? "Not active yet" : lockError ? "Unavailable" : !lock ? "Reading…" : locked ? `Locked until ${dateText(lock.lockedUntil)}` : "Unlocked";
+  const lockText = !deployed ? "Not active yet" : !initialized ? "Activation not finished" : lockError ? "Unavailable" : !lock ? "Reading…"
+    : locked ? `Locked until ${dateText(lock.lockedUntil)}` : "Unlocked";
   return (
     <section className="card nft-card" id="nft-card" aria-labelledby={`nft-card-${key}`}>
       <div className="card-head">
@@ -221,7 +237,12 @@ export function NftTreasuryCard({ config, nft, coins, coin, navigate }: {
           <p className="hint">Creates the NFT's Tokenbound account so its holder can use it. Two wallet confirmations.</p>
           <button type="button" className="secondary" disabled={!canSign} onClick={() => void run("Activate treasury", () => activateTreasuryTxs(nft))}>Activate treasury</button>
         </div>}
-        {deployed && <div className="nft-action">
+        {view && deployed && !initialized && usable && <div className="nft-action">
+          <h3 className="nft-subtitle">Finish activation</h3>
+          <p className="hint">The treasury account exists, but its activation did not finish, so Withdraw and Lock are not available yet. One wallet confirmation.</p>
+          <button type="button" className="secondary" disabled={!canSign} onClick={() => void run("Finish activation", () => [finishActivationTx(nft)])}>Finish activation</button>
+        </div>}
+        {initialized && <div className="nft-action">
           <h3 className="nft-subtitle"><LockKeyhole size={15} aria-hidden="true" /> Withdraw and lock</h3>
           {!owner ? (statusError ? null : <p className="nft-warning">{status ? HOLDER_ONLY : "Checking the NFT holder…"}</p>)
             : locked ? <p className="nft-warning">Locked until {dateText(lock!.lockedUntil)}. Withdraw and Lock open after that date.</p>
