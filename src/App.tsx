@@ -103,7 +103,7 @@ import { SAVED_LAUNCHES_NOTE, decodeDraftFragment, importDraftLink, isPristineDr
 import { isMuse, treasuryFor, vaultFor } from "./lib/nft-mode";
 import { listedNftCoin } from "./lib/nft-treasury";
 import { useNetwork, tokenPath, nftPath } from "./lib/network";
-import { draftAutosave, firstBuyDraft, launchDraftKey, launchDraftStep, resetLaunchedDraftStep, savedLaunchDraft, type FirstBuyDraft, type LaunchStep } from "./lib/launch-draft";
+import { draftAutosave, firstBuyDraft, type DraftBasis, launchDraftKey, launchDraftStep, resetLaunchedDraftStep, savedLaunchDraft, type FirstBuyDraft, type LaunchStep } from "./lib/launch-draft";
 import FirstBuy from "./components/FirstBuy";
 import FirstBuyLock from "./components/FirstBuyLock";
 import { FIRST_BUY_SLIPPAGE_BPS, firstBuyPaymentAssets, assertFirstBuyPaymentQuote, type FirstBuyPrices, type FirstBuyPaymentQuote, type FirstBuyPaymentVerification } from "./lib/first-buy-payment";
@@ -1167,10 +1167,16 @@ function CreatePage({
     [priceRevision, setPriceRevision] = useState(0);
   const [paymentExpired, setPaymentExpired] = useState(false);
   const [intentId, setIntentId] = useState(() => config ? activeLaunchIntent(config, wallet.account) : newIntentId());
-  // The stored draft this tab last read or wrote for its intent (raw null: there was none). Another tab may save the same intent's draft
-  // meanwhile; the autosave compares the two before it writes (`draftAutosave`).
-  const draftBasis = useRef<{ key: string; raw: string | null } | null>(null);
-  if (!draftBasis.current && config) draftBasis.current = storedDraftBasis(launchIntentStorageKey(config, wallet.account, intentId, "draft"));
+  // What this tab last synced with its intent's stored draft (`DraftBasis`). Another tab may save the same intent's draft meanwhile; the
+  // autosave compares them before it writes (`draftAutosave`).
+  const draftBasis = useRef<(DraftBasis & { key: string }) | null>(null);
+  if (!draftBasis.current && config) {
+    const key = launchIntentStorageKey(config, wallet.account, intentId, "draft");
+    try { draftBasis.current = { key, raw: localStorage.getItem(key), payload: loadedPayload(initialSavedDraft(), intentId) }; } catch { /* Storage unavailable. */ }
+  }
+  // A review, payment or submission in progress: another tab's draft must not replace the form under it.
+  const formHeld = useRef(false);
+  formHeld.current = busy || review || !!plan || !!paymentQuote || !!paymentAttempt;
   const [submissionUnknown, setSubmissionUnknown] = useState(false);
   const [recoveryHash, setRecoveryHash] = useState("");
   const currentPlan = useRef<LaunchPlan | null>(null);
@@ -1200,14 +1206,16 @@ function CreatePage({
       if (carry) {
         selectLaunchIntent(config, wallet.account, target);
         const key = launchIntentStorageKey(config, wallet.account, target, "draft"), raw = JSON.stringify({ ...draft, firstBuy, intentId: target, step, nftMode });
-        localStorage.setItem(key, raw); draftBasis.current = { key, raw };
+        localStorage.setItem(key, raw); draftBasis.current = { key, raw, payload: raw };
         setLinkNotice((notice) => notice && !notice.text.includes(SAVED_LAUNCHES_NOTE) ? { ...notice, text: `${notice.text} ${SAVED_LAUNCHES_NOTE}` } : notice);
       }
       else if (saved && !keep) { replaceDraft(saved); setFirstBuy(firstBuyDraft(config, saved)); setStep(launchDraftStep(saved)); }
       else if (!saved && !anonymous && !firstResolution) { replaceDraft(null); setFirstBuy(firstBuyDraft(config, null)); setStep(1); }
       // What this tab read for its new intent. A form kept over it was not loaded from it, so a blank kept form gives way to a named
       // draft another tab saves there.
-      if (!carry) draftBasis.current = { key: launchIntentStorageKey(config, wallet.account, next, "draft"), raw: saved };
+      const loaded = saved && !keep || !saved && !anonymous && !firstResolution;
+      if (!carry) draftBasis.current = { key: launchIntentStorageKey(config, wallet.account, next, "draft"), raw: saved,
+        ...(loaded ? { payload: loadedPayload(saved, next) } : {}) };
     }
   }, [config?.chainId, config?.deploymentChainId, wallet.account, configurationPending]);
   // An agent's `#draft=` link is read once and removed from the address. It imports after the wallet has reconnected and the
@@ -1366,10 +1374,13 @@ function CreatePage({
     const timer = setTimeout(() => {
       try {
         const payload = JSON.stringify({ ...draft, firstBuy, intentId, step, nftMode });
-        const key = launchIntentStorageKey(config, wallet.account, intentId, "draft"), stored = storedDraftToAdopt(key, payload);
-        if (stored !== null) { adoptDraft(key, stored); return; }
-        localStorage.setItem(launchDraftKey(config), payload);
-        localStorage.setItem(key, payload); draftBasis.current = { key, raw: payload };
+        const key = launchIntentStorageKey(config, wallet.account, intentId, "draft"), { stored, decision } = intentDraftDecision(key, payload);
+        if (decision === "adopt") { adoptDraft(key, stored!); return; }
+        if (decision === "hold") return;
+        if (decision === "write") {
+          localStorage.setItem(launchDraftKey(config), payload);
+          localStorage.setItem(key, payload); draftBasis.current = { key, raw: payload, payload };
+        }
         setDraftSaved(true);
       } catch {
         setDraftSaved(false);
@@ -1377,16 +1388,16 @@ function CreatePage({
     }, 250);
     return () => clearTimeout(timer);
   }, [draft, firstBuy, step, nftMode, config?.chainId, config?.deploymentChainId, intentId, wallet.account]);
-  // Another tab saved this intent's draft. A tab still showing a blank draft takes it now, so its creator edits the named draft rather
-  // than starting over it. A tab with its own edits keeps them, and the last tab to save wins.
+  // Another tab saved this intent's draft. A tab with no local edits, or still showing a blank draft, takes it now (see `draftAutosave`),
+  // so its creator edits the latest draft rather than over it. A tab with its own edits keeps them, and the last tab to save wins.
   useEffect(() => {
     if (!config) return;
     const key = launchIntentStorageKey(config, wallet.account, intentId, "draft");
     const changed = (event: StorageEvent) => {
       if (event.key !== key) return;
       try {
-        const stored = storedDraftToAdopt(key, JSON.stringify({ ...draft, firstBuy, intentId, step, nftMode }));
-        if (stored !== null) adoptDraft(key, stored);
+        const { stored, decision } = intentDraftDecision(key, JSON.stringify({ ...draft, firstBuy, intentId, step, nftMode }));
+        if (decision === "adopt") adoptDraft(key, stored!);
       } catch { /* The autosave checks the stored draft again before it writes. */ }
     };
     window.addEventListener("storage", changed);
@@ -1462,18 +1473,21 @@ function CreatePage({
   function replaceDraft(raw: string | null) {
     setDraft(restoreDraft(raw, config ?? undefined)); setNftMode(savedNftMode(raw)); setDraftRevision((value) => value + 1); setLinkNotice(null);
   }
-  function storedDraftBasis(key: string) {
-    try { return { key, raw: localStorage.getItem(key) }; } catch { return null; }
+  // The payload this form holds right after loading `raw` for `intent` (as `replaceDraft` and the first-buy and step setters load it).
+  function loadedPayload(raw: string | null, intent: string) {
+    return JSON.stringify({ ...restoreDraft(raw, config ?? undefined), firstBuy: firstBuyDraft(config, raw), intentId: intent, step: launchDraftStep(raw),
+      nftMode: savedNftMode(raw) });
   }
-  // The intent's stored draft when this tab must take it rather than write `payload` over it (see `draftAutosave`), otherwise null.
-  function storedDraftToAdopt(key: string, payload: string) {
-    const stored = localStorage.getItem(key), basis = draftBasis.current?.key === key ? draftBasis.current.raw : undefined;
-    return stored !== null && draftAutosave(stored, payload, basis, config ?? undefined) === "adopt" ? stored : null;
+  // Whether this tab writes `payload` over the intent's stored draft, takes the stored draft, or holds its form (see `draftAutosave`).
+  function intentDraftDecision(key: string, payload: string) {
+    const stored = localStorage.getItem(key), basis = draftBasis.current?.key === key ? draftBasis.current : undefined;
+    return { stored, decision: draftAutosave(stored, payload, basis, config ?? undefined, formHeld.current) };
   }
-  // Another tab's named draft replaces this tab's blank form, as if the tab had loaded it.
+  // Another tab's newer draft replaces this tab's form, as if the tab had loaded it.
   function adoptDraft(key: string, raw: string) {
-    draftBasis.current = { key, raw };
+    draftBasis.current = { key, raw, payload: loadedPayload(raw, intentId) };
     replaceDraft(raw); setFirstBuy(firstBuyDraft(config, raw)); setStep(launchDraftStep(raw)); setInvalidField(""); setError("");
+    setMessage("Loaded the latest draft from another tab.");
   }
   // Leaving NFT mode drops the NFT but keeps a paid fee: fees are spent per creator, so it still covers a later NFT launch.
   function chooseNftMode(next: boolean) {
@@ -2114,12 +2128,12 @@ function CreatePage({
   }, [review, busy, txHash, submissionUnknown, paymentAttempt, planExpired, paymentExpired, plan, paymentQuote, backgroundRefreshAllowed]);
   function resumeIntent(next: string): boolean {
     if (!config || busy) return false;
-    // A blank form never replaces a named draft another tab saved for this intent.
+    // The form is saved under the intent it leaves only where the autosave would write it (never a blank draft over another tab's).
     const current = launchIntentStorageKey(config, wallet.account, intentId, "draft"), payload = JSON.stringify({ ...draft, firstBuy, intentId, step, nftMode });
-    if (storedDraftToAdopt(current, payload) === null) localStorage.setItem(current, payload);
+    if (intentDraftDecision(current, payload).decision === "write") localStorage.setItem(current, payload);
     selectLaunchIntent(config, wallet.account, next); generation.current++; imageUpload.current++; currentPlan.current = null;
     const nextKey = launchIntentStorageKey(config, wallet.account, next, "draft"), saved = localStorage.getItem(nextKey);
-    draftBasis.current = { key: nextKey, raw: saved };
+    draftBasis.current = { key: nextKey, raw: saved, payload: loadedPayload(saved, next) };
     setUploadingImage(false);
     setIntentId(next); replaceDraft(saved); setFirstBuy(firstBuyDraft(config, saved)); setStep(launchDraftStep(saved));
     setPaymentAttempt(null); setPaymentQuote(null); setPlan(null); setTxHash(null); setConfirmed(false); setSubmissionUnknown(false);
@@ -2567,7 +2581,10 @@ function CreatePage({
                   setImageError("");
                   currentPlan.current = null; replaceDraft(null);
                   // Clearing is the creator's own choice: it clears the intent's stored draft as it is now, whichever tab saved it.
-                  draftBasis.current = storedDraftBasis(launchIntentStorageKey(config, wallet.account, intentId, "draft"));
+                  try {
+                    const key = launchIntentStorageKey(config, wallet.account, intentId, "draft");
+                    draftBasis.current = { key, raw: localStorage.getItem(key) };
+                  } catch { /* The autosave reports storage that cannot be used. */ }
                   setFirstBuy({ amount: "0", slippageBps: 100, payAddress: launchAssetsFor(config)[0].address, lockDays: 0 });
                   setPaymentQuote(null);
                   setQuery("");

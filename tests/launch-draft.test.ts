@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { ADMITTED_BASE_ASSET_COUNT, STOCKS, ROBINHOOD_STOCKS, launchAssetsFor, stockByAddress, sameAddress, type RuntimeConfig } from "../src/lib/config";
-import { draftAutosave, firstBuyDraft, isBlankDraft, launchDraftKey, launchDraftStep, resetLaunchedDraftStep, savedLaunchDraft } from "../src/lib/launch-draft";
+import { draftAutosave, firstBuyDraft, isBlankDraft, type DraftBasis, launchDraftKey, launchDraftStep, resetLaunchedDraftStep, savedLaunchDraft } from "../src/lib/launch-draft";
 import { firstBuyPaymentAssets } from "../src/lib/first-buy-payment";
 import { LAUNCH_IDENTITY_FIELDS, launchIdentityIssue, launchSchema, restoreDraft } from "../src/lib/validation";
 import { DEFAULT_TRADING_FEE_BPS, TRADING_FEE_BPS } from "../src/lib/trading-fee";
@@ -206,6 +206,8 @@ test("an autosave never replaces another tab's named draft with a blank draft th
   const network = config(4663, true), blank = restoreDraft(null, network), firstBuy = firstBuyDraft(network, null);
   const save = (fields: object, step = 1) => JSON.stringify({ ...blank, ...fields, firstBuy, intentId: "shared-intent", step, nftMode: false });
   const empty = save({}), named = save({ name: "Named draft", symbol: "NAMED" }), renamed = save({ name: "Renamed draft", symbol: "NAMED" });
+  // What this tab last synced: a draft it wrote or loaded (and its form has not changed since), or one it only read (its form was kept).
+  const synced = (raw: string): DraftBasis => ({ raw, payload: raw }), read = (raw: string | null): DraftBasis => ({ raw });
   // Blank means the create form's own "untouched" rule: blank identity on step one, no NFT and no paid fee.
   assert.equal(isBlankDraft(empty, network), true);
   assert.equal(isBlankDraft(save({ name: "  " }), network), true, "whitespace is still blank");
@@ -214,21 +216,56 @@ test("an autosave never replaces another tab's named draft with a blank draft th
   assert.equal(isBlankDraft(save({}, 2), network), false, "a draft on step two is not blank");
   assert.equal(isBlankDraft(save({ nft: { chainId: 4663, contract: "0x13Ea3072b7215d4C9c2Ec4f498A08c5825129836", tokenId: "1" } }), network), false);
   assert.equal(isBlankDraft(save({ launchFee: { asset: "stable", txHash: `0x${"11".repeat(32)}` } }), network), false, "a paid fee is kept");
-  // Nothing (or nothing but a blank draft) is stored: any draft is written.
+  // Nothing (or nothing but a blank draft) is stored: a draft this tab changed, or one it never read, is written.
   for (const stored of [null, empty, save({ name: " " }), "{invalid"])
     for (const payload of [empty, named])
-      for (const basis of [undefined, null, empty])
+      for (const basis of [undefined, read(null), synced(save({ symbol: "OLD" }))])
         assert.equal(draftAutosave(stored, payload, basis, network), "write", JSON.stringify({ stored, payload, basis }));
   // A second tab that loaded nothing, or a blank draft, before the first tab's named draft landed adopts the named draft and writes nothing.
-  for (const basis of [undefined, null, empty, save({ description: " " })])
-    assert.equal(draftAutosave(named, empty, basis, network), "adopt", `basis ${String(basis)}`);
-  assert.equal(draftAutosave(save({}, 2), empty, null, network), "adopt", "a stored second step is a draft too");
+  for (const basis of [undefined, read(null), read(empty), synced(empty), read(save({ description: " " }))])
+    assert.equal(draftAutosave(named, empty, basis, network), "adopt", JSON.stringify(basis));
+  assert.equal(draftAutosave(save({}, 2), empty, read(null), network), "adopt", "a stored second step is a draft too");
   // This tab read or wrote the named draft itself, and its creator cleared it here: the clearing is written.
-  assert.equal(draftAutosave(named, empty, named, network), "write");
+  assert.equal(draftAutosave(named, empty, synced(named), network), "write");
+  assert.equal(draftAutosave(named, empty, read(named), network), "write", '"Clear draft" keeps what is stored as read, not as loaded');
   // ...but a named draft another tab wrote since then is adopted, not cleared.
-  assert.equal(draftAutosave(renamed, empty, named, network), "adopt");
-  // Two tabs with non-blank drafts of the same intent: the last writer wins (both are the creator's own edits).
-  for (const basis of [undefined, null, empty, named])
-    assert.equal(draftAutosave(named, renamed, basis, network), "write", `basis ${String(basis)}`);
+  assert.equal(draftAutosave(renamed, empty, synced(named), network), "adopt");
+  // Two tabs with non-blank drafts of the same intent: a tab with real local edits writes, and the last writer wins.
+  for (const basis of [undefined, read(null), synced(empty), synced(named)])
+    assert.equal(draftAutosave(named, renamed, basis, network), "write", JSON.stringify(basis));
   assert.equal(draftAutosave(named, named, undefined, network), "write", "an identical draft is rewritten harmlessly");
+});
+test("an autosave holds NFT input and an open review, keeps an unedited tab in sync and never echoes a loaded draft", () => {
+  const network = config(4663, true), blank = restoreDraft(null, network), firstBuy = firstBuyDraft(network, null);
+  const save = (fields: object, extra: object = {}) => JSON.stringify({ ...blank, ...fields, firstBuy, intentId: "shared-intent", step: 1, nftMode: false, ...extra });
+  const empty = save({}), named = save({ name: "Named draft", symbol: "NAMED" }), renamed = save({ name: "Renamed draft", symbol: "NAMED" });
+  const edited = save({ name: "Named draft", symbol: "EDIT" });
+  const synced = (raw: string, payload = raw): DraftBasis => ({ raw, payload }), read = (raw: string | null): DraftBasis => ({ raw });
+  // NFT mode with no NFT yet: the NFT step may hold typed, unconfirmed input. NFT mode alone is not a draft (it never overwrites a named one).
+  const nftTyping = save({}, { nftMode: true }), nftNamed = save({ name: "NFT draft" }, { nftMode: true });
+  const nftChosen = save({ nft: { chainId: 4663, contract: "0x13Ea3072b7215d4C9c2Ec4f498A08c5825129836", tokenId: "1" } }, { nftMode: true });
+  assert.equal(isBlankDraft(nftTyping, network), true);
+  assert.equal(draftAutosave(named, nftTyping, read(null), network), "hold", "neither writes the blank draft nor drops the NFT input");
+  assert.equal(draftAutosave(named, nftTyping, undefined, network), "hold");
+  assert.equal(draftAutosave(renamed, nftNamed, synced(nftNamed), network), "hold", "an unedited tab in NFT mode keeps its input too");
+  assert.equal(draftAutosave(null, nftTyping, undefined, network), "write", "its own draft still saves");
+  assert.equal(draftAutosave(empty, nftTyping, read(empty), network), "write");
+  assert.equal(draftAutosave(named, nftChosen, read(null), network), "write", "a chosen NFT is a draft: the last writer wins");
+  // A review, payment or submission in progress holds the form instead of adopting under it; nothing else changes.
+  assert.equal(draftAutosave(named, empty, read(null), network, true), "hold");
+  assert.equal(draftAutosave(renamed, named, synced(named), network, true), "hold");
+  assert.equal(draftAutosave(null, empty, undefined, network, true), "write");
+  assert.equal(draftAutosave(named, renamed, read(null), network, true), "write");
+  // No local edits since this tab last synced: it follows another tab's newer draft, including a cleared one, so a stale tab can never
+  // undo another tab's "Clear draft".
+  assert.equal(draftAutosave(renamed, named, synced(named), network), "adopt");
+  assert.equal(draftAutosave(empty, named, synced(named), network), "adopt");
+  // Real local edits: the last writer wins, over another tab's edit or clear.
+  assert.equal(draftAutosave(renamed, edited, synced(named), network), "write");
+  assert.equal(draftAutosave(empty, edited, synced(named), network), "write");
+  // Nothing new: a tab writes nothing back, whether it wrote the draft or loaded it (its form may serialize the stored draft differently).
+  assert.equal(draftAutosave(named, named, synced(named), network), "unchanged");
+  const loaded = JSON.stringify({ ...JSON.parse(named), firstBuy: { ...firstBuy, amount: "" } });
+  assert.equal(draftAutosave(loaded, named, synced(loaded, named), network), "unchanged");
+  assert.equal(draftAutosave(loaded, edited, synced(loaded, named), network), "write");
 });

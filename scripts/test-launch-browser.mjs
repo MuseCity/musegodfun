@@ -297,7 +297,7 @@ async function casePage(mode, viewport = { width: 1440, height: 1000 }) {
     return reply({ error:'Unavailable fixture route' },404);
   });
   const page = await context.newPage(); activePage = page; const pageErrors=[]; page.on('pageerror',e=>pageErrors.push(e.message));
-  if (quoteClockModes.has(mode)) await page.clock.install({time:new Date()});
+  if (quoteClockModes.has(mode) || mode === 'two_tabs_draft') await page.clock.install({time:new Date()});
   await page.goto(origin+'/create?chainId=4663');
   if (nftModes.has(mode) || mode === 'two_tabs_draft') return { context,page,state,pageErrors };
   await page.getByLabel('Token name',{exact:true}).fill(('Browser '+mode).slice(0, 32));
@@ -779,46 +779,72 @@ async function nftEarnCopy(page, dialog, reviewCost) {
   assert.equal(await aside.locator('dt', { hasText: /^Your cut$/ }).count(), 0);
 }
 // The wallet intent's stored draft, read in a page of the shared origin.
-const storedDraftName = target => target.evaluate(account => {
+const storedDraft = target => target.evaluate(account => {
   const intent = localStorage.getItem(`musegod.launch.intent.31337.4663.${account}`);
-  return intent ? JSON.parse(localStorage.getItem(`musegod.launch.draft.31337.4663.${account}.${intent}`) || 'null')?.name ?? null : null;
+  return intent ? JSON.parse(localStorage.getItem(`musegod.launch.draft.31337.4663.${account}.${intent}`) || 'null') : null;
 }, creator);
+const storedDraftName = async target => (await storedDraft(target))?.name ?? null;
 // Lets a page's 250 ms autosave fire, then waits until its draft is saved.
 async function autosaveSettled(target) {
   await target.evaluate(() => new Promise(resolve => setTimeout(resolve, 400)));
   await target.getByText('Draft saved automatically in this browser').waitFor();
 }
-// Two tabs, one intent. A second tab opened while the first tab's named draft still waits for its autosave loads a blank draft. It must
-// never write that blank draft over the named draft the first tab then saves; it adopts the named draft instead.
+// Two tabs, one intent, on one paused clock (both tabs share it). A second tab opened while the first tab's named draft still waits for its
+// autosave loads a blank draft. It must never write that blank draft over the named draft; it adopts it instead.
 async function twoTabsDraftCase(context, page, pageErrors) {
-  const named = 'Two-tab named draft';
+  const named = 'Two-tab named draft', adopted = 'Loaded the latest draft from another tab.';
+  const nameOf = target => target.getByLabel('Token name', { exact: true }).inputValue();
   await page.getByRole('button', { name: 'Connect wallet', exact: true }).click();
   const choose = page.getByRole('button', { name: /Local acceptance wallet/ }); if (await choose.count()) await choose.click();
   await page.getByRole('button', { name: /^Wallet account / }).waitFor();
   await autosaveSettled(page);
   assert.equal(await storedDraftName(page), '', 'the wallet intent starts with a blank stored draft');
-  // Each keystroke restarts the first tab's autosave, so its named draft stays unsaved while the second tab loads.
-  let typed = false;
-  const typing = page.getByLabel('Token name', { exact: true }).pressSequentially(named, { delay: 200 }).then(() => { typed = true; });
+  // No timer fires while the clock is paused: the first tab's named draft stays unsaved for as long as the second tab takes to load.
+  await page.clock.pauseAt(await page.evaluate(() => Date.now()) + 1_000);
+  await page.getByLabel('Token name', { exact: true }).fill(named);
   const second = await context.newPage(); activePage = second; second.on('pageerror', e => pageErrors.push(e.message));
   await second.goto(origin + '/create?chainId=4663');
   await second.getByRole('button', { name: /^Wallet account / }).waitFor();
-  await autosaveSettled(second);
-  assert.equal(typed, false, 'precondition: the second tab loaded and saved inside the first tab\'s autosave window');
-  assert.equal(await second.getByLabel('Token name', { exact: true }).inputValue(), '');
+  // Real time for the second tab to follow the wallet to its intent (effects, not timers); the paused clock keeps the first tab unsaved.
+  await new Promise(resolve => setTimeout(resolve, 300));
+  assert.equal(await nameOf(page), named, 'precondition: the first tab holds the named draft');
   assert.equal(await storedDraftName(second), '', 'precondition: the named draft was not saved yet when the second tab loaded');
-  await typing; activePage = page;
-  await page.waitForFunction(name => document.querySelector('input[name="name"]')?.value === name, named);
-  await autosaveSettled(page);
+  assert.equal(await nameOf(second), '', 'precondition: the second tab loaded a blank draft');
+  // Both autosaves fire: the first tab's named draft and the second tab's blank one, in either order.
+  await page.clock.runFor(300); await page.clock.resume();
+  await autosaveSettled(page); await autosaveSettled(second);
+  const noteShown = await second.getByText(adopted, { exact: true }).isVisible();
   // The creator touches the second tab and leaves its identity blank, so its autosave runs again after the named draft was saved.
   activePage = second;
   const symbol = second.getByLabel('Token symbol', { exact: true });
   await symbol.fill('X'); await symbol.fill('');
   await autosaveSettled(second);
   assert.equal(await storedDraftName(second), named, 'a blank second tab must never overwrite the named draft it did not load');
-  assert.equal(await second.getByLabel('Token name', { exact: true }).inputValue(), named, 'the blank second tab adopts the named draft');
-  assert.equal(await page.getByLabel('Token name', { exact: true }).inputValue(), named);
+  assert.equal(await nameOf(second), named, 'the blank second tab adopts the named draft');
+  assert(noteShown, 'the adopting tab says it loaded the latest draft');
+  assert.equal(await nameOf(page), named);
   await second.screenshot({ path: '.cache/launch-browser-two_tabs_draft.png', fullPage: true }); report.screenshots.push('.cache/launch-browser-two_tabs_draft.png');
+  // "Clear draft" in a tab whose basis is stale: the first tab saves an edit while the second tab still has unsaved edits of its own, so the
+  // second tab neither adopted the edit nor saved over it. Clearing there still clears the stored draft, which is not undone.
+  await page.clock.pauseAt(await page.evaluate(() => Date.now()) + 1_000);
+  await page.getByLabel('Token symbol', { exact: true }).fill('NEWSYM');
+  await page.clock.runFor(100);
+  await second.getByLabel('Description', { exact: true }).fill('Second tab note');
+  await page.clock.runFor(200);
+  assert.equal((await storedDraft(second))?.symbol, 'NEWSYM', 'only the first tab\'s autosave has fired');
+  assert.equal(await second.getByLabel('Token symbol', { exact: true }).inputValue(), '', 'the second tab keeps its own unsaved edit');
+  await second.getByRole('button', { name: 'Clear draft', exact: true }).click();
+  await page.clock.runFor(300); await page.clock.resume();
+  await autosaveSettled(second);
+  const cleared = await storedDraft(second);
+  assert.equal(cleared?.name, '', '"Clear draft" clears the stored draft even after another tab saved an edit');
+  assert.equal(cleared?.symbol, '');
+  // The first tab had no edits since its save, so it follows the cleared draft instead of keeping (and later restoring) the old one.
+  activePage = page;
+  await page.waitForFunction(() => document.querySelector('input[name="name"]')?.value === '');
+  await page.getByText(adopted, { exact: true }).waitFor();
+  await autosaveSettled(page);
+  assert.equal(await storedDraftName(page), '', 'the stored draft stays cleared');
 }
 async function nftCase(page, state) {
   if (state.mode === 'nft_draft_link_during_reconnect') return draftLinkCase(page, state);
@@ -1122,6 +1148,8 @@ try {
     }
     else if (mode==='unknown_send'||mode==='unknown_fetch') {
       await page.getByLabel('Transaction hash from your wallet').waitFor();
+      // The marker (and this field) precedes the wallet request; with BROWSER_WALLET_SEND the send reaches the wallet only after viem's resend.
+      await waitForFixture(() => state.sends.length > 0, 'the launch reaching the wallet');
       const marker=await page.evaluate(() => Object.keys(localStorage).find(key=>key.startsWith('musegod.launch.submission.') && localStorage.getItem(key)));
       assert(marker,'An unknown wallet result must retain its intent-specific submission marker');
       assert.equal(state.sends.length,1);
@@ -1163,6 +1191,7 @@ try {
     }
     else if (mode==='approval_unknown') {
       await page.getByLabel('Transaction hash from your wallet').waitFor();
+      await waitForFixture(() => state.sends.length > 0, 'the approval reaching the wallet');
       const marker = await page.evaluate(() => {
         const key = Object.keys(localStorage).find(key => key.startsWith('musegod.launch.submission.') && localStorage.getItem(key));
         return { key, value: JSON.parse(localStorage.getItem(key)) };

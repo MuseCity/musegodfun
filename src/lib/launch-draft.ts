@@ -36,17 +36,36 @@ export function isBlankDraft(raw: string | null, config?: Pick<RuntimeConfig, "m
   try { launchFee = JSON.parse(raw || "null")?.launchFee; } catch { /* Unreadable: nothing to keep. */ }
   return !launchFee && isPristineDraft(restoreDraft(raw, config), launchDraftStep(raw));
 }
-/** What a tab's autosave does with its draft (`payload`) when the intent's stored draft is `stored`. `basis` is the stored draft this tab
- * last read or wrote for the intent (null: there was none; undefined: the tab never read it).
- * - "adopt": the stored draft is not blank, this tab's draft is, and the stored draft is not the one this tab read or wrote. Another tab
- *   saved it after this tab loaded, so writing would replace it with a blank draft nobody chose. The tab takes the stored draft instead
- *   and writes nothing.
- * - "write": anything else. A blank draft replaces this tab's own stored draft (its creator cleared the form here). When two tabs both
- *   hold a non-blank draft of the same intent, the last one to write wins. */
-export function draftAutosave(stored: string | null, payload: string, basis: string | null | undefined,
-  config?: Pick<RuntimeConfig, "mode" | "deploymentChainId">): "write" | "adopt" {
-  if (stored === null || stored === basis) return "write";
-  return isBlankDraft(payload, config) && !isBlankDraft(stored, config) ? "adopt" : "write";
+/** What a tab last synced with its intent's stored draft: `raw`, the stored draft it last read or wrote (null: there was none), and
+ * `payload`, what its form held right after that (the payload it wrote, or its form right after loading `raw`; absent when the form was
+ * kept rather than loaded, or cleared). */
+export type DraftBasis = { raw: string | null; payload?: string };
+/** What a tab does with its draft (`payload`) when the intent's stored draft is `stored`, at its autosave or when another tab saves.
+ * `basis` is undefined when the tab never read the intent's draft. `holding`: a review, payment or submission is in progress, so the
+ * form must not change under it.
+ * - "write": nothing is stored; or the stored draft is the one this tab last synced and the form has edits since; or the stored draft
+ *   changed and the form has real local edits (that are not a blank form over a named draft). When two tabs with real local edits save
+ *   the same intent, the last one to write wins, over another tab's edit or "Clear draft".
+ * - "unchanged": the stored draft is the one this tab last synced and the form has no edits since. Nothing is written, so a tab never
+ *   echoes a draft it only loaded (an echo could cross another tab's newer save).
+ * - "adopt": the stored draft changed since this tab last synced and this tab must not write over it. Either the form has no local edits,
+ *   so it follows the newer draft, a cleared one included (a stale tab never undoes another tab's "Clear draft"); or this tab's draft is
+ *   blank and the stored one is not (another tab saved a named draft after this tab loaded). The tab takes the stored draft.
+ * - "hold": it would adopt, but the form holds what the stored draft cannot carry: NFT mode with no NFT chosen yet (the NFT step's typed,
+ *   unconfirmed input; NFT mode alone is not a draft, so it never writes over a named one), or `holding`. It neither writes nor adopts.
+ * localStorage has no cross-tab compare-and-set. Another tab's write can still land between this read and this tab's write, and a write
+ * from another tab reaches this one only after a short propagation delay. The window for a lost draft shrank from the 250 ms autosave
+ * delay to that gap; it is not zero. */
+export function draftAutosave(stored: string | null, payload: string, basis: DraftBasis | undefined,
+  config?: Pick<RuntimeConfig, "mode" | "deploymentChainId">, holding = false): "write" | "unchanged" | "adopt" | "hold" {
+  const unedited = basis?.payload !== undefined && payload === basis.payload;
+  if (stored === null) return "write";
+  if (basis && stored === basis.raw) return unedited ? "unchanged" : "write";
+  if (!unedited && (!isBlankDraft(payload, config) || isBlankDraft(stored, config))) return "write";
+  return holding || nftInputPending(payload) ? "hold" : "adopt";
+}
+function nftInputPending(raw: string) {
+  try { const saved = JSON.parse(raw); return saved?.nftMode === true && !saved.nft; } catch { return false; }
 }
 export function launchDraftKey(config: RuntimeConfig) {
   return `musegod.launch.draft.${config.chainId}${config.mode === "fork" ? `.${deploymentChain(config)}` : ""}`;
