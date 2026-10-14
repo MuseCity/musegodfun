@@ -2946,8 +2946,9 @@ function TokenPage({
   // Only the pair-asset balance decides the default, and only on the buy side of a pair-asset coin.
   const pairBalance = ethPayable && balanceFor && sameAddress(balanceFor, pairAsset!.address) ? balance : null;
   const fallbackPay = defaultPayWith(!!wallet.account, pairBalance);
-  // Typing freezes the default once the pair balance is known (or there is no wallet); Sell, or an empty field, resets it.
-  if (ethPayable && amount && frozenPay === null && (!wallet.account || pairBalance !== null)) setFrozenPay(fallbackPay);
+  // A non-empty amount freezes the default at once, even before the pair balance loads: only the user changes the unit
+  // (and that clears the field). Sell, or an empty field, resets it.
+  if (ethPayable && amount && frozenPay === null) setFrozenPay(fallbackPay);
   if ((!ethPayable || !amount) && frozenPay !== null) setFrozenPay(null);
   if (amount && unitNote) setUnitNote("");
   const payWith: PayWith = ethPayable ? resolvePayWith({ choice: payChoice, frozen: frozenPay, amount, fallback: fallbackPay }) : "pair";

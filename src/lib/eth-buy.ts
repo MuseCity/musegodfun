@@ -21,13 +21,14 @@ export type LifiTradeTarget = { kind: "coin"; coin: FirstBuyPaymentAsset } | { k
 export function ethBuyAvailable(config: Pick<RuntimeConfig, "mode" | "deploymentChainId"> | null, pairAddress: string) {
   return !!config && deploymentChain(config) === ETH_BUY_CHAIN && !sameAddress(pairAddress, wrappedEther(ETH_BUY_CHAIN));
 }
-/** The default while the amount field is empty: the pair asset without a wallet (its read-only quote needs no account) or when
- * the wallet holds some of it; otherwise ETH. */
+/** The default while the amount field is empty: ETH only when a connected wallet is known to hold none of the pair asset;
+ * otherwise the pair asset (no wallet: its read-only quote needs no account; balance not read yet: a typed amount then keeps
+ * the pair unit, and a short balance shows the "Pay with ETH?" hint instead of changing the unit). */
 export function defaultPayWith(connected: boolean, pairBalance: bigint | null): PayWith {
-  return !connected || (pairBalance !== null && pairBalance > 0n) ? "pair" : "eth";
+  return connected && pairBalance === 0n ? "eth" : "pair";
 }
 /** A typed amount never changes unit: the user's pick wins; otherwise the default follows the wallet only while the field is
- * empty, and the first character freezes it (`frozen`, the default when typing began). */
+ * empty, and the first character freezes it (`frozen`, the default when typing began), whatever the balance does later. */
 export function resolvePayWith({ choice, frozen, amount, fallback }: { choice: PayWith | null; frozen: PayWith | null; amount: string; fallback: PayWith }): PayWith {
   return choice ?? (amount !== "" && frozen !== null ? frozen : fallback);
 }

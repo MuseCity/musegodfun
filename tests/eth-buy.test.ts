@@ -353,7 +353,7 @@ test("eth-quote is in the first-buy quote's ingress class, rate-limited and chal
 
 test("Pay with: the empty-field default, a typed amount that never changes unit, and the shortfall hint", () => {
   assert.equal(defaultPayWith(false, null), "pair", "no wallet: the read-only pair quote works");
-  assert.equal(defaultPayWith(true, null), "eth", "balance not known yet");
+  assert.equal(defaultPayWith(true, null), "pair", "balance not known yet: a typed amount keeps the pair unit, a short balance shows the hint");
   assert.equal(defaultPayWith(true, 0n), "eth", "no pair asset");
   assert.equal(defaultPayWith(true, 1n), "pair", "a holder");
   // The field is empty: the default follows the wallet. Typed: the default from when typing began, whatever the balance does.
@@ -362,6 +362,10 @@ test("Pay with: the empty-field default, a typed amount that never changes unit,
   assert.equal(resolvePayWith({ choice: null, frozen: "pair", amount: "5", fallback: "eth" }), "pair", "typed MUSEGOD stays MUSEGOD");
   assert.equal(resolvePayWith({ choice: null, frozen: "eth", amount: "5", fallback: "pair" }), "eth", "typed ETH stays ETH");
   assert.equal(resolvePayWith({ choice: "eth", frozen: "pair", amount: "5", fallback: "pair" }), "eth", "an explicit pick wins");
+  // Typed before the balance loaded (default: the pair), then the balance turns out to be zero: the unit stays, the hint shows.
+  const typedEarly = resolvePayWith({ choice: null, frozen: defaultPayWith(true, null), amount: "5", fallback: defaultPayWith(true, 0n) });
+  assert.equal(typedEarly, "pair");
+  assert.equal(pairShortfall(0n, 5n), true);
   assert.equal(pairShortfall(1n, 5n), true);
   assert.equal(pairShortfall(5n, 5n), false);
   assert.equal(pairShortfall(null, 5n), false, "no hint while the balance is unknown");

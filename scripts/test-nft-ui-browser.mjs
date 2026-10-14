@@ -80,14 +80,18 @@ const browser = await chromium.launch({ headless: true });
 // `account: null`: an anonymous viewer (no wallet connected). `nftEnabled: false`: NFT mode is off on this network.
 async function open(path, { account = holder, owner = holder, locked = false, factoryDeployed = true, theme = 'light', viewport = { width: 1440, height: 1000 },
   undeployed = false, holderless = false, statusFailures = 0, lockFailures = 0, chainHex = '0x1237', nftEnabled = true, ethRoute = 'direct', rejectSends = [],
-  musegodHeld = 10n ** 18n, holdSend = -1, walletEvent = null } = {}) {
+  musegodHeld = 10n ** 18n, holdSend = -1, walletEvent = null, coinHeld = 10n ** 20n, holdPairBalance = false } = {}) {
   const context = await browser.newContext({ viewport, colorScheme: theme });
   // `ethRoute`: what /trade/eth-quote answers ('direct' or 'two-step'). `rejectSends`: wallet requests (0-based) the fixture wallet rejects.
   // `musegodHeld`: the wallet's MUSEGOD before any trade. `holdSend`: a wallet request that waits until `state.releaseSend()`.
   // `walletEvent`: { attempt, event, value }: the wallet emits that provider event while handling that request.
+  // `coinHeld`: the wallet's balance of every other token. `holdPairBalance`: MUSEGOD balance reads wait for `state.releaseBalance()`.
   const state = { sends: [], attempts: 0, rejected: [], treasuryReads: 0, statusAccounts: [], multicalls: [], external: [], stubbed: [], pageErrors: [], statusFailures, lockFailures,
     ethQuotes: [], ethQuoteResponses: [], v4Quotes: [], swapSpends: [], held: null, releaseSend: () => {} };
   const holding = new Promise(resolve => { state.releaseSend = resolve; });
+  let balanceReleased = !holdPairBalance;
+  const balanceGate = new Promise(resolve => { state.releaseBalance = () => { balanceReleased = true; resolve(); }; });
+  state.pairBalanceReads = 0;
   const config = { ...baseConfig, nftMode: { ...baseConfig.nftMode, enabled: nftEnabled, vaultFactory: factoryDeployed ? factory : null } };
   await context.addInitScript(({ account, theme, chainHex }) => {
     localStorage.setItem('musegod.theme', theme);
@@ -162,7 +166,7 @@ async function open(path, { account = holder, owner = holder, locked = false, fa
       }) });
     }
     // balanceOf: 1 MUSEGOD (less than a 5 MUSEGOD buy) plus what LI.FI delivered, plenty of everything else.
-    if (data?.startsWith('0x70a08231')) return toHex(to.toLowerCase() === musegod.toLowerCase() ? musegodBalance() : 10n ** 20n, { size: 32 });
+    if (data?.startsWith('0x70a08231')) return toHex(to.toLowerCase() === musegod.toLowerCase() ? musegodBalance() : coinHeld, { size: 32 });
     // The LI.FI diamond routes to the pinned facet and whitelists the fixture swap target.
     if (to?.toLowerCase() === lifi.diamond.toLowerCase() && data.startsWith(selector.facetAddress)) return encodeAbiParameters([{ type: 'address' }], [lifi.facet]);
     if (to?.toLowerCase() === lifi.diamond.toLowerCase() && data.startsWith(selector.whitelisted)) return encodeAbiParameters([{ type: 'bool' }], [true]);
@@ -246,7 +250,11 @@ async function open(path, { account = holder, owner = holder, locked = false, fa
       const row = catalog.find(entry => entry.address.toLowerCase() === payload.address.toLowerCase());
       return reply(v4Quote(row, parseUnits(payload.amount, 18)));
     }
-    if (path === '/api/rpc') return reply(Array.isArray(payload) ? payload.map(rpc) : rpc(payload));
+    if (path === '/api/rpc') {
+      const pairRead = item => item?.method === 'eth_call' && item.params?.[0]?.to?.toLowerCase() === musegod.toLowerCase() && item.params[0].data?.startsWith('0x70a08231');
+      if ((Array.isArray(payload) ? payload : [payload]).some(pairRead)) { state.pairBalanceReads++; if (!balanceReleased) await balanceGate; }
+      return reply(Array.isArray(payload) ? payload.map(rpc) : rpc(payload));
+    }
     return reply({ error: 'Unavailable fixture route' }, 404);
   });
   const page = await context.newPage();
@@ -394,19 +402,38 @@ try {
     }
     assert.equal(await emptyTrade.locator('.trade-live .nft-warning').count(), 0);
     await finish(empty);
-    // An amount typed on Sell (where the balance is the coin's) is judged on Buy by the pair balance: no MUSEGOD here, so ETH.
-    const carried = await open(tokenPath, { musegodHeld: 0n }), carriedTrade = carried.page.locator('#trade');
+    // Ruling: once the field holds an amount, the default never flips, not even when the pair balance first loads.
+    // (1) Typed before the balance loads: the pair unit stays when a zero balance arrives; the hint offers ETH, the field keeps "5".
+    const early = await open(tokenPath, { musegodHeld: 0n, holdPairBalance: true }), earlyTrade = early.page.locator('#trade');
+    const earlyPay = earlyTrade.getByRole('group', { name: 'Pay with' });
+    await earlyPay.getByRole('button', { name: 'MUSEGOD', exact: true, pressed: true }).waitFor();
+    for (let i = 0; i < 200 && early.state.pairBalanceReads < 1; i++) await early.page.waitForTimeout(25);
+    assert(early.state.pairBalanceReads >= 1, 'the MUSEGOD balance read is in flight');
+    await earlyTrade.getByLabel('Trade input amount').fill('5');
+    early.state.releaseBalance();
+    await earlyTrade.locator('.pay-hint', { hasText: 'You hold less than 5 MUSEGOD. Pay with ETH?' }).waitFor();
+    assert.equal(await earlyPay.getByRole('button', { name: 'MUSEGOD', exact: true }).getAttribute('aria-pressed'), 'true', 'the unit is unchanged');
+    assert.equal(await earlyTrade.getByLabel('Trade input amount').inputValue(), '5');
+    assert.equal(await earlyTrade.getByText('Balance: 0', { exact: true }).count(), 1);
+    assert.equal((await earlyTrade.locator('.trade-live').textContent()).trim(), 'You hold less than the amount entered in MUSEGOD. Pay with ETH?', 'announced once');
+    await finish(early);
+    // (2) Typed on Sell, then Buy, then the balance loads: the unit is the one Buy showed, never re-chosen by the load. The
+    // Sell-side balance (here 0 BARD, which would have meant ETH) never decides it either.
+    const carried = await open(tokenPath, { musegodHeld: 0n, coinHeld: 0n, holdPairBalance: true }), carriedTrade = carried.page.locator('#trade');
     await carried.page.locator('#nft-card').getByText('Unlocked').waitFor();
     await carriedTrade.getByRole('group', { name: 'Trade side' }).getByRole('button', { name: 'Sell' }).click();
     await carriedTrade.getByText('You pay BARD', { exact: true }).waitFor();
-    await carriedTrade.getByText('Balance: 100', { exact: true }).waitFor();
+    await carriedTrade.getByText('Balance: 0', { exact: true }).waitFor();
     await carriedTrade.getByLabel('Trade input amount').fill('5');
+    const readsBefore = carried.state.pairBalanceReads;
     await carriedTrade.getByRole('group', { name: 'Trade side' }).getByRole('button', { name: 'Buy' }).click();
-    await carriedTrade.getByText('Balance: 100', { exact: true }).waitFor();
-    await carried.page.waitForTimeout(500);
     const carriedPay = carriedTrade.getByRole('group', { name: 'Pay with' });
-    assert.equal(await carriedPay.getByRole('button', { name: 'ETH', exact: true }).getAttribute('aria-pressed'), 'true');
-    assert.equal(await carriedTrade.getByText('You pay ETH', { exact: true }).count(), 1);
+    await carriedPay.getByRole('button', { name: 'MUSEGOD', exact: true, pressed: true }).waitFor();
+    for (let i = 0; i < 200 && carried.state.pairBalanceReads <= readsBefore; i++) await carried.page.waitForTimeout(25);
+    carried.state.releaseBalance();
+    await carriedTrade.locator('.pay-hint', { hasText: 'You hold less than 5 MUSEGOD. Pay with ETH?' }).waitFor();
+    assert.equal(await carriedPay.getByRole('button', { name: 'MUSEGOD', exact: true }).getAttribute('aria-pressed'), 'true', 'the unit is unchanged');
+    assert.equal(await carriedTrade.getByLabel('Trade input amount').inputValue(), '5');
     await finish(carried);
     // No wallet: the pair asset, so the read-only on-chain quote works; ETH asks for a wallet first.
     const anonymous = await open(tokenPath, { account: null }), anonTrade = anonymous.page.locator('#trade');
