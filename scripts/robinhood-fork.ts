@@ -19,8 +19,14 @@ export function assertForkExecutionChainId(deploymentChainId: number, executionC
     "A fork execution chain must be isolated 31337 or its own deployment chain");
 }
 
-export async function startChainFork(upstreamUrl: string, deploymentChainId: 8453 | 4663, executionChainId: 31337 | 8453 | 4663 = 31337) {
+/** `finalityLagBlocks`: how far Anvil's `finalized` (and, at half of it, `safe`) block tag trails the head. Anvil reports head minus
+ * 2 x slots-in-an-epoch, 64 blocks by default, far less than a live chain; a run that reorganizes launches older than that sets it. */
+export async function startChainFork(upstreamUrl: string, deploymentChainId: 8453 | 4663, executionChainId: 31337 | 8453 | 4663 = 31337,
+  options: { finalityLagBlocks?: number } = {}) {
   assertForkExecutionChainId(deploymentChainId, executionChainId);
+  const { finalityLagBlocks } = options;
+  assert(finalityLagBlocks === undefined || Number.isSafeInteger(finalityLagBlocks) && finalityLagBlocks >= 2 && finalityLagBlocks % 2 === 0,
+    "finalityLagBlocks must be an even number of blocks");
   assert.equal(new URL(upstreamUrl).protocol, "https:");
   const upstream = createPublicClient({
     chain: deploymentChainId === 8453 ? base : robinhood,
@@ -97,6 +103,7 @@ export async function startChainFork(upstreamUrl: string, deploymentChainId: 845
       "--fork-url", forkSource, "--fork-block-number", String(blockNumber),
       "--hardfork", "cancun", "--code-size-limit", executionChainId === 8453 ? "24576" : "98304", "--silent",
       ...(deploymentChainId === 8453 ? ["--base"] : []),
+      ...(finalityLagBlocks ? ["--slots-in-an-epoch", String(finalityLagBlocks / 2)] : []),
     ], { stdio: ["ignore", "pipe", "pipe"] });
     for (const stream of [child.stdout, child.stderr]) stream?.on("data", (part) => {
       childOutput = (childOutput + String(part)).slice(-2000);

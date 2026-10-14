@@ -346,7 +346,7 @@ Branch `codex/nft-mode-robinhood`, local only: nothing was pushed, deployed or s
 | `npm run test:launch-browser` (built `dist` served on 127.0.0.1:5191, run alone) | 47 / 47 checks pass; `scripts/test-nft-ui-browser.mjs` also passes (15 checks) |
 | `npm run test:nft-vault-fork -- --chain robinhood` | gates 1–6 pass and gate 7 is observed, at block 87,739,425; the committed Task 2b evidence was kept |
 | `npm run test:nft-launch-fork -- --chain robinhood` | all 5 steps pass at block 87,753,438; `docs/evidence/nft-launch-fork-robinhood.json`. The USDG donor is the v4 PoolManager (a known holder), so no log scan was needed. `validateLaunch` passes the integrity check and stops only at the signing gate for fork chain id 4663 |
-| `test:robinhood-fork` (run with `.env.fork` only) | **known pre-existing failure, out of scope for NFT mode** (its repair is a separate follow-up): since the engine launch cutover of 2026-10-08 (`8d88123`), `server/service.ts:675` refuses Robinhood launches without the fee engine, and the script's fork configuration has none. It stops at the first `prepare`, before the repaired `deepEqual`, which is kept. The script also needs live LI.FI quotes. |
+| `npm run test:robinhood-fork` (`.env.fork` only) | pass, repaired 2026-10-14 on `fix/pre-task13` (Task C), at block 88,133,676: WETH / NVDA / USDG / cbBTC / MUSEGOD each create, register, recover after a restart, buy, sell, and pay the creator and the operations treasury exactly their previews, under `creator-70-musegod-swapper-v3` with the fee engine verified by the production `verifyFeeEngine` path; the engine accrues its 22.8% LP and 24% hook shares; after the snapshot revert, `reconcile` removes all five records (the fork's `finalized` tag trails by 2,000 blocks, the live chain's by 9,064 at this fork, so no launch is final); `docs/evidence/robinhood-fork.json`. The fork keeps chain id 4663 because the engine's activation check reads only chain 4663; `validateLaunch` therefore passes every check before the signing gate and stops there (the gate admits a fork only as chain id 31337), as in the NFT run. Prices are a synthetic opening valuation |
 
 Acceptance (§8), as shown on the Robinhood fork:
 1. Fees follow the NFT: met. Both creator shares go to the vault (0.665 LP, 0.70 hook), with the fee engine beside it. A sweep after two trades delivered exactly the previewed fees to the treasury. After a sale the old holder's withdraw reverted (`NotAuthorized()`) and the new holder received the swept balance.
@@ -354,7 +354,7 @@ Acceptance (§8), as shown on the Robinhood fork:
 3. Control: met. A non-holder was refused (`NFT_NOT_CONTROLLED`); a delegate.xyz delegate (rights `musegod.fun.launch`) was accepted.
 4–6: covered by the Task 4, 8, 10 and 11 tests and browser cases.
 7. Cost: not measured on mainnet.
-8. Quality gate: met, except `test:robinhood-fork` above. The owner's review roles run in Task 13.
+8. Quality gate: met. The owner's review roles run in Task 13.
 
 Open items:
 - The NFT fork run prices launches from a synthetic opening valuation, because LI.FI is outside its network. NFT-mode rules do not depend on the price.

@@ -74,7 +74,7 @@ npm run verify:asset-logos
 | --- | --- |
 | `npm run verify:robinhood` | Mainnet reads and unsigned issuance simulations |
 | `npm run test:first-buy-payment-fork` | Real LI.FI same-chain swaps and min-output failures on fresh isolated Base/RH forks; requires Anvil and the server-side LI.FI configuration |
-| `npm run test:robinhood-fork` | Isolated creation, trades, claims and recovery; requires Anvil |
+| `npm run test:robinhood-fork` | Isolated creation, trades, claims and recovery under the verified fee engine; reads only `.env.fork` (ALCHEMY_API_KEY); requires Anvil |
 | `npm run test:musegod-fork` | Router/source executable-code correspondence and isolated native ETH buy/approve/sell, refunds and failure rollback; requires Anvil |
 | `npm run test:musegod-http` | Running read-only local Node server on 5192, real MUSEGOD quotes and Bankr snapshots; uses local storage for acceptance |
 | `npm run test:http` | Running local server with valid treasury; mainnet reads and unsigned simulations |
