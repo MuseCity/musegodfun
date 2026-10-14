@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "kind": "nft-vault-factory-deployment",
+  "chainId": 4663,
+  "rehearsal": false,
+  "node": "mainnet",
+  "nodeProof": "Alchemy Robinhood mainnet endpoint over HTTPS; anchor block 82283004 hash matches",
+  "rpc": "Alchemy Robinhood mainnet (ALCHEMY_API_KEY from .env.fork; URL not recorded)",
+  "verifiedAt": "2026-10-14T13:50:11.777Z",
+  "verifiedAtBlock": "88415450",
+  "finalHead": "88415467",
+  "factory": "0x2Fdf5E0096ba18a76d258bDfBC66E1ba2Bcf5EE4",
+  "deployer": "0xd5C256e6411a6835543F2bCd763341639e3Cf56f",
+  "nonce": 388,
+  "transactionHash": "0x3711cd781a93a1f47d488f18fe7e8ac9cc66ba546063cd41a735fce68da0f8a6",
+  "blockNumber": "88404863",
+  "blockHash": "0xb63faab6668326c409f9bedbaa4402bf292936aa148e864ce197880c15be44c0",
+  "confirmations": "10605",
+  "finalizedBlockNumber": "88406828",
+  "gasUsed": "1347843",
+  "effectiveGasPrice": "20262000",
+  "costWei": "27309994866000",
+  "costEth": "0.000027309994866",
+  "runtimeHash": "0x887bf689866d510c4d312b318320dd38088371c10372861ae429b668daf54abe",
+  "runtimeBytes": 5727,
+  "expected": {
+    "runtimeHash": "0x887bf689866d510c4d312b318320dd38088371c10372861ae429b668daf54abe",
+    "runtimeBytes": 5727,
+    "vaultInitCodeHash": "0x9bca6b10994de2c8aafadff4eb9b326d558bfbbdb1f1d2282b378907b5f46fa7",
+    "factoryRuntimeTemplateHash": "0x0593f2fb97f55e87b91fb16a85c1043512e51557d0e819ef0e84792a3f34e02a",
+    "creationCodeKeccak256": "0xde64e3c4c97baedb43c1fc432b3b95469173610f8af9f32da048ad94103143c7",
+    "factoryCompilerInputSha256": "0aff3c5e348da5672ed6380c0bef1562208160be704c3491b12eac62c4f6b80a"
+  },
+  "onchain": {
+    "VAULT_INIT_CODE_HASH": "0x9bca6b10994de2c8aafadff4eb9b326d558bfbbdb1f1d2282b378907b5f46fa7",
+    "vaultForMuse1": "0xF56186Cc1dA1018bd7f62cF27306fDae63527735",
+    "treasuryForMuse1": "0x1104626A8c21c88317D1b539c51a34451a0a162F",
+    "ERC6551_REGISTRY": "0x000000006551c19487814612e58FE06813775758",
+    "TOKENBOUND_V3_PROXY": "0x55266d75D1a14E4572138116aF39863Ed6596E7F"
+  },
+  "library": {
+    "vaultForMuse1": "0xF56186Cc1dA1018bd7f62cF27306fDae63527735",
+    "treasuryForMuse1": "0x1104626A8c21c88317D1b539c51a34451a0a162F"
+  },
+  "checks": {
+    "receiptSuccess": true,
+    "contractCreation": true,
+    "receiptCanonical": true,
+    "confirmations": true,
+    "sender": true,
+    "nonce": true,
+    "creationCode": true,
+    "transactionChainId": true,
+    "predictedAddress": true,
+    "runtimeHash": true,
+    "vaultInitCodeHash": true,
+    "vaultForMuse1": true,
+    "treasuryForMuse1": true,
+    "factoryConstants": true,
+    "finalConfirmations": true,
+    "receiptFinalized": true,
+    "stillCanonical": true
+  },
+  "manifestEntry": {
+    "status": "deployed_verified",
+    "factory": "0x2Fdf5E0096ba18a76d258bDfBC66E1ba2Bcf5EE4",
+    "factoryRuntimeHash": "0x887bf689866d510c4d312b318320dd38088371c10372861ae429b668daf54abe",
+    "transactionHash": "0x3711cd781a93a1f47d488f18fe7e8ac9cc66ba546063cd41a735fce68da0f8a6",
+    "blockNumber": 88404863
+  },
+  "preflight": {
+    "observedAt": "2026-10-14T13:31:37.447Z",
+    "blockNumber": "88404347",
+    "predictedFactory": "0x2Fdf5E0096ba18a76d258bDfBC66E1ba2Bcf5EE4"
+  },
+  "toolSha256": "c8d9b422306f5e34826e4c6695de7317c92234e2ba1072a7ab574ec45698db67",
+  "signedOrBroadcastByThisTool": false
+}

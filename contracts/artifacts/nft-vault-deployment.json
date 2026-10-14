@@ -3,11 +3,11 @@
   "vaultInitCodeHash": "0x9bca6b10994de2c8aafadff4eb9b326d558bfbbdb1f1d2282b378907b5f46fa7",
   "chains": {
     "4663": {
-      "status": "not_deployed",
-      "factory": null,
-      "factoryRuntimeHash": null,
-      "transactionHash": null,
-      "blockNumber": null
+      "status": "deployed_verified",
+      "factory": "0x2Fdf5E0096ba18a76d258bDfBC66E1ba2Bcf5EE4",
+      "factoryRuntimeHash": "0x887bf689866d510c4d312b318320dd38088371c10372861ae429b668daf54abe",
+      "transactionHash": "0x3711cd781a93a1f47d488f18fe7e8ac9cc66ba546063cd41a735fce68da0f8a6",
+      "blockNumber": 88404863
     },
     "8453": {
       "status": "not_deployed",

@@ -123,7 +123,9 @@ test("an NFT vault that collides with another beneficiary is refused before shar
 });
 
 // Wiring: every surface that re-checks a plan must enforce the NFT fee binding.
-// The committed manifest is not_deployed, so an NFT-bearing plan fails closed in production code paths.
+// An NFT-bearing plan whose calldata does not pay the vault fails closed in production code paths: with the
+// committed manifest not_deployed it is refused for the missing factory; once deployed_verified, for the
+// creator shares not reaching this NFT's vault.
 const token = "0x4444444444444444444444444444444444444444" as Address;
 const nftRef = draft.nft;
 const withNft = (plan: LaunchPlan): LaunchPlan => ({ ...plan, draft: { ...plan.draft, nft: nftRef } });
@@ -145,7 +147,9 @@ function robinhoodPlan(): LaunchPlan {
 test("assertPlanIntegrity enforces the NFT fee binding and still accepts a normal plan", () => {
   const plan = robinhoodPlan();
   assert.doesNotThrow(() => assertPlanIntegrity(plan, ROBINHOOD_CONTRACTS));
-  assert.throws(() => assertPlanIntegrity(withNft(plan), ROBINHOOD_CONTRACTS), /not deployed and verified/);
+  assert.throws(() => assertPlanIntegrity(withNft(plan), ROBINHOOD_CONTRACTS),
+    NFT_VAULT_MANIFEST.chains["4663"].status === "deployed_verified"
+      ? /does not pay the creator shares to this NFT fee vault/ : /not deployed and verified/);
 });
 
 test("assertLaunchWalletPlan enforces the NFT fee binding and still accepts a normal plan", () => {

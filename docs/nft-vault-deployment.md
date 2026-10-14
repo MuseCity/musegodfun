@@ -1,6 +1,16 @@
 # NFT vault factory deployment (Robinhood 4663)
 
-Status: not deployed. `contracts/artifacts/nft-vault-deployment.json` keeps `"4663"` as `not_deployed` until step 4. Base (8453) is out of scope.
+Status: **deployed and verified on Robinhood (4663) on 2026-10-14**, after the owner's explicit authorization. `contracts/artifacts/nft-vault-deployment.json` records `"4663"` as `deployed_verified`. `NFT_MODE_ENABLED` stays off until the owner enables it (Task 13 Step 4). Base (8453) is out of scope.
+
+| Deployment | Value |
+| --- | --- |
+| Factory | [`0x2Fdf5E0096ba18a76d258bDfBC66E1ba2Bcf5EE4`](https://robinhoodchain.blockscout.com/address/0x2Fdf5E0096ba18a76d258bDfBC66E1ba2Bcf5EE4), the preflight-predicted address |
+| Transaction | [`0x3711cd781a93a1f47d488f18fe7e8ac9cc66ba546063cd41a735fce68da0f8a6`](https://robinhoodchain.blockscout.com/tx/0x3711cd781a93a1f47d488f18fe7e8ac9cc66ba546063cd41a735fce68da0f8a6), block `88404863`, from `0xd5C256e6411a6835543F2bCd763341639e3Cf56f` at nonce 388 |
+| Cost | 1,347,843 gas at 0.020262 gwei = 0.000027309994866 ETH |
+| Verification | `--verify` passed all 17 checks once the block was finalized. Evidence: [`docs/evidence/nft-vault-factory-4663.json`](evidence/nft-vault-factory-4663.json) |
+| Source | [Sourcify exact match](https://sourcify.dev/server/v2/contract/4663/0x2Fdf5E0096ba18a76d258bDfBC66E1ba2Bcf5EE4) for both the creation and the runtime code |
+
+The sections below are the runbook that was followed. Keep them for future redeployments, such as Base.
 
 `scripts/deploy-nft-vault.ts` prepares and verifies the single plain CREATE of `MusegodNftFeeVaultFactory`. It has no production broadcast mode and takes no private key or signer flag; the owner signs and sends with their own tool. The read-only modes use Alchemy built from `ALCHEMY_API_KEY` in `.env.fork` (never `.env`), or `--rpc <url>` when it is a proven mainnet endpoint or a local fork (see "Which RPC may be used"). No output contains the key or any RPC URL; every file is written through a serializer that refuses both.
 
