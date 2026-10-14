@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BuildInfo } from "../src/lib/build-info";
-import { assertBuildManifest, assertCandidateRuntimeBindings, assertFrozenBuild, assertLaunchRuntime, assertReleaseCheckout, publishCandidate, ReleaseFailure, requireSingleActiveVersion, runtimeVarsFromBindings, sha256, snapshotBuild, type ReleaseLifecycle } from "../scripts/release-policy";
+import { assertBuildManifest, assertCandidateRuntimeBindings, assertFrozenBuild, assertLaunchRuntime, assertReleaseCheckout, publishCandidate, ReleaseFailure, requireSingleActiveVersion, rollbackPreservesSafety, runtimeVarsFromBindings, sha256, snapshotBuild, type ReleaseLifecycle } from "../scripts/release-policy";
 import { FEE_POLICY, ENGINE_FEE_POLICY, BASE_AUTOMATION_FEE_POLICY } from "../src/lib/fee-policy";
 import { CURVE_POLICY } from "../src/lib/launch-curve";
 import { checkRuntime, checkFunctionalSmoke, baseRollbackCompatible, supportsBaseRecovery, supportsBuybackSummary, baseAssetCountFromSource, nftModeRuntime, nftRollbackCompatible, rollbackBlockReason, supportsNftMode } from "../scripts/release";
@@ -626,4 +626,40 @@ test("a blocked release names the NFT rollback floor when that is what fails, an
   assert.equal(await rollbackBlockReason({ ...base, candidateVars: { NFT_MODE_ENABLED: "true" }, previousNftMode: true }), null);
   assert.equal(await rollbackBlockReason({ ...base, previousVars: {} }), earlier, "the runtime-safety baseline keeps its message");
   assert.equal(await rollbackBlockReason({ ...base, candidateVars: { ENABLE_BASE_TRANSACTIONS: "true" } }), earlier, "the Base graph keeps its message");
+});
+
+test("a rollback never re-enables NFT mode that the candidate turned off, like the chain signing flags", async () => {
+  const on = { RUNTIME_SECURITY_PROTOCOL: "1", NFT_MODE_ENABLED: "true" }, off = { RUNTIME_SECURITY_PROTOCOL: "1", NFT_MODE_ENABLED: "false" };
+  assert.equal(rollbackPreservesSafety(on, off), false, "the live version has NFT mode on and the candidate turns it off");
+  assert.equal(rollbackPreservesSafety(on, { RUNTIME_SECURITY_PROTOCOL: "1" }), false, "an absent flag is off");
+  assert.equal(rollbackPreservesSafety(on, { ...on, NFT_MODE_ENABLED: "TRUE" }), false, "only the exact string true is on");
+  assert.equal(rollbackPreservesSafety(off, on), true, "rolling back to NFT mode off is always safe");
+  assert.equal(rollbackPreservesSafety(on, on), true);
+  assert.equal(rollbackPreservesSafety(off, off), true);
+  assert.equal(rollbackPreservesSafety({ ...on, NFT_MODE_ENABLED: "TRUE" }, off), true, "a previous version whose flag is not exactly true has NFT mode off");
+  // The chain flags keep their rule beside the NFT flag.
+  assert.equal(rollbackPreservesSafety({ ...on, ENABLE_ROBINHOOD_TRANSACTIONS: "true" }, { ...on, ENABLE_ROBINHOOD_TRANSACTIONS: "false" }), false);
+  assert.equal(rollbackPreservesSafety({ ...on, ENABLE_BASE_TRANSACTIONS: "false" }, { ...on, ENABLE_BASE_TRANSACTIONS: "true" }), true);
+  assert.equal(rollbackPreservesSafety({ ...on, RUNTIME_SECURITY_PROTOCOL: "0" }, on), false);
+
+  const pending = structuredClone(BASE_COLLECTOR_MANIFEST);
+  pending.activation = { status: "not_run" }; pending.canaryAuthorization = null; pending.status = "not_deployed";
+  Object.assign(pending.collector, { address: null, runtimeHash: null, transactionHash: null, blockNumber: null });
+  const input = { previousVars: on as Record<string, string>, candidateVars: off as Record<string, string>, candidateManifest: pending,
+    previousRecoveryProtocol: false, previousNftMode: true };
+  assert.equal(await rollbackBlockReason(input),
+    "A rollback would re-enable NFT mode, which this release turns off (NFT_MODE_ENABLED); turn it off on the live version first. Production was not changed.",
+    "the NFT kill switch is named");
+  assert.equal(await rollbackBlockReason({ ...input, previousVars: off }), null, "turning NFT mode on, or keeping it off, is not blocked by it");
+  assert.equal(await rollbackBlockReason({ ...input, candidateVars: on }), null, "keeping NFT mode on is not blocked by it");
+  assert.equal(await rollbackBlockReason({ ...input, previousVars: { ...off, ENABLE_BASE_TRANSACTIONS: "true" } }),
+    "Base rollback source or Collector graph is incompatible; production was not changed.", "a lost chain flag keeps its message");
+
+  // In the pipeline the release stops before upload, so a later verification failure can never roll back to NFT mode on.
+  const { flow, events } = lifecycle();
+  flow.rollbackAllowed = async () => await rollbackBlockReason(input) === null;
+  flow.verify = async () => { events.push("verify"); throw new Error("unrelated verification failure"); };
+  await assert.rejects(publishCandidate(flow), (error: unknown) => error instanceof ReleaseFailure && error.rollback === "blocked_by_safety");
+  assert.equal(events.includes("upload"), false);
+  assert.equal(events.some((event) => event.startsWith("activate:")), false);
 });

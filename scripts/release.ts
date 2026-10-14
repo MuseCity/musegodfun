@@ -12,7 +12,7 @@ import { BASE_RECOVERY_PROTOCOL, BASE_NATIVE_DESTINATION_POLICY } from "../src/l
 import { NFT_MODE_PROTOCOL, NFT_VAULT_MANIFEST, vaultFactory, type NftVaultManifest } from "../src/lib/nft-mode";
 import type { BuildInfo } from "../src/lib/build-info";
 import { readBuildIdentity, REPOSITORY } from "./build-info";
-import { assertBuildManifest, assertCandidateRuntimeBindings, assertFrozenBuild, assertLaunchRuntime, assertReleaseCheckout, assertSecurityTransition, rollbackPreservesSafety, publishCandidate, ReleaseFailure, requireSingleActiveVersion, runtimeVarsFromBindings, sha256, snapshotBuild } from "./release-policy";
+import { assertBuildManifest, assertCandidateRuntimeBindings, assertFrozenBuild, assertLaunchRuntime, assertReleaseCheckout, assertSecurityTransition, nftModeTurnedOff, rollbackPreservesSafety, publishCandidate, ReleaseFailure, requireSingleActiveVersion, runtimeVarsFromBindings, sha256, snapshotBuild } from "./release-policy";
 
 const repositorySlug = "MuseCity/musegodfun", workerName = "musegod-fun";
 const origins = ["https://musegod.fun", "https://www.musegod.fun"];
@@ -273,10 +273,14 @@ export function nftRollbackCompatible(input: { candidateVars: Record<string, str
   return input.candidateVars.NFT_MODE_ENABLED !== "true" || input.previousNftMode;
 }
 const BASE_ROLLBACK_BLOCKED = "Base rollback source or Collector graph is incompatible; production was not changed.";
+const NFT_KILL_SWITCH_BLOCKED = "A rollback would re-enable NFT mode, which this release turns off (NFT_MODE_ENABLED); turn it off on the live version first. Production was not changed.";
 /** Why rolling back to the previous version would be unsafe, or null when it is compatible. The checks run in their original order;
- * a failing NFT rollback floor is named, every other failure keeps the earlier message. */
+ * a failing NFT rollback floor, or an NFT kill switch a rollback would undo when that is the only lost flag, is named; every other failure
+ * keeps the earlier message. */
 export async function rollbackBlockReason(input: Parameters<typeof baseRollbackCompatible>[0] & { previousNftMode: boolean }): Promise<string | null> {
-  if (!rollbackPreservesSafety(input.previousVars, input.candidateVars)) return BASE_ROLLBACK_BLOCKED;
+  if (!rollbackPreservesSafety(input.previousVars, input.candidateVars))
+    return nftModeTurnedOff(input.previousVars, input.candidateVars) && rollbackPreservesSafety(input.previousVars, { ...input.candidateVars, NFT_MODE_ENABLED: "true" })
+      ? NFT_KILL_SWITCH_BLOCKED : BASE_ROLLBACK_BLOCKED;
   if (!nftRollbackCompatible(input))
     return "NFT mode cannot be enabled while the rollback target lacks NFT support (NFT_MODE_PROTOCOL); first release an NFT-capable build with NFT_MODE_ENABLED=false. Production was not changed.";
   return await baseRollbackCompatible(input) ? null : BASE_ROLLBACK_BLOCKED;

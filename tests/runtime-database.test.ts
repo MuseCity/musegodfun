@@ -1,12 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
+import { once } from "node:events";
 
 const postgresImage="postgres@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73";
 let dockerAvailable=false;
 try {execFileSync("docker",["image","inspect",postgresImage],{stdio:"ignore"});dockerAvailable=true;}catch{}
-test("runtime migration enforces service-only control, shared quotas and compatible recovery restore, and the NFT single-use guards",{skip:!dockerAvailable,timeout:30_000},()=>{
+test("runtime migration enforces service-only control, shared quotas and compatible recovery restore, and the NFT single-use guards and launch claims",{skip:!dockerAvailable,timeout:60_000},async()=>{
   let container="";
   const sql=(source:string)=>execFileSync("docker",["exec","-i",container,"psql","-U","postgres","-X","-v","ON_ERROR_STOP=1"],{encoding:"utf8",input:source,stdio:["pipe","pipe","pipe"]});
   try {
@@ -71,6 +72,64 @@ test("runtime migration enforces service-only control, shared quotas and compati
       SET ROLE service_role;
       DO $$ BEGIN IF public.musegod_nft_guards_ready() IS NOT TRUE THEN RAISE EXCEPTION 'guards lost'; END IF; END $$;
       RESET ROLE;`);
+    // Pre-sign launch claims (20261014120000): all or nothing per scope, renewed by the same owner, refused to another owner until they expire,
+    // released by a scoped DELETE, service-only, and required by the readiness check.
+    sql(`SET ROLE service_role;
+      DO $$ DECLARE r text[]; BEGIN
+        r:=public.musegod_claim_launch('robinhood','0xa',ARRAY['nft:4663:0xc0:1','fee:0xab'],1300000,1000000); IF r<>'{}' THEN RAISE EXCEPTION 'free claim refused: %',r; END IF;
+        r:=public.musegod_claim_launch('robinhood','0xa',ARRAY['nft:4663:0xc0:1','fee:0xab'],1300010,1000010); IF r<>'{}' THEN RAISE EXCEPTION 'same plan refused: %',r; END IF;
+        r:=public.musegod_claim_launch('robinhood','0xb',ARRAY['nft:4663:0xc0:2','fee:0xab'],1300020,1000020); IF r<>ARRAY['fee:0xab'] THEN RAISE EXCEPTION 'held fee not reported: %',r; END IF;
+        IF EXISTS(SELECT 1 FROM public.musegod_launch_claims WHERE claim='nft:4663:0xc0:2') THEN RAISE EXCEPTION 'a refused claim took its free key'; END IF;
+        r:=public.musegod_claim_launch('base','0xb',ARRAY['nft:4663:0xc0:1','fee:0xab'],1300020,1000020); IF r<>'{}' THEN RAISE EXCEPTION 'scopes share claims: %',r; END IF;
+        r:=public.musegod_claim_launch('robinhood','0xb',ARRAY['nft:4663:0xc0:1'],1600009,1300009); IF r<>ARRAY['nft:4663:0xc0:1'] THEN RAISE EXCEPTION 'renewal lost: %',r; END IF;
+        r:=public.musegod_claim_launch('robinhood','0xb',ARRAY['nft:4663:0xc0:1'],1600010,1300010); IF r<>'{}' THEN RAISE EXCEPTION 'expired claim not taken over: %',r; END IF;
+        IF (SELECT owner FROM public.musegod_launch_claims WHERE scope='robinhood' AND claim='nft:4663:0xc0:1')<>'0xb' THEN RAISE EXCEPTION 'takeover not recorded'; END IF;
+        IF EXISTS(SELECT 1 FROM public.musegod_launch_claims WHERE scope='robinhood' AND owner='0xa') THEN RAISE EXCEPTION 'expired claims kept'; END IF;
+      END $$;
+      DO $$ DECLARE bad record; BEGIN
+        FOR bad IN SELECT * FROM (VALUES ('robinhood','0xc',ARRAY[]::text[],1300000::bigint,1000000::bigint),('robinhood','0xc',ARRAY['nft:a','nft:a'],1300000,1000000),
+          ('robinhood','0xc',ARRAY['nft:a','fee:b','nft:c'],1300000,1000000),('robinhood','0xc',ARRAY['coin:a'],1300000,1000000),('robinhood','0xc',ARRAY['nft:a',NULL],1300000,1000000),
+          ('robinhood','0xc',ARRAY['nft:a'],1000000,1000000),('robinhood','',ARRAY['nft:a'],1300000,1000000),('other','0xc',ARRAY['nft:a'],1300000,1000000)) AS v(s,p,c,e,n) LOOP
+          BEGIN PERFORM public.musegod_claim_launch(bad.s,bad.p,bad.c,bad.e,bad.n); RAISE EXCEPTION 'accepted: %',bad;
+          EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'Invalid launch claim' THEN RAISE; END IF; END;
+        END LOOP;
+      END $$;
+      DELETE FROM public.musegod_launch_claims WHERE scope='robinhood' AND owner='0xb';
+      DO $$ BEGIN IF public.musegod_claim_launch('robinhood','0xc',ARRAY['nft:4663:0xc0:1','fee:0xab'],1600020,1300020)<>'{}' THEN RAISE EXCEPTION 'release did not free the claims'; END IF;
+        IF (SELECT count(*) FROM public.musegod_launch_claims WHERE scope='base' AND owner='0xb')<>2 THEN RAISE EXCEPTION 'release crossed scopes'; END IF; END $$;
+      RESET ROLE; SET ROLE anon;
+      DO $$ BEGIN BEGIN PERFORM public.musegod_claim_launch('robinhood','0xd',ARRAY['nft:a'],2,1); RAISE EXCEPTION 'public claim function'; EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+        BEGIN PERFORM * FROM public.musegod_launch_claims; RAISE EXCEPTION 'public claim table'; EXCEPTION WHEN insufficient_privilege THEN NULL; END; END $$;
+      RESET ROLE; SET ROLE authenticated;
+      DO $$ BEGIN BEGIN PERFORM public.musegod_claim_launch('robinhood','0xd',ARRAY['nft:a'],2,1); RAISE EXCEPTION 'authenticated claim function'; EXCEPTION WHEN insufficient_privilege THEN NULL; END; END $$;
+      RESET ROLE;
+      BEGIN; DROP FUNCTION public.musegod_claim_launch(text,text,text[],bigint,bigint);
+      DO $$ BEGIN IF public.musegod_nft_guards_ready() THEN RAISE EXCEPTION 'a missing claim function was not reported'; END IF; END $$;
+      ROLLBACK;
+      BEGIN; DROP TABLE public.musegod_launch_claims;
+      DO $$ BEGIN IF public.musegod_nft_guards_ready() THEN RAISE EXCEPTION 'a missing claim table was not reported'; END IF; END $$;
+      ROLLBACK;
+      SET ROLE service_role;
+      DO $$ BEGIN IF public.musegod_nft_guards_ready() IS NOT TRUE THEN RAISE EXCEPTION 'claim guards lost'; END IF; END $$;
+      RESET ROLE;`);
+    assert.match(sql("SELECT relrowsecurity FROM pg_class WHERE relname='musegod_launch_claims';"),/\bt\b/);
+    // Atomic across sessions: while one session's claim is still uncommitted, another owner's claim of the same key waits for it and is then
+    // refused. A check-then-insert without the function's lock would instead overwrite the first owner's row once it commits.
+    const psql=["exec","-i",container,"psql","-U","postgres","-X","-tA","-v","ON_ERROR_STOP=1"];
+    const holder=spawn("docker",psql,{stdio:["pipe","pipe","pipe"]});let holderOutput="";
+    holder.stdout.on("data",chunk=>{holderOutput+=chunk;});holder.stderr.on("data",chunk=>{holderOutput+=chunk;});
+    const holderExit=once(holder,"close");
+    // The pipe is written asynchronously: let the session receive its statements before the synchronous polling below.
+    await new Promise<void>(resolve=>holder.stdin.end("SET ROLE service_role; BEGIN; SELECT public.musegod_claim_launch('robinhood','0xe',ARRAY['nft:4663:0xc0:9'],1700000,1400000); SELECT pg_sleep(3); COMMIT;",()=>resolve()));
+    // Wait until the first session has made its claim and sleeps inside its still-open transaction.
+    let claimed=false;
+    for(let i=0;i<100&&!claimed;i++)claimed=execFileSync("docker",[...psql,"-c","SELECT count(*) FROM pg_stat_activity WHERE state='active' AND query LIKE 'SELECT pg_sleep(3)%'"],{encoding:"utf8"}).trim()==="1";
+    assert.equal(claimed,true,`the first session holds its uncommitted claim: ${holderOutput}`);
+    const contender=execFileSync("docker",[...psql,"-c","SET ROLE service_role; SELECT public.musegod_claim_launch('robinhood','0xf',ARRAY['nft:4663:0xc0:9'],1700000,1400000);"],{encoding:"utf8"});
+    assert.match(contender,/^\{nft:4663:0xc0:9\}$/m,"the contending plan is refused once the first commits");
+    assert.equal((await holderExit)[0],0,holderOutput);
+    assert.match(holderOutput,/^\{\}$/m,"the first plan's claim was granted");
+    assert.equal(execFileSync("docker",[...psql,"-c","SELECT owner FROM public.musegod_launch_claims WHERE scope='robinhood' AND claim='nft:4663:0xc0:9'"],{encoding:"utf8"}).trim(),"0xe");
   }finally{
     if(container)try{execFileSync("docker",["rm","-f",container],{stdio:"ignore"});}catch{}
   }

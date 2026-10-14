@@ -137,7 +137,14 @@ try {
     "The holder of the fee is found for any other coin");
   // Migration 20261014120000: both guard indexes exist (a refusal names them) and refuse a duplicate, from any connection, and the readiness
   // check the runtime and nft:reverify depend on reports them.
-  assert.equal(await connect(scope).nftGuardsReady(), true, "musegod_nft_guards_ready() reports both guard indexes");
+  assert.equal(await connect(scope).nftGuardsReady(), true, "musegod_nft_guards_ready() reports both guard indexes and the launch claim");
+  // The same migration's pre-sign launch claim: granted when free, refused to another owner while live, freed by release.
+  const claimOwners = [`0x${"1".repeat(64)}`, `0x${"2".repeat(64)}`], claims = [`nft:4663:${nft.contract.toLowerCase()}:1`, `fee:0x${"cd".repeat(32)}`];
+  assert.deepEqual(await connect(scope).claimLaunch(claimOwners[0], claims, Date.now() + 60_000), [], "A free launch claim is granted");
+  assert.deepEqual(await connect(scope).claimLaunch(claimOwners[1], [claims[1]], Date.now() + 60_000), [claims[1]], "A live launch claim is refused to another owner");
+  await store.releaseLaunchClaims(claimOwners[0]);
+  assert.deepEqual(await connect(scope).claimLaunch(claimOwners[1], claims, Date.now() + 60_000), [], "A released launch claim is free");
+  await store.releaseLaunchClaims(claimOwners[1]);
   const refused = (kind: TokenUniqueKind) => (error: unknown) => error instanceof TokenUniqueConflict && error.kind === kind;
   await assert.rejects(() => connect(scope).saveToken(payerCoin(10, "c", { ...launchFee, txHash: `0x${"CD".repeat(32)}` as `0x${string}` })), refused("launch_fee"),
     "The launch-fee index refuses a second coin spending one payment, in any case");
@@ -236,7 +243,8 @@ try {
           "NFT verification compare-and-swap settles only unverified or absent statuses and never touches non-NFT records",
           "NFT verification compare-and-swap matches the provenance it read and never downgrades it",
           "launch-fee single use excludes only the coin itself",
-          "musegod_nft_guards_ready() reports both NFT single-use guard indexes",
+          "musegod_nft_guards_ready() reports both NFT single-use guard indexes and the launch claim",
+          "the pre-sign launch claim is granted when free, refused to another owner while live and freed by release",
           "the launch-fee guard index refuses a second coin spending one payment, in any case",
           "the verified-NFT guard index refuses a second verified coin (insert or compare-and-swap) and allows rejected and unverified ones",
           "backup restores token and canonical receipt identity",

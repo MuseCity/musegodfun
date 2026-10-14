@@ -2,7 +2,7 @@ import type { Hex } from "viem";
 import { packPlan, unpackPlan } from "./plan-storage";
 import { defaultRuntimeControl, type RuntimeControl, type BudgetName, type BudgetResult } from "./runtime-policy";
 import type { TokenRecord } from "../src/lib/config";
-import { assertBuybackBatchId, assertBuybackAuditRecord, postgresTokenConflict, type Store, type LaunchPlan, type BuybackBatchRecord, type BuybackBatchPageRecord } from "./store";
+import { assertBuybackBatchId, assertBuybackAuditRecord, assertLaunchClaim, postgresTokenConflict, type Store, type LaunchPlan, type BuybackBatchRecord, type BuybackBatchPageRecord } from "./store";
 function assertSequence(value: unknown): asserts value is string {
   if (typeof value !== "string" || !/^(?:0|[1-9]\d*)$/.test(value) || BigInt(value) >= 2n ** 256n) throw new Error("Invalid history sequence");
 }
@@ -84,6 +84,16 @@ export class SupabaseStore implements StoreBackend {
   }
   async releasePrepareSlot(owner: string) {
     await this.request(`musegod_prepare_slots?owner=eq.${encodeURIComponent(owner)}`,"DELETE");
+  }
+  /** Store.claimLaunch, in one call of `musegod_claim_launch` (migration 20261014120000), which serializes claims per scope. */
+  async claimLaunch(owner: string, claims: string[], expiresAt: number, now = Date.now()): Promise<string[]> {
+    assertLaunchClaim(owner, claims, expiresAt, now);
+    const held = await this.request<unknown>("rpc/musegod_claim_launch", "POST", { p_scope: this.scope, p_owner: owner, p_claims: claims, p_expires_at: expiresAt, p_now: now });
+    if (!Array.isArray(held) || held.some((claim) => typeof claim !== "string" || !claims.includes(claim))) throw new Error("Launch claim returned an invalid result");
+    return held;
+  }
+  async releaseLaunchClaims(owner: string) {
+    await this.request(`musegod_launch_claims?${this.where(`owner=eq.${encodeURIComponent(owner)}`)}`, "DELETE");
   }
   async pendingLaunchCount(): Promise<number> {
     const rows=await this.request<{hash:string}[]>(`musegod_pending_launches?${this.where()}&status=eq.pending&select=hash&limit=100`);
@@ -241,8 +251,8 @@ export class SupabaseStore implements StoreBackend {
     await this.request(`${row}&payload->nftVerification->>status=eq.unverified`, "PATCH", { payload: token }, "return=minimal");
     await this.request(`${row}&payload->nftVerification=is.null`, "PATCH", { payload: token }, "return=minimal");
   }
-  /** Both guard indexes of migration 20261014120000 exist, unique and valid (`musegod_nft_guards_ready`). Any failure, including a project
-   * without the migration (404), counts as not ready, so NFT mode fails closed. */
+  /** Both guard indexes of migration 20261014120000 exist, unique and valid, with its launch-claim table and function (`musegod_nft_guards_ready`).
+   * Any failure, including a project without the migration (404), counts as not ready, so NFT mode fails closed. */
   async nftGuardsReady(): Promise<boolean> {
     return this.request<unknown>("rpc/musegod_nft_guards_ready", "POST", {}).then((ready) => ready === true, () => false);
   }

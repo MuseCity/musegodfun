@@ -9,7 +9,7 @@ import type { LaunchInput } from "../src/lib/validation";
 
 export type NftLaunchCode = "NFT_MODE_DISABLED" | "NFT_MODE_UNAVAILABLE" | "NFT_CHAIN_UNSUPPORTED" | "NFT_NOT_ERC721" | "NFT_NOT_CONTROLLED"
   | "NFT_ALREADY_LAUNCHED" | "NFT_MUSE_PAIR_REQUIRED" | "NFT_RESERVED_NAME" | "NFT_FEE_REQUIRED" | "NFT_FEE_INVALID"
-  | "NFT_FEE_USED" | "NFT_VAULT_UNAVAILABLE";
+  | "NFT_FEE_USED" | "NFT_VAULT_UNAVAILABLE" | "NFT_LAUNCH_IN_PROGRESS" | "NFT_FEE_IN_USE";
 /** `retry`: a fee answer that can still change, so registration retries it for 10 minutes like an RPC failure. "unconfirmed": the payment
  * exists but has fewer than two confirmations or sits in a reorganized block, or it is still in the mempool in exactly a payment's shape
  * (then it settles `unverified`). "missing": the chain has neither the transaction nor a receipt, or only a pending transaction that is

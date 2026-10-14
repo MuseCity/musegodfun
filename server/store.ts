@@ -45,6 +45,14 @@ export function postgresTokenConflict(body: string): TokenUniqueConflict | null 
   const kind = TOKEN_UNIQUE_KINDS.find((name) => message.includes(`"${TOKEN_UNIQUE_INDEXES[name].postgres}"`));
   return kind ? new TokenUniqueConflict(kind) : null;
 }
+/** A pre-sign launch claim request (LaunchpadService.validateLaunch): its owner (the launch: `intent:<creator>:<intentId>`, or a plan hash
+ * for a plan without an intent), one or two distinct `nft:<key>` / `fee:<hash>` claims, and an expiry after `now`. Both stores refuse
+ * anything else before touching the database. */
+export function assertLaunchClaim(owner: string, claims: string[], expiresAt: number, now: number): void {
+  if (typeof owner !== "string" || !/^(?:0x[0-9a-fA-F]{64}|intent:0x[0-9a-f]{40}:[a-zA-Z0-9_-]{8,100})$/.test(owner) || !Array.isArray(claims) || claims.length < 1 || claims.length > 2 ||
+    new Set(claims).size !== claims.length || claims.some((claim) => typeof claim !== "string" || !/^(?:nft|fee):\S{1,200}$/.test(claim)) ||
+    !Number.isSafeInteger(now) || now < 0 || !Number.isSafeInteger(expiresAt) || expiresAt <= now) throw new Error("Invalid launch claim");
+}
 export type BuybackBatchRecord = Record<string, unknown> & { id: string };
 export type BuybackBatchPageRecord = BuybackBatchRecord & { updatedAt: number; sequence: string };
 export function assertBuybackBatchId(id: unknown): asserts id is string {
@@ -112,6 +120,7 @@ export class Store {
     const columns = new Set((this.db.prepare("PRAGMA table_info(pending_launches)").all() as {name:string}[]).map(c => c.name));
     for (const [name, type] of [["retry_at", "INTEGER NOT NULL DEFAULT 0"], ["attempts", "INTEGER NOT NULL DEFAULT 0"], ["finalized", "INTEGER NOT NULL DEFAULT 0"]])
       if (!columns.has(name)) this.db.exec(`ALTER TABLE pending_launches ADD COLUMN ${name} ${type}`);
+    this.db.exec("CREATE TABLE IF NOT EXISTS launch_claims (claim TEXT PRIMARY KEY,owner TEXT NOT NULL,expires_at INTEGER NOT NULL); CREATE INDEX IF NOT EXISTS launch_claims_owner ON launch_claims(owner);");
     this.db.exec("CREATE TABLE IF NOT EXISTS protected_plans (id TEXT PRIMARY KEY,protected_at INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS runtime_control (id INTEGER PRIMARY KEY CHECK(id=1),paused INTEGER NOT NULL,revision INTEGER NOT NULL,updated_at INTEGER NOT NULL,reason TEXT NOT NULL); CREATE INDEX IF NOT EXISTS tokens_page ON tokens(created_at DESC,address); CREATE INDEX IF NOT EXISTS pending_active_queue ON pending_launches(retry_at,updated_at) WHERE finalized=0 AND status NOT IN ('failed','replaced');");
     this.db
       .prepare("INSERT OR IGNORE INTO metadata VALUES (?, ?)")
@@ -180,6 +189,23 @@ export class Store {
     } catch(error){this.budgetDb.exec("ROLLBACK");throw error;}
   }
   releasePrepareSlot(owner: string) {this.budgetDb.prepare("DELETE FROM prepare_slots WHERE owner=?").run(owner);}
+  /** Claims every one of `claims` for `owner` until `expiresAt`, all or nothing (LaunchpadService.validateLaunch, before a real signature).
+   * Returns the claims another owner holds unexpired, and then claims nothing; an empty list means the owner now holds them all. The same
+   * owner renews its own claims, and an expired claim is anyone's. BEGIN IMMEDIATE makes it atomic for every process sharing this database. */
+  claimLaunch(owner: string, claims: string[], expiresAt: number, now = Date.now()): string[] {
+    assertLaunchClaim(owner, claims, expiresAt, now);
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.db.prepare("DELETE FROM launch_claims WHERE expires_at<=?").run(now);
+      const held = (this.db.prepare(`SELECT claim FROM launch_claims WHERE claim IN (${claims.map(() => "?").join(",")}) AND owner<>? ORDER BY claim`)
+        .all(...claims, owner) as { claim: string }[]).map((row) => row.claim);
+      if (!held.length) for (const claim of claims)
+        this.db.prepare("INSERT INTO launch_claims VALUES(?,?,?) ON CONFLICT(claim) DO UPDATE SET owner=excluded.owner,expires_at=excluded.expires_at").run(claim, owner, expiresAt);
+      this.db.exec("COMMIT"); return held;
+    } catch (error) { this.db.exec("ROLLBACK"); throw error; }
+  }
+  /** Frees every claim of the owner (its launch registered); claims nobody releases expire. */
+  releaseLaunchClaims(owner: string) { this.db.prepare("DELETE FROM launch_claims WHERE owner=?").run(owner); }
   pendingLaunchCount(): number {
     return (this.db.prepare("SELECT count(*) AS n FROM pending_launches WHERE status='pending'").get() as {n:number}).n;
   }
@@ -395,11 +421,13 @@ export class Store {
       .get(creator.toLowerCase(), data) as { payload: string } | undefined;
     return row ? unpackPlan(JSON.parse(row.payload)) : null;
   }
-  /** Both TOKEN_UNIQUE_INDEXES guards exist. The constructor creates them or refuses to start, so this holds for every open store. */
+  /** Both TOKEN_UNIQUE_INDEXES guards and the launch-claim table exist. The constructor creates them or refuses to start, so this holds for every
+   * open store. */
   nftGuardsReady(): boolean {
     const names = Object.values(TOKEN_UNIQUE_INDEXES).map((index) => index.sqlite);
-    const row = this.db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type='index' AND tbl_name='tokens' AND name IN (?,?)").get(...names) as { n: number };
-    return row.n === names.length;
+    const row = this.db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE (type='index' AND tbl_name='tokens' AND name IN (?,?)) OR (type='table' AND name='launch_claims')")
+      .get(...names) as { n: number };
+    return row.n === names.length + 1;
   }
   /** Runs one token write; a refusal by a TOKEN_UNIQUE_INDEXES guard becomes a TokenUniqueConflict. */
   private writeToken(write: () => unknown) {

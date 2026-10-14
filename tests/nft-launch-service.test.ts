@@ -347,6 +347,71 @@ test("the Supabase store queries the same verified-NFT predicate", async () => {
   assert.equal(await store.verifiedNftCoin(nftKey(muse)), null);
 });
 
+// ---- pre-sign launch claims ---------------------------------------------------------------
+// Owners: a launch intent with its creator, or a plan's own id when it has no intent.
+const planA = `intent:${holder.toLowerCase()}:intent-a-0001`, planB = `intent:${holder.toLowerCase()}:intent-b-0002`, planC = `0x${"c3".repeat(32)}`;
+const nftClaim = `nft:${nftKey(muse)}`, otherNftClaim = `nft:${nftKey({ ...muse, tokenId: "2" })}`, feeClaim = `fee:0x${"cd".repeat(32)}`;
+
+test("SQLite launch claims: the same owner renews, another owner is refused until expiry, a claim is all or nothing, and release frees it, across connections", () => {
+  const directory = mkdtempSync(join(tmpdir(), "nft-claims-"));
+  // Two connections to one database stand for two processes.
+  const a = new Store(directory, 4663), b = new Store(directory, 4663);
+  const now = 1_000_000, ttl = 300_000;
+  try {
+    assert.deepEqual(a.claimLaunch(planA, [nftClaim, feeClaim], now + ttl, now), [], "a free claim is granted");
+    assert.deepEqual(a.claimLaunch(planA, [nftClaim, feeClaim], now + 10 + ttl, now + 10), [], "the same owner again is granted and renews");
+    assert.deepEqual(b.claimLaunch(planB, [nftClaim], now + 20 + ttl, now + 20), [nftClaim], "another owner is refused, from another connection");
+    assert.deepEqual(b.claimLaunch(planB, [otherNftClaim, feeClaim], now + 20 + ttl, now + 20), [feeClaim], "a held fee refuses the whole claim");
+    assert.deepEqual(b.claimLaunch(planC, [otherNftClaim], now + 20 + ttl, now + 20), [], "the refused claim took nothing: its free key is still free");
+    b.releaseLaunchClaims(planC);
+    // The renewal moved the expiry: still held just before it, free from it on.
+    assert.deepEqual(b.claimLaunch(planB, [nftClaim], now + 9 + 2 * ttl, now + 9 + ttl), [nftClaim], "a renewed claim lasts from its renewal");
+    assert.deepEqual(b.claimLaunch(planB, [nftClaim, feeClaim], now + 10 + 2 * ttl, now + 10 + ttl), [], "an expired claim is taken over");
+    assert.deepEqual(a.claimLaunch(planA, [nftClaim], now + 11 + 2 * ttl, now + 11 + ttl), [nftClaim], "and then belongs to the new owner");
+    b.releaseLaunchClaims(planB);
+    assert.deepEqual(a.claimLaunch(planA, [nftClaim, feeClaim], now + 12 + 2 * ttl, now + 12 + ttl), [], "release frees every claim of the plan");
+    a.releaseLaunchClaims(planB);
+    assert.deepEqual(b.claimLaunch(planB, [feeClaim], now + 13 + 2 * ttl, now + 13 + ttl), [feeClaim], "releasing another owner frees nothing of this one");
+    const invalid: [string, string, string[], number][] = [["no claim", planA, [], now + ttl], ["three claims", planA, [nftClaim, otherNftClaim, feeClaim], now + ttl],
+      ["a repeated claim", planA, [nftClaim, nftClaim], now + ttl], ["an unknown kind", planA, ["coin:1"], now + ttl], ["an expiry not after now", planA, [nftClaim], now],
+      ["an owner that is neither a plan hash nor an intent", "plan", [nftClaim], now + ttl], ["an intent with an upper-case creator", `intent:${holder}:intent-a-0001`, [nftClaim], now + ttl],
+      ["an intent id outside the prepare format", `intent:${holder.toLowerCase()}:short`, [nftClaim], now + ttl]];
+    for (const [why, plan, claims, expiresAt] of invalid) assert.throws(() => a.claimLaunch(plan, claims, expiresAt, now), /^Error: Invalid launch claim$/, why);
+  } finally { a.close(); b.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("SQLite reports NFT mode's guards ready only with the launch-claim table", () => {
+  const directory = mkdtempSync(join(tmpdir(), "nft-claims-"));
+  const store = new Store(directory, 4663);
+  try {
+    assert.equal(store.nftGuardsReady(), true);
+    store.db.exec("DROP TABLE launch_claims");
+    assert.equal(store.nftGuardsReady(), false);
+  } finally { store.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("Supabase launch claims: one RPC carries scope, owner, claims, expiry and clock and answers the claims another owner holds; release is a scoped DELETE", async () => {
+  const store = new SupabaseStore("https://fixture.supabase.co", "test-server-key", "verify-nft");
+  const sent: { path: string; method?: string; body?: unknown }[] = [];
+  let answer: unknown = [];
+  store.request = async <T>(path: string, method?: string, body?: unknown) => { sent.push({ path, method, body }); return answer as T; };
+  assert.deepEqual(await store.claimLaunch(planA, [nftClaim, feeClaim], 1_300_000, 1_000_000), []);
+  assert.deepEqual(sent, [{ path: "rpc/musegod_claim_launch", method: "POST",
+    body: { p_scope: "verify-nft", p_owner: planA, p_claims: [nftClaim, feeClaim], p_expires_at: 1_300_000, p_now: 1_000_000 } }]);
+  answer = [feeClaim];
+  assert.deepEqual(await store.claimLaunch(planB, [otherNftClaim, feeClaim], 1_300_000, 1_000_000), [feeClaim], "the held claims are returned");
+  for (const invalid of [null, true, "fee", [42], [otherNftClaim]]) {
+    answer = invalid;
+    await assert.rejects(store.claimLaunch(planB, [nftClaim, feeClaim], 1_300_000, 1_000_000), /^Error: Launch claim returned an invalid result$/, JSON.stringify(invalid));
+  }
+  sent.length = 0;
+  await assert.rejects(store.claimLaunch(planA, [], 1_300_000, 1_000_000), /^Error: Invalid launch claim$/);
+  assert.deepEqual(sent, [], "an invalid claim is refused before any request");
+  answer = undefined;
+  await store.releaseLaunchClaims(planA);
+  assert.deepEqual(sent, [{ path: `musegod_launch_claims?scope=eq.verify-nft&owner=eq.${encodeURIComponent(planA)}`, method: "DELETE", body: undefined }]);
+});
+
 // ---- HTTP --------------------------------------------------------------------------------
 test("NftLaunchError codes reach the HTTP response body", async () => {
   const directory = mkdtempSync(join(tmpdir(), "nft-launch-http-"));

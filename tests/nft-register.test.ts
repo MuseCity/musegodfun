@@ -489,6 +489,104 @@ test("signing re-checks one coin per NFT: a plan for an NFT that has since got i
     error instanceof NftLaunchError && error.code === "NFT_ALREADY_LAUNCHED" && error.message === "This NFT already has its coin.");
 }));
 
+/** The registration harness's service, live for signing (as in the one-coin signing test above). */
+function signingService(store: Store, coins: Coin[], chain: Chain = {}) {
+  const { service } = registrar(store, coins, chain);
+  const live = { ...service.runtime.config, writesEnabled: true, nftMode: { enabled: true, vaultFactory: "0x00000000000000000000000000000000000fac70" as Address,
+    launchFeeUsd: 10, freeCollections: [], verifiedCollections: [] } };
+  Object.assign(service, { runtime: { ...service.runtime, config: live }, config: async () => live });
+  return service;
+}
+const signingCode = (work: Promise<unknown>) => work.then(() => "ok", (error: unknown) => error instanceof NftLaunchError ? `${error.code}: ${error.message}` : `other: ${String(error)}`);
+const IN_PROGRESS = "NFT_LAUNCH_IN_PROGRESS: A launch for this NFT is already being signed. Finish it or wait a few minutes.";
+const FEE_IN_USE = "NFT_FEE_IN_USE: This launch fee is already attached to another launch being signed.";
+
+test("signing claims the NFT: another plan for it is refused while the first is being signed, and the first can sign again", withStore(async (store) => {
+  const first = coin(3, {}), second = coin(4, {});
+  store.savePlan(first.plan); store.savePlan(second.plan);
+  // Two runtimes (two tabs reaching different processes) share only the database.
+  const one = signingService(store, [first, second]), other = signingService(store, [first, second]);
+  assert.equal(await signingCode(one.validateLaunch(creator, first.plan.data, true)), "ok");
+  assert.equal(await signingCode(other.validateLaunch(creator, second.plan.data, true)), IN_PROGRESS);
+  assert.equal(await signingCode(other.validateLaunch(creator, first.plan.data, true)), "ok", "the same plan keeps its claim, from any runtime");
+  assert.equal(await signingCode(other.validateLaunch(creator, second.plan.data)), "ok", "a preview is not a signature: it claims nothing and is never refused");
+  // The refused plan was never protected for signing.
+  assert.deepEqual((store.db.prepare("SELECT id FROM protected_plans ORDER BY id").all() as { id: string }[]).map((row) => row.id), [first.plan.id]);
+}));
+
+test("a refresh of the same launch keeps its claims: the plan signed after a first-buy approval goes through, another launch is still refused", withStore(async (store) => {
+  // The wallet signs the approval under the first plan, then always refreshes (same intent, previousPlanId) and signs the creation.
+  const approved = coin(3, {}), refreshed = coin(4, {}), rival = coin(5, {});
+  approved.plan.intentId = refreshed.plan.intentId = "intent-one-0001"; refreshed.plan.previousPlanId = approved.plan.id;
+  rival.plan.intentId = "intent-two-0002";
+  for (const c of [approved, refreshed, rival]) store.savePlan(c.plan);
+  const service = signingService(store, [approved, refreshed, rival]);
+  assert.equal(await signingCode(service.validateLaunch(creator, approved.plan.data, true)), "ok", "the approval signs under the first plan");
+  assert.equal(await signingCode(service.validateLaunch(creator, refreshed.plan.data, true)), "ok", "its refresh signs the creation");
+  assert.equal(await signingCode(service.validateLaunch(creator, rival.plan.data, true)), IN_PROGRESS, "another launch for the NFT is refused");
+  assert.equal((await service.register(refreshed.hash)).nftVerification?.status, "verified");
+  assert.equal(await signingCode(service.validateLaunch(creator, rival.plan.data, true)), "NFT_ALREADY_LAUNCHED: This NFT already has its coin.",
+    "registration freed the launch's claim; the one-coin rule answers");
+}));
+
+test("signing claims the launch fee: another NFT's plan reusing the payment is refused, in any case of the hash", withStore(async (store) => {
+  const paid = `0x${"cd".repeat(32)}` as Hex, fee = { asset: "stable" as const, txHash: paid };
+  const first = coin(3, { nft: { ...plainNft, tokenId: "40" }, quoteAddress: weth.address, launchFee: fee });
+  const second = coin(4, { nft: { ...plainNft, tokenId: "41" }, quoteAddress: weth.address, launchFee: { ...fee, txHash: `0x${"CD".repeat(32)}` as Hex } });
+  store.savePlan(first.plan); store.savePlan(second.plan);
+  const service = signingService(store, [first, second], { payments: [paid] });
+  assert.equal(await signingCode(service.validateLaunch(creator, first.plan.data, true)), "ok");
+  assert.equal(await signingCode(service.validateLaunch(creator, second.plan.data, true)), FEE_IN_USE);
+  // Nothing of the refused plan was claimed: its NFT is still free for a plan with another fee.
+  assert.deepEqual(store.claimLaunch(`0x${"ee".repeat(32)}`, [`nft:${nftKey(second.plan.draft.nft!)}`], Date.now() + 60_000), []);
+}));
+
+test("signing re-checks the fee after claiming it: a payment another coin has spent cannot be signed", withStore(async (store) => {
+  const paid = `0x${"cd".repeat(32)}` as Hex, fee = { asset: "stable" as const, txHash: paid };
+  const launch = coin(3, { nft: { ...plainNft, tokenId: "42" }, quoteAddress: weth.address, launchFee: fee }), spender = coin(4, {});
+  store.savePlan(launch.plan);
+  const service = signingService(store, [launch], { payments: [paid] });
+  assert.equal(await signingCode(service.validateLaunch(creator, launch.plan.data, true)), "ok", "an unused payment signs");
+  store.saveToken(syntheticToken({ mode: "fork", address: spender.token, transactionHash: spender.hash, creator, launchFee: fee }));
+  assert.equal(await signingCode(service.validateLaunch(creator, launch.plan.data, true)), "NFT_FEE_USED: This launch fee was already used.");
+}));
+
+test("registration releases a plan's claims whatever its status, and is never blocked by another plan's claim", withStore(async (store) => {
+  const first = coin(3, {}), second = coin(4, {}), stranger = `0x${"ee".repeat(32)}`, key = `nft:${nftKey(muse)}`, later = () => Date.now() + 60_000;
+  store.savePlan(first.plan); store.savePlan(second.plan);
+  const service = signingService(store, [first, second]);
+  const released: string[] = [], release = store.releaseLaunchClaims.bind(store);
+  store.releaseLaunchClaims = (planId) => { released.push(planId); release(planId); };
+  assert.equal(await signingCode(service.validateLaunch(creator, first.plan.data, true)), "ok");
+  // A coin launched without this server's claim (a backup, an older build) registers while the first plan holds the NFT.
+  assert.equal((await service.register(second.hash)).nftVerification?.status, "verified");
+  assert.deepEqual(store.claimLaunch(stranger, [key], later()), [key], "another plan's claim is left alone");
+  assert.equal((await service.register(first.hash)).nftVerification?.reason, "already_launched");
+  assert.deepEqual(released, [second.plan.id, first.plan.id]);
+  assert.deepEqual(store.claimLaunch(stranger, [key], later()), [], "the rejected launch's claim was released");
+  // A release that fails only leaves the claims to expire: registration still completes.
+  const third = coin(5, { nft: { ...muse, tokenId: "2" } });
+  store.savePlan(third.plan);
+  store.releaseLaunchClaims = () => { throw new Error("database down"); };
+  const logged: string[] = [], original = console.error;
+  console.error = (line: string) => { logged.push(line); };
+  try { assert.equal((await registrar(store, [third]).service.register(third.hash)).nftVerification?.status, "verified"); }
+  finally { console.error = original; }
+  assert.deepEqual(logged.map((line) => JSON.parse(line)), [{ event: "nft_launch_claims_release_failed", planId: third.plan.id, error: "database down" }]);
+}));
+
+test("a normal launch never claims or releases anything", withStore(async (store) => {
+  const plain = coin(3, { nft: undefined });
+  store.savePlan(plain.plan);
+  const service = signingService(store, [plain]);
+  const touched: string[] = [];
+  store.claimLaunch = () => { touched.push("claim"); return []; };
+  store.releaseLaunchClaims = () => { touched.push("release"); };
+  assert.equal(await signingCode(service.validateLaunch(creator, plain.plan.data, true)), "ok");
+  assert.equal((await service.register(plain.hash)).nft, undefined);
+  assert.deepEqual(touched, []);
+}));
+
 test("register never blocks on the Muse pair rule or the flag: a Muse coin paired with WETH registers rejected: pair", withStore(async (store) => {
   const wrong = coin(3, { quoteAddress: weth.address });
   store.savePlan(wrong.plan);

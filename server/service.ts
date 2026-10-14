@@ -621,15 +621,27 @@ export class LaunchpadService {
       if (plan.firstBuy?.lockDays && !config.launchLockAvailable)
         throw new Error("The first buy lock guard could not be verified. Run a new preview.");
     }
-    // One coin per NFT, re-read before a real signature: an NFT that got its verified coin since this preview would register this
-    // launch as rejected after its fee is spent.
-    if (signing && plan.draft.nft && await this.store.verifiedNftCoin(nftKey(plan.draft.nft), plan.tokenAddress))
-      throw new NftLaunchError("NFT_ALREADY_LAUNCHED", "This NFT already has its coin.");
+    if (signing && plan.draft.nft) await this.claimNftLaunch(plan, plan.draft.nft);
     // Simulation is still an unsigned preview. Protect only when the client is
     // entering a real wallet signature; unknown submissions must not age out.
     if (signing) await this.store.protectPlan(plan.id);
     return { valid: true, feePolicy: plan.feePolicy, curvePolicy: plan.curvePolicy, planId: plan.id,
       validityVersion: plan.validityVersion, signingExpiresAt: plan.signingExpiresAt, intentId: plan.intentId, serverTime: Date.now() };
+  }
+  /** Before a real signature, an NFT plan claims its NFT and, unless it is a Muse, its fee payment in the database, all or nothing, for one
+   * signing window from now (renewed each time the launch signs; released by its registration). The database's single-use indexes refuse a
+   * second coin only at registration, after both irreversible creations; the claim stops another launch, in any tab or process, at signing.
+   * Only once the launch holds its claim are both rules re-read, so a coin registered since its preview is seen. */
+  private async claimNftLaunch(plan: LaunchPlan, nft: NftRef) {
+    const fee = isMuse(nft) ? undefined : plan.draft.launchFee;
+    if (!isMuse(nft) && !fee) throw new NftLaunchError("NFT_FEE_REQUIRED", "Pay the $10 launch fee for this NFT first.");
+    const held = await this.store.claimLaunch(launchClaimOwner(plan), nftLaunchKeys(nft, fee), Date.now() + LAUNCH_SIGNING_TTL);
+    if (held.some((claim) => claim.startsWith("nft:")))
+      throw new NftLaunchError("NFT_LAUNCH_IN_PROGRESS", "A launch for this NFT is already being signed. Finish it or wait a few minutes.");
+    if (held.length) throw new NftLaunchError("NFT_FEE_IN_USE", "This launch fee is already attached to another launch being signed.");
+    if (await this.store.verifiedNftCoin(nftKey(nft), plan.tokenAddress))
+      throw new NftLaunchError("NFT_ALREADY_LAUNCHED", "This NFT already has its coin.");
+    if (fee) await this.assertUnusedLaunchFee(fee, plan.creator, plan.tokenAddress);
   }
   async simulateLaunch(creator: Address, data: Hex) {
     await this.validateLaunch(creator, data);
@@ -967,7 +979,7 @@ export class LaunchpadService {
     else {
       const nft = draft.nft, fee = isMuse(nft) ? undefined : draft.launchFee;
       // The one-coin and single-use checks hold until the record that makes them true is written.
-      await withNftLocks([`nft:${nftKey(nft)}`, ...(fee ? [`fee:${fee.txHash.toLowerCase()}`] : [])], async () => {
+      await withNftLocks(nftLaunchKeys(nft, fee), async () => {
         const settled = await this.nftRegistration({ hash, plan, nft, fee, saved: !!savedPlan, receiptBlock: receipt.blockNumber, receiptTimestamp: block.timestamp });
         record = { ...token, nft, nftVerification: settled.nftVerification, ...(settled.launchFee ? { launchFee: settled.launchFee } : {}) };
         // Another process (`nft:reverify`, another runtime) may have spent this fee or verified this NFT's coin since the checks above; the
@@ -984,6 +996,10 @@ export class LaunchpadService {
           }
         }
       });
+      // The launch is decided, verified or rejected: its pre-sign claims are freed. Registration never reads claims, and a failed release
+      // only leaves them to expire.
+      await Promise.resolve().then(() => this.store.releaseLaunchClaims(launchClaimOwner(plan))).catch((error: unknown) =>
+        console.error(JSON.stringify({ event: "nft_launch_claims_release_failed", planId: plan.id, error: error instanceof Error ? error.message : String(error) })));
     }
     this.invalidateTokens();
     await this.store.launchStatus(hash, "confirmed", receipt.blockHash);
@@ -1332,6 +1348,16 @@ const RECOVERY_VERIFICATIONS_PER_MINUTE = 60;
 // each chain to one Durable Object). Keys are taken in sorted order, so registrations that share keys cannot deadlock. Across processes the
 // database's guard indexes (TOKEN_UNIQUE_INDEXES) refuse the second write; these locks only let one process decide in order.
 const NFT_LOCKS = new Map<string, Promise<void>>();
+/** The keys of one NFT launch: its NFT and, for a paid NFT, its fee payment. Shared by the registration locks and the pre-sign claims. */
+function nftLaunchKeys(nft: NftRef, fee?: LaunchFee): string[] {
+  return [`nft:${nftKey(nft)}`, ...(fee ? [`fee:${fee.txHash.toLowerCase()}`] : [])];
+}
+/** Who holds a launch's pre-sign claims: its intent with its creator. Prepare keeps both across every refresh of a plan, so the plan signed
+ * after a first-buy approval (always a refresh) or a re-confirmed price keeps the claims its earlier plan took. The client's intent lock
+ * already lets one intent submit one creation at a time; a plan without an intent owns its claims by its id. */
+function launchClaimOwner(plan: LaunchPlan): string {
+  return plan.intentId && /^[a-zA-Z0-9_-]{8,100}$/.test(plan.intentId) ? `intent:${plan.creator.toLowerCase()}:${plan.intentId}` : plan.id;
+}
 async function withNftLocks<T>(keys: string[], run: () => Promise<T>): Promise<T> {
   const releases: (() => void)[] = [];
   try {

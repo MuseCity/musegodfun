@@ -103,7 +103,11 @@ export function rollbackPreservesSafety(previous: Record<string,string>, candida
   if(previous.RUNTIME_SECURITY_PROTOCOL !== "1")return false;
   const enabled=(vars:Record<string,string>,chain:8453|4663)=>chain===8453 ? vars.ENABLE_BASE_TRANSACTIONS === "true"
     : (vars.ENABLE_ROBINHOOD_TRANSACTIONS ?? vars.ENABLE_MAINNET_TRANSACTIONS) === "true";
-  return ([8453,4663] as const).every(chain=>!enabled(previous,chain) || enabled(candidate,chain));
+  return ([8453,4663] as const).every(chain=>!enabled(previous,chain) || enabled(candidate,chain)) && !nftModeTurnedOff(previous,candidate);
+}
+// NFT launches are a signing path too: like a chain flag, an NFT_MODE_ENABLED the candidate turns off is never turned back on by a rollback.
+export function nftModeTurnedOff(previous: Record<string,string>, candidate: Record<string,string>): boolean {
+  return previous.NFT_MODE_ENABLED === "true" && candidate.NFT_MODE_ENABLED !== "true";
 }
 
 export interface ReleaseLifecycle {
