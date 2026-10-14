@@ -49,6 +49,14 @@ export const DEPENDENCIES = {
   rehype: ROBINHOOD_CONTRACTS.rehype, robinhoodInitializer: ROBINHOOD_CONTRACTS.initializer, muses: MUSES.contract,
 } as const;
 const MUSE_1: NftRef = { chainId: 4663, contract: MUSES.contract, tokenId: "1" };
+/** Robinhood mainnet endpoints whose identity HTTPS authenticates. A fork shares mainnet's history, so only the endpoint can prove mainnet. */
+const MAINNET_ENDPOINTS: Readonly<Record<string, string>> = {
+  "robinhood-mainnet.g.alchemy.com": "Alchemy Robinhood mainnet endpoint",
+  "rpc.mainnet.chain.robinhood.com": "official Robinhood public RPC",
+};
+/** The launch-guard V2 Robinhood deployment block (docs/evidence/launch-guard-v2-mainnet.json). A matching hash shows a known endpoint serves
+ * Robinhood mainnet history; it cannot tell a fork taken later from mainnet, because the fork returns the same hash. */
+export const MAINNET_ANCHOR = { blockNumber: 82_283_004n, hash: "0x422a24b256eb31539a7cdf14c5c6e3401e10fd1d9d686bf6b34f55659f087e62" as Hex } as const;
 const ALCHEMY_LABEL = "Alchemy Robinhood mainnet (ALCHEMY_API_KEY from .env.fork; URL not recorded)";
 
 // ---- arguments --------------------------------------------------------------------------------------------------------
@@ -139,6 +147,44 @@ export function isLoopbackRpc(url: string) {
 }
 export function assertLoopbackRpc(url: string) {
   if (!isLoopbackRpc(url)) throw new Error("--deploy-local requires a loopback HTTP RPC: plain http on 127.0.0.1, localhost or [::1]");
+}
+
+export type NodeKind = "mainnet" | "local" | "unproven";
+export type NodeProbeClient = Pick<PublicClient, "request" | "getBlock">;
+function knownMainnetEndpoint(url: string) {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.port) return null;
+    return MAINNET_ENDPOINTS[parsed.hostname] ?? null;
+  } catch { return null; }
+}
+/**
+ * Mainnet is never assumed. It needs a known HTTPS mainnet endpoint whose anchor block hash matches. Loopback or a development node is local.
+ * Anything else, including a node that hides web3_clientVersion, is unproven: after this probe the tool neither uses nor writes for it.
+ */
+export async function nodeKind(client: NodeProbeClient, rpc: string): Promise<{ kind: NodeKind; proof: string }> {
+  if (isLoopbackRpc(rpc)) return { kind: "local", proof: "loopback RPC" };
+  let version = "";
+  try { version = String(await client.request({ method: "web3_clientVersion" })); } catch { /* a hidden client version proves nothing */ }
+  if (/anvil|hardhat|ganache/i.test(version)) return { kind: "local", proof: "development node" };
+  const endpoint = knownMainnetEndpoint(rpc);
+  if (!endpoint) return { kind: "unproven", proof: "not a known Robinhood mainnet endpoint" };
+  let anchor: string | null = null;
+  try { anchor = (await client.getBlock({ blockNumber: MAINNET_ANCHOR.blockNumber })).hash; } catch { /* unproven below */ }
+  if (anchor?.toLowerCase() !== MAINNET_ANCHOR.hash)
+    return { kind: "unproven", proof: `${endpoint}, but anchor block ${MAINNET_ANCHOR.blockNumber} ${anchor ? "has another hash" : "could not be read"}` };
+  return { kind: "mainnet", proof: `${endpoint} over HTTPS; anchor block ${MAINNET_ANCHOR.blockNumber} hash matches` };
+}
+/** Where each node kind may write. Only proven mainnet writes the committed manifest and evidence; an unproven node is refused. */
+export function recordTargets(kind: NodeKind) {
+  if (kind === "local") return REHEARSAL_PATHS;
+  if (kind === "mainnet") return { preflight: PATHS.preflight, createHex: PATHS.createHex, manifest: PATHS.manifest, evidence: PATHS.evidence };
+  throw new Error("Use a proven Robinhood mainnet endpoint (the built-in Alchemy RPC from .env.fork, or --rpc with the official public RPC; "
+    + "the anchor block must match) or a loopback Anvil fork. This RPC is neither, so the tool does not use it and writes nothing.");
+}
+function requireProven(node: { kind: NodeKind; proof: string }): "mainnet" | "local" {
+  recordTargets(node.kind);
+  return node.kind as "mainnet" | "local";
 }
 
 // ---- pure deployment math ---------------------------------------------------------------------------------------------
@@ -346,7 +392,7 @@ export async function preflight(client: PreflightClient, input: PreflightInput):
       ownerNotes: [
         "The owner chooses the signer (a keystore with --keystore or --account, a Ledger with --ledger, or a wallet) and replaces <their signer flags>. This tool never sees a key.",
         `The nonce MUST be ${nonce}: the factory address ${predictedFactory} is derived from it. If the deployer sends any other transaction first, do not deploy; rerun --preflight.`,
-        "Send it exactly once. If it is stuck, replace it only with the same nonce, the same data and zero value.",
+        "Send it exactly once. If it is stuck, speed it up only with the same nonce, the same data and zero value, then verify whichever hash was mined.",
         "--chain 4663 signs for Robinhood only. <their RPC> is the owner's own Robinhood RPC.",
         "After two confirmations run: npm run verify:nft-vault -- --tx <transaction hash>",
       ],
@@ -361,7 +407,8 @@ export type VerifyClient = Pick<PublicClient, "getChainId" | "getBlockNumber" | 
 export type VerifyInput = {
   tx: Hex; deployer: Address; nonce: bigint; build: NftVaultBuild; manifest: NftVaultManifest;
   preflight?: Pick<PreflightReport, "predictedFactory" | "expectedRuntimeHash" | "observedAt" | "block">;
-  rehearsal: boolean; rpcLabel: string;
+  /** From nodeKind: an unproven node never reaches verify. */
+  node: "mainnet" | "local"; nodeProof: string; rpcLabel: string;
 };
 
 /** Read-only. Every check must pass; the result carries the manifest entry and the evidence to record. */
@@ -414,6 +461,11 @@ export async function verifyDeployment(client: VerifyClient, input: VerifyInput)
   need("treasuryForMuse1", onchain.treasuryForMuse1 === library.treasuryForMuse1, "factory.treasuryFor(4663, MUSES, 1) differs from the TS treasuryFor");
   need("factoryConstants", onchain.ERC6551_REGISTRY === ERC6551_REGISTRY && onchain.TOKENBOUND_V3_PROXY === TOKENBOUND_V3_PROXY,
     "The factory's registry or Tokenbound proxy constant differs");
+  // After the last read: the head may have gone back, so confirmations and canonicity are judged again before anything is reported or written.
+  const finalHead = await client.getBlockNumber({ cacheTime: 0 });
+  const finalConfirmations = finalHead - receipt.blockNumber + 1n;
+  need("finalConfirmations", finalConfirmations >= MIN_CONFIRMATIONS,
+    `After the reads the transaction has ${finalConfirmations} confirmation(s) (the head moved back); wait for ${MIN_CONFIRMATIONS} and rerun`);
   need("stillCanonical", (await client.getBlock({ blockNumber: receipt.blockNumber })).hash === receipt.blockHash,
     "The receipt's block reorganized during verification; rerun");
 
@@ -422,10 +474,10 @@ export async function verifyDeployment(client: VerifyClient, input: VerifyInput)
     transactionHash: receipt.transactionHash.toLowerCase() as Hex, blockNumber: Number(receipt.blockNumber) };
   const costWei = receipt.gasUsed * receipt.effectiveGasPrice;
   const evidence = {
-    schemaVersion: 1, kind: "nft-vault-factory-deployment", chainId: CHAIN_ID, rehearsal: input.rehearsal, rpc: input.rpcLabel,
-    verifiedAt: new Date().toISOString(), verifiedAtBlock: head.toString(),
+    schemaVersion: 1, kind: "nft-vault-factory-deployment", chainId: CHAIN_ID, rehearsal: input.node === "local", node: input.node,
+    nodeProof: input.nodeProof, rpc: input.rpcLabel, verifiedAt: new Date().toISOString(), verifiedAtBlock: head.toString(), finalHead: finalHead.toString(),
     factory, deployer: getAddress(input.deployer), nonce: Number(input.nonce), transactionHash: receipt.transactionHash.toLowerCase(),
-    blockNumber: receipt.blockNumber.toString(), blockHash: receipt.blockHash, confirmations: confirmations.toString(),
+    blockNumber: receipt.blockNumber.toString(), blockHash: receipt.blockHash, confirmations: finalConfirmations.toString(),
     gasUsed: receipt.gasUsed.toString(), effectiveGasPrice: receipt.effectiveGasPrice.toString(), costWei: costWei.toString(), costEth: formatEther(costWei),
     runtimeHash, runtimeBytes: (code!.length - 2) / 2,
     expected: { runtimeHash: expected.hash, runtimeBytes: expected.bytes, vaultInitCodeHash: build.vaultInitCodeHash,
@@ -467,11 +519,11 @@ async function write(path: string, text: string) {
   await writeFile(path, text);
 }
 
-async function runPreflight(client: ReturnType<typeof rpcClient>, deployer: Address, local: boolean, rpcLabel: string, secrets: string[]) {
-  const paths = local ? REHEARSAL_PATHS : { preflight: PATHS.preflight, createHex: PATHS.createHex };
+async function runPreflight(client: ReturnType<typeof rpcClient>, deployer: Address, kind: "mainnet" | "local", rpcLabel: string, secrets: string[]) {
+  const paths = recordTargets(kind);
   const committed = await loadCommitted();
   const fresh = compileNftVault({ offline: true, quiet: true });
-  const report = await preflight(client, { deployer, ...committed, fresh, rpcLabel, rehearsal: local, createHexPath: paths.createHex, secrets });
+  const report = await preflight(client, { deployer, ...committed, fresh, rpcLabel, rehearsal: kind === "local", createHexPath: paths.createHex, secrets });
   const text = serializeSafe(report, secrets);
   if (report.ready) await write(paths.createHex, committed.build.factoryBytecode);
   await write(paths.preflight, text);
@@ -479,8 +531,9 @@ async function runPreflight(client: ReturnType<typeof rpcClient>, deployer: Addr
 }
 
 async function recordVerification(result: Awaited<ReturnType<typeof verifyDeployment>>, build: NftVaultBuild, manifest: NftVaultManifest,
-  local: boolean, secrets: string[]) {
-  const paths = local ? REHEARSAL_PATHS : { manifest: PATHS.manifest, evidence: PATHS.evidence };
+  kind: "mainnet" | "local", secrets: string[]) {
+  const { manifest: manifestPath, evidence: evidencePath } = recordTargets(kind);
+  const paths = { manifest: manifestPath, evidence: evidencePath };
   if (manifest.chains["4663"]?.status === "deployed_verified") {
     assert(isDeepStrictEqual(manifest.chains["4663"], result.manifestEntry), "The manifest already records a different Robinhood factory; refusing to overwrite it");
     return { manifest: "unchanged (this deployment is already recorded)", paths };
@@ -489,29 +542,31 @@ async function recordVerification(result: Awaited<ReturnType<typeof verifyDeploy
   assert(isDeepStrictEqual(next.chains["4663"], result.manifestEntry), "The manifest entry differs from the verified evidence");
   await write(paths.evidence, serializeSafe(result.evidence, secrets));
   await write(paths.manifest, serializeManifest(next));
-  return { manifest: local ? "temporary copy written (the committed manifest is unchanged)" : "contracts/artifacts/nft-vault-deployment.json updated for 4663 only", paths };
+  return { manifest: kind === "local" ? "temporary copy written (the committed manifest is unchanged)" : "contracts/artifacts/nft-vault-deployment.json updated for 4663 only", paths };
 }
 
 async function runVerify(args: Extract<CliArgs, { mode: "verify" }>, key: string) {
   const rpc = args.rpc ?? robinhoodUpstreamUrl(key);
   const secrets = [key, rpc].filter(Boolean);
   const client = rpcClient(rpc);
-  const local = isLoopbackRpc(rpc) || await isDevNode(client);
+  const node = await nodeKind(client, rpc);
+  const kind = requireProven(node);
+  const local = kind === "local";
   const committed = await loadCommitted();
   let report: PreflightReport | undefined;
   let deployer = args.deployer, nonce = args.nonce;
   if (deployer === undefined || nonce === undefined) {
-    const path = local ? REHEARSAL_PATHS.preflight : PATHS.preflight;
+    const path = recordTargets(kind).preflight;
     assert(existsSync(path), `No preflight report at ${path}; run --preflight first, or pass --deployer and --nonce`);
     report = JSON.parse(await readFile(path, "utf8")) as PreflightReport;
     assert(report.kind === "nft-vault-factory-preflight" && report.chainId === CHAIN_ID && report.ready === true && report.rehearsal === local,
       `${path} is not a ready ${local ? "local" : "Robinhood mainnet"} preflight report`);
     deployer = report.deployer; nonce = BigInt(report.nonce);
   }
-  const rpcLabel = args.rpc ? (local ? "local node (loopback)" : "explicit --rpc (URL not recorded)") : ALCHEMY_LABEL;
+  const rpcLabel = args.rpc ? (local ? "local node" : "explicit --rpc, a known mainnet endpoint (URL not recorded)") : ALCHEMY_LABEL;
   const result = await verifyDeployment(client, { tx: args.tx, deployer, nonce, build: committed.build, manifest: committed.manifest,
-    preflight: report, rehearsal: local, rpcLabel });
-  const recorded = await recordVerification(result, committed.build, committed.manifest, local, secrets);
+    preflight: report, node: kind, nodeProof: node.proof, rpcLabel });
+  const recorded = await recordVerification(result, committed.build, committed.manifest, kind, secrets);
   console.log(serializeSafe({ status: "verified", factory: result.entry.factory, transactionHash: result.evidence.transactionHash,
     blockNumber: result.evidence.blockNumber, costEth: result.evidence.costEth, checks: result.evidence.checks, ...recorded }, secrets).trimEnd());
 }
@@ -544,7 +599,7 @@ async function rehearse(rpcGiven: string | undefined, key: string) {
     assert(isEmptyCode(await client.getCode({ address: deployer })), "The fresh rehearsal deployer must have no code");
     await localRpc(rpc, "anvil_setBalance", [deployer, "0x56bc75e2d63100000"]);
     await localRpc(rpc, "anvil_impersonateAccount", [deployer]);
-    const { report } = await runPreflight(client, deployer, true, "local Anvil fork (loopback)", secrets);
+    const { report } = await runPreflight(client, deployer, "local", "local Anvil fork (loopback)", secrets);
     summary.preflight = { ready: report.ready, failures: report.failures, deployer, nonce: report.nonce, predictedFactory: report.predictedFactory,
       expectedRuntimeHash: report.expectedRuntimeHash, gas: report.gas, fees: report.fees, dependencies: report.dependencies, ownerCommand: report.ownerCommand };
     assert(report.ready && report.unsignedTransaction, `The rehearsal preflight is not ready: ${report.failures.join("; ")}`);
@@ -563,8 +618,8 @@ async function rehearse(rpcGiven: string | undefined, key: string) {
     await localRpc(rpc, "anvil_stopImpersonatingAccount", [deployer]);
     await localRpc(rpc, "anvil_mine", ["0x1"]);
     const result = await verifyDeployment(client, { tx, deployer, nonce: BigInt(report.nonce), build: committed.build, manifest: committed.manifest,
-      preflight: report, rehearsal: true, rpcLabel: "local Anvil fork (loopback)" });
-    const recorded = await recordVerification(result, committed.build, committed.manifest, true, secrets);
+      preflight: report, node: "local", nodeProof: "loopback Anvil fork", rpcLabel: "local Anvil fork (loopback)" });
+    const recorded = await recordVerification(result, committed.build, committed.manifest, "local", secrets);
     Object.assign(summary, { status: "passed", deployment: { factory: result.entry.factory, transactionHash: tx, blockNumber: result.evidence.blockNumber,
       gasUsed: result.evidence.gasUsed, costEth: result.evidence.costEth, runtimeHash: result.evidence.runtimeHash },
     verification: result.evidence.checks, onchain: result.evidence.onchain, wouldWriteManifestEntry: result.manifestEntry, recorded });
@@ -607,9 +662,9 @@ async function main(argv: string[]) {
     const rpc = args.rpc ?? robinhoodUpstreamUrl(key);
     const secrets = [key, rpc].filter(Boolean);
     const client = rpcClient(rpc);
-    const local = isLoopbackRpc(rpc) || await isDevNode(client);
-    const { report, text, path } = await runPreflight(client, args.deployer, local,
-      args.rpc ? (local ? "local node (loopback)" : "explicit --rpc (URL not recorded)") : ALCHEMY_LABEL, secrets);
+    const kind = requireProven(await nodeKind(client, rpc));
+    const { report, text, path } = await runPreflight(client, args.deployer, kind,
+      args.rpc ? (kind === "local" ? "local node" : "explicit --rpc, a known mainnet endpoint (URL not recorded)") : ALCHEMY_LABEL, secrets);
     console.log(text.trimEnd());
     console.error(report.ready ? `READY: wrote ${path}` : `NOT READY: ${report.failures.join("; ")}`);
     if (!report.ready) process.exitCode = 1;

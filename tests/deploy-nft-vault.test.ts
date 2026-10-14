@@ -4,12 +4,15 @@ import { test } from "node:test";
 import { getAddress, keccak256, type Address, type Hex } from "viem";
 import type { NftVaultBuild } from "../scripts/build-nft-vault";
 import {
-  PATHS, applyVerifiedDeployment, assertLoopbackRpc, expectedFactoryRuntime, factoryRuntimeTemplate, feePlan, parseArgs,
-  predictFactoryAddress, preflight, serializeManifest, serializeSafe, type PreflightClient,
+  MAINNET_ANCHOR, PATHS, REHEARSAL_PATHS, applyVerifiedDeployment, assertLoopbackRpc, expectedFactoryRuntime, factoryRuntimeTemplate, feePlan,
+  nodeKind, parseArgs, predictFactoryAddress, preflight, recordTargets, serializeManifest, serializeSafe, verifyDeployment,
+  type NodeProbeClient, type PreflightClient, type VerifyClient,
 } from "../scripts/deploy-nft-vault";
 import { runtimeTemplateFromInitCode } from "../scripts/nft-vault-fork-helpers";
 import { ROBINHOOD_CONTRACTS } from "../src/lib/config";
-import { ERC6551_REGISTRY, MUSES, TOKENBOUND_V3_IMPLEMENTATION, TOKENBOUND_V3_PROXY, vaultFactory, type NftVaultManifest } from "../src/lib/nft-mode";
+import {
+  ERC6551_REGISTRY, MUSES, TOKENBOUND_V3_IMPLEMENTATION, TOKENBOUND_V3_PROXY, treasuryFor, vaultFactory, vaultFor, type NftVaultManifest,
+} from "../src/lib/nft-mode";
 
 // Offline: no RPC, no fork, no Forge. The chain is a fake client; the build is the committed artifact.
 const build = JSON.parse(readFileSync("contracts/artifacts/nft-vault-build.json", "utf8")) as NftVaultBuild;
@@ -271,4 +274,121 @@ test("the safe serializer refuses any secret or URL", () => {
   assert.throws(() => serializeSafe({ note: `key ${KEY}` }, [KEY]), /secret/);
   assert.throws(() => serializeSafe({ link: "http://127.0.0.1:8545" }, []), /URL/);
   assert.equal(serializeSafe({ value: 1n }, [KEY]), `{\n  "value": "1"\n}\n`);
+});
+
+// ---- node identity: only a proven Robinhood mainnet endpoint may record (codex review 1, P1) ---------------------------
+function probe({ version, anchorHash, anchorFails }: { version?: string; anchorHash?: Hex; anchorFails?: boolean } = {}): NodeProbeClient {
+  return {
+    request: async ({ method }: { method: string }) => {
+      assert.equal(method, "web3_clientVersion");
+      if (version === undefined) throw new Error("the method web3_clientVersion is not available");
+      return version;
+    },
+    getBlock: async ({ blockNumber }: { blockNumber: bigint }) => {
+      assert.equal(blockNumber, MAINNET_ANCHOR.blockNumber);
+      if (anchorFails) throw new Error("block unavailable");
+      return { hash: anchorHash ?? MAINNET_ANCHOR.hash };
+    },
+  } as unknown as NodeProbeClient;
+}
+const OFFICIAL_RPC = "https://rpc.mainnet.chain.robinhood.com";
+
+test("the mainnet anchor is the recorded launch-guard V2 Robinhood deployment block", () => {
+  const record = JSON.parse(readFileSync("docs/evidence/launch-guard-v2-mainnet.json", "utf8")) as {
+    deployments: { chainId: number; blockNumber: string; blockHash: string }[];
+    validation: { independentMainnetReviews: { chainId: number; receipt: { blockNumber: string; blockHash: string } }[] } };
+  const deployment = record.deployments.find((item) => item.chainId === 4663)!;
+  const review = record.validation.independentMainnetReviews.find((item) => item.chainId === 4663)!;
+  for (const observed of [deployment, review.receipt]) {
+    assert.equal(BigInt(observed.blockNumber), MAINNET_ANCHOR.blockNumber);
+    assert.equal(observed.blockHash.toLowerCase(), MAINNET_ANCHOR.hash);
+  }
+});
+
+test("a remote node whose web3_clientVersion is blocked is unproven, even though a later fork shares the mainnet anchor block", async () => {
+  // The reviewed path: a non-loopback 4663 fork behind a proxy that blocks web3_clientVersion. A fork taken after the anchor
+  // returns the upstream anchor hash, so only the endpoint's identity separates it from mainnet.
+  assert.equal((await nodeKind(probe(), "https://fork.example.net/rpc")).kind, "unproven");
+  assert.equal((await nodeKind(probe({ version: "Geth/v1.14" }), "https://fork.example.net/rpc")).kind, "unproven");
+  for (const url of ["https://robinhood-mainnet.g.alchemy.com.evil.example/v2/x", "http://robinhood-mainnet.g.alchemy.com/v2/x",
+    "https://user@rpc.mainnet.chain.robinhood.com", "https://rpc.mainnet.chain.robinhood.com:8443"]) {
+    assert.equal((await nodeKind(probe(), url)).kind, "unproven", url);
+  }
+});
+
+test("a known mainnet endpoint is refused when its anchor block hash differs or cannot be read", async () => {
+  assert.equal((await nodeKind(probe({ anchorHash: `0x${"11".repeat(32)}` }), KEYED_URL)).kind, "unproven");
+  assert.equal((await nodeKind(probe({ anchorFails: true }), OFFICIAL_RPC)).kind, "unproven");
+});
+
+test("genuine mainnet is a known endpoint with the matching anchor; a development node or loopback is local", async () => {
+  for (const url of [KEYED_URL, OFFICIAL_RPC]) {
+    const node = await nodeKind(probe(), url);
+    assert.equal(node.kind, "mainnet", url);
+    assert(!node.proof.includes(KEY) && !/:\/\//.test(node.proof), "the proof names no key or URL");
+  }
+  assert.equal((await nodeKind(probe({ version: "anvil/v1.0.0" }), KEYED_URL)).kind, "local");
+  assert.equal((await nodeKind(probe({ version: "anvil/v1.0.0" }), "https://fork.example.net/rpc")).kind, "local");
+  assert.equal((await nodeKind(probe(), "http://127.0.0.1:8545")).kind, "local");
+});
+
+test("recording targets: mainnet writes the committed files, local only rehearsal copies, an unproven node nothing", () => {
+  assert.deepEqual(recordTargets("mainnet"), { preflight: PATHS.preflight, createHex: PATHS.createHex, manifest: PATHS.manifest, evidence: PATHS.evidence });
+  assert.equal(recordTargets("local"), REHEARSAL_PATHS);
+  assert.throws(() => recordTargets("unproven"), /proven Robinhood mainnet/);
+});
+
+// ---- verify against a fake chain (codex review 1, P2 x2) ----------------------------------------------------------------
+const RECEIPT_BLOCK = 88_000_000n;
+const RECEIPT_BLOCK_HASH = `0x${"bb".repeat(32)}` as Hex;
+const FACTORY = predictFactoryAddress(DEPLOYER, 7n);
+const MUSE_1 = { chainId: 4663, contract: MUSES.contract, tokenId: "1" } as const;
+type VerifyFake = { heads?: bigint[]; receipt?: Record<string, unknown>; transaction?: Record<string, unknown> };
+function fakeVerifyClient(fake: VerifyFake = {}): VerifyClient {
+  const heads = [...(fake.heads ?? [RECEIPT_BLOCK + 1n])];
+  const reads: Record<string, unknown> = { VAULT_INIT_CODE_HASH: build.vaultInitCodeHash, vaultFor: vaultFor(MUSE_1, FACTORY, build.vaultInitCodeHash),
+    treasuryFor: treasuryFor(MUSE_1), ERC6551_REGISTRY, TOKENBOUND_V3_PROXY };
+  return {
+    getChainId: async () => 4663,
+    getBlockNumber: async () => (heads.length > 1 ? heads.shift()! : heads[0]),
+    getTransactionReceipt: async ({ hash }: { hash: Hex }) => ({ status: "success", to: null, contractAddress: FACTORY.toLowerCase(),
+      blockNumber: RECEIPT_BLOCK, blockHash: RECEIPT_BLOCK_HASH, from: DEPLOYER.toLowerCase(), transactionHash: hash, gasUsed: 1_347_843n,
+      effectiveGasPrice: 20_036_000n, ...fake.receipt }),
+    getBlock: async ({ blockNumber }: { blockNumber: bigint }) => ({ hash: blockNumber === RECEIPT_BLOCK ? RECEIPT_BLOCK_HASH : `0x${"cc".repeat(32)}` }),
+    getTransaction: async ({ hash }: { hash: Hex }) => ({ hash, from: DEPLOYER.toLowerCase(), nonce: 7, to: null, value: 0n, input: build.factoryBytecode,
+      chainId: 4663, gas: 1_639_961n, maxFeePerGas: 40_072_000n, maxPriorityFeePerGas: 0n, ...fake.transaction }),
+    getCode: async () => expectedFactoryRuntime(build).runtime,
+    readContract: async ({ functionName }: { functionName: string }) => reads[functionName],
+  } as unknown as VerifyClient;
+}
+const verifyInput = (tx: Hex): Parameters<typeof verifyDeployment>[1] => ({ tx, deployer: DEPLOYER, nonce: 7n, build, manifest: undeployed(),
+  node: "mainnet", nodeProof: "test fixture", rpcLabel: "fake client" });
+
+test("verify passes a consistent deployment, re-checks the head last and records the node kind", async () => {
+  const result = await verifyDeployment(fakeVerifyClient({ heads: [RECEIPT_BLOCK + 1n, RECEIPT_BLOCK + 3n] }), verifyInput(HASH));
+  assert(Object.values(result.evidence.checks).every((passed) => passed === true));
+  assert.equal(result.evidence.checks.finalConfirmations, true);
+  assert.equal(result.evidence.confirmations, "4");
+  assert.equal(result.evidence.node, "mainnet");
+  assert.equal(result.evidence.rehearsal, false);
+  assert.deepEqual(result.manifestEntry, { status: "deployed_verified", factory: FACTORY, factoryRuntimeHash: expectedFactoryRuntime(build).hash,
+    transactionHash: HASH, blockNumber: Number(RECEIPT_BLOCK) });
+});
+
+test("verify refuses when the head goes back below two confirmations after the reads, with the receipt block still canonical", async () => {
+  await assert.rejects(verifyDeployment(fakeVerifyClient({ heads: [RECEIPT_BLOCK + 1n, RECEIPT_BLOCK] }), verifyInput(HASH)), /1 confirmation/);
+  await assert.rejects(verifyDeployment(fakeVerifyClient({ heads: [RECEIPT_BLOCK] }), verifyInput(HASH)), /1 confirmation/);
+});
+
+test("verify accepts the winning same-nonce speed-up of the CREATE and refuses a cancel, a revert, other calldata or another nonce", async () => {
+  const speedUp = `0x${"56".repeat(32)}` as Hex;
+  const replaced = await verifyDeployment(fakeVerifyClient({ transaction: { gas: 2_000_000n, maxFeePerGas: 80_144_000n, maxPriorityFeePerGas: 1n } }),
+    verifyInput(speedUp));
+  assert.equal(replaced.manifestEntry.transactionHash, speedUp);
+  assert.equal(replaced.entry.factory, FACTORY);
+  const cancel = { receipt: { to: DEPLOYER.toLowerCase(), contractAddress: null }, transaction: { to: DEPLOYER.toLowerCase(), input: "0x" } };
+  await assert.rejects(verifyDeployment(fakeVerifyClient(cancel), verifyInput(speedUp)), /not a contract creation/);
+  await assert.rejects(verifyDeployment(fakeVerifyClient({ receipt: { status: "reverted" } }), verifyInput(speedUp)), /reverted/);
+  await assert.rejects(verifyDeployment(fakeVerifyClient({ transaction: { input: `${build.factoryBytecode}00` } }), verifyInput(speedUp)), /creation code/);
+  await assert.rejects(verifyDeployment(fakeVerifyClient({ transaction: { nonce: 8 } }), verifyInput(speedUp)), /nonce/);
 });

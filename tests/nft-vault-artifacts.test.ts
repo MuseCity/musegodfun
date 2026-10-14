@@ -150,10 +150,12 @@ test("NFT vault manifest keeps Base undeployed and Robinhood undeployed or backe
   assert.match(robinhood.factoryRuntimeHash!, /^0x[0-9a-f]{64}$/);
   assert.match(robinhood.transactionHash!, /^0x[0-9a-f]{64}$/);
   assert(Number.isSafeInteger(robinhood.blockNumber) && robinhood.blockNumber! > 0);
-  const evidence = readJson<{ chainId: number; rehearsal: boolean; factory: string; runtimeHash: string; transactionHash: string; blockNumber: string;
-    manifestEntry: ChainEntry; checks: Record<string, boolean> }>("docs/evidence/nft-vault-factory-4663.json");
+  const evidence = readJson<{ chainId: number; rehearsal: boolean; node: string; factory: string; runtimeHash: string; transactionHash: string;
+    blockNumber: string; manifestEntry: ChainEntry; checks: Record<string, boolean> }>("docs/evidence/nft-vault-factory-4663.json");
   assert.equal(evidence.chainId, 4663);
   assert.equal(evidence.rehearsal, false);
+  assert.equal(evidence.node, "mainnet", "only a proven Robinhood mainnet endpoint may record the factory");
+  assert.equal(evidence.checks.finalConfirmations, true);
   assert.deepEqual(evidence.manifestEntry, robinhood);
   assert.equal(evidence.factory, robinhood.factory);
   assert.equal(evidence.runtimeHash, robinhood.factoryRuntimeHash);

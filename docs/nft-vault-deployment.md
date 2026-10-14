@@ -2,7 +2,7 @@
 
 Status: not deployed. `contracts/artifacts/nft-vault-deployment.json` keeps `"4663"` as `not_deployed` until step 4. Base (8453) is out of scope.
 
-`scripts/deploy-nft-vault.ts` prepares and verifies the single plain CREATE of `MusegodNftFeeVaultFactory`. It has no production broadcast mode and takes no private key or signer flag; the owner signs and sends with their own tool. The read-only modes use `--rpc <url>`, or Alchemy built from `ALCHEMY_API_KEY` in `.env.fork` (never `.env`). No output contains the key or any RPC URL; every file is written through a serializer that refuses both.
+`scripts/deploy-nft-vault.ts` prepares and verifies the single plain CREATE of `MusegodNftFeeVaultFactory`. It has no production broadcast mode and takes no private key or signer flag; the owner signs and sends with their own tool. The read-only modes use Alchemy built from `ALCHEMY_API_KEY` in `.env.fork` (never `.env`), or `--rpc <url>` when it is a proven mainnet endpoint or a local fork (see "Which RPC may be used"). No output contains the key or any RPC URL; every file is written through a serializer that refuses both.
 
 | Item | Value |
 | --- | --- |
@@ -34,7 +34,7 @@ The 2026-10-14 rehearsal passed at fork block 88,353,226:
 - gas used was 1,347,843;
 - zero upstream writes.
 
-These are fork-local results, not a mainnet deployment.
+These are fork-local results, not a mainnet deployment. That rehearsal ran the tool at `02ba4df`. The later codex review 1 fixes (proven-mainnet RPC rule, final confirmation re-check, speed-up handling) are covered by offline tests only.
 
 ## Before the preflight: the deployer's nonce
 
@@ -92,7 +92,7 @@ cast send --rpc-url <their RPC> --chain 4663 --from <deployer> --nonce <n> --gas
 - The owner picks the signer: `--keystore`/`--account`, `--ledger`, or a wallet with the same fields.
 - In cast 1.x, `--create` is a subcommand. Every option must come before it, or cast rejects the command.
 - The nonce must be exactly `n`, because the factory address is derived from it. Send nothing else from the deployer between the preflight and this transaction (see "Before the preflight" above).
-- Send it once. A stuck transaction may only be replaced with the same nonce, the same data and zero value.
+- Send it once. A stuck transaction may only be sped up: the same nonce, the same data and zero value, with only the fees raised. Keep every hash you submit; see "Speed-ups, cancels and reverts" below.
 
 ## 3. Verify
 
@@ -100,11 +100,11 @@ cast send --rpc-url <their RPC> --chain 4663 --from <deployer> --nonce <n> --gas
 npm run verify:nft-vault -- --tx <transaction hash>
 ```
 
-This step is read-only. By default it reads the deployer and nonce from the preflight report. `--deployer <a> --nonce <n>` overrides both. Every check must pass:
+This step is read-only. Pass the hash that was mined; after a speed-up, that is the winning replacement's hash. By default it reads the deployer and nonce from the preflight report. `--deployer <a> --nonce <n>` overrides both. Every check must pass:
 
 - the receipt has status success;
 - the receipt is canonical: its block hash equals the chain's block at that height, re-checked after all other reads;
-- the transaction has at least 2 confirmations;
+- the transaction has at least 2 confirmations, counted again from a fresh head after all other reads;
 - the sender and nonce match the preflight report;
 - the transaction is a contract creation with zero value, and its input equals the committed creation code exactly;
 - `contractAddress` equals the predicted address;
@@ -130,8 +130,26 @@ This step runs after the deployment, with the owner's approval. `npx tsx scripts
 
 Submit these to Sourcify for chain 4663, together with the factory address and its creation transaction. Expect an exact creation and runtime match. This tool never submits anything.
 
+## Which RPC may be used
+
+Preflight and verify never assume mainnet. They run only against one of these:
+
+- **A proven Robinhood mainnet endpoint.** This is the built-in Alchemy RPC (no `--rpc`; the key comes from `.env.fork`) or `--rpc https://rpc.mainnet.chain.robinhood.com`. The URL must be HTTPS with no user or port, and the endpoint's block 82,283,004 must have the hash recorded for the launch-guard V2 deployment. Only this kind of endpoint writes the committed manifest and evidence.
+- **A local node:** a loopback URL, or a node that reports itself as Anvil, Hardhat or Ganache. It writes only `.cache/nft-vault-rehearsal-4663/` copies.
+
+Any other RPC is refused before anything is read or written, including a node that hides `web3_clientVersion`.
+
+A historical block hash alone cannot prove mainnet: a fork taken later returns the same hash. That is why the endpoint's identity is required.
+
+## Speed-ups, cancels and reverts
+
+Check every hash you submitted with `cast receipt <hash> --rpc-url <their RPC>`. Only the mined attempt has a receipt.
+
+- **A mined speed-up of this CREATE** (same nonce, same calldata, zero value, only the fees changed): the factory is at the predicted address. Verify the winning hash. Verify accepts it because it checks the sender, nonce, calldata, value, address and runtime, never the fees or the original hash.
+- **The nonce consumed by anything else**, such as a reverted CREATE (for example out of gas), a cancel (a zero-value transfer to self) or any transaction that is not this exact CREATE: no factory can ever appear at that address, because the nonce is spent. Record nothing. Rerun the preflight, which gives the next nonce and a new predicted address, and only then prepare a new CREATE.
+
 ## Stop conditions
 
 - A failed preflight, a pending transaction or a changed nonce: do not send; rerun the preflight.
-- A reverted or replaced transaction: record nothing. The nonce has moved, so a new preflight gives a new address.
 - A failed verify: do not commit the manifest. The factory has no owner and cannot be changed; an unrecorded factory is never used.
+- An RPC that is neither proven mainnet nor local: the tool refuses it. Use the built-in Alchemy RPC or the official public RPC.

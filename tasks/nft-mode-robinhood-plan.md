@@ -2446,7 +2446,7 @@ git commit -m "test: add Robinhood NFT launch fork test, operator report, docs a
 Each step below needs the owner's explicit go-ahead in chat. Stop and ask before each one.
 
 - [ ] **Step 1: Review gate.** Run the owner's review roles (`~/.claude/rules/review-fix-roles.md`) over `codex/nft-mode-robinhood`. Fix findings and repeat until accepted.
-- [ ] **Step 2: Deploy the factory on Robinhood (no-key flow; runbook `docs/nft-vault-deployment.md`).** Owner-approved 2026-10-14. `scripts/deploy-nft-vault.ts` never signs, never broadcasts on a production network and takes no private key. Its fork rehearsal (`npm run rehearse:nft-vault-deploy`) passed; see `docs/evidence/nft-vault-factory-rehearsal-4663.json`.
+- [ ] **Step 2: Deploy the factory on Robinhood (no-key flow; runbook `docs/nft-vault-deployment.md`).** Owner-approved 2026-10-14. `scripts/deploy-nft-vault.ts` never signs, never broadcasts on a production network and takes no private key. Its fork rehearsal (`npm run rehearse:nft-vault-deploy`, tool at `02ba4df`) passed; see `docs/evidence/nft-vault-factory-rehearsal-4663.json`. The codex review 1 fixes after it are covered by offline tests.
   1. **Preflight.** Run `npm run preflight:nft-vault -- --deployer <deployment account>` **immediately before signing**. It is read-only. It writes:
      - `.cache/nft-vault-preflight-4663.json`: the unsigned CREATE, the exact nonce `n`, the predicted factory address, the gas limit, the fee caps and the expected runtime hash;
      - `.cache/nft-vault-factory-4663.create.hex`: the calldata.
@@ -2456,8 +2456,8 @@ Each step below needs the owner's explicit go-ahead in chat. Stop and ask before
      - Nothing else may send from the deployer between the preflight and this transaction.
      - The 2026-10-14 deployer `0xd5C2…Cf56f` is the documented deployment wallet, not a repo keeper (the keepers sign with their own `MUSEGOD_KEEPER_PRIVATE_KEY`; the gas keeper is `0xd3f1…e278`). Yet its Robinhood nonce rose from 6 (2026-10-07) to 388 (2026-10-14), so something sends from it.
      - The owner must either pause that sender until the CREATE is mined, or use a dedicated fresh deployment account and rerun the preflight with it. The predicted address then changes, which is fine. Right before sending, `cast nonce --block pending <deployer>` must still print `n`.
-  3. **Verify.** After two confirmations, run `npm run verify:nft-vault -- --tx <hash>`. It checks:
-     - the receipt is successful and canonical, with at least 2 confirmations;
+  3. **Verify.** After two confirmations, run `npm run verify:nft-vault -- --tx <mined hash>`. It checks:
+     - the receipt is successful and canonical, with at least 2 confirmations, re-checked from a fresh head after all reads;
      - the sender and nonce match the preflight report;
      - the transaction input is exactly the committed creation code, with zero value;
      - the contract address is the predicted address;
@@ -2469,7 +2469,10 @@ Each step below needs the owner's explicit go-ahead in chat. Stop and ask before
   4. **Commit the manifest** and its evidence together. `npm test` requires them to agree. Step 3 merges and publishes them with the flag off.
   5. **Sourcify**, after the deployment and with owner approval. `npx tsx scripts/deploy-nft-vault.ts --sourcify-input` re-derives `contracts/artifacts/MusegodNftFeeVaultFactory.compiler-input.json` (its SHA-256 is in `nft-vault-build.json`). Submit it with the factory address and creation transaction; the tool never submits.
 
-  Stop if the preflight is not ready, the nonce moved, or verify fails. A reverted or replaced transaction is not recorded; rerun the preflight, which gives a new nonce and address.
+  Stop if the preflight is not ready, the nonce moved, or verify fails.
+  - A mined same-nonce speed-up of this CREATE (same calldata, zero value, only the fees raised) leaves the factory at the predicted address: verify the winning hash.
+  - If the nonce was consumed by a revert, a cancel or any other transaction, record nothing and rerun the preflight; it gives the next nonce and a new address.
+  - Preflight and verify refuse any RPC that is neither a proven Robinhood mainnet endpoint (the built-in Alchemy RPC or the official public RPC, with anchor block 82,283,004 matching) nor a local fork. Only proven mainnet writes the committed manifest.
 - [ ] **Step 2b: Apply the single-use migration before the flag-off publish.** The owner applies `supabase/migrations/20261014120000_nft_single_use_indexes.sql` to the production Supabase project, then runs `npm run verify:database`, which checks that both guard indexes exist and refuse a duplicate, and that a launch claim is granted, refused to another owner and freed. The migration creates the launch-fee and verified-NFT guard indexes on `musegod_tokens`, the pre-sign launch claims (`musegod_launch_claims`, `musegod_claim_launch`) and the `musegod_nft_guards_ready()` function; production has no NFT records yet, so it cannot fail on existing rows. The runtime fails closed without it: `/config` reports NFT mode off while the flag is on, so Step 4's release check refuses, prepare, quotes and the NFT APIs refuse, and `nft:reverify` exits 1.
 - [ ] **Step 3: Merge and publish with the flag off.** Commit the manifest. The owner merges to `master` with `NFT_MODE_ENABLED=false`; CI publishes and verifies both domains. Record this release as the NFT-compatible rollback floor.
 - [ ] **Step 4: Canary.** The owner sets `NFT_MODE_ENABLED=true` (a committed var change, so a release). With a real Muse:
