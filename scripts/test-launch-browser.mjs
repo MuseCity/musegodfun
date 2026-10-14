@@ -111,6 +111,11 @@ async function casePage(mode, viewport = { width: 1440, height: 1000 }) {
           return [selectedAccount];
         }
         if (request.method === 'eth_chainId') return selectedChain;
+        // A wallet that supports neither send method: both refusals prove nothing was processed.
+        if (mode === 'wallet_refuses_sends' && ['eth_sendTransaction', 'wallet_sendTransaction'].includes(request.method)) {
+          await window.__testRefusedSend(); const error = new Error('Method not supported');
+          error.code = request.method === 'eth_sendTransaction' ? -32004 : -32601; throw error;
+        }
         if (request.method === 'eth_sendTransaction' && walletSend !== request.method) {
           await window.__testRefusedSend(); const error = new Error('Method not supported'); error.code = -32004; throw error;
         }
@@ -948,7 +953,7 @@ async function nftCase(page, state) {
   await page.screenshot({ path: `.cache/launch-browser-${mode}.png`, fullPage: true }); report.screenshots.push(`.cache/launch-browser-${mode}.png`);
 }
 try {
-  for (const mode of (process.env.BROWSER_CASES?.split(',') || ['success','plain','duplicate','stale_page','reject_approval','expiry','account_change','network_change','simulation_failure','two_tabs','unknown_send','approval_unknown','approval_pending','wrap_flow','wrap_price_change','delayed_config','unknown_fetch','approval_timeout','payment_timeout','launch_timeout','approval_timeout_reject','payment_marker_race','launch_marker_race','payment_status_race','payment_submit_race','payment_submit_record_race','wrap_late_launch_recovery','wrap_near_expiry','idle_review','hidden_review','idle_plain','token_detail_pending','token_detail_error','token_detail_state_unavailable','token_detail_unregistered_backup','token_detail_invalid_pool','token_detail_unverified_opening','history_track_backoff','nft_muse_free','nft_paid_usdg','nft_paid_eth','nft_fee_sending_reload','nft_not_controlled','nft_already_launched','nft_draft_link_during_reconnect','nft_draft_link_locked_wallet','nft_fee_no_vault'])) {
+  for (const mode of (process.env.BROWSER_CASES?.split(',') || ['success','plain','duplicate','stale_page','reject_approval','wallet_refuses_sends','expiry','account_change','network_change','simulation_failure','two_tabs','unknown_send','approval_unknown','approval_pending','wrap_flow','wrap_price_change','delayed_config','unknown_fetch','approval_timeout','payment_timeout','launch_timeout','approval_timeout_reject','payment_marker_race','launch_marker_race','payment_status_race','payment_submit_race','payment_submit_record_race','wrap_late_launch_recovery','wrap_near_expiry','idle_review','hidden_review','idle_plain','token_detail_pending','token_detail_error','token_detail_state_unavailable','token_detail_unregistered_backup','token_detail_invalid_pool','token_detail_unverified_opening','history_track_backoff','nft_muse_free','nft_paid_usdg','nft_paid_eth','nft_fee_sending_reload','nft_not_controlled','nft_already_launched','nft_draft_link_during_reconnect','nft_draft_link_locked_wallet','nft_fee_no_vault'])) {
     const {context,page,state,pageErrors}=await casePage(mode);
     const plain = plainModes.has(mode);
     if (mode === 'success') {
@@ -1036,6 +1041,12 @@ try {
       }
     }
     else if (mode==='reject_approval') { await page.getByText(/cancelled the wallet request|User rejected the request/).first().waitFor(); assert.equal(state.sends.length,0); }
+    else if (mode==='wallet_refuses_sends') {
+      await page.getByText(/is not supported/).first().waitFor();
+      assert.equal(state.sends.length,0); assert.equal(state.refusedSends,2,'eth_sendTransaction, then viem\'s wallet_sendTransaction retry');
+      assert.deepEqual(await page.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith('musegod.launch.submission.'))),[],
+        'A request every send method refused unprocessed leaves nothing to recover');
+    }
     else if (mode==='account_change'||mode==='network_change') {
       // A broad /network.*changed/ text locator also matches the untouched form
       // ("on this network ... cannot be changed") before the approval is sent.

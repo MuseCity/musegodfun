@@ -67,7 +67,7 @@ import { executeMusegodTrade } from "./musegod-trade";
 import type { LaunchPlan, LaunchTransaction } from "./launch-plan";
 import { assertLaunchRequest, assertLaunchWalletPlan, bufferedLaunchGas, executeLaunchPlan, launchDraftInput, type LaunchSimulation } from "./launch-wallet";
 import { engineTransaction, type EngineAction } from "./buyback-engine";
-import { isTransactionSend, signingRequest, type WalletRequest } from "./wallet-signing";
+import { isTransactionSend, signingRequest, walletRefusedUnsent, type WalletRequest } from "./wallet-signing";
 declare global {
   interface Window {
     ethereum?: Provider;
@@ -173,6 +173,11 @@ export function assertBuybackRequest(request: WalletRequest, step: BuybackStep) 
     tx.nonce !== toHex(step.nonce!) ||
     (tx.chainId !== undefined && tx.chainId !== toHex(step.chainId)))
     throw new Error("The wallet request does not match the buyback batch");
+}
+/** The buyback wallet transport: only the transaction of the freshly validated batch step reaches the provider, under the same
+ * method policy and resend rule as every signer. */
+export function buybackRequest(provider: { request: (request: WalletRequest) => Promise<unknown> }, step: BuybackStep, validate: () => Promise<void>) {
+  return signingRequest(provider, { guardRequest: (request) => assertBuybackRequest(request, step), validate });
 }
 /** The LI.FI diamond still routes this quote's selector to the verified facet runtime, and still whitelists every swap target
  * and approval target. Read before simulating and again before every wallet request (first-buy payments and ETH buys). */
@@ -439,7 +444,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     return createWalletClient({
       account: expected,
       chain: walletChain(config),
-      // The method policy refuses anything unlisted; both send methods and every signature are validated, and a send is recorded.
+      // The method policy refuses anything unlisted, every signature included; both send methods are validated, then recorded.
       transport: custom({
         request: signingRequest({ request: (request) => p.request(request as Parameters<Provider["request"]>[0]) },
           { guardRequest, validate, beforeSend }),
@@ -626,7 +631,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         if (timedOut || performance.now() >= timeoutAt) {
           expire(); throw new Error("The wallet request expired before submission. Review again.");
         }
-        // Only viem's resend of this same request, after the wallet refused `eth_sendTransaction` unprocessed, follows the first.
+        // Only viem's resend of this same request, after the wallet refused it unprocessed, follows the first.
         if (requested !== resend) throw new Error("This wallet request was already sent. Check its saved status.");
         if (marker && !resend) { savedMarker = JSON.stringify(saved); localStorage.setItem(marker, savedMarker); changed(); }
         requested = true;
@@ -654,7 +659,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       }
       return { hash, clearMarker };
     }, (cause: unknown) => {
-      if (!requested || /4001|user rejected|user denied/i.test(String(cause))) clearMarker();
+      // Nothing reached a chain: never handed over, rejected by the user, or refused unprocessed on every send method tried.
+      if (!requested || /4001|user rejected|user denied/i.test(String(cause)) || walletRefusedUnsent(cause)) clearMarker();
       throw cause;
     });
     try { return await Promise.race([submission, timeout]); }
@@ -1105,14 +1111,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       account: expected,
       chain: step.chainId === 4663 ? robinhood : base,
       transport: custom({
-        request: async (request: Parameters<Provider["request"]>[0]) => {
-          // Only the transaction described by the freshly validated batch may
-          // reach the selected provider; message and typed-data signing are rejected.
-          assertBuybackRequest(request, step);
-          await validate();
-          return provider.request(request);
-        },
-      } as Provider, { retryCount: 0 }),
+        request: buybackRequest({ request: (request) => provider.request(request as Parameters<Provider["request"]>[0]) }, step, validate),
+      }, { retryCount: 0 }),
     });
     const hash = await wallet.sendTransaction({ to: step.to, data: step.data, value: 0n, nonce: step.nonce! });
     const confirmation = confirmed(hash, { chainId: step.chainId }, expected, "buyback", {

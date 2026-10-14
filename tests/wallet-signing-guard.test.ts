@@ -1,11 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createWalletClient, custom, encodeFunctionData, erc20Abi, toHex, InvalidInputRpcError, InvalidParamsRpcError, MethodNotFoundRpcError,
-  MethodNotSupportedRpcError, type Address, type Hash } from "viem";
+  MethodNotSupportedRpcError, UserRejectedRequestError, type Address, type Hash } from "viem";
 import { robinhood } from "viem/chains";
-import { signingRequest, walletMethodPolicy, type WalletRequest } from "../src/lib/wallet-signing";
+import { signingRequest, walletMethodPolicy, walletRefusedUnsent, type WalletRequest } from "../src/lib/wallet-signing";
 import { assertLaunchRequest } from "../src/lib/launch-wallet";
-import { assertBuybackRequest } from "../src/lib/wallet";
+import { assertBuybackRequest, buybackRequest } from "../src/lib/wallet";
 import type { BuybackStep } from "../src/lib/buyback";
 
 // Every provider below records JSON-RPC in memory. No wallet or network is contacted.
@@ -13,49 +13,49 @@ const account: Address = "0x1111111111111111111111111111111111111111";
 const target: Address = "0x2222222222222222222222222222222222222222";
 const other: Address = "0x3333333333333333333333333333333333333333";
 const data = encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [other, 10n] });
+const otherData = encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [other, 11n] });
 const hash = `0x${"a".repeat(64)}` as Hash;
 const step = { to: target, data, value: "0", from: account, chainId: robinhood.id };
 const tx = { from: account, to: target, data, value: "0x0", chainId: toHex(robinhood.id), gas: "0x5208" };
+const buybackStep = { batchId: "batch-1", kind: "burn", chainId: 4663, from: account, to: target, data, value: "0", amount: "10", nonce: 7,
+  stockAddress: other, expiresAt: Date.now() + 60_000 } as BuybackStep;
 const SENDS = ["eth_sendTransaction", "wallet_sendTransaction"];
 const SIGNS = ["eth_signTransaction", "eth_sign", "personal_sign", "eth_signTypedData", "eth_signTypedData_v1", "eth_signTypedData_v3", "eth_signTypedData_v4"];
 const READS = ["eth_chainId", "net_version", "eth_accounts", "eth_requestAccounts", "eth_blockNumber", "eth_call", "eth_estimateGas",
   "eth_feeHistory", "eth_gasPrice", "eth_maxPriorityFeePerGas", "eth_getBalance", "eth_getCode", "eth_getStorageAt", "eth_getLogs",
   "eth_getTransactionCount", "eth_getTransactionByHash", "eth_getTransactionReceipt", "eth_getBlockByNumber", "eth_getBlockByHash",
   "wallet_switchEthereumChain", "wallet_addEthereumChain"];
-// Batches, raw transactions, and anything else that could sign or send but is on no list. Object keys must not leak in either.
-const REFUSED = ["wallet_sendCalls", "eth_sendRawTransaction", "wallet_sendPreparedCalls", "wallet_sendTransactions", "eth_sendUserOperation",
+// Every signature, batches, raw transactions, and anything else on no list. Object keys must not leak in either.
+const REFUSED = [...SIGNS, "wallet_sendCalls", "eth_sendRawTransaction", "wallet_sendPreparedCalls", "wallet_sendTransactions", "eth_sendUserOperation",
   "eth_signUserOperation", "eth_signTypedData_v2", "eth_signTypedData_v5", "eth_signAuthorization", "personal_signTransaction",
-  "wallet_signTransaction", "eth_sign_typed", "wallet_grantPermissions", "wallet_invokeSnap", "constructor", "__proto__", "toString", ""];
+  "wallet_signTransaction", "eth_sign_typed", "wallet_grantPermissions", "wallet_invokeSnap", "ETH_SENDTRANSACTION", "eth_sendTransaction ",
+  " wallet_sendTransaction", "constructor", "__proto__", "toString", ""];
 
 const methodError = (code: number, message: string) => Object.assign(new Error(message), { code });
-function harness(answer: (request: WalletRequest) => unknown = () => hash, options: { guard?: (request: WalletRequest) => void; record?: boolean; validate?: () => void } = {}) {
-  const log: string[] = [];
-  const provider = { request: async (request: WalletRequest) => { log.push(`wallet:${request.method}`); return answer(request); } };
+type Options = { guard?: (request: WalletRequest) => void; record?: boolean; validate?: () => void | Promise<void> };
+function harness(answer: (request: WalletRequest) => unknown = () => hash, options: Options = {}) {
+  const log: string[] = [], received: WalletRequest[] = [];
+  const provider = { request: async (request: WalletRequest) => { log.push(`wallet:${request.method}`); received.push(request); return answer(request); } };
   const request = signingRequest(provider, {
     guardRequest: (request) => { log.push(`guard:${request.method}`); options.guard?.(request); },
-    validate: async () => { log.push("validate"); options.validate?.(); },
+    validate: async () => { log.push("validate"); await options.validate?.(); },
     ...(options.record === false ? {} : { beforeSend: (resend: boolean) => { log.push(`record:${resend}`); } }),
   });
-  return { log, request };
+  return { log, received, request };
 }
+const wallets = (log: string[]) => log.filter((entry) => entry.startsWith("wallet:"));
 
-test("the signing policy lists every read, broadcast and signing method and refuses everything else", () => {
+test("the signing policy lists every read and both send methods and refuses everything else, every signature included", () => {
   for (const method of SENDS) assert.equal(walletMethodPolicy(method), "send", method);
-  for (const method of SIGNS) assert.equal(walletMethodPolicy(method), "sign", method);
   for (const method of READS) assert.equal(walletMethodPolicy(method), "read", method);
   for (const method of REFUSED) assert.equal(walletMethodPolicy(method), "refuse", method);
 });
 
-test("every broadcast and signing method is validated before the wallet receives it, and only broadcasts are recorded", async () => {
+test("both send methods are validated, then recorded, before the wallet receives them", async () => {
   for (const method of SENDS) {
     const { log, request } = harness();
     assert.equal(await request({ method, params: [tx] }), hash);
     assert.deepEqual(log, [`guard:${method}`, "validate", "record:false", `wallet:${method}`], method);
-  }
-  for (const method of SIGNS) {
-    const { log, request } = harness();
-    await request({ method, params: [tx] });
-    assert.deepEqual(log, [`guard:${method}`, "validate", `wallet:${method}`], method);
   }
 });
 
@@ -67,11 +67,53 @@ test("read and wallet-management methods pass through the flow guard without val
   }
 });
 
-test("batches, raw transactions and unknown signing-like methods are refused before any guard, validation or wallet", async () => {
+test("signatures, batches, raw transactions and unknown methods are refused before any guard, validation or wallet", async () => {
   for (const method of REFUSED) {
     const { log, request } = harness();
-    await assert.rejects(() => request({ method, params: [tx] }) as Promise<unknown>, /not allowed/, method);
+    await assert.rejects(() => request({ method, params: [tx] }), /not allowed/, JSON.stringify(method));
     assert.deepEqual(log, [], method);
+  }
+});
+
+test("malformed request shapes are refused before any guard, validation or wallet", async () => {
+  const unserializable: unknown[] = [[{ ...tx, value: 1n }]];
+  const cyclic: Record<string, unknown> = {}; cyclic.self = cyclic;
+  for (const input of [{}, null, undefined, [{ method: "eth_sendTransaction", params: [tx] }], { method: 1 }, { method: ["eth_sendTransaction"] },
+    new String("eth_sendTransaction"), { method: new String("eth_sendTransaction"), params: [tx] }, "eth_sendTransaction",
+    { method: "ETH_SENDTRANSACTION", params: [tx] }, { method: "eth_sendTransaction ", params: [tx] },
+    { method: "eth_sendTransaction", params: unserializable }, { method: "eth_sendTransaction", params: [cyclic] },
+    { method: "eth_sendTransaction", params: () => [tx] }]) {
+    const { log, request } = harness();
+    await assert.rejects(() => request(input), /not allowed/, String(input));
+    assert.deepEqual(log, [], String(input));
+  }
+});
+
+test("the wallet receives a frozen copy of the checked request, never the caller's object", async () => {
+  const params = [{ ...tx }];
+  const { received, request } = harness(undefined, { guard: (request) => {
+    assert.ok(Object.isFrozen(request) && Object.isFrozen((request.params as object[])[0]), "the guard sees the frozen copy");
+    assertLaunchRequest(request, step);
+  }, validate: () => { params[0].to = other; params[0].data = otherData; } });
+  assert.equal(await request({ method: "wallet_sendTransaction", params }), hash);
+  assert.notEqual(received[0].params, params);
+  assert.ok(Object.isFrozen(received[0]) && Object.isFrozen((received[0].params as object[])[0]));
+  assert.deepEqual(received[0], { method: "wallet_sendTransaction", params: [tx] }, "the transaction changed during validation is not sent");
+});
+
+test("two sends can never be open on one signer, with or without a record", async () => {
+  for (const record of [true, false]) {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const { log, request } = harness(undefined, { record, validate: () => gate });
+    const first = request({ method: "eth_sendTransaction", params: [tx] });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // The slot is reserved before validation: a concurrent send (the same or another transaction) is refused at once.
+    for (const params of [[tx], [{ ...tx, data: otherData }]])
+      await assert.rejects(() => request({ method: "wallet_sendTransaction", params }), /already open/);
+    release();
+    assert.equal(await first, hash);
+    assert.deepEqual(wallets(log), ["wallet:eth_sendTransaction"], `record ${record}`);
   }
 });
 
@@ -79,23 +121,21 @@ test("wallet_sendTransaction is refused like eth_sendTransaction when validation
   for (const method of SENDS) {
     // The server switch or network changed: nothing is recorded and the wallet never sees the request.
     const paused = harness(undefined, { validate: () => { throw new Error("signing paused"); } });
-    await assert.rejects(() => paused.request({ method, params: [tx] }) as Promise<unknown>, /signing paused/);
+    await assert.rejects(() => paused.request({ method, params: [tx] }), /signing paused/);
     assert.deepEqual(paused.log, [`guard:${method}`, "validate"], method);
     // A transaction other than the frozen one.
     for (const changed of [{ to: other }, { data: "0x12345678" }, { value: "0x1" }, { from: other }, { chainId: "0x1" }]) {
       const guarded = harness(undefined, { guard: (request) => assertLaunchRequest(request, step) });
-      await assert.rejects(() => guarded.request({ method, params: [{ ...tx, ...changed }] }) as Promise<unknown>, /does not match/);
+      await assert.rejects(() => guarded.request({ method, params: [{ ...tx, ...changed }] }), /does not match/);
       assert.deepEqual(guarded.log, [`guard:${method}`], `${method} ${JSON.stringify(changed)}`);
     }
   }
 });
 
 test("flow guards accept wallet_sendTransaction with the same checks as eth_sendTransaction", () => {
-  const buyback = { batchId: "batch-1", kind: "burn", chainId: 4663, from: account, to: target, data, value: "0", amount: "10", nonce: 7,
-    stockAddress: other, expiresAt: Date.now() + 60_000 } as BuybackStep;
   const guards: [string, (request: WalletRequest) => void, Record<string, unknown>][] = [
     ["launch", (request) => assertLaunchRequest(request, step), tx],
-    ["buyback", (request) => assertBuybackRequest(request, buyback), { ...tx, nonce: toHex(7) }],
+    ["buyback", (request) => assertBuybackRequest(request, buybackStep), { ...tx, nonce: toHex(7) }],
   ];
   for (const [name, guard, sent] of guards) {
     assert.doesNotThrow(() => guard({ method: "eth_chainId" }), name);
@@ -105,109 +145,158 @@ test("flow guards accept wallet_sendTransaction with the same checks as eth_send
         assert.throws(() => guard({ method, params: [{ ...sent, ...changed }] }), `${name} ${method} ${JSON.stringify(changed)}`);
       assert.throws(() => guard({ method, params: [sent, sent] }), `${name} ${method} two transactions`);
     }
-    for (const method of [...SIGNS, ...REFUSED.slice(0, 2)]) assert.throws(() => guard({ method, params: [sent] }), `${name} ${method}`);
+    for (const method of REFUSED.slice(0, SIGNS.length + 2)) assert.throws(() => guard({ method, params: [sent] }), `${name} ${method}`);
   }
 });
 
-type RefusalClass = typeof MethodNotSupportedRpcError | typeof MethodNotFoundRpcError | typeof InvalidParamsRpcError | typeof InvalidInputRpcError;
-/** A wallet that refuses eth_sendTransaction itself (`Refusal`), so viem 2.56.8 retries the same transaction through wallet_sendTransaction. */
-function namespaceWallet(Refusal: RefusalClass, options: { guard?: (request: WalletRequest) => void; record?: boolean; validate?: () => void } = {}) {
-  const log: string[] = [];
+type RefusalClass = typeof MethodNotSupportedRpcError | typeof MethodNotFoundRpcError | typeof InvalidParamsRpcError | typeof InvalidInputRpcError
+  | typeof UserRejectedRequestError;
+type Answer = RefusalClass | Hash;
+/** A wallet behind the signing transport and a real viem 2.56.8 client. `eth` and `wallet` answer each send method in turn (the last
+ * answer repeats): a refusal class is thrown, so viem may retry the same transaction through wallet_sendTransaction. */
+function viemWallet(eth: Answer[], wallet: Answer[], options: Options & { buyback?: boolean } = {}) {
+  const log: string[] = [], counts: Record<string, number> = {};
   let recorded = 0;
+  const answer = (answers: Answer[], method: string) => {
+    const next = answers[Math.min(counts[method] = (counts[method] ?? -1) + 1, answers.length - 1)];
+    if (typeof next === "string") return next;
+    throw new next(new Error(`The wallet refused ${method}`));
+  };
   const provider = { request: async (request: WalletRequest) => {
     log.push(`wallet:${request.method}`);
     if (request.method === "eth_chainId") return toHex(robinhood.id);
-    if (request.method === "eth_sendTransaction") throw new Refusal(new Error("The wallet refused eth_sendTransaction"));
-    if (request.method === "wallet_sendTransaction") {
-      // The payment must already be on record when the wallet receives the retried request.
-      if (options.record !== false) assert.ok(recorded > 0, "recorded before wallet_sendTransaction");
-      return hash;
-    }
+    // A recorded payment must already be on record whenever the wallet receives it.
+    if (options.record !== false && !options.buyback) assert.ok(recorded > 0, `recorded before ${request.method}`);
+    if (request.method === "eth_sendTransaction") return answer(eth, request.method);
+    if (request.method === "wallet_sendTransaction") return answer(wallet, request.method);
     throw new Error(`Unexpected wallet method ${request.method}`);
   } };
-  const wallet = createWalletClient({ account, chain: robinhood, transport: custom({ request: signingRequest(provider, {
+  const validate = async () => { log.push("validate"); await options.validate?.(); };
+  const request = options.buyback ? buybackRequest(provider, buybackStep, validate) : signingRequest(provider, {
     guardRequest: (request) => { options.guard?.(request); },
-    validate: async () => { log.push("validate"); options.validate?.(); },
+    validate,
     ...(options.record === false ? {} : { beforeSend: (resend: boolean) => { recorded++; log.push(`record:${resend}`); } }),
-  }) }, { retryCount: 0 }) });
-  return { log, send: () => wallet.sendTransaction({ to: target, data, value: 0n, gas: 21_000n }) };
+  });
+  const client = createWalletClient({ account, chain: robinhood, transport: custom({ request }, { retryCount: 0 }) });
+  return { log, send: (input = data) => client.sendTransaction(options.buyback
+    ? { to: target, data: input, value: 0n, nonce: 7 } : { to: target, data: input, value: 0n, gas: 21_000n }) };
 }
+const DEFINITE = [MethodNotSupportedRpcError, MethodNotFoundRpcError, InvalidParamsRpcError];
+const FLOWS: [string, Options & { buyback?: boolean }][] = [
+  ["recorded (launch, first-buy payment, NFT fee)", { guard: (request) => assertLaunchRequest(request, step) }],
+  ["guarded (LI.FI trade, claim, engine action)", { guard: (request) => assertLaunchRequest(request, step), record: false }],
+  ["plain (pair and MUSEGOD trades)", { record: false }],
+  ["buyback transport", { buyback: true }],
+];
 
-test("viem's wallet_sendTransaction fallback is validated, guarded and recorded before the wallet receives it", async () => {
-  // The wallet never processed the transaction.
-  for (const Refusal of [MethodNotSupportedRpcError, MethodNotFoundRpcError, InvalidParamsRpcError]) {
-    const code = Refusal.name;
-    // A guarded flow (launch, first buy, LI.FI trade, claim): the frozen transaction passes on both methods.
-    const guarded = namespaceWallet(Refusal, { guard: (request) => assertLaunchRequest(request, step) });
-    assert.equal(await guarded.send(), hash);
-    assert.deepEqual(guarded.log, ["wallet:eth_chainId", "validate", "record:false", "wallet:eth_sendTransaction",
-      "validate", "record:true", "wallet:wallet_sendTransaction"], `guarded ${code}`);
-    // An unguarded flow without a record (pair trades, MUSEGOD trades): still validated on the fallback.
-    const plain = namespaceWallet(Refusal, { record: false });
-    assert.equal(await plain.send(), hash);
-    assert.deepEqual(plain.log, ["wallet:eth_chainId", "validate", "wallet:eth_sendTransaction", "validate", "wallet:wallet_sendTransaction"], `plain ${code}`);
+test("viem's wallet_sendTransaction fallback after a definite refusal is validated, guarded and recorded", async () => {
+  for (const Refusal of DEFINITE) for (const [flow, options] of FLOWS) {
+    const wallet = viemWallet([Refusal], [hash], options);
+    assert.equal(await wallet.send(), hash);
+    const record = options.record !== false && !options.buyback;
+    assert.deepEqual(wallet.log, ["wallet:eth_chainId", "validate", ...(record ? ["record:false"] : []), "wallet:eth_sendTransaction",
+      "validate", ...(record ? ["record:true"] : []), "wallet:wallet_sendTransaction"], `${flow} ${Refusal.name}`);
+  }
+});
+
+// The wallet's own InvalidInputRpcError (-32000) is what the caller sees.
+const sawInvalidInput = (error: Error & { walk: (fn: (cause: unknown) => boolean) => unknown }) =>
+  (error.walk((cause) => (cause as { code?: number }).code === -32000) as { code?: number } | null)?.code === -32000;
+
+test("after an ambiguous wallet error no signer and no buyback resends the transaction; the wallet's own error stands", async () => {
+  // InvalidInputRpcError (-32000) is also viem's retry trigger, but a wallet may have broadcast before answering it.
+  for (const [flow, options] of FLOWS) {
+    const wallet = viemWallet([InvalidInputRpcError], [hash], options);
+    await assert.rejects(wallet.send, sawInvalidInput, flow);
+    assert.deepEqual(wallets(wallet.log), ["wallet:eth_chainId", "wallet:eth_sendTransaction"], flow);
+    assert.equal(wallet.log.filter((entry) => entry === "validate").length, 1, flow);
+  }
+});
+
+test("on a client that cached wallet_sendTransaction, viem's wallet_ → wallet_ retry follows the same rule", async () => {
+  // Only the pair-trade client sends several transactions (approval, Permit2 approval, swap) through one wallet client.
+  for (const [flow, options] of FLOWS.filter(([flow]) => flow.startsWith("plain"))) {
+    // The first send teaches viem that this client supports wallet_sendTransaction.
+    const ambiguous = viemWallet([MethodNotSupportedRpcError], [hash, InvalidInputRpcError], options);
+    assert.equal(await ambiguous.send(), hash);
+    const before = wallets(ambiguous.log).length;
+    // The next transaction goes straight to wallet_sendTransaction; after -32000 viem retries it, and the transport refuses.
+    await assert.rejects(() => ambiguous.send(otherData), sawInvalidInput);
+    assert.deepEqual(wallets(ambiguous.log).slice(before), ["wallet:eth_chainId", "wallet:wallet_sendTransaction"], `${flow} ambiguous`);
+    // After a definite refusal the retry is validated and goes through.
+    const definite = viemWallet([MethodNotSupportedRpcError], [hash, InvalidParamsRpcError, hash], options);
+    assert.equal(await definite.send(), hash);
+    const at = definite.log.length;
+    assert.equal(await definite.send(otherData), hash);
+    assert.deepEqual(definite.log.slice(at), ["wallet:eth_chainId", "validate", "wallet:wallet_sendTransaction", "validate",
+      "wallet:wallet_sendTransaction"], `${flow} definite`);
   }
 });
 
 test("a validation refusal on the fallback stops it before the wallet", async () => {
-  let validations = 0;
-  const wallet = namespaceWallet(MethodNotSupportedRpcError, { validate: () => { if (++validations > 1) throw new Error("The platform configuration changed"); } });
-  await assert.rejects(wallet.send, /platform configuration changed/);
-  assert.deepEqual(wallet.log, ["wallet:eth_chainId", "validate", "record:false", "wallet:eth_sendTransaction", "validate"]);
+  for (const [flow, options] of FLOWS) {
+    let validations = 0;
+    const wallet = viemWallet([MethodNotSupportedRpcError], [hash], { ...options,
+      validate: () => { if (++validations > 1) throw new Error("The platform configuration changed"); } });
+    await assert.rejects(wallet.send, /platform configuration changed/, flow);
+    assert.deepEqual(wallets(wallet.log), ["wallet:eth_chainId", "wallet:eth_sendTransaction"], flow);
+  }
 });
 
-test("a signer that records its transaction sends only that transaction", async () => {
-  // After the wallet accepted it, no second broadcast of any kind.
-  for (const method of SENDS) {
-    const { log, request } = harness();
+test("a transaction is sent once, and a signer with a record sends only its own transaction", async () => {
+  // After the wallet accepted it, the same transaction is never sent again, by either method, with or without a record.
+  for (const record of [true, false]) for (const method of SENDS) {
+    const { log, request } = harness(undefined, { record });
     await request({ method: "eth_sendTransaction", params: [tx] });
-    await assert.rejects(() => request({ method, params: [tx] }) as Promise<unknown>, /already sent/);
-    assert.deepEqual(log, ["guard:eth_sendTransaction", "validate", "record:false", "wallet:eth_sendTransaction", `guard:${method}`], method);
+    await assert.rejects(() => request({ method, params: [tx] }), /already sent/);
+    assert.deepEqual(wallets(log), ["wallet:eth_sendTransaction"], `record ${record} ${method}`);
   }
-  // Never while the first request is still open in the wallet.
-  {
-    let release!: (value: unknown) => void;
-    const { log, request } = harness(() => new Promise((resolve) => { release = resolve; }));
-    const first = request({ method: "eth_sendTransaction", params: [tx] });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    await assert.rejects(() => request({ method: "wallet_sendTransaction", params: [tx] }) as Promise<unknown>, /already sent/);
-    release(hash);
-    assert.equal(await first, hash);
-    assert.equal(log.filter((entry) => entry.startsWith("wallet:")).length, 1);
+  // A signer with a record never sends another transaction, after a success or a refusal.
+  for (const answer of [() => hash, () => { throw methodError(-32004, "unsupported"); }]) {
+    const { log, request } = harness(answer);
+    await request({ method: "eth_sendTransaction", params: [tx] }).catch(() => {});
+    await assert.rejects(() => request({ method: "wallet_sendTransaction", params: [{ ...tx, data: otherData }] }), /Only the transaction/);
+    assert.deepEqual(log.filter((entry) => entry.startsWith("wallet:") || entry.startsWith("record:")), ["record:false", "wallet:eth_sendTransaction"]);
   }
-  // The wallet refused the method, but the retry is a different transaction, or not viem's eth_ → wallet_ fallback.
-  for (const [second, params] of [["wallet_sendTransaction", [{ ...tx, value: "0x1" }]], ["eth_sendTransaction", [tx]]] as const) {
-    const { log, request } = harness((request) => { if (request.method === "eth_sendTransaction") throw methodError(-32004, "unsupported"); return hash; });
-    await assert.rejects(() => request({ method: "eth_sendTransaction", params: [tx] }) as Promise<unknown>, /unsupported/);
-    await assert.rejects(() => request({ method: second, params }) as Promise<unknown>);
-    assert.deepEqual(log.filter((entry) => entry.startsWith("wallet:") || entry.startsWith("record:")), ["record:false", "wallet:eth_sendTransaction"], second);
-  }
-  // Only one fallback.
-  {
-    const { log, request } = harness(() => { throw methodError(-32004, "unsupported"); });
-    await assert.rejects(() => request({ method: "eth_sendTransaction", params: [tx] }) as Promise<unknown>);
-    await assert.rejects(() => request({ method: "wallet_sendTransaction", params: [tx] }) as Promise<unknown>);
-    await assert.rejects(() => request({ method: "wallet_sendTransaction", params: [tx] }) as Promise<unknown>);
-    assert.deepEqual(log.filter((entry) => entry.startsWith("wallet:")), ["wallet:eth_sendTransaction", "wallet:wallet_sendTransaction"]);
-  }
-});
-
-test("an ambiguous wallet error never lets viem resend a recorded payment; the wallet's own error stands", async () => {
-  // InvalidInputRpcError (-32000) is also viem's fallback trigger, but a wallet may have broadcast before answering it.
-  const recorded = namespaceWallet(InvalidInputRpcError);
-  await assert.rejects(recorded.send, (error: Error & { walk: (fn: (cause: unknown) => boolean) => unknown }) =>
-    (error.walk((cause) => (cause as { code?: number }).code === -32000) as { code?: number } | null)?.code === -32000);
-  assert.deepEqual(recorded.log, ["wallet:eth_chainId", "validate", "record:false", "wallet:eth_sendTransaction"]);
-  // Without a record there is nothing to double-charge: the fallback is validated like any other broadcast.
-  const plain = namespaceWallet(InvalidInputRpcError, { record: false });
-  assert.equal(await plain.send(), hash);
-  assert.deepEqual(plain.log, ["wallet:eth_chainId", "validate", "wallet:eth_sendTransaction", "validate", "wallet:wallet_sendTransaction"]);
-});
-
-test("a signer without a record may send several validated transactions (approvals, then the swap)", async () => {
+  // Without a record, approvals and then the swap: each a new transaction, each validated.
   const { log, request } = harness(undefined, { record: false });
-  for (const method of [...SENDS, ...SENDS]) assert.equal(await request({ method, params: [tx] }), hash);
+  for (const [index, method] of [...SENDS, ...SENDS].entries())
+    assert.equal(await request({ method, params: [{ ...tx, nonce: toHex(index) }] }), hash);
   assert.equal(log.filter((entry) => entry === "validate").length, 4);
-  assert.equal(log.filter((entry) => entry.startsWith("wallet:")).length, 4);
+  assert.equal(wallets(log).length, 4);
 });
 
+test("a definite refusal allows the same transaction again, and only a definite one", async () => {
+  for (const code of [-32601, -32004, -32602]) {
+    const { log, request } = harness((request) => { if (wallets(log).length === 1) throw methodError(code, "refused"); return hash; });
+    await assert.rejects(() => request({ method: "eth_sendTransaction", params: [tx] }), /refused/);
+    assert.equal(await request({ method: "wallet_sendTransaction", params: [tx] }), hash);
+    assert.deepEqual(log.filter((entry) => entry.startsWith("record:")), ["record:false", "record:true"], `${code}`);
+  }
+  for (const code of [-32000, -32603, 4001, 4900, -1]) {
+    const refusal = methodError(code, "ambiguous");
+    const { log, request } = harness(() => { throw refusal; }, { record: false });
+    await assert.rejects(() => request({ method: "eth_sendTransaction", params: [tx] }));
+    await assert.rejects(() => request({ method: "wallet_sendTransaction", params: [tx] }), (error) => error === refusal, `${code}`);
+    assert.deepEqual(wallets(log), ["wallet:eth_sendTransaction"], `${code}`);
+  }
+});
+
+test("walletRefusedUnsent is true only when every send method tried was refused unprocessed", async () => {
+  const outcome = async (eth: Answer[], wallet: Answer[], options: Options = {}) => {
+    const sent = viemWallet(eth, wallet, options);
+    return sent.send().then(() => "sent", (error: unknown) => walletRefusedUnsent(error));
+  };
+  // eth_ unsupported, then wallet_ unsupported or refusing its parameters: nothing was processed.
+  assert.equal(await outcome([MethodNotSupportedRpcError], [MethodNotFoundRpcError]), true);
+  assert.equal(await outcome([MethodNotSupportedRpcError], [MethodNotSupportedRpcError]), true);
+  assert.equal(await outcome([MethodNotFoundRpcError], [InvalidParamsRpcError]), true);
+  // Anything that may have been processed, a user rejection (handled separately), or a refusal of our own.
+  assert.equal(await outcome([MethodNotSupportedRpcError], [InvalidInputRpcError]), false);
+  assert.equal(await outcome([InvalidInputRpcError], [hash]), false);
+  assert.equal(await outcome([UserRejectedRequestError], [hash]), false);
+  let validations = 0;
+  assert.equal(await outcome([MethodNotSupportedRpcError], [hash], { validate: () => { if (++validations > 1) throw new Error("changed"); } }), false);
+  assert.equal(walletRefusedUnsent(methodError(-32601, "missing")), true);
+  for (const error of [new Error("plain"), methodError(-32000, "input"), null, undefined, "-32601"]) assert.equal(walletRefusedUnsent(error), false);
+});
