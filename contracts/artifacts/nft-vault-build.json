@@ -18,5 +18,6 @@
   "sourceHashes": {
     "MusegodNftFeeVault.sol": "0x195954ddaad256be77a214092f682d080009212ac37b7c76b7e8e71bb0f602b8",
     "MusegodNftFeeVaultFactory.sol": "0xd3cc1880cb8aad66b957b39b1aa7ee5f329d2eebc8f3f3b608f33cbc8ee2b660"
-  }
+  },
+  "factoryCompilerInputSha256": "0aff3c5e348da5672ed6380c0bef1562208160be704c3491b12eac62c4f6b80a"
 }

@@ -59,7 +59,7 @@ jobs:
           npm run build:base-collector
           git diff --exit-code -- contracts/artifacts/base-collector
           npm run build:nft-vault
-          git diff --exit-code -- contracts/artifacts/nft-vault-build.json contracts/artifacts/nft-vault-deployment.json
+          git diff --exit-code -- contracts/artifacts/nft-vault-build.json contracts/artifacts/nft-vault-deployment.json contracts/artifacts/MusegodNftFeeVaultFactory.compiler-input.json
 
       - name: Build frontend once
         run: npm run build

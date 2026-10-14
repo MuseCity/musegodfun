@@ -158,7 +158,7 @@ If later verification fails, stop the keeper and disable the engine for new pool
 
 ## NFT mode (Robinhood)
 
-Status, 2026-10-14: NFT mode ships with `NFT_MODE_ENABLED=false` in `wrangler.jsonc`. The vault factory's status is recorded in `contracts/artifacts/nft-vault-deployment.json`; Supabase migration `20261014120000_nft_single_use_indexes.sql` is applied before publication. `server/config.ts` keeps NFT mode off on Base. Factory deployment and enabling NFT mode require the owner's authorization. Design and decisions: `tasks/nft-mode.md`.
+Status, 2026-10-14: NFT mode ships with `NFT_MODE_ENABLED=false` in `wrangler.jsonc`. The vault factory's status is recorded in `contracts/artifacts/nft-vault-deployment.json`; Supabase migration `20261014120000_nft_single_use_indexes.sql` is applied before publication. `server/config.ts` keeps NFT mode off on Base. Factory deployment and enabling NFT mode require the owner's authorization. Design and decisions: `tasks/nft-mode.md`. Factory deployment runbook (owner-signed CREATE, read-only preflight and verify): [nft-vault-deployment.md](nft-vault-deployment.md).
 
 **Rules**
 - A coin can be bound to one ERC-721 on the coin's own chain. Each NFT gets one coin, ever: once it has a `verified` coin, prepare refuses another with `NFT_ALREADY_LAUNCHED`, also after the NFT is sold.
