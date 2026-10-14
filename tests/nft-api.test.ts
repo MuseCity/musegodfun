@@ -471,5 +471,8 @@ test("the cache is bounded by 500 entries and evicts the oldest first", async ()
 });
 
 test("the committed hide list names both chains", () => {
-  assert.deepEqual(committedHideList, { "4663": [], "8453": [] });
+  assert.deepEqual(Object.keys(committedHideList).sort(), ["4663", "8453"]);
+  for (const addresses of Object.values(committedHideList)) for (const a of addresses) assert.match(a, /^0x[0-9a-f]{40}$/);
+  // A Base coin launched as "Musegod" (MUSEGOD) under the official X link, before the reserved-name rule; the official token is 0x0379… on Robinhood.
+  assert.ok(committedHideList["8453"].includes("0x79ea556198c33bb3025f0243144e74cb9416e670"));
 });

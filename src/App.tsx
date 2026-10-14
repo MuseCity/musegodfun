@@ -3324,6 +3324,8 @@ function TokenPage({
         </button>
       </div>
       {token.openingValuationUnverified && <Notice kind="warning">Not verified by the platform: this launch was recovered from a backup without a platform attestation, so its opening valuation is unverified.</Notice>}
+      {/* An NFT coin's card carries its own hidden banner. */}
+      {token.hidden && !token.nft && <Notice kind="warning">Hidden by operator. This coin is not listed on Explore and musegod.fun does not endorse it; trading still works.</Notice>}
       {sharing && <ShareDialog name={token.name} url={canonicalUrl}
         detail={`$${token.symbol} · ${stock.symbol} pair${token.tradingFeeBps !== undefined ? ` · ${feePercent(token.tradingFeeBps)} fee` : ""}`}
         icon={<TokenIcon name={token.name} image={token.image} />} onClose={() => setSharing(false)} />}
