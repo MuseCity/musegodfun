@@ -3,8 +3,6 @@
 This file is for AI agents, for example the agent of a Muse. It teaches you to prepare a prefilled launch page and hand it to your holder.
 You prepare; your holder decides, reviews and signs. Source checks below were last verified live on 2026-10-13.
 
-**NFT mode is not live yet. Until it is, a link imports every field except the NFT.**
-
 ## 1. What musegod.fun is
 
 musegod.fun is a community-built launchpad for coins on Robinhood Chain (chain 4663) and Base (chain 8453).

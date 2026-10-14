@@ -60,10 +60,8 @@ test("the code sample runs on its own and builds the example link", () => {
   assert.ok(doc.includes(sandbox.result), "the sample produces the link the file shows");
 });
 
-test("until NFT mode is live, the file says so near the top, plainly", () => {
-  const status = "NFT mode is not live yet. Until it is, a link imports every field except the NFT.";
-  assert.ok(doc.includes(status), "the status line is present");
-  assert.ok(doc.indexOf(status) < doc.indexOf("## 2."), "it comes before the NFT mode section");
+test("with NFT mode live, the file no longer says it is not live", () => {
+  assert.doesNotMatch(doc, /NFT mode is not live yet/);
 });
 
 test("the platform share is described as the app shows it: part buybacks, part operations", () => {

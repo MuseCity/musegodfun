@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Address, Hex } from "viem";
 import { deploymentChain, explorerFor, type RuntimeConfig } from "../lib/config";
-import { LAUNCH_FEE_STABLE } from "../lib/launch-fee";
+import { LAUNCH_FEE_STABLE, LAUNCH_FEE_USD } from "../lib/launch-fee";
 import { MUSES, isMuse, nftKey, treasuryFor, type NftRef, type NftStatus } from "../lib/nft-mode";
 import { FEE_MAYBE_SENT, FEE_WAITING, formatFeeEth, readNftStatus, type DraftLaunchFee, type LaunchFeeState, type NftChecked } from "../lib/nft-client";
 import { useLaunchFee } from "../lib/use-launch-fee";
@@ -24,12 +24,23 @@ export function NftFeeNotice({ rejection, paid, onDiscard }: { rejection: NftFee
   </div>;
 }
 
+const LAUNCH_MODES = [
+  [false, "Normal", "Any coin. You keep the creator share of trading fees."],
+  [true, "NFT", `Bound to an NFT you hold. Creator fees go to the NFT's treasury and move with the NFT. Muses launch free; other NFTs pay $${LAUNCH_FEE_USD}.`],
+] as const;
+
+/** The launch type, as two large choices; each radio is named by its title alone and described by its note. */
 export function LaunchModeSwitch({ nftMode, disabled, onChange }: { nftMode: boolean; disabled?: boolean; onChange: (nftMode: boolean) => void }) {
   return (
     <fieldset className="launch-mode" disabled={disabled}>
       <legend className="field-label">Launch type</legend>
-      {([[false, "Normal"], [true, "NFT"]] as const).map(([value, label]) => <label key={label}>
-        <input type="radio" name="launchMode" checked={nftMode === value} onChange={() => onChange(value)} />{label}
+      {LAUNCH_MODES.map(([value, label, note]) => <label key={label}>
+        <input type="radio" name="launchMode" checked={nftMode === value} onChange={() => onChange(value)}
+          aria-labelledby={`launch-mode-${label}`} aria-describedby={`launch-mode-${label}-note`} />
+        <span className="launch-mode-text">
+          <span id={`launch-mode-${label}`} className="launch-mode-title">{label}</span>
+          <span id={`launch-mode-${label}-note`} className="launch-mode-note">{note}</span>
+        </span>
       </label>)}
     </fieldset>
   );
