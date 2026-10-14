@@ -15,6 +15,10 @@ import { permit2Abi } from '../src/lib/protocol.ts';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const origin = process.env.BROWSER_ORIGIN || 'http://127.0.0.1:5191';
 assert(['127.0.0.1', 'localhost'].includes(new URL(origin).hostname), 'The NFT UI check must target a local server');
+// BROWSER_WALLET_SEND=wallet_sendTransaction: the fixture wallet refuses eth_sendTransaction as unsupported (-32004), so viem resends
+// through wallet_sendTransaction (and a reused wallet client then sends there directly), validated exactly like eth_sendTransaction.
+const walletSend = process.env.BROWSER_WALLET_SEND || 'eth_sendTransaction';
+assert(['eth_sendTransaction', 'wallet_sendTransaction'].includes(walletSend), 'BROWSER_WALLET_SEND must name a transaction send method');
 
 const holder = getAddress('0xaaaa000000000000000000000000000000000001'), delegate = getAddress('0xdddd000000000000000000000000000000000004');
 const launcher = '0x2222222222222222222222222222222222222222', treasury = '0x3333333333333333333333333333333333333333';
@@ -73,7 +77,7 @@ const baseConfig = { mode: 'robinhood', chainId: 4663, deploymentChainId: 4663, 
 // A visible placeholder for the Muse art, so the screenshots show where it sits.
 const art = '<svg xmlns="http://www.w3.org/2000/svg" width="480" height="480"><rect width="480" height="480" fill="#8a5cf6"/><circle cx="240" cy="200" r="90" fill="#ffc933"/></svg>';
 const report = { scope: 'Local Chromium against vite preview of dist; mocked wallet, API and RPC; no network beyond 127.0.0.1 (musegod.org art stubbed).',
-  observedAt: new Date().toISOString(), origin, checks: [], screenshots: [] };
+  observedAt: new Date().toISOString(), origin, walletSend, checks: [], screenshots: [] };
 await mkdir('.cache/nft-ui', { recursive: true });
 const browser = await chromium.launch({ headless: true });
 
@@ -87,14 +91,14 @@ async function open(path, { account = holder, owner = holder, locked = false, fa
   // `walletEvent`: { attempt, event, value }: the wallet emits that provider event while handling that request.
   // `coinHeld`: the wallet's balance of every other token. `holdPairBalance`: MUSEGOD balance reads wait for `state.releaseBalance()`.
   // `unreadableConversion`: an ETH → MUSEGOD conversion's receipt carries no MUSEGOD Transfer (its amount cannot be read).
-  const state = { sends: [], attempts: 0, rejected: [], treasuryReads: 0, statusAccounts: [], multicalls: [], external: [], stubbed: [], pageErrors: [], statusFailures, lockFailures,
+  const state = { sends: [], attempts: 0, refusedSends: 0, rejected: [], treasuryReads: 0, statusAccounts: [], multicalls: [], external: [], stubbed: [], pageErrors: [], statusFailures, lockFailures,
     ethQuotes: [], ethQuoteResponses: [], v4Quotes: [], swapSpends: [], held: null, releaseSend: () => {} };
   const holding = new Promise(resolve => { state.releaseSend = resolve; });
   let balanceReleased = !holdPairBalance;
   const balanceGate = new Promise(resolve => { state.releaseBalance = () => { balanceReleased = true; resolve(); }; });
   state.pairBalanceReads = 0;
   const config = { ...baseConfig, nftMode: { ...baseConfig.nftMode, enabled: nftEnabled, vaultFactory: factoryDeployed ? factory : null } };
-  await context.addInitScript(({ account, theme, chainHex }) => {
+  await context.addInitScript(({ account, theme, chainHex, walletSend }) => {
     localStorage.setItem('musegod.theme', theme);
     if (account) localStorage.setItem('musegod.wallet.v1', 'fun.musegod.localtest');
     window.__walletListeners = {};
@@ -102,13 +106,17 @@ async function open(path, { account = holder, owner = holder, locked = false, fa
       if (method === 'eth_accounts') return account ? [account] : [];
       if (method === 'eth_requestAccounts') return [account];
       if (method === 'eth_chainId') return chainHex;
-      if (method === 'eth_sendTransaction') return window.__nftSend(params[0]);
+      if (method === 'eth_sendTransaction' && walletSend !== method) {
+        await window.__nftRefusedSend(); throw Object.assign(new Error('Method not supported'), { code: -32004 });
+      }
+      if (method === walletSend) return window.__nftSend(params[0]);
       throw new Error('Unexpected fixture wallet method ' + method);
     } };
     const announce = () => window.dispatchEvent(new CustomEvent('eip6963:announceProvider', { detail: { info: { uuid: '11111111-2222-4333-8444-555555555555',
       name: 'Local acceptance wallet', rdns: 'fun.musegod.localtest', icon: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB' }, provider } }));
     window.addEventListener('eip6963:requestProvider', announce); window.addEventListener('load', announce);
-  }, { account, theme, chainHex });
+  }, { account, theme, chainHex, walletSend });
+  await context.exposeBinding('__nftRefusedSend', () => { state.refusedSends++; });
   await context.exposeBinding('__nftSend', async (source, tx) => {
     const attempt = state.attempts++;
     if (walletEvent?.attempt === attempt) {
@@ -276,6 +284,8 @@ async function finish({ context, state }) {
   assert.deepEqual(state.external, [], 'No request may leave 127.0.0.1');
   assert.deepEqual(state.pageErrors, []);
   assert(!state.statusAccounts.some(account => account?.toLowerCase() === zeroAddress), 'no NFT status is read for the zero address');
+  // Each wallet client's first send was refused on eth_sendTransaction; the accepted ones all came through wallet_sendTransaction.
+  if (walletSend !== 'eth_sendTransaction') assert(state.attempts === 0 || state.refusedSends > 0, 'sends went through the wallet_sendTransaction fallback');
   await context.close();
 }
 const noOverflow = page => page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, innerWidth }));

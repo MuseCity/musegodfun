@@ -39,7 +39,11 @@ const config = { mode: 'fork', chainId: 31337, deploymentChainId: 4663, treasury
 const nftConfig = { ...config, nftMode: { enabled: true, vaultFactory: '0xfac7000000000000000000000000000000000001', launchFeeUsd: 10,
   freeCollections: [`4663:${muses.toLowerCase()}`], verifiedCollections: [`4663:${muses.toLowerCase()}`] } };
 const noVaultConfig = { ...nftConfig, nftMode: { ...nftConfig.nftMode, vaultFactory: null } };
-const report = { scope: 'Local Chromium UI with injected mock wallet/API/RPC and reference-price fixtures, scoped to Robinhood fork and No lock. Cross-tab checks use separate browser pages sharing one origin and storage. No real-wallet, conversion or chain settlement proof.', observedAt: new Date().toISOString(), origin, checks: [], screenshots: [], productionPublication: 'not_run' };
+// BROWSER_WALLET_SEND=wallet_sendTransaction: the fixture wallet refuses eth_sendTransaction as unsupported (-32004), so viem resends
+// every transaction through wallet_sendTransaction, which the signing guard must validate and record exactly like eth_sendTransaction.
+const walletSend = process.env.BROWSER_WALLET_SEND || 'eth_sendTransaction';
+assert(['eth_sendTransaction', 'wallet_sendTransaction'].includes(walletSend), 'BROWSER_WALLET_SEND must name a transaction send method');
+const report = { scope: 'Local Chromium UI with injected mock wallet/API/RPC and reference-price fixtures, scoped to Robinhood fork and No lock. Cross-tab checks use separate browser pages sharing one origin and storage. No real-wallet, conversion or chain settlement proof.', observedAt: new Date().toISOString(), origin, walletSend, checks: [], screenshots: [], productionPublication: 'not_run' };
 const browser = await chromium.launch({ headless: true });
 let activePage;
 await mkdir('.cache', { recursive: true });
@@ -86,14 +90,14 @@ async function casePage(mode, viewport = { width: 1440, height: 1000 }) {
     approvalCanonical: mode !== 'approval_pending', configurationReleased: mode !== 'delayed_config', releaseConfiguration: [],
     unresolvedRequests: new Map(), holdVerification: ['payment_submit_race', 'payment_submit_record_race'].includes(mode), releaseVerification: null,
     holdRegistration: false, releaseRegistration: null, priceRequests: 0, paymentQuoteRequests: [], releaseDetail: null, detailRequested: false,
-    trackRequests: 0, trackedHash: null, trackedReceipt: false, nftStatusRequests: [], feeReceipt: true, holdReconnect: false, reconnectHeld: false, reconnectResolvers: [], walletLocked: false };
+    trackRequests: 0, trackedHash: null, trackedReceipt: false, nftStatusRequests: [], feeReceipt: true, holdReconnect: false, reconnectHeld: false, reconnectResolvers: [], walletLocked: false, refusedSends: 0 };
   // A held fee payment is not mined yet: it spends no nonce and has no receipt.
   const minedSends = () => state.sends.filter(sent => !sent.fee || state.feeReceipt);
   const chainTransaction = sent => ({ hash:sent.hash, from:creator, to:sent.to, input:sent.data, value:sent.value ?? '0x0', nonce:toHex(state.sends.indexOf(sent)),
     gas:'0xea60', gasPrice:'0x1', blockHash, blockNumber:'0x10', transactionIndex:'0x0', type:'0x0', v:'0x1b', r:'0x1', s:'0x1' });
   if (mode === 'delayed_config') await context.route(delayedImage, route => route.fulfill({ contentType: 'image/png',
     body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jS1sAAAAASUVORK5CYII=', 'base64') }));
-  await context.addInitScript(({ creator, treasury, mode }) => {
+  await context.addInitScript(({ creator, treasury, mode, walletSend }) => {
     const listeners = new Map();
     let selectedAccount = creator, selectedChain = '0x7a69';
     const provider = { __emit(name, value) { for (const fn of listeners.get(name) || []) fn(value); },
@@ -107,7 +111,10 @@ async function casePage(mode, viewport = { width: 1440, height: 1000 }) {
           return [selectedAccount];
         }
         if (request.method === 'eth_chainId') return selectedChain;
-        if (request.method === 'eth_sendTransaction') {
+        if (request.method === 'eth_sendTransaction' && walletSend !== request.method) {
+          await window.__testRefusedSend(); const error = new Error('Method not supported'); error.code = -32004; throw error;
+        }
+        if (request.method === walletSend) {
           const result = await window.__testSend(request.params[0]);
           if (result.reject) { const error = new Error('User rejected the request'); error.code = 4001; throw error; }
           if (result.changeAccount) { selectedAccount = treasury; for (const fn of listeners.get('accountsChanged') || []) fn([selectedAccount]); }
@@ -126,7 +133,8 @@ async function casePage(mode, viewport = { width: 1440, height: 1000 }) {
     // Only the wallet-response timer is shortened. Quotes, lease renewals and
     // receipt-confirmation timers keep their ordinary semantics in this fixture.
     if (mode.includes('_timeout') || mode === 'wrap_late_launch_recovery') { const native = window.setTimeout; window.setTimeout = (fn, ms, ...args) => native(fn, ms === 300000 ? 300 : ms, ...args); }
-  }, { creator, treasury, mode });
+  }, { creator, treasury, mode, walletSend });
+  await context.exposeBinding('__testRefusedSend', () => { state.refusedSends++; });
   await context.exposeBinding('__testChanged', () => { state.changed = true; });
   // Every silent reconnect request made during the hold waits for the release, not only the first.
   await context.exposeBinding('__testReconnect', () => state.holdReconnect ? new Promise(resolve => { state.reconnectHeld = true; state.reconnectResolvers.push(resolve); }) : undefined);
@@ -1151,10 +1159,14 @@ try {
       state.receipts=true; await page.getByRole('button',{name:'Recover pending launch'}).click(); await page.waitForURL('**/token/**'); assert.equal(state.plans,plans); }
     assert.equal(await page.getByRole('heading', {name:'Quick verification'}).isVisible(),false);
     if (state.successful && ['success','plain','wrap_flow','wrap_near_expiry','idle_review','hidden_review'].includes(mode)) {
-      assert.equal(state.validationRequests.filter(request=>request.signing===true).length,state.sends.filter(sent=>!sent.wrap).length,
+      // With BROWSER_WALLET_SEND, each accepted send follows its refused eth_sendTransaction handoff, and both were validated.
+      assert.equal(state.validationRequests.filter(request=>request.signing===true).length,
+        state.sends.filter(sent=>!sent.wrap).length * (walletSend === 'eth_sendTransaction' ? 1 : 2),
         'Only actual launch/approval wallet handoffs protect the frozen launch plan');
       assert(state.validationRequests.some(request=>request.signing!==true),'Unsigned simulation/preflight checks do not permanently protect previews');
     }
+    // Every transaction the wallet accepted reached it through viem's wallet_sendTransaction resend of a refused eth_sendTransaction.
+    if (walletSend !== 'eth_sendTransaction') assert(state.refusedSends >= state.sends.length, 'each send followed a refused eth_sendTransaction');
     assert.deepEqual(pageErrors,[]); report.checks.push({mode,viewport:'desktop',walletCalls:state.sends.length,plans:state.plans,
       ...(state.wrapping ? { businessConfirmations: state.businessConfirmations, paymentVerifications: state.paymentVerifications, reviewedMinimum: state.reviewedMinimum } : {}),
       ...(mode === 'delayed_config' ? { delayedConfigDraftPreserved: state.delayedConfigDraftPreserved, businessConfirmations: state.businessConfirmations } : {}),

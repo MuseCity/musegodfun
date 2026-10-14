@@ -10,6 +10,7 @@ import { launchGuardAbi } from "./launch-guard";
 import { transactionMatchesConfig, type Transaction } from "./transactions";
 import { ENGINE_FEE_POLICY, BASE_AUTOMATION_FEE_POLICY, launchFeePolicy } from "./fee-policy";
 import { assertEngineFeeCalldata, assertNftFeeCalldata, assertTradingFeeCalldata } from "./protocol";
+import { isTransactionSend, type WalletRequest } from "./wallet-signing";
 
 export type LaunchSimulation = { valid: true; gas: string; amountOut: string | null; simulatedAt: number };
 export type LaunchWalletStep = LaunchTransaction & { from: Address; chainId: number };
@@ -141,9 +142,10 @@ export function assertLaunchWalletPlan(plan: LaunchPlan, config: RuntimeConfig, 
     throw new Error("Approval must cover only this first buy amount and the configured launch guard");
 }
 
-export function assertLaunchRequest(request: { method: string; params?: unknown }, step: LaunchWalletStep) {
+/** Both send methods: viem resends a refused `eth_sendTransaction` as `wallet_sendTransaction`, checked identically. */
+export function assertLaunchRequest(request: WalletRequest, step: LaunchWalletStep) {
   if (request.method === "eth_chainId") return;
-  if (request.method !== "eth_sendTransaction" || !Array.isArray(request.params) || request.params.length !== 1)
+  if (!isTransactionSend(request.method) || !Array.isArray(request.params) || request.params.length !== 1)
     throw new Error("The launch wallet request is not allowed");
   const tx = request.params[0] as Record<string, unknown>;
   const allowed = ["from", "to", "data", "value", "chainId", "gas", "gasPrice", "maxFeePerGas", "maxPriorityFeePerGas", "nonce", "type"];

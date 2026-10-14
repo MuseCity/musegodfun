@@ -67,6 +67,7 @@ import { executeMusegodTrade } from "./musegod-trade";
 import type { LaunchPlan, LaunchTransaction } from "./launch-plan";
 import { assertLaunchRequest, assertLaunchWalletPlan, bufferedLaunchGas, executeLaunchPlan, launchDraftInput, type LaunchSimulation } from "./launch-wallet";
 import { engineTransaction, type EngineAction } from "./buyback-engine";
+import { isTransactionSend, signingRequest, type WalletRequest } from "./wallet-signing";
 declare global {
   interface Window {
     ethereum?: Provider;
@@ -157,9 +158,10 @@ export function assertSameBuybackStep(expected: BuybackStep, fresh: BuybackStep)
     !sameAddress(expected.stockAddress, fresh.stockAddress))
     throw new Error("The buyback batch or transaction parameters have changed. Preview again.");
 }
-export function assertBuybackRequest(request: { method: string; params?: unknown }, step: BuybackStep) {
+/** Both send methods: viem resends a refused `eth_sendTransaction` as `wallet_sendTransaction`, checked identically. */
+export function assertBuybackRequest(request: WalletRequest, step: BuybackStep) {
   if (request.method === "eth_chainId") return;
-  if (request.method !== "eth_sendTransaction" || !Array.isArray(request.params) || request.params.length !== 1)
+  if (!isTransactionSend(request.method) || !Array.isArray(request.params) || request.params.length !== 1)
     throw new Error("The buyback wallet request is not allowed");
   const tx = request.params[0] as Record<string, unknown>;
   const allowed = ["from", "to", "data", "value", "chainId", "gas", "gasPrice", "maxFeePerGas", "maxPriorityFeePerGas", "nonce", "type"];
@@ -202,7 +204,8 @@ export type TradeSteps = { approve: string; router: string | ((approval: number)
 const TRADE_STEPS: TradeSteps = { approve: "1/3 · Approve this transaction amount", router: "2/3 · Approve the trading router; approval expires in 5 minutes",
   swap: "3/3 · Confirm the transaction in your wallet", waiting: "Waiting for onchain confirmation" };
 /** `send` extras: an NFT launch-fee payment passes its exact value (and, for ETH, the quote it must equal); `beforeSend` runs right
- * before the wallet receives the request, after every check that could still refuse it. */
+ * before the wallet receives the request (and again before viem's `wallet_sendTransaction` resend of it), after every check that
+ * could still refuse it. */
 // `nft`: the NFT whose fee vault or treasury this call acts on; the guard derives every allowed address from it.
 type SendOptions = { value?: bigint; feeQuote?: LaunchFeeQuote; beforeSend?: () => void; nft?: NftRef };
 type WalletState = {
@@ -405,7 +408,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
   }
   async function signer(config: RuntimeConfig, expected: Address, validateAction?: (current: RuntimeConfig) => Promise<unknown>,
-    guardRequest?: (request: Parameters<Provider["request"]>[0]) => void, beforeSend?: () => void) {
+    guardRequest?: (request: WalletRequest) => void, beforeSend?: (resend: boolean) => void) {
     assertSigningEnabled(config);
     assertTransactionStorage();
     const p = controller.current?.selected?.provider;
@@ -436,17 +439,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     return createWalletClient({
       account: expected,
       chain: walletChain(config),
+      // The method policy refuses anything unlisted; both send methods and every signature are validated, and a send is recorded.
       transport: custom({
-        request: async (request: Parameters<Provider["request"]>[0]) => {
-          guardRequest?.(request);
-          const method = (request as unknown as { method: string }).method;
-          if (/^(?:eth_sendTransaction|eth_sign|personal_sign|eth_signTypedData)/.test(method) || method === "wallet_sendCalls") {
-            await validate();
-            if (method === "eth_sendTransaction") beforeSend?.();
-          }
-          return p.request(request);
-        },
-      } as Provider, { retryCount: 0 }),
+        request: signingRequest({ request: (request) => p.request(request as Parameters<Provider["request"]>[0]) },
+          { guardRequest, validate, beforeSend }),
+      }, { retryCount: 0 }),
     });
   }
   async function confirmed(
@@ -595,7 +592,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   }
   async function submitTrackedLaunch(transaction: LaunchTransaction, config: RuntimeConfig, expected: Address, gas: bigint,
     context: { kind: "approval" | "launch" | "payment"; intentId?: string; planId?: Hex; tokenAddress?: Address; quote?: FirstBuyPaymentQuote },
-    signingWallet: (beforeSend: () => void) => ReturnType<typeof signer>) {
+    signingWallet: (beforeSend: (resend: boolean) => void) => ReturnType<typeof signer>) {
     const marker = context.intentId ? launchIntentStorageKey(config, expected, context.intentId, "submission") : null;
     const saved = { transaction, account: expected, chainId: config.chainId,
       deploymentChainId: deploymentChain(config), ...context, at: Date.now() };
@@ -623,14 +620,15 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       restartTimeout();
     });
     const submission = (async () => {
-      const wallet = await signingWallet(() => {
+      const wallet = await signingWallet((resend) => {
         // A timed-out preflight must never reach the provider later. A request
         // already handed to the wallet remains owned by this frozen intent.
         if (timedOut || performance.now() >= timeoutAt) {
           expire(); throw new Error("The wallet request expired before submission. Review again.");
         }
-        if (requested) throw new Error("This wallet request was already sent. Check its saved status.");
-        if (marker) { savedMarker = JSON.stringify(saved); localStorage.setItem(marker, savedMarker); changed(); }
+        // Only viem's resend of this same request, after the wallet refused `eth_sendTransaction` unprocessed, follows the first.
+        if (requested !== resend) throw new Error("This wallet request was already sent. Check its saved status.");
+        if (marker && !resend) { savedMarker = JSON.stringify(saved); localStorage.setItem(marker, savedMarker); changed(); }
         requested = true;
         // Give the wallet its complete five-minute response window even when
         // the preceding configuration and transaction checks were slow.
@@ -664,7 +662,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   }
   async function confirmLaunchApproval(transaction: LaunchTransaction, config: RuntimeConfig, expected: Address, gas: bigint,
     context: { intentId?: string; planId?: Hex; quote?: FirstBuyPaymentQuote },
-    signingWallet: (beforeSend: () => void) => ReturnType<typeof signer>, onHash?: (hash: Hash) => void) {
+    signingWallet: (beforeSend: (resend: boolean) => void) => ReturnType<typeof signer>, onHash?: (hash: Hash) => void) {
     const { hash, clearMarker } = await submitTrackedLaunch(transaction, config, expected, gas,
       { ...context, kind: "approval" }, signingWallet);
     onHash?.(hash);
@@ -716,7 +714,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         throw new Error("The launch preview has changed. Run a new preview.");
       assertCurrent?.();
     };
-    const signingWallet = (transaction: LaunchTransaction, frozen: LaunchPlan, beforeSend?: () => void) => signer(config, expected,
+    const signingWallet = (transaction: LaunchTransaction, frozen: LaunchPlan, beforeSend?: (resend: boolean) => void) => signer(config, expected,
       (current) => validate(frozen, current, true),
       (request) => assertLaunchRequest(request, { ...transaction, from: expected, chainId: config.chainId }), beforeSend);
     return executeLaunchPlan(plan, config, expected, {
@@ -939,7 +937,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       await verifyLifiRouter(client, frozen, assertFirstBuyPaymentQuote(frozen));
       assertCurrent?.();
     };
-    const signingWallet = (transaction: LaunchTransaction, frozen: FirstBuyPaymentQuote, beforeSend?: () => void) => signer(config, expected,
+    const signingWallet = (transaction: LaunchTransaction, frozen: FirstBuyPaymentQuote, beforeSend?: (resend: boolean) => void) => signer(config, expected,
       (current) => validate(frozen, current), (request) => assertLaunchRequest(request, { ...transaction, from: expected, chainId: config.chainId }), beforeSend);
     const hash = await executeFirstBuyPayment(quote, config, expected, {
       validate: (frozen) => validate(frozen, config),
