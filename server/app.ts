@@ -12,7 +12,7 @@ import { robinhood } from "viem/chains";
 import { alchemyRpcTransport } from "./alchemy-rpc";
 import baseCollectorDeployment from "../contracts/artifacts/base-collector-deployment.json";
 import committedHiddenTokens from "../src/lib/hidden-tokens.json";
-import { LaunchpadService, runtimeFromEnv } from "./service";
+import { LaunchClaimUnavailable, LaunchpadService, runtimeFromEnv } from "./service";
 import { redact, type Runtime, type DeploymentChainId } from "./config";
 import { deploymentChain } from "../src/lib/config";
 import { FirstBuyPaymentReader } from "./lifi";
@@ -220,7 +220,14 @@ app.post(
       res.status(429).json({ error: "The pending registration queue is full" });
       return;
     }
-    await service.trackLaunch(hash as Hex, planId);
+    try { await service.trackLaunch(hash as Hex, planId); }
+    catch (error) {
+      if (!(error instanceof LaunchClaimUnavailable)) throw error;
+      // Queued, but its NFT claim is not yet held as submitted: a short 503 the client's API layer retries (src/lib/api.ts).
+      res.setHeader("Retry-After", "1");
+      res.status(503).json({ error: error.message, code: "LAUNCH_CLAIM_UNAVAILABLE" });
+      return;
+    }
     res.status(202).json({ status: "pending" });
   }),
 );

@@ -14,6 +14,8 @@ import {
   keccak256,
   parseUnits,
   stringToBytes,
+  TransactionNotFoundError,
+  TransactionReceiptNotFoundError,
   zeroAddress,
   type Address,
   type Hex,
@@ -75,6 +77,11 @@ import { runtimeFromEnv, mainnetRpcUrl, redact } from "./config";
 export { runtimeFromEnv } from "./config";
 /** The on-chain pool contradicts the stored listing; never a transient outage. */
 export class PoolIdentityError extends Error {}
+/** `/launch/track` queued the creation but could not store its NFT claim as submitted: the route answers 503 with a short Retry-After, which
+ * the client's API layer retries (src/lib/api.ts). */
+export class LaunchClaimUnavailable extends Error {
+  constructor() { super("The transaction is queued, but its NFT reservation could not be saved yet. Try again."); this.name = "LaunchClaimUnavailable"; }
+}
 export class LaunchpadService {
   readonly client;
   readonly sdk;
@@ -625,11 +632,12 @@ export class LaunchpadService {
       // The kill switch stops new signatures too, not only new previews: NFT mode as prepare and /config see it (the flag and the
       // database guards), before any claim or protection. Registration of launches already sent is never gated.
       if (!(await this.nftModeEnabled())) throw new NftLaunchError("NFT_MODE_UNAVAILABLE", "NFT mode is not available on this network.");
+      // Claims, re-reads and protects the plan; a failure in any step after the claim frees it.
       await this.claimNftLaunch(plan, plan.draft.nft);
     }
     // Simulation is still an unsigned preview. Protect only when the client is
     // entering a real wallet signature; unknown submissions must not age out.
-    if (signing) await this.store.protectPlan(plan.id);
+    else if (signing) await this.store.protectPlan(plan.id);
     return { valid: true, feePolicy: plan.feePolicy, curvePolicy: plan.curvePolicy, planId: plan.id,
       validityVersion: plan.validityVersion, signingExpiresAt: plan.signingExpiresAt, intentId: plan.intentId, serverTime: Date.now() };
   }
@@ -638,7 +646,8 @@ export class LaunchpadService {
    * The database's single-use indexes refuse a second coin only at registration, after both irreversible creations; the claim stops another
    * plan, in any tab or process, at signing. A plan that refreshes the holder (the plan signed after a first-buy approval, or a re-confirmed
    * price) takes over its unsubmitted claim through its verified lineage. Only once the plan holds its claim are both rules re-read, so a coin
-   * registered since its preview is seen; a failed re-read authorizes nothing and frees the claim at once. */
+   * registered since its preview is seen, and the plan is protected for signing; a failure in either authorizes nothing and frees the claim
+   * at once. */
   private async claimNftLaunch(plan: LaunchPlan, nft: NftRef) {
     const fee = isMuse(nft) ? undefined : plan.draft.launchFee;
     if (!isMuse(nft) && !fee) throw new NftLaunchError("NFT_FEE_REQUIRED", "Pay the $10 launch fee for this NFT first.");
@@ -653,6 +662,7 @@ export class LaunchpadService {
       if (await this.store.verifiedNftCoin(nftKey(nft), plan.tokenAddress))
         throw new NftLaunchError("NFT_ALREADY_LAUNCHED", "This NFT already has its coin.");
       if (fee) await this.assertUnusedLaunchFee(fee, plan.creator, plan.tokenAddress);
+      await this.store.protectPlan(plan.id);
     } catch (error) {
       // A claim held as submitted stays: this plan's creation was already sent.
       await this.releaseNftClaims(plan.id, { unsubmittedOnly: true });
@@ -673,16 +683,41 @@ export class LaunchpadService {
     }
     return lineage;
   }
-  /** The wallet sent this NFT plan's creation: its claims are held as submitted, never taken over or moved, until registration or a proven
-   * revert releases them, or the recovery window ends for a creation that never lands. Never blocks tracking or registration. */
-  private async submitNftClaims(plan: LaunchPlan, hash: Hex) {
+  /** The wallet sent this NFT plan's creation: its claims are held as submitted, never taken over or moved, for one recovery window from now,
+   * until registration or a proven revert releases them (reconcile renews them while the creation may still be mined). Throws when the
+   * database could not store the mark. A claim another plan already holds (this creation was sent after its signing claim expired) is left
+   * to registration, which settles the conflict; `report` logs it. */
+  private async markNftClaimsSubmitted(plan: LaunchPlan, hash: Hex, report = true) {
     const nft = plan.draft.nft!;
-    await Promise.resolve().then(() => this.store.claimLaunch(plan.id, nftLaunchKeys(nft, isMuse(nft) ? undefined : plan.draft.launchFee),
-      Date.now() + RECOVERY_RESULT_TTL_MS, { submitted: true })).then((held) => {
-      // Another plan took the claim (this creation was sent after its signing claim expired): registration settles the conflict.
-      if (held.length) console.error(JSON.stringify({ event: "nft_launch_claim_lost", planId: plan.id, hash, held }));
-    }, (error: unknown) => console.error(JSON.stringify({ event: "nft_launch_claim_submit_failed", planId: plan.id, hash,
-      error: error instanceof Error ? error.message : String(error) })));
+    const held = await this.store.claimLaunch(plan.id, nftLaunchKeys(nft, isMuse(nft) ? undefined : plan.draft.launchFee),
+      Date.now() + RECOVERY_RESULT_TTL_MS, { submitted: true });
+    if (held.length && report) console.error(JSON.stringify({ event: "nft_launch_claim_lost", planId: plan.id, hash, held }));
+  }
+  /** Tracking reports success only once the mark is stored: three attempts with the RPC transport's short backoff (250 ms, then 500 ms),
+   * then LaunchClaimUnavailable, a 503 the client's API layer retries. The hash is already queued, so the next reconcile pass marks it too. */
+  private async trackNftClaims(plan: LaunchPlan, hash: Hex) {
+    for (let attempt = 0; ; attempt++) {
+      try { return await this.markNftClaimsSubmitted(plan, hash); }
+      catch (error) {
+        if (attempt < 2) { await new Promise((resolve) => setTimeout(resolve, 250 * 2 ** attempt)); continue; }
+        console.error(JSON.stringify({ event: "nft_launch_claim_submit_failed", planId: plan.id, hash, error: error instanceof Error ? error.message : String(error) }));
+        throw new LaunchClaimUnavailable();
+      }
+    }
+  }
+  /** Reconcile's defense in depth, for a queued creation that has not settled (no receipt yet, an unreadable one, or a registration that is
+   * still retrying): holds its NFT plan's claims as submitted for another recovery window from this pass, never taking another plan's. Not
+   * once the launch registered (its claims were released) or reverted (it left the queue), and not while the node has no trace of the
+   * transaction: an evicted or replaced creation, which reconcile otherwise keeps forever, then lapses within one window instead of locking
+   * the NFT. Best-effort. */
+  private async renewPendingNftClaims(row: { hash: Hex; planId: string; status: string }, error: unknown) {
+    try {
+      if (row.status !== "pending" || await this.store.tokenByTxHash(row.hash)) return;
+      if (error instanceof TransactionReceiptNotFoundError &&
+        !await this.client.getTransaction({ hash: row.hash }).then(() => true, (failure: unknown) => !(failure instanceof TransactionNotFoundError))) return;
+      const plan = await this.store.getPlan(row.planId);
+      if (plan?.draft.nft) await this.markNftClaimsSubmitted(plan, row.hash, false);
+    } catch { /* The claim keeps its current expiry; the next pass tries again. */ }
   }
   /** Frees a plan's claims; a failure only leaves them to expire. */
   private async releaseNftClaims(planId: string, options?: { unsubmittedOnly?: boolean }) {
@@ -732,7 +767,7 @@ export class LaunchpadService {
       assertHistoricalOpeningValuation(plan.openingValuation, plan.draft.quoteAddress, deploymentChain(this.runtime.config));
     assertLaunchTransaction(plan, tx, this.contracts);
     await this.store.trackLaunch(hash, plan.id);
-    if (plan.draft.nft) await this.submitNftClaims(plan, hash);
+    if (plan.draft.nft) await this.trackNftClaims(plan, hash);
   }
   async register(hash: Hex, recoveryPlan?: LaunchPlan): Promise<TokenRecord> {
     hash = hash.toLowerCase() as Hex;
@@ -1025,8 +1060,10 @@ export class LaunchpadService {
     if (!draft.nft) await save();
     else {
       const nft = draft.nft, fee = isMuse(nft) ? undefined : draft.launchFee;
-      // The creation is on-chain: its claims hold, as submitted, while registration decides (it can retry for minutes).
-      await this.submitNftClaims(plan, hash);
+      // The creation is on-chain: its claims hold, as submitted, while registration decides (it can retry for minutes). Best-effort:
+      // registration is never blocked by claims.
+      await this.markNftClaimsSubmitted(plan, hash).catch((error: unknown) => console.error(JSON.stringify({ event: "nft_launch_claim_submit_failed",
+        planId: plan.id, hash, error: error instanceof Error ? error.message : String(error) })));
       // The one-coin and single-use checks hold until the record that makes them true is written.
       await withNftLocks(nftLaunchKeys(nft, fee), async () => {
         const settled = await this.nftRegistration({ hash, plan, nft, fee, saved: !!savedPlan, receiptBlock: receipt.blockNumber, receiptTimestamp: block.timestamp });
@@ -1147,8 +1184,9 @@ export class LaunchpadService {
             const failed = await Promise.resolve().then(() => this.store.getPlan(row.planId)).catch(() => null);
             if (failed?.draft.nft) await this.releaseNftClaims(failed.id);
           } else await this.register(row.hash);
-        } catch {
+        } catch (error) {
           /* Upstream absence or timeout is not evidence of failure. Retry after restart or next tick. */
+          await this.renewPendingNftClaims(row, error);
           await this.store.deferLaunch(row.hash, Date.now() + Math.min(300_000, 5000 * 2 ** Math.min(row.attempts ?? 0, 6)));
         } finally {
           this.reconcileCursor = row.hash;

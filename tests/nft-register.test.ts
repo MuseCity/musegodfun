@@ -19,7 +19,7 @@ import { LAUNCH_SIGNING_TTL, serializePrepared, type LaunchPlan } from "../src/l
 import { NftLaunchError, isBoundNftCoin, isContractAnswer, launchFeeQuoteMac, nftRegistrationStatus, readNftControl } from "../server/nft-launch";
 import { listedNftCoin } from "../src/lib/nft-treasury";
 import { ENGINE_MANIFEST } from "../server/launch-policy-registry";
-import { LaunchpadService } from "../server/service";
+import { LaunchClaimUnavailable, LaunchpadService } from "../server/service";
 import { createApp } from "../server/app";
 import { runtimeFromEnv } from "../server/config";
 import { Store, TokenUniqueConflict } from "../server/store";
@@ -229,7 +229,11 @@ const feePayment = (hash: Hex) => ({ status: "success", transactionHash: hash, b
  * its receipt read fails at the node.
  * `feeReceipt` / `feeTx`: fields that replace those of the exact payment (a definite mismatch). `quoteKey`: the ETH quote key. */
 type Chain = { holder?: Address | "fail"; receiptAge?: bigint; delayMs?: number; payments?: Hex[]; feeFault?: "mempool" | "unconfirmed" | "reorganized" | "rpc";
-  feeReceipt?: Record<string, unknown>; feeTx?: Record<string, unknown>; quoteKey?: string };
+  feeReceipt?: Record<string, unknown>; feeTx?: Record<string, unknown>; quoteKey?: string;
+  /** Creations not mined yet: the node knows the transaction but has no receipt. */
+  unmined?: Hex[];
+  /** Creations the node has no trace of (evicted or replaced): neither the transaction nor a receipt. */
+  untraced?: Hex[] };
 /** The service with the registration harness's stubs. Every NFT read is logged with the block it asked for ("latest" when none). */
 function registrar(store: Store, coins: Coin[], chain: Chain = {}) {
   const reads: string[] = [], now = BigInt(Math.floor(Date.now() / 1000));
@@ -241,6 +245,7 @@ function registrar(store: Store, coins: Coin[], chain: Chain = {}) {
     client: {
       getTransaction: async ({ hash }: { hash: Hex }) => {
         const found = byHash(hash);
+        if (found && chain.untraced?.includes(found.hash)) throw new TransactionNotFoundError({ hash });
         if (found) return found.tx;
         if (chain.payments?.some((paid) => paid.toLowerCase() === hash.toLowerCase()))
           return { hash, from: creator, to: usdg.address, input: usdgTransfer(), value: 0n, ...chain.feeTx };
@@ -248,6 +253,7 @@ function registrar(store: Store, coins: Coin[], chain: Chain = {}) {
       },
       getTransactionReceipt: async ({ hash }: { hash: Hex }) => {
         const found = byHash(hash);
+        if (found && (chain.unmined?.includes(found.hash) || chain.untraced?.includes(found.hash))) throw new TransactionReceiptNotFoundError({ hash });
         if (found) return found.receipt;
         if (chain.payments?.some((paid) => paid.toLowerCase() === hash.toLowerCase())) {
           if (chain.feeFault === "rpc") throw new HttpRequestError({ url: "https://rpc.fixture.test", status: 503 });
@@ -625,6 +631,9 @@ test("a creation reconcile proves reverted releases its submitted claims", withS
   await service.reconcile();
   assert.equal(store.pendingLaunches().length, 0, "the reverted creation left the queue");
   assert.equal((store.db.prepare("SELECT status FROM pending_launches WHERE hash=?").get(reverted.hash) as { status: string }).status, "failed");
+  assert.equal(claimRow(store, museClaim), undefined, "released");
+  await service.reconcile();
+  assert.equal(claimRow(store, museClaim), undefined, "and never renewed afterwards");
   assert.equal(await signingCode(service.validateLaunch(creator, next.plan.data, true)), "ok", "its NFT is free again");
 }));
 
@@ -649,6 +658,134 @@ test("a re-check that fails after the claim releases it at once, for a spent fee
   await service.trackLaunch(sent.hash, sent.plan.id);
   assert.match(await signingCode(failing.validateLaunch(creator, sent.plan.data, true)), /^other: /);
   assert.equal(await signingCode(service.validateLaunch(creator, rival.plan.data, true)), IN_PROGRESS);
+}));
+
+const museClaim = `nft:${nftKey(muse)}`;
+/** The stored claim row for one key (SQLite). */
+const claimRow = (store: Store, claim: string) => {
+  const row = store.db.prepare("SELECT owner, expires_at AS expiresAt, submitted FROM launch_claims WHERE claim=?").get(claim) as
+    { owner: string; expiresAt: number; submitted: number } | undefined;
+  return row ? { ...row } : undefined;
+};
+/** Runs `work` with Date.now fixed at `time`. */
+async function at<T>(time: number, work: () => Promise<T>): Promise<T> {
+  const now = Date.now;
+  Date.now = () => time;
+  try { return await work(); } finally { Date.now = now; }
+}
+
+test("a plan protection that fails after the claim releases it at once", withStore(async (store) => {
+  const launch = coin(3, {}), other = coin(4, {});
+  store.savePlan(launch.plan); store.savePlan(other.plan);
+  const service = signingService(store, [launch, other]), protect = store.protectPlan.bind(store);
+  store.protectPlan = () => { throw new Error("database down"); };
+  assert.equal(await signingCode(service.validateLaunch(creator, launch.plan.data, true)), "other: Error: database down");
+  assert.equal(claimRow(store, museClaim), undefined, "the claim was released");
+  store.protectPlan = protect;
+  assert.equal(await signingCode(service.validateLaunch(creator, other.plan.data, true)), "ok", "another plan signs at once");
+}));
+
+test("tracking retries a failed submitted mark and succeeds once it is stored", withStore(async (store) => {
+  const sent = coin(3, {});
+  store.savePlan(sent.plan);
+  const service = signingService(store, [sent]), claim = store.claimLaunch.bind(store);
+  assert.equal(await signingCode(service.validateLaunch(creator, sent.plan.data, true)), "ok");
+  let failures = 1, marks = 0;
+  store.claimLaunch = (owner, claims, expiresAt, options) => {
+    if (options?.submitted && (marks++, failures-- > 0)) throw new Error("database down");
+    return claim(owner, claims, expiresAt, options);
+  };
+  await service.trackLaunch(sent.hash, sent.plan.id);
+  assert.equal(marks, 2, "one retry");
+  assert.equal(claimRow(store, museClaim)?.submitted, 1);
+}));
+
+test("tracking fails retryably when the submitted mark cannot be stored, never reporting success over a signing claim; reconcile then holds the queued creation", withStore(async (store) => {
+  const sent = coin(3, {});
+  store.savePlan(sent.plan);
+  const service = signingService(store, [sent], { unmined: [sent.hash] }), claim = store.claimLaunch.bind(store);
+  assert.equal(await signingCode(service.validateLaunch(creator, sent.plan.data, true)), "ok");
+  let marks = 0;
+  store.claimLaunch = (owner, claims, expiresAt, options) => {
+    if (options?.submitted) { marks++; throw new Error("database down"); }
+    return claim(owner, claims, expiresAt, options);
+  };
+  const logged: string[] = [], original = console.error;
+  console.error = (line: string) => { logged.push(line); };
+  try {
+    await assert.rejects(service.trackLaunch(sent.hash, sent.plan.id), (error: unknown) => error instanceof LaunchClaimUnavailable &&
+      error.message === "The transaction is queued, but its NFT reservation could not be saved yet. Try again.");
+  } finally { console.error = original; }
+  assert.equal(marks, 3, "a bounded number of attempts");
+  assert.deepEqual(logged.map((line) => JSON.parse(line)), [{ event: "nft_launch_claim_submit_failed", planId: sent.plan.id, hash: sent.hash, error: "database down" }]);
+  assert.deepEqual(store.pendingLaunches().map((row) => row.hash), [sent.hash], "the hash is queued");
+  assert.equal(claimRow(store, museClaim)?.submitted, 0, "so far only a signing claim");
+  store.claimLaunch = claim;
+  await service.reconcile();
+  assert.equal(claimRow(store, museClaim)?.submitted, 1, "the next reconcile pass holds it as submitted");
+}));
+
+test("/api/launch/track answers 503 with a one-second Retry-After when the submitted mark cannot be stored, which the client's API layer retries", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "nft-track-http-"));
+  const runtime = runtimeFromEnv(4663, { NODE_ENV: "test", CHAIN_MODE: "fork", FORK_CHAIN_ID: "4663", DATA_DIR: directory, PLATFORM_TREASURY: treasury });
+  const entry = createApp(undefined, "loopback", runtime);
+  const server = entry.app.listen(0, "127.0.0.1"); await once(server, "listening");
+  const address = server.address(); assert(address && typeof address !== "string");
+  try {
+    entry.service.trackLaunch = async () => { throw new LaunchClaimUnavailable(); };
+    const response = await fetch(`http://127.0.0.1:${address.port}/api/launch/track`, { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ hash: `0x${"3".repeat(64)}`, planId: `0x${"4".repeat(64)}` }) });
+    assert.equal(response.status, 503);
+    assert.equal(response.headers.get("retry-after"), "1");
+    assert.deepEqual(await response.json(), { error: "The transaction is queued, but its NFT reservation could not be saved yet. Try again.", code: "LAUNCH_CLAIM_UNAVAILABLE" });
+  } finally { await new Promise<void>((resolve) => server.close(() => resolve())); entry.service.store.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("reconcile renews a pending creation's submitted claims on each pass, and never once it registered", withStore(async (store) => {
+  const sent = coin(3, {}), chain: Chain = { unmined: [] };
+  store.savePlan(sent.plan);
+  chain.unmined!.push(sent.hash);
+  const service = signingService(store, [sent], chain), t0 = Date.now();
+  await at(t0, async () => {
+    assert.equal(await signingCode(service.validateLaunch(creator, sent.plan.data, true)), "ok");
+    await service.trackLaunch(sent.hash, sent.plan.id);
+  });
+  assert.deepEqual(claimRow(store, museClaim), { owner: sent.plan.id, expiresAt: t0 + 600_000, submitted: 1 });
+  await at(t0 + 360_000, () => service.reconcile());
+  assert.deepEqual(claimRow(store, museClaim), { owner: sent.plan.id, expiresAt: t0 + 960_000, submitted: 1 }, "renewed from this pass");
+  await at(t0 + 700_000, async () => {
+    const rival = coin(4, {});
+    store.savePlan(rival.plan);
+    assert.equal(await signingCode(signingService(store, [rival]).validateLaunch(creator, rival.plan.data, true)), IN_PROGRESS, "held past its first window");
+  });
+  // Mined: reconcile registers it, which releases the claim; later passes never renew it.
+  chain.unmined = [];
+  await at(t0 + 720_000, () => service.reconcile());
+  assert.equal((await service.token(sent.token))?.nftVerification?.status, "verified");
+  assert.equal(claimRow(store, museClaim), undefined);
+  // Even when its reorganization check fails at the node (which reaches reconcile's retry path).
+  const client = service.client as unknown as { getBlockNumber: () => Promise<bigint> }, head = client.getBlockNumber;
+  client.getBlockNumber = async () => { throw new Error("rpc down"); };
+  try { await at(t0 + 800_000, () => service.reconcile()); } finally { client.getBlockNumber = head; }
+  assert.equal(claimRow(store, museClaim), undefined, "a registered launch is never renewed");
+}));
+
+test("reconcile does not renew a creation the node has no trace of, so an evicted or replaced creation lapses within one window", withStore(async (store) => {
+  const sent = coin(3, {}), chain: Chain = { untraced: [] };
+  store.savePlan(sent.plan);
+  const service = signingService(store, [sent], chain), t0 = Date.now();
+  await at(t0, async () => {
+    assert.equal(await signingCode(service.validateLaunch(creator, sent.plan.data, true)), "ok");
+    await service.trackLaunch(sent.hash, sent.plan.id);
+  });
+  chain.untraced!.push(sent.hash);
+  await at(t0 + 360_000, () => service.reconcile());
+  assert.equal(claimRow(store, museClaim)?.expiresAt, t0 + 600_000, "not renewed");
+  await at(t0 + 600_001, async () => {
+    const rival = coin(4, {});
+    store.savePlan(rival.plan);
+    assert.equal(await signingCode(signingService(store, [rival]).validateLaunch(creator, rival.plan.data, true)), "ok", "the lapsed claim is free");
+  });
 }));
 
 test("NFT mode's kill switch stops signing too: a plan prepared while on is refused once the flag is off or the guards are missing; normal launches and registration are unaffected", withStore(async (store) => {
