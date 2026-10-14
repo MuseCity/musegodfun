@@ -852,5 +852,35 @@
       ],
       "collectorPaused": true
     }
+  },
+  "nftSingleUseMigration": {
+    "authorizedBy": "owner, 2026-10-14 (Task 13 Step 2b, '\u6211\u6765\u505a 2b + 3')",
+    "path": "supabase/migrations/20261014120000_nft_single_use_indexes.sql",
+    "sha256": "f82804589ad83de81d7e67ba6dec54011a9953487153ad5d134766ba45327d1d",
+    "appliedAt": "2026-10-14",
+    "method": "psql from the pinned image postgres@sha256:18cfe3ef\u20265d73 via the project's IPv4 session pooler (the direct host is IPv6-only); credentials passed only through the container environment, never recorded",
+    "backups": "db:backup of scopes robinhood and base taken first (local, mode 600, not committed)",
+    "preflight": {
+      "postgres": "17.11",
+      "payloadType": "jsonb",
+      "tokens": 4,
+      "nftRows": 0,
+      "feeRows": 0,
+      "duplicateFeeGroups": 0,
+      "duplicateVerifiedNftGroups": 0,
+      "alreadyApplied": false
+    },
+    "applied": "single transaction BEGIN\u2026COMMIT, no errors",
+    "postcheck": {
+      "musegod_tokens_launch_fee_once": "unique, valid",
+      "musegod_tokens_nft_verified_once": "unique, valid",
+      "musegod_launch_claims": "created, RLS on",
+      "musegod_nft_guards_ready()": true,
+      "anonExecuteGuards": false,
+      "serviceRoleExecuteGuards": true,
+      "anonReadClaims": false
+    },
+    "verifyDatabase": "npm run verify:database PASS (Supabase persistence, concurrency and backup/restore, including the NFT guard and launch-claim probes)",
+    "neverReapply": "The migration is not idempotent; do not apply it again."
   }
 }
