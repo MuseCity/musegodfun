@@ -216,7 +216,8 @@ async function casePage(mode, viewport = { width: 1440, height: 1000 }) {
       if (state.failNftStatus) return reply({ error: 'The NFT status could not be read right now.' }, 503);
       if (state.holdNftStatus) await new Promise(resolve => (state.nftStatusResolvers ||= []).push(resolve));
       const muse = contract?.toLowerCase() === muses.toLowerCase();
-      return reply({ erc721: true, owner: tokenId === '7' ? treasury : creator, controls: tokenId !== '7', alreadyLaunched: tokenId === '9', free: muse,
+      const controls = tokenId !== '7' && !(contract?.toLowerCase() === state.revokedNft?.contract.toLowerCase() && tokenId === state.revokedNft?.tokenId);
+      return reply({ erc721: true, owner: controls ? creator : treasury, controls, alreadyLaunched: tokenId === '9', free: muse,
         ...(muse ? { name: 'Bard', agentId: '6592' } : {}) });
     }
     if (path === '/api/launch-fee-quote') return reply({ wei: '3333333333333334', expiresAt: Math.floor(Date.now() / 1000) + 60, mac: '0x' + '11'.repeat(32), stable: { address: usdg, amount: '10000000' } });
@@ -899,6 +900,8 @@ async function nftReloadCase(page, state) {
   await waitForFixture(() => state.prepareRequests.length > 0, 'the NFT prepare request');
   assert.deepEqual(state.prepareRequests[0].draft.nft, muse1);
   await page.getByRole('button', { name: 'Confirm launch · Sign in wallet', exact: true }).waitFor();
+  // The unedited second tab followed the first tab to the second step; its focus moved to that step's heading, not a removed field.
+  await second.waitForFunction(() => document.activeElement?.id === 'quote-heading');
   // A check that cannot run keeps the NFT, says why and offers Retry; review stays blocked until it passes.
   state.failNftStatus = true;
   await page.reload();
@@ -916,9 +919,53 @@ async function nftReloadCase(page, state) {
   await autosaveSettled(page); await autosaveSettled(second);
   assert.deepEqual(await storedNft(page), muse1);
   assert.equal(await tokenOf(page), '1'); assert.equal(await tokenOf(second), '1'); assert.equal(await bound(second).isVisible(), true);
+  // A paid NFT: the non-refundable $10 can be paid only once the check has passed, never while a restored NFT is checked again or after a
+  // check that could not run.
+  const paid5 = { chainId: 4663, contract: paidCollection, tokenId: '5' }, paidStatus = 'Launching for this NFT costs $10, paid before the launch.';
+  const payButtons = () => page.getByRole('button', { name: /^Pay / }).count(), payStable = page.getByRole('button', { name: 'Pay 10 USDG', exact: true });
+  await page.getByLabel('Collection contract', { exact: true }).fill(paidCollection);
+  await page.getByLabel('Token number', { exact: true }).fill('5');
+  await statusIs(page, paidStatus);
+  await payStable.waitFor();
+  assert.equal(await payButtons(), 2, 'USDG and ETH, once the check passed');
+  await autosaveSettled(page);
+  assert.deepEqual(await storedNft(page), paid5);
+  state.holdNftStatus = true;
+  await page.reload();
+  await page.getByRole('button', { name: /^Wallet account / }).waitFor();
+  await statusIs(page, checking);
+  await bound(page).waitFor();
+  assert.equal(await payButtons(), 0, 'no payment while the restored NFT is checked again');
+  state.holdNftStatus = false; state.nftStatusResolvers.splice(0).forEach(resolve => resolve());
+  await statusIs(page, paidStatus);
+  await payStable.waitFor();
+  state.failNftStatus = true;
+  await page.reload();
+  await page.getByRole('button', { name: /^Wallet account / }).waitFor();
+  await page.getByRole('button', { name: 'Retry', exact: true }).waitFor();
+  await bound(page).waitFor();
+  assert.equal(await payButtons(), 0, 'no payment next to a check that could not run');
+  state.failNftStatus = false;
+  await page.getByRole('button', { name: 'Retry', exact: true }).click();
+  await statusIs(page, paidStatus);
+  await payStable.waitFor();
+  // The wallet no longer controls the restored NFT (Task 9): the check drops it from the draft, review is blocked and nothing can be paid.
+  const notControlled = 'This wallet does not hold the NFT and has no delegation for it.', prepared = state.prepareRequests.length;
+  state.revokedNft = paid5;
+  await page.reload();
+  await page.getByRole('button', { name: /^Wallet account / }).waitFor();
+  await statusIs(page, notControlled);
+  await autosaveSettled(page);
+  assert.equal(await storedNft(page), undefined, 'the stored draft no longer holds an NFT this wallet does not control');
+  assert.equal(await payButtons(), 0); assert.equal(await bound(page).count(), 0);
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await page.getByRole('button', { name: 'Review and continue', exact: true }).click();
+  await page.locator('#nft-launch-error').getByText(notControlled, { exact: true }).waitFor();
+  assert.equal(await page.getByRole('dialog').count(), 0); assert.equal(state.prepareRequests.length, prepared, 'no preflight for an NFT that is not controlled');
   assert.deepEqual(errors, []);
   await page.screenshot({ path: '.cache/launch-browser-nft_reload_keeps_nft.png', fullPage: true }); report.screenshots.push('.cache/launch-browser-nft_reload_keeps_nft.png');
-  state.nftChecks = { reloadKeptStoredNft: true, unEditedTabKeptNft: true, reviewBlockedWhileRechecking: true, failedCheckKeptNftWithRetry: true };
+  state.nftChecks = { reloadKeptStoredNft: true, unEditedTabKeptNft: true, reviewBlockedWhileRechecking: true, failedCheckKeptNftWithRetry: true,
+    passiveTabFocusFollowsStep: true, noPaymentBeforeCheck: true, revokedNftDropped: true };
 }
 async function nftCase(page, state) {
   if (state.mode === 'nft_reload_keeps_nft') return nftReloadCase(page, state);

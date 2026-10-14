@@ -98,7 +98,7 @@ import {
 } from "./lib/validation";
 import { ApiError, api, chainApi } from "./lib/api";
 import { LaunchModeSwitch, NftLaunchStep, NFT_DISCLAIMER, NFT_ERROR_ID, NFT_FEE_ID, NFT_TOKEN_ID, type NftStepStatus } from "./components/NftLaunchStep";
-import { forgetLaunchFee, launchFeeStorageKey, musePrefill, nftLaunchFeeCost, nftReviewBlocker, prepareDraft, rewardsShareCopy, savedNftMode } from "./lib/nft-client";
+import { forgetLaunchFee, launchFeeStorageKey, musePrefill, nftCheckPassed, nftLaunchFeeCost, nftReviewBlocker, prepareDraft, rewardsShareCopy, savedNftMode } from "./lib/nft-client";
 import { SAVED_LAUNCHES_NOTE, decodeDraftFragment, importDraftLink, isPristineDraft, type DraftFragment } from "./lib/draft-link";
 import { isMuse, treasuryFor, vaultFor } from "./lib/nft-mode";
 import { listedNftCoin } from "./lib/nft-treasury";
@@ -1144,7 +1144,7 @@ function CreatePage({
   // again), and review stays blocked until the step's check passes.
   const [nftMode, setNftMode] = useState(() => savedNftMode(initialSavedDraft())), [draftRevision, setDraftRevision] = useState(0);
   // The NFT step's status and fee state decide whether review may open; a launch-fee rejection from prepare waits for the user there.
-  const [nftStep, setNftStep] = useState<NftStepStatus>({ status: "", fee: "none", checked: false }), [nftFeeRejected, setNftFeeRejected] = useState("");
+  const [nftStep, setNftStep] = useState<NftStepStatus>({ status: "", fee: "none", checked: null }), [nftFeeRejected, setNftFeeRejected] = useState("");
   const [query, setQuery] = useState(""),
     [category, setCategory] = useState<AssetCategory>("all"),
     [showAllAssets, setShowAllAssets] = useState(false),
@@ -1489,8 +1489,16 @@ function CreatePage({
   // Another tab's newer draft replaces this tab's form, as if the tab had loaded it.
   function adoptDraft(key: string, raw: string) {
     draftBasis.current = { key, raw, payload: loadedPayload(raw, intentId) };
-    replaceDraft(raw); setFirstBuy(firstBuyDraft(config, raw)); setStep(launchDraftStep(raw)); setInvalidField(""); setError("");
+    const next = launchDraftStep(raw);
+    replaceDraft(raw); setFirstBuy(firstBuyDraft(config, raw)); setStep(next); setInvalidField(""); setError("");
     setMessage("Loaded the latest draft from another tab.");
+    // A changed step removes the fields on screen: focus moves to the new step's heading rather than stay on a removed element.
+    if (next !== step) {
+      const focused = !!formRef.current?.contains(document.activeElement);
+      requestAnimationFrame(() => {
+        if (focused || document.activeElement === document.body) document.getElementById(next === 1 ? "identity-heading" : "quote-heading")?.focus({ preventScroll: true });
+      });
+    }
   }
   // Leaving NFT mode drops the NFT but keeps a paid fee: fees are spent per creator, so it still covers a later NFT launch.
   function chooseNftMode(next: boolean) {
@@ -1627,10 +1635,11 @@ function CreatePage({
       setError("A launch transaction is already submitted. Recover its status before preparing another launch.");
       return;
     }
-    const nftBlock = nftReviewBlocker(nftMode, draft, nftStep.status, nftStep.fee, nftStep.checked);
+    const nftBlock = nftReviewBlocker(nftMode, draft, nftStep.status, nftStep.fee, nftStep.checked, wallet.account);
     if (nftBlock) {
       setStep(1); setInvalidField("nft"); setError(nftBlock);
-      requestAnimationFrame(() => document.getElementById(draft.nft && nftStep.checked ? NFT_FEE_ID : NFT_TOKEN_ID)?.focus());
+      const feeDue = nftCheckPassed(draft, nftStep.checked, wallet.account);
+      requestAnimationFrame(() => document.getElementById(feeDue ? NFT_FEE_ID : NFT_TOKEN_ID)?.focus());
       return;
     }
     const result = launchSchema.safeParse(draft);

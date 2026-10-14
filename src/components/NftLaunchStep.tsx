@@ -3,16 +3,16 @@ import type { Address, Hex } from "viem";
 import { deploymentChain, explorerFor, type RuntimeConfig } from "../lib/config";
 import { LAUNCH_FEE_STABLE } from "../lib/launch-fee";
 import { MUSES, isMuse, nftKey, treasuryFor, type NftRef, type NftStatus } from "../lib/nft-mode";
-import { FEE_MAYBE_SENT, formatFeeEth, readNftStatus, type DraftLaunchFee, type LaunchFeeState } from "../lib/nft-client";
+import { FEE_MAYBE_SENT, formatFeeEth, readNftStatus, type DraftLaunchFee, type LaunchFeeState, type NftChecked } from "../lib/nft-client";
 import { useLaunchFee } from "../lib/use-launch-fee";
 import { errorMessage, nftRefSchema, type LaunchInput } from "../lib/validation";
 
 /** Element ids the create form uses to move focus to the field to fix. */
 export const NFT_TOKEN_ID = "nft-launch-token", NFT_ERROR_ID = "nft-launch-error", NFT_FEE_ID = "nft-launch-fee";
 export const NFT_DISCLAIMER = "Not investment advice. musegod.fun does not endorse NFT collections; an unverified collection may imitate another.";
-/** What the create form needs from the step to decide whether review may open. `checked`: the live check passed for the NFT the draft
- * holds (a restored NFT stays in the draft while it is checked again, so the draft alone does not say it passed). */
-export type NftStepStatus = { status: string; fee: LaunchFeeState; checked: boolean };
+/** What the create form needs from the step to decide whether review may open. `checked`: the NFT and account the live check passed for,
+ * or null (a restored NFT stays in the draft while it is checked again, so the draft alone does not say it passed). */
+export type NftStepStatus = { status: string; fee: LaunchFeeState; checked: NftChecked | null };
 
 export function LaunchModeSwitch({ nftMode, disabled, onChange }: { nftMode: boolean; disabled?: boolean; onChange: (nftMode: boolean) => void }) {
   return (
@@ -100,9 +100,13 @@ export function NftLaunchStep({ config, account, draft, error = "", feeRejected 
     : "Launching for this NFT costs $10, paid before the launch.";
 
   const fee = useLaunchFee(config, account, draft.launchFee, (next) => latest.current.onFee(next));
-  useEffect(() => { latest.current.onStatus({ status: statusText, fee: fee.state, checked: passed }); }, [statusText, fee.state, passed]);
+  const checkedFor = passed && account ? `${candidateKey}|${account}` : "";
+  useEffect(() => {
+    latest.current.onStatus({ status: statusText, fee: fee.state, checked: passed && account ? { nft: candidateKey, account } : null });
+  }, [statusText, fee.state, checkedFor]);
   const stable = LAUNCH_FEE_STABLE[deploymentChain(config)], record = fee.record;
-  const needsFee = !!nft && !isMuse(nft);
+  // The $10 is non-refundable: payment opens only once the check has passed for this NFT. A payment already made still shows below.
+  const needsFee = !!nft && !isMuse(nft) && passed;
   // A fee paid before the verified vault exists could not launch anything, so payment opens with it.
   const vaultReady = !!config.nftMode?.vaultFactory, payBlocked = fee.paying || !config.writesEnabled || !vaultReady;
 
@@ -135,7 +139,7 @@ export function NftLaunchStep({ config, account, draft, error = "", feeRejected 
           : record?.state === "pending" ? <p role="status" aria-live="polite">Payment sent, waiting for confirmation. <TxHash hash={record.txHash} config={config} /></p>
           : fee.paying ? <p role="status">Confirm the payment in your wallet.</p>
           : record?.state === "sending" ? <p role="status" aria-live="polite" className="nft-warning">{FEE_MAYBE_SENT}</p>
-          : fee.ethQuote ? <div className="nft-eth-quote">
+          : fee.ethQuote && needsFee ? <div className="nft-eth-quote">
             <p className="nft-amount">Pay {formatFeeEth(fee.ethQuote.wei)} ETH (about $10)</p>
             <p className="hint">This price is valid for one minute. Your wallet asks you to confirm the same amount.</p>
             <div className="button-row">

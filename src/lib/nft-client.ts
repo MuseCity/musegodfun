@@ -3,7 +3,7 @@ import { encodeFunctionData, erc20Abi, formatUnits, TransactionNotFoundError, Tr
 import { z } from "zod";
 import { deploymentChain, sameAddress, type RuntimeConfig, type TokenRecord } from "./config";
 import { LAUNCH_FEE_MAX_WEI, LAUNCH_FEE_STABLE } from "./launch-fee";
-import { isMuse, type NftRef, type NftStatus } from "./nft-mode";
+import { isMuse, nftKey, type NftRef, type NftStatus } from "./nft-mode";
 import { chainApi } from "./api";
 import { launchIntentStorageKey } from "./launch-intent";
 import { addressSchema, hashSchema, launchFeeSchema, type LaunchInput } from "./validation";
@@ -53,12 +53,18 @@ export function prepareDraft(draft: LaunchInput): LaunchInput {
 }
 /** Where the fee payment stands, as the NFT step shows it. */
 export type LaunchFeeState = "none" | "sending" | "pending" | "paid";
+/** What the NFT step's live check passed for: the NFT (`nftKey`) and the wallet account. */
+export type NftChecked = { nft: string; account: string };
+/** Whether the step's check passed for exactly this draft's NFT and this wallet. A restored NFT stays in the draft while it is checked
+ * again, and a wallet switch fails this at once, before the step reports its new check. */
+export function nftCheckPassed(draft: Pick<LaunchInput, "nft">, checked: NftChecked | null, account: string | null): boolean {
+  return !!draft.nft && !!checked && !!account && checked.nft === nftKey(draft.nft) && checked.account.toLowerCase() === account.toLowerCase();
+}
 /** Why the review must wait, or null. In NFT mode a coin never launches without its confirmed NFT, so it can never fall back to a normal coin. */
 export function nftReviewBlocker(nftMode: boolean, draft: Pick<LaunchInput, "nft" | "launchFee">, stepStatus: string, fee: LaunchFeeState = "none",
-  checked = false): string | null {
+  checked: NftChecked | null = null, account: string | null = null): string | null {
   if (!nftMode) return null;
-  // `checked`: the step's live check passed for the NFT the draft holds. A restored NFT stays in the draft while it is checked again.
-  if (!draft.nft || !checked) return stepStatus.trim() || "Check the NFT before you review the launch.";
+  if (!draft.nft || !nftCheckPassed(draft, checked, account)) return stepStatus.trim() || "Check the NFT before you review the launch.";
   if (isMuse(draft.nft) || draft.launchFee) return null;
   if (fee === "sending") return "A launch fee payment may have been sent. Check its status in the NFT step before you continue.";
   if (fee === "pending") return "Your $10 launch fee payment is still confirming. Review opens once it has two confirmations.";
