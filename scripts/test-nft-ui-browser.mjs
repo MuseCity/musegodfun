@@ -71,7 +71,7 @@ const rejectedCoin = coin('0x7777777777777777777777777777777777777777', 'Rejecte
 const hiddenCoin = coin('0x8888888888888888888888888888888888888888', 'Hidden Muse coin', 'HIDE', musegod, { nft: { ...museNft, tokenId: '3' }, nftVerification: { status: 'verified' }, hidden: true });
 const plainCoin = coin('0x4444444444444444444444444444444444444444', 'Plain stock meme', 'PLAIN', weth);
 const catalog = [museCoin, unverifiedCoin, rejectedCoin, hiddenCoin, plainCoin];
-// A rejected coin also bound to Muse #1: never listed for the NFT, but it still pays the vault, so the treasury view and the sweep include it.
+// A rejected coin also bound to Muse #1: never listed for the NFT, but it still pays the vault and is swept when it has pending fees.
 const rejectedMuseCoin = coin('0x9191919191919191919191919191919191919191', 'Late Bard', 'LATE', weth, { nft: museNft, nftVerification: { status: 'rejected', reason: 'already_launched' } });
 const baseConfig = { mode: 'robinhood', chainId: 4663, deploymentChainId: 4663, treasury, writesEnabled: true, controlRevision: 0, signingPaused: false,
   securityProtocol: 1, blockReason: null, nftMode: { enabled: true, vaultFactory: factory, launchFeeUsd: 10, freeCollections: [`4663:${MUSES.contract.toLowerCase()}`],
@@ -86,7 +86,8 @@ const browser = await chromium.launch({ headless: true });
 // `account: null`: an anonymous viewer (no wallet connected). `nftEnabled: false`: NFT mode is off on this network.
 async function open(path, { account = holder, owner = holder, locked = false, factoryDeployed = true, theme = 'light', viewport = { width: 1440, height: 1000 },
   undeployed = false, uninitialized = false, holderless = false, statusFailures = 0, lockFailures = 0, chainHex = '0x1237', nftEnabled = true, ethRoute = 'direct', rejectSends = [],
-  musegodHeld = 10n ** 18n, holdSend = -1, walletEvent = null, coinHeld = 10n ** 20n, holdPairBalance = false, unreadableConversion = false, failSend = null } = {}) {
+  musegodHeld = 10n ** 18n, holdSend = -1, walletEvent = null, coinHeld = 10n ** 20n, holdPairBalance = false, unreadableConversion = false, failSend = null,
+  pendingCoins = [museCoin], vaultHeld = 10n ** 18n } = {}) {
   const context = await browser.newContext({ viewport, colorScheme: theme });
   // `ethRoute`: what /trade/eth-quote answers ('direct' or 'two-step'). `rejectSends`: wallet requests (0-based) the fixture wallet rejects.
   // `musegodHeld`: the wallet's MUSEGOD before any trade. `holdSend`: a wallet request that waits until `state.releaseSend()`.
@@ -97,6 +98,7 @@ async function open(path, { account = holder, owner = holder, locked = false, fa
   // it did broadcast it, held unmined (`state.lost`) until `state.mineLost()`.
   // `uninitialized`: the treasury account was created but its initialize never confirmed: it has code, its lock cannot be read until this
   // page sends initialize, and the server's view keeps saying so (its cache).
+  // `pendingCoins`: bound pools with nonzero pending fees. `vaultHeld`: MUSEGOD already sitting in the fee vault.
   const state = { sends: [], attempts: 0, refusedSends: 0, rejected: [], treasuryReads: 0, statusAccounts: [], multicalls: [], external: [], stubbed: [], pageErrors: [], statusFailures, lockFailures,
     ethQuotes: [], ethQuoteResponses: [], v4Quotes: [], swapSpends: [], held: null, releaseSend: () => {}, lost: [] };
   // The broadcast the wallet never reported is mined: it takes the next nonce, like any other send.
@@ -230,9 +232,10 @@ async function open(path, { account = holder, owner = holder, locked = false, fa
     treasuryInitialized: !undeployed && !uninitialized,
     coins: [museCoin, rejectedMuseCoin].map(row => ({ token: row.address, symbol: row.symbol, poolId: row.poolId, quoteAddress: row.quoteAddress })),
     balances: [{ token: museCoin.address, symbol: 'BARD', amount: (12345n * 10n ** 17n).toString(), vaultAmount: '0' },
-      { token: musegod, symbol: 'MUSEGOD', amount: (5678n * 10n ** 16n).toString(), vaultAmount: (10n ** 18n).toString() }],
-    pendingFees: [{ token: museCoin.address, lp: { fees0: '0', fees1: (25n * 10n ** 16n).toString() }, trade: { fees0: (4n * 10n ** 18n).toString(), fees1: (75n * 10n ** 16n).toString() },
-      poolKey: { currency0: museCoin.address, currency1: musegod } }] });
+      { token: musegod, symbol: 'MUSEGOD', amount: (5678n * 10n ** 16n).toString(), vaultAmount: vaultHeld.toString() }],
+    pendingFees: pendingCoins.map(row => ({ token: row.address, lp: { fees0: '0', fees1: (25n * 10n ** 16n).toString() },
+      trade: { fees0: (4n * 10n ** 18n).toString(), fees1: (75n * 10n ** 16n).toString() },
+      poolKey: { currency0: row.address, currency1: row.quoteAddress } })) });
   await context.route('**/*', async route => {
     const url = new URL(route.request().url());
     if (url.hostname === 'musegod.org') { state.stubbed.push(url.href); return route.fulfill({ contentType: 'image/svg+xml', body: art }); }
@@ -351,13 +354,14 @@ try {
     assert.equal(execute.args[1], 0n);
     assert.deepEqual(decodeFunctionData({ abi: erc20Abi, data: execute.args[2] }).args, [holder, 1000n * 10n ** 18n]);
     assert.equal(execute.args[3], 0);
-    // Sweep: the vault is deployed, so one call to exactly this NFT's vault for every bound coin's pool and assets, the rejected coin's too.
+    // Sweep: only BARD has pending fees; the rejected coin's bound pool and currencies are excluded.
     await card.getByRole('button', { name: 'Sweep fees to the treasury' }).click();
     await card.getByText('Sweep fees: confirmed.').waitFor();
+    assert.equal(state.sends.length, 2, 'one withdrawal followed by one sweep');
     assert.equal(state.sends[1].to.toLowerCase(), vault.toLowerCase());
     assert.equal(state.sends[1].value ?? '0x0', '0x0');
     assert.deepEqual(decodeFunctionData({ abi: vaultAbi, data: state.sends[1].data }).args,
-      [[museCoin.poolId, rejectedMuseCoin.poolId], [museCoin.address, musegod, rejectedMuseCoin.address, weth]]);
+      [[museCoin.poolId], [museCoin.address, musegod]]);
     // Lock for 7 days from the latest block's timestamp.
     await card.getByRole('button', { name: 'Lock for 7 days' }).click();
     await card.getByText('Lock treasury: confirmed.').waitFor();
@@ -373,6 +377,31 @@ try {
     const history = await page.evaluate(() => JSON.parse(localStorage.getItem('musegod.transactions.v1') || '[]'));
     assert.deepEqual(history.map(row => row.action), ['treasury', 'treasury', 'treasury', 'treasury']);
     assert(state.stubbed.length >= 1 && state.stubbed.every(url => url === 'https://musegod.org/muse/art/480/1.jpg'), 'only the Muse art is stubbed');
+    await finish(run);
+  });
+  await check('sweep_rejected_pending', async () => {
+    const run = await open(tokenPath, { pendingCoins: [museCoin, rejectedMuseCoin] }), { page, state } = run, card = page.locator('#nft-card');
+    await card.getByText('Unlocked').waitFor();
+    await card.getByText('LATE pool · WETH').waitFor();
+    await card.getByRole('button', { name: 'Sweep fees to the treasury' }).click();
+    await card.getByText('Sweep fees: confirmed.').waitFor();
+    assert.equal(state.sends.length, 1, 'both pending pools fit in one sweep confirmation');
+    assert.equal(state.sends[0].to.toLowerCase(), vault.toLowerCase());
+    assert.equal(state.sends[0].value ?? '0x0', '0x0');
+    const sweep = decodeFunctionData({ abi: vaultAbi, data: state.sends[0].data });
+    assert.equal(sweep.functionName, 'sweep');
+    assert(sweep.args[0].length <= 5, 'at most five pools in a sweep chunk');
+    assert.deepEqual(sweep.args, [[museCoin.poolId, rejectedMuseCoin.poolId], [museCoin.address, musegod, rejectedMuseCoin.address, weth]]);
+    await finish(run);
+  });
+  await check('sweep_empty_disabled', async () => {
+    const run = await open(tokenPath, { pendingCoins: [], vaultHeld: 0n }), { page, state } = run, card = page.locator('#nft-card');
+    await card.getByText('Unlocked').waitFor();
+    assert.equal(await card.getByRole('button', { name: 'Withdraw BARD', exact: true }).isEnabled(), true, 'holder actions are ready');
+    assert.equal(await card.getByText('Fees waiting to be swept', { exact: true }).count(), 0);
+    assert.equal(await card.getByRole('button', { name: 'Sweep fees to the treasury' }).isDisabled(), true, 'no pending fees or vault balances');
+    assert.equal(state.attempts, 0, 'no wallet confirmation requested');
+    assert.deepEqual(state.sends, []);
     await finish(run);
   });
   // Pay with ETH replaced the separate "Get MUSEGOD with ETH first" panel: one control in the coin's own trade panel.

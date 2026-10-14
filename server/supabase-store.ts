@@ -96,6 +96,13 @@ export class SupabaseStore implements StoreBackend {
   async releaseLaunchClaims(owner: string, { unsubmittedOnly = false }: { unsubmittedOnly?: boolean } = {}) {
     await this.request(`musegod_launch_claims?${this.where(`owner=eq.${encodeURIComponent(owner)}${unsubmittedOnly ? "&submitted=eq.false" : ""}`)}`, "DELETE");
   }
+  /** UPDATE only, matching Store.renewLaunchClaims; each PATCH retains the scope, owner and key filters if ownership changes concurrently. */
+  async renewLaunchClaims(owner: string, claims: string[], expiresAt: number, now = Date.now()) {
+    assertLaunchClaim(owner, claims, expiresAt, now, []);
+    const path = `musegod_launch_claims?${this.where(`owner=eq.${encodeURIComponent(owner)}&claim=in.${encodeURIComponent(`(${claims.map((claim) => JSON.stringify(claim)).join(",")})`)}`)}`;
+    await this.request(`${path}&submitted=eq.false`, "PATCH", { submitted: true });
+    await this.request(`${path}&expires_at=lt.${expiresAt}`, "PATCH", { expires_at: expiresAt, submitted: true });
+  }
   async pendingLaunchCount(): Promise<number> {
     const rows=await this.request<{hash:string}[]>(`musegod_pending_launches?${this.where()}&status=eq.pending&select=hash&limit=100`);
     return rows.length;

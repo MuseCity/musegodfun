@@ -1,7 +1,20 @@
 import test, { type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import type { Hex } from "viem";
+import { TransactionReceiptNotFoundError } from "viem";
 import { LaunchpadService } from "../server/service";
+
+test("a stuck normal launch reads its plan before NFT renewal and spends no transaction lookup or extra token read", async (t) => {
+  const { service, hashes } = fixture(t), reads: string[] = [];
+  Object.assign(service.store, { getPlan: async () => { reads.push("plan"); return { draft: {} }; } });
+  Object.assign(service.client, { getTransaction: async () => { reads.push("transaction"); return {}; } });
+  t.mock.method(service.store, "tokenByTxHash", async () => { reads.push("token"); return null; });
+  t.mock.method(service.client, "getTransactionReceipt", async ({ hash }: { hash: Hex }) => { throw new TransactionReceiptNotFoundError({ hash }); });
+  await service.reconcile();
+  assert.equal(reads.filter((read) => read === "transaction").length, 0);
+  assert.equal(reads.filter((read) => read === "token").length, hashes.length, "only reconcile's existing token read");
+  assert.equal(reads.filter((read) => read === "plan").length, hashes.length - 1, "confirmed rows never renew");
+});
 
 function fixture(t: TestContext) {
   let now = 0;

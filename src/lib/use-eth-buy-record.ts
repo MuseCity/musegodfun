@@ -5,7 +5,7 @@ import { ETH_BUY_LOCK, ETH_BUY_TAKEN, ETH_BUY_UNRESOLVED, ethBuyStorageKey, pars
   type EthBuyTarget } from "./eth-buy-record";
 import { ETH_BUY_CHAIN, type FirstBuyPaymentQuote } from "./first-buy-payment";
 import { receivedFromLogs } from "./eth-buy";
-import { withLaunchIntentLock } from "./launch-intent";
+import { LOCK_ERROR, withLaunchIntentLock } from "./launch-intent";
 import { attemptAfterSendError, discardable, recordAtBroadcast, type NonceMemo, type SendPollStatus } from "./send-record";
 import { transactions } from "./transactions";
 import { useSendPoll } from "./use-send-poll";
@@ -20,9 +20,13 @@ const write = (key: string, record: EthBuyRecord | null) => {
 };
 /** The same attempt (sending and its pending upgrade share `at`) is still the wallet's record. */
 const stillAttempt = (key: string, at: number) => { const current = read(key); return current && current.at === at ? current : null; };
-/** The ETH buy shares the launch lock's machinery; its "another tab" refusal is about the buy here. */
-const lockError = (cause: unknown) => /another tab|already being submitted in this tab/i.test(cause instanceof Error ? cause.message : "")
-  ? new Error("Another tab of this wallet is buying with ETH. Finish there first.") : cause;
+/** The ETH buy shares the launch lock's machinery; its refusal describes the token-page buy here. */
+export function ethBuyLockError(cause: unknown, pairSymbol = "the paired asset") {
+  const message = cause instanceof Error ? cause.message : "";
+  if (message === LOCK_ERROR) return new Error(`This browser cannot safely buy with ETH (no cross-tab lock). Pay with ${pairSymbol}, or use another browser.`);
+  return /another tab|already being submitted in this tab/i.test(message)
+    ? new Error("Another tab of this wallet is buying with ETH. Finish there first.") : cause;
+}
 /** A recorded buy the chain proved: the transaction and what it delivered (null when its receipt could not be read). */
 export type EthBuyAdopted = { hash: Hex; target: EthBuyTarget; received: bigint | null };
 /** The hooks one LI.FI wallet request runs under: `beforeSend` re-verifies the lease and writes the record right before the wallet receives
@@ -31,7 +35,7 @@ export type EthBuySendHooks = { beforeSend: () => Promise<void>; onHash: (hash: 
 
 /** The wallet's ETH-buy record on this network (shared by every coin page and tab of the wallet), the guard every LI.FI ETH transaction is
  * sent under, and the chain checks that settle one whose outcome the wallet never reported. */
-export function useEthBuyRecord(config: RuntimeConfig | null, account: Address | null) {
+export function useEthBuyRecord(config: RuntimeConfig | null, account: Address | null, pairSymbol?: string) {
   const key = config && account && deploymentChain(config) === ETH_BUY_CHAIN ? ethBuyStorageKey(config, account) : "";
   const [record, setRecord] = useState<EthBuyRecord | null>(null), [revision, setRevision] = useState(0);
   const [unknown, setUnknown] = useState(""), [notice, setNotice] = useState(""), [checking, setChecking] = useState(false), [sending, setSending] = useState(false);
@@ -103,7 +107,7 @@ export function useEthBuyRecord(config: RuntimeConfig | null, account: Address |
         if (discardable(saved, read(forKey))) write(forKey, null);
       });
       if (visible(forKey)) { setNotice(""); setUnknown(""); refresh(); }
-    } catch (cause) { if (visible(forKey)) setNotice(errorMessage(lockError(cause))); }
+    } catch (cause) { if (visible(forKey)) setNotice(errorMessage(ethBuyLockError(cause, pairSymbol))); }
   }
   /** Sends one LI.FI ETH transaction (`quote`) under the record. Inside this wallet's cross-tab lock it refuses while a record exists, reads
    * the account's pending nonce and the head, and hands `send` the hooks: at the wallet request itself, and before every resend, the lock is
@@ -136,7 +140,7 @@ export function useEthBuyRecord(config: RuntimeConfig | null, account: Address |
             if (visible(forKey)) setRecord(pending);
           },
         });
-      }).catch((cause: unknown) => { throw attemptAt ? cause : lockError(cause); });
+      }).catch((cause: unknown) => { throw attemptAt ? cause : ethBuyLockError(cause, pairSymbol); });
       if (attemptAt && stillAttempt(forKey, attemptAt)) write(forKey, null);
       if (visible(forKey)) setRecord(read(forKey));
       return result;

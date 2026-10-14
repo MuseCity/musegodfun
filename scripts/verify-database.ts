@@ -268,6 +268,7 @@ try {
   for (const db of connected ? [store, restore, legacy, occupied] : []) {
     assert(/^(verify|restore)-/.test(db.scope));
     for (const table of [
+      "launch_claims",
       "pending_launches",
       "tokens",
       "plans",

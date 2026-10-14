@@ -194,7 +194,7 @@ const blockHash = `0x${"bb".repeat(32)}` as Hex, usdg = LAUNCH_FEE_STABLE[4663]!
 const plainNft = { chainId: 4663 as const, contract: getAddress("0x7777777777777777777777777777777777777777"), tokenId: "7" };
 type Coin = ReturnType<typeof coin>;
 /** One launch: frozen preview, outer transaction and receipt, as in launch-service.test.ts's ordinary fixture. */
-function coin(n: number, draftOver: Record<string, unknown>) {
+function coin(n: number, draftOver: Record<string, unknown>, creator: Address = owner) {
   const token = getAddress(`0x${String(n).repeat(40)}`), hash = `0x${String(n).repeat(64)}` as Hex;
   const sdk = new DopplerSDK<4663>({ publicClient: createPublicClient({ transport: http("http://127.0.0.1:1") }), chainId: 4663 });
   const draft = { name: `Coin ${n}`, symbol: `COIN${n}`, description: "", image: "", quoteAddress: musegod.address, tradingFeeBps: 100, nft: muse, ...draftOver } as LaunchPlan["draft"];
@@ -667,6 +667,33 @@ const claimRow = (store: Store, claim: string) => {
     { owner: string; expiresAt: number; submitted: number } | undefined;
   return row ? { ...row } : undefined;
 };
+
+test("a non-holder's backup with a missing fee never claims a free NFT, including retries and reconcile", withStore(async (store) => {
+  const backup = coin(3, { nft: { ...plainNft, tokenId: "95" }, quoteAddress: weth.address, launchFee: stableClaim }, getAddress(other));
+  const holderLaunch = feeLaunch(4, "95", { asset: "stable", txHash: `0x${"d2".repeat(32)}` });
+  const key = `nft:${nftKey(backup.plan.draft.nft!)}`;
+  const service = registrar(store, [backup], { holder: creator }).service;
+  await assert.rejects(service.register(backup.hash, structuredClone(backup.plan)), /temporarily unavailable/);
+  assert.equal(claimRow(store, key), undefined, "an untrusted backup cannot insert a claim");
+  await assert.rejects(service.register(backup.hash), /temporarily unavailable/);
+  await service.reconcile();
+  assert.equal(claimRow(store, key), undefined, "a stored recovered plan cannot insert either");
+  store.savePlan(holderLaunch.plan);
+  assert.equal(await signingCode(signingService(store, [holderLaunch], { payments: [holderLaunch.plan.draft.launchFee!.txHash] })
+    .validateLaunch(creator, holderLaunch.plan.data, true)), "ok", "the holder signs immediately");
+  await assert.rejects(service.register(backup.hash), /temporarily unavailable/);
+  assert.equal(claimRow(store, key)?.owner, holderLaunch.plan.id, "a backup cannot take the holder's claim");
+}));
+
+test("a recovered backup renews only the claims its plan already owns", withStore(async (store) => {
+  const backup = feeLaunch(3, "96"), key = `nft:${nftKey(backup.plan.draft.nft!)}`, t0 = Date.now();
+  store.claimLaunch(backup.plan.id, [key], t0 + 60_000);
+  await at(t0, async () => {
+    await assert.rejects(registrar(store, [backup]).service.register(backup.hash, structuredClone(backup.plan)), /temporarily unavailable/);
+  });
+  assert.deepEqual(claimRow(store, key), { owner: backup.plan.id, expiresAt: t0 + 600_000, submitted: 1 });
+  assert.equal(claimRow(store, `fee:${backup.plan.draft.launchFee!.txHash}`), undefined, "no missing fee claim is inserted");
+}));
 /** Runs `work` with Date.now fixed at `time`. */
 async function at<T>(time: number, work: () => Promise<T>): Promise<T> {
   const now = Date.now;

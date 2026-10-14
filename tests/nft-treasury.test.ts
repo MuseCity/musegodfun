@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { concat, createPublicClient, custom, decodeFunctionData, encodeAbiParameters, encodeFunctionData, encodeFunctionResult, erc20Abi, keccak256, multicall3Abi, pad, parseAbi,
   stringToHex, toHex, type Address, type Hex } from "viem";
 import { sweepTx, deployVaultTx, activateTreasuryTxs, finishActivationTx, withdrawTx, lockTx, depositTx, isNftTreasuryTx, heldNftCoins, lockTarget, nftBadge,
-  readTreasuryLock, treasuryInitialized, ERC1967_IMPLEMENTATION_SLOT, NFT_OWNER_SCAN_LIMIT } from "../src/lib/nft-treasury";
+  readTreasuryLock, treasuryInitialized, ERC1967_IMPLEMENTATION_SLOT, NFT_OWNER_SCAN_LIMIT, pendingSweepTxs } from "../src/lib/nft-treasury";
 import { MUSES, treasuryFor, vaultFor, ERC6551_REGISTRY, TOKENBOUND_V3_PROXY, TOKENBOUND_V3_IMPLEMENTATION, type NftRef } from "../src/lib/nft-mode";
 import { allocateFeeIncome, FEE_POLICY } from "../src/lib/fee-policy";
 import type { RuntimeConfig } from "../src/lib/config";
@@ -14,6 +14,42 @@ const token = "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73" as Address, holder = 
 const accountAbi = parseAbi(["function execute(address to, uint256 value, bytes data, uint8 operation) payable returns (bytes)", "function lock(uint256 lockedUntil)",
   "function initialize(address implementation)"]);
 const registryAbi = parseAbi(["function createAccount(address implementation, bytes32 salt, uint256 chainId, address tokenContract, uint256 tokenId) returns (address)"]);
+
+test("treasury sweeps select only nonzero readable fees and split large pool sets into bounded transactions", () => {
+  const coins = Array.from({ length: 43 }, (_, n) => ({ token: toHex(n + 1, { size: 20 }), quoteAddress: token,
+    poolId: toHex(n + 1, { size: 32 }), symbol: `C${n}` }));
+  const pair = { fees0: "0", fees1: "0" };
+  const pendingFees = coins.map((coin, n) => n === 1 ? { token: coin.token, error: "RPC down" } : {
+    token: coin.token, lp: { ...pair, fees0: n >= 3 && n % 2 === 0 ? "1" : "0" },
+    trade: { ...pair, fees1: n >= 3 && n % 2 === 1 ? "2" : "0" }, poolKey: { currency0: coin.token, currency1: token },
+  });
+  const vault = vaultFor(nft, factory);
+  const txs = pendingSweepTxs(vault, { coins, pendingFees, balances: [] });
+  assert(txs.length > 1, "one transaction cannot grow with all bound pools");
+  const swept: Hex[] = [];
+  for (const tx of txs) {
+    assert.equal(tx.to, vault);
+    const decoded = decodeFunctionData({ abi: parseAbi(["function sweep(bytes32[] poolIds, address[] tokens)"]), data: tx.data });
+    const [pools, assets] = decoded.args;
+    assert(pools.length <= 5 && assets.length <= 10, "bounded pool and token work");
+    swept.push(...pools);
+    for (const pool of pools) {
+      const coin = coins.find((coin) => coin.poolId === pool)!;
+      assert(assets.some((asset) => asset.toLowerCase() === coin.token.toLowerCase()));
+      assert(assets.some((asset) => asset.toLowerCase() === token.toLowerCase()));
+    }
+    assert.equal(allowed(tx), true, "the existing sweep signing guard still accepts each batch");
+  }
+  assert.deepEqual(swept, coins.slice(3).map((coin) => coin.poolId), "all nonzero pools count, including rejected coins");
+  assert.deepEqual(pendingSweepTxs(vault, { coins, pendingFees: pendingFees.slice(0, 3), balances: [] }), [], "no pending funds: disable Sweep");
+});
+
+test("treasury sweeps can still forward balances already in the vault without collecting empty pools", () => {
+  const vault = vaultFor(nft, factory);
+  const txs = pendingSweepTxs(vault, { coins: [], pendingFees: [], balances: [{ token, symbol: "C", amount: "0", vaultAmount: "5" }] });
+  assert.equal(txs.length, 1);
+  assert.deepEqual(decodeFunctionData({ abi: parseAbi(["function sweep(bytes32[] poolIds, address[] tokens)"]), data: txs[0].data }).args, [[], [token]]);
+});
 
 test("activation creates the canonical account and initializes Tokenbound V3", () => {
   const [create, init] = activateTreasuryTxs(nft);

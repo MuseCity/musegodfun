@@ -581,7 +581,8 @@ app.use(
           : 422;
     res.status(status).json({
       error: redact(error instanceof z.ZodError ? errorMessage(error) : error, runtime.environment),
-      ...(error instanceof BuybackError || error instanceof NftLaunchError || error instanceof EthBuyError ? { code: error.code } : {}),
+      ...(error instanceof BuybackError || error instanceof NftLaunchError || error instanceof EthBuyError
+        ? { code: error instanceof NftLaunchError && error.code === "NFT_FEE_INVALID" && error.retry ? "NFT_FEE_PENDING" : error.code } : {}),
       ...(error instanceof MarketUnavailable
         ? {
             status: error.status,

@@ -97,7 +97,7 @@ import {
   type LaunchInput,
 } from "./lib/validation";
 import { ApiError, api, chainApi } from "./lib/api";
-import { LaunchModeSwitch, NftLaunchStep, NFT_DISCLAIMER, NFT_ERROR_ID, NFT_FEE_ID, NFT_TOKEN_ID, type NftStepStatus } from "./components/NftLaunchStep";
+import { LaunchModeSwitch, NftLaunchStep, NFT_DISCLAIMER, NFT_ERROR_ID, NFT_FEE_ID, NFT_TOKEN_ID, type NftFeeRejection, type NftStepStatus } from "./components/NftLaunchStep";
 import { forgetLaunchFee, launchFeeStorageKey, musePrefill, nftCheckPassed, nftLaunchFeeCost, nftReviewBlocker, prepareDraft, rewardsShareCopy, savedNftMode } from "./lib/nft-client";
 import { SAVED_LAUNCHES_NOTE, decodeDraftFragment, importDraftLink, isPristineDraft, type DraftFragment } from "./lib/draft-link";
 import { isMuse, treasuryFor, vaultFor } from "./lib/nft-mode";
@@ -1146,7 +1146,7 @@ function CreatePage({
   // again), and review stays blocked until the step's check passes.
   const [nftMode, setNftMode] = useState(() => savedNftMode(initialSavedDraft())), [draftRevision, setDraftRevision] = useState(0);
   // The NFT step's status and fee state decide whether review may open; a launch-fee rejection from prepare waits for the user there.
-  const [nftStep, setNftStep] = useState<NftStepStatus>({ status: "", fee: "none", checked: null }), [nftFeeRejected, setNftFeeRejected] = useState("");
+  const [nftStep, setNftStep] = useState<NftStepStatus>({ status: "", fee: "none", checked: null }), [nftFeeRejected, setNftFeeRejected] = useState<NftFeeRejection | null>(null);
   const [query, setQuery] = useState(""),
     [category, setCategory] = useState<AssetCategory>("all"),
     [showAllAssets, setShowAllAssets] = useState(false),
@@ -1512,9 +1512,9 @@ function CreatePage({
     setReview(false);
     if (code === "NFT_RESERVED_NAME") { showInvalidField("name", message); return; }
     setStep(1);
-    if (code === "NFT_FEE_INVALID") {
-      // The payment may still be confirming; the stored fee is dropped only when the user asks for a new one.
-      setNftFeeRejected(message);
+    if (code === "NFT_FEE_INVALID" || code === "NFT_FEE_PENDING") {
+      // A transient refusal keeps the paid record and never offers repayment.
+      setNftFeeRejected({ code, message });
       requestAnimationFrame(() => document.getElementById(NFT_FEE_ID)?.focus());
       return;
     }
@@ -2242,7 +2242,7 @@ function CreatePage({
               {nftMode && <NftLaunchStep key={draftRevision} config={config} account={wallet.account} draft={draft}
                 error={invalidField === "nft" ? error : ""} feeRejected={nftFeeRejected} onChange={(nft, user) => update("nft", nft, !user)}
                 onCheck={() => { if (invalidField === "nft") { setInvalidField(""); setError(""); } }}
-                onFee={(fee) => { update("launchFee", fee, true); setNftFeeRejected(""); if (fee && invalidField === "nft") { setInvalidField(""); setError(""); } }}
+                onFee={(fee) => { update("launchFee", fee, true); setNftFeeRejected(null); if (fee && invalidField === "nft") { setInvalidField(""); setError(""); } }}
                 onStatus={setNftStep}
                 onPrefill={(name) => { for (const [field, value] of Object.entries(musePrefill(draft, name))) update(field as "name" | "symbol", value, true); }} />}
               <div className="identity-fields">
@@ -3024,9 +3024,9 @@ function TokenPage({
     [balanceTick, setBalanceTick] = useState(0),
     [clock, setClock] = useState(quoteNow());
   // The wallet's unsettled LI.FI ETH buy on this network, if any: no ETH quote and no ETH buy until it is settled.
-  const ethBuy = useEthBuyRecord(config, wallet.account), ethHeld = !!ethBuy.record;
-  useEffect(() => { if (ethBuy.adopted) setBalanceTick((n) => n + 1); }, [ethBuy.adopted]);
   const pairAsset = resource.data ? quoteAsset(resource.data.token) : null;
+  const ethBuy = useEthBuyRecord(config, wallet.account, pairAsset?.symbol), ethHeld = !!ethBuy.record;
+  useEffect(() => { if (ethBuy.adopted) setBalanceTick((n) => n + 1); }, [ethBuy.adopted]);
   const ethPayable = side === "buy" && !!pairAsset && ethBuyAvailable(config, pairAsset.address);
   // Only the pair-asset balance decides the default, and only on the buy side of a pair-asset coin.
   const pairBalance = ethPayable && balanceFor && sameAddress(balanceFor, pairAsset!.address) ? balance : null;

@@ -687,11 +687,12 @@ export class LaunchpadService {
   /** The wallet sent this NFT plan's creation: its claims are held as submitted, never taken over or moved, for one recovery window from now,
    * until registration or a proven revert releases them (reconcile renews them while the creation may still be mined). Throws when the
    * database could not store the mark. A claim another plan already holds (this creation was sent after its signing claim expired) is left
-   * to registration, which settles the conflict; `report` logs it. */
-  private async markNftClaimsSubmitted(plan: LaunchPlan, hash: Hex, report = true) {
+   * to registration, which settles the conflict; `report` logs it. Recovered backups only update claims the plan already owns. */
+  private async markNftClaimsSubmitted(plan: LaunchPlan, hash: Hex, { report = true, renewOnly = !!plan.recovered } = {}) {
     const nft = plan.draft.nft!;
-    const held = await this.store.claimLaunch(plan.id, nftLaunchKeys(nft, isMuse(nft) ? undefined : plan.draft.launchFee),
-      Date.now() + RECOVERY_RESULT_TTL_MS, { submitted: true });
+    const keys = nftLaunchKeys(nft, isMuse(nft) ? undefined : plan.draft.launchFee), expiresAt = Date.now() + RECOVERY_RESULT_TTL_MS;
+    if (renewOnly) { await this.store.renewLaunchClaims(plan.id, keys, expiresAt); return; }
+    const held = await this.store.claimLaunch(plan.id, keys, expiresAt, { submitted: true });
     if (held.length && report) console.error(JSON.stringify({ event: "nft_launch_claim_lost", planId: plan.id, hash, held }));
   }
   /** Tracking reports success only once the mark is stored: up to three attempts with the RPC transport's short backoff (250 ms, then
@@ -728,11 +729,12 @@ export class LaunchpadService {
    * the NFT. Best-effort. */
   private async renewPendingNftClaims(row: { hash: Hex; planId: string; status: string }, error: unknown) {
     try {
-      if (row.status !== "pending" || await this.store.tokenByTxHash(row.hash)) return;
+      if (row.status !== "pending") return;
+      const plan = await this.store.getPlan(row.planId);
+      if (!plan?.draft.nft || await this.store.tokenByTxHash(row.hash)) return;
       if (error instanceof TransactionReceiptNotFoundError &&
         !await this.client.getTransaction({ hash: row.hash }).then(() => true, (failure: unknown) => !(failure instanceof TransactionNotFoundError))) return;
-      const plan = await this.store.getPlan(row.planId);
-      if (plan?.draft.nft) await this.markNftClaimsSubmitted(plan, row.hash, false);
+      await this.markNftClaimsSubmitted(plan, row.hash, { report: false });
     } catch { /* The claim keeps its current expiry; the next pass tries again. */ }
   }
   /** Frees a plan's claims; a failure only leaves them to expire. */
@@ -1077,9 +1079,9 @@ export class LaunchpadService {
     if (!draft.nft) await save();
     else {
       const nft = draft.nft, fee = isMuse(nft) ? undefined : draft.launchFee;
-      // The creation is on-chain: its claims hold, as submitted, while registration decides (it can retry for minutes). Best-effort:
-      // registration is never blocked by claims.
-      await this.markNftClaimsSubmitted(plan, hash).catch((error: unknown) => console.error(JSON.stringify({ event: "nft_launch_claim_submit_failed",
+      // Only a saved prepare passed the NFT control check. A backup renews its own claims without acquiring any free key.
+      // Best-effort: registration is never blocked by claims.
+      await this.markNftClaimsSubmitted(plan, hash, { renewOnly: !savedPlan }).catch((error: unknown) => console.error(JSON.stringify({ event: "nft_launch_claim_submit_failed",
         planId: plan.id, hash, error: error instanceof Error ? error.message : String(error) })));
       // The one-coin and single-use checks hold until the record that makes them true is written.
       await withNftLocks(nftLaunchKeys(nft, fee), async () => {

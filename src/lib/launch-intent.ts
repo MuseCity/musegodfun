@@ -77,7 +77,7 @@ export function savedLaunchIntents(config: RuntimeConfig, account: Address | nul
 // IndexedDB read/write transactions serialize across same-origin tabs. A plain
 // localStorage read/write lease is not atomic and must never authorize a send.
 const LEASE_MS = 120_000, RENEW_MS = 30_000;
-const LOCK_ERROR = "A reliable cross-tab launch lock is unavailable. Keep this draft and reopen it in a supported browser before sending.";
+export const LOCK_ERROR = "A reliable cross-tab launch lock is unavailable. Keep this draft and reopen it in a supported browser before sending.";
 type Lease = { key: string; owner: string; expires: number };
 type HeldLock = { owner: string; lost: boolean; check: () => Promise<void> };
 const heldLocks = new Map<string, HeldLock>();

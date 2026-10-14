@@ -6,6 +6,22 @@ import { ETH_BUY_CANCELLED, ETH_BUY_REVERTED, ETH_BUY_UNCONFIRMED, ethBuyStorage
   type EthBuyRecord } from "../src/lib/eth-buy-record";
 import { attemptAfterSendError, discardable } from "../src/lib/send-record";
 import { launchFeeStorageKey } from "../src/lib/nft-client";
+import { LOCK_ERROR } from "../src/lib/launch-intent";
+import { ethBuyLockError } from "../src/lib/use-eth-buy-record";
+
+test("ETH buy lock refusals name the paired asset and never tell a token-page user to keep a draft", () => {
+  const missing = ethBuyLockError(new Error(LOCK_ERROR), "MUSEGOD");
+  assert(missing instanceof Error);
+  assert.equal(missing.message, "This browser cannot safely buy with ETH (no cross-tab lock). Pay with MUSEGOD, or use another browser.");
+  assert.doesNotMatch(missing.message, /draft/i);
+  for (const message of ["This launch is open in another tab.", "This launch is already being submitted in this tab."]) {
+    const conflict = ethBuyLockError(new Error(message), "MUSEGOD");
+    assert(conflict instanceof Error);
+    assert.equal(conflict.message, "Another tab of this wallet is buying with ETH. Finish there first.");
+  }
+  const unrelated = new Error("Wallet disconnected");
+  assert.equal(ethBuyLockError(unrelated, "MUSEGOD"), unrelated);
+});
 
 // Round 4 F1: an ETH buy through LI.FI keeps a recoverable anti-duplicate record, settled by the Task 9 nonce machinery (send-record.ts).
 const config = { mode: "robinhood", chainId: 4663, deploymentChainId: 4663 } as const;

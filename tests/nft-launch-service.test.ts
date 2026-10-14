@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import type { ErrorRequestHandler } from "express";
 import { mkdtempSync, rmSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
@@ -359,6 +360,42 @@ function claimStores(run: (a: Store, b: Store) => void) {
   try { run(a, b); } finally { a.close(); b.close(); rmSync(directory, { recursive: true, force: true }); }
 }
 
+test("SQLite backup renewal never inserts, takes another owner's claim, or shortens an expiry", () => claimStores((a, b) => {
+  const now = 1_000_000;
+  a.claimLaunch(planA, [nftClaim], now + SUBMITTED, { now });
+  b.claimLaunch(planB, [feeClaim], now + SUBMITTED, { now });
+  a.renewLaunchClaims(planA, [nftClaim, feeClaim], now + SIGNING, now);
+  a.renewLaunchClaims(planC, [otherNftClaim], now + SUBMITTED, now);
+  const rows = a.db.prepare("SELECT claim,owner,expires_at,submitted FROM launch_claims ORDER BY claim").all();
+  assert.deepEqual(rows.map((row) => ({ ...row })), [
+    { claim: feeClaim, owner: planB, expires_at: now + SUBMITTED, submitted: 0 },
+    { claim: nftClaim, owner: planA, expires_at: now + SUBMITTED, submitted: 1 },
+  ]);
+  a.renewLaunchClaims(planA, [nftClaim], now + 2 * SUBMITTED, now + 1);
+  assert.deepEqual(b.claimLaunch(planC, [nftClaim], now + SUBMITTED + SIGNING, { now: now + SUBMITTED }), [nftClaim]);
+}));
+
+test("Supabase backup renewal uses owner- and scope-filtered PATCH only, with an expiry ceiling guard", async () => {
+  const store = new SupabaseStore("https://fixture.supabase.co", "test-server-key", "verify-nft");
+  const sent: { path: string; method?: string; body?: unknown }[] = [];
+  store.request = async <T>(path: string, method?: string, body?: unknown) => { sent.push({ path, method, body }); return undefined as T; };
+  await store.renewLaunchClaims(planA, [nftClaim, feeClaim], 1_600_000, 1_000_000);
+  assert.equal(sent.length, 2);
+  for (const call of sent) {
+    assert.equal(call.method, "PATCH", "no INSERT or claim RPC");
+    const query = new URLSearchParams(call.path.split("?")[1]);
+    assert.equal(query.get("scope"), "eq.verify-nft");
+    assert.equal(query.get("owner"), `eq.${planA}`);
+    assert.equal(query.get("claim"), `in.(${JSON.stringify(nftClaim)},${JSON.stringify(feeClaim)})`);
+  }
+  assert.deepEqual(sent[0].body, { submitted: true });
+  assert.deepEqual(sent[1].body, { expires_at: 1_600_000, submitted: true });
+  assert.equal(new URLSearchParams(sent[1].path.split("?")[1]).get("expires_at"), "lt.1600000", "cannot shorten an expiry");
+  sent.length = 0;
+  await assert.rejects(store.renewLaunchClaims("bad", [nftClaim], 1_600_000, 1_000_000), /Invalid launch claim/);
+  assert.deepEqual(sent, []);
+});
+
 test("SQLite launch claims: the same plan renews, another plan is refused until expiry, a claim is all or nothing, and release frees it, across connections", () => claimStores((a, b) => {
   const now = 1_000_000;
   assert.deepEqual(a.claimLaunch(planA, [nftClaim, feeClaim], now + SIGNING, { now }), [], "a free claim is granted");
@@ -466,4 +503,19 @@ test("NftLaunchError codes reach the HTTP response body", async () => {
     assert.equal(response.status, 422);
     assert.deepEqual(await response.json(), { error: "Connect the wallet that holds this NFT.", code: "NFT_NOT_CONTROLLED" });
   } finally { await new Promise<void>((resolve) => server.close(() => resolve())); entry.service.store.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("transient fee refusals reach the API as pending; definitive refusals stay invalid", () => {
+  const directory = mkdtempSync(join(tmpdir(), "nft-fee-response-"));
+  const entry = createApp(undefined, "loopback", runtimeFromEnv(4663, { NODE_ENV: "test", CHAIN_MODE: "fork", FORK_CHAIN_ID: "4663", DATA_DIR: directory }));
+  try {
+    const handler = entry.app.router.stack.at(-1)!.handle as unknown as ErrorRequestHandler;
+    for (const retry of ["unconfirmed", "missing", undefined] as const) {
+      let status: number | undefined, body: unknown;
+      const response = { status: (value: number) => { status = value; return response; }, json: (value: unknown) => { body = value; } };
+      handler(new NftLaunchError("NFT_FEE_INVALID", "Fee check refused.", retry), {} as never, response as never, () => assert.fail("unhandled fee error"));
+      assert.equal(status, 422);
+      assert.deepEqual(body, { error: "Fee check refused.", code: retry ? "NFT_FEE_PENDING" : "NFT_FEE_INVALID" });
+    }
+  } finally { entry.service.store.close(); rmSync(directory, { recursive: true, force: true }); }
 });

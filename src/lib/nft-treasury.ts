@@ -13,8 +13,31 @@ const accountAbi = parseAbi(["function execute(address to, uint256 value, bytes 
   "function isLocked() view returns (bool)"]);
 type Tx = { to: Address; data: Hex };
 
+type FeePair = { fees0: string; fees1: string };
+type PendingFee = { token: Address; lp: FeePair; trade: FeePair; poolKey: { currency0: Address; currency1: Address } } | { token: Address; error: string };
+/** Every bound coin contributes to the view, including rejected coins that still pay this NFT's vault. */
+export type NftTreasuryView = { nft: NftRef; vault: Address; vaultDeployed: boolean; treasury: Address; treasuryDeployed: boolean; treasuryInitialized: boolean;
+  coins: { token: Address; symbol: string; poolId: Hex; quoteAddress: Address }[];
+  balances: { token: Address; symbol: string; amount: string; vaultAmount: string | null }[]; pendingFees: PendingFee[] };
+
 export const sweepTx = (vault: Address, poolIds: Hex[], tokens: Address[]): Tx =>
   ({ to: vault, data: encodeFunctionData({ abi: vaultAbi, functionName: "sweep", args: [poolIds, tokens] }) });
+/** Collect only pools with readable nonzero fees, at most five per wallet confirmation. A chunk forwards only its own currencies;
+ * balances already sitting in the vault remain sweepable without collecting empty pools. No pending funds means no transaction. */
+export function pendingSweepTxs(vault: Address, view: Pick<NftTreasuryView, "coins" | "pendingFees" | "balances">): Tx[] {
+  const pending = new Set(view.pendingFees.filter((entry) => !("error" in entry) &&
+    [entry.lp.fees0, entry.lp.fees1, entry.trade.fees0, entry.trade.fees1].some((amount) => BigInt(amount) > 0n)).map((entry) => entry.token.toLowerCase()));
+  const coins = view.coins.filter((coin) => pending.has(coin.token.toLowerCase())), steps: Tx[] = [], forwarded = new Set<string>();
+  for (let start = 0; start < coins.length; start += 5) {
+    const chunk = coins.slice(start, start + 5);
+    const tokens = [...new Map(chunk.flatMap((coin) => [coin.token, coin.quoteAddress]).map((token) => [token.toLowerCase(), token])).values()];
+    tokens.forEach((token) => forwarded.add(token.toLowerCase()));
+    steps.push(sweepTx(vault, chunk.map((coin) => coin.poolId), tokens));
+  }
+  const balances = view.balances.filter((row) => row.vaultAmount && BigInt(row.vaultAmount) > 0n && !forwarded.has(row.token.toLowerCase()));
+  for (let start = 0; start < balances.length; start += 10) steps.push(sweepTx(vault, [], balances.slice(start, start + 10).map((row) => row.token)));
+  return steps;
+}
 export const deployVaultTx = (factory: Address, nft: NftRef): Tx =>
   ({ to: factory, data: encodeFunctionData({ abi: factoryAbi, functionName: "deploy", args: [BigInt(nft.chainId), nft.contract, BigInt(nft.tokenId)] }) });
 /** The second activation step alone, `initialize(TOKENBOUND_V3_IMPLEMENTATION)` on the treasury: it finishes an activation whose account

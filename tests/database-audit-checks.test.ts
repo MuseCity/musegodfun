@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 import { SupabaseStore } from "../server/supabase-store";
 import { assertNativeAuditDatabaseMigration } from "../scripts/verify-database";
+
+test("verification cleanup includes launch claims even when a probe throws before releasing them", () => {
+  const source = readFileSync(new URL("../scripts/verify-database.ts", import.meta.url), "utf8");
+  const cleanup = source.slice(source.lastIndexOf("} finally {"));
+  assert.match(cleanup, /for \(const table of \[[\s\S]*?"launch_claims"[\s\S]*?\]\)/);
+  assert.match(cleanup, /assert\(\/\^\(verify\|restore\)-\/\.test\(db\.scope\)\)/, "cleanup retains its disposable-scope guard");
+});
 
 test("database operator verification checks actual audit CAS and missing legacy RPCs in isolated scopes",async(t)=>{
  const calls:any[]=[],url="https://fixture.supabase.co",key="isolated-test-key",store=new SupabaseStore(url,key,"verify-round-four");let saved:any=null;

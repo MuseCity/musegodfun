@@ -224,6 +224,12 @@ export class Store {
       this.db.exec("COMMIT"); return held;
     } catch (error) { this.db.exec("ROLLBACK"); throw error; }
   }
+  /** A recovered backup has not passed prepare's control check: it may submit and renew its own rows, never insert or take a claim. */
+  renewLaunchClaims(owner: string, claims: string[], expiresAt: number, now = Date.now()) {
+    assertLaunchClaim(owner, claims, expiresAt, now, []);
+    this.db.prepare(`UPDATE launch_claims SET submitted=1,expires_at=MAX(expires_at,?) WHERE owner=? AND claim IN (${claims.map(() => "?").join(",")})`)
+      .run(expiresAt, owner, ...claims);
+  }
   /** Frees the owner's claims: all of them once its launch is decided, or only the unsubmitted ones when its signing was not authorized.
    * Claims nobody releases expire. */
   releaseLaunchClaims(owner: string, { unsubmittedOnly = false }: { unsubmittedOnly?: boolean } = {}) {

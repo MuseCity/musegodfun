@@ -13,6 +13,16 @@ export const NFT_DISCLAIMER = "Not investment advice. musegod.fun does not endor
 /** What the create form needs from the step to decide whether review may open. `checked`: the NFT and account the live check passed for,
  * or null (a restored NFT stays in the draft while it is checked again, so the draft alone does not say it passed). */
 export type NftStepStatus = { status: string; fee: LaunchFeeState; checked: NftChecked | null };
+export type NftFeeRejection = { code: "NFT_FEE_PENDING" | "NFT_FEE_INVALID"; message: string };
+
+export function NftFeeNotice({ rejection, paid, onDiscard }: { rejection: NftFeeRejection; paid: boolean; onDiscard: () => void }) {
+  return <div role="alert" className="nft-warning">
+    {rejection.code === "NFT_FEE_PENDING"
+      ? <p>This payment is still confirming. {rejection.message} Keep this payment and review again in a minute.</p>
+      : <><p>This payment could not be verified. {rejection.message} Pay a new fee.</p>
+        {paid && <div className="button-row"><button type="button" className="secondary" onClick={onDiscard}>Pay a new fee</button></div>}</>}
+  </div>;
+}
 
 export function LaunchModeSwitch({ nftMode, disabled, onChange }: { nftMode: boolean; disabled?: boolean; onChange: (nftMode: boolean) => void }) {
   return (
@@ -34,8 +44,8 @@ function TxHash({ hash, config }: { hash: Hex; config: RuntimeConfig }) {
  * the person changes the NFT or the check says no (not ERC-721, not controlled, already launched); `user`: the person changed the NFT.
  * The NFT the draft already holds (a reload, another tab, a draft link) stays while it is checked again, and through a check that could
  * not run (the error shows with Retry); `checked` in the status tells review whether the check passed, so review never proceeds on it. */
-export function NftLaunchStep({ config, account, draft, error = "", feeRejected = "", onChange, onCheck, onFee, onPrefill, onStatus }: {
-  config: RuntimeConfig; account: Address | null; draft: LaunchInput; error?: string; feeRejected?: string;
+export function NftLaunchStep({ config, account, draft, error = "", feeRejected, onChange, onCheck, onFee, onPrefill, onStatus }: {
+  config: RuntimeConfig; account: Address | null; draft: LaunchInput; error?: string; feeRejected?: NftFeeRejection | null;
   onChange: (nft: NftRef | undefined, user: boolean) => void; onCheck: () => void; onFee: (fee: DraftLaunchFee | undefined) => void;
   onPrefill?: (museName: string) => void; onStatus: (status: NftStepStatus) => void;
 }) {
@@ -157,12 +167,7 @@ export function NftLaunchStep({ config, account, draft, error = "", feeRejected 
           <button type="button" className="secondary" disabled={fee.checking} onClick={fee.checkAgain}>{fee.checking ? "Checking…" : "Check again"}</button>
           {fee.unknown && <button type="button" className="secondary" onClick={fee.discard}>No payment was sent — pay again</button>}
         </div>}
-        {feeRejected && <div role="alert" className="nft-warning">
-          <p>This payment could not be verified. {feeRejected} If it is still confirming, wait a minute and review again. Otherwise, pay a new fee.</p>
-          {record?.state === "paid" && <div className="button-row">
-            <button type="button" className="secondary" onClick={fee.discard}>Pay a new fee</button>
-          </div>}
-        </div>}
+        {feeRejected && <NftFeeNotice rejection={feeRejected} paid={record?.state === "paid"} onDiscard={fee.discard} />}
         {fee.notice && <p className="field-error" role="alert">{fee.notice}</p>}
         <p className="nft-warning">The $10 goes to the platform treasury and is non-refundable.</p>
       </section>}

@@ -5,20 +5,12 @@ import { chainApi } from "../lib/api";
 import { deploymentChain, explorerFor, networkName, sameAddress, shortAddress, stockByAddress, type RuntimeConfig, type TokenRecord } from "../lib/config";
 import { isMuse, nftKey, treasuryFor, vaultFor, type NftRef, type NftStatus } from "../lib/nft-mode";
 import { readNftStatus } from "../lib/nft-client";
-import { LOCK_PRESET_DAYS, activateTreasuryTxs, depositTx, deployVaultTx, finishActivationTx, lockTarget, lockTx, readTreasuryLock, sweepTx, withdrawTx } from "../lib/nft-treasury";
+import { LOCK_PRESET_DAYS, activateTreasuryTxs, depositTx, deployVaultTx, finishActivationTx, lockTarget, lockTx, pendingSweepTxs, readTreasuryLock, withdrawTx, type NftTreasuryView } from "../lib/nft-treasury";
 import { nftPath } from "../lib/network";
 import { errorMessage, parseAmount } from "../lib/validation";
 import { transactionClient, useWallet } from "../lib/wallet";
 import { NftBadge } from "./TokenCard";
 
-type FeePair = { fees0: string; fees1: string };
-type PendingFee = { token: Address; lp: FeePair; trade: FeePair; poolKey: { currency0: Address; currency1: Address } } | { token: Address; error: string };
-/** `/nft-treasury`: the vault and treasury (created: `treasuryDeployed`; activation finished: `treasuryInitialized`), every coin bound to the
- * NFT whatever its status (`coins`, the sweep set), what the treasury (`amount`) and vault hold of those coins and their pairs, and each
- * coin's fees still waiting in Doppler for the vault. */
-type NftTreasuryView = { nft: NftRef; vault: Address; vaultDeployed: boolean; treasury: Address; treasuryDeployed: boolean; treasuryInitialized: boolean;
-  coins: { token: Address; symbol: string; poolId: Hex; quoteAddress: Address }[];
-  balances: { token: Address; symbol: string; amount: string; vaultAmount: string | null }[]; pendingFees: PendingFee[] };
 type Tx = { to: Address; data: Hex };
 
 const MUSE_SITE = "https://musegod.org/muse";
@@ -57,7 +49,7 @@ export function NftModeUnavailable() {
 }
 
 /** The bound NFT, its fee vault and Tokenbound treasury, and the treasury actions. `coin`: the token page's coin (its verification and
- * hidden state); `coins`: the listed coins (deposit assets and names). The sweep claims every bound coin the treasury view reports. */
+ * hidden state); `coins`: the listed coins (deposit assets and names). The sweep batches bound pools with pending fees. */
 export function NftTreasuryCard({ config, nft, coins, coin, navigate }: {
   config: RuntimeConfig; nft: NftRef; coins: TokenRecord[]; coin?: TokenRecord; navigate?: (path: string) => void;
 }) {
@@ -151,12 +143,12 @@ export function NftTreasuryCard({ config, nft, coins, coin, navigate }: {
       setBusy("");
     }
   }
-  // Every coin bound to the NFT, rejected ones included (they still pay the vault): each pool, and each coin and paired asset once.
+  // Every bound coin remains available for asset names and balances, including rejected coins that still pay the vault.
   const bound = view?.coins ?? [];
   const known = [...coins, ...bound.map((entry) => ({ address: entry.token, symbol: entry.symbol }))];
-  const sweepAssets = [...new Map(bound.flatMap((entry) => [entry.token, entry.quoteAddress]).map((token) => [token.toLowerCase(), token])).values()];
+  const sweepSteps = vault && view ? pendingSweepTxs(vault, view) : [];
   const sweep = () => run("Sweep fees", () => [...(vaultDeployed ? [] : [deployVaultTx(factory!, nft)]),
-    sweepTx(vault!, bound.map((entry) => entry.poolId), sweepAssets)]);
+    ...sweepSteps]);
   const lockFor = (days: number) => run("Lock treasury", async () => {
     const block = await transactionClient(config.chainId, config).getBlock();
     return [lockTx(nft, lockTarget(block.timestamp, days))];
@@ -230,7 +222,7 @@ export function NftTreasuryCard({ config, nft, coins, coin, navigate }: {
         {factory && <div className="nft-action">
           <h3 className="nft-subtitle"><Vault size={15} aria-hidden="true" /> Sweep</h3>
           <p className="hint">Anyone can claim this NFT's creator fees into its treasury.{view && !vaultDeployed ? " The first sweep also deploys the fee vault." : ""}</p>
-          <button type="button" className="primary" disabled={!canSign || !view || !bound.length} onClick={() => void sweep()}>Sweep fees to the treasury</button>
+          <button type="button" className="primary" disabled={!canSign || !sweepSteps.length} onClick={() => void sweep()}>Sweep fees to the treasury</button>
         </div>}
         {view && !deployed && usable && <div className="nft-action">
           <h3 className="nft-subtitle">Activate treasury</h3>
