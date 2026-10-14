@@ -30,7 +30,7 @@ export function ingressClass(path: string): IngressClass {
   const normalized = path.split("?")[0].replace(/\/+$/, "").toLowerCase().replace(/^\/api\/chains\/(?:8453|4663)(?=\/)/, "/api");
   if (normalized.endsWith("/token-images")) return "upload";
   if (/\/(?:launch\/(?:register|track)|first-buy\/verify|buyback\/batches\/[^/]+\/(?:track|reconcile))$/.test(normalized)) return "recovery";
-  if (/\/(?:launch\/(?:prepare|simulate|validate)|launch-fee-quote|first-buy\/(?:prices|quote)|quote|buyback\/(?:engine\/)?quote|buyback\/batches)$/.test(normalized)) return "workflow";
+  if (/\/(?:launch\/(?:prepare|simulate|validate)|launch-fee-quote|first-buy\/(?:prices|quote)|trade\/eth-quote|quote|buyback\/(?:engine\/)?quote|buyback\/batches)$/.test(normalized)) return "workflow";
   return "read";
 }
 type Row = { at: number; count: number; expensive: number; recovery: number; riskTimes: number[]; uploadTimes: number[] };
@@ -56,7 +56,7 @@ export class IngressLimiter {
     if (expensiveRoute(path)) row.expensive++;
     if (kind === "recovery") row.recovery++;
     const normalized = path.split("?")[0].replace(/\/+$/, "").toLowerCase();
-    // An ETH-buy quote is a page read (its ingress class), challenged and capped like a first-buy quote.
+    // An ETH-buy quote costs LI.FI calls like a first-buy quote: the same class, cap and challenge.
     const workflow = /\/(?:launch\/(?:prepare|simulate)|first-buy\/quote|trade\/eth-quote)$/.test(normalized);
     const upload = normalized.endsWith("/token-images");
     row.riskTimes = row.riskTimes.filter((time) => time > now - 300_000);

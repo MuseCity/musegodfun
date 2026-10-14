@@ -21,9 +21,23 @@ export type LifiTradeTarget = { kind: "coin"; coin: FirstBuyPaymentAsset } | { k
 export function ethBuyAvailable(config: Pick<RuntimeConfig, "mode" | "deploymentChainId"> | null, pairAddress: string) {
   return !!config && deploymentChain(config) === ETH_BUY_CHAIN && !sameAddress(pairAddress, wrappedEther(ETH_BUY_CHAIN));
 }
-/** ETH unless the wallet holds the pair asset and at least the amount entered (in pair-asset units). */
-export function defaultPayWith(pairBalance: bigint | null, amount: bigint | null): PayWith {
-  return pairBalance === null || pairBalance === 0n || (amount !== null && pairBalance < amount) ? "eth" : "pair";
+/** The default while the amount field is empty: the pair asset without a wallet (its read-only quote needs no account) or when
+ * the wallet holds some of it; otherwise ETH. */
+export function defaultPayWith(connected: boolean, pairBalance: bigint | null): PayWith {
+  return !connected || (pairBalance !== null && pairBalance > 0n) ? "pair" : "eth";
+}
+/** A typed amount never changes unit: the user's pick wins; otherwise the default follows the wallet only while the field is
+ * empty, and the first character freezes it (`frozen`, the default when typing began). */
+export function resolvePayWith({ choice, frozen, amount, fallback }: { choice: PayWith | null; frozen: PayWith | null; amount: string; fallback: PayWith }): PayWith {
+  return choice ?? (amount !== "" && frozen !== null ? frozen : fallback);
+}
+/** Paying with the pair asset, the wallet holds less than the amount entered: the panel offers ETH, never converts the amount. */
+export function pairShortfall(pairBalance: bigint | null, amount: bigint | null) {
+  return pairBalance !== null && amount !== null && pairBalance < amount;
+}
+/** A wallet request whose outcome is not known yet: never treat it as failed, never offer to buy again. */
+export function pendingOutcome(error: unknown) {
+  return /still pending|pending status|still unresolved/i.test(error instanceof Error ? error.message : String(error));
 }
 /** The account's net ERC-20 Transfer of `token` in one receipt: transfers in, minus transfers out. */
 export function receivedFromLogs(logs: readonly ReceiptLog[], token: Address, account: Address): bigint {
@@ -53,19 +67,29 @@ export function twoStepMinimum(previewOut: bigint, slippageBps: number) {
   return minimumOutput(minimumOutput(previewOut, slippageBps), slippageBps);
 }
 export function ethBuyDisclosure(pair: string, coin: string) {
-  return `No one-step route right now. This buy takes 3 or 4 wallet confirmations: ETH → ${pair}, then ${pair} → ${coin}.`;
+  return `No one-step route right now. This buy takes 3 steps (3 or 4 wallet confirmations): ETH → ${pair}, then ${pair} → ${coin}.`;
 }
-/** Step 2 of a two-step buy did not finish. The pair asset stays in the wallet; nothing is retried automatically. */
+/** Every wallet prompt of a two-step buy has its own label; step 1 is prefixed by `executeEthBuy`. */
+export function twoStepLabels(pair: string, coin: string) {
+  return { approve: `Step 2 of 3 · Approval 1 of 2 · Approve this ${pair} amount`,
+    router: `Step 2 of 3 · Approval 2 of 2 · Approve the trading router for ${pair}; it expires in 5 minutes`,
+    swap: `Step 3 of 3 · Confirm in your wallet: ${pair} → ${coin}`, waiting: "Step 3 of 3 · Waiting for on-chain confirmation" };
+}
+/** A two-step buy that did not finish. Nothing is retried automatically, and the pair asset stays in the wallet:
+ * - stage "conversion": the ETH → pair transaction is still pending;
+ * - stage "swap": the conversion confirmed (`pairReceived`, or null if its receipt could not be read) and step 2 did not. */
 export class EthBuyIncomplete extends Error {
   readonly pending: boolean;
-  constructor(public readonly pairReceived: bigint | null, pair: FirstBuyPaymentAsset, coin: FirstBuyPaymentAsset,
-    public readonly conversionHash: Hash, cause: unknown) {
-    const pending = /still pending/i.test(cause instanceof Error ? cause.message : String(cause));
-    super(pairReceived === null
-      ? `Your ETH → ${pair.symbol} conversion is confirmed. Buy ${coin.symbol} with ${pair.symbol} to finish.`
-      : pending
-        ? `You received ${amountWords(pairReceived, pair.decimals)} ${pair.symbol}. A ${pair.symbol} → ${coin.symbol} transaction is still pending: check your wallet transaction history before you buy again.`
-        : `You received ${amountWords(pairReceived, pair.decimals)} ${pair.symbol}. Buy ${coin.symbol} with ${pair.symbol} to finish.`);
+  constructor(public readonly stage: "conversion" | "swap", public readonly pairReceived: bigint | null, pair: FirstBuyPaymentAsset,
+    coin: FirstBuyPaymentAsset, public readonly conversionHash: Hash, cause: unknown) {
+    const pending = stage === "conversion" || pendingOutcome(cause);
+    super(stage === "conversion"
+      ? `Your ETH → ${pair.symbol} conversion is still pending. Check it in your wallet transaction history; once it confirms, buy ${coin.symbol} with ${pair.symbol}.`
+      : pairReceived === null
+        ? `Your ETH → ${pair.symbol} conversion is confirmed. Buy ${coin.symbol} with ${pair.symbol} to finish.`
+        : pending
+          ? `You received ${amountWords(pairReceived, pair.decimals)} ${pair.symbol}. A ${pair.symbol} → ${coin.symbol} transaction is still pending: check your wallet transaction history before you buy again.`
+          : `You received ${amountWords(pairReceived, pair.decimals)} ${pair.symbol}. Buy ${coin.symbol} with ${pair.symbol} to finish.`);
     this.name = "EthBuyIncomplete";
     this.pending = pending;
   }
@@ -143,8 +167,9 @@ export async function executeLifiTrade(quote: FirstBuyPaymentQuote, target: Lifi
 export type EthBuyResult = { mode: "direct"; hash: Hash; received: bigint | null }
   | { mode: "two-step"; conversionHash: Hash; pairReceived: bigint; hash: Hash; received: bigint | null };
 export type EthBuyDependencies = {
-  /** The wallet's verified LI.FI executor; `progress` carries this step's messages. */
-  lifi: (quote: FirstBuyPaymentQuote, target: LifiTradeTarget, progress: (message: string) => void) => Promise<{ hash: Hash; received: bigint | null }>;
+  /** The wallet's verified LI.FI executor; `progress` carries this step's messages, `onHash` reports the submitted hash. */
+  lifi: (quote: FirstBuyPaymentQuote, target: LifiTradeTarget, progress: (message: string) => void,
+    onHash: (hash: Hash) => void) => Promise<{ hash: Hash; received: bigint | null }>;
   /** A fresh v4 buy quote for exactly `amountIn` pair-asset units. */
   requote: (amountIn: bigint) => Promise<SwapQuote>;
   /** The existing pair → coin flow (approvals and swap); resolves with the confirmed swap hash. */
@@ -159,11 +184,19 @@ export async function executeEthBuy(plan: EthBuyQuoteResponse, context: { coin: 
   account: Address; slippageBps: number }, deps: EthBuyDependencies): Promise<EthBuyResult> {
   const { coin, pair, account, slippageBps } = context;
   if (plan.mode === "direct") {
-    const { hash, received } = await deps.lifi(plan.quote, { kind: "coin", coin }, deps.progress);
+    const { hash, received } = await deps.lifi(plan.quote, { kind: "coin", coin }, deps.progress, () => {});
     return { mode: "direct", hash, received };
   }
-  const { hash: conversionHash, received: pairReceived } = await deps.lifi(plan.conversion, { kind: "conversion", pair },
-    (message) => deps.progress(`1/3 · ${message}`));
+  let submitted: Hash | null = null, step1: { hash: Hash; received: bigint | null };
+  try {
+    step1 = await deps.lifi(plan.conversion, { kind: "conversion", pair }, (message) => deps.progress(`Step 1 of 3 · ${message}`),
+      (hash) => { submitted = hash; });
+  } catch (cause) {
+    // A submitted conversion whose outcome is unknown: point at it, never at buying again.
+    if (submitted && pendingOutcome(cause)) throw new EthBuyIncomplete("conversion", null, pair, coin, submitted, cause);
+    throw cause;
+  }
+  const { hash: conversionHash, received: pairReceived } = step1;
   let hash: Hash;
   try {
     if (pairReceived === null) throw new Error("The converted amount could not be read from the receipt.");
@@ -175,7 +208,7 @@ export async function executeEthBuy(plan: EthBuyQuoteResponse, context: { coin: 
       throw new Error(`The ${pair.symbol} → ${coin.symbol} price moved beyond your slippage.`);
     hash = await deps.trade(quote);
   } catch (cause) {
-    throw new EthBuyIncomplete(pairReceived, pair, coin, conversionHash, cause);
+    throw new EthBuyIncomplete("swap", pairReceived, pair, coin, conversionHash, cause);
   }
   let received: bigint | null = null;
   try { received = receivedFromLogs(await deps.logs(hash), coin.address, account); } catch { /* Shown as unknown. */ }

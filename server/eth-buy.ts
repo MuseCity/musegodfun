@@ -4,7 +4,8 @@ import { quoteAsset, sameAddress, type TokenRecord } from "../src/lib/config";
 import { ETH_BUY_CHAIN, FIRST_BUY_SLIPPAGE_BPS, wrappedEther } from "../src/lib/first-buy-payment";
 import type { EthBuyQuoteResponse, SwapQuote } from "../src/lib/eth-buy";
 import { addressSchema, minimumOutput } from "../src/lib/validation";
-import { LifiNoRouteError, type FirstBuyPaymentReader } from "./lifi";
+import { BudgetUnavailable } from "./runtime-policy";
+import type { FirstBuyPaymentReader } from "./lifi";
 
 export class EthBuyError extends Error {
   constructor(public code: "ETH_BUY_UNAVAILABLE" | "ETH_BUY_NOT_NEEDED", message: string) { super(message); this.name = "EthBuyError"; }
@@ -25,8 +26,9 @@ export type EthBuyDependencies = {
   swapQuote: (token: Address, amount: string, slippageBps: number) => Promise<SwapQuote>;
   now?: () => number;
 };
-/** One quote for buying a pair-asset coin with ETH: a direct LI.FI route when one exists; only when LI.FI has no route, the
- * strict ETH → pair conversion plus the v4 quote of that conversion's guaranteed minimum. */
+/** One quote for buying a pair-asset coin with ETH: a direct LI.FI route when one passes every check; otherwise (no route, an
+ * unindexed or thin coin, a route the checks refuse) the strict ETH → pair conversion plus the v4 quote of that conversion's
+ * guaranteed minimum. A refused direct quote is discarded, never returned; only provider capacity stops the fallback. */
 export async function quoteEthBuy(raw: unknown, deps: EthBuyDependencies): Promise<EthBuyQuoteResponse> {
   const input = ethBuyRequestSchema.parse(raw), now = deps.now ?? Date.now;
   if (deps.chainId !== ETH_BUY_CHAIN || !deps.payments)
@@ -39,7 +41,7 @@ export async function quoteEthBuy(raw: unknown, deps: EthBuyDependencies): Promi
       coin: { address: record.address, symbol: record.symbol, decimals: 18 }, slippageBps: input.slippageBps });
     return { mode: "direct", quote, serverTime: now() };
   } catch (error) {
-    if (!(error instanceof LifiNoRouteError)) throw error;
+    if (error instanceof BudgetUnavailable) throw error;
   }
   const conversion = await deps.payments.quote({ account: input.account, fromToken: zeroAddress, toToken: pair.address,
     amount: input.amountIn, slippageBps: input.slippageBps });

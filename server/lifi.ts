@@ -31,10 +31,12 @@ function record(value: unknown): Record<string, any> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("The payment provider returned invalid data.");
   return value as Record<string, any>;
 }
-function tokenMatches(value: unknown, asset: FirstBuyPaymentAsset): Record<string, any> {
+// `symbol: false` (ETH buys of a listed coin only): the catalog fixes the coin by address, chain and decimals, and LI.FI's
+// token list may spell a new coin's symbol differently. Every first-buy asset keeps the symbol check.
+function tokenMatches(value: unknown, asset: FirstBuyPaymentAsset, symbol = true): Record<string, any> {
   const token = record(value);
   if (!isAddress(token.address ?? "", { strict: false }) || !sameAddress(token.address, asset.address) ||
-    token.chainId !== asset.chainId || token.decimals !== asset.decimals || token.symbol !== asset.symbol)
+    token.chainId !== asset.chainId || token.decimals !== asset.decimals || (symbol && token.symbol !== asset.symbol))
     throw new Error("The payment provider token identity did not match the verified asset.");
   return token;
 }
@@ -214,24 +216,24 @@ export class FirstBuyPaymentReader {
       if(!code || code==="0x" || (await bounded(()=>this.client.getBlock({blockNumber:block.number!}),message)).hash!==block.hash)throw new Error(message);
       return createDirectWrapQuote(this.chainId,normalized.account,normalized.amountIn,code,{number:block.number,hash:block.hash},quotedAt);
     }
-    return this.route(normalized, input.slippageBps, quotedAt, (quote) => assertFirstBuyPaymentQuote(quote, this.now()));
+    return this.route(normalized, input.slippageBps, quotedAt, (quote) => assertFirstBuyPaymentQuote(quote, this.now()), true);
   }
   /** ETH → a listed coin in one same-chain transaction (Robinhood only). It runs every check of `quote` (diamond, facet and
    * whitelist identity, same-chain steps, LIFI Fixed Fee only, exact sender and recipient) with the coin as the only output. */
   async coinQuote(input: EthBuyQuoteInput): Promise<FirstBuyPaymentQuote> {
     const quotedAt = this.now();
     const normalized = ethBuyInput(this.chainId, input);
-    return this.route(normalized, input.slippageBps, quotedAt, (quote) => assertEthBuyQuote(quote, normalized.toToken, this.now()));
+    return this.route(normalized, input.slippageBps, quotedAt, (quote) => assertEthBuyQuote(quote, normalized.toToken, this.now()), false);
   }
   private async route(normalized: { account: Address; fromToken: FirstBuyPaymentAsset; toToken: FirstBuyPaymentAsset; amountIn: bigint },
-    slippageBps: number, quotedAt: number, assertQuote: (quote: FirstBuyPaymentQuote) => FirstBuySwapData[]): Promise<FirstBuyPaymentQuote> {
+    slippageBps: number, quotedAt: number, assertQuote: (quote: FirstBuyPaymentQuote) => FirstBuySwapData[], outputSymbol: boolean): Promise<FirstBuyPaymentQuote> {
     const params = new URLSearchParams({ fromChain: String(this.chainId), toChain: String(this.chainId),
       fromToken: normalized.fromToken.address, toToken: normalized.toToken.address, fromAmount: normalized.amountIn.toString(),
       fromAddress: normalized.account, toAddress: normalized.account, slippage: String(slippageBps / 10_000),
       integrator: this.integrator, fee: "0", allowBridges: "none", skipSimulation: "false" });
     const raw = record(await this.request("quote", params)), action = record(raw.action), estimate = record(raw.estimate), tx = record(raw.transactionRequest);
     const fromToken = tokenMatches(action.fromToken, normalized.fromToken);
-    tokenMatches(action.toToken, normalized.toToken);
+    tokenMatches(action.toToken, normalized.toToken, outputSymbol);
     const registry = FIRST_BUY_PAYMENT_CONTRACTS[this.chainId];
     if (action.fromChainId !== this.chainId || action.toChainId !== this.chainId ||
       !sameAddress(action.fromAddress ?? "", normalized.account) || !sameAddress(action.toAddress ?? "", normalized.account) ||

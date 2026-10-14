@@ -232,7 +232,7 @@ type WalletState = {
   ) => Promise<Hash>;
   /** One verified LI.FI transaction paid in ETH on Robinhood: a coin buy, or the first step of a two-step buy. */
   lifiTrade: (quote: FirstBuyPaymentQuote, target: LifiTradeTarget, config: RuntimeConfig, progress: (message: string) => void,
-    confirmMessage: string) => Promise<{ hash: Hash; received: bigint | null }>;
+    confirmMessage: string, onHash?: (hash: Hash) => void) => Promise<{ hash: Hash; received: bigint | null }>;
   buyback: (step: BuybackStep, config: RuntimeConfig, onHash?: (hash: Hash) => void) => Promise<Hash>;
   engineAction: (action: EngineAction, config: RuntimeConfig, onHash?: (hash: Hash) => void) => Promise<Hash>;
   balance: (token: Address, config?: RuntimeConfig) => Promise<bigint>;
@@ -974,7 +974,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     return verification;
   }
   async function lifiTrade(quote: FirstBuyPaymentQuote, target: LifiTradeTarget, config: RuntimeConfig, progress: (message: string) => void,
-    confirmMessage: string) {
+    confirmMessage: string, onHash?: (hash: Hash) => void) {
     if (!account) throw new Error("Connect your wallet first");
     config = Object.freeze({ ...config });
     if (deploymentChain(config) !== 4663) throw new Error("Buying a coin with ETH is available on Robinhood Chain only.");
@@ -996,6 +996,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           (request) => assertLaunchRequest(request, { ...frozen.transaction, from: expected, chainId: config.chainId }));
         const hash = await wallet.sendTransaction({ to: frozen.transaction.to, data: frozen.transaction.data, value: BigInt(frozen.transaction.value), gas });
         const confirmation = confirmed(hash, config, expected, "swap");
+        onHash?.(hash);
         progress(`Waiting for on-chain confirmation · ${hash}`);
         return confirmation;
       },

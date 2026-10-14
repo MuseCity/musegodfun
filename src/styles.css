@@ -633,7 +633,13 @@ dialog.modal[open] { display: flex; flex-direction: column; gap: 16px; }
 /* "Pay with: ETH | <pair>" on a pair-asset coin's buy side, sized for low vision like the money warnings. */
 .pay-with { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; font-size: 14px; line-height: 20px; font-weight: 600; }
 .pay-with .segmented button { min-height: 36px; padding: 0 16px; font-size: 14px; line-height: 20px; }
-.trade-received { margin: 0; font-size: 14px; line-height: 20px; font-weight: 600; color: var(--ink); }
+/* The trade panel's one live region: always rendered; when empty it takes no space. */
+.trade-live { display: flex; flex-direction: column; gap: 8px; }
+.trade-live:empty { margin-top: -12px; }
+.trade-live p { margin: 0; }
+.trade-live .text-button { font-size: 14px; line-height: 20px; font-weight: 650; text-decoration: underline; }
+.trade-progress, .trade-received { font-size: 14px; line-height: 20px; font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
+.trade-links { display: flex; flex-wrap: wrap; gap: 4px 16px; }
 @media (max-width: 1179px) {
   .detail-layout { grid-template-columns: minmax(0, 1fr); }
   .detail-layout > .trade-panel { grid-row: 1; position: static; }

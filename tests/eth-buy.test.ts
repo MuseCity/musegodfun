@@ -13,8 +13,9 @@ import { runtimeFromEnv } from "../server/config";
 import { IngressLimiter, expensiveRoute, ingressClass } from "../server/abuse";
 import { FIRST_BUY_PAYMENT_CONTRACTS, assertEthBuyQuote, assertFirstBuyPaymentQuote, ethBuyCoin, firstBuyFeeAbi, firstBuyPairedAsset, firstBuyPaymentAbi,
   type FirstBuyPaymentAsset, type FirstBuyPaymentQuote, type FirstBuySwapData } from "../src/lib/first-buy-payment";
-import { EthBuyIncomplete, assertEthBuyResponse, defaultPayWith, ethBuyAvailable, ethBuyDisclosure, executeEthBuy, executeLifiTrade,
-  receivedFromLogs, twoStepMinimum, type EthBuyQuoteResponse, type SwapQuote } from "../src/lib/eth-buy";
+import { EthBuyIncomplete, assertEthBuyResponse, defaultPayWith, ethBuyAvailable, ethBuyDisclosure, executeEthBuy, executeLifiTrade, pairShortfall,
+  pendingOutcome, receivedFromLogs, resolvePayWith, twoStepLabels, twoStepMinimum, type EthBuyQuoteResponse, type SwapQuote } from "../src/lib/eth-buy";
+import { BudgetUnavailable } from "../server/runtime-policy";
 import { ROBINHOOD_STOCKS, type RuntimeConfig } from "../src/lib/config";
 import { resetQuoteClock } from "../src/lib/quote-clock";
 import { syntheticToken } from "./fixtures";
@@ -139,6 +140,16 @@ test("every strictness check rejects a malformed ETH-buy quote", async () => {
   }
   // The same quote with nothing corrupted passes, so each rejection above is caused by its one change.
   const f = readerFixture(); await f.reader.coinQuote(f.input);
+  // On the trade path only, LI.FI may spell a new coin's symbol differently: address, chain and decimals identify it.
+  const renamed = readerFixture(); renamed.raw.action.toToken.symbol = "MVADER-unindexed";
+  assert.equal((await renamed.reader.coinQuote(renamed.input)).toToken.symbol, "MVADER", "the quote keeps the catalog symbol");
+  // A first-buy conversion still requires LI.FI's symbol for the paired asset to match exactly.
+  const conversion = lifiQuote(musegod).q, firstBuyRaw = rawQuote(conversion);
+  const firstBuy = (raw: unknown) => new FirstBuyPaymentReader({ client: f.client, chainId: 4663, now: () => at, fetch: async () => Response.json(raw) })
+    .quote({ account, fromToken: zeroAddress, toToken: musegod.address, amount: "0.001", slippageBps: 100 });
+  await firstBuy(firstBuyRaw);
+  await assert.rejects(firstBuy({ ...firstBuyRaw, action: { ...firstBuyRaw.action, toToken: { ...firstBuyRaw.action.toToken, symbol: "MUSE" } } }),
+    /token identity did not match/);
   // ETH buys run on Robinhood Chain only.
   const base = new FirstBuyPaymentReader({ client: f.client, chainId: 8453, now: () => at, fetch: async () => Response.json(f.raw) });
   await assert.rejects(base.coinQuote(f.input), /ETH buy quote could not be verified/);
@@ -193,11 +204,26 @@ test("LI.FI 'no route' turns into the two-step plan: a strict ETH → pair conve
     `swap:${coin.address}:${formatUnits(BigInt(conversion.minimumOut), 18)}:100`]);
 });
 
-test("only 'no route' falls back: any other LI.FI failure stops the quote", async () => {
-  const { deps, calls } = serverDeps();
-  deps.payments!.coinQuote = async () => { throw new Error("The LI.FI router implementation changed. Payments are paused for verification."); };
-  await assert.rejects(quoteEthBuy(request, deps), /router implementation changed/);
-  assert(!calls.some((call) => call.startsWith("convert") || call.startsWith("swap")));
+test("any refused direct quote falls back to the two-step plan; only provider capacity stops the quote", async () => {
+  for (const failure of [new LifiNoRouteError(), new Error("LI.FI pricing or routing is unavailable. Try again later."),
+    new Error("The payment provider token identity did not match the verified asset."),
+    new Error("The payment route is not allowed by the verified LI.FI router."), new Error("The ETH buy quote could not be verified. Request a new quote.")]) {
+    const { deps, calls, conversion } = serverDeps();
+    deps.payments!.coinQuote = async () => { calls.push("coin"); throw failure; };
+    const response = await quoteEthBuy(request, deps);
+    assert.equal(response.mode, "two-step", failure.message);
+    assert.deepEqual(response.mode === "two-step" && response.conversion, conversion, "the rejected direct quote is never returned");
+    assert(calls.includes(`convert:${zeroAddress}:${musegod.address}:0.001`));
+  }
+  const capped = serverDeps();
+  capped.deps.payments!.coinQuote = async () => { throw new BudgetUnavailable(30); };
+  await assert.rejects(quoteEthBuy(request, capped.deps), BudgetUnavailable);
+  assert(!capped.calls.some((call) => call.startsWith("convert") || call.startsWith("swap")));
+  // A conversion that fails too surfaces its own error: there is no third path.
+  const down = serverDeps();
+  down.deps.payments!.coinQuote = async () => { throw new LifiNoRouteError(); };
+  down.deps.payments!.quote = async () => { throw new Error("LI.FI pricing or routing is unavailable. Try again later."); };
+  await assert.rejects(quoteEthBuy(request, down.deps), /routing is unavailable/);
 });
 
 test("unlisted, WETH-paired, Base and unconfigured requests are refused before any LI.FI request", async () => {
@@ -259,6 +285,10 @@ test("POST /api/trade/eth-quote: direct, two-step and 4xx refusals over HTTP wit
     const plan = await routeless.json() as EthBuyQuoteResponse;
     assert.equal(plan.mode, "two-step");
     assert.equal(plan.mode === "two-step" && plan.conversion.toToken.address, musegod.address);
+    // A thin pool's mixed tool errors (not a clean "no route") still fall back.
+    const thin = await post({ ...request, amountIn: "0.03" });
+    assert.equal(thin.status, 200, await thin.clone().text());
+    assert.equal((await thin.json() as EthBuyQuoteResponse).mode, "two-step");
     const unlisted = await post({ ...request, token: other });
     assert.equal(unlisted.status, 422);
     const wethPaired = await post({ ...request, token: otherCoin.address });
@@ -267,12 +297,16 @@ test("POST /api/trade/eth-quote: direct, two-step and 4xx refusals over HTTP wit
     assert.equal((await post({ ...request, slippageBps: 7 })).status, 400);
   }, (url) => {
     lifiCalls.push(`${url.searchParams.get("toToken")}:${url.searchParams.get("fromAmount")}`);
+    const amount = url.searchParams.get("fromAmount");
     if (url.searchParams.get("toToken") === coin.address)
-      return url.searchParams.get("fromAmount") === "1000000000000000" ? Response.json(rawQuote(direct.q)) : Response.json(noRouteBody, { status: 404 });
-    return Response.json(rawQuote(conversion.q));
+      return amount === "1000000000000000" ? Response.json(rawQuote(direct.q))
+        : amount === "20000000000000000" ? Response.json(noRouteBody, { status: 404 })
+        : Response.json({ ...noRouteBody, errors: { failed: [{ errorType: "NO_QUOTE", code: "INSUFFICIENT_LIQUIDITY" }, { errorType: "UNKNOWN_ERROR", code: "TOOL_TIMEOUT" }] } }, { status: 404 });
+    return Response.json(rawQuote(amount === "30000000000000000" ? lifiQuote(musegod, Date.now(), 3n * 10n ** 16n, 25n * 10n ** 18n).q : conversion.q));
   });
-  assert.deepEqual(lifiCalls, [`${coin.address}:1000000000000000`, `${coin.address}:20000000000000000`, `${musegod.address}:20000000000000000`],
-    "direct, then no route and the conversion; the unlisted, WETH-paired and malformed requests never reach LI.FI");
+  assert.deepEqual(lifiCalls, [`${coin.address}:1000000000000000`, `${coin.address}:20000000000000000`, `${musegod.address}:20000000000000000`,
+    `${coin.address}:30000000000000000`, `${musegod.address}:30000000000000000`],
+    "direct; no route then the conversion; mixed errors then the conversion; the unlisted, WETH-paired and malformed requests never reach LI.FI");
   await httpFixture(8453, async (_entry, post) => {
     const refused = await post(request);
     assert.equal(refused.status, 422);
@@ -280,9 +314,10 @@ test("POST /api/trade/eth-quote: direct, two-step and 4xx refusals over HTTP wit
   }, () => { throw new Error("Base never asks LI.FI for an ETH buy"); });
 });
 
-test("eth-quote is a read-class route, rate-limited and challenged like first-buy quotes", () => {
+test("eth-quote is in the first-buy quote's ingress class, rate-limited and challenged like it", () => {
   for (const path of ["/api/trade/eth-quote", "/api/chains/4663/trade/eth-quote", "/api/chains/4663/trade/eth-quote/"]) {
-    assert.equal(ingressClass(path), "read", path);
+    assert.equal(ingressClass(path), ingressClass("/api/chains/4663/first-buy/quote"), path);
+    assert.equal(ingressClass(path), "workflow", path);
     assert.equal(expensiveRoute(path), true, path);
   }
   const limiter = new IngressLimiter();
@@ -294,14 +329,21 @@ test("eth-quote is a read-class route, rate-limited and challenged like first-bu
   for (let i = 0; i < 21; i++) { const row = capped.admit("192.0.2.31", "/api/trade/eth-quote", 1000 + i); assert.equal(row.status, i >= 20 ? 429 : undefined); row.release(); }
 });
 
-test("the Pay with default is ETH until the wallet holds enough of the pair asset", () => {
-  assert.equal(defaultPayWith(null, null), "eth", "unknown balance");
-  assert.equal(defaultPayWith(0n, null), "eth", "no pair asset");
-  assert.equal(defaultPayWith(0n, 5n), "eth");
-  assert.equal(defaultPayWith(1n, 5n), "eth", "below the entered amount");
-  assert.equal(defaultPayWith(5n, 5n), "pair", "exactly enough");
-  assert.equal(defaultPayWith(6n, 5n), "pair");
-  assert.equal(defaultPayWith(1n, null), "pair", "a holder with no amount entered yet");
+test("Pay with: the empty-field default, a typed amount that never changes unit, and the shortfall hint", () => {
+  assert.equal(defaultPayWith(false, null), "pair", "no wallet: the read-only pair quote works");
+  assert.equal(defaultPayWith(true, null), "eth", "balance not known yet");
+  assert.equal(defaultPayWith(true, 0n), "eth", "no pair asset");
+  assert.equal(defaultPayWith(true, 1n), "pair", "a holder");
+  // The field is empty: the default follows the wallet. Typed: the default from when typing began, whatever the balance does.
+  assert.equal(resolvePayWith({ choice: null, frozen: null, amount: "", fallback: "eth" }), "eth");
+  assert.equal(resolvePayWith({ choice: null, frozen: "pair", amount: "", fallback: "eth" }), "eth", "clearing the field re-evaluates");
+  assert.equal(resolvePayWith({ choice: null, frozen: "pair", amount: "5", fallback: "eth" }), "pair", "typed MUSEGOD stays MUSEGOD");
+  assert.equal(resolvePayWith({ choice: null, frozen: "eth", amount: "5", fallback: "pair" }), "eth", "typed ETH stays ETH");
+  assert.equal(resolvePayWith({ choice: "eth", frozen: "pair", amount: "5", fallback: "pair" }), "eth", "an explicit pick wins");
+  assert.equal(pairShortfall(1n, 5n), true);
+  assert.equal(pairShortfall(5n, 5n), false);
+  assert.equal(pairShortfall(null, 5n), false, "no hint while the balance is unknown");
+  assert.equal(pairShortfall(1n, null), false, "no hint for an empty or invalid amount");
   const robinhood = { mode: "robinhood", chainId: 4663, deploymentChainId: 4663 } as RuntimeConfig;
   assert.equal(ethBuyAvailable(robinhood, musegod.address), true);
   assert.equal(ethBuyAvailable(robinhood, weth.address), false, "WETH-paired coins keep the plain panel");
@@ -326,8 +368,8 @@ const pairCtx = { coin, pair: musegod, account, slippageBps: 100 };
 function buyDeps(options: { pairReceived?: bigint | null; tradeError?: Error; requoteOut?: (amountIn: bigint) => bigint; swapLogs?: "fail" | bigint } = {}) {
   const calls: string[] = [], progress: string[] = [], sentQuotes: SwapQuote[] = [];
   const deps: Parameters<typeof executeEthBuy>[2] = {
-    lifi: async (quote, target, step) => {
-      calls.push(`lifi:${target.kind}:${quote.toToken.symbol}`); step("Confirm in your wallet"); step("Waiting for on-chain confirmation · 0xabc");
+    lifi: async (quote, target, step, onHash) => {
+      calls.push(`lifi:${target.kind}:${quote.toToken.symbol}`); step("Confirm in your wallet"); onHash("0x02"); step("Waiting for on-chain confirmation · 0xabc");
       if (target.kind === "coin") return { hash: "0x01" as Hash, received: 4_990n * 10n ** 18n };
       return { hash: "0x02" as Hash, received: options.pairReceived === undefined ? 25_123_456_789_000_000_000n : options.pairReceived };
     },
@@ -358,7 +400,7 @@ test("a direct buy is one verified LI.FI transaction and reports the coin receiv
   assert.deepEqual(result, { mode: "direct", hash: "0x01", received: 4_990n * 10n ** 18n });
 });
 
-test("a two-step buy swaps exactly the pair amount the conversion delivered, re-quoted, numbered 1/3 … 3/3", async () => {
+test("a two-step buy swaps exactly the pair amount the conversion delivered, re-quoted, numbered Step 1 of 3 …", async () => {
   const plan = twoStepPlan(), { deps, calls, progress, sentQuotes } = buyDeps();
   const result = await executeEthBuy(plan, pairCtx, deps);
   const received = 25_123_456_789_000_000_000n;
@@ -366,7 +408,7 @@ test("a two-step buy swaps exactly the pair amount the conversion delivered, re-
   assert.deepEqual(calls, ["lifi:conversion:MUSEGOD", `requote:${received}`, `trade:${received}`, "logs:0x03"]);
   assert.equal(sentQuotes[0].amountIn, received.toString());
   assert.deepEqual(result, { mode: "two-step", conversionHash: "0x02", pairReceived: received, hash: "0x03", received: 49n * 10n ** 18n });
-  assert.deepEqual(progress, ["1/3 · Confirm in your wallet", "1/3 · Waiting for on-chain confirmation · 0xabc"]);
+  assert.deepEqual(progress, ["Step 1 of 3 · Confirm in your wallet", "Step 1 of 3 · Waiting for on-chain confirmation · 0xabc"]);
 });
 
 test("an unexpired preview of exactly the received amount is used as it is", async () => {
@@ -401,8 +443,12 @@ test("a failed or rejected step 2 keeps the pair asset and says how to finish; a
   assert.equal(rejected.calls.filter((call) => call.startsWith("trade")).length, 1, "no automatic retry");
   const pending = buyDeps({ tradeError: new Error("The transaction is still pending. Check it again in your wallet transaction history: 0x03") });
   const waiting = await executeEthBuy(twoStepPlan(), pairCtx, pending.deps).then(() => null, (error: unknown) => error);
-  assert(waiting instanceof EthBuyIncomplete && waiting.pending);
+  assert(waiting instanceof EthBuyIncomplete && waiting.pending && waiting.stage === "swap");
   assert.equal(waiting.message, "You received 25.12345678 MUSEGOD. A MUSEGOD → MVADER transaction is still pending: check your wallet transaction history before you buy again.");
+  // A confirmation that changed under a reorg is pending too, never a failure to finish with the pair asset.
+  const changed = buyDeps({ tradeError: new Error("The transaction confirmation changed. Check its pending status in transaction history.") });
+  const reorged = await executeEthBuy(twoStepPlan(), pairCtx, changed.deps).then(() => null, (error: unknown) => error);
+  assert(reorged instanceof EthBuyIncomplete && reorged.pending);
   // The price moved beyond the accepted slippage: no swap is sent.
   const moved = buyDeps({ requoteOut: (amountIn) => amountIn });
   const stopped = await executeEthBuy(twoStepPlan(), pairCtx, moved.deps).then(() => null, (error: unknown) => error);
@@ -416,10 +462,23 @@ test("a failed or rejected step 2 keeps the pair asset and says how to finish; a
   assert(!unread.calls.some((call) => call.startsWith("trade") || call.startsWith("requote")));
 });
 
-test("a failed step 1 is a plain error, and a confirmed swap whose receipt cannot be read is still a success", async () => {
+test("a failed step 1 is a plain error, a pending one points at its hash, and an unreadable swap receipt is still a success", async () => {
   const { deps } = buyDeps();
   deps.lifi = async () => { throw new Error("User rejected the request."); };
   await assert.rejects(executeEthBuy(twoStepPlan(), pairCtx, deps), (error: unknown) => !(error instanceof EthBuyIncomplete) && /User rejected/.test(String(error)));
+  const timedOut = buyDeps(), conversionHash = `0x${"4".repeat(64)}` as Hash;
+  timedOut.deps.lifi = async (_quote, _target, _step, onHash) => {
+    onHash(conversionHash);
+    throw new Error(`The transaction is still pending. Check it again in your wallet transaction history: ${conversionHash}`);
+  };
+  const stuck = await executeEthBuy(twoStepPlan(), pairCtx, timedOut.deps).then(() => null, (error: unknown) => error);
+  assert(stuck instanceof EthBuyIncomplete && stuck.stage === "conversion" && stuck.pending && stuck.conversionHash === conversionHash);
+  assert.equal(stuck.message, "Your ETH → MUSEGOD conversion is still pending. Check it in your wallet transaction history; once it confirms, buy MVADER with MUSEGOD.");
+  assert(!timedOut.calls.some((call) => /^(requote|trade)/.test(call)));
+  // Pending before anything reached the wallet has no hash to point at: a plain error.
+  const early = buyDeps();
+  early.deps.lifi = async () => { throw new Error("The wallet request is still unresolved."); };
+  await assert.rejects(executeEthBuy(twoStepPlan(), pairCtx, early.deps), (error: unknown) => !(error instanceof EthBuyIncomplete));
   const unreadable = buyDeps({ swapLogs: "fail" });
   const result = await executeEthBuy(twoStepPlan(), pairCtx, unreadable.deps);
   assert.equal(result.received, null);
@@ -436,9 +495,19 @@ test("a re-quote that does not match the received amount, coin or pair never rea
   }
 });
 
-test("the two-step disclosure names both swaps and the real confirmation count", () => {
+test("the two-step disclosure, distinct prompt labels and pending detection", () => {
   assert.equal(ethBuyDisclosure("MUSEGOD", "MVADER"),
-    "No one-step route right now. This buy takes 3 or 4 wallet confirmations: ETH → MUSEGOD, then MUSEGOD → MVADER.");
+    "No one-step route right now. This buy takes 3 steps (3 or 4 wallet confirmations): ETH → MUSEGOD, then MUSEGOD → MVADER.");
+  const labels = twoStepLabels("MUSEGOD", "MVADER");
+  assert.deepEqual(labels, { approve: "Step 2 of 3 · Approval 1 of 2 · Approve this MUSEGOD amount",
+    router: "Step 2 of 3 · Approval 2 of 2 · Approve the trading router for MUSEGOD; it expires in 5 minutes",
+    swap: "Step 3 of 3 · Confirm in your wallet: MUSEGOD → MVADER", waiting: "Step 3 of 3 · Waiting for on-chain confirmation" });
+  assert.equal(new Set(Object.values(labels)).size, 4, "every wallet prompt has its own label");
+  for (const message of ["The transaction is still pending. Check it again in your wallet transaction history: 0x1",
+    "The transaction confirmation changed. Check its pending status in transaction history.",
+    "The wallet request is still unresolved. Your saved request will not be resent."]) assert.equal(pendingOutcome(new Error(message)), true, message);
+  for (const message of ["User rejected the request.", "The transaction failed. Check your transaction history."])
+    assert.equal(pendingOutcome(new Error(message)), false, message);
 });
 
 function tradeDeps(logs: readonly { address: Address; topics: readonly Hex[]; data: Hex }[] = [transfer(coin.address, dex, account, 77n)]) {
