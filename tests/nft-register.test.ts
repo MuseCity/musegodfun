@@ -685,6 +685,79 @@ test("a non-holder's backup with a missing fee never claims a free NFT, includin
   assert.equal(claimRow(store, key)?.owner, holderLaunch.plan.id, "a backup cannot take the holder's claim");
 }));
 
+test("another sender's replay of a reverted holder creation never reacquires its NFT or fee claims at +30/+60/+120 minutes", withStore(async (store) => {
+  const t0 = Date.now(), missingFee = { asset: "stable" as const, txHash: `0x${"d2".repeat(32)}` as Hex };
+  const original = await at(t0, async () => feeLaunch(3, "97")), replay = structuredClone(original);
+  replay.plan.creator = replay.plan.prepared!.account = replay.tx.from = replay.receipt.from = getAddress(other);
+  replay.plan.draft.launchFee = missingFee;
+  replay.hash = replay.tx.hash = replay.receipt.transactionHash = `0x${"44".repeat(32)}`;
+  assert.equal(replay.plan.data, original.plan.data, "NFT calldata does not bind its sender or fee payment");
+  assert.equal(replay.plan.id, original.plan.id);
+  original.receipt.status = "reverted";
+  store.savePlan(original.plan);
+  const service = signingService(store, [original, replay], { payments: [paidFee] });
+  const keys = [`nft:${nftKey(original.plan.draft.nft!)}`, `fee:${paidFee}`, `fee:${missingFee.txHash}`];
+  await at(t0, async () => {
+    assert.equal(await signingCode(service.validateLaunch(creator, original.plan.data, true)), "ok");
+    await service.trackLaunch(original.hash, original.plan.id);
+    await service.reconcile();
+    assert.equal(store.pendingLaunches().length, 0, "the confirmed revert leaves the queue");
+    await assert.rejects(service.register(replay.hash, structuredClone(replay.plan)), /temporarily unavailable/);
+  });
+  assert.equal(store.getPlan(original.plan.id)?.creator, creator, "the holder's saved plan is retained");
+  assert.equal(store.pendingLaunches().length, 0, "a new backup replay is not queued under the holder's plan");
+  for (const key of keys) assert.equal(claimRow(store, key), undefined, "registration cannot reacquire a holder claim");
+  // Also cover a replay already queued by an older server version under the holder's saved plan id.
+  store.trackLaunch(replay.hash, original.plan.id);
+  for (const minutes of [30, 60, 120]) {
+    await at(t0 + minutes * 60_000, () => service.reconcile());
+    for (const key of keys) assert.equal(claimRow(store, key), undefined, `no replay claim at +${minutes} minutes`);
+  }
+  await at(t0 + 120 * 60_000 + 1, async () => {
+    const next = feeLaunch(5, "97");
+    store.savePlan(next.plan);
+    assert.equal(await signingCode(signingService(store, [next], { payments: [paidFee] })
+      .validateLaunch(creator, next.plan.data, true)), "ok", "the holder can sign with the same fee after the original claim lifetime");
+  });
+}));
+
+for (const receiptState of ["mined", "unmined", "unreadable", "sender-unavailable"] as const) {
+  test(`a queued replay with ${receiptState} receipt cannot renew the holder's existing claims`, withStore(async (store) => {
+    const t0 = Date.now(), missingFee = { asset: "stable" as const, txHash: `0x${"d2".repeat(32)}` as Hex };
+    const original = await at(t0, async () => feeLaunch(3, "98")), replay = structuredClone(original);
+    replay.plan.creator = replay.plan.prepared!.account = replay.tx.from = replay.receipt.from = getAddress(other);
+    replay.plan.draft.launchFee = missingFee;
+    replay.hash = replay.tx.hash = replay.receipt.transactionHash = `0x${"44".repeat(32)}`;
+    store.savePlan(original.plan);
+    const chain: Chain = { payments: [paidFee] }, service = signingService(store, [original, replay], chain);
+    const keys = [`nft:${nftKey(original.plan.draft.nft!)}`, `fee:${paidFee}`];
+    await at(t0, async () => {
+      assert.equal(await signingCode(service.validateLaunch(creator, original.plan.data, true)), "ok");
+      await service.trackLaunch(original.hash, original.plan.id);
+    });
+    const before = keys.map((key) => claimRow(store, key));
+    await at(t0 + 60_000, () => assert.rejects(service.register(replay.hash, structuredClone(replay.plan)), /temporarily unavailable/));
+    assert.deepEqual(keys.map((key) => claimRow(store, key)), before, "even backup registration must check the saved creator");
+    chain.untraced = [original.hash];
+    store.trackLaunch(replay.hash, original.plan.id);
+    if (receiptState === "unmined") chain.unmined = [replay.hash];
+    if (receiptState === "unreadable" || receiptState === "sender-unavailable") {
+      const read = service.client.getTransactionReceipt.bind(service.client);
+      service.client.getTransactionReceipt = ((args: { hash: Hex }) => args.hash === replay.hash
+        ? Promise.reject(new Error("Receipt RPC unavailable")) : read(args)) as typeof read;
+    }
+    if (receiptState === "sender-unavailable") service.client.getTransaction = async () => { throw new Error("Transaction RPC unavailable"); };
+    await at(t0 + 360_000, () => service.reconcile());
+    assert.deepEqual(keys.map((key) => claimRow(store, key)), before, "the foreign sender cannot renew either claim");
+    await at(t0 + 600_001, async () => {
+      const next = feeLaunch(5, "98");
+      store.savePlan(next.plan);
+      assert.equal(await signingCode(signingService(store, [next], { payments: [paidFee] })
+        .validateLaunch(creator, next.plan.data, true)), "ok", "both original claims expire so the holder can sign again");
+    });
+  }));
+}
+
 test("a recovered backup renews only the claims its plan already owns", withStore(async (store) => {
   const backup = feeLaunch(3, "96"), key = `nft:${nftKey(backup.plan.draft.nft!)}`, t0 = Date.now();
   store.claimLaunch(backup.plan.id, [key], t0 + 60_000);

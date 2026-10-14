@@ -14,8 +14,6 @@ import {
   keccak256,
   parseUnits,
   stringToBytes,
-  TransactionNotFoundError,
-  TransactionReceiptNotFoundError,
   zeroAddress,
   type Address,
   type Hex,
@@ -726,14 +724,14 @@ export class LaunchpadService {
    * still retrying): holds its NFT plan's claims as submitted for another recovery window from this pass, never taking another plan's. Not
    * once the launch registered (its claims were released) or reverted (it left the queue), and not while the node has no trace of the
    * transaction: an evicted or replaced creation, which reconcile otherwise keeps forever, then lapses within one window instead of locking
-   * the NFT. Best-effort. */
-  private async renewPendingNftClaims(row: { hash: Hex; planId: string; status: string }, error: unknown) {
+   * the NFT. The on-chain sender must match the stored creator: NFT calldata and its plan id can be replayed by another account. Best-effort. */
+  private async renewPendingNftClaims(row: { hash: Hex; planId: string; status: string }, sender?: Address) {
     try {
       if (row.status !== "pending") return;
       const plan = await this.store.getPlan(row.planId);
       if (!plan?.draft.nft || await this.store.tokenByTxHash(row.hash)) return;
-      if (error instanceof TransactionReceiptNotFoundError &&
-        !await this.client.getTransaction({ hash: row.hash }).then(() => true, (failure: unknown) => !(failure instanceof TransactionNotFoundError))) return;
+      sender ??= (await this.client.getTransaction({ hash: row.hash })).from;
+      if (!sameAddress(sender, plan.creator)) return;
       await this.markNftClaimsSubmitted(plan, row.hash, { report: false });
     } catch { /* The claim keeps its current expiry; the next pass tries again. */ }
   }
@@ -1058,7 +1056,10 @@ export class LaunchpadService {
       curvePolicy: plan.curvePolicy,
       firstBuyLock,
     };
-    if (!savedPlan) {
+    // NFT calldata does not bind the creator. A backup with the same id cannot overwrite, queue against or renew another creator's plan.
+    const claimPlan = draft.nft ? savedPlan ?? await this.store.getPlan(plan.id) ?? plan : plan;
+    const ownsPlan = sameAddress(claimPlan.creator, tx.from);
+    if (!savedPlan && ownsPlan) {
       const restored = Object.fromEntries(LAUNCH_PLAN_FIELDS.filter((field) => plan[field] !== undefined)
         .map((field) => [field, field === "draft" ? draft : plan[field]])) as LaunchPlan;
       // Keep the attestation that verified, else the backup's own: a retained
@@ -1081,7 +1082,7 @@ export class LaunchpadService {
       const nft = draft.nft, fee = isMuse(nft) ? undefined : draft.launchFee;
       // Only a saved prepare passed the NFT control check. A backup renews its own claims without acquiring any free key.
       // Best-effort: registration is never blocked by claims.
-      await this.markNftClaimsSubmitted(plan, hash, { renewOnly: !savedPlan }).catch((error: unknown) => console.error(JSON.stringify({ event: "nft_launch_claim_submit_failed",
+      if (ownsPlan) await this.markNftClaimsSubmitted(plan, hash, { renewOnly: !savedPlan }).catch((error: unknown) => console.error(JSON.stringify({ event: "nft_launch_claim_submit_failed",
         planId: plan.id, hash, error: error instanceof Error ? error.message : String(error) })));
       // The one-coin and single-use checks hold until the record that makes them true is written.
       await withNftLocks(nftLaunchKeys(nft, fee), async () => {
@@ -1102,7 +1103,7 @@ export class LaunchpadService {
         }
       });
       // The launch is decided, verified or rejected: its claims are freed. Registration never reads claims.
-      await this.releaseNftClaims(plan.id);
+      if (ownsPlan) await this.releaseNftClaims(plan.id);
     }
     this.invalidateTokens();
     await this.store.launchStatus(hash, "confirmed", receipt.blockHash);
@@ -1163,6 +1164,7 @@ export class LaunchpadService {
         // Finish each row before yielding the remaining queue to the
         // next maintenance event. RPC timeouts retain the same receipt status.
         if (Date.now() >= deadline) break;
+        let sender: Address | undefined;
         try {
           const token = await this.store.tokenByTxHash(row.hash);
           if (token?.blockNumber && row.blockHash) {
@@ -1191,6 +1193,7 @@ export class LaunchpadService {
           const receipt = await this.client.getTransactionReceipt({
             hash: row.hash,
           });
+          sender = receipt.from;
           if (receipt.status === "reverted") {
             const head = await this.client.getBlockNumber({ cacheTime: 0 });
             if (head < receipt.blockNumber + 1n) continue;
@@ -1201,11 +1204,11 @@ export class LaunchpadService {
             await this.store.launchStatus(row.hash, "failed");
             // The creation reverted in a canonical, confirmed block: it launched nothing, so its NFT and fee are free again.
             const failed = await Promise.resolve().then(() => this.store.getPlan(row.planId)).catch(() => null);
-            if (failed?.draft.nft) await this.releaseNftClaims(failed.id);
+            if (failed?.draft.nft && sameAddress(failed.creator, sender)) await this.releaseNftClaims(failed.id);
           } else await this.register(row.hash);
-        } catch (error) {
+        } catch {
           /* Upstream absence or timeout is not evidence of failure. Retry after restart or next tick. */
-          await this.renewPendingNftClaims(row, error);
+          await this.renewPendingNftClaims(row, sender);
           await this.store.deferLaunch(row.hash, Date.now() + Math.min(300_000, 5000 * 2 ** Math.min(row.attempts ?? 0, 6)));
         } finally {
           this.reconcileCursor = row.hash;

@@ -43,7 +43,7 @@ const store = connect(scope),
   restore = connect(restored),
   legacy = connect(legacyScope),
   occupied = connect(occupiedScope);
-let connected = false;
+let connected = false, verificationFailed = false;
 try {
   await store.health();
   await store.request(`musegod_buyback_batches?scope=eq.${scope}&select=sequence&limit=0`);
@@ -264,11 +264,14 @@ try {
     ),
   );
   console.log("PASS: Supabase persistence, concurrency and backup / restore");
+} catch (error) {
+  verificationFailed = true;
+  throw error;
 } finally {
+  let cleanupError: unknown;
   for (const db of connected ? [store, restore, legacy, occupied] : []) {
     assert(/^(verify|restore)-/.test(db.scope));
     for (const table of [
-      "launch_claims",
       "pending_launches",
       "tokens",
       "plans",
@@ -276,8 +279,19 @@ try {
       "quota",
       "buyback_batches",
       "runtime_controls",
-    ])
-      await db.request(`musegod_${table}?scope=eq.${db.scope}`, "DELETE");
+      "launch_claims",
+    ]) {
+      try { await db.request(`musegod_${table}?scope=eq.${db.scope}`, "DELETE"); }
+      catch (error) {
+        if (table === "launch_claims" && error instanceof Error &&
+          error.message === "Database request failed (404). Check the server configuration and migrations.") continue;
+        cleanupError ??= error;
+      }
+    }
+  }
+  if (cleanupError) {
+    if (!verificationFailed) throw cleanupError;
+    console.error("Verify-scope cleanup failed:", cleanupError);
   }
 }
 }
