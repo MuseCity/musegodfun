@@ -8,7 +8,7 @@ import { transactions } from "./transactions";
 import { errorMessage } from "./validation";
 import { transactionClient, useWallet } from "./wallet";
 import {
-  FEE_QUOTE_TOO_HIGH, LAUNCH_FEE_LOCK, createFeePoller, launchFeeAfterSendError, launchFeeEthTx, launchFeeOf, launchFeeStableTx, launchFeeStorageKey,
+  FEE_QUOTE_TOO_HIGH, LAUNCH_FEE_LOCK, createFeePoller, launchFeeAfterSendError, launchFeeClearedNotice, launchFeeEthTx, launchFeeOf, launchFeeStableTx, launchFeeStorageKey,
   parseLaunchFeeRecord, resolveLaunchFee, saneFeeQuote, type DraftLaunchFee, type FeeResolution, type LaunchFeeAttempt, type LaunchFeeQuote,
   type LaunchFeeRecord, type LaunchFeeState, type NonceMemo,
 } from "./nft-client";
@@ -149,7 +149,7 @@ export function useLaunchFee(config: RuntimeConfig, account: Address | null, dra
       if (current && !kept) write(forKey, null);
       if (visible(forKey)) {
         setRecord(attemptAt ? kept : read(forKey));
-        setNotice(current && !kept ? "You cancelled the payment in your wallet. No fee was paid." : feeError(cause));
+        setNotice(current && !kept ? launchFeeClearedNotice(cause) : feeError(cause));
       }
     } finally {
       if (alive.current) setPaying(false);

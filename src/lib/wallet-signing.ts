@@ -58,15 +58,18 @@ const deepFreeze = <T,>(value: T): T => {
   if (value && typeof value === "object") { Object.values(value).forEach(deepFreeze); Object.freeze(value); }
   return value;
 };
-/** A frozen copy of exactly what was checked, forwarded instead of the caller's object. Malformed requests are refused. */
-function snapshot(input: unknown): { request: WalletRequest; params: string } {
+/** The request read once: a frozen copy for the guard and every check, and `forward()`, a fresh equal copy for the wallet (some
+ * providers add fields such as `id` to the request they receive). The caller's object is never forwarded. Malformed requests are
+ * refused. */
+function snapshot(input: unknown): { request: WalletRequest; params: string; forward: () => WalletRequest } {
   const { method, params } = (input && typeof input === "object" && !Array.isArray(input) ? input : {}) as { method?: unknown; params?: unknown };
   if (typeof method !== "string") throw new Error("The wallet request is not allowed");
-  if (params === undefined) return { request: Object.freeze({ method }), params: "" };
+  if (params === undefined) return { request: Object.freeze({ method }), params: "", forward: () => ({ method }) };
   let serialized: string | undefined;
   try { serialized = JSON.stringify(params); } catch { serialized = undefined; }
   if (typeof serialized !== "string") throw new Error(`The wallet request ${method} is not allowed`);
-  return { request: deepFreeze({ method, params: JSON.parse(serialized) as unknown }), params: serialized };
+  const copy = (): WalletRequest => ({ method, params: JSON.parse(serialized) as unknown });
+  return { request: deepFreeze(copy()), params: serialized, forward: copy };
 }
 /** The EIP-1193 `request` of every signing wallet client: the method policy, the flow guard, the resend rule, `validate()` and
  * `beforeSend`, in that order. */
@@ -74,10 +77,10 @@ export function signingRequest(provider: { request: (request: WalletRequest) => 
   // This signer's latest send, reserved before validation so that two sends can never be open at once.
   let last: Attempt | undefined;
   return async (input: unknown) => {
-    const { request, params } = snapshot(input), { method } = request, policy = walletMethodPolicy(method);
+    const { request, params, forward } = snapshot(input), { method } = request, policy = walletMethodPolicy(method);
     if (policy === "refuse") throw new Error(`The wallet request ${method || "(unnamed)"} is not allowed`);
     guardRequest?.(request);
-    if (policy === "read") return provider.request(request);
+    if (policy === "read") return provider.request(forward());
     const previous = last;
     let resend = false;
     if (previous) {
@@ -99,7 +102,7 @@ export function signingRequest(provider: { request: (request: WalletRequest) => 
       throw error;
     }
     try {
-      return await provider.request(request);
+      return await provider.request(forward());
     } catch (error) {
       current.refusal = { error };
       throw error;

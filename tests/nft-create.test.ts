@@ -4,13 +4,15 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { once } from "node:events";
-import { decodeFunctionData, erc20Abi, getAddress, stringToHex, TransactionNotFoundError, TransactionReceiptNotFoundError, UserRejectedRequestError, type Address, type Hex } from "viem";
+import { decodeFunctionData, erc20Abi, getAddress, stringToHex, TransactionNotFoundError, TransactionReceiptNotFoundError, UserRejectedRequestError,
+  InvalidInputRpcError, InvalidParamsRpcError, MethodNotFoundRpcError, MethodNotSupportedRpcError, type Address, type Hex } from "viem";
 import { restoreDraft, type LaunchInput } from "../src/lib/validation";
 import { ROBINHOOD_STOCKS } from "../src/lib/config";
 import { MUSES, nftKey, type NftRef } from "../src/lib/nft-mode";
 import { launchIntentStorageKey } from "../src/lib/launch-intent";
 import {
-  FEE_CANCELLED, FEE_REVERTED, FEE_UNCONFIRMED, createFeePoller, feePollDelay, formatFeeEth, isLaunchFeeTx, isUserRejection, launchFeeAfterSendError, launchFeeEthTx, launchFeeStableTx,
+  FEE_CANCELLED, FEE_REVERTED, FEE_UNCONFIRMED, FEE_WALLET_CANCELLED, FEE_WALLET_REFUSED, createFeePoller, feePollDelay, formatFeeEth, isLaunchFeeTx, isUserRejection,
+  launchFeeAfterSendError, launchFeeClearedNotice, launchFeeEthTx, launchFeeStableTx,
   launchFeeStorageKey, musePrefill, nftLaunchFeeCost, nftReviewBlocker, parseLaunchFeeRecord, prepareDraft, readNftStatus, resolveLaunchFee, rewardsShareCopy, savedNftMode,
 } from "../src/lib/nft-client";
 import * as nftClient from "../src/lib/nft-client";
@@ -181,6 +183,25 @@ test("only a wallet rejection before any hash clears an attempt; any other failu
   const pending = pendingOf(stableFee.txHash);
   assert.deepEqual(launchFeeAfterSendError(pending, sending.at, rejection), pending, "a hash exists: kept");
   assert.deepEqual(launchFeeAfterSendError(sending, sending.at + 1, rejection), sending, "another attempt is never touched");
+  assert.equal(launchFeeClearedNotice(rejection), FEE_WALLET_CANCELLED, "the user's own rejection keeps its wording");
+  assert.equal(launchFeeClearedNotice({ code: 4001 }), FEE_WALLET_CANCELLED);
+});
+
+test("a wallet that refused the payment request unprocessed clears the attempt with its own wording", () => {
+  // What viem throws when eth_sendTransaction and its wallet_sendTransaction retry were both refused as unsupported or malformed.
+  for (const Refusal of [MethodNotSupportedRpcError, MethodNotFoundRpcError, InvalidParamsRpcError]) {
+    const refused = { name: "TransactionExecutionError", cause: new Refusal(new Error("The wallet refused eth_sendTransaction")) };
+    assert.equal(launchFeeAfterSendError(sending, sending.at, refused), null, `${Refusal.name}: nothing was sent, cleared`);
+    assert.equal(launchFeeClearedNotice(refused), FEE_WALLET_REFUSED, Refusal.name);
+    assert.notEqual(launchFeeClearedNotice(refused), FEE_WALLET_CANCELLED);
+    const pending = pendingOf(stableFee.txHash);
+    assert.deepEqual(launchFeeAfterSendError(pending, sending.at, refused), pending, "a hash exists: kept");
+    assert.deepEqual(launchFeeAfterSendError(sending, sending.at + 1, refused), sending, "another attempt is never touched");
+  }
+  assert.equal(FEE_WALLET_REFUSED, "Your wallet refused the payment request, and nothing was sent. You can try again or use another wallet.");
+  // A generic wallet error may follow a broadcast: the record stays for the nonce check.
+  for (const ambiguous of [{ name: "TransactionExecutionError", cause: new InvalidInputRpcError(new Error("invalid input")) }, { code: -32603 }, new Error("x")])
+    assert.deepEqual(launchFeeAfterSendError(sending, sending.at, ambiguous), sending);
 });
 
 type FakeTx = { hash: Hex; from: Address; to: Address; input: Hex; value: bigint; nonce: number; block: bigint };

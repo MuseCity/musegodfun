@@ -89,16 +89,49 @@ test("malformed request shapes are refused before any guard, validation or walle
   }
 });
 
-test("the wallet receives a frozen copy of the checked request, never the caller's object", async () => {
+test("the guard checks a frozen copy and the wallet receives a distinct, equal copy, never the caller's object", async () => {
   const params = [{ ...tx }];
+  let checked: WalletRequest | undefined;
   const { received, request } = harness(undefined, { guard: (request) => {
     assert.ok(Object.isFrozen(request) && Object.isFrozen((request.params as object[])[0]), "the guard sees the frozen copy");
     assertLaunchRequest(request, step);
+    checked = request;
   }, validate: () => { params[0].to = other; params[0].data = otherData; } });
   assert.equal(await request({ method: "wallet_sendTransaction", params }), hash);
-  assert.notEqual(received[0].params, params);
-  assert.ok(Object.isFrozen(received[0]) && Object.isFrozen((received[0].params as object[])[0]));
+  assert.notEqual(received[0].params, params, "not the caller's params");
+  assert.notEqual(received[0], checked, "not the checked copy");
+  assert.notEqual((received[0].params as object[])[0], (checked!.params as object[])[0]);
+  assert.deepEqual(received[0], checked, "equal to what was checked");
   assert.deepEqual(received[0], { method: "wallet_sendTransaction", params: [tx] }, "the transaction changed during validation is not sent");
+});
+
+test("a provider that adds fields to the request it receives works, and cannot change the next check", async () => {
+  // Some providers stamp an `id` (and more) onto the request object; on a frozen object that throws in strict mode.
+  const stamp = (request: WalletRequest) => {
+    "use strict";
+    Object.assign(request, { id: 1, jsonrpc: "2.0" });
+    if (Array.isArray(request.params) && request.params[0] && typeof request.params[0] === "object") Object.assign(request.params[0], { to: other });
+  };
+  const { log, received, request } = harness((request) => { stamp(request); return request.method === "eth_chainId" ? "0x1237" : hash; });
+  assert.equal(await request({ method: "eth_chainId" }), "0x1237");
+  assert.equal(await request({ method: "eth_sendTransaction", params: [tx] }), hash);
+  assert.deepEqual(received.map((request) => request.method), ["eth_chainId", "eth_sendTransaction"]);
+  assert.deepEqual(log, ["guard:eth_chainId", "wallet:eth_chainId", "guard:eth_sendTransaction", "validate", "record:false", "wallet:eth_sendTransaction"]);
+  // Through viem: the stamping wallet refuses eth_sendTransaction, and the resend is still compared with what viem asked for.
+  let calls = 0;
+  const provider = { request: async (request: WalletRequest) => {
+    stamp(request);
+    if (request.method === "eth_chainId") return toHex(robinhood.id);
+    if (request.method === "eth_sendTransaction" && ++calls) throw new MethodNotSupportedRpcError(new Error("unsupported"));
+    return hash;
+  } };
+  let records = 0;
+  const client = createWalletClient({ account, chain: robinhood, transport: custom({ request: signingRequest(provider, {
+    guardRequest: (request) => assertLaunchRequest(request, step), validate: async () => {}, beforeSend: () => { records++; },
+  }) }, { retryCount: 0 }) });
+  assert.equal(await client.sendTransaction({ to: target, data, value: 0n, gas: 21_000n }), hash);
+  assert.equal(calls, 1);
+  assert.equal(records, 2, "recorded before eth_sendTransaction and again before the wallet_sendTransaction resend");
 });
 
 test("two sends can never be open on one signer, with or without a record", async () => {

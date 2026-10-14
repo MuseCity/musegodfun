@@ -7,6 +7,7 @@ import { isMuse, type NftRef, type NftStatus } from "./nft-mode";
 import { chainApi } from "./api";
 import { launchIntentStorageKey } from "./launch-intent";
 import { addressSchema, hashSchema, launchFeeSchema, type LaunchInput } from "./validation";
+import { walletRefusedUnsent } from "./wallet-signing";
 
 export type LaunchFeeQuote = { wei: string; expiresAt: number; mac: Hex };
 type FeeConfig = Pick<RuntimeConfig, "mode" | "deploymentChainId" | "treasury">;
@@ -144,11 +145,17 @@ export function isUserRejection(error: unknown): boolean {
   }
   return false;
 }
-/** What is left of an attempt after `wallet.send` failed: only a wallet rejection before any hash clears it; anything else may have
- * been broadcast, so the record stays for the nonce check. */
+/** What is left of an attempt after `wallet.send` failed: before any hash, a user rejection or a wallet refusal that proves nothing
+ * was processed clears it; anything else may have been broadcast, so the record stays for the nonce check. */
 export function launchFeeAfterSendError(current: LaunchFeeRecord | null, attemptAt: number, error: unknown): LaunchFeeRecord | null {
   if (!current || current.state === "paid" || current.at !== attemptAt) return current;
-  return current.state === "sending" && isUserRejection(error) ? null : current;
+  return current.state === "sending" && (isUserRejection(error) || walletRefusedUnsent(error)) ? null : current;
+}
+export const FEE_WALLET_CANCELLED = "You cancelled the payment in your wallet. No fee was paid.";
+export const FEE_WALLET_REFUSED = "Your wallet refused the payment request, and nothing was sent. You can try again or use another wallet.";
+/** Why `launchFeeAfterSendError` cleared an attempt: the user's own rejection, or the wallet refusing the request unprocessed. */
+export function launchFeeClearedNotice(error: unknown) {
+  return isUserRejection(error) ? FEE_WALLET_CANCELLED : FEE_WALLET_REFUSED;
 }
 
 export const FEE_REVERTED = "The launch fee payment failed on-chain, so no fee was paid. You can pay again.";
