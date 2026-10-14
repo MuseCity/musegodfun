@@ -299,7 +299,7 @@ async function casePage(mode, viewport = { width: 1440, height: 1000 }) {
   const page = await context.newPage(); activePage = page; const pageErrors=[]; page.on('pageerror',e=>pageErrors.push(e.message));
   if (quoteClockModes.has(mode)) await page.clock.install({time:new Date()});
   await page.goto(origin+'/create?chainId=4663');
-  if (nftModes.has(mode)) return { context,page,state,pageErrors };
+  if (nftModes.has(mode) || mode === 'two_tabs_draft') return { context,page,state,pageErrors };
   await page.getByLabel('Token name',{exact:true}).fill(('Browser '+mode).slice(0, 32));
   await page.getByLabel('Token symbol',{exact:true}).fill('BROWSE');
   if (mode === 'delayed_config') {
@@ -778,6 +778,48 @@ async function nftEarnCopy(page, dialog, reviewCost) {
   assert.equal(await aside.locator('dt', { hasText: /^NFT treasury share$/ }).count(), 1);
   assert.equal(await aside.locator('dt', { hasText: /^Your cut$/ }).count(), 0);
 }
+// The wallet intent's stored draft, read in a page of the shared origin.
+const storedDraftName = target => target.evaluate(account => {
+  const intent = localStorage.getItem(`musegod.launch.intent.31337.4663.${account}`);
+  return intent ? JSON.parse(localStorage.getItem(`musegod.launch.draft.31337.4663.${account}.${intent}`) || 'null')?.name ?? null : null;
+}, creator);
+// Lets a page's 250 ms autosave fire, then waits until its draft is saved.
+async function autosaveSettled(target) {
+  await target.evaluate(() => new Promise(resolve => setTimeout(resolve, 400)));
+  await target.getByText('Draft saved automatically in this browser').waitFor();
+}
+// Two tabs, one intent. A second tab opened while the first tab's named draft still waits for its autosave loads a blank draft. It must
+// never write that blank draft over the named draft the first tab then saves; it adopts the named draft instead.
+async function twoTabsDraftCase(context, page, pageErrors) {
+  const named = 'Two-tab named draft';
+  await page.getByRole('button', { name: 'Connect wallet', exact: true }).click();
+  const choose = page.getByRole('button', { name: /Local acceptance wallet/ }); if (await choose.count()) await choose.click();
+  await page.getByRole('button', { name: /^Wallet account / }).waitFor();
+  await autosaveSettled(page);
+  assert.equal(await storedDraftName(page), '', 'the wallet intent starts with a blank stored draft');
+  // Each keystroke restarts the first tab's autosave, so its named draft stays unsaved while the second tab loads.
+  let typed = false;
+  const typing = page.getByLabel('Token name', { exact: true }).pressSequentially(named, { delay: 200 }).then(() => { typed = true; });
+  const second = await context.newPage(); activePage = second; second.on('pageerror', e => pageErrors.push(e.message));
+  await second.goto(origin + '/create?chainId=4663');
+  await second.getByRole('button', { name: /^Wallet account / }).waitFor();
+  await autosaveSettled(second);
+  assert.equal(typed, false, 'precondition: the second tab loaded and saved inside the first tab\'s autosave window');
+  assert.equal(await second.getByLabel('Token name', { exact: true }).inputValue(), '');
+  assert.equal(await storedDraftName(second), '', 'precondition: the named draft was not saved yet when the second tab loaded');
+  await typing; activePage = page;
+  await page.waitForFunction(name => document.querySelector('input[name="name"]')?.value === name, named);
+  await autosaveSettled(page);
+  // The creator touches the second tab and leaves its identity blank, so its autosave runs again after the named draft was saved.
+  activePage = second;
+  const symbol = second.getByLabel('Token symbol', { exact: true });
+  await symbol.fill('X'); await symbol.fill('');
+  await autosaveSettled(second);
+  assert.equal(await storedDraftName(second), named, 'a blank second tab must never overwrite the named draft it did not load');
+  assert.equal(await second.getByLabel('Token name', { exact: true }).inputValue(), named, 'the blank second tab adopts the named draft');
+  assert.equal(await page.getByLabel('Token name', { exact: true }).inputValue(), named);
+  await second.screenshot({ path: '.cache/launch-browser-two_tabs_draft.png', fullPage: true }); report.screenshots.push('.cache/launch-browser-two_tabs_draft.png');
+}
 async function nftCase(page, state) {
   if (state.mode === 'nft_draft_link_during_reconnect') return draftLinkCase(page, state);
   if (state.mode === 'nft_draft_link_locked_wallet') return lockedWalletCase(page, state);
@@ -953,7 +995,7 @@ async function nftCase(page, state) {
   await page.screenshot({ path: `.cache/launch-browser-${mode}.png`, fullPage: true }); report.screenshots.push(`.cache/launch-browser-${mode}.png`);
 }
 try {
-  for (const mode of (process.env.BROWSER_CASES?.split(',') || ['success','plain','duplicate','stale_page','reject_approval','wallet_refuses_sends','expiry','account_change','network_change','simulation_failure','two_tabs','unknown_send','approval_unknown','approval_pending','wrap_flow','wrap_price_change','delayed_config','unknown_fetch','approval_timeout','payment_timeout','launch_timeout','approval_timeout_reject','payment_marker_race','launch_marker_race','payment_status_race','payment_submit_race','payment_submit_record_race','wrap_late_launch_recovery','wrap_near_expiry','idle_review','hidden_review','idle_plain','token_detail_pending','token_detail_error','token_detail_state_unavailable','token_detail_unregistered_backup','token_detail_invalid_pool','token_detail_unverified_opening','history_track_backoff','nft_muse_free','nft_paid_usdg','nft_paid_eth','nft_fee_sending_reload','nft_not_controlled','nft_already_launched','nft_draft_link_during_reconnect','nft_draft_link_locked_wallet','nft_fee_no_vault'])) {
+  for (const mode of (process.env.BROWSER_CASES?.split(',') || ['success','plain','duplicate','stale_page','reject_approval','wallet_refuses_sends','expiry','account_change','network_change','simulation_failure','two_tabs','two_tabs_draft','unknown_send','approval_unknown','approval_pending','wrap_flow','wrap_price_change','delayed_config','unknown_fetch','approval_timeout','payment_timeout','launch_timeout','approval_timeout_reject','payment_marker_race','launch_marker_race','payment_status_race','payment_submit_race','payment_submit_record_race','wrap_late_launch_recovery','wrap_near_expiry','idle_review','hidden_review','idle_plain','token_detail_pending','token_detail_error','token_detail_state_unavailable','token_detail_unregistered_backup','token_detail_invalid_pool','token_detail_unverified_opening','history_track_backoff','nft_muse_free','nft_paid_usdg','nft_paid_eth','nft_fee_sending_reload','nft_not_controlled','nft_already_launched','nft_draft_link_during_reconnect','nft_draft_link_locked_wallet','nft_fee_no_vault'])) {
     const {context,page,state,pageErrors}=await casePage(mode);
     const plain = plainModes.has(mode);
     if (mode === 'success') {
@@ -961,6 +1003,7 @@ try {
       report.screenshots.push('.cache/launch-scoped-browser-desktop-review.png');
     }
     if (nftModes.has(mode)) await nftCase(page,state);
+    else if (mode === 'two_tabs_draft') await twoTabsDraftCase(context,page,pageErrors);
     else if (tokenLookupModes.has(mode)) await tokenLookup(page,state);
     else if (mode === 'history_track_backoff') await historyTrackBackoff(page,state);
     else if (mode === 'stale_page') {
@@ -987,7 +1030,7 @@ try {
       state.businessConfirmations++;
       await page.getByRole('button',{name:plain?/Confirm launch · Sign in wallet/:/Confirm launch and first buy/,exact:true}).click();
     }
-    if (tokenLookupModes.has(mode) || mode === 'history_track_backoff' || nftModes.has(mode)) { /* Read-only lookups and NFT checks: no launch is signed. */ }
+    if (tokenLookupModes.has(mode) || mode === 'history_track_backoff' || nftModes.has(mode) || mode === 'two_tabs_draft') { /* Read-only lookups, NFT and draft checks: no launch is signed. */ }
     else if (mode === 'wrap_late_launch_recovery') await lateFundedLaunchRecovery(page, state);
     else if (recoveryRaceModes.has(mode)) await recoveryRaceCase(context, page, state);
     else if (timeoutModes.has(mode)) await timeoutCase(page, state);
@@ -1061,10 +1104,6 @@ try {
     else if (mode==='simulation_failure') { await page.getByText(/Transaction simulation failed/).waitFor(); assert.equal(state.sends.length,1); }
     else if (mode==='two_tabs') {
       await waitForFixture(() => !!state.releaseApproval,'first tab holding the approval request');
-      // The first tab saves its draft 250 ms after its last change. A second tab that loads the wallet's intent before then finds no draft
-      // and saves a blank one over it, so wait for the stored draft the way a person who opens another tab later would find it.
-      await page.waitForFunction(account => { const intent = localStorage.getItem(`musegod.launch.intent.31337.4663.${account}`);
-        return !!intent && !!JSON.parse(localStorage.getItem(`musegod.launch.draft.31337.4663.${account}.${intent}`) || 'null')?.name; }, creator);
       const second=await context.newPage(); activePage=second; second.on('pageerror',e=>pageErrors.push(e.message));
       await second.goto(origin+'/create?chainId=4663');
       await second.waitForFunction(() => !!localStorage.getItem('musegod.wallet.v1'));
@@ -1074,6 +1113,10 @@ try {
         JSON.parse(localStorage.getItem(key) || 'null')?.kind === 'approval')),
         'The in-flight approval must be visible to another tab before the wallet returns its hash');
       assert.equal(state.sends.length,1,'The second tab must not send another approval or launch for the locked intent');
+      // Whichever tab saved first, the second tab never writes a blank draft over the locked intent's named draft.
+      await autosaveSettled(second);
+      assert.equal(await storedDraftName(second),'Browser two_tabs','The second tab must keep the first tab\'s named draft');
+      assert.equal(await second.getByLabel('Token name',{exact:true}).inputValue(),'Browser two_tabs');
       state.releaseApproval(); state.releaseApproval=null;
       await page.waitForURL('**/token/**'); assert.equal(state.sends.length,2); assert.equal(state.sends.filter(row=>!row.approval).length,1);
     }

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { ADMITTED_BASE_ASSET_COUNT, STOCKS, ROBINHOOD_STOCKS, launchAssetsFor, stockByAddress, sameAddress, type RuntimeConfig } from "../src/lib/config";
-import { firstBuyDraft, launchDraftKey, launchDraftStep, resetLaunchedDraftStep, savedLaunchDraft } from "../src/lib/launch-draft";
+import { draftAutosave, firstBuyDraft, isBlankDraft, launchDraftKey, launchDraftStep, resetLaunchedDraftStep, savedLaunchDraft } from "../src/lib/launch-draft";
 import { firstBuyPaymentAssets } from "../src/lib/first-buy-payment";
 import { LAUNCH_IDENTITY_FIELDS, launchIdentityIssue, launchSchema, restoreDraft } from "../src/lib/validation";
 import { DEFAULT_TRADING_FEE_BPS, TRADING_FEE_BPS } from "../src/lib/trading-fee";
@@ -201,4 +201,34 @@ test("a successful launch resets its scoped, shared and migrated anonymous copie
   }
   for (const raw of [null, "{invalid", "null", "[]"])
     assert.equal(resetLaunchedDraftStep(raw, launched, network), raw);
+});
+test("an autosave never replaces another tab's named draft with a blank draft this tab did not load", () => {
+  const network = config(4663, true), blank = restoreDraft(null, network), firstBuy = firstBuyDraft(network, null);
+  const save = (fields: object, step = 1) => JSON.stringify({ ...blank, ...fields, firstBuy, intentId: "shared-intent", step, nftMode: false });
+  const empty = save({}), named = save({ name: "Named draft", symbol: "NAMED" }), renamed = save({ name: "Renamed draft", symbol: "NAMED" });
+  // Blank means the create form's own "untouched" rule: blank identity on step one, no NFT and no paid fee.
+  assert.equal(isBlankDraft(empty, network), true);
+  assert.equal(isBlankDraft(save({ name: "  " }), network), true, "whitespace is still blank");
+  for (const raw of [null, "{invalid", "null"]) assert.equal(isBlankDraft(raw, network), true, String(raw));
+  assert.equal(isBlankDraft(named, network), false);
+  assert.equal(isBlankDraft(save({}, 2), network), false, "a draft on step two is not blank");
+  assert.equal(isBlankDraft(save({ nft: { chainId: 4663, contract: "0x13Ea3072b7215d4C9c2Ec4f498A08c5825129836", tokenId: "1" } }), network), false);
+  assert.equal(isBlankDraft(save({ launchFee: { asset: "stable", txHash: `0x${"11".repeat(32)}` } }), network), false, "a paid fee is kept");
+  // Nothing (or nothing but a blank draft) is stored: any draft is written.
+  for (const stored of [null, empty, save({ name: " " }), "{invalid"])
+    for (const payload of [empty, named])
+      for (const basis of [undefined, null, empty])
+        assert.equal(draftAutosave(stored, payload, basis, network), "write", JSON.stringify({ stored, payload, basis }));
+  // A second tab that loaded nothing, or a blank draft, before the first tab's named draft landed adopts the named draft and writes nothing.
+  for (const basis of [undefined, null, empty, save({ description: " " })])
+    assert.equal(draftAutosave(named, empty, basis, network), "adopt", `basis ${String(basis)}`);
+  assert.equal(draftAutosave(save({}, 2), empty, null, network), "adopt", "a stored second step is a draft too");
+  // This tab read or wrote the named draft itself, and its creator cleared it here: the clearing is written.
+  assert.equal(draftAutosave(named, empty, named, network), "write");
+  // ...but a named draft another tab wrote since then is adopted, not cleared.
+  assert.equal(draftAutosave(renamed, empty, named, network), "adopt");
+  // Two tabs with non-blank drafts of the same intent: the last writer wins (both are the creator's own edits).
+  for (const basis of [undefined, null, empty, named])
+    assert.equal(draftAutosave(named, renamed, basis, network), "write", `basis ${String(basis)}`);
+  assert.equal(draftAutosave(named, named, undefined, network), "write", "an identical draft is rewritten harmlessly");
 });

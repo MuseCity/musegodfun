@@ -1,6 +1,7 @@
 import { deploymentChain, STOCKS, ROBINHOOD_STOCKS, sameAddress, type RuntimeConfig } from "./config";
 import { launchSchema, restoreDraft } from "./validation";
 import { firstBuyPaymentAssets } from "./first-buy-payment";
+import { isPristineDraft } from "./draft-link";
 
 export type FirstBuyDraft = { amount: string; slippageBps: number; payAddress: string; lockDays: 0 | 30 | 90 | 365 };
 export type LaunchStep = 1 | 2;
@@ -27,6 +28,25 @@ export function resetLaunchedDraftStep(raw: string | null, launchedRaw: string, 
     }
     return JSON.stringify({ ...saved, step: 1 });
   } catch { return raw; }
+}
+/** A saved or autosaved draft with nothing in it, by the create form's "untouched" rule (`isPristineDraft`, which also counts a paid
+ * launch fee). A missing or unreadable draft is blank too. */
+export function isBlankDraft(raw: string | null, config?: Pick<RuntimeConfig, "mode" | "deploymentChainId">): boolean {
+  let launchFee: unknown;
+  try { launchFee = JSON.parse(raw || "null")?.launchFee; } catch { /* Unreadable: nothing to keep. */ }
+  return !launchFee && isPristineDraft(restoreDraft(raw, config), launchDraftStep(raw));
+}
+/** What a tab's autosave does with its draft (`payload`) when the intent's stored draft is `stored`. `basis` is the stored draft this tab
+ * last read or wrote for the intent (null: there was none; undefined: the tab never read it).
+ * - "adopt": the stored draft is not blank, this tab's draft is, and the stored draft is not the one this tab read or wrote. Another tab
+ *   saved it after this tab loaded, so writing would replace it with a blank draft nobody chose. The tab takes the stored draft instead
+ *   and writes nothing.
+ * - "write": anything else. A blank draft replaces this tab's own stored draft (its creator cleared the form here). When two tabs both
+ *   hold a non-blank draft of the same intent, the last one to write wins. */
+export function draftAutosave(stored: string | null, payload: string, basis: string | null | undefined,
+  config?: Pick<RuntimeConfig, "mode" | "deploymentChainId">): "write" | "adopt" {
+  if (stored === null || stored === basis) return "write";
+  return isBlankDraft(payload, config) && !isBlankDraft(stored, config) ? "adopt" : "write";
 }
 export function launchDraftKey(config: RuntimeConfig) {
   return `musegod.launch.draft.${config.chainId}${config.mode === "fork" ? `.${deploymentChain(config)}` : ""}`;
