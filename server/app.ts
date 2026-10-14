@@ -243,7 +243,8 @@ app.post("/api/first-buy/verify", route(async (req, res) => {
 // Pay with ETH on a pair-asset coin's page (Robinhood): a direct LI.FI route, or the two-step plan when LI.FI has none.
 app.post("/api/trade/eth-quote", route(async (req, res) => {
   res.json(await quoteEthBuy(req.body, { chainId: deploymentChain(runtime.config), payments: runtime.lifi ? payments : null,
-    token: (address) => service.token(address), swapQuote: (token, amount, slippageBps) => service.quote(token, "buy", amount, slippageBps) }));
+    token: (address) => service.token(address), swapQuote: (token, amount, slippageBps) => service.quote(token, "buy", amount, slippageBps),
+    environment: runtime.environment }));
 }));
 app.get("/api/first-buy-lock/:address", route(async (req, res) =>
   res.json(await service.firstBuyLock(addressSchema.parse(req.params.address))),

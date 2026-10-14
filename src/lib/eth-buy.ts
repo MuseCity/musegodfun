@@ -69,10 +69,11 @@ export function twoStepMinimum(previewOut: bigint, slippageBps: number) {
 export function ethBuyDisclosure(pair: string, coin: string) {
   return `No one-step route right now. This buy takes 3 steps (3 or 4 wallet confirmations): ETH → ${pair}, then ${pair} → ${coin}.`;
 }
-/** Every wallet prompt of a two-step buy has its own label; step 1 is prefixed by `executeEthBuy`. */
+/** Every wallet prompt of a two-step buy has its own label; step 1 is prefixed by `executeEthBuy`. The router approval is
+ * "1 of 1" when the amount approval was already in place, "2 of 2" after it. */
 export function twoStepLabels(pair: string, coin: string) {
   return { approve: `Step 2 of 3 · Approval 1 of 2 · Approve this ${pair} amount`,
-    router: `Step 2 of 3 · Approval 2 of 2 · Approve the trading router for ${pair}; it expires in 5 minutes`,
+    router: (approval: number) => `Step 2 of 3 · Approval ${approval} of ${approval} · Approve the trading router for ${pair}; it expires in 5 minutes`,
     swap: `Step 3 of 3 · Confirm in your wallet: ${pair} → ${coin}`, waiting: "Step 3 of 3 · Waiting for on-chain confirmation" };
 }
 /** A two-step buy that did not finish. Nothing is retried automatically, and the pair asset stays in the wallet:

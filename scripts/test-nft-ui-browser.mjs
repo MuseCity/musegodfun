@@ -80,10 +80,11 @@ const browser = await chromium.launch({ headless: true });
 // `account: null`: an anonymous viewer (no wallet connected). `nftEnabled: false`: NFT mode is off on this network.
 async function open(path, { account = holder, owner = holder, locked = false, factoryDeployed = true, theme = 'light', viewport = { width: 1440, height: 1000 },
   undeployed = false, holderless = false, statusFailures = 0, lockFailures = 0, chainHex = '0x1237', nftEnabled = true, ethRoute = 'direct', rejectSends = [],
-  musegodHeld = 10n ** 18n, holdSend = -1 } = {}) {
+  musegodHeld = 10n ** 18n, holdSend = -1, walletEvent = null } = {}) {
   const context = await browser.newContext({ viewport, colorScheme: theme });
   // `ethRoute`: what /trade/eth-quote answers ('direct' or 'two-step'). `rejectSends`: wallet requests (0-based) the fixture wallet rejects.
   // `musegodHeld`: the wallet's MUSEGOD before any trade. `holdSend`: a wallet request that waits until `state.releaseSend()`.
+  // `walletEvent`: { attempt, event, value }: the wallet emits that provider event while handling that request.
   const state = { sends: [], attempts: 0, rejected: [], treasuryReads: 0, statusAccounts: [], multicalls: [], external: [], stubbed: [], pageErrors: [], statusFailures, lockFailures,
     ethQuotes: [], ethQuoteResponses: [], v4Quotes: [], swapSpends: [], held: null, releaseSend: () => {} };
   const holding = new Promise(resolve => { state.releaseSend = resolve; });
@@ -91,7 +92,8 @@ async function open(path, { account = holder, owner = holder, locked = false, fa
   await context.addInitScript(({ account, theme, chainHex }) => {
     localStorage.setItem('musegod.theme', theme);
     if (account) localStorage.setItem('musegod.wallet.v1', 'fun.musegod.localtest');
-    const provider = { on() {}, removeListener() {}, async request({ method, params }) {
+    window.__walletListeners = {};
+    const provider = { on(event, listener) { (window.__walletListeners[event] ||= []).push(listener); }, removeListener() {}, async request({ method, params }) {
       if (method === 'eth_accounts') return account ? [account] : [];
       if (method === 'eth_requestAccounts') return [account];
       if (method === 'eth_chainId') return chainHex;
@@ -102,8 +104,12 @@ async function open(path, { account = holder, owner = holder, locked = false, fa
       name: 'Local acceptance wallet', rdns: 'fun.musegod.localtest', icon: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB' }, provider } }));
     window.addEventListener('eip6963:requestProvider', announce); window.addEventListener('load', announce);
   }, { account, theme, chainHex });
-  await context.exposeBinding('__nftSend', async (_source, tx) => {
+  await context.exposeBinding('__nftSend', async (source, tx) => {
     const attempt = state.attempts++;
+    if (walletEvent?.attempt === attempt) {
+      await source.page.evaluate(([event, value]) => (window.__walletListeners[event] || []).forEach(listener => listener(value)), [walletEvent.event, walletEvent.value]);
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
     if (rejectSends.includes(attempt)) { state.rejected.push(tx); throw new Error('User rejected the request.'); }
     if (attempt === holdSend) { state.held = tx; await holding; }
     const hash = keccak256(toHex(`nft-ui-send-${state.sends.length}-${tx.data}`));
@@ -333,21 +339,39 @@ try {
     // The wallet holds 1 MUSEGOD: with the field empty it pays MUSEGOD. Typed MUSEGOD stays MUSEGOD, even above the balance.
     await pressed('MUSEGOD').waitFor();
     await trade.getByLabel('Trade input amount').fill('5');
-    const hint = live.locator('.nft-warning', { hasText: 'You hold less than 5 MUSEGOD. Pay with ETH?' });
-    await hint.waitFor();
+    // The visible hint (with its button) sits under the amount, outside the live region; the region announces it once.
+    const hint = trade.locator('.pay-hint.nft-warning');
+    await hint.filter({ hasText: 'You hold less than 5 MUSEGOD. Pay with ETH?' }).waitFor();
+    assert.equal(await live.locator('.pay-hint, button').count(), 0, 'no button inside the live region');
+    const announced = (await live.textContent()).trim();
+    assert.equal(announced, 'You hold less than the amount entered in MUSEGOD. Pay with ETH?');
+    await trade.getByLabel('Trade input amount').fill('6');
+    await hint.filter({ hasText: 'You hold less than 6 MUSEGOD.' }).waitFor();
+    assert.equal((await live.textContent()).trim(), announced, 'a keystroke does not change what the live region says');
     assert.equal(await pressed('MUSEGOD').count(), 1, 'a typed amount never changes unit');
     assert.equal(await trade.getByText('You pay MUSEGOD', { exact: true }).count(), 1);
     await trade.getByLabel('Trade input amount').fill('0.5');
     await hint.waitFor({ state: 'detached' });
+    assert.equal((await live.textContent()).trim(), '');
     await trade.getByLabel('Trade input amount').fill('5');
     // One tap switches to ETH and clears the field, so the user enters an ETH amount; nothing is converted.
     await hint.getByRole('button', { name: 'Switch to ETH' }).click();
     await pressed('ETH').waitFor();
     assert.equal(await trade.getByLabel('Trade input amount').inputValue(), '');
+    await live.locator('.nft-warning', { hasText: 'Amount cleared. Enter it in ETH.' }).waitFor();
     assert.equal(await trade.getByText('You pay ETH', { exact: true }).count(), 1);
     await trade.getByLabel('Trade input amount').fill('0.25');
     assert.equal(await pressed('ETH').count(), 1);
-    assert.equal(await live.locator('.nft-warning').count(), 0);
+    assert.equal(await live.locator('.nft-warning').count(), 0, 'the note goes once an amount is entered');
+    // Switching the unit by hand also empties a typed amount instead of reinterpreting it; picking the current unit does not.
+    await payWith.getByRole('button', { name: 'ETH', exact: true }).click();
+    assert.equal(await trade.getByLabel('Trade input amount').inputValue(), '0.25');
+    await payWith.getByRole('button', { name: 'MUSEGOD', exact: true }).click();
+    await pressed('MUSEGOD').waitFor();
+    assert.equal(await trade.getByLabel('Trade input amount').inputValue(), '');
+    await live.locator('.nft-warning', { hasText: 'Amount cleared. Enter it in MUSEGOD.' }).waitFor();
+    await trade.getByLabel('Trade input amount').fill('0.25');
+    await payWith.getByRole('button', { name: 'ETH', exact: true }).click();
     assert.equal(await trade.getByRole('button', { name: 'Get quote', exact: true }).count(), 1);
     // No separate MUSEGOD panel, link or status line anywhere on a token page.
     assert.equal(await page.getByRole('heading', { name: /Get MUSEGOD/ }).count(), 0);
@@ -370,6 +394,20 @@ try {
     }
     assert.equal(await emptyTrade.locator('.trade-live .nft-warning').count(), 0);
     await finish(empty);
+    // An amount typed on Sell (where the balance is the coin's) is judged on Buy by the pair balance: no MUSEGOD here, so ETH.
+    const carried = await open(tokenPath, { musegodHeld: 0n }), carriedTrade = carried.page.locator('#trade');
+    await carried.page.locator('#nft-card').getByText('Unlocked').waitFor();
+    await carriedTrade.getByRole('group', { name: 'Trade side' }).getByRole('button', { name: 'Sell' }).click();
+    await carriedTrade.getByText('You pay BARD', { exact: true }).waitFor();
+    await carriedTrade.getByText('Balance: 100', { exact: true }).waitFor();
+    await carriedTrade.getByLabel('Trade input amount').fill('5');
+    await carriedTrade.getByRole('group', { name: 'Trade side' }).getByRole('button', { name: 'Buy' }).click();
+    await carriedTrade.getByText('Balance: 100', { exact: true }).waitFor();
+    await carried.page.waitForTimeout(500);
+    const carriedPay = carriedTrade.getByRole('group', { name: 'Pay with' });
+    assert.equal(await carriedPay.getByRole('button', { name: 'ETH', exact: true }).getAttribute('aria-pressed'), 'true');
+    assert.equal(await carriedTrade.getByText('You pay ETH', { exact: true }).count(), 1);
+    await finish(carried);
     // No wallet: the pair asset, so the read-only on-chain quote works; ETH asks for a wallet first.
     const anonymous = await open(tokenPath, { account: null }), anonTrade = anonymous.page.locator('#trade');
     const anonPay = anonTrade.getByRole('group', { name: 'Pay with' });
@@ -452,7 +490,7 @@ try {
     assert(state.sends[2].data.toLowerCase().includes(received.toString(16).padStart(64, '0')), 'the swap spends the exact amount received');
     const progress = await page.evaluate(() => window.__progress);
     const steps = ['Step 1 of 3 · Confirm in your wallet: ETH → MUSEGOD', 'Step 1 of 3 · Waiting for on-chain confirmation',
-      'Step 2 of 3 · Approval 2 of 2 · Approve the trading router for MUSEGOD', 'Step 3 of 3 · Confirm in your wallet: MUSEGOD → BARD',
+      'Step 2 of 3 · Approval 1 of 1 · Approve the trading router for MUSEGOD', 'Step 3 of 3 · Confirm in your wallet: MUSEGOD → BARD',
       'Step 3 of 3 · Waiting for on-chain confirmation'];
     let at = -1;
     for (const step of steps) {
@@ -527,6 +565,29 @@ try {
     await plainTrade.getByLabel('Trade input amount').fill('1');
     assert.equal(await plainTrade.getByRole('button', { name: 'Get on-chain quote' }).isEnabled(), true, 'the new page is not busy');
     await finish(run);
+  });
+  await check('eth_buy_wallet_events_mid_buy', async () => {
+    // A wallet event that leaves the account and network as they were keeps the recovery; a real account change drops it.
+    for (const [event, value, kept] of [['chainChanged', '0x1237', true], ['accountsChanged', [delegate], false]]) {
+      const run = await open(tokenPath, { ethRoute: 'two-step', rejectSends: [1], walletEvent: { attempt: 1, event, value } }), { page, state } = run;
+      await page.locator('#nft-card').getByText('Unlocked').waitFor();
+      const trade = await ethQuoteFor(page, '0.02');
+      await trade.getByText('Two steps', { exact: true }).waitFor();
+      await trade.getByRole('button', { name: 'Buy with ETH' }).click();
+      for (let i = 0; i < 400 && state.rejected.length < 1; i++) await page.waitForTimeout(25);
+      assert.equal(state.rejected.length, 1, event);
+      const received = BigInt(state.ethQuoteResponses[0].conversion.minimumOut) + convertedExtra;
+      if (kept) {
+        await trade.locator('.trade-live .nft-warning', { hasText: `You received ${amountWords(received, 18)} MUSEGOD.` }).waitFor();
+        assert.equal(await trade.getByLabel('Trade input amount').inputValue(), formatUnits(received, 18));
+        await trade.getByRole('group', { name: 'Pay with' }).getByRole('button', { name: 'MUSEGOD', exact: true, pressed: true }).waitFor();
+      } else {
+        await page.waitForTimeout(1500);
+        assert.equal(await trade.getByText(/You received/).count(), 0, 'nothing from the old account lands on the page');
+        assert.equal(await trade.getByLabel('Trade input amount').inputValue(), '0.02');
+      }
+      await finish(run);
+    }
   });
   await check('musegod_page_trade_panel', async () => {
     // The MUSEGOD page keeps its own ETH ↔ MUSEGOD panel, with its original control names and no Pay with control.
@@ -734,7 +795,7 @@ try {
     await run.page.locator('#nft-card').getByText('BARD pool').first().waitFor();
     await run.page.locator('#trade').getByRole('group', { name: 'Pay with' }).getByRole('button', { name: 'MUSEGOD', exact: true, pressed: true }).waitFor();
     await run.page.locator('#trade').getByLabel('Trade input amount').fill('5');
-    await run.page.locator('#trade .trade-live').getByRole('button', { name: 'Switch to ETH' }).waitFor();
+    await run.page.locator('#trade .pay-hint').getByRole('button', { name: 'Switch to ETH' }).waitFor();
     await shoot(run.page, `token-hint-${tag}`); await finish(run);
     run = await open(nftPagePath, { theme, viewport });
     await run.page.getByRole('link', { name: 'Bard of the Muses' }).waitFor();

@@ -6,6 +6,7 @@ import type { EthBuyQuoteResponse, SwapQuote } from "../src/lib/eth-buy";
 import { addressSchema, minimumOutput } from "../src/lib/validation";
 import { BudgetUnavailable } from "./runtime-policy";
 import type { FirstBuyPaymentReader } from "./lifi";
+import { redact, type RuntimeEnvironment } from "./config";
 
 export class EthBuyError extends Error {
   constructor(public code: "ETH_BUY_UNAVAILABLE" | "ETH_BUY_NOT_NEEDED", message: string) { super(message); this.name = "EthBuyError"; }
@@ -25,6 +26,9 @@ export type EthBuyDependencies = {
   /** The existing v4 buy quote of `amount` (decimal, pair-asset units). */
   swapQuote: (token: Address, amount: string, slippageBps: number) => Promise<SwapQuote>;
   now?: () => number;
+  /** Secrets that `redact` removes from the operator log line. */
+  environment?: RuntimeEnvironment;
+  log?: (line: string) => void;
 };
 /** One quote for buying a pair-asset coin with ETH: a direct LI.FI route when one passes every check; otherwise (no route, an
  * unindexed or thin coin, a route the checks refuse) the strict ETH → pair conversion plus the v4 quote of that conversion's
@@ -42,6 +46,9 @@ export async function quoteEthBuy(raw: unknown, deps: EthBuyDependencies): Promi
     return { mode: "direct", quote, serverTime: now() };
   } catch (error) {
     if (error instanceof BudgetUnavailable) throw error;
+    // One structured, redacted line, so a lasting LI.FI regression behind the quiet fallback stays visible to operators.
+    (deps.log ?? console.warn)(JSON.stringify({ event: "eth_buy_direct_refused", token: record.address,
+      reason: redact(error, deps.environment ?? process.env) }));
   }
   const conversion = await deps.payments.quote({ account: input.account, fromToken: zeroAddress, toToken: pair.address,
     amount: input.amountIn, slippageBps: input.slippageBps });

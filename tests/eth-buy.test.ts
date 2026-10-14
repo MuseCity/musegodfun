@@ -167,7 +167,7 @@ function swapPreview(amountIn: bigint, amountOut = amountIn * 2n, now = at): Swa
     slippageBps: 100, quotedAt: now, expiresAt: now + 60_000 };
 }
 function serverDeps(overrides: Partial<Parameters<typeof quoteEthBuy>[1]> = {}) {
-  const calls: string[] = [];
+  const calls: string[] = [], logs: string[] = [];
   const direct = lifiQuote(coin).q, conversion = lifiQuote(musegod, at, 10n ** 15n, 25n * 10n ** 18n).q;
   const deps: Parameters<typeof quoteEthBuy>[1] = {
     chainId: 4663,
@@ -178,9 +178,10 @@ function serverDeps(overrides: Partial<Parameters<typeof quoteEthBuy>[1]> = {}) 
     token: async (address) => { calls.push(`token:${address}`); return pairedCoin; },
     swapQuote: async (token, amount, slippageBps) => { calls.push(`swap:${token}:${amount}:${slippageBps}`); return swapPreview(BigInt(conversion.minimumOut)); },
     now: () => at,
+    log: (line) => logs.push(line),
     ...overrides,
   };
-  return { deps, calls, direct, conversion };
+  return { deps, calls, direct, conversion, logs };
 }
 const request = { token: coin.address, amountIn: "0.001", account, slippageBps: 100 };
 
@@ -219,11 +220,28 @@ test("any refused direct quote falls back to the two-step plan; only provider ca
   capped.deps.payments!.coinQuote = async () => { throw new BudgetUnavailable(30); };
   await assert.rejects(quoteEthBuy(request, capped.deps), BudgetUnavailable);
   assert(!capped.calls.some((call) => call.startsWith("convert") || call.startsWith("swap")));
+  assert.deepEqual(capped.logs, [], "capacity is not a refused route");
   // A conversion that fails too surfaces its own error: there is no third path.
   const down = serverDeps();
   down.deps.payments!.coinQuote = async () => { throw new LifiNoRouteError(); };
   down.deps.payments!.quote = async () => { throw new Error("LI.FI pricing or routing is unavailable. Try again later."); };
   await assert.rejects(quoteEthBuy(request, down.deps), /routing is unavailable/);
+});
+
+test("a refused direct quote leaves one structured, redacted operator line; a direct route leaves none", async () => {
+  const { deps, logs } = serverDeps({ environment: { LIFI_API_KEY: "SECRET_VALUE" } });
+  deps.payments!.coinQuote = async () => { throw new Error("GET https://li.quest/v1/quote?toToken=x&apiKey=SECRET_VALUE failed: key SECRET_VALUE rejected"); };
+  assert.equal((await quoteEthBuy(request, deps)).mode, "two-step");
+  assert.equal(logs.length, 1);
+  const line = JSON.parse(logs[0]);
+  assert.deepEqual(Object.keys(line), ["event", "token", "reason"]);
+  assert.equal(line.event, "eth_buy_direct_refused");
+  assert.equal(line.token, coin.address);
+  assert(!/SECRET_VALUE|https?:|li\.quest/i.test(logs[0]), logs[0]);
+  assert.match(line.reason, /\[upstream\].*\[redacted\]/);
+  const ok = serverDeps();
+  await quoteEthBuy(request, ok.deps);
+  assert.deepEqual(ok.logs, []);
 });
 
 test("unlisted, WETH-paired, Base and unconfigured requests are refused before any LI.FI request", async () => {
@@ -265,7 +283,9 @@ async function httpFixture(chain: 4663 | 8453, run: (entry: ReturnType<typeof cr
   finally { await new Promise<void>((resolve) => server.close(() => resolve())); entry.service.store.close(); rmSync(directory, { recursive: true, force: true }); }
 }
 
-test("POST /api/trade/eth-quote: direct, two-step and 4xx refusals over HTTP with mocked LI.FI", async () => {
+test("POST /api/trade/eth-quote: direct, two-step and 4xx refusals over HTTP with mocked LI.FI", async (t) => {
+  const warnings: string[] = [];
+  t.mock.method(console, "warn", (line: string) => { warnings.push(line); });
   const direct = lifiQuote(coin, Date.now()), conversion = lifiQuote(musegod, Date.now(), 2n * 10n ** 16n, 25n * 10n ** 18n);
   const lifiCalls: string[] = [];
   await httpFixture(4663, async ({ service }, post) => {
@@ -307,6 +327,8 @@ test("POST /api/trade/eth-quote: direct, two-step and 4xx refusals over HTTP wit
   assert.deepEqual(lifiCalls, [`${coin.address}:1000000000000000`, `${coin.address}:20000000000000000`, `${musegod.address}:20000000000000000`,
     `${coin.address}:30000000000000000`, `${musegod.address}:30000000000000000`],
     "direct; no route then the conversion; mixed errors then the conversion; the unlisted, WETH-paired and malformed requests never reach LI.FI");
+  assert.deepEqual(warnings.map((line) => JSON.parse(line).event), ["eth_buy_direct_refused", "eth_buy_direct_refused"], "one line per fallback");
+  assert(!warnings.some((line) => /https?:/.test(line)));
   await httpFixture(8453, async (_entry, post) => {
     const refused = await post(request);
     assert.equal(refused.status, 422);
@@ -499,10 +521,13 @@ test("the two-step disclosure, distinct prompt labels and pending detection", ()
   assert.equal(ethBuyDisclosure("MUSEGOD", "MVADER"),
     "No one-step route right now. This buy takes 3 steps (3 or 4 wallet confirmations): ETH → MUSEGOD, then MUSEGOD → MVADER.");
   const labels = twoStepLabels("MUSEGOD", "MVADER");
-  assert.deepEqual(labels, { approve: "Step 2 of 3 · Approval 1 of 2 · Approve this MUSEGOD amount",
-    router: "Step 2 of 3 · Approval 2 of 2 · Approve the trading router for MUSEGOD; it expires in 5 minutes",
-    swap: "Step 3 of 3 · Confirm in your wallet: MUSEGOD → MVADER", waiting: "Step 3 of 3 · Waiting for on-chain confirmation" });
-  assert.equal(new Set(Object.values(labels)).size, 4, "every wallet prompt has its own label");
+  assert.equal(labels.approve, "Step 2 of 3 · Approval 1 of 2 · Approve this MUSEGOD amount");
+  assert.equal(labels.router(2), "Step 2 of 3 · Approval 2 of 2 · Approve the trading router for MUSEGOD; it expires in 5 minutes");
+  assert.equal(labels.router(1), "Step 2 of 3 · Approval 1 of 1 · Approve the trading router for MUSEGOD; it expires in 5 minutes",
+    "the amount approval was already in place: the router approval is the only one");
+  assert.equal(labels.swap, "Step 3 of 3 · Confirm in your wallet: MUSEGOD → MVADER");
+  assert.equal(labels.waiting, "Step 3 of 3 · Waiting for on-chain confirmation");
+  assert.equal(new Set([labels.approve, labels.router(1), labels.router(2), labels.swap, labels.waiting]).size, 5, "every wallet prompt has its own label");
   for (const message of ["The transaction is still pending. Check it again in your wallet transaction history: 0x1",
     "The transaction confirmation changed. Check its pending status in transaction history.",
     "The wallet request is still unresolved. Your saved request will not be resent."]) assert.equal(pendingOutcome(new Error(message)), true, message);

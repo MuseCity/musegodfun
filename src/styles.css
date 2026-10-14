@@ -635,9 +635,10 @@ dialog.modal[open] { display: flex; flex-direction: column; gap: 16px; }
 .pay-with .segmented button { min-height: 36px; padding: 0 16px; font-size: 14px; line-height: 20px; }
 /* The trade panel's one live region: always rendered; when empty it takes no space. */
 .trade-live { display: flex; flex-direction: column; gap: 8px; }
-.trade-live:empty { margin-top: -12px; }
+.trade-live:empty, .trade-live:not(:has(> :not(.visually-hidden))) { margin-top: -12px; }
 .trade-live p { margin: 0; }
-.trade-live .text-button { font-size: 14px; line-height: 20px; font-weight: 650; text-decoration: underline; }
+.pay-hint { margin: 0; }
+.pay-hint .text-button { font-size: 14px; line-height: 20px; font-weight: 650; text-decoration: underline; }
 .trade-progress, .trade-received { font-size: 14px; line-height: 20px; font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
 .trade-links { display: flex; flex-wrap: wrap; gap: 4px 16px; }
 @media (max-width: 1179px) {

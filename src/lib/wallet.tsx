@@ -196,8 +196,9 @@ async function verifyLifiRouter(client: ReturnType<typeof transactionClient>, fr
     }
   }
 }
-/** Progress copy for the pair → coin flow; a two-step ETH buy passes its own "2/3 … 3/3" wording. */
-export type TradeSteps = { approve: string; router: string; swap: string; waiting: string };
+/** Progress copy for the pair → coin flow; a two-step ETH buy passes its own wording. `router` may depend on whether the
+ * amount approval was sent first (its approval number: 1 or 2). */
+export type TradeSteps = { approve: string; router: string | ((approval: number) => string); swap: string; waiting: string };
 const TRADE_STEPS: TradeSteps = { approve: "1/3 · Approve this transaction amount", router: "2/3 · Approve the trading router; approval expires in 5 minutes",
   swap: "3/3 · Confirm the transaction in your wallet", waiting: "Waiting for onchain confirmation" };
 /** `send` extras: an NFT launch-fee payment passes its exact value (and, for ETH, the quote it must equal); `beforeSend` runs right
@@ -793,7 +794,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       functionName: "allowance",
       args: [expected, contracts.permit2],
     });
+    let approvals = 0;
     if (allowance < amount) {
+      approvals++;
       progress(steps.approve);
       fresh();
       await signer(config, expected);
@@ -826,7 +829,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       permit[1] < Number(block.timestamp + 60n) ||
       permit[1] > Number(deadline)
     ) {
-      progress(steps.router);
+      progress(typeof steps.router === "function" ? steps.router(approvals + 1) : steps.router);
       fresh();
       await signer(config, expected);
       const request = {
