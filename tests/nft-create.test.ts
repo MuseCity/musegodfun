@@ -318,7 +318,8 @@ test("a spent nonce is searched once: with the memo, a later check makes no sear
   const again = chain(110n, mined);
   assert.equal((await resolveLaunchFee(again.client, config, sending, undefined, memo)).status, "unknown");
   assert.deepEqual(searchReads(again.reads, 110n), [], "no nonce search and no block read again");
-  assert.deepEqual(again.reads, ["head", "count@110"], "only the head and its nonce count");
+  assert.deepEqual(again.reads.filter((read) => !read.startsWith("receipt:") && !read.startsWith("canonical:")), ["head", "count@110"],
+    "only the head, its nonce count, and each remembered transaction's receipt and block hash checked again");
 });
 test("an ETH attempt never adopts a USDG transfer, and a USDG attempt never adopts an ETH transfer", async () => {
   const ethAttempt = { ...sending, asset: "native" as const, quote };
@@ -361,8 +362,7 @@ test("a receipt whose block is no longer the canonical block at its height decid
 test("a nonce spent only after the head was read is not spent yet", async () => {
   // The original is gone; a later block spends nonce 3. Counting at "latest" would start a search that cannot find it below the head.
   const lateSpent = chain(110n, [...history, otherTx(3, 111n)]);
-  assert.deepEqual(await resolveLaunchFee(lateSpent.client, config, pendingOf(`0x${"ab".repeat(32)}`, { nonceSeen: true }), undefined, new Map(), sending.at + 5_000),
-    { status: "waiting" });
+  assert.deepEqual(await resolveLaunchFee(lateSpent.client, config, pendingOf(`0x${"ab".repeat(32)}`, { nonceSeen: true })), { status: "waiting" });
   assert.deepEqual(searchReads(lateSpent.reads, 110n), []);
 });
 // Round 5 P2: the shared machinery remembers only stable transactions, so the launch fee gets the same reorganization safety.
@@ -372,10 +372,11 @@ test("a fee payment replaced by a speed-up in a reorganization before it was sta
   assert.equal(memo.size, 0);
   assert.deepEqual(await resolveLaunchFee(chain(107n, [...history, speedUp]).client, config, sending, undefined, memo),
     { status: "paid", fee: { asset: "stable", txHash: speedUp.hash } });
-  // A pending payment the node has no trace of, its nonce unspent: waiting while it may propagate, then the user decides.
+  // Round 6: a payment with a known hash the node has no trace of, its nonce unspent, keeps waiting: never offered "No payment was sent".
   const lost = pendingOf(`0x${"ab".repeat(32)}`);
-  assert.deepEqual(await resolveLaunchFee(chain(110n, history).client, config, lost, undefined, new Map(), lost.at + 5_000), { status: "waiting" });
-  assert.deepEqual(await resolveLaunchFee(chain(110n, history).client, config, lost, undefined, new Map(), lost.at + 120_000), { status: "unknown", reason: FEE_UNCONFIRMED });
+  assert.deepEqual(await resolveLaunchFee(chain(110n, history).client, config, lost), { status: "waiting" });
+  assert.deepEqual(await resolveLaunchFee(chain(110n, [...history, otherTx(3, 104n)]).client, config, lost), { status: "waiting" },
+    "a predicted nonce taken by another transaction is no proof for a known hash either");
 });
 test("pending, then replaced: a speed-up with the same transfer is adopted; a cancellation is cleared only for a nonce seen on chain", async () => {
   const original = txOf(3, 0n), speedUp = txOf(3, 106n, { hash: `0x${"5e".repeat(32)}` });
@@ -385,8 +386,8 @@ test("pending, then replaced: a speed-up with the same transfer is adopted; a ca
   assert(repriced.reads.includes("block:106"));
   const cancelled = chain(110n, [...history, otherTx(3, 106n)]);
   assert.deepEqual(await resolveLaunchFee(cancelled.client, config, pendingOf(original.hash, { nonceSeen: true })), { status: "failed", reason: FEE_CANCELLED });
-  assert.deepEqual(await resolveLaunchFee(cancelled.client, config, pendingOf(original.hash)), { status: "unknown", reason: FEE_UNCONFIRMED },
-    "a predicted nonce is never proof of a cancellation");
+  assert.deepEqual(await resolveLaunchFee(cancelled.client, config, pendingOf(original.hash)), { status: "waiting" },
+    "a predicted nonce is never proof of a cancellation, and a payment with a known hash is never offered a re-pay (round 6)");
 });
 test("a replacement the wallet reported is proof of the nonce: a speed-up is adopted, anything else cancelled the fee", async () => {
   const speedUp = txOf(3, 106n, { hash: `0x${"5e".repeat(32)}` }), { client, reads } = chain(110n, [...history, speedUp]);

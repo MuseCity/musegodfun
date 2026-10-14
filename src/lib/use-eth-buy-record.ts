@@ -6,7 +6,7 @@ import { ETH_BUY_LOCK, ETH_BUY_TAKEN, ETH_BUY_UNRESOLVED, ethBuyStorageKey, pars
 import { ETH_BUY_CHAIN, type FirstBuyPaymentQuote } from "./first-buy-payment";
 import { receivedFromLogs } from "./eth-buy";
 import { withLaunchIntentLock } from "./launch-intent";
-import { attemptAfterSendError, recordAtBroadcast, type NonceMemo, type SendPollStatus } from "./send-record";
+import { attemptAfterSendError, discardable, recordAtBroadcast, type NonceMemo, type SendPollStatus } from "./send-record";
 import { transactions } from "./transactions";
 import { useSendPoll } from "./use-send-poll";
 import { errorMessage } from "./validation";
@@ -93,13 +93,14 @@ export function useEthBuyRecord(config: RuntimeConfig | null, account: Address |
     if (!key || checking) return;
     if (!poll.now()) void check(key).catch(() => { if (visible(key)) setNotice("The ETH buy could not be checked. Try again in a minute."); });
   }
-  /** The user's explicit "No payment was sent". Refused while another tab of the wallet is buying. */
+  /** The user's explicit "No payment was sent": only for the unchanged record it was offered for, never one with a known hash. Refused while
+   * another tab of the wallet is buying. */
   async function discard() {
     if (!key || !account || !config) return;
     const forKey = key, saved = read(forKey);
     try {
       await withLaunchIntentLock(config, account, ETH_BUY_LOCK, async () => {
-        if (JSON.stringify(read(forKey)) === JSON.stringify(saved)) write(forKey, null);
+        if (discardable(saved, read(forKey))) write(forKey, null);
       });
       if (visible(forKey)) { setNotice(""); setUnknown(""); refresh(); }
     } catch (cause) { if (visible(forKey)) setNotice(errorMessage(lockError(cause))); }

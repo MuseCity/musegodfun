@@ -51,18 +51,18 @@ export function ethBuyTxMatches(record: Pick<EthBuyRecord, "from" | "tx">, tx: N
 export const ETH_BUY_TAKEN = "Another ETH buy from this wallet was recorded meanwhile, so this one was not sent. Check it here before you buy again.";
 export const ETH_BUY_UNRESOLVED = "An earlier ETH buy from this wallet may have been sent and is not settled yet. Check it here before you buy with ETH again.";
 export const ETH_BUY_MAYBE_SENT = "Your wallet may have sent this ETH buy. Check your wallet's activity; this page also checks the chain.";
-export const ETH_BUY_WAITING = "Your ETH buy was sent and is waiting for confirmation.";
+export const ETH_BUY_WAITING = "Waiting for your earlier ETH buy to settle. If your wallet shows it pending, speed it up or cancel it there.";
 export const ETH_BUY_UNCONFIRMED = "We can't confirm this ETH buy yet. Check your wallet's activity. If no ETH left your wallet for it, choose “No payment was sent”.";
 export const ETH_BUY_REVERTED = "The ETH buy failed on-chain, so it spent no ETH apart from network gas. You can buy again.";
 export const ETH_BUY_CANCELLED = "The ETH buy was replaced or cancelled in your wallet, so it spent no ETH. You can buy again.";
 export type EthBuyResolution =
   | { status: "bought"; hash: Hex } // Exactly this transaction confirmed: the caller shows it and removes the record.
   | { status: "failed"; reason: string } // Definitely not bought: the caller removes the record.
-  | { status: "waiting"; record?: EthBuyRecord }
+  | { status: "waiting"; record?: EthBuyRecord } // A record with a known hash stays here until the chain settles it.
   | { status: "unknown"; reason: string }; // No proof either way: the caller offers "No payment was sent".
 /** Decides a recorded ETH buy from the chain alone (`resolveSentTransaction`); throws on RPC failure, and the caller asks again later. */
-export async function resolveEthBuy(client: SendReader, record: EthBuyRecord, hint?: Hex, memo: NonceMemo = new Map(), now = Date.now()): Promise<EthBuyResolution> {
-  const result = await resolveSentTransaction(client, record, (tx) => ethBuyTxMatches(record, tx), hint, memo, now);
+export async function resolveEthBuy(client: SendReader, record: EthBuyRecord, hint?: Hex, memo: NonceMemo = new Map()): Promise<EthBuyResolution> {
+  const result = await resolveSentTransaction(client, record, (tx) => ethBuyTxMatches(record, tx), hint, memo);
   switch (result.status) {
     case "confirmed": return { status: "bought", hash: result.hash };
     case "reverted": return { status: "failed", reason: ETH_BUY_REVERTED };

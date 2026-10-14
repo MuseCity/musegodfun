@@ -12,7 +12,7 @@ import {
   parseLaunchFeeRecord, resolveLaunchFee, saneFeeQuote, type DraftLaunchFee, type FeeResolution, type LaunchFeeAttempt, type LaunchFeeQuote,
   type LaunchFeeRecord, type LaunchFeeState,
 } from "./nft-client";
-import { attemptAfterSendError, recordAtBroadcast, type NonceMemo, type SendPollStatus } from "./send-record";
+import { attemptAfterSendError, discardable, recordAtBroadcast, type NonceMemo, type SendPollStatus } from "./send-record";
 import { useSendPoll } from "./use-send-poll";
 
 /** Spent nonces per wallet record key: each stable one is searched once per page (send-record.ts NonceMemo). */
@@ -159,14 +159,14 @@ export function useLaunchFee(config: RuntimeConfig, account: Address | null, dra
     }
     await pay("native", ethQuote);
   }
-  /** The user's explicit choice ("No payment was sent — pay again", "Pay a new fee"). Refused while another tab is paying. */
+  /** The user's explicit choice ("No payment was sent — pay again", "Pay a new fee"): only for the unchanged record it was offered for,
+   * never a payment with a known hash. Refused while another tab is paying. */
   async function discard() {
     if (!account || !key) return;
     const forKey = key, saved = read(forKey);
     try {
       await withLaunchIntentLock(config, account, LAUNCH_FEE_LOCK, async () => {
-        const current = read(forKey);
-        if (JSON.stringify(current) === JSON.stringify(saved)) write(forKey, null);
+        if (discardable(saved, read(forKey))) write(forKey, null);
       });
       if (visible(forKey)) { setNotice(""); setUnknown(""); refresh(); }
     } catch (cause) { if (visible(forKey)) setNotice(feeError(cause)); }

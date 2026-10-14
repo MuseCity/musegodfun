@@ -4,7 +4,7 @@ import { getAddress, InvalidInputRpcError, MethodNotSupportedRpcError, Transacti
   type Address, type Hex } from "viem";
 import { ETH_BUY_CANCELLED, ETH_BUY_REVERTED, ETH_BUY_UNCONFIRMED, ethBuyStorageKey, ethBuyTxMatches, parseEthBuyRecord, resolveEthBuy,
   type EthBuyRecord } from "../src/lib/eth-buy-record";
-import { attemptAfterSendError } from "../src/lib/send-record";
+import { attemptAfterSendError, discardable } from "../src/lib/send-record";
 import { launchFeeStorageKey } from "../src/lib/nft-client";
 
 // Round 4 F1: an ETH buy through LI.FI keeps a recoverable anti-duplicate record, settled by the Task 9 nonce machinery (send-record.ts).
@@ -125,7 +125,9 @@ test("a spent nonce is searched once per page: a later check of the same record 
   assert.equal((await resolveEthBuy(chain(110n, mined).client, sending, undefined, memo)).status, "unknown");
   const again = chain(110n, mined);
   assert.equal((await resolveEthBuy(again.client, sending, undefined, memo)).status, "unknown");
-  assert.deepEqual(again.reads, ["head", "count@110"], "only the head and its nonce count");
+  assert.deepEqual(again.reads.filter((read) => read.startsWith("block:") || read.startsWith("count@") && read !== "count@110"), [], "no search again");
+  assert.deepEqual(again.reads.filter((read) => !read.startsWith("receipt:") && !read.startsWith("canonical:")), ["head", "count@110"],
+    "only the head, its nonce count, and each remembered transaction's receipt and block hash checked again");
 });
 
 // ---- round 5 P2: only stable chain state decides or is remembered -----------------------------------------------------------------
@@ -163,11 +165,46 @@ test("another transaction at a nonce the buy used cancels it only once stable, w
   assert.deepEqual(await resolveEthBuy(chain(111n, [...history, other]).client, pendingOf(sent.hash), other.hash), { status: "failed", reason: ETH_BUY_CANCELLED });
 });
 
-test("a sent buy the node has no trace of, with its nonce unspent, offers No payment was sent once 120 s passed; one the node holds keeps waiting", async () => {
-  const lost = pendingOf(`0x${"ab".repeat(32)}`), grace = 120_000; // SEND_UNSEEN_GRACE_MS
-  assert.deepEqual(await resolveEthBuy(chain(110n, history).client, lost, undefined, new Map(), lost.at + 5_000), { status: "waiting" }, "still propagating");
-  assert.deepEqual(await resolveEthBuy(chain(110n, history).client, lost, undefined, new Map(), lost.at + grace), { status: "unknown", reason: ETH_BUY_UNCONFIRMED });
-  const held = buyTx(3, 0n, { hash: `0x${"ab".repeat(32)}` });
-  assert.equal((await resolveEthBuy(chain(110n, history, { mempool: [held] }).client, lost, undefined, new Map(), lost.at + 3_600_000)).status, "waiting",
-    "a transaction the node holds unmined is the wallet's to speed up or cancel");
+// ---- round 6: a record with a known hash is never offered a re-pay; a remembered nonce result is checked again before any verdict ------
+test("a buy with a known hash the node cannot see, its nonce unspent, keeps its record however long, never offering a re-pay; once it lands it is bought", async () => {
+  const sent = buyTx(3, 105n, { hash: `0x${"ab".repeat(32)}` }), record = pendingOf(sent.hash);
+  // The wallet still holds the transaction; our node lost it (or never saw it). Minutes, hours: the record waits.
+  for (let check = 0; check < 3; check++) assert.deepEqual(await resolveEthBuy(chain(110n, history).client, record), { status: "waiting" });
+  // Its predicted nonce taken by another, stable transaction and nothing at the next nonces: still not proof, so still no re-pay.
+  assert.deepEqual(await resolveEthBuy(chain(110n, [...history, otherTx(3, 104n)]).client, record), { status: "waiting" });
+  // It propagates again and lands.
+  assert.deepEqual(await resolveEthBuy(chain(110n, [...history, sent]).client, record), { status: "bought", hash: sent.hash });
+  // Without a hash, the same chain leaves the decision to the user, as before.
+  assert.deepEqual(await resolveEthBuy(chain(110n, history).client, sending), { status: "unknown", reason: ETH_BUY_UNCONFIRMED });
+});
+
+test("the user's choice never removes a record with a known hash, nor one that changed since the choice was offered", () => {
+  const pending = pendingOf(`0x${"ab".repeat(32)}`);
+  assert.equal(discardable(sending, sending), true, "the unchanged record without a hash");
+  assert.equal(discardable(pending, pending), false, "a known hash is settled by the chain only");
+  assert.equal(discardable(sending, pending), false, "the wallet reported a hash after the choice was offered");
+  const another: EthBuyRecord = { ...sending, at: sending.at + 1 };
+  assert.equal(discardable(sending, another), false, "another attempt");
+  assert.equal(discardable(sending, null), false);
+  const paid = { state: "paid", from: account, fee: { asset: "stable", txHash: `0x${"cd".repeat(32)}` } };
+  assert.equal(discardable(paid, paid), true, "a paid launch fee the server refused can still be replaced by the user's choice");
+});
+
+test("a remembered transaction at the nonce is checked again before a cancel verdict: after a reorganization the sped-up buy is adopted", async () => {
+  const memo = new Map(), occupant = otherTx(3, 104n);
+  // First the predicted nonce held another, stable transaction: remembered.
+  assert.equal((await resolveEthBuy(chain(110n, [...history, occupant]).client, sending, undefined, memo)).status, "unknown");
+  assert.equal(memo.get(3)?.hash, occupant.hash);
+  // A reorganization removed it. The buy was seen at that nonce and sped up; the speed-up has two confirmations.
+  const original = `0x${"ab".repeat(32)}` as Hex, speedUp = buyTx(3, 106n, { hash: `0x${"5e".repeat(32)}` });
+  for (const [why, after] of [["vanished", chain(110n, [...history, speedUp])], ["stale receipt", chain(110n, [...history, speedUp], { stale: [occupant] })]] as const) {
+    const stale = new Map(memo);
+    assert.deepEqual(await resolveEthBuy(after.client, pendingOf(original, { nonceSeen: true }), undefined, stale), { status: "bought", hash: speedUp.hash },
+      `${why}: never "cancelled" from the stale entry`);
+    assert(after.reads.includes(`receipt:${occupant.hash.slice(-4)}`), `${why}: the remembered entry's receipt was checked`);
+    assert.equal(stale.get(3)?.hash, speedUp.hash, `${why}: searched again`);
+  }
+  // A remembered occupant that still checks out keeps deciding: a nonce the buy really used, spent by it, cancelled the buy.
+  assert.deepEqual(await resolveEthBuy(chain(110n, [...history, occupant]).client, pendingOf(original, { nonceSeen: true }), undefined, memo),
+    { status: "failed", reason: ETH_BUY_CANCELLED });
 });

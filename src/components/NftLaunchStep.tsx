@@ -3,7 +3,7 @@ import type { Address, Hex } from "viem";
 import { deploymentChain, explorerFor, type RuntimeConfig } from "../lib/config";
 import { LAUNCH_FEE_STABLE } from "../lib/launch-fee";
 import { MUSES, isMuse, nftKey, treasuryFor, type NftRef, type NftStatus } from "../lib/nft-mode";
-import { FEE_MAYBE_SENT, formatFeeEth, readNftStatus, type DraftLaunchFee, type LaunchFeeState, type NftChecked } from "../lib/nft-client";
+import { FEE_MAYBE_SENT, FEE_WAITING, formatFeeEth, readNftStatus, type DraftLaunchFee, type LaunchFeeState, type NftChecked } from "../lib/nft-client";
 import { useLaunchFee } from "../lib/use-launch-fee";
 import { errorMessage, nftRefSchema, type LaunchInput } from "../lib/validation";
 
@@ -134,9 +134,8 @@ export function NftLaunchStep({ config, account, draft, error = "", feeRejected 
         <h3 id={NFT_FEE_ID} className="field-label" tabIndex={-1}>Launch fee: $10</h3>
         {/* One state at a time: paid, undecided, waiting for confirmation, the wallet prompt, possibly sent, or the pay buttons. */}
         {record?.state === "paid" ? <p role="status">Launch fee paid. It covers one paid NFT launch from this wallet. <TxHash hash={record.fee.txHash} config={config} /></p>
-          : record && fee.unknown ? <p role="status" aria-live="polite" className="nft-warning">{fee.unknown}
-            {record.state === "pending" && <> <TxHash hash={record.txHash} config={config} /></>}</p>
-          : record?.state === "pending" ? <p role="status" aria-live="polite">Payment sent, waiting for confirmation. <TxHash hash={record.txHash} config={config} /></p>
+          : record && fee.unknown ? <p role="status" aria-live="polite" className="nft-warning">{fee.unknown}</p>
+          : record?.state === "pending" ? <p role="status" aria-live="polite">{FEE_WAITING} <TxHash hash={record.txHash} config={config} /></p>
           : fee.paying ? <p role="status">Confirm the payment in your wallet.</p>
           : record?.state === "sending" ? <p role="status" aria-live="polite" className="nft-warning">{FEE_MAYBE_SENT}</p>
           : fee.ethQuote && needsFee ? <div className="nft-eth-quote">

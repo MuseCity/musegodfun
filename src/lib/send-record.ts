@@ -7,8 +7,9 @@ import { walletRefusedUnsent } from "./wallet-signing";
 // request ("sending", with the account's pending nonce and the head block), upgrades it at the hash ("pending"), and lets only a definite
 // answer remove it: the wallet's rejection or unprocessed refusal before any hash, the chain (below), or the user's explicit choice. The
 // chain decides by the saved hash, a replacement the wallet reported, or the nonce, and only from stable state (two confirmations in the
-// canonical block); the transaction at a spent nonce is searched once it is stable (`NonceMemo`). The record is written at the wallet
-// request itself, under a re-verified cross-tab lease (`recordAtBroadcast`).
+// canonical block); the transaction at a spent nonce is searched once it is stable (`NonceMemo`), and checked again whenever it is used.
+// A record with a known hash is never removed by the user's choice, only by the chain. The record is written at the wallet request
+// itself, under a re-verified cross-tab lease (`recordAtBroadcast`).
 
 /** What every recorded send keeps: `at` identifies the attempt (written when the wallet received it); `nonceSeen` says the nonce is the one
  * the sent transaction really used, not the predicted one. */
@@ -18,16 +19,16 @@ export type SentResolution<A> =
   | { status: "confirmed"; hash: Hex } // Exactly this transaction succeeded, with two confirmations on the canonical chain.
   | { status: "reverted"; hash: Hex } // Exactly this transaction failed, with two confirmations on the canonical chain.
   | { status: "cancelled" } // Another transaction spent its nonce: a replacement the wallet reported, or a nonce the sent transaction used.
-  | { status: "waiting"; record?: A } // A known transaction is still confirming (`record`: the same, now with its seen nonce).
-  | { status: "unknown" }; // No proof either way: only the user may clear it.
+  | { status: "waiting"; record?: A } // Not settled yet (`record`: the same, now with its seen nonce). A record with a known hash stays here.
+  | { status: "unknown" }; // A record without a hash and no proof either way: only the user may clear it.
 export type SendReader = Pick<PublicClient, "getBlockNumber" | "getTransactionReceipt" | "getTransaction" | "getTransactionCount" | "getBlock">;
 type ChainTransaction = Awaited<ReturnType<PublicClient["getTransaction"]>>;
 /** A transaction compared with a recorded send. */
 export type NonceTransaction = Pick<ChainTransaction, "hash" | "from" | "to" | "input" | "value" | "nonce">;
 /** The transaction the nonce search found at a spent nonce, with the block that held it when it was read. */
 export type NonceFound = NonceTransaction & { blockNumber: bigint; blockHash: Hex };
-/** Spent nonces of one wallet on one chain, found once and not searched again: only stable ones (two confirmations, in the block that was
- * canonical when it was read), and a remembered one whose receipt no longer decides is dropped and searched again. */
+/** Spent nonces of one wallet on one chain, searched once: only checked ones (a receipt with two confirmations in the canonical block). A
+ * remembered one is checked again whenever it is used, and one whose receipt no longer passes is dropped and searched again. */
 export type NonceMemo = Map<number, NonceFound>;
 const missing = (error: unknown) => {
   if (error instanceof TransactionReceiptNotFoundError || error instanceof TransactionNotFoundError) return null;
@@ -48,40 +49,47 @@ export async function transactionAtNonce(client: SendReader, from: Address, nonc
   return found && typeof found !== "string" && block.hash ? { hash: found.hash, from: found.from, to: found.to, input: found.input, value: found.value,
     nonce: found.nonce, blockNumber: lo, blockHash: block.hash } : null;
 }
-/** How long a sent transaction the node has no trace of still counts as on its way (propagating) while its nonce is unspent. After that it
- * may never have left the wallet (dropped, or replaced before it was seen), so the user decides, as for an unconfirmed attempt. */
-export const SEND_UNSEEN_GRACE_MS = 120_000;
 /** Decides a recorded send from the chain alone; throws on RPC failure, and the caller asks again later. `matches`: exactly the recorded
- * transaction (its sender, target, calldata and value). Only stable chain state decides: a block with two confirmations that is still the
- * chain's block at its height (as the server's verifyLaunchFeePayment accepts a receipt). Anything newer is waiting, and is read again.
+ * transaction (its sender, target, calldata and value). Only stable chain state decides: a receipt with two confirmations in the block that
+ * is still the chain's block at its height (as the server's verifyLaunchFeePayment accepts one). Anything newer is waiting, read again.
+ * - A record with a known hash ("pending") is never "unknown", so the user is never offered "No payment was sent" for it: the wallet may
+ *   still hold that transaction and broadcast it later, however long our node cannot see it. It stays until it settles: the hash's own
+ *   receipt (success or failure), a replacement of the same nonce (adopted when it matches; any other cancelled it), or the nonce it really
+ *   used spent by another transaction. Until then it is waiting, and the page says to speed it up or cancel it in the wallet.
+ * - A record without a hash ("sending") is "unknown" when nothing settles it: its nonce unspent, or a predicted nonce taken by another
+ *   transaction with the next three nonces holding no match. Only then does the user decide.
  * 1. `hint`, a replacement the wallet reported, spent the same nonce: it is adopted when it matches, otherwise it cancelled the send.
- * 2. The saved hash: its receipt decides, and while the node holds it unmined the send is waiting (its real nonce is then recorded). A sent
- *    transaction the node has no trace of, with its nonce unspent, is waiting for SEND_UNSEEN_GRACE_MS after `at`; then the user decides.
+ * 2. The saved hash: its receipt decides; while the node holds it unmined its real nonce is recorded.
  * 3. The nonce, read at the same head the search ends at: unspent means not mined yet. The transaction at a spent nonce is found by a
- *    search and remembered in `memo` once stable; a remembered one whose receipt no longer decides (it vanished, or its block left the
- *    canonical chain in a deeper reorganization) is forgotten and searched again. It is adopted only when it matches. Another transaction
- *    there proves a cancellation only for a nonce the sent transaction really used; for a predicted nonce the next three nonces are checked
- *    too, then the user decides. */
+ *    search and remembered in `memo` once stable. A remembered one counts only after its receipt is checked again (still there, two
+ *    confirmations, canonical block); one that fails is forgotten and the nonce searched again, before any verdict. A matching one is
+ *    adopted. Another transaction there proves a cancellation only for a nonce the sent transaction really used; a predicted nonce is
+ *    followed by the next three. */
 export async function resolveSentTransaction<A extends SentAttempt>(client: SendReader, record: A, matches: (tx: NonceTransaction) => boolean,
-  hint?: Hex, memo: NonceMemo = new Map(), now = Date.now()): Promise<SentResolution<A>> {
+  hint?: Hex, memo: NonceMemo = new Map()): Promise<SentResolution<A>> {
   const head = await client.getBlockNumber({ cacheTime: 0 });
   const stable = (blockNumber: bigint) => head >= blockNumber + 1n;
   const canonical = async (blockNumber: bigint, blockHash: Hex | null) =>
     stable(blockNumber) && !!blockHash && (await client.getBlock({ blockNumber })).hash === blockHash;
+  const receiptOf = (hash: Hex) => client.getTransactionReceipt({ hash }).catch(missing);
   const settled = async (hash: Hex): Promise<SentResolution<A> | null> => {
-    const receipt = await client.getTransactionReceipt({ hash }).catch(missing);
+    const receipt = await receiptOf(hash);
     if (!receipt) return null;
     if (!await canonical(receipt.blockNumber, receipt.blockHash)) return { status: "waiting" };
     return { status: receipt.status === "success" ? "confirmed" : "reverted", hash: receipt.transactionHash };
   };
+  const known = record.state === "pending";
+  // Nothing settles the record yet: a known hash waits; a record without one is for the user to decide.
+  const undecided = (): SentResolution<A> => known ? { status: "waiting" } : { status: "unknown" };
   if (hint) {
     const replacement = await client.getTransaction({ hash: hint }).catch(missing);
     if (replacement && replacement.blockNumber !== null && sameAddress(replacement.from, record.from)) {
       if (matches(replacement)) return await settled(replacement.hash) ?? { status: "waiting" };
-      return await canonical(replacement.blockNumber, replacement.blockHash) ? { status: "cancelled" } : { status: "waiting" };
+      const receipt = await receiptOf(replacement.hash);
+      return receipt && await canonical(receipt.blockNumber, receipt.blockHash) ? { status: "cancelled" } : { status: "waiting" };
     }
   }
-  let nonce = record.nonce, nonceSeen = record.state === "pending" && !!record.nonceSeen, unseen = false;
+  let nonce = record.nonce, nonceSeen = known && !!record.nonceSeen;
   if (record.state === "pending") {
     const sent = await client.getTransaction({ hash: record.txHash }).catch(missing);
     if (sent && matches(sent)) {
@@ -89,34 +97,49 @@ export async function resolveSentTransaction<A extends SentAttempt>(client: Send
       if (result) return result;
       return { status: "waiting", ...(record.nonceSeen && record.nonce === sent.nonce ? {} : { record: { ...record, nonce: sent.nonce, nonceSeen: true } }) };
     }
-    if (sent) { nonce = sent.nonce; nonceSeen = true; } else unseen = true;
+    if (sent) { nonce = sent.nonce; nonceSeen = true; }
   }
-  if (nonce === undefined) return { status: "unknown" };
+  if (nonce === undefined) return undecided();
   const spent = await client.getTransactionCount({ address: record.from, blockNumber: head });
-  if (spent <= nonce) return record.state === "pending" && (!unseen || now - record.at < SEND_UNSEEN_GRACE_MS) ? { status: "waiting" } : { status: "unknown" };
-  // The transaction at `n` (remembered only once stable) and, when it matches, what its receipt decides. A remembered one whose receipt no
-  // longer decides is forgotten, and the nonce searched again once.
-  const atNonce = async (n: number): Promise<{ tx: NonceFound | null; result?: SentResolution<A> }> => {
+  if (spent <= nonce) return undecided();
+  // The transaction at `n`, and what it proves. A matching one is adopted when its receipt decides. Another one proves anything only while
+  // its receipt is stable and canonical (`proven`). A remembered entry that fails its check is forgotten and the nonce searched again once;
+  // only checked entries are remembered.
+  const atNonce = async (n: number): Promise<{ tx: NonceFound | null; result?: SentResolution<A>; proven?: boolean }> => {
     for (let fresh = false; ; fresh = true) {
       const remembered = memo.get(n);
       const tx = remembered ?? await transactionAtNonce(client, record.from, n, BigInt(record.block ?? "0"), head);
-      if (tx && !remembered && stable(tx.blockNumber)) memo.set(n, tx);
-      if (!tx || !matches(tx)) return { tx };
-      const result = await settled(tx.hash);
-      if (remembered && !fresh && (!result || result.status === "waiting")) { memo.delete(n); continue; }
-      return { tx, result: result ?? { status: "waiting" } };
+      if (!tx) return { tx: null };
+      if (matches(tx)) {
+        const result = await settled(tx.hash);
+        const decided = !!result && result.status !== "waiting";
+        if (remembered && !decided && !fresh) { memo.delete(n); continue; }
+        if (decided && !remembered) memo.set(n, tx);
+        return { tx, result: result ?? { status: "waiting" } };
+      }
+      const receipt = await receiptOf(tx.hash), proven = !!receipt && await canonical(receipt.blockNumber, receipt.blockHash);
+      if (remembered && !proven && !fresh) { memo.delete(n); continue; }
+      if (proven && !remembered) memo.set(n, tx);
+      return { tx, proven };
     }
   };
   const first = await atNonce(nonce);
   if (first.result) return first.result;
-  // Another transaction spent the nonce the sent one used: final once that transaction is stable.
-  if (first.tx && nonceSeen) return stable(first.tx.blockNumber) ? { status: "cancelled" } : { status: "waiting" };
+  // Another transaction, stable and canonical, spent the nonce the sent one really used: it can never land.
+  if (first.tx && nonceSeen) return first.proven ? { status: "cancelled" } : { status: "waiting" };
+  if (first.tx && !first.proven) return { status: "waiting" }; // The predicted nonce's occupant may still be reorganized away.
   // The predicted nonce went elsewhere: the wallet may have queued other transactions before this one.
   for (let next = nonce + 1; first.tx && next <= nonce + 3 && next < spent; next++) {
     const later = await atNonce(next);
     if (later.result) return later.result;
+    if (later.tx && !later.proven) return { status: "waiting" };
   }
-  return { status: "unknown" };
+  return undecided();
+}
+/** Whether the user's explicit "No payment was sent" (or "Pay a new fee") may remove `current`: only when it is still exactly the record the
+ * choice was offered for (`saved`), and never a record with a known hash, which the wallet may still broadcast. */
+export function discardable(saved: unknown, current: { state: string } | null): boolean {
+  return !!current && current.state !== "pending" && JSON.stringify(current) === JSON.stringify(saved);
 }
 
 export const SEND_LEASE_LOST = "This tab lost its hold on this wallet's payment while it waited, so nothing was sent. Check whether another tab paid, then try again.";
