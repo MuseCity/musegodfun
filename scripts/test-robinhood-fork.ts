@@ -81,6 +81,20 @@ assert.deepEqual(expectedShares, {
     engine: bps(enginePolicy.platformNet * enginePolicy.platformBuyback / 10_000) },
 }, "The expected shares must follow ENGINE_FEE_POLICY");
 for (const shares of Object.values(expectedShares)) assert.equal(Object.values(shares).reduce((sum, share) => sum + share, 0n), WAD);
+// Every beneficiary of a pool is paid from the same per-share accumulator, each amount floored, so a policy ratio between two
+// beneficiaries' amounts holds within 2 raw units.
+const SPLIT_TOLERANCE_UNITS = 2n;
+/** Per currency, `actual` must be `share / referenceShare` of `reference` within SPLIT_TOLERANCE_UNITS; returns each deviation. */
+function splitDeviation(label: string, actual: bigint[], reference: bigint[], share: bigint, referenceShare: bigint) {
+  assert.equal(actual.length, reference.length);
+  return reference.map((amount, index) => {
+    const expected = amount * share / referenceShare;
+    const deviation = actual[index] > expected ? actual[index] - expected : expected - actual[index];
+    assert(deviation <= SPLIT_TOLERANCE_UNITS,
+      `${label}, currency ${index}: ${actual[index]} is not ${share}/${referenceShare} of ${amount} (expected ${expected})`);
+    return deviation;
+  });
+}
 
 const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
 const serialize = (_key: string, value: unknown) => typeof value === "bigint" ? value.toString() : value;
@@ -417,8 +431,12 @@ try {
           poolKey: state.poolKey, quote, trace }, serialize, 2));
         throw error;
       }
-      const receipt = await confirmed(await wallet.sendTransaction({ to: tx.to, data: tx.data, value: tx.value }));
-      return { hash: receipt.transactionHash, amountIn, quotedOut: quote.amountOut, minOut: tx.minOut };
+      // The swap moves MUSEGOD through its transfer callback too (see the claims below). One sell ran out of gas inside the final
+      // Permit2 transferFrom at Anvil's plain estimate, so swaps get the same measured margin; balances and minimums are still exact.
+      const estimatedGas = await client.estimateGas({ account: creator, to: tx.to, data: tx.data, value: tx.value });
+      const gasLimit = estimatedGas * 125n / 100n;
+      const receipt = await confirmed(await wallet.sendTransaction({ to: tx.to, data: tx.data, value: tx.value, gas: gasLimit }));
+      return { hash: receipt.transactionHash, amountIn, quotedOut: quote.amountOut, minOut: tx.minOut, estimatedGas, gasLimit, gasUsed: receipt.gasUsed };
     }
     const beforeBuy = await balance(asset.address, creator);
     const buy = await trade(asset.address, amount / 2n);
@@ -435,6 +453,7 @@ try {
     const ordered = (fees: { fees0: bigint; fees1: bigint }) => assetIs0
       ? [fees.fees0, fees.fees1] : [fees.fees1, fees.fees0];
     const payouts = [];
+    const paidBy: Record<"creator" | "treasury", Partial<Record<"hook" | "LP", bigint[]>>> = { creator: {}, treasury: {} };
     for (const [account, signer] of [[creator, wallet], [treasury, treasuryWallet]] as const) {
       const preview = await service.fees(registered.address, account);
       let totalQuote = 0n;
@@ -453,6 +472,7 @@ try {
         const paid: bigint[] = after.map((amount: bigint, index: number) => amount - before[index]);
         assert.deepEqual(paid, ordered(fees), `${ticker} ${kind} preview must equal each raw currency payout`);
         totalQuote += paid[0];
+        paidBy[account === creator ? "creator" : "treasury"][kind] = paid;
         // Engine receipts are split on-chain, so the operations treasury's income is all operations: no second 80/20 split.
         const allocation = account === treasury ? paid.map((amount) =>
           allocateFeeIncome({ feePolicy: ENGINE_FEE_POLICY, amount, account, creator, treasury, engine: ENGINE })!) : undefined;
@@ -464,10 +484,22 @@ try {
       }
       assert(totalQuote > 0n, `${ticker} beneficiary must actually receive quote fees`);
     }
-    // The engine's own claim belongs to the buyback flow (not run here); its accrued share is read only.
+    // The engine's own claim belongs to the buyback flow (not run here); its accrued share is read only. Per currency, the engine's
+    // accrued amount and the operations treasury's paid amount must be the ENGINE_FEE_POLICY ratio of the creator's paid amount:
+    // initializer (LP) engine 2280 and treasury 570 per creator 6650; Rehype (hook) engine 2400 and treasury 600 per creator 7000.
     const enginePreview = await service.fees(registered.address, ENGINE);
-    const engineFees = { lp: ordered(enginePreview.lp), hook: ordered(enginePreview.trade), currencies: [asset.symbol, registered.symbol] };
-    assert([...engineFees.lp, ...engineFees.hook].some((amount) => amount > 0n), `${ticker}: the fee engine must accrue its share`);
+    const engineAccrued = { LP: ordered(enginePreview.lp), hook: ordered(enginePreview.trade) };
+    const feeSplit: Record<string, unknown> = { currencies: [asset.symbol, registered.symbol], toleranceUnits: SPLIT_TOLERANCE_UNITS };
+    for (const [kind, shares] of [["LP", expectedShares.initializer], ["hook", expectedShares.rehype]] as const) {
+      const creatorPaid = paidBy.creator[kind]!, treasuryPaid = paidBy.treasury[kind]!;
+      assert(creatorPaid.some((amount) => amount > 0n), `${ticker} ${kind}: the creator must have been paid, or the split check is empty`);
+      const deviations = [
+        ...splitDeviation(`${ticker} ${kind} engine`, engineAccrued[kind], creatorPaid, shares.engine, shares.creator),
+        ...splitDeviation(`${ticker} ${kind} operations treasury`, treasuryPaid, creatorPaid, shares.treasury, shares.creator),
+      ];
+      feeSplit[kind] = { creatorPaid, engineAccrued: engineAccrued[kind], treasuryPaid,
+        maxDeviationUnits: deviations.reduce((max, value) => value > max ? value : max, 0n) };
+    }
     evidence.assets.push({ asset: { ticker: asset.ticker, symbol: asset.symbol, address: asset.address, decimals: asset.decimals },
       funding, tokenAddress: registered.address, poolId: registered.poolId, planId: plan.id, launchHash,
       feePolicy: registered.feePolicy, feeTreasury: registered.feeTreasury, feeEngine: registered.feeEngine,
@@ -475,11 +507,12 @@ try {
       openingValuation: { kind: "synthetic", policy: registered.openingValuation.policy, marketCapUsd: registered.openingValuation.marketCapUsd,
         quotePriceUsd: registered.openingValuation.quotePriceUsd },
       initialPoolPrice: { blockNumber: priceBlock, sqrtPriceX96, memeIs0, actualOpeningCapUsd },
-      shares, buy, sell, bought, quoteReturned, payouts, engineAccruedFeesPreview: engineFees,
+      shares, buy, sell, bought, quoteReturned, payouts, feeSplit,
       checks: ["fee engine verified through the production config path", "canonical creation with ENGINE_FEE_POLICY",
         "validateLaunch passes every check up to the signing gate", "plan fee engine equals the live verified engine", "registration and idempotency", "restart recovery",
         "pool opens at the synthetic opening valuation", "buy and sell exact raw unit balances", "onchain ENGINE_FEE_POLICY beneficiary shares",
-        "separate hook and LP claim preview/receipt/balance equality for creator and operations treasury", "fee engine accrues its share"] });
+        "separate hook and LP claim preview/receipt/balance equality for creator and operations treasury",
+        "engine accrual and operations payout are the ENGINE_FEE_POLICY ratio of the creator's payout, per currency, within 2 raw units"] });
     console.log(`PASS: ${ticker} ${asset.decimals}-decimal quote complete`);
   }
   evidence.fullFlowPassed = evidence.assets.length === testedTickers.length;

@@ -2,6 +2,8 @@
 
 Implemented scope: Robinhood issuance, registration, swaps and fee claims; 198 curated paired assets (U/PAIR excluded, MUSEGOD added); English application. Base fee bridging is deferred. The original chain and UI checks below were performed on the local production build at `http://127.0.0.1:5188/create`, before site publication. The database checks were repeated on the independently initialized namespace on 2026-10-05, as marked below. The current authorized Cloudflare publication at [musegod.fun](https://musegod.fun) is recorded in [Cloudflare acceptance](cloudflare-acceptance.md). No mainnet signature or real-capital transaction was executed.
 
+**Current engine-policy fork proof (2026-10-14):** since the fee-engine launch cutover of 2026-10-08, new Robinhood launches use `creator-70-musegod-swapper-v3`. The current isolated-fork proof is [robinhood-fork.json](robinhood-fork.json) (`npm run test:robinhood-fork`, `.env.fork` only, execution chain id 4663; the file records its upstream block): the fee engine is verified through the production path, and five paired assets pass issuance, registration, restart recovery, buy/sell, creator and operations-treasury claims and the engine fee split. The fork rows below and [robinhood-fork-proof.json](robinhood-fork-proof.json) are the 2026-10-04 treasury-only (`creator-70-musegod-v2`) acceptance, kept as history.
+
 | Evidence layer | Result | Evidence |
 | --- | --- | --- |
 | Live mainnet reads | PASS: Alchemy chain 4663, canonical modules/code/bindings, 198 curated assets, with retained PAIR entries matched and MUSEGOD independently verified, 194 official ACTIVE Robinhood stock deployments, all symbols/decimals | [Read proof](robinhood-read-proof.json), block 79563261 |

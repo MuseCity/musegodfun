@@ -3,15 +3,15 @@
   "scope": "Isolated Anvil fork of Robinhood Chain mainnet state, execution chain id 4663; local fork transactions only (unsigned eth_sendTransaction from impersonated accounts); no mainnet signing or broadcast",
   "status": "passed",
   "stage": "completed",
-  "observedAt": "2026-10-14T05:57:37.684Z",
-  "completedAt": "2026-10-14T06:03:18.184Z",
+  "observedAt": "2026-10-14T06:34:25.363Z",
+  "completedAt": "2026-10-14T06:40:25.608Z",
   "upstreamChainId": 4663,
   "executionChainId": 4663,
-  "runnerSha256": "c003aeb24f955e5adf2a13d2535c363112b32b58978e14a0dfab809028058902",
+  "runnerSha256": "bf8e1d9d1780ba917c62f4dc8e95ed7c64bc58ebca0744509ce1f21580294766",
   "anvil": "anvil Version: 1.0.0-v1.0.0",
-  "forkBlockNumber": "88133676",
-  "forkBlockHash": "0xe615c010840690b31a23e645acb9086273d021ce16b8d701b905f121136a8e8b",
-  "forkBlockTimestamp": "1791957459",
+  "forkBlockNumber": "88155495",
+  "forkBlockHash": "0x4194ac1575f4bde786c5cf41fa6909112b8f5f42181c61c1a8438ba3f22b5ad6",
+  "forkBlockTimestamp": "1791959666",
   "environment": {
     "loaded": ".env.fork (ALCHEMY_API_KEY only)",
     "throwaway": [
@@ -36,7 +36,7 @@
       "buybackVault": "0x28E6B43525301312084310F31f4C9c9873d7a125"
     },
     "graph": {
-      "blockNumber": "88133676",
+      "blockNumber": "88155495",
       "engine": "0x9caefd217ea5a039BbA77Ae5b0626733eA093769",
       "swapper": "0xE8834943A4eD3758f3b5930E3EEfb43568B222b3",
       "executor": "0x787b6a964C3e86A005B8Fda87991e088178A8455",
@@ -76,7 +76,7 @@
     }
   },
   "actors": {
-    "creator": "0x0BdC9ADE313221fE7f3E6910d79b9f4B97C9aF59",
+    "creator": "0x6A22F001f701a9Bda4aD1201068cd5Eb03a4E9c5",
     "creatorKind": "fresh random address, impersonated on the fork",
     "treasury": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
     "treasuryKind": "the engine manifest's operations treasury, impersonated on the fork only to claim its fees",
@@ -121,13 +121,13 @@
       },
       "funding": {
         "kind": "real_WETH_deposit_on_local_fork",
-        "hash": "0xde6105a93bb6fdc18fb9a86ee12bbb9aced5ab3e0c742791df99164a4d00537c",
+        "hash": "0xbd0f7ad93a56457385d0bc0c0b9b88e7fa9cd90bcd620e3351065e1081978094",
         "amount": "20000000000000000"
       },
-      "tokenAddress": "0x9a1317603d08571f5C6F99D6dB8F72E12Fc70E02",
-      "poolId": "0xef4f6f2cd64d9b9f0e797c63cd2d9cc9d868c009c383d7b9b48dc7508f888d32",
-      "planId": "0xacd4339881466e75cce63beaabfae6ec37a6123f9b57d2b9ef33ecb8165a3f6d",
-      "launchHash": "0xc12fedfb92a2036ec9c1cc9d4b11e95c216773fc8a6318ec0f97fa129a325061",
+      "tokenAddress": "0x5D32D9360489097Be1b34273EC318a5297EE398F",
+      "poolId": "0x7f44360f59672269ceaa7e3cdc72ccbd4d8d0d61f78749991cfacc623d81e368",
+      "planId": "0x14db17e877b44bcc72fb2407fc00fc8e1fb7728bc113f0785e9a9ed2ef82bdf6",
+      "launchHash": "0xf613a1d8be23b6f318bce23ccc479189a469c643fa9a74a0d2458982fa1007ce",
       "feePolicy": "creator-70-musegod-swapper-v3",
       "feeTreasury": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
       "feeEngine": "0x9caefd217ea5a039BbA77Ae5b0626733eA093769",
@@ -142,7 +142,7 @@
         "quotePriceUsd": "3000"
       },
       "initialPoolPrice": {
-        "blockNumber": "88133682",
+        "blockNumber": "88155501",
         "sqrtPriceX96": "1940248336983213439419529736734422",
         "memeIs0": false,
         "actualOpeningCapUsd": 5002.254487162536
@@ -161,24 +161,30 @@
         }
       },
       "buy": {
-        "hash": "0x10aaa9006063c1c7debe3aa63397b698f4f7525db75ef4d55e4cd50ddebfadcd",
+        "hash": "0x4564f5558ba40d6fded38404bc50b3d44218027faee5f2bd54b3964fe131ed3a",
         "amountIn": "10000000000000000",
         "quotedOut": "5884383821662359653313784",
-        "minOut": "5825539983445736056780646"
+        "minOut": "5825539983445736056780646",
+        "estimatedGas": "655820",
+        "gasLimit": "819775",
+        "gasUsed": "592745"
       },
       "sell": {
-        "hash": "0xf30625587651c8c1ae5daa684b4effba3ab2d876166b1cd1314b032ddb180cc8",
+        "hash": "0x9c81bbe336b1ddb907f35c03e9c1a79bfc07f4da92fe8a3e84ef4561aba29056",
         "amountIn": "2942191910831179826656892",
         "quotedOut": "4915726683967602",
-        "minOut": "4866569417127925"
+        "minOut": "4866569417127925",
+        "estimatedGas": "391147",
+        "gasLimit": "488933",
+        "gasUsed": "358932"
       },
       "bought": "5884383821662359653313784",
       "quoteReturned": "4915726683967602",
       "payouts": [
         {
-          "account": "0x0BdC9ADE313221fE7f3E6910d79b9f4B97C9aF59",
+          "account": "0x6A22F001f701a9Bda4aD1201068cd5Eb03a4E9c5",
           "kind": "hook",
-          "hash": "0x029fa4ddce96db48a946ba799598df0b8ed0d639eea0c6342a7dd4de1985f405",
+          "hash": "0x00cd08b43aa13ceadc09022136a9c00606a02c6e579178bc604db0fbdc051e17",
           "estimatedGas": "120966",
           "gasLimit": "151207",
           "gasUsed": "111270",
@@ -192,9 +198,9 @@
           ]
         },
         {
-          "account": "0x0BdC9ADE313221fE7f3E6910d79b9f4B97C9aF59",
+          "account": "0x6A22F001f701a9Bda4aD1201068cd5Eb03a4E9c5",
           "kind": "LP",
-          "hash": "0xcded3832513781d02322381bb32a0d09bb5bb898923cbf7f7ee7358af1640af0",
+          "hash": "0x8ff12e217eba325e31889582b55e82dae02fc0dedb047ad743c8d4985666ee00",
           "estimatedGas": "1041361",
           "gasLimit": "1301701",
           "gasUsed": "1036387",
@@ -210,7 +216,7 @@
         {
           "account": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
           "kind": "hook",
-          "hash": "0x14f816e179060165092807e55e0f2995bc1c3d69804147e8e48d3682ce83a944",
+          "hash": "0xa2f51c8025e8f828bc9133d3f03ef2b32009c549b7e6965d1f3abaa432aa8ea3",
           "estimatedGas": "115366",
           "gasLimit": "144207",
           "gasUsed": "110470",
@@ -242,7 +248,7 @@
         {
           "account": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
           "kind": "LP",
-          "hash": "0x6fcb66c65593d668d8763c1e93c41d5cd2b180b8be1cc699d95189dfb50de819",
+          "hash": "0x401be229beb36a09597b8162cd05559acf82842df7800204d2fc203b5f0d794d",
           "estimatedGas": "935952",
           "gasLimit": "1169940",
           "gasUsed": "930978",
@@ -272,19 +278,42 @@
           ]
         }
       ],
-      "engineAccruedFeesPreview": {
-        "lp": [
-          "1139999999999",
-          "341847037106330596708"
-        ],
-        "hook": [
-          "34289845977807",
-          "0"
-        ],
+      "feeSplit": {
         "currencies": [
           "WETH",
           "RHWETH"
-        ]
+        ],
+        "toleranceUnits": "2",
+        "LP": {
+          "creatorPaid": [
+            "3324999999999",
+            "997053858226797573731"
+          ],
+          "engineAccrued": [
+            "1139999999999",
+            "341847037106330596708"
+          ],
+          "treasuryPaid": [
+            "284999999999",
+            "85461759276582649177"
+          ],
+          "maxDeviationUnits": "1"
+        },
+        "hook": {
+          "creatorPaid": [
+            "100012050768604",
+            "0"
+          ],
+          "engineAccrued": [
+            "34289845977807",
+            "0"
+          ],
+          "treasuryPaid": [
+            "8572461494451",
+            "0"
+          ],
+          "maxDeviationUnits": "0"
+        }
       },
       "checks": [
         "fee engine verified through the production config path",
@@ -297,7 +326,7 @@
         "buy and sell exact raw unit balances",
         "onchain ENGINE_FEE_POLICY beneficiary shares",
         "separate hook and LP claim preview/receipt/balance equality for creator and operations treasury",
-        "fee engine accrues its share"
+        "engine accrual and operations payout are the ENGINE_FEE_POLICY ratio of the creator's payout, per currency, within 2 raw units"
       ]
     },
     {
@@ -310,23 +339,23 @@
       "funding": {
         "kind": "verified_existing_inventory_transfer_on_local_fork",
         "donor": "0x8366a39CC670B4001A1121B8F6A443A643e40951",
-        "donorBefore": "27794486960365195086630",
+        "donorBefore": "27770830905206875563634",
         "candidatesTried": [
           {
             "candidate": "0x8366a39CC670B4001A1121B8F6A443A643e40951",
             "source": "known holder: Uniswap v4 PoolManager",
-            "balance": "27794486960365195086630",
+            "balance": "27770830905206875563634",
             "transferSimulated": true
           }
         ],
         "windowsScanned": [],
-        "hash": "0x31090c66dd73a50942e57e51e0e914dcb90f11120712f34d872d86eef966db7b",
+        "hash": "0x3575a55bfdcfe9ec6636b9d098209d5269a0664e0075a57302efd8f6d55ec20a",
         "amount": "20000000000000000"
       },
-      "tokenAddress": "0xf924978ef1E8bA5B97a36fc10986913c38123419",
-      "poolId": "0x1ad548078eac5a7f074312c2e963ddf9f0a1ad287be815b81882461fc726c018",
-      "planId": "0x6c71939694d24c605fdd1238df9f8353174508883495d3ee66cc4fff0ad7496d",
-      "launchHash": "0x23c0c4004e28a155231c3129d6faad4ef56f22ef8529609f2a7552d4ed44c27f",
+      "tokenAddress": "0x8309D649078B421D340fe700209CfA72aCd8D6eC",
+      "poolId": "0x00272a6436d96dfdf6bdcb7d3f44235b5429a4010eb1efb9cb8ec003df959d31",
+      "planId": "0x26505a529d3e9988e0f04ed4d00f95013f6480ce7a86ed50ab52527599551405",
+      "launchHash": "0xcb09663741884aa3ea3b2767cc3a77dbe4679ba61c1cc218982c1a769cdc0f2c",
       "feePolicy": "creator-70-musegod-swapper-v3",
       "feeTreasury": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
       "feeEngine": "0x9caefd217ea5a039BbA77Ae5b0626733eA093769",
@@ -341,9 +370,9 @@
         "quotePriceUsd": "180"
       },
       "initialPoolPrice": {
-        "blockNumber": "88133715",
-        "sqrtPriceX96": "475155252466473321147815905141343",
-        "memeIs0": false,
+        "blockNumber": "88155534",
+        "sqrtPriceX96": "13210633162114922467990670",
+        "memeIs0": true,
         "actualOpeningCapUsd": 5004.498964995594
       },
       "shares": {
@@ -360,27 +389,33 @@
         }
       },
       "buy": {
-        "hash": "0xc172368bbeb0c940d1a556f1fe0491d01b8dd4bff3e14e8808143a754e4c36db",
+        "hash": "0x2568a8e4ad871520f77d675532e5790ae05d897b305f29915d74e4a45b3e8f72",
         "amountIn": "10000000000000000",
-        "quotedOut": "355720396151044534336254",
-        "minOut": "352163192189534088992891"
+        "quotedOut": "355720396151044534336209",
+        "minOut": "352163192189534088992846",
+        "estimatedGas": "653086",
+        "gasLimit": "816357",
+        "gasUsed": "590094"
       },
       "sell": {
-        "hash": "0x255ce6c97fdb223a2de52568c59f8cff5efbd3ce6d9c1ce7513464d51a77db46",
-        "amountIn": "177860198075522267168127",
+        "hash": "0x46cf200efc6125228119f0f13fd077a4b77d0c49ca668d3c3941409cef94e48e",
+        "amountIn": "177860198075522267168104",
         "quotedOut": "4896812785533442",
-        "minOut": "4847844657678107"
+        "minOut": "4847844657678107",
+        "estimatedGas": "434680",
+        "gasLimit": "543350",
+        "gasUsed": "400932"
       },
-      "bought": "355720396151044534336254",
+      "bought": "355720396151044534336209",
       "quoteReturned": "4896812785533442",
       "payouts": [
         {
-          "account": "0x0BdC9ADE313221fE7f3E6910d79b9f4B97C9aF59",
+          "account": "0x6A22F001f701a9Bda4aD1201068cd5Eb03a4E9c5",
           "kind": "hook",
-          "hash": "0xd5e24ab36d37b11d95544a65e88b202e5453a23f57bde7dfce80fe40c0260be2",
-          "estimatedGas": "137909",
-          "gasLimit": "172386",
-          "gasUsed": "128213",
+          "hash": "0x9a0c5011e56af6fa2dd4133311d97e1707c12622d1c5fb8229cf4cf40af8b3e8",
+          "estimatedGas": "137897",
+          "gasLimit": "172371",
+          "gasUsed": "128201",
           "currencies": [
             "NVDA",
             "RHNVDA"
@@ -391,12 +426,12 @@
           ]
         },
         {
-          "account": "0x0BdC9ADE313221fE7f3E6910d79b9f4B97C9aF59",
+          "account": "0x6A22F001f701a9Bda4aD1201068cd5Eb03a4E9c5",
           "kind": "LP",
-          "hash": "0xbf0830721150f310d6ee5304d235fe962319538fddc096631aeca6239e13e371",
-          "estimatedGas": "1066299",
-          "gasLimit": "1332873",
-          "gasUsed": "1061325",
+          "hash": "0x6d5e90a6f72c88bcdb84f7960efb45b553c29e4be90b1f0f6855c24cbda6c333",
+          "estimatedGas": "1068326",
+          "gasLimit": "1335407",
+          "gasUsed": "1063352",
           "currencies": [
             "NVDA",
             "RHNVDA"
@@ -409,10 +444,10 @@
         {
           "account": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
           "kind": "hook",
-          "hash": "0x1f285e28205d8e8329777fd68c1eca01f5a79cdfb4dce918de60332f6a57998d",
-          "estimatedGas": "132309",
-          "gasLimit": "165386",
-          "gasUsed": "127413",
+          "hash": "0x13ee8ab4c1c932dc29fc8454c241dc3b1585fa07d19c61bd8428f408781789b3",
+          "estimatedGas": "132297",
+          "gasLimit": "165371",
+          "gasUsed": "127401",
           "currencies": [
             "NVDA",
             "RHNVDA"
@@ -441,10 +476,10 @@
         {
           "account": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
           "kind": "LP",
-          "hash": "0x0790280cff3ef9cbf098b31448ac4b85a15f41ea7a56a318213f88933a508f5d",
-          "estimatedGas": "952447",
-          "gasLimit": "1190558",
-          "gasUsed": "947473",
+          "hash": "0x30ac5041d4918da69ad56a52a42f7ecffa03db3dd1fe47218fcaaeb5196f2edd",
+          "estimatedGas": "954474",
+          "gasLimit": "1193092",
+          "gasUsed": "949500",
           "currencies": [
             "NVDA",
             "RHNVDA"
@@ -471,19 +506,42 @@
           ]
         }
       ],
-      "engineAccruedFeesPreview": {
-        "lp": [
-          "1139999999999",
-          "20665199135186893235"
-        ],
-        "hook": [
-          "34066204014867",
-          "0"
-        ],
+      "feeSplit": {
         "currencies": [
           "NVDA",
           "RHNVDA"
-        ]
+        ],
+        "toleranceUnits": "2",
+        "LP": {
+          "creatorPaid": [
+            "3324999999999",
+            "60273497477628438604"
+          ],
+          "engineAccrued": [
+            "1139999999999",
+            "20665199135186893235"
+          ],
+          "treasuryPaid": [
+            "284999999999",
+            "5166299783796723308"
+          ],
+          "maxDeviationUnits": "0"
+        },
+        "hook": {
+          "creatorPaid": [
+            "99359761710030",
+            "0"
+          ],
+          "engineAccrued": [
+            "34066204014867",
+            "0"
+          ],
+          "treasuryPaid": [
+            "8516551003716",
+            "0"
+          ],
+          "maxDeviationUnits": "0"
+        }
       },
       "checks": [
         "fee engine verified through the production config path",
@@ -496,7 +554,7 @@
         "buy and sell exact raw unit balances",
         "onchain ENGINE_FEE_POLICY beneficiary shares",
         "separate hook and LP claim preview/receipt/balance equality for creator and operations treasury",
-        "fee engine accrues its share"
+        "engine accrual and operations payout are the ENGINE_FEE_POLICY ratio of the creator's payout, per currency, within 2 raw units"
       ]
     },
     {
@@ -509,23 +567,23 @@
       "funding": {
         "kind": "verified_existing_inventory_transfer_on_local_fork",
         "donor": "0x8366a39CC670B4001A1121B8F6A443A643e40951",
-        "donorBefore": "40702192126331",
+        "donorBefore": "40882482545349",
         "candidatesTried": [
           {
             "candidate": "0x8366a39CC670B4001A1121B8F6A443A643e40951",
             "source": "known holder: Uniswap v4 PoolManager",
-            "balance": "40702192126331",
+            "balance": "40882482545349",
             "transferSimulated": true
           }
         ],
         "windowsScanned": [],
-        "hash": "0x6d1646d073cf4c8da7e4d65ea241d64c7ed7b3c3bb76897f8d1a54824f4eeed7",
+        "hash": "0x8a04b976916de30c0df368a788dfef058dcbb4b6a0cd6c30876c1b4c98a287c4",
         "amount": "20000000"
       },
-      "tokenAddress": "0x225809751c026537139f4eCa374742CE36f6C1fD",
-      "poolId": "0x142b370d2fef93e02d48701b796bf32910812410684a3bf7a27abb45b90ce78c",
-      "planId": "0x4d3f579d28117807e244cc4ebf58f8d270414319c4874193b7c06a12cacee286",
-      "launchHash": "0xea4997b4fc00c317e99ef65acfa968a85ac3d49f55366d0caed10625ef8fe847",
+      "tokenAddress": "0x6fa2bA925c85f57C09adB6C665a6877c2A79f4d5",
+      "poolId": "0xecacbdb08a57c2f97017f59033880ff1dccb81e98a3ff9b180be2a9b13b31498",
+      "planId": "0x8b475e657dd7e351136566f065f6c053f0dbfb8abe22f5e46e3b0b098a7d2244",
+      "launchHash": "0x1da66a9758cd415701dbf51c57691d919fbc9178d71ad528562bee2fc2b1e35c",
       "feePolicy": "creator-70-musegod-swapper-v3",
       "feeTreasury": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
       "feeEngine": "0x9caefd217ea5a039BbA77Ae5b0626733eA093769",
@@ -540,9 +598,9 @@
         "quotePriceUsd": "1"
       },
       "initialPoolPrice": {
-        "blockNumber": "88133748",
-        "sqrtPriceX96": "177167137816297390992",
-        "memeIs0": true,
+        "blockNumber": "88155567",
+        "sqrtPriceX96": "35430395347332058992410889015847131205",
+        "memeIs0": false,
         "actualOpeningCapUsd": 5000.427911669866
       },
       "shares": {
@@ -559,24 +617,30 @@
         }
       },
       "buy": {
-        "hash": "0xf0bf61cbc111bf1693c1a8d37d7d8e83d78bfcce5cd2aeec33fa024f3b01702b",
+        "hash": "0x989b546919d2f85a009db4253690dc5d90fb6c1f00f80b082788d96da9ec4497",
         "amountIn": "10000000",
-        "quotedOut": "1973246235527459610820653",
-        "minOut": "1953513773172185014712446"
+        "quotedOut": "1973246235527465720923536",
+        "minOut": "1953513773172191063714300",
+        "estimatedGas": "667999",
+        "gasLimit": "834998",
+        "gasUsed": "604545"
       },
       "sell": {
-        "hash": "0x041b681feea64003aa2b1f4f4d1d175862156c28f34439efb9903fba54388b3a",
-        "amountIn": "986623117763729805410326",
+        "hash": "0x78ce7a49d250fffce0bdc299fe7a7ae9a1b20ccaa79265bc111c1a2134c2248d",
+        "amountIn": "986623117763732860461768",
         "quotedOut": "4902340",
-        "minOut": "4853316"
+        "minOut": "4853316",
+        "estimatedGas": "372165",
+        "gasLimit": "465206",
+        "gasUsed": "360426"
       },
-      "bought": "1973246235527459610820653",
+      "bought": "1973246235527465720923536",
       "quoteReturned": "4902340",
       "payouts": [
         {
-          "account": "0x0BdC9ADE313221fE7f3E6910d79b9f4B97C9aF59",
+          "account": "0x6A22F001f701a9Bda4aD1201068cd5Eb03a4E9c5",
           "kind": "hook",
-          "hash": "0x90d8591fe45b5201516f8d7426c5df78b68cd81cb6e910403cbcee610d725cb2",
+          "hash": "0x2914f1a280b6ff81d222bff77c7cebf313cb93d8e7bdef3efe75645ec648f3eb",
           "estimatedGas": "127669",
           "gasLimit": "159586",
           "gasUsed": "117973",
@@ -590,25 +654,25 @@
           ]
         },
         {
-          "account": "0x0BdC9ADE313221fE7f3E6910d79b9f4B97C9aF59",
+          "account": "0x6A22F001f701a9Bda4aD1201068cd5Eb03a4E9c5",
           "kind": "LP",
-          "hash": "0x1f7b2be7c2f860a3e3075592ce28cef8b1899be3298363c9ee16fc99d93dc565",
-          "estimatedGas": "1055685",
-          "gasLimit": "1319606",
-          "gasUsed": "1050711",
+          "hash": "0xf8ce3d7efe0f28fb40c0a9724d819aa25b930d30ab39302c30cb88e7ef8732db",
+          "estimatedGas": "1053646",
+          "gasLimit": "1317057",
+          "gasUsed": "1048672",
           "currencies": [
             "USDG",
             "RHUSDG"
           ],
           "paid": [
             "3324",
-            "334348137713482951254"
+            "334348137713483986553"
           ]
         },
         {
           "account": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
           "kind": "hook",
-          "hash": "0x10a6520c31b9830ed7518e921e1aad04e06a77d606c3a2d33021697b968627be",
+          "hash": "0xd81a2898c78e657847a1692b151b3a500732110c3564d21de3676e0b425473f9",
           "estimatedGas": "122069",
           "gasLimit": "152586",
           "gasUsed": "117173",
@@ -640,17 +704,17 @@
         {
           "account": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
           "kind": "LP",
-          "hash": "0xea0eb0da100fde2f24c60f51323687f0b071f0e33e256566779a132925dde77f",
-          "estimatedGas": "945573",
-          "gasLimit": "1181966",
-          "gasUsed": "940599",
+          "hash": "0x487ffab8a14473fd7121fadf90170f289c0a645eaf8589e34732740953900d4a",
+          "estimatedGas": "943534",
+          "gasLimit": "1179417",
+          "gasUsed": "938560",
           "currencies": [
             "USDG",
             "RHUSDG"
           ],
           "paid": [
             "284",
-            "28658411804012824393"
+            "28658411804012913133"
           ],
           "platformAllocationReferenceOnly": [
             {
@@ -662,27 +726,50 @@
             },
             {
               "creator": "0",
-              "platform": "28658411804012824393",
+              "platform": "28658411804012913133",
               "buyback": "0",
-              "operations": "28658411804012824393",
+              "operations": "28658411804012913133",
               "remainder": "0"
             }
           ]
         }
       ],
-      "engineAccruedFeesPreview": {
-        "lp": [
-          "1139",
-          "114633647216051297572"
-        ],
-        "hook": [
-          "22841",
-          "0"
-        ],
+      "feeSplit": {
         "currencies": [
           "USDG",
           "RHUSDG"
-        ]
+        ],
+        "toleranceUnits": "2",
+        "LP": {
+          "creatorPaid": [
+            "3324",
+            "334348137713483986553"
+          ],
+          "engineAccrued": [
+            "1139",
+            "114633647216051652532"
+          ],
+          "treasuryPaid": [
+            "284",
+            "28658411804012913133"
+          ],
+          "maxDeviationUnits": "0"
+        },
+        "hook": {
+          "creatorPaid": [
+            "66619",
+            "0"
+          ],
+          "engineAccrued": [
+            "22841",
+            "0"
+          ],
+          "treasuryPaid": [
+            "5710",
+            "0"
+          ],
+          "maxDeviationUnits": "1"
+        }
       },
       "checks": [
         "fee engine verified through the production config path",
@@ -695,7 +782,7 @@
         "buy and sell exact raw unit balances",
         "onchain ENGINE_FEE_POLICY beneficiary shares",
         "separate hook and LP claim preview/receipt/balance equality for creator and operations treasury",
-        "fee engine accrues its share"
+        "engine accrual and operations payout are the ENGINE_FEE_POLICY ratio of the creator's payout, per currency, within 2 raw units"
       ]
     },
     {
@@ -708,23 +795,23 @@
       "funding": {
         "kind": "verified_existing_inventory_transfer_on_local_fork",
         "donor": "0x8366a39CC670B4001A1121B8F6A443A643e40951",
-        "donorBefore": "1148763064",
+        "donorBefore": "1151297494",
         "candidatesTried": [
           {
             "candidate": "0x8366a39CC670B4001A1121B8F6A443A643e40951",
             "source": "known holder: Uniswap v4 PoolManager",
-            "balance": "1148763064",
+            "balance": "1151297494",
             "transferSimulated": true
           }
         ],
         "windowsScanned": [],
-        "hash": "0x3fc64b633cdbdc849b8e6dee252d45e9ac8f0d440fa5be6c543fd5f94323cac4",
+        "hash": "0x3c29ce435552eead9990d8a4f416718fddaf66de66b92a40e7ea6a34671294ee",
         "amount": "2000000"
       },
-      "tokenAddress": "0xE2dda4259B2b562A5c19CA00460AC4df1a1eE067",
-      "poolId": "0x3e13f397e74e176cd70cfc82a7935408987aed48607e3d41ea41d67f1ed2ec98",
-      "planId": "0x9a2c9293f5647c7df150c940b86f7db449a6965fd0081b73b0a5ae73ab5f38db",
-      "launchHash": "0x7003d2a5a8d9e9cadd7c09d64e9ba1ef96ddc05e20a5e98813bbcf482b194581",
+      "tokenAddress": "0x0cF98168E7Abc585c2b7Ebb351C708d88d4F37f0",
+      "poolId": "0xa6fbeac2a182a0816f13779e80ff3f84351a9174e8b0d8b011b70e3991faffd0",
+      "planId": "0x897a994087dec48e2f058bc6a434267cc34dc4bd0a53773e5e6a04a0e2c7bb7b",
+      "launchHash": "0xc421c82f67593a695809da0dcd7693bf2ef2231d48fd1dff15b07def71c5d968",
       "feePolicy": "creator-70-musegod-swapper-v3",
       "feeTreasury": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
       "feeEngine": "0x9caefd217ea5a039BbA77Ae5b0626733eA093769",
@@ -739,10 +826,10 @@
         "quotePriceUsd": "100000"
       },
       "initialPoolPrice": {
-        "blockNumber": "88133781",
-        "sqrtPriceX96": "1120351090553414770087824420557261419574",
-        "memeIs0": false,
-        "actualOpeningCapUsd": 5000.931259859783
+        "blockNumber": "88155600",
+        "sqrtPriceX96": "5602798790766570468",
+        "memeIs0": true,
+        "actualOpeningCapUsd": 5000.9312598597835
       },
       "shares": {
         "initializer": {
@@ -758,24 +845,30 @@
         }
       },
       "buy": {
-        "hash": "0x83845ac94dc067abe68b12389570da3cc1e92bd3a08ea547b81293411db42a1c",
+        "hash": "0x783e1942f10d4ce6cdf0e8eb6dbc3bb2c16820acb6c1decf5908972c0a6966d4",
         "amountIn": "1000000",
-        "quotedOut": "154202399423271537007049884",
-        "minOut": "152660375429038821636979385"
+        "quotedOut": "154202398560864999055088278",
+        "minOut": "152660374575256349064537395",
+        "estimatedGas": "657477",
+        "gasLimit": "821846",
+        "gasUsed": "594349"
       },
       "sell": {
-        "hash": "0xa0833123f70e676fa1ea7690f97903b8f6a1ac3c0aa7ee335df58fd0f37b7720",
-        "amountIn": "77101199711635768503524942",
-        "quotedOut": "548217",
-        "minOut": "542734"
+        "hash": "0xf2741cc9e6b6062d90b6587eb0432caae06468841be37fa3b5dd5c57dc4130e8",
+        "amountIn": "77101199280432499527544139",
+        "quotedOut": "548218",
+        "minOut": "542735",
+        "estimatedGas": "367127",
+        "gasLimit": "458908",
+        "gasUsed": "355554"
       },
-      "bought": "154202399423271537007049884",
-      "quoteReturned": "548217",
+      "bought": "154202398560864999055088278",
+      "quoteReturned": "548218",
       "payouts": [
         {
-          "account": "0x0BdC9ADE313221fE7f3E6910d79b9f4B97C9aF59",
+          "account": "0x6A22F001f701a9Bda4aD1201068cd5Eb03a4E9c5",
           "kind": "hook",
-          "hash": "0x7ec63a0809184cc656616189a170ec9a87ea335faf072f2efbf3f81dcebbe4a6",
+          "hash": "0x8f5e41b7d5f037664f7ce8a8d4fed66a833c435e34a2f90705cd98b12aee16ba",
           "estimatedGas": "125296",
           "gasLimit": "156620",
           "gasUsed": "115600",
@@ -789,25 +882,25 @@
           ]
         },
         {
-          "account": "0x0BdC9ADE313221fE7f3E6910d79b9f4B97C9aF59",
+          "account": "0x6A22F001f701a9Bda4aD1201068cd5Eb03a4E9c5",
           "kind": "LP",
-          "hash": "0x9dd32a7db847a0ff9506ea39dcb70bab0d8328aa561cca94ec95e9688fc78dde",
-          "estimatedGas": "1049796",
-          "gasLimit": "1312245",
-          "gasUsed": "1044822",
+          "hash": "0x17602ce806dbf92360e04eab0d3cf2fa3a863299335cf58aa426dad198b22837",
+          "estimatedGas": "1051835",
+          "gasLimit": "1314793",
+          "gasUsed": "1046861",
           "currencies": [
             "cbBTC",
             "RHCBBTC"
           ],
           "paid": [
             "333",
-            "26128155802278750570372"
+            "26128155656152020553277"
           ]
         },
         {
           "account": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
           "kind": "hook",
-          "hash": "0x417b77a0561f9ffa22f21faf89d71cc07e904346a1e425f89492eb5d79f73828",
+          "hash": "0x8576eea0104c923ba3bf60e7663745ad3a337608455ca4dd155835cf6df44ba5",
           "estimatedGas": "119696",
           "gasLimit": "149620",
           "gasUsed": "114800",
@@ -839,17 +932,17 @@
         {
           "account": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
           "kind": "LP",
-          "hash": "0x0712c1e43cb11b0294e5ea403abae88172d5e3b1092a9e2c5050f591fc4b91f0",
-          "estimatedGas": "942057",
-          "gasLimit": "1177571",
-          "gasUsed": "937083",
+          "hash": "0x17864bfcc41d64a9260558d1f86958cb3319e4d4fc318efd95a3b848c40082b1",
+          "estimatedGas": "944096",
+          "gasLimit": "1180120",
+          "gasUsed": "939122",
           "currencies": [
             "cbBTC",
             "RHCBBTC"
           ],
           "paid": [
             "28",
-            "2239556211623892906031"
+            "2239556199098744618852"
           ],
           "platformAllocationReferenceOnly": [
             {
@@ -861,27 +954,50 @@
             },
             {
               "creator": "0",
-              "platform": "2239556211623892906031",
+              "platform": "2239556199098744618852",
               "buyback": "0",
-              "operations": "2239556211623892906031",
+              "operations": "2239556199098744618852",
               "remainder": "0"
             }
           ]
         }
       ],
-      "engineAccruedFeesPreview": {
-        "lp": [
-          "114",
-          "8958224846495571624127"
-        ],
-        "hook": [
-          "2914",
-          "0"
-        ],
+      "feeSplit": {
         "currencies": [
           "cbBTC",
           "RHCBBTC"
-        ]
+        ],
+        "toleranceUnits": "2",
+        "LP": {
+          "creatorPaid": [
+            "333",
+            "26128155656152020553277"
+          ],
+          "engineAccrued": [
+            "114",
+            "8958224796394978475409"
+          ],
+          "treasuryPaid": [
+            "28",
+            "2239556199098744618852"
+          ],
+          "maxDeviationUnits": "0"
+        },
+        "hook": {
+          "creatorPaid": [
+            "8500",
+            "0"
+          ],
+          "engineAccrued": [
+            "2914",
+            "0"
+          ],
+          "treasuryPaid": [
+            "728",
+            "0"
+          ],
+          "maxDeviationUnits": "0"
+        }
       },
       "checks": [
         "fee engine verified through the production config path",
@@ -894,7 +1010,7 @@
         "buy and sell exact raw unit balances",
         "onchain ENGINE_FEE_POLICY beneficiary shares",
         "separate hook and LP claim preview/receipt/balance equality for creator and operations treasury",
-        "fee engine accrues its share"
+        "engine accrual and operations payout are the ENGINE_FEE_POLICY ratio of the creator's payout, per currency, within 2 raw units"
       ]
     },
     {
@@ -917,13 +1033,13 @@
           }
         ],
         "windowsScanned": [],
-        "hash": "0xf37ef535f2db654e73af1745fa7ed7ad6312e132eba1b131d0503fdd3d1e2fcc",
+        "hash": "0x5e1c8822745fb5407fec4d3f3ed05425dbc61592d64d377f6b525bacc1c03e3d",
         "amount": "20000000000000000000"
       },
-      "tokenAddress": "0x8056E554F3a3a1F91633162e4a09fC121321D455",
-      "poolId": "0xa2ae68fe7ba75b2010f6adcb7c2514f90450c5108f737e7ca063b2e295f796bb",
-      "planId": "0x3bfa663aeaac96245ed02949c631b29547331186927efeadba27634990746af1",
-      "launchHash": "0x2c491bed63bbe44fb0d6002ef302d0d99337f7d668ccbbc454011dadf8f061a3",
+      "tokenAddress": "0xa92E41AB1BEe5337C199a4a057731eEc3fe438d9",
+      "poolId": "0x81ea17321bc03e9dda273fb536406e02bf8431db9b0603778c783fb44ce5899a",
+      "planId": "0x0d446c654ca90859531d59ae4fa23f1dc0bc0a942e69c11e4119d2db16251b63",
+      "launchHash": "0x7d8fed594f959eb3e55d2081c7ae5a4a6dd1d7f5f9d618f5fbf6d52faa3b0235",
       "feePolicy": "creator-70-musegod-swapper-v3",
       "feeTreasury": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
       "feeEngine": "0x9caefd217ea5a039BbA77Ae5b0626733eA093769",
@@ -938,7 +1054,7 @@
         "quotePriceUsd": "0.0003"
       },
       "initialPoolPrice": {
-        "blockNumber": "88133814",
+        "blockNumber": "88155633",
         "sqrtPriceX96": "613530194505866633789231825230",
         "memeIs0": false,
         "actualOpeningCapUsd": 5002.7469972053805
@@ -957,24 +1073,30 @@
         }
       },
       "buy": {
-        "hash": "0xad65871c41712b7319dd6c4f357150ebbc78878a86d65df895b55baea070635e",
+        "hash": "0x1dca022ea83a42c56d72e1c5c9122b1903afe3390d67dcb6be2fa9e81aa72236",
         "amountIn": "10000000000000000000",
         "quotedOut": "593376495160609509897",
-        "minOut": "587442730209003414798"
+        "minOut": "587442730209003414798",
+        "estimatedGas": "816645",
+        "gasLimit": "1020806",
+        "gasUsed": "742983"
       },
       "sell": {
-        "hash": "0xeab6cc0589a632835d83ef71c659376056cb2538a51b146006afba536ade26ee",
+        "hash": "0xc4287b1b9dfbbf5e50def4bbdd438b623b963fb2e4af4c3ff97b0c9f8ea7f730",
         "amountIn": "296688247580304754948",
         "quotedOut": "4895602746471099189",
-        "minOut": "4846646719006388197"
+        "minOut": "4846646719006388197",
+        "estimatedGas": "599440",
+        "gasLimit": "749300",
+        "gasUsed": "531809"
       },
       "bought": "593376495160609509897",
       "quoteReturned": "4895602746471099189",
       "payouts": [
         {
-          "account": "0x0BdC9ADE313221fE7f3E6910d79b9f4B97C9aF59",
+          "account": "0x6A22F001f701a9Bda4aD1201068cd5Eb03a4E9c5",
           "kind": "hook",
-          "hash": "0xc7d3c6004aa26270c11d09b93cbf48b5d94e58d3f4095b98fd3c69498ee29233",
+          "hash": "0x77271c0e3baa0244e78d7166e52c91f6113de07ead99797c854f4443f37133ce",
           "estimatedGas": "199356",
           "gasLimit": "249195",
           "gasUsed": "186860",
@@ -988,9 +1110,9 @@
           ]
         },
         {
-          "account": "0x0BdC9ADE313221fE7f3E6910d79b9f4B97C9aF59",
+          "account": "0x6A22F001f701a9Bda4aD1201068cd5Eb03a4E9c5",
           "kind": "LP",
-          "hash": "0xb491699a27a59b09b3f9c574f1a3826654591bef26b2b3a6c4523774966a8f0a",
+          "hash": "0xea3e09e29f567a5df7b55c6f6921ef24e38206539bc4b09450c87cc2ccd01141",
           "estimatedGas": "1138566",
           "gasLimit": "1423207",
           "gasUsed": "1127992",
@@ -1006,7 +1128,7 @@
         {
           "account": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
           "kind": "hook",
-          "hash": "0xfe9870cb2c831c06d157089b778867623a0607dcf032479b8b5223d3247164ba",
+          "hash": "0xa5f1286cf8dda2b7a4620dcdcdf56bc68d38e843a432bc067c47de82658d6b17",
           "estimatedGas": "208056",
           "gasLimit": "260070",
           "gasUsed": "200360",
@@ -1038,7 +1160,7 @@
         {
           "account": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",
           "kind": "LP",
-          "hash": "0x93f988fda92d8b20027adae580ead1bf4f6a8ef4d691d9a8395d9f46151521fd",
+          "hash": "0x40500b0576129b7c801bb7bae276a1e395d2e436b246091bcf24627f864014ac",
           "estimatedGas": "1005748",
           "gasLimit": "1257185",
           "gasUsed": "997974",
@@ -1068,19 +1190,42 @@
           ]
         }
       ],
-      "engineAccruedFeesPreview": {
-        "lp": [
-          "1139999999999999",
-          "34471578147648620"
-        ],
-        "hook": [
-          "34051946333656067",
-          "0"
-        ],
+      "feeSplit": {
         "currencies": [
           "MUSEGOD",
           "RHMUSEGOD"
-        ]
+        ],
+        "toleranceUnits": "2",
+        "LP": {
+          "creatorPaid": [
+            "3324999999999999",
+            "100542102930641810"
+          ],
+          "engineAccrued": [
+            "1139999999999999",
+            "34471578147648620"
+          ],
+          "treasuryPaid": [
+            "284999999999999",
+            "8617894536912155"
+          ],
+          "maxDeviationUnits": "0"
+        },
+        "hook": {
+          "creatorPaid": [
+            "99318176806496864",
+            "0"
+          ],
+          "engineAccrued": [
+            "34051946333656067",
+            "0"
+          ],
+          "treasuryPaid": [
+            "8512986583414016",
+            "0"
+          ],
+          "maxDeviationUnits": "0"
+        }
       },
       "checks": [
         "fee engine verified through the production config path",
@@ -1093,7 +1238,7 @@
         "buy and sell exact raw unit balances",
         "onchain ENGINE_FEE_POLICY beneficiary shares",
         "separate hook and LP claim preview/receipt/balance equality for creator and operations treasury",
-        "fee engine accrues its share"
+        "engine accrual and operations payout are the ENGINE_FEE_POLICY ratio of the creator's payout, per currency, within 2 raw units"
       ]
     }
   ],
@@ -1107,14 +1252,14 @@
   "snapshotRestored": true,
   "finality": {
     "forkFinalityLagBlocks": 2000,
-    "upstreamFinalizedLagAtFork": "9064",
-    "finalizedHeadBeforeRevert": "88131841",
-    "lowestLaunchBlock": "88133680"
+    "upstreamFinalizedLagAtFork": "8235",
+    "finalizedHeadBeforeRevert": "88153660",
+    "lowestLaunchBlock": "88155499"
   },
   "orphanedRecordsRemoved": true,
   "orphanCleanup": {
     "reconcileRounds": 11,
-    "waitedMs": 56599,
+    "waitedMs": 57386,
     "remaining": []
   },
   "error": null

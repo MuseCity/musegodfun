@@ -72,6 +72,60 @@ test("round13 actual stored frozen PM plan is found and refused at the Base pair
   } finally {store.close();rmSync(directory,{recursive:true,force:true});}
 });
 
+// A frozen Robinhood preview under ENGINE_FEE_POLICY, built the way prepare() builds it, so the real plan-integrity check accepts it.
+function frozenRobinhoodEnginePlan(feeEngine: Address) {
+  const sdk = new DopplerSDK<4663>({ publicClient: createPublicClient({ transport: http("http://127.0.0.1:1") }), chainId: 4663 });
+  const draft = { name: "Engine Robinhood", symbol: "ENGINERH", description: "", image: "", quoteAddress: quote.address, tradingFeeBps: 100 };
+  const openingValuation = syntheticOpeningValuation(quote.address, "3000", { chainId: 4663 });
+  const createParams = sdk.factory.encodeCreateMulticurveParams(buildLaunch(sdk, draft, creator, treasury, guard, openingValuation, undefined, 4663, feeEngine));
+  const poolKey = { currency0: token, currency1: quote.address, fee: 8388608, tickSpacing: 10, hooks: contracts.initializer };
+  const transaction = { to: contracts.airlock, data: encodeFunctionData({ abi: airlockAbi, functionName: "create", args: [createParams] }), value: 0n };
+  const prepared = { chainId: 4663 as const, account: creator, airlock: contracts.airlock, createParams,
+    prediction: { tokenAddress: token, poolOrHookAddress: token, governanceAddress: treasury, timelockAddress: treasury, poolKey, poolId: computePoolId(poolKey), tokenIsCurrency0: true },
+    transaction, gasEstimate: { status: "unavailable" as const } };
+  const plan: LaunchPlan = { id: keccak256(transaction.data), creator, data: transaction.data, tokenAddress: token, poolId: prepared.prediction.poolId, draft,
+    preparedAt: Date.now(), gas: null, feePolicy: ENGINE_FEE_POLICY, feeTreasury: treasury, feeEngine, openingValuation, curvePolicy: CURVE_POLICY,
+    prepared: serializePrepared(prepared), transaction: { ...transaction, value: "0" } };
+  assertPlanIntegrity(plan, contracts);
+  return plan;
+}
+// The path scripts/test-robinhood-fork.ts cannot reach: its fork keeps chain id 4663 for the engine's activation check, and the
+// signing gate admits a fork only as 31337, so there validateLaunch stops at the gate.
+test("Robinhood validateLaunch under the engine policy signs only while the live verified engine is the plan's engine", async () => {
+  const engine = ENGINE_MANIFEST.contracts.engine.address as Address, otherEngine = "0x5555555555555555555555555555555555555555" as Address;
+  const plan = frozenRobinhoodEnginePlan(engine);
+  const config: RuntimeConfig = { mode: "robinhood", chainId: 4663, deploymentChainId: 4663, treasury, writesEnabled: true, blockReason: null,
+    feePolicy: ENGINE_FEE_POLICY, feeEngine: engine };
+  let live: RuntimeConfig = config, configurations = 0;
+  const protectedPlans: string[] = [];
+  const store = {
+    findPlan: async (account: string, data: string) => account === plan.creator && data === plan.data ? plan : null,
+    protectPlan: async (id: string) => { protectedPlans.push(id); },
+  };
+  const service = Object.assign(Object.create(LaunchpadService.prototype), { runtime: { config }, store,
+    config: async (fresh?: boolean) => { assert.equal(fresh, true, "Signing reads a fresh configuration"); configurations++; return live; } }) as LaunchpadService;
+
+  const validation = await service.validateLaunch(creator, plan.data, true);
+  assert.equal(validation.valid, true);
+  assert.equal(validation.feePolicy, ENGINE_FEE_POLICY);
+  assert.equal(validation.curvePolicy, CURVE_POLICY);
+  assert.equal(validation.planId, plan.id);
+  assert.deepEqual(protectedPlans, [plan.id], "A real signature protects the plan");
+
+  for (const feeEngine of [otherEngine, null]) {
+    live = { ...config, feeEngine };
+    await assert.rejects(service.validateLaunch(creator, plan.data, true), /fee engine configuration changed or could not be verified/);
+  }
+  assert.deepEqual(protectedPlans, [plan.id], "A refused engine never protects the plan");
+  assert.equal(configurations, 3, "Every validation reached the live configuration, so the engine check, not an earlier one, refused");
+
+  // The same plan on a fork that keeps chain id 4663, as the fork test does, stops at the signing gate before the engine comparison.
+  const forkConfig: RuntimeConfig = { ...config, mode: "fork" };
+  live = forkConfig;
+  const fork = Object.assign(Object.create(LaunchpadService.prototype), { runtime: { config: forkConfig }, store, config: async () => live }) as LaunchpadService;
+  await assert.rejects(fork.validateLaunch(creator, plan.data), /The signing network does not match the platform mode/);
+});
+
 test("service RPC batches HTTP identity reads as well as contract reads", async (context) => {
   const service = new LaunchpadService({
     config: { mode: "robinhood", chainId: 4663, deploymentChainId: 4663, treasury: null, writesEnabled: false, blockReason: null },
