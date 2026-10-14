@@ -19,6 +19,7 @@ import { robinhood } from "viem/chains";
 import { FACTORY_CONTRACT, NFT_VAULT_PATHS, compileNftVault, type NftVaultBuild, type NftVaultCompilation } from "./build-nft-vault";
 import { factoryAbi, isRateLimited, patchImmutableRuntime, robinhoodUpstreamUrl, runtimeTemplateFromInitCode, safeForkError } from "./nft-vault-fork-helpers";
 import { startChainFork } from "./robinhood-fork";
+import { createFoundryWorkspace } from "./foundry-workspace";
 import { ROBINHOOD_CONTRACTS, sameAddress } from "../src/lib/config";
 import {
   ERC6551_REGISTRY, MUSES, TOKENBOUND_V3_IMPLEMENTATION, TOKENBOUND_V3_PROXY, treasuryFor, vaultFor,
@@ -610,12 +611,14 @@ export async function runVerify(args: Extract<CliArgs, { mode: "verify" }>, key:
     blockNumber: result.evidence.blockNumber, costEth: result.evidence.costEth, checks: result.evidence.checks, ...recorded }, secrets).trimEnd());
 }
 
-/** Foundry loads .env from cwd even with a scrubbed process environment. Check existence only; never read it. */
-export function rehearsalCastOptions(root = process.cwd()) {
-  const cwd = resolve(root, PATHS.rehearsal);
-  assert(!existsSync(resolve(cwd, ".env")), "The rehearsal cwd .env must not exist: cast loads .env from its cwd");
-  return { cwd, encoding: "utf8" as const, env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "" },
-    maxBuffer: 16 * 1024 * 1024, timeout: 180_000 };
+/** Each cast child runs outside every Git repository; cleanup also runs if spawning or cast fails. */
+export async function runRehearsalCast(args: readonly string[]) {
+  const workspace = await createFoundryWorkspace();
+  try {
+    return execFileSync("cast", args, { cwd: workspace.cwd, encoding: "utf8",
+      env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "" },
+      maxBuffer: 16 * 1024 * 1024, timeout: 180_000 });
+  } finally { await workspace.remove(); }
 }
 
 /** One loopback Anvil fork (its own, or a given one): preflight for a fork-unlocked deployer, the owner's cast command, verify. */
@@ -652,8 +655,7 @@ async function rehearse(rpcGiven: string | undefined, key: string) {
     assert(report.ready && report.unsignedTransaction, `The rehearsal preflight is not ready: ${report.failures.join("; ")}`);
     // The owner's exact cast command; only the signer flags differ (--unlocked: the fork signs for the impersonated deployer).
     const committed = await loadCommitted();
-    const output = execFileSync("cast", castSendArgs(report.unsignedTransaction, rpc, ["--unlocked"], committed.build.factoryBytecode),
-      rehearsalCastOptions());
+    const output = await runRehearsalCast(castSendArgs(report.unsignedTransaction, rpc, ["--unlocked"], committed.build.factoryBytecode));
     let tx = /transactionHash\s+(0x[0-9a-fA-F]{64})/.exec(output)?.[1]?.toLowerCase() as Hex | undefined;
     if (!tx) {
       // Another cast output format: find the mined transaction by its sender and nonce instead.

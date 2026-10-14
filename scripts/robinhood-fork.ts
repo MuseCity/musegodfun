@@ -6,6 +6,7 @@ import { access } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createPublicClient, http } from "viem";
 import { base, robinhood } from "viem/chains";
+import { createFoundryWorkspace } from "./foundry-workspace";
 
 // Only this loopback proxy sees the provider URL. Neither Anvil argv nor its
 // nodeInfo/logs receive the API key. It cannot forward signatures or writes.
@@ -74,17 +75,20 @@ export async function startChainFork(upstreamUrl: string, deploymentChainId: 845
   const rpc = `http://127.0.0.1:${forkPort}`;
   const forkSource = `http://127.0.0.1:${(proxy.address() as AddressInfo).port}`;
   let child: ChildProcess | undefined;
+  let workspace: Awaited<ReturnType<typeof createFoundryWorkspace>> | undefined;
   let childOutput = "";
   async function stop() {
-    if (child && child.exitCode === null && child.signalCode === null) {
-      await new Promise<void>((done) => {
-        const timer = setTimeout(() => child!.kill("SIGKILL"), 5000);
-        child!.once("exit", () => { clearTimeout(timer); done(); });
-        child!.kill("SIGTERM");
-      });
-    }
-    proxy.closeAllConnections();
-    await new Promise<void>((done) => proxy.close(() => done()));
+    try {
+      if (child && child.exitCode === null && child.signalCode === null) {
+        await new Promise<void>((done) => {
+          const timer = setTimeout(() => child!.kill("SIGKILL"), 5000);
+          child!.once("exit", () => { clearTimeout(timer); done(); });
+          child!.kill("SIGTERM");
+        });
+      }
+      proxy.closeAllConnections();
+      await new Promise<void>((done) => proxy.close(() => done()));
+    } finally { await workspace?.remove(); }
   }
   async function rpcCall(method: string, params: unknown[] = []) {
     assert.equal(new URL(rpc).hostname, "127.0.0.1");
@@ -98,13 +102,14 @@ export async function startChainFork(upstreamUrl: string, deploymentChainId: 845
     return body.result;
   }
   try {
+    workspace = await createFoundryWorkspace();
     child = spawn(binary, [
       "--host", "127.0.0.1", "--port", String(forkPort), "--chain-id", String(executionChainId),
       "--fork-url", forkSource, "--fork-block-number", String(blockNumber),
       "--hardfork", "cancun", "--code-size-limit", executionChainId === 8453 ? "24576" : "98304", "--silent",
       ...(deploymentChainId === 8453 ? ["--base"] : []),
       ...(finalityLagBlocks ? ["--slots-in-an-epoch", String(finalityLagBlocks / 2)] : []),
-    ], { stdio: ["ignore", "pipe", "pipe"] });
+    ], { cwd: workspace.cwd, stdio: ["ignore", "pipe", "pipe"] });
     for (const stream of [child.stdout, child.stderr]) stream?.on("data", (part) => {
       childOutput = (childOutput + String(part)).slice(-2000);
     });

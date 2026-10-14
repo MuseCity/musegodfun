@@ -1,14 +1,15 @@
 import assert from "node:assert/strict";
 import childProcess from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
-import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import os, { tmpdir } from "node:os";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { test, type TestContext } from "node:test";
 import { getAddress, keccak256, type Address, type Hex } from "viem";
 import type { NftVaultBuild } from "../scripts/build-nft-vault";
 import * as buildTools from "../scripts/build-nft-vault";
 import * as deployTools from "../scripts/deploy-nft-vault";
+import { createFoundryWorkspace } from "../scripts/foundry-workspace";
 import {
   MAINNET_ANCHOR, PATHS, REHEARSAL_PATHS, applyVerifiedDeployment, assertLoopbackRpc, expectedFactoryRuntime, factoryRuntimeTemplate, feePlan,
   nodeKind, parseArgs, predictFactoryAddress, preflight, recordTargets, serializeManifest, serializeSafe, verifyDeployment,
@@ -528,7 +529,7 @@ test("Forge ignores a planted repo .env by spawning in contracts with --root . (
   } finally { mock.mock.restore(); syncBuiltinESMExports(); }
 });
 
-test("Forge refuses contracts/.env before spawning; rehearsal cast refuses .env in its cwd", (t) => {
+test("Forge refuses contracts/.env before spawning", (t) => {
   const { root, put } = scratch(t);
   put("contracts/.env", "FOUNDRY_OPTIMIZER_RUNS=777\n");
   const mock = t.mock.method(childProcess, "execFileSync", () => { throw new Error("must not spawn"); });
@@ -537,12 +538,73 @@ test("Forge refuses contracts/.env before spawning; rehearsal cast refuses .env 
     assert.throws(() => buildTools.compileNftVault({ root, offline: true }), /contracts.*\.env.*must not exist/);
     assert.equal(mock.mock.callCount(), 0);
   } finally { mock.mock.restore(); syncBuiltinESMExports(); }
-  mkdirSync(join(root, PATHS.rehearsal), { recursive: true });
-  const options = deployTools.rehearsalCastOptions(root);
-  assert.equal(options.cwd, join(root, PATHS.rehearsal));
-  assert.deepEqual(Object.keys(options.env).sort(), ["HOME", "PATH"]);
-  put(`${PATHS.rehearsal}/.env`, "ETH_RPC_URL=must-not-use\n");
-  assert.throws(() => deployTools.rehearsalCastOptions(root), /\.env.*must not exist/);
+});
+
+test("every rehearsal cast spawn has a fresh cwd outside the repo with no .env, foundry.toml or Git ancestor", async (t) => {
+  const { root, put } = scratch(t);
+  put(".git", "gitdir: unused\n"); // Simulate a worktree root; no Git command or Foundry process runs.
+  put(".env", "ETH_RPC_URL=must-not-use\n"); // Never read the planted file.
+  const cwds: string[] = [];
+  const args = ["keccak", "0x1234"];
+  const mock = t.mock.method(childProcess, "execFileSync", (command: string, actualArgs: readonly string[],
+    options: { cwd: string; env: Record<string, string> }) => {
+    assert.equal(command, "cast");
+    assert.deepEqual(actualArgs, args);
+    const cwd = realpathSync(options.cwd);
+    for (const repo of [realpathSync(process.cwd()), realpathSync(root)]) {
+      const path = relative(repo, cwd);
+      assert(path === ".." || path.startsWith(`..${sep}`) || isAbsolute(path), "cast cwd must be outside the repository");
+    }
+    assert.equal(dirname(cwd), realpathSync(tmpdir()), "cast cwd must be directly under os.tmpdir()");
+    assert(!cwds.includes(cwd), "each cast child needs a fresh cwd");
+    cwds.push(cwd);
+    assert.deepEqual(readdirSync(cwd), [], "cast cwd must be empty");
+    assert(!existsSync(join(cwd, ".env")));
+    assert(!existsSync(join(cwd, "foundry.toml")));
+    for (let ancestor = cwd; ; ancestor = dirname(ancestor)) {
+      assert(!existsSync(join(ancestor, ".git")), "no Git ancestor may lead cast back to a planted repo .env");
+      if (dirname(ancestor) === ancestor) break;
+    }
+    assert.deepEqual(Object.keys(options.env).sort(), ["HOME", "PATH"]);
+    return "stubbed cast output";
+  });
+  syncBuiltinESMExports();
+  try {
+    for (let call = 0; call < 2; call++) {
+      assert.equal(await deployTools.runRehearsalCast(args), "stubbed cast output");
+      assert(!existsSync(cwds[call]), "cast cwd must be removed after success");
+    }
+    assert.equal(mock.mock.callCount(), 2);
+  } finally { mock.mock.restore(); syncBuiltinESMExports(); }
+});
+
+test("a failed rehearsal cast spawn removes its temporary cwd", async (t) => {
+  let cwd: string | undefined;
+  const failure = new Error("stubbed cast failure; no Foundry executed");
+  const mock = t.mock.method(childProcess, "execFileSync", (_command: string, _args: readonly string[], options: { cwd: string }) => {
+    cwd = options.cwd;
+    assert(existsSync(cwd));
+    throw failure;
+  });
+  syncBuiltinESMExports();
+  try {
+    await assert.rejects(deployTools.runRehearsalCast(["keccak", "0x1234"]), (error) => error === failure);
+    assert(cwd);
+    assert(!existsSync(cwd), "cast cwd must be removed after failure");
+  } finally { mock.mock.restore(); syncBuiltinESMExports(); }
+});
+
+test("Foundry refuses a system temporary directory inside a Git worktree and cleans up", async (t) => {
+  const { root, put } = scratch(t);
+  put(".git", "gitdir: unused\n");
+  put(".env", "ETH_RPC_URL=must-not-use\n");
+  const before = readdirSync(root);
+  const mock = t.mock.method(os, "tmpdir", () => root);
+  syncBuiltinESMExports();
+  try {
+    await assert.rejects(createFoundryWorkspace(), /must have no Git ancestor/);
+    assert.deepEqual(readdirSync(root), before, "a refused workspace must also be removed");
+  } finally { mock.mock.restore(); syncBuiltinESMExports(); }
 });
 
 test("a failed preflight preserves the ready report and creation code, and writes a separate failed report", async (t) => {
