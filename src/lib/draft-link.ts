@@ -77,6 +77,6 @@ export function importDraftLink(linked: Partial<LaunchInput>, config: Pick<Runti
 
 /** A draft nobody has touched (blank identity, step one, no NFT, no fee): a link imports into it without saving anything first. */
 export function isPristineDraft(draft: LaunchInput, step: number): boolean {
-  return step === 1 && !draft.nft && !draft.launchFee &&
+  return step <= 1 && !draft.nft && !draft.launchFee &&
     LAUNCH_IDENTITY_FIELDS.every((field) => !String((draft as Record<string, unknown>)[field] ?? "").trim());
 }

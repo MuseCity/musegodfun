@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { ADMITTED_BASE_ASSET_COUNT, STOCKS, ROBINHOOD_STOCKS, launchAssetsFor, stockByAddress, sameAddress, type RuntimeConfig } from "../src/lib/config";
-import { draftAutosave, firstBuyDraft, isBlankDraft, type DraftBasis, launchDraftKey, launchDraftStep, resetLaunchedDraftStep, savedLaunchDraft } from "../src/lib/launch-draft";
+import { draftAutosave, firstBuyDraft, isBlankDraft, type DraftBasis, launchDraftKey, launchDraftStep, launchSteps, stepHeadingId, resetLaunchedDraftStep, savedLaunchDraft } from "../src/lib/launch-draft";
 import { firstBuyPaymentAssets } from "../src/lib/first-buy-payment";
 import { LAUNCH_IDENTITY_FIELDS, launchIdentityIssue, launchSchema, restoreDraft } from "../src/lib/validation";
 import { DEFAULT_TRADING_FEE_BPS, TRADING_FEE_BPS } from "../src/lib/trading-fee";
@@ -189,6 +189,8 @@ test("a successful launch resets its scoped, shared and migrated anonymous copie
     const { step: _beforeStep, ...before } = JSON.parse(copy), { step: _afterStep, ...after } = JSON.parse(reopened);
     assert.deepEqual(after, before, "reset preserves all saved identity and first-buy fields");
   }
+  const nftModeDraft = JSON.stringify({ ...draft, firstBuy, intentId: "wallet-intent-a", step: 2, nftMode: true });
+  assert.equal(launchDraftStep(resetLaunchedDraftStep(nftModeDraft, nftModeDraft, network)), 0);
   for (const independent of [
     { ...draft, name: "Unlaunched B", symbol: "TOKENB", firstBuy },
     { ...draft, firstBuy: { ...firstBuy, amount: "0.002" } },
@@ -273,4 +275,20 @@ test("an autosave holds NFT input and an open review, keeps an unedited tab in s
   const loaded = JSON.stringify({ ...JSON.parse(named), firstBuy: { ...firstBuy, amount: "" } });
   assert.equal(draftAutosave(loaded, named, synced(loaded, named), network), "unchanged");
   assert.equal(draftAutosave(loaded, edited, synced(loaded, named), network), "write");
+});
+
+test("draft steps restore exactly: 0 is the NFT step in NFT mode only; no saved step opens NFT mode on the NFT step", () => {
+  const nft = { chainId: 4663, contract: "0x13Ea3072b7215d4C9c2Ec4f498A08c5825129836", tokenId: "1" };
+  const cases: [string | null, number][] = [
+    [null, 1], ["{}", 1], ['{"step":0}', 1], ['{"step":1}', 1], ['{"step":2}', 2],
+    ['{"nftMode":true}', 0], [JSON.stringify({ nft }), 0], ['{"step":0,"nftMode":true}', 0],
+    ['{"step":1,"nftMode":true}', 1], ['{"step":2,"nftMode":true}', 2], ['{"step":"0","nftMode":true}', 0], ["{bad", 1],
+  ];
+  for (const [raw, expected] of cases) assert.equal(launchDraftStep(raw), expected, String(raw));
+});
+
+test("the wizard lists the NFT step only in NFT mode, and each step has its heading", () => {
+  assert.deepEqual(launchSteps(false).map((s) => s.label), ["Identity", "Economics"]);
+  assert.deepEqual(launchSteps(true).map((s) => [s.step, s.label]), [[0, "NFT"], [1, "Identity"], [2, "Economics"]]);
+  assert.deepEqual([0, 1, 2].map((s) => stepHeadingId(s as 0 | 1 | 2)), ["nft-heading", "identity-heading", "quote-heading"]);
 });

@@ -2,12 +2,27 @@ import { deploymentChain, STOCKS, ROBINHOOD_STOCKS, sameAddress, type RuntimeCon
 import { launchSchema, restoreDraft } from "./validation";
 import { firstBuyPaymentAssets } from "./first-buy-payment";
 import { isPristineDraft } from "./draft-link";
+import { savedNftMode } from "./nft-client";
 
 export type FirstBuyDraft = { amount: string; slippageBps: number; payAddress: string; lockDays: 0 | 30 | 90 | 365 };
-export type LaunchStep = 1 | 2;
-// The form step is saved with the draft so a reload resumes where the creator left off.
+/** 0: the NFT step (NFT mode only); 1: Identity; 2: Economics (tasks/nft-mode-wallet-picker.md §3.3). */
+export type LaunchStep = 0 | 1 | 2;
+// The form step is saved with the draft so a reload resumes where the creator left off. A saved 1 or 2 is restored exactly, in both modes,
+// so two tabs never move each other's step; a draft with no saved step (a draft link) in NFT mode opens on the NFT step.
 export function launchDraftStep(raw: string | null): LaunchStep {
-  try { return JSON.parse(raw || "null")?.step === 2 ? 2 : 1; } catch { return 1; }
+  try {
+    const step = JSON.parse(raw || "null")?.step;
+    if (step === 1 || step === 2) return step;
+    return savedNftMode(raw) ? 0 : 1;
+  } catch { return 1; }
+}
+/** The wizard's steps in order; NFT mode starts with the NFT step. */
+export function launchSteps(nftMode: boolean): { step: LaunchStep; label: "NFT" | "Identity" | "Economics" }[] {
+  return [...(nftMode ? [{ step: 0 as const, label: "NFT" as const }] : []), { step: 1, label: "Identity" }, { step: 2, label: "Economics" }];
+}
+/** The heading that takes focus when a step opens. */
+export function stepHeadingId(step: LaunchStep): "nft-heading" | "identity-heading" | "quote-heading" {
+  return step === 0 ? "nft-heading" : step === 1 ? "identity-heading" : "quote-heading";
 }
 // Connecting a new wallet migrates an anonymous draft under a new intent ID.
 // Reset that copy only when its complete launch input still matches the launch.
@@ -26,7 +41,7 @@ export function resetLaunchedDraftStep(raw: string | null, launchedRaw: string, 
       const savedInput = input(raw!);
       if (savedInput === null || savedInput !== input(launchedRaw)) return raw;
     }
-    return JSON.stringify({ ...saved, step: 1 });
+    return JSON.stringify({ ...saved, step: savedNftMode(raw) ? 0 : 1 });
   } catch { return raw; }
 }
 /** A saved or autosaved draft with nothing in it, by the create form's "untouched" rule (`isPristineDraft`, which also counts a paid
