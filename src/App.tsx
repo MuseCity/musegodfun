@@ -854,7 +854,6 @@ export function Explore({
     .filter((entry) => entry.kind === "launch" && stats(entry)?.periods.h24?.volume != null)
     .sort((a, b) => (stats(b)!.periods.h24!.volume ?? 0) - (stats(a)!.periods.h24!.volume ?? 0))
     .slice(0, 5) : [];
-  const fetched = filtered.map(stats).find((entry) => entry?.status !== "stale" && entry?.fetchedAt)?.fetchedAt;
   const setViewMode = (next: "list" | "grid") => {
     setView(next);
     try { localStorage.setItem(VIEW_KEY, next); } catch { /* View preference is optional. */ }
@@ -982,9 +981,10 @@ export function Explore({
           </>}
         </div>
         <p className="market-note">
-          <span>{displayConfig?.mode === "fork" ? "Local fork launches have no mainnet market data. Open a token for an on-chain quote."
-            : showMarket ? `Market data from CoinGecko · shared 15-minute snapshot${fetched ? ` · updated ${new Date(fetched).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}` : ""}`
-              : "Market data is unavailable. Open a token for its on-chain quote."}</span>
+          <span>{displayConfig === null ? "Loading market data…"
+            : displayConfig.mode === "fork" ? "Local fork launches have no mainnet market data. Open a token for an on-chain quote."
+              : showMarket ? "Market sources and update times are shown on each card."
+                : "Market data is unavailable. Open a token for its on-chain quote."}</span>
           <span>New launches are listed after on-chain confirmation.</span>
         </p>
         {tokenError && <Notice kind="error">Platform launches could not be loaded: {tokenError}</Notice>}

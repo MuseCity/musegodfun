@@ -341,7 +341,7 @@ export class Store {
       .prepare("INSERT OR REPLACE INTO snapshots VALUES(?,?,?)")
       .run(key, at, JSON.stringify({ at, data }));
   }
-  reserveMarketCall(now: number, daily = 300, monthly = 9000) {
+  reserveMarketCall(now: number, daily = 300, monthly = 9000, bucket?: "candles") {
     const day = new Date(now).toISOString().slice(0, 10),
       month = day.slice(0, 7);
     this.db.exec("BEGIN IMMEDIATE");
@@ -354,11 +354,12 @@ export class Store {
               | undefined
           )?.count ?? 0,
         );
-      if (used(day) >= daily || used(month) >= monthly) {
+      const keys = [day, month].map(key => bucket ? `${key}:${bucket}` : key);
+      if (used(keys[0]) >= daily || used(keys[1]) >= monthly) {
         this.db.exec("ROLLBACK");
         return false;
       }
-      for (const key of [day, month])
+      for (const key of keys)
         this.db
           .prepare(
             "INSERT INTO quota VALUES(?,1) ON CONFLICT(key) DO UPDATE SET count=count+1",

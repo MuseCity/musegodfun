@@ -12,12 +12,13 @@ export type CardMarketState = {
   reason?: MarketReason;
 };
 type CardMarkets = Record<string, CardMarketState>;
-type MarketStore = { scope: string | null; rows: CardMarkets };
+type MarketStore = { scope: string | null; rows: CardMarkets; identities: Record<string, string> };
 type MarketPlan = {
   scope: string | null;
   rows: CardMarkets;
   addresses: string[];
   musegod: boolean;
+  identities: Record<string, string>;
 };
 type SummaryReader = typeof chainApi;
 const MAX_AGE = 24 * 60 * 60_000;
@@ -32,8 +33,8 @@ const validSnapshot = (data: MarketSummary | null, now: number) =>
 
 // Keep endpoint selection separate from presentation and from launch records.
 export function cardMarketPlan(tokens: TokenRecord[], config: RuntimeConfig | null): MarketPlan {
-  const identities = tokens.map(token => marketSnapshotKey(token, "summary")).sort().join(",");
-  const scope = config ? `${config.mode}:${config.chainId}:${deploymentChain(config)}:${identities}` : null;
+  const identities = Object.fromEntries(tokens.map(token => [token.address.toLowerCase(), marketSnapshotKey(token, "summary")]));
+  const scope = config ? `${config.mode}:${config.chainId}:${deploymentChain(config)}` : null;
   const rows: CardMarkets = {};
   const addresses: string[] = [];
   for (const token of tokens) {
@@ -49,9 +50,10 @@ export function cardMarketPlan(tokens: TokenRecord[], config: RuntimeConfig | nu
   }
   const featured = config === null || deploymentChain(config) === 4663;
   const musegod = config?.mode === "robinhood" && config.chainId === 4663;
+  if (featured) identities[MUSEGOD_ADDRESS] = `musegod:4663:${MUSEGOD.pool}:${MUSEGOD.weth}`;
   if (featured) rows[MUSEGOD_ADDRESS] = config === null || musegod ? waiting()
     : unavailable(config.mode === "fork" ? "Fork test" : undefined);
-  return { scope, rows, addresses: [...new Set(addresses)].sort(), musegod };
+  return { scope, rows, identities, addresses: [...new Set(addresses)].sort(), musegod };
 }
 
 // The existing endpoint admits at most 30 registered addresses per request.
@@ -132,42 +134,73 @@ export function useTokenCardMarkets(
   if (tokens !== null) knownTokens.current = tokens;
   const displayConfig = config ?? confirmedConfig.current;
   const plan = cardMarketPlan(tokens ?? knownTokens.current, displayConfig);
-  const [store, setStore] = useState<MarketStore>(() => ({ scope: plan.scope, rows: plan.rows }));
-  const [revision, setRevision] = useState(0);
+  const [store, setStore] = useState<MarketStore>(() => ({ scope: plan.scope, rows: plan.rows, identities: plan.identities }));
+  const [batchRevision, setBatchRevision] = useState(0);
+  const [featuredRevision, setFeaturedRevision] = useState(0);
   const scope = plan.scope;
-  const targetKey = Object.keys(plan.rows).sort().join(",");
+  const identityKey = Object.entries(plan.identities).sort().map(([address, identity]) => `${address}:${identity}`).join(",");
   const addressKey = config !== null && tokens !== null ? plan.addresses.join(",") : "";
   const requestMusegod = config !== null && plan.musegod;
 
   useEffect(() => {
-    let active = true;
-    setStore((previous) => ({ scope, rows: Object.fromEntries(Object.entries(plan.rows).map(([address, state]) => [
-      address, state.loading && previous.scope === scope
-        ? retainCardMarket(previous.rows[address], state) : state,
+    setStore((previous) => ({ scope, identities: plan.identities, rows: Object.fromEntries(Object.entries(plan.rows).map(([address, state]) => [
+      address, state.loading && previous.scope === scope && previous.identities[address] === plan.identities[address]
+        ? previous.rows[address] ?? state : state,
     ])) }));
-    if (addressKey || requestMusegod) {
-      void loadCardMarkets(deploymentChain(config!), addressKey ? addressKey.split(",") : [], requestMusegod, chainApi, () => active).then((result) => {
-        if (!active) return;
-        setStore((previous) => {
-          if (previous.scope !== scope) return previous;
-          const rows = { ...previous.rows };
-          for (const [address, state] of Object.entries(result)) {
-            rows[address] = retainCardMarket(rows[address], state);
-          }
-          return { scope, rows };
-        });
+  }, [scope, identityKey]);
+
+  // Registered batches and the fixed featured asset have independent request lifecycles.
+  useEffect(() => {
+    if (!addressKey) return;
+    let active = true;
+    const addresses = addressKey.split(",");
+    setStore(previous => ({ ...previous, rows: Object.fromEntries(Object.entries(previous.rows).map(([address, state]) => [
+      address, addresses.includes(address) ? retainCardMarket(state, waiting()) : state,
+    ])) }));
+    void loadCardMarkets(deploymentChain(config!), addresses, false, chainApi, () => active).then(result => {
+      if (!active) return;
+      setStore(previous => {
+        if (previous.scope !== scope) return previous;
+        const rows = { ...previous.rows };
+        for (const [address, state] of Object.entries(result)) {
+          if (previous.identities[address] === plan.identities[address]) rows[address] = retainCardMarket(rows[address], state);
+        }
+        return { ...previous, rows };
       });
-    }
+    });
     return () => { active = false; };
-  }, [scope, targetKey, addressKey, requestMusegod, refreshVersion, revision]);
+  }, [scope, identityKey, addressKey, refreshVersion, batchRevision]);
 
   useEffect(() => {
-    if (!config || (!addressKey && !requestMusegod)) return;
+    if (!requestMusegod) return;
+    let active = true;
+    setStore(previous => ({ ...previous, rows: { ...previous.rows,
+      [MUSEGOD_ADDRESS]: retainCardMarket(previous.rows[MUSEGOD_ADDRESS], waiting()),
+    } }));
+    void loadCardMarkets(4663, [], true, chainApi, () => active).then(result => {
+      if (!active) return;
+      setStore(previous => previous.scope !== scope ? previous : { ...previous, rows: { ...previous.rows,
+        [MUSEGOD_ADDRESS]: retainCardMarket(previous.rows[MUSEGOD_ADDRESS], result[MUSEGOD_ADDRESS]),
+      } });
+    });
+    return () => { active = false; };
+  }, [scope, requestMusegod, refreshVersion, featuredRevision]);
+
+  useEffect(() => {
+    if (!config || !addressKey) return;
     const timer = setInterval(() => {
-      if (document.visibilityState === "visible") setRevision((value) => value + 1);
-    }, requestMusegod ? 60_000 : 15 * 60_000);
+      if (document.visibilityState === "visible") setBatchRevision(value => value + 1);
+    }, 15 * 60_000);
     return () => clearInterval(timer);
-  }, [config !== null, scope, addressKey, requestMusegod]);
+  }, [config !== null, scope, addressKey]);
+
+  useEffect(() => {
+    if (!requestMusegod) return;
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible") setFeaturedRevision(value => value + 1);
+    }, 60_000);
+    return () => clearInterval(timer);
+  }, [scope, requestMusegod]);
 
   useEffect(() => {
     const expiries = Object.values(store.rows).flatMap((state) =>
@@ -183,6 +216,6 @@ export function useTokenCardMarkets(
   // A deployment switch must not expose even one render of the previous network.
   if (store.scope !== scope) return plan.rows;
   return Object.fromEntries(Object.entries(plan.rows).map(([address, state]) => [
-    address, state.loading ? store.rows[address] ?? state : state,
+    address, state.loading && store.identities[address] === plan.identities[address] ? store.rows[address] ?? state : state,
   ]));
 }

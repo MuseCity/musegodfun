@@ -1,6 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { ArrowDownRight, ArrowUpRight, RefreshCw } from "lucide-react";
-import { formatUnits } from "viem";
 import { ApiError, chainApi } from "../lib/api";
 import { deploymentChain, explorerFor, shortAddress, type TokenRecord } from "../lib/config";
 import { MUSEGOD } from "../lib/musegod";
@@ -11,7 +10,6 @@ import {
   type SnapshotMeta,
   type CandleData,
   type ChartInterval,
-  type HolderData,
   type MarketSummary,
   type TradeData,
 } from "../lib/market";
@@ -33,8 +31,9 @@ export function marketEndpoint(token: MarketToken, kind: "launch" | "musegod", s
     : { ...token, poolId: token.poolId ?? "unknown", quoteAddress: token.quoteAddress ?? "unknown" };
   return { chainId, path, key: `${kind}:${marketSnapshotKey(identity, section)}` };
 }
-export function MarketProvenance({ label, data }: { label: string; data: (SnapshotMeta & { fetchedAt: string }) | null }) {
-  return <span>{label} · {data?.status === "stale" ? "Previous snapshot · " : ""}{data?.source ?? "Source pending"} · {data
+export function MarketProvenance({ label, data, kind }: { label: string; data: (SnapshotMeta & { fetchedAt: string }) | null; kind?: "launch" | "musegod" }) {
+  return <span>{label} · {data?.status === "stale" ? "Previous snapshot · " : ""}{data?.source === "Bankr" ? kind === "musegod"
+    ? <a href={MUSEGOD.sourceUrl} target="_blank" rel="noreferrer">Bankr / Pools ↗</a> : "Bankr / Pools" : data?.source ?? "Source pending"} · {data
     ? <>Fetched <time dateTime={data.fetchedAt} title={data.fetchedAt}>{new Date(data.fetchedAt).toLocaleString("en-US")}</time></>
     : "Source and fetch time appear after data loads"}</span>;
 }
@@ -172,13 +171,6 @@ export default function TokenMarket({
     revision,
     tab === "trades" || kind === "musegod",
   );
-  const holders = useMarket<HolderData>(
-    token,
-    kind,
-    "holders",
-    revision,
-    kind === "launch" && tab === "holders",
-  );
   const explorer = explorerFor(token);
   const stats = summary.data,
     activity = stats?.periods[period],
@@ -237,12 +229,12 @@ export default function TokenMarket({
             <dd>{usd(stats?.periods.h24.volume)}</dd>
           </div>
         </dl>
-        {(summary.loading || summary.error || stats?.status === "stale") && (
+        {((summary.loading && !stats) || summary.error || stats?.status === "stale") && (
           <p className="market-warning" role="status">
-            {summary.loading ? "Loading market data…" : summary.error || stats?.warning}
+            {summary.loading && !stats ? "Loading market data…" : summary.error || stats?.warning}
           </p>
         )}
-        <p className="feed-note"><MarketProvenance label="Summary" data={summary.data} /></p>
+        <p className="feed-note"><MarketProvenance label="Summary" data={summary.data} kind={kind} />{kind === "musegod" && " · refreshes every minute while visible"}</p>
         <div className="chart-toolbar">
           <div className="segmented" role="group" aria-label="Chart type">
             <button type="button" aria-pressed={chartType === "line"} onClick={() => setChartType("line")}>Line</button>
@@ -279,10 +271,10 @@ export default function TokenMarket({
           <Message
             loading={history.loading}
             error={history.error}
-            empty="No indexed trades for this interval. Try a longer interval."
+            empty="No indexed price records for this interval. Try a longer interval."
           />
         )}
-        <div className="market-attribution"><MarketProvenance label="Candles" data={history.data} /></div>
+        <div className="market-attribution"><MarketProvenance label="Candles" data={history.data} kind={kind} /></div>
       </section>
       <section className="card market-feed" aria-label={kind === "launch" ? "Trades and holders" : "Recent trades"}>
         <div className="feed-head">
@@ -317,7 +309,7 @@ export default function TokenMarket({
                 {label}
               </button>
             ))}
-          </div> : <span className="hint">Top 10 of <span className="mono">{holders.data?.indexedCount ?? "—"}</span> indexed holders</span>}
+          </div> : null}
         </div>
         {tab === "trades" || kind === "musegod" ? (
           <>
@@ -415,72 +407,15 @@ export default function TokenMarket({
               />
             )}
             <p className="feed-note">
-              <MarketProvenance label="Trades" data={trades.data} /> ·
+              <MarketProvenance label="Trades" data={trades.data} kind={kind} /> ·
               Latest 30 indexed trades · indexing may lag the chain.
             </p>
           </>
-        ) : (
-          <>
-            {holders.data?.holders.length ? (
-              <div className="table-scroll">
-                <table className="data-table market-table">
-                  <thead>
-                    <tr>
-                      <th>Address</th>
-                      <th className="num">{token.symbol} held</th>
-                      <th className="num">Share of total supply</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {holders.data.holders.map((h, index) => {
-                      const percent =
-                        BigInt(holders.data!.totalSupply) > 0n
-                          ? Number(
-                              (BigInt(h.amount) * 1_000_000n) /
-                                BigInt(holders.data!.totalSupply),
-                            ) / 10000
-                          : null;
-                      return (
-                        <tr key={h.address}>
-                          <td>
-                            <span className="holder-rank">{index + 1}</span>
-                            <a
-                              className="mono"
-                              href={explorer ? `${explorer}/token/${token.address}?a=${h.address}` : undefined}
-                              target="_blank"
-                              rel="noreferrer"
-                            >
-                              {shortAddress(h.address)}
-                            </a>
-                            {h.isContract && <span className="chip sm sunken">Contract</span>}
-                          </td>
-                          <td className="num" title={formatUnits(BigInt(h.amount), 18)}>
-                            {count(Number(formatUnits(BigInt(h.amount), 18)))}
-                          </td>
-                          <td className="num">
-                            {percent == null
-                              ? "—"
-                              : `${percent < 0.0001 ? "<0.0001" : percent.toFixed(4)}%`}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <Message
-                loading={holders.loading}
-                error={holders.error}
-                empty="No indexed holder records returned."
-              />
-            )}
-            <p className="feed-note">
-              <MarketProvenance label="Holders" data={holders.data} /> ·{" "}
-              Indexing may be incomplete; pool contracts, burn addresses, or other holders may be missing. This list does not represent all holders.
-            </p>
-          </>
-        )}
+        ) : null}
+        {kind === "launch" && <div hidden={tab !== "holders"}>
+          <Message loading={false} error="" empty="Holder data unavailable" />
+          <p className="feed-note">Holder information is currently unavailable for this token.</p>
+        </div>}
       </section>
     </>
   );

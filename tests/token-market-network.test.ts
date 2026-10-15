@@ -53,7 +53,7 @@ test("read-only HTTP acceptance targets explicit identities and reports empty fi
     else if(req.url?.endsWith('/summary'))body=data;
     else if(req.url?.includes('/candles?'))body={...data,candles:[]};
     else if(req.url?.endsWith('/trades'))body={...data,trades:[]};
-    else if(req.url?.endsWith('/holders')){res.statusCode=holderFails?503:200;body=holderFails?{reason:'upstream_http',source:'Blockscout',upstreamStatus:403}:{...data,source:'Blockscout',holders:[],indexedCount:null,totalSupply:'0'}}
+    else if(req.url?.endsWith('/holders')){res.statusCode=503;body={status:'unavailable',reason:holderFails?'upstream_http':'source_not_provided',source:'Unavailable'}}
     else {res.statusCode=404;body={error:'fixture route missing'}}res.end(JSON.stringify(body));
   });
   await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));const port=(server.address() as {port:number}).port;
@@ -69,4 +69,84 @@ test("read-only HTTP acceptance targets explicit identities and reports empty fi
     await assert.rejects(promisify(execFile)(process.execPath,args),(e:any)=>e.code===2);
     const failure=JSON.parse(await readFile(output,'utf8'));assert.equal(failure.status,'incomplete');assert.deepEqual(failure.failures,['holders']);
   }finally{await new Promise<void>(resolve=>server.close(()=>resolve()));await rm(dir,{recursive:true,force:true});}
+});
+
+
+test("Bankr provenance maps Pools consistently and preserves the MUSEGOD external link", async () => {
+  const { createElement } = await import("react"), { renderToStaticMarkup } = await import("react-dom/server");
+  const { MarketProvenance } = await import("../src/components/TokenMarket");
+  const { MUSEGOD } = await import("../src/lib/musegod");
+  const data = { source: "Bankr" as const, fetchedAt: "2026-10-08T09:00:00Z" };
+  const markup = renderToStaticMarkup(createElement(MarketProvenance, { label: "Summary", data, kind: "musegod" }));
+  assert.match(markup, /Bankr \/ Pools/); assert(markup.includes(MUSEGOD.sourceUrl)); assert.match(markup, /↗/);
+});
+
+test("refreshing populated summaries hide initial loading banners and empty charts describe price records", async () => {
+  const { registerHooks } = await import("node:module");
+  const { pathToFileURL } = await import("node:url");
+  const { createElement } = await import("react"), { renderToStaticMarkup } = await import("react-dom/server");
+  const { MUSEGOD } = await import("../src/lib/musegod");
+  const entry = pathToFileURL(`${process.cwd()}/src/components/TokenMarket.tsx`);
+  entry.search = `fixture=${crypto.randomUUID()}`;
+  const key = `__marketRefresh${crypto.randomUUID().replaceAll("-", "")}`;
+  const token = { ...syntheticToken(), mode: "robinhood" as const, deploymentChainId: 4663 as const };
+  const endpoints = ["summary", "candles?interval=1h", "trades", "holders"].map(section => marketEndpoint(token, "musegod", section).key);
+  let refIndex = 0, dataIndex = 0;
+  const data = { fetchedAt: new Date().toISOString(), status: "fresh", source: "Bankr", priceUsd: 1,
+    marketCapUsd: null, fdvUsd: null, liquidityUsd: 1, periods: { h24: { change: null, volume: null, buys: null, sells: null } } };
+  const mock = {
+    useState(initial: any) {
+      return [typeof initial === "object" && initial !== null && "loading" in initial
+        ? ++dataIndex === 1 ? { data, error: "", loading: true } : { data: { ...data, candles: [], trades: [] }, error: "", loading: false }
+        : initial, () => {}];
+    },
+    useRef() { return { current: endpoints[refIndex++] }; },
+  };
+  Reflect.set(globalThis, key, mock);
+  const hooks = registerHooks({ resolve(specifier, context, next) {
+    if (specifier !== "react" || context.parentURL !== entry.href) return next(specifier, context);
+    return { shortCircuit: true, url: `data:text/javascript,${encodeURIComponent(`export * from ${JSON.stringify(import.meta.resolve("react"))};export const {useState,useRef}=globalThis[${JSON.stringify(key)}];`)}` };
+  } });
+  try {
+    const { default: View } = await import(entry.href);
+    const markup = renderToStaticMarkup(createElement(View, { token, kind: "musegod", refreshKey: "" }));
+    assert.doesNotMatch(markup, /Loading market data/);
+    assert.match(markup, /No indexed price records for this interval/);
+    assert.doesNotMatch(markup, /No indexed trades for this interval/);
+    assert(markup.includes(MUSEGOD.sourceUrl)); assert.match(markup, /refreshes every minute while visible/);
+  } finally { hooks.deregister(); Reflect.deleteProperty(globalThis, key); }
+});
+
+test("holders HTTP contract keeps registered-token validation and a long retry delay without upstream access", async (t) => {
+  const { mkdtemp, rm } = await import("node:fs/promises"), { tmpdir } = await import("node:os"), { join } = await import("node:path");
+  const { once } = await import("node:events");
+  const { createApp } = await import("../server/app"), { runtimeFromEnv } = await import("../server/config");
+  const { MUSEGOD } = await import("../src/lib/musegod");
+  const read = globalThis.fetch;
+  let external = 0;
+  t.mock.method(globalThis, "fetch", (async (input: any, init: any) => {
+    if (!String(input).startsWith("http://127.0.0.1:")) { external++; throw new Error("External access forbidden in fixture"); }
+    return read(input, init);
+  }) as typeof fetch);
+  for (const chain of [8453, 4663] as const) {
+    const directory = await mkdtemp(join(tmpdir(), "holders-contract-")), mode = chain === 8453 ? "base" : "robinhood";
+    const entry = createApp(undefined, "loopback", runtimeFromEnv(chain, { NODE_ENV: "test", CHAIN_MODE: mode, DATA_DIR: directory, ALCHEMY_API_KEY: "fixture-no-network" }));
+    const token = syntheticToken({ mode, deploymentChainId: chain, ...(chain === 4663 ? { quoteAddress: MUSEGOD.weth } : {}) });
+    await entry.service.store.saveToken(token);
+    let storage = 0;
+    entry.service.store.snapshot = () => { storage++; throw new Error("No holders snapshot reads"); };
+    entry.service.store.saveSnapshot = () => { storage++; throw new Error("No holders snapshot writes"); };
+    const server = entry.app.listen(0, "127.0.0.1"); await once(server, "listening");
+    const port = (server.address() as { port: number }).port;
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/api/tokens/${token.address}/market/holders`);
+      const body = await response.json() as any;
+      assert.equal(response.status, 503); assert.equal(body.status, "unavailable"); assert.equal(body.reason, "source_not_provided");
+      assert.equal(body.holders, undefined); assert(Number(response.headers.get("retry-after")) >= 86_399);
+      const missing = await fetch(`http://127.0.0.1:${port}/api/tokens/0x${"9".repeat(40)}/market/holders`);
+      assert([404, 422].includes(missing.status)); assert.notEqual((await missing.json() as any).reason, "source_not_provided");
+      assert.equal(storage, 0);
+    } finally { await new Promise<void>(resolve => server.close(() => resolve())); entry.service.store.close(); await rm(directory, { recursive: true, force: true }); }
+  }
+  assert.equal(external, 0);
 });

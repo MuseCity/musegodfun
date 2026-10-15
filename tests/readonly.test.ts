@@ -470,3 +470,32 @@ test("transaction records preserve pending entries, chain separation and replace
     else Reflect.deleteProperty(globalThis, "window");
   }
 });
+
+test("candles subquota persists independently across days/restarts and leaves 200 shared calls", async () => {
+  const f = fixture(), now = Date.UTC(2026, 9, 15);
+  try {
+    for (let i = 0; i < 100; i++) {
+      assert(f.store.reserveMarketCall(now, 100, 3000, "candles"));
+      assert(f.store.reserveMarketCall(now));
+    }
+    const restarted = new Store(f.dir, 8453);
+    try {
+      assert.equal(restarted.reserveMarketCall(now, 100, 3000, "candles"), false);
+      for (let i = 0; i < 200; i++) assert(restarted.reserveMarketCall(now));
+      assert.equal(restarted.reserveMarketCall(now), false);
+      assert(restarted.reserveMarketCall(now + 86400000, 100, 101, "candles"));
+      assert.equal(restarted.reserveMarketCall(now + 2 * 86400000, 100, 101, "candles"), false);
+    } finally { restarted.close(); }
+    const { SupabaseStore } = await import("../server/supabase-store");
+    const calls: any[] = [];
+    for (const scope of ["base", "robinhood"]) {
+      const store = new SupabaseStore("https://fixture.supabase.co", "fixture-only", scope, "base");
+      store.request = (async (path: string, method: string, body: any) => { calls.push({ path, method, body }); return true; }) as any;
+      await store.reserveMarketCall(now, 100, 3000, "candles");
+      await store.reserveMarketCall(now);
+    }
+    assert.deepEqual(calls.map(c => c.body.p_scope), ["base:candles", "base", "base:candles", "base"]);
+    assert(calls.every(c => c.path === "rpc/musegod_reserve_market_call"));
+    assert.deepEqual(calls[0].body, { p_scope: "base:candles", p_now: now, p_daily: 100, p_monthly: 3000 });
+  } finally { f.close(); }
+});

@@ -1,12 +1,11 @@
 import { marketSnapshotKey } from "../src/lib/market";
 import type { StoreBackend } from "./supabase-store";
-import { MarketFailure, MarketUnavailable, Snapshots } from "./snapshots";
+import { MarketFailure, marketFailure, MarketUnavailable, Snapshots } from "./snapshots";
 import { z } from "zod";
 import { quoteAsset, sameAddress, type TokenRecord } from "../src/lib/config";
 import type {
   CandleData,
   ChartInterval,
-  HolderData,
   MarketSummary,
   MarketSource,
   TradeData,
@@ -85,18 +84,21 @@ export function parseMarketSummary(
   const forward = baseId === meme && quoteId === quote;
   if (!sameAddress(a.address, token.poolId) || !(forward || baseId === quote && quoteId === meme))
     throw new MarketFailure("invalid_identity", "CoinGecko");
+  const price = forward ? a.base_token_price_usd : a.quote_token_price_usd;
   return {
     fetchedAt: new Date().toISOString(),
     priceUsd: forward ? a.base_token_price_usd : a.quote_token_price_usd,
-    fdvUsd: forward ? a.fdv_usd : null,
-    marketCapUsd: forward ? a.market_cap_usd : null,
-    liquidityUsd: a.reserve_in_usd,
+    fdvUsd: price !== null && forward ? a.fdv_usd : null,
+    marketCapUsd: price !== null && forward ? a.market_cap_usd : null,
+    liquidityUsd: price !== null ? a.reserve_in_usd : null,
     periods: Object.fromEntries(
       ["m5", "h1", "h6", "h24"].map((period) => [
         period,
         {
-          change: forward ? a.price_change_percentage[period] ?? null : null,
-          volume: a.volume_usd[period] ?? null,
+          change: price !== null && forward ? a.price_change_percentage[period] ?? null : null,
+          volume: a.volume_usd[period] === 0
+            ? a.transactions[period]?.buys === 0 && a.transactions[period]?.sells === 0 ? 0 : null
+            : price !== null ? a.volume_usd[period] ?? null : null,
           buys: forward ? a.transactions[period]?.buys ?? null : null,
           sells: forward ? a.transactions[period]?.sells ?? null : null,
         },
@@ -182,11 +184,11 @@ export function parseTrades(raw: unknown, token: TokenRecord): TradeData {
       )
         throw new MarketFailure("invalid_identity", "CoinGecko");
       // Demo amounts already use human token units, for both 8 and 18 decimals.
-      // The provider event id encodes network_block_txHash_logIndex_timestamp.
+      // Base ids observed in Run 2 suggest network_block_txHash_logIndex_timestamp.
+      // The segment is not receipt-verified; unknown formats keep the opaque provider id.
       const encoded = new RegExp(`^${token.mode === "robinhood" ? "robinhood" : "base"}_\\d+_${a.tx_hash}_(\\d+)_\\d+$`, "i").exec(id);
       const logIndex = a.log_index ?? (encoded ? Number(encoded[1]) : undefined);
-      if (logIndex === undefined || !Number.isSafeInteger(logIndex)) throw new MarketFailure("invalid_schema", "CoinGecko");
-      const eventKey = `${token.mode === "robinhood" ? 4663 : 8453}:${a.tx_hash.toLowerCase()}:${logIndex}`;
+      const eventKey = `${token.mode === "robinhood" ? 4663 : 8453}:${a.tx_hash.toLowerCase()}:${logIndex !== undefined && Number.isSafeInteger(logIndex) ? logIndex : `provider:${id}`}`;
       if (seen.has(eventKey)) return [];
       seen.add(eventKey);
       return [{
@@ -221,13 +223,13 @@ export class MarketReader {
   }
   private cached<T extends { fetchedAt: string; source?: MarketSource }>(
     key: string,
-    read: () => Promise<T>,
+    read: (previous?: T) => Promise<T>,
     source?: MarketSource,
   ): Promise<T> {
     if (!this.snapshots) throw new MarketFailure("missing_config", source ?? "CoinGecko");
     return this.snapshots.get(
       key,
-      source ?? (key.endsWith(":holders") ? "Blockscout" : "CoinGecko"),
+      source ?? "CoinGecko",
       read,
     );
   }
@@ -238,19 +240,30 @@ export class MarketReader {
     if (token.deploymentChainId !== undefined && token.deploymentChainId !== expected)
       throw new Error(token.mode === "robinhood" ? "Robinhood Chain mainnet is required" : "Base mainnet is required");
   }
-  private async json(url: string) {
+  private async json(url: string, candles = false) {
     const host = new URL(url).hostname, now = (this.options.now || Date.now)();
     const isMarket = host === "api.coingecko.com";
     const source: MarketSource = isMarket ? "CoinGecko" : host === "api.geckoterminal.com" ? "GeckoTerminal"
-      : host === "api.bankr.bot" ? "Bankr" : "Blockscout";
+      : host === "api.bankr.bot" ? "Bankr" : "Internal";
+    if (source === "Internal") throw new MarketFailure("invalid_identity", source);
     const retryAt = this.backoff.get(host) ?? 0;
-    if (retryAt > now) throw new MarketFailure("rate_limited", source, 429, retryAt);
+    if (retryAt > now) throw new MarketFailure("backoff", source, undefined, retryAt);
     if (isMarket && !this.options.apiKey) throw new MarketFailure("missing_config", source);
-    if (isMarket && !(await this.options.store?.reserveMarketCall(now, this.options.daily, this.options.monthly)))
-      throw new MarketFailure("quota_exhausted", source);
+    if (isMarket) {
+      try {
+        // Reserve the restrictive bucket first so exhausted candles never waste shared capacity.
+        if (candles && !(await this.options.store?.reserveMarketCall(now, 100, 3000, "candles")))
+          throw new MarketFailure("quota_exhausted", source);
+        if (!(await this.options.store?.reserveMarketCall(now, this.options.daily, this.options.monthly)))
+          throw new MarketFailure("quota_exhausted", source);
+      } catch (error) {
+        if (error instanceof MarketFailure) throw error;
+        throw new MarketFailure("storage_unavailable", "Storage");
+      }
+    }
     if (source === "GeckoTerminal") {
       this.geckoCalls = this.geckoCalls.filter(at => now - at < 60_000);
-      if (this.geckoCalls.length >= 30) throw new MarketFailure("rate_limited", source, undefined, now + 60_000);
+      if (this.geckoCalls.length >= 30) throw new MarketFailure("backoff", source, undefined, now + 60_000);
       this.geckoCalls.push(now);
     }
     let response: Response;
@@ -260,15 +273,15 @@ export class MarketReader {
         signal: AbortSignal.timeout(15_000), redirect: "manual",
       });
     } catch { throw new MarketFailure("upstream_transport", source); }
-    if (!response.ok) {
-      let retry: number | undefined;
-      if (response.status === 429) {
-        const header = response.headers.get("retry-after");
-        retry = Math.max(now + 60_000, header && /^\d+$/.test(header) ? now + Number(header) * 1000 : Date.parse(header ?? "") || 0);
-        this.backoff.set(host, retry);
-      }
-      throw new MarketFailure(response.status === 404 ? "not_indexed" : response.status === 429 ? "rate_limited" : "upstream_http", source, response.status, retry);
+    let retry: number | undefined;
+    const header = response.headers.get("retry-after");
+    if (response.status === 429 || header !== null) {
+      retry = Math.max(now + (source === "GeckoTerminal" ? 15 * 60_000 : 60_000),
+        header && /^\d+$/.test(header) ? now + Number(header) * 1000 : Date.parse(header ?? "") || 0);
+      this.backoff.set(host, retry);
     }
+    if (!response.ok)
+      throw new MarketFailure(response.status === 404 ? "not_indexed" : response.status === 429 ? "rate_limited" : "upstream_http", source, response.status, retry);
     try { return await response.json(); }
     catch { throw new MarketFailure("invalid_schema", source); }
   }
@@ -321,8 +334,9 @@ export class MarketReader {
             address: token.address,
             summary: null,
             status: "unavailable",
-            source: failure?.source ?? "CoinGecko",
-            reason: failure?.reason ?? "upstream_transport",
+            source: failure?.source ?? "Internal",
+            reason: failure?.reason ?? "internal_error",
+            causes: failure?.causes,
             upstreamStatus: failure?.upstreamStatus,
             nextRefreshAt: failure?.nextRefreshAt,
           };
@@ -344,11 +358,23 @@ export class MarketReader {
     )[interval];
     if (token.mode === "robinhood") {
       const key = marketSnapshotKey(token, `candles:${interval}`);
-      return this.cached(key, async (): Promise<CandleData> => {
+      return this.cached(key, async (previous?: CandleData): Promise<CandleData> => {
         const now = () => (this.options.now || Date.now)();
-        try {
-          return { ...parseCandles(await this.json(`${this.pool(token)}/ohlcv/${frame}?aggregate=${aggregate}&limit=200&currency=usd&token=${token.address}`), token, now()), source: "CoinGecko" };
-        } catch { /* Bounded existing Bankr -> GeckoTerminal path, with no retry of CoinGecko. */ }
+        const failures: MarketFailure[] = [];
+        const combined = () => {
+          const priority = ["missing_config", "quota_exhausted", "storage_unavailable", "internal_error", "invalid_identity", "invalid_schema", "rate_limited", "backoff", "upstream_http", "upstream_transport", "not_indexed"];
+          const chosen = [...failures].sort((a, b) => priority.indexOf(a.reason) - priority.indexOf(b.reason))[0];
+          return new MarketFailure(chosen.reason, chosen.source, chosen.upstreamStatus,
+            Math.max(...failures.map(f => f.retryAt ?? 0)),
+            failures.map(({ source, reason, upstreamStatus }) => ({ source, reason, upstreamStatus })));
+        };
+        const present = (data: CandleData): CandleData => {
+          if (!failures.length) return data;
+          const failure = combined();
+          if (!data.candles.length && previous?.candles.length) throw failure;
+          return { ...data, causes: failure.causes,
+            ...(!data.candles.length ? { reason: failure.reason, upstreamStatus: failure.upstreamStatus } : {}) };
+        };
         let empty: CandleData | undefined;
         try {
           const data = parseBankrCandles(await this.json(
@@ -356,22 +382,27 @@ export class MarketReader {
           ), token, now());
           if (data.candles.length) return data;
           empty = data;
-        } catch { /* Try the registered pool directly through GeckoTerminal. */ }
+        } catch (error) { failures.push(marketFailure(error, "Bankr")); }
+        let gt: CandleData | undefined;
         try {
-          const data = parseCandles(await this.json(
+          gt = { ...parseCandles(await this.json(
             `https://api.geckoterminal.com/api/v2/networks/robinhood/pools/${token.poolId}/ohlcv/${frame}?aggregate=${aggregate}&limit=200&currency=usd&token=${token.address}`,
-          ), token, now(), "GeckoTerminal");
-          return data.candles.length || !empty ? { ...data, source: "GeckoTerminal" } : empty;
-        } catch (error) {
-          if (empty) return empty;
-          throw error;
-        }
-      }, "CoinGecko");
+          ), token, now(), "GeckoTerminal"), source: "GeckoTerminal" };
+        } catch (error) { failures.push(marketFailure(error, "GeckoTerminal")); }
+        if (gt?.candles.length) return present(gt);
+        if (empty) return present(empty);
+        if (gt) return present(gt);
+        let cg: CandleData;
+        try {
+          cg = { ...parseCandles(await this.json(`${this.pool(token)}/ohlcv/${frame}?aggregate=${aggregate}&limit=200&currency=usd&token=${token.address}`, true), token, now()), source: "CoinGecko" };
+        } catch (error) { failures.push(marketFailure(error, "CoinGecko")); throw combined(); }
+        return present(cg);
+      }, "Bankr");
     }
     return this.cached(marketSnapshotKey(token, `candles:${interval}`), async () =>
       parseCandles(
         await this.json(
-          `${this.pool(token)}/ohlcv/${frame}?aggregate=${aggregate}&limit=200&currency=usd&token=${token.address}`,
+          `${this.pool(token)}/ohlcv/${frame}?aggregate=${aggregate}&limit=200&currency=usd&token=${token.address}`, true,
         ),
         token,
       ),
@@ -383,46 +414,9 @@ export class MarketReader {
       parseTrades(await this.json(`${this.pool(token)}/trades`), token),
     );
   }
-  holders(token: TokenRecord): Promise<HolderData> {
+  holders(token: TokenRecord): Promise<never> {
     this.assertLive(token);
-    return this.cached(marketSnapshotKey(token, "holders"), async () => {
-      const root = `https://${token.mode === "robinhood" ? "robinhoodchain" : "base"}.blockscout.com/api/v2/tokens/${token.address}`;
-      const [rawInfo, rawHolders] = await Promise.all([
-        this.json(root),
-        this.json(`${root}/holders`),
-      ]);
-      const info = z
-        .object({
-          address_hash: address,
-          decimals: z.literal("18"),
-          total_supply: z.string().regex(/^\d+$/),
-          holders_count: optionalNumber,
-        })
-        .parse(rawInfo);
-      if (!sameAddress(info.address_hash, token.address))
-        throw new MarketFailure("invalid_identity", "Blockscout");
-      const holders = z
-        .object({
-          items: z
-            .array(
-              z.object({
-                address: z.object({ hash: address, is_contract: z.boolean() }),
-                value: z.string().regex(/^\d+$/),
-              }),
-            )
-            .max(100),
-        })
-        .parse(rawHolders).items;
-      return {
-        fetchedAt: new Date().toISOString(),
-        indexedCount: info.holders_count,
-        totalSupply: info.total_supply,
-        holders: holders.slice(0, 10).map((h) => ({
-          address: h.address.hash,
-          amount: h.value,
-          isContract: h.address.is_contract,
-        })),
-      };
-    });
+    return Promise.reject(new MarketUnavailable("Holder data unavailable",
+      new Date((this.options.now || Date.now)() + 24 * 60 * 60_000).toISOString(), "Unavailable", "source_not_provided"));
   }
 }

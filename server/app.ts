@@ -594,6 +594,7 @@ app.use(
             source: error.source,
             reason: error.reason,
             upstreamStatus: error.upstreamStatus,
+            causes: error.causes,
             nextRefreshAt: error.nextRefreshAt,
           }
         : {}),

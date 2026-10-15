@@ -32,8 +32,8 @@ let summary: any;
 if (!failures.length) {
   for (const section of ["summary", ...CHART_INTERVALS.map(interval => `candles?interval=${interval}`), "trades", "holders"]) {
     const { http, body } = await read(`/tokens/${address}/market/${section}`);
-    const list = section.startsWith("candles") ? body.candles : section === "trades" ? body.trades : section === "holders" ? body.holders : undefined;
-    const valid = http === 200 && ["fresh", "stale"].includes(body.status) && typeof body.source === "string" && Number.isFinite(Date.parse(body.fetchedAt))
+    const list = section.startsWith("candles") ? body.candles : section === "trades" ? body.trades : undefined;
+    const valid = section === "holders" ? http === 503 && body.status === "unavailable" && body.reason === "source_not_provided" && !("holders" in body) : http === 200 && ["fresh", "stale"].includes(body.status) && typeof body.source === "string" && Number.isFinite(Date.parse(body.fetchedAt))
       && (section === "summary" ? [body.priceUsd, body.marketCapUsd, body.fdvUsd, body.liquidityUsd].every(value => value === null || typeof value === "number" && Number.isFinite(value)) : Array.isArray(list));
     if (!valid) failures.push(section);
     sections[section] = { http, valid, source: body.source, fetchedAt: body.fetchedAt, status: body.status, reason: body.reason, upstreamStatus: body.upstreamStatus,

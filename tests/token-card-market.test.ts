@@ -160,12 +160,76 @@ test("runtime scope separates networks and initial hook output never claims an a
 });
 
 
-test("card scope changes on pool/quote identity and Robinhood batches preserve row diagnostics", async () => {
+test("card row identity changes on pool/quote while scope stays stable and Robinhood batches preserve row diagnostics", async () => {
   const token=syntheticToken({mode:'robinhood',deploymentChainId:4663});
-  assert.notEqual(cardMarketPlan([token],robinhood).scope,cardMarketPlan([{...token,poolId:`0x${'c'.repeat(64)}`}],robinhood).scope);
-  assert.notEqual(cardMarketPlan([token],robinhood).scope,cardMarketPlan([{...token,quoteAddress:token.address}],robinhood).scope);
+  assert.equal(cardMarketPlan([token],robinhood).scope,cardMarketPlan([{...token,poolId:`0x${'c'.repeat(64)}`}],robinhood).scope);
+  assert.equal(cardMarketPlan([token],robinhood).scope,cardMarketPlan([{...token,quoteAddress:token.address}],robinhood).scope);
   let calls=0;
   const rows=await loadCardMarkets(4663,[token.address],false,async <T>(chain: 8453 | 4663,path: string)=>{calls++;assert.equal(chain,4663);assert(path.startsWith('/market/summaries?'));return [{address:token.address,summary:null,status:'unavailable',reason:'missing_config',source:'CoinGecko'}] as T});
   assert.equal(calls,1);assert.equal(rows[token.address.toLowerCase()].reason,'missing_config');
   assert.equal(rows[token.address.toLowerCase()].error,'Market data unavailable');
+});
+
+
+test("card list changes preserve scope while per-row identities track replaced pools", () => {
+  const one = syntheticToken(), two = syntheticToken({ address: address(2) as `0x${string}` });
+  const initial = cardMarketPlan([one], base), added = cardMarketPlan([one, two], base);
+  assert.equal(initial.scope, added.scope);
+  assert.equal(initial.identities[one.address.toLowerCase()], added.identities[one.address.toLowerCase()]);
+  assert.notEqual(initial.identities[one.address.toLowerCase()], cardMarketPlan([{ ...one, poolId: `0x${"c".repeat(64)}` }], base).identities[one.address.toLowerCase()]);
+});
+
+test("live card hook separates one-minute featured refresh from 15-minute batches and retains rows on additions", async (t) => {
+  // Run the actual hook with deterministic React hooks/timers and a controlled API, no DOM or network.
+  const { build } = await import("esbuild");
+  const slots: any[] = []; let cursor = 0; const pending: (() => void)[] = [];
+  const hooks = {
+    useState(initial: any) { const index = cursor++; slots[index] ??= { value: typeof initial === "function" ? initial() : initial }; return [slots[index].value, (value: any) => { slots[index].value = typeof value === "function" ? value(slots[index].value) : value; }]; },
+    useRef(initial: any) { const index = cursor++; return slots[index] ??= { current: initial }; },
+    useEffect(fn: () => any, deps: any[]) { const index = cursor++, old = slots[index]; if (!old || deps.some((v, i) => !Object.is(v, old.deps[i]))) pending.push(() => { old?.cleanup?.(); slots[index] = { deps, cleanup: fn() }; }); },
+  };
+  const requests: string[] = [];
+  const launch = syntheticToken({ mode: "robinhood", deploymentChainId: 4663, quoteAddress: MUSEGOD.weth });
+  let tokens = [launch];
+  const fixture = { hooks, read: async (_chain: number, path: string) => {
+    requests.push(path);
+    const data = summary({ fetchedAt: new Date().toISOString() });
+    return path.includes("/musegod/") ? data : tokens.map(token => ({ address: token.address, summary: data }));
+  } };
+  const fixtureKey = "__cardMarketRun3";
+  for (const [key, value] of [[fixtureKey, fixture], ["document", { visibilityState: "visible" }]] as const) {
+    const previous = Object.getOwnPropertyDescriptor(globalThis, key);
+    Object.defineProperty(globalThis, key, { configurable: true, value });
+    t.after(() => { if (previous) Object.defineProperty(globalThis, key, previous); else Reflect.deleteProperty(globalThis, key); });
+  }
+  const timers = new Map<number, { fn: () => void; ms: number }>(); let timerId = 0;
+  t.mock.method(globalThis, "setInterval", ((fn: () => void, ms: number) => { timers.set(++timerId, { fn, ms }); return timerId; }) as never);
+  t.mock.method(globalThis, "clearInterval", ((id: number) => timers.delete(id)) as never);
+  t.mock.method(globalThis, "setTimeout", (() => 0) as never);
+  const { outputFiles } = await build({ bundle: true, write: false, format: "esm", platform: "node", entryPoints: ["src/lib/token-card-market.ts"],
+    plugins: [{ name: "controlled-hooks", setup(build) {
+      build.onResolve({ filter: /^react$/ }, () => ({ path: "react", namespace: "fixture" }));
+      build.onResolve({ filter: /^\.\/api$/ }, () => ({ path: "api", namespace: "fixture" }));
+      build.onLoad({ filter: /.*/, namespace: "fixture" }, ({ path }) => ({ contents: path === "react"
+        ? `export const {useState,useRef,useEffect} = globalThis.${fixtureKey}.hooks;`
+        : `export const chainApi = (...args) => globalThis.${fixtureKey}.read(...args);` }));
+    } }] });
+  const { useTokenCardMarkets: hook } = await import(`data:text/javascript;base64,${Buffer.from(outputFiles[0].text).toString("base64")}`);
+  const render = () => { cursor = 0; const rows = hook(tokens, robinhood, 0); while (pending.length) pending.shift()!(); return rows; };
+  try {
+    render(); await Promise.resolve(); await Promise.resolve(); render();
+    const baseline = requests.length;
+    assert.equal(baseline, 2); assert.deepEqual([...timers.values()].map(t => t.ms).sort((a,b)=>a-b), [60_000, 900_000]);
+    [...timers.values()].find(t => t.ms === 60_000)!.fn(); render(); await Promise.resolve(); await Promise.resolve(); render();
+    assert.deepEqual(requests.slice(baseline), ["/musegod/market/summary"]);
+    const before = render()[launch.address.toLowerCase()].data;
+    tokens = [launch, syntheticToken({ ...launch, address: address(3) as `0x${string}` })];
+    const added = render(); assert.equal(added[launch.address.toLowerCase()].data, before);
+    await Promise.resolve(); await Promise.resolve(); render();
+    const index = requests.length; [...timers.values()].find(t => t.ms === 900_000)!.fn(); render();
+    await Promise.resolve(); await Promise.resolve(); render();
+    assert.equal(requests.length, index + 1); assert(requests.at(-1)!.startsWith("/market/summaries"));
+    tokens = [{ ...launch, poolId: `0x${"c".repeat(64)}` }];
+    assert.equal(render()[launch.address.toLowerCase()].data, null, "only the changed identity resets immediately");
+  } finally { for (const slot of slots) slot?.cleanup?.(); }
 });

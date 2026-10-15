@@ -560,7 +560,6 @@ dialog.modal[open] { display: flex; flex-direction: column; gap: 16px; }
 .flow-stats { margin-top: -4px; }
 .trade-type { white-space: nowrap; }
 .trade-type small { font-size: 12px; color: var(--ink-muted); }
-.holder-rank { display: inline-block; width: 22px; font-family: var(--font-mono); font-size: 11px; color: var(--ink-faint); }
 .market-table .chip { margin-left: 6px; }
 .feed-note { font-size: 12px; line-height: 16px; color: var(--ink-faint); }
 

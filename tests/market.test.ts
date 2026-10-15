@@ -266,15 +266,15 @@ test("Robinhood summary/trades/holders use their own endpoints and fail independ
   const store = { snapshot: (key: string) => rows.get(key), saveSnapshot: (k: string,data: unknown,at: number)=>rows.set(k,{data,at}), reserveMarketCall: ()=>true };
   const reader = new MarketReader({store:store as never, apiKey:"fixture",fetch:async input=>{
     const url=String(input);calls.push(url);assert(!url.includes('/networks/base/'));
-    if(url.includes('blockscout'))return new Response('challenge',{status:403});
+
     return Response.json(url.endsWith('/trades')?{data:[]}:url.includes('/multi/')?{data:[raw.data]}:raw);
   }});
   const batch=await reader.summaries([rh]); assert.equal(batch[0].summary?.priceUsd,0.0004);
   assert.equal((await reader.summary(rh)).fetchedAt,batch[0].summary?.fetchedAt);
   assert.deepEqual((await reader.trades(rh)).trades,[]);
-  await assert.rejects(reader.holders(rh),(e:any)=>e.source==='Blockscout'&&e.reason==='upstream_http'&&e.upstreamStatus===403);
+  await assert.rejects(reader.holders(rh),(e:any)=>e.reason==='source_not_provided');
   assert.equal((await reader.summary(rh)).priceUsd,0.0004);
-  assert(calls.some(u=>u.includes('robinhoodchain.blockscout.com')));
+  assert.equal(calls.length, 2);
 });
 
 test("normalized trade amounts are not scaled twice and repeated chain/transaction/log events deduplicate", () => {
@@ -317,7 +317,7 @@ test("quota, schema and transport errors remain failures while holders bypass De
   }
   let fetches=0;const reader=new MarketReader({store:{snapshot:()=>null,saveSnapshot:()=>{},reserveMarketCall:()=>false} as never,apiKey:'fixture',fetch:async()=>{fetches++;return new Response(null,{status:403})}});
   await assert.rejects(reader.summary(token),(e:any)=>e.reason==='quota_exhausted');assert.equal(fetches,0);
-  await assert.rejects(reader.holders(token),(e:any)=>e.source==='Blockscout'&&e.reason==='upstream_http');assert.equal(fetches,2);
+  await assert.rejects(reader.holders(token),(e:any)=>e.reason==='source_not_provided');assert.equal(fetches,0);
 });
 
 test("a missing multi-pool row preserves not-indexed state without inventing an upstream 404", async () => {
@@ -330,4 +330,79 @@ test("Robinhood WETH 18-decimal quotes keep normalized sell amounts and exact as
   const attributes={tx_hash:`0x${'2'.repeat(64)}`,log_index:12,tx_from_address:rh.quoteAddress,block_timestamp:'2026-10-08T09:00:00Z',kind:'buy',from_token_address:rh.address,to_token_address:rh.quoteAddress,from_token_amount:'0.123456789012345678',to_token_amount:'0.000000000000000001',volume_in_usd:null};
   const [trade]=parseTrades({data:[{id:'fixture-sell',attributes}]},rh).trades;
   assert.equal(trade.side,'sell');assert.equal(trade.amount,0.123456789012345678);assert.equal(trade.usd,null);assert.match(trade.id,/^4663:/);
+});
+
+
+test("unknown target USD prices suppress placeholder valuations; zero volume requires confirmed zero trades", () => {
+  // R1 reverse / R2 forward response shape from Run 1 cg-4663 summaries.
+  for (const reverse of [false, true]) {
+    const raw = structuredClone(pool);
+    Object.assign(raw.data.attributes, { base_token_price_usd: null, quote_token_price_usd: null,
+      reserve_in_usd: "0.0", fdv_usd: "0", price_change_percentage: { h24: "0" },
+      volume_usd: { h24: "0", h1: "0", m5: "2" },
+      transactions: { h24: { buys: 0, sells: 0 }, h1: { buys: 1, sells: 0 } } });
+    if (reverse) [raw.data.relationships.base_token, raw.data.relationships.quote_token] = [raw.data.relationships.quote_token, raw.data.relationships.base_token];
+    const stats = parseMarketSummary(raw, token);
+    assert.equal(stats.priceUsd, null); assert.equal(stats.liquidityUsd, null); assert.equal(stats.fdvUsd, null);
+    assert.equal(stats.periods.h24.change, null); assert.equal(stats.periods.h24.volume, 0);
+    assert.equal(stats.periods.h1.volume, null); assert.equal(stats.periods.m5.volume, null);
+  }
+});
+
+test("provider ids decode the observed Base trade shape and unknown RH ids retain distinct events", () => {
+  // Source: Run 2 evidence/run2-base-trades.json, observed 2026-10-15T10:47:57.321Z.
+  // Nonregistered KAI/NVDAc parser fixture; the id segment is inferred, not receipt-verified logIndex.
+  const base = syntheticToken({ address: "0xca18a528ea897040f715edc92e6e4572780c5ca1", quoteAddress: "0xb20000000000000000000078ee7ce2fe4908108c" });
+  const attributes = { tx_hash: "0x52688c9c63de8fad9c1e022252690fea0ca5bf7e59f89254e0577e0e08dab415",
+    tx_from_address: "0x75cddbbbec8794f90ec75900501cfbe24da32714", block_timestamp: "2026-10-15T10:45:37Z", kind: "sell",
+    from_token_address: base.quoteAddress, to_token_address: base.address, from_token_amount: "0.36782377", to_token_amount: "150458.486958072",
+    price_from_in_usd: "223.929238307085", price_to_in_usd: "0.000512397420179925", volume_in_usd: "82.3664966473405" };
+  const row = { id: `base_52635895_${attributes.tx_hash}_811_1792061150`, attributes };
+  const parsed = parseTrades({ data: [row, row, { ...row, attributes: { ...attributes, log_index: 811 } }] }, base).trades;
+  assert.equal(parsed.length, 1); assert.match(parsed[0].id, /:811$/); assert.equal(parsed[0].side, "buy");
+  assert.equal(parsed[0].amount, 150458.486958072);
+  const rh = { ...base, mode: "robinhood" as const, deploymentChainId: 4663 as const };
+  const rhRow = { ...row, id: row.id.replace("base_", "robinhood_") };
+  const events = parseTrades({ data: [rhRow, { ...row, id: "unknown-provider-event-a" }, { ...row, id: "unknown-provider-event-b" }, { ...row, id: "unknown-provider-event-a" }] }, rh).trades;
+  assert.equal(events.length, 3); assert.equal(new Set(events.map(t => t.id)).size, 3);
+});
+
+test("holders on both mainnets bypass fetch, snapshot reads/writes and quota while preserving history", async () => {
+  const history = new Map([["old:holders", { holders: ["historical"] }]]);
+  let calls = 0;
+  const touch = () => { calls++; throw new Error("holders must not touch dependencies"); };
+  const reader = new MarketReader({ store: { snapshot: touch, saveSnapshot: touch, reserveMarketCall: touch } as never, fetch: touch as typeof fetch });
+  for (const mode of ["base", "robinhood"] as const) {
+    await assert.rejects(reader.holders(syntheticToken({ mode, deploymentChainId: mode === "base" ? 8453 : 4663 })), (e: any) => e.reason === "source_not_provided" && e.status === "unavailable" && !('holders' in e));
+  }
+  assert.equal(calls, 0); assert.equal(history.size, 1);
+});
+
+test("candles reserve the 100/day 3000/month subquota before shared quota on both chains", async () => {
+  for (const mode of ["base", "robinhood"] as const) {
+    for (const reject of ["candles", "shared", "none"]) {
+      const quotas: unknown[][] = []; let cg = 0;
+      const reader = new MarketReader({ apiKey: "fixture", store: { snapshot: () => null, saveSnapshot: () => {},
+        reserveMarketCall: (...args: unknown[]) => { quotas.push(args.slice(1)); return (args[3] ?? "shared") !== reject; } } as never,
+        fetch: async input => { if (new URL(String(input)).hostname !== "api.coingecko.com") return new Response(null, { status: 404 }); cg++; return Response.json(candleData([])); } });
+      const t = { ...token, mode, deploymentChainId: mode === "base" ? 8453 as const : 4663 as const };
+      if (reject === "none") await reader.candles(t, "1h");
+      else await assert.rejects(reader.candles(t, "1h"), (e: any) => e.reason === "quota_exhausted");
+      assert.deepEqual(quotas[0], [100, 3000, "candles"]);
+      assert.equal(quotas.length, reject === "candles" ? 1 : 2); assert.equal(cg, reject === "none" ? 1 : 0);
+    }
+  }
+});
+
+test("storage and unexpected program errors are distinct from provider transport failures", async () => {
+  const touch = () => { throw new Error("private storage details"); };
+  const reader = new MarketReader({ store: { snapshot: touch } as never });
+  await assert.rejects(reader.summary(token), (e: any) => e.reason === "storage_unavailable" && e.source === "Storage" && !JSON.stringify(e).includes("private storage"));
+  assert.equal((await reader.summaries([token]))[0].reason, "storage_unavailable");
+  let saves = 0;
+  const fresh = await new MarketReader({ store: { snapshot: () => null, saveSnapshot: () => { saves++; touch(); }, reserveMarketCall: () => true } as never,
+    apiKey: "fixture", fetch: async () => Response.json(pool) }).summary(token);
+  assert.equal(fresh.priceUsd, 0.0004); assert.equal(fresh.reason, "storage_unavailable"); assert.equal(saves, 1);
+  const { Snapshots } = await import("../server/snapshots");
+  await assert.rejects(new Snapshots({ snapshot: () => null } as never).get("program", "CoinGecko", async () => touch()), (e: any) => e.reason === "internal_error" && e.source === "CoinGecko" && e.causes[0].source === "Internal");
 });

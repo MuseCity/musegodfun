@@ -72,18 +72,18 @@ test("Workerd runs configured Robinhood CoinGecko, preserves HTTP/schema failure
   const calls:string[]=[];
   const runtime=new Miniflare(convertV4MiniflareOptions({modules:true,compatibilityDate:'2026-10-04',script:outputFiles[0].text,outboundService:async request=>{
     calls.push(request.url);const url=new URL(request.url);
-    if(url.hostname.endsWith('blockscout.com'))return new Response('challenge',{status:403});
+
     assert.equal(url.hostname,'api.coingecko.com');assert(url.pathname.includes('/networks/robinhood/'));assert.equal(request.headers.get('x-cg-demo-api-key'),'fixture-only');
     return url.pathname.endsWith('/trades')?new Response('invalid-json'):new Response(null,{status:429,headers:{'retry-after':'3600'}});
   }}));
   try{
     const first=await runtime.dispatchFetch('https://fixture.test/summary');const a=await first.json() as any;
     assert.equal(first.status,503);assert.equal(a.reason,'rate_limited');assert.equal(a.upstreamStatus,429);assert.equal(a.quota,1);
-    const next=await runtime.dispatchFetch('https://fixture.test/trades');assert.equal((await next.json() as any).reason,'rate_limited');
+    const next=await runtime.dispatchFetch('https://fixture.test/trades');const suppressed=await next.json() as any;assert.equal(suppressed.reason,'backoff');assert.equal(suppressed.upstreamStatus,undefined);
     assert.equal(calls.length,1,'A different section cannot immediately retry a throttled provider');
     const malformed=await runtime.dispatchFetch('https://fixture.test/advance');assert.equal((await malformed.json() as any).reason,'invalid_schema');
     const holders=await runtime.dispatchFetch('https://fixture.test/holders');const h=await holders.json() as any;
-    assert.equal(h.source,'Blockscout');assert.equal(h.reason,'upstream_http');assert.equal(h.upstreamStatus,403);assert.equal(h.quota,2);
+    assert.equal(h.reason,'source_not_provided');assert.equal(h.upstreamStatus,undefined);assert.equal(calls.length,2);
     const timeout=await runtime.dispatchFetch('https://fixture.test/timeout');assert.equal((await timeout.json() as any).reason,'upstream_transport');
   }finally{await runtime.dispose()}
 });

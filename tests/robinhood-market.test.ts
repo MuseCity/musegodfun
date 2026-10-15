@@ -122,7 +122,7 @@ test("wrong Gecko token/quote and ambiguous duplicate candles fail closed withou
     { ...gecko(), data: { attributes: { ohlcv_list: [rows[0], [TIME, 1, 2, 0.5, 1.8, 10]] } } }]) {
     const f = fixture(async input => new URL(String(input)).hostname === "api.bankr.bot"
       ? new Response(null, { status: 503 }) : Response.json(data));
-    await assert.rejects(f.reader.candles(token, "1h"), (e: any) => e.status === "unavailable" && e.source === "GeckoTerminal" && ["invalid_identity", "invalid_schema"].includes(e.reason));
+    await assert.rejects(f.reader.candles(token, "1h"), (e: any) => e.status === "unavailable" && e.reason === "missing_config" && e.causes.some((c: any) => c.source === "GeckoTerminal" && ["invalid_identity", "invalid_schema"].includes(c.reason)));
     assert.equal(f.snapshots.size, 0);
   }
 });
@@ -165,14 +165,79 @@ test("Gecko fallback caps outbound calls at 30 per rolling minute per reader", a
   await f.reader.candles(record(32), "1h"); assert.equal(geckoCalls, 31);
 });
 
-test("configured CoinGecko is first for Robinhood and valid empty history stops fallback", async () => {
-  for (const empty of [false,true]) {
-    const calls:string[]=[];
-    const f=fixture(async input=>{calls.push(String(input));return Response.json({...gecko(),data:{attributes:{ohlcv_list:empty?[]:rows}}});});
-    const store={...f.options.store,reserveMarketCall:()=>true};
-    const reader=new MarketReader({...f.options,store,apiKey:'fixture'});
-    const result=await reader.candles(token,'1h');
-    assert.equal(result.source,'CoinGecko');assert.equal(result.candles.length,empty?0:1);
-    assert.equal(calls.length,1);assert(calls[0].includes('/networks/robinhood/'));
+test("Bankr identity-verified empty history avoids Demo even with a configured key", async () => {
+  const calls: string[] = [];
+  const f = fixture(async input => {
+    const host = new URL(String(input)).hostname; calls.push(host);
+    return host === "api.bankr.bot" ? Response.json({ ...bankr(), ohlcv: [] }) : new Response(null, { status: 429 });
+  });
+  const reader = new MarketReader({ ...f.options, apiKey: "fixture" });
+  const data = await reader.candles(token, "1h");
+  assert.equal(data.source, "Bankr"); assert.deepEqual(data.candles, []);
+  assert.deepEqual(calls, ["api.bankr.bot", "api.geckoterminal.com"]);
+  assert.equal(data.reason, "rate_limited"); assert.equal(data.causes?.length, 1);
+});
+
+test("failed sources plus legal empty fallback retain a nonempty snapshot without overwriting it", async () => {
+  for (const emptySource of ["Bankr", "GeckoTerminal", "CoinGecko"]) {
+    let failed = false;
+    const f = fixture(async input => {
+      const host = new URL(String(input)).hostname;
+      if (!failed) return host === "api.coingecko.com" ? Response.json(gecko()) : new Response(null, { status: 404 });
+      if (host === "api.bankr.bot" && emptySource === "Bankr") return Response.json({ ...bankr(), ohlcv: [] });
+      if (host === "api.geckoterminal.com" && emptySource === "GeckoTerminal" || host === "api.coingecko.com" && emptySource === "CoinGecko")
+        return Response.json({ ...gecko(), data: { attributes: { ohlcv_list: [] } } });
+      return new Response(null, { status: 503 });
+    });
+    const reader = new MarketReader({ ...f.options, apiKey: "fixture", store: { ...f.options.store, reserveMarketCall: () => true } });
+    const fresh = await reader.candles(token, "1h"), saved = structuredClone([...f.snapshots.entries()]);
+    failed = true; f.advance(SNAPSHOT_TTL + 1);
+    const stale = await reader.candles(token, "1h");
+    assert.equal(stale.status, "stale", emptySource); assert.equal(stale.source, "CoinGecko");
+    assert.deepEqual(stale.candles, fresh.candles); assert.equal(stale.fetchedAt, fresh.fetchedAt);
+    assert(stale.reason); assert(stale.causes?.length); assert.deepEqual([...f.snapshots.entries()], saved);
+  }
+});
+
+test("cold legal empty GT result preserves prior failures and does not call CoinGecko", async () => {
+  const calls: string[] = [];
+  const f = fixture(async input => {
+    const host = new URL(String(input)).hostname; calls.push(host);
+    return host === "api.bankr.bot" ? new Response(null, { status: 404 }) : Response.json({ ...gecko(), data: { attributes: { ohlcv_list: [] } } });
+  });
+  const data = await new MarketReader({ ...f.options, apiKey: "fixture" }).candles(token, "1h");
+  assert.equal(data.status, "fresh"); assert.equal(data.reason, "not_indexed");
+  assert.equal(data.causes?.[0].source, "Bankr"); assert.equal(calls.length, 2);
+});
+
+test("all-source failures aggregate sanitized causes and prioritize missing config or quota", async () => {
+  for (const configured of [false, true]) {
+    const f = fixture(async () => new Response("private-body", { status: 503 }));
+    const reader = new MarketReader({ ...f.options, apiKey: configured ? "fixture" : undefined,
+      store: { ...f.options.store, reserveMarketCall: () => false } });
+    await assert.rejects(reader.candles(token, "1h"), (e: any) => {
+      assert.equal(e.reason, configured ? "quota_exhausted" : "missing_config");
+      assert.equal(e.source, "CoinGecko"); assert.equal(e.causes.length, 3);
+      assert(!JSON.stringify(e).includes("private-body")); return true;
+    });
+  }
+});
+
+test("GT 429 and Retry-After open a host-wide breaker for at least 15 minutes", async () => {
+  for (const status of [429, 503]) {
+    let gt = 0, cg = 0;
+    const f = fixture(async input => {
+      const host = new URL(String(input)).hostname;
+      if (host === "api.bankr.bot") return new Response(null, { status: 404 });
+      if (host === "api.geckoterminal.com") { gt++; return new Response(null, { status, headers: { "retry-after": status === 429 ? "1" : "1800" } }); }
+      cg++; return Response.json(gecko());
+    });
+    const reader = new MarketReader({ ...f.options, apiKey: "fixture", store: { ...f.options.store, reserveMarketCall: () => true } });
+    await reader.candles(token, "1h");
+    const fallback = await reader.candles(token, "5m");
+    assert.equal(gt, 1); assert.equal(cg, 2);
+    assert(fallback.causes?.some(c => c.source === "GeckoTerminal" && c.reason === "backoff" && c.upstreamStatus === undefined));
+    f.advance(status === 429 ? 900_000 : 1_800_000);
+    await reader.candles(token, "4h"); assert.equal(gt, 2);
   }
 });

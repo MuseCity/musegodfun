@@ -1,17 +1,21 @@
 import type { StoreBackend } from "./supabase-store";
-import type { MarketReason, MarketSource } from "../src/lib/market";
+import type { MarketCause, MarketReason, MarketSource } from "../src/lib/market";
 export const SNAPSHOT_TTL = 15 * 60_000;
 export const MAX_STALE = 24 * 60 * 60_000;
 export class MarketFailure extends Error {
   constructor(readonly reason: MarketReason, readonly source: MarketSource,
-    readonly upstreamStatus?: number, readonly retryAt?: number) {
+    readonly upstreamStatus?: number, readonly retryAt?: number, readonly causes?: MarketCause[]) {
     super("Market data is temporarily unavailable. Try again later.");
   }
 }
 export function marketFailure(error: unknown, source: MarketSource): MarketFailure {
   if (error instanceof MarketFailure) return error;
-  return new MarketFailure(error instanceof Error && (error.name === "ZodError" || error.name === "SyntaxError")
-    ? "invalid_schema" : "upstream_transport", source);
+  if (error instanceof Error && (error.name === "ZodError" || error.name === "SyntaxError"))
+    return new MarketFailure("invalid_schema", source);
+  // Preserve the snapshot's provider identity (including the dedicated MUSEGOD path),
+  // but never call an untyped program error a provider transport failure.
+  return new MarketFailure("internal_error", source, undefined, undefined,
+    [{ source: "Internal", reason: "internal_error" }]);
 }
 export class MarketUnavailable extends Error {
   readonly status = "unavailable";
@@ -21,6 +25,7 @@ export class MarketUnavailable extends Error {
     readonly source: string = "CoinGecko",
     readonly reason?: MarketReason,
     readonly upstreamStatus?: number,
+    readonly causes?: MarketCause[],
   ) {
     super(message);
   }
@@ -36,14 +41,18 @@ export class Snapshots {
   get<T extends { fetchedAt: string; source?: MarketSource }>(
     key: string,
     source: MarketSource,
-    read: () => Promise<T>,
+    read: (previous?: T) => Promise<T>,
     ttl = SNAPSHOT_TTL,
   ): Promise<T> {
     const inflight = this.inflight.get(key);
     if (inflight) return inflight as Promise<T>;
     const result = (async () => {
-      const now = this.now(),
-        previous = await this.store.snapshot(key);
+      const now = this.now();
+      let previous: Awaited<ReturnType<StoreBackend["snapshot"]>>;
+      try { previous = await this.store.snapshot(key); }
+      catch {
+        throw new MarketUnavailable("Market storage is temporarily unavailable.", new Date(now + ttl).toISOString(), "Storage", "storage_unavailable");
+      }
       const present = (
         data: T,
         at: number,
@@ -58,7 +67,7 @@ export class Snapshots {
         status: stale ? "stale" : "fresh",
         nextRefreshAt: new Date(next).toISOString(),
         warning,
-        ...(failure ? { reason: failure.reason, upstreamStatus: failure.upstreamStatus } : {}),
+        ...(failure ? { reason: failure.reason, upstreamStatus: failure.upstreamStatus, causes: failure.causes } : {}),
       });
       if (previous && now - previous.at < ttl)
         return Promise.resolve(
@@ -89,14 +98,20 @@ export class Snapshots {
             this.failures.get(key)?.source ?? source,
             this.failures.get(key)?.reason,
             this.failures.get(key)?.upstreamStatus,
+            this.failures.get(key)?.causes,
           ),
         );
       }
 
       try {
-        const data = await read(),
+        const data = await read(previous && now - previous.at < MAX_STALE ? previous.data as T : undefined),
           at = this.now();
-        await this.store.saveSnapshot(key, data, at);
+        try { await this.store.saveSnapshot(key, data, at); }
+        catch {
+          // The provider data is valid even if persistence fails; keep its actual fetch time.
+          return { ...present(data, at, false, at + ttl), reason: "storage_unavailable" as const,
+            warning: "Snapshot storage is unavailable.", causes: [{ source: "Storage" as const, reason: "storage_unavailable" as const }] };
+        }
         this.retryAt.delete(key);
         this.failures.delete(key);
         return present(data, at, false, at + ttl);
@@ -120,6 +135,7 @@ export class Snapshots {
           failure.source,
           failure.reason,
           failure.upstreamStatus,
+          failure.causes,
         );
       } finally {
         this.inflight.delete(key);

@@ -181,9 +181,9 @@ export class SupabaseStore implements StoreBackend {
       "resolution=merge-duplicates,return=minimal",
     );
   }
-  reserveMarketCall(now: number, daily = 300, monthly = 9000) {
+  reserveMarketCall(now: number, daily = 300, monthly = 9000, bucket?: "candles") {
     return this.request<boolean>("rpc/musegod_reserve_market_call", "POST", {
-      p_scope: this.quotaScope,
+      p_scope: bucket ? `${this.quotaScope}:${bucket}` : this.quotaScope,
       p_now: now,
       p_daily: daily,
       p_monthly: monthly,
