@@ -186,7 +186,7 @@ The vault is the Doppler creator-fee beneficiary of every coin bound to that NFT
   - NFT mode is three steps: NFT → Identity → Economics (`tasks/nft-mode-wallet-picker.md`). The launch type cards sit above the step bar.
   - NFT step: the connected wallet's ERC-721 collections (Alchemy NFT API v3 through `nft-collections`; Muses pinned by address, then OpenSea-verified, then by NFTs held; searchable), then the wallet's NFTs with names and images from OpenSea API v2 (`nft-tokens`, server secret `OPENSEA_API_KEY`; already launched NFTs disabled). Manual entry (contract + token number) remains for delegated wallets and unlisted NFTs.
   - Live checks run on the chosen NFT as before: ERC-721, holder or delegate, tier, plus the vault and treasury addresses.
-  - Prefill: only empty name and symbol fields, from the Muse's on-chain name or a picked NFT's listed name, skipping reserved values. The coin image is uploaded by the user.
+  - Prefill: name and symbol from the Muse's on-chain name, or from a picked NFT's listed name, skipping reserved values. A picked NFT's image becomes the default coin image: converted and pinned like an upload, replaceable (owner decision W6, 2026-10-15, replacing "art only with official permission"). Prefilled values follow a change of NFT; values the person typed or uploaded never do (`tasks/nft-mode-wallet-picker.md` §3.2).
   - Pair lock for Muses, enforced centrally in `restoreDraft` and the unsupported-asset effect (`src/App.tsx:1251-1260`).
   - Payment step for paid tiers.
 - **Review:** the bound NFT, verified or unverified collection, vault and treasury, and the rules:

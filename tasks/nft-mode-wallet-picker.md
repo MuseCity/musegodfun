@@ -20,8 +20,9 @@ Normal mode keeps its two steps (Identity, Economics).
 |---|---|
 | W1 | Step order: NFT → Identity → Economics. Identity and Economics keep today's pages. |
 | W2 | The collection list pins Muses at the top and is searchable. Manual entry (contract + token number) stays as a fallback. |
-| W3 | Selecting an NFT prefills only the coin's name and symbol. The coin image is still uploaded by the user. |
+| W3 | Selecting an NFT prefills the coin's name and symbol. (Amended by W6: an NFT picked from the wallet list also prefills the coin image.) |
 | W4 | Collections come from the Alchemy NFT API v3 (`getContractsForOwner`), using the server's existing `ALCHEMY_API_KEY`. Its responses carry OpenSea collection metadata (name, logo, safelist status), which is used for display and ordering. |
+| W6 | (2026-10-15, owner) The image of an NFT picked from the wallet list becomes the coin's default image. The browser converts it exactly like an upload (a 512 px WebP of at most 40 KB, pinned to Pinata through `/api/token-images`). The person can replace it. |
 | W5 | (2026-10-15, after release `3391d62`) A collection's NFTs, with their names and images, come from the **OpenSea API v2**, using the Worker secret `OPENSEA_API_KEY`. The owner approved adding that secret, and it was published that day as version `8e62248d` on the same code. |
 
 Facts checked on 2026-10-15 with a real Muse holder on Robinhood:
@@ -78,10 +79,27 @@ Facts checked on 2026-10-15 with a real Muse holder on Robinhood:
 - It moves on only when the live check passed for the connected account and the fee is settled (free, or paid and confirmed). These are the conditions `nftReviewBlocker` already applies.
 - Otherwise the person stays on the step, and the step shows which condition is missing. This is how Identity's Continue already works.
 
-**Prefill (W3):**
-- A Muse keeps today's prefill (its on-chain name, through `musePrefill`).
-- Any other NFT prefills from its listed name with the same rules: only empty fields; the symbol is the name's letters, at most 10, in upper case.
-- A name or symbol the reserved-name rule would refuse (D8, MUSEGOD) is not prefilled.
+**Prefill (W3, W6):**
+- **When:** prefill runs once the live check passes for the chosen NFT.
+- **Name and symbol:**
+  - A Muse uses its on-chain name, through `musePrefill`.
+  - Any other NFT uses its listed name.
+  - The symbol is the name's letters, at most 10, in upper case.
+  - A name or symbol the reserved-name rule would refuse (D8, MUSEGOD) is not prefilled.
+- **Image (W6):**
+  - It applies only to an NFT picked from the wallet list, which carries its OpenSea image.
+  - The browser loads the image without credentials (`crossOrigin="anonymous"`; OpenSea's image CDN sends `access-control-allow-origin: *`).
+  - It is converted by the same code as an upload (512 px WebP, at most 40 KB) and pinned through `/api/token-images`. The draft gets the resulting Pinata URL; it never holds the OpenSea URL.
+  - Failures leave the image empty and show "We couldn't use this NFT's image. Upload one instead.", without blocking anything. Failures include:
+    - an image that cannot be decoded (for example a video);
+    - a CORS refusal;
+    - a picture too detailed to fit;
+    - an upload error.
+  - Manual entry and draft links have no list image, so the person uploads one as today.
+- **Which fields are filled:** a field is filled when it is empty, or when it still holds exactly the value the previous NFT's prefill put there.
+  - So choosing another NFT replaces prefilled values with the new NFT's. If the new NFT provides no value (for example manual entry, which has no list image), the previous NFT's prefilled value is cleared rather than left behind.
+  - A value the person typed or uploaded is never replaced.
+- **Notice:** while the image is the prefilled one, the Identity step shows "Using your NFT's image. You can replace it." next to it.
 
 **Other behaviour:**
 - **Wallet change:** the list reloads for the new account. A selected NFT is checked again (as today); if the new account does not control it, the check reports so.
@@ -169,7 +187,7 @@ There are two new read endpoints. They sit next to `nft-status` and are served u
 ## 5. Out of scope
 
 - Spam filtering beyond the OpenSea ordering; Alchemy's filter needs a paid plan.
-- Using the NFT's image as the coin image.
+- Fetching an image for an NFT chosen by manual entry or a draft link (no list image).
 - Listing NFTs delegated to the wallet through delegate.xyz; these go through manual entry.
 - Base (NFT mode is off there), ERC-1155, and collections past the first 300 except through manual entry.
 
