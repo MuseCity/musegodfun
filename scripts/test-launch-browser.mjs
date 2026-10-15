@@ -1102,6 +1102,38 @@ async function walletPickerCase(page, state) {
   assert.equal(await page.getByRole('button', { name: 'Retry', exact: true }).count(), 0, 'no Retry for a hidden manual NFT while choosing');
   assert.equal(await page.getByRole('button', { name: 'Keep #8', exact: true }).count(), 0);
   state.failNftStatus = false;
+  // Leaving manual entry cancels a check already in flight, even if its eventual answer would select the NFT.
+  state.holdNftStatus = true;
+  await page.getByRole('button', { name: 'Enter a contract and token number instead', exact: true }).click();
+  await page.getByLabel('Token number', { exact: true }).fill('5');
+  await waitForFixture(() => state.nftStatusResolvers?.length > 0 && state.nftStatusRequests.at(-1)?.tokenId === '5', 'the manual NFT check held open');
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await page.locator('#nft-launch-error').getByText('Checking this NFT…', { exact: true }).waitFor();
+  await returnToPicker('Choose from your wallet instead');
+  await page.locator('#nft-launch-error').getByText('Checking this NFT…', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await page.locator('#nft-launch-error').getByText(chooseText, { exact: true }).waitFor();
+  const hiddenCheckResponse = page.waitForResponse(response => {
+    const url = new URL(response.url());
+    return url.pathname.endsWith('/nft-status') && url.searchParams.get('nft') === `4663:${paidCollection}:5`;
+  });
+  state.holdNftStatus = false; state.nftStatusResolvers.splice(0).forEach(resolve => resolve());
+  await (await hiddenCheckResponse).finished();
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  assert.equal(await page.getByRole('button', { name: 'Keep #5', exact: true }).count(), 0);
+  assert.equal(await page.locator('#nft-launch-status').innerText(), chooseText);
+  await page.locator('#nft-launch-error').getByText(chooseText, { exact: true }).waitFor();
+  assert.equal(await page.getByRole('button', { name: /^Pay / }).count(), 0);
+  await autosaveSettled(page);
+  assert.equal((await storedDraft(page))?.nft, undefined, 'the late manual result never enters the draft');
+  // Returning to the same manual candidate starts a fresh check; editing it still drops the confirmed NFT.
+  const checksBeforeManual = state.nftStatusRequests.length;
+  await page.getByRole('button', { name: 'Enter a contract and token number instead', exact: true }).click();
+  await page.getByRole('button', { name: 'Pay 10 USDG', exact: true }).waitFor();
+  assert(state.nftStatusRequests.length > checksBeforeManual, 'manual entry checks again after cancelling the old read');
+  await page.getByLabel('Token number', { exact: true }).fill('7');
+  await page.waitForFunction(text => document.getElementById('nft-launch-status')?.textContent === text, refused);
+  await returnToPicker('Choose from your wallet instead');
   await page.getByRole('button', { name: /Bronze Keys/ }).click();
   await page.getByRole('heading', { name: 'Bronze Keys', exact: true }).waitFor();
   await page.waitForFunction(() => document.activeElement?.textContent === 'Bronze Keys');

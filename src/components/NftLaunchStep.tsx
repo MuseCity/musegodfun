@@ -95,20 +95,26 @@ export function NftLaunchStep({ config, account, draft, connecting, onConnect, e
     reported.current = key;
     latest.current.onChange(next, user);
   };
-  const edited = useRef(false), prefilled = useRef("");
+  const edited = useRef(false), checkEdited = useRef(false), prefilled = useRef("");
   const edit = (apply: () => void) => { edited.current = true; apply(); };
   const parsed = nftRefSchema.safeParse({ chainId: deploymentChain(config), contract, tokenId });
   const candidate = parsed.success ? parsed.data : null, candidateKey = candidate ? nftKey(candidate) : "";
+  const choosing = !manual && picking && !nft;
   // The check a result belongs to: a result for an earlier NFT, account or attempt never counts for the current one.
   const run = `${candidateKey}|${account ?? ""}|${config.chainId}|${config.deploymentChainId}|${attempt}`;
   useEffect(() => {
     const user = edited.current;
+    checkEdited.current = user;
     edited.current = false;
-    setStatus(null); setCheckError("");
     latest.current.onCheck();
     // The NFT the draft already holds is checked again without being dropped; any other NFT is not in the draft until it passes.
     if (user || !candidate || reported.current !== candidateKey) report(undefined, user);
-    if (!account || !candidate) return;
+  }, [candidateKey, account, config.chainId, config.deploymentChainId, attempt]);
+  // Returning to the list cancels only the live check, without repeating draft changes or clearing the parent's error.
+  useEffect(() => {
+    const user = checkEdited.current;
+    setStatus(null); setCheckError("");
+    if (!account || !candidate || choosing) return;
     let active = true;
     const timer = setTimeout(() => {
       readNftStatus(config, candidate, account).then((result) => {
@@ -124,10 +130,9 @@ export function NftLaunchStep({ config, account, draft, connecting, onConnect, e
       }, (cause: unknown) => { if (active) setCheckError(errorMessage(cause)); });
     }, 400);
     return () => { active = false; clearTimeout(timer); };
-  }, [candidateKey, account, config.chainId, config.deploymentChainId, attempt]);
+  }, [candidateKey, account, config.chainId, config.deploymentChainId, attempt, choosing]);
   const current = statusFor === run ? status : null;
   const passed = !!account && !!candidate && !checkError && !!current && current.erc721 && current.controls && !current.alreadyLaunched;
-  const choosing = !manual && picking && !nft;
 
   const statusText = !account ? "Connect the wallet that holds the NFT."
     : choosing ? "Choose an NFT from your wallet, or enter a contract and token number."
