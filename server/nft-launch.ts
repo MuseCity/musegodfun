@@ -6,6 +6,7 @@ import { ROBINHOOD_STOCKS, sameAddress, type TokenRecord } from "../src/lib/conf
 import { LAUNCH_FEE_MIN_BLOCK, LAUNCH_FEE_MINING_GRACE_SECONDS, LAUNCH_FEE_QUOTE_TTL, LAUNCH_FEE_STABLE, type LaunchFee } from "../src/lib/launch-fee";
 import { DELEGATE_REGISTRY_V2, NFT_LAUNCH_RIGHTS, NFT_VAULT_MANIFEST, isMuse, nftKey, vaultFactory, type NftChainId, type NftRef, type NftVaultManifest } from "../src/lib/nft-mode";
 import type { LaunchInput } from "../src/lib/validation";
+import { reservedLaunchName } from "../src/lib/nft-holdings";
 
 export type NftLaunchCode = "NFT_MODE_DISABLED" | "NFT_MODE_UNAVAILABLE" | "NFT_CHAIN_UNSUPPORTED" | "NFT_NOT_ERC721" | "NFT_NOT_CONTROLLED"
   | "NFT_ALREADY_LAUNCHED" | "NFT_MUSE_PAIR_REQUIRED" | "NFT_RESERVED_NAME" | "NFT_FEE_REQUIRED" | "NFT_FEE_INVALID"
@@ -24,8 +25,7 @@ const MUSEGOD_TICKER = "MUSEGOD";
 /** CPU-only rules. Prepare calls this before any RPC; register never does (the badge rules replace it there). The reserved name applies
  * to every launch, normal and NFT, on both chains; letters and digits are compared, so spacing and punctuation cannot get around it. */
 export function assertNftDraftRules(draft: LaunchInput, chainId: NftChainId, enabled: boolean): void {
-  const normalized = (value: string) => value.replace(/[^a-z0-9]/gi, "");
-  if (normalized(draft.name).toUpperCase() === MUSEGOD_TICKER || draft.symbol.toUpperCase() === MUSEGOD_TICKER)
+  if (reservedLaunchName(draft.name, draft.symbol))
     throw new NftLaunchError("NFT_RESERVED_NAME", "MUSEGOD is reserved for the official token.");
   if (!draft.nft) return;
   if (!enabled) throw new NftLaunchError("NFT_MODE_DISABLED", "NFT launches are not enabled on this network.");

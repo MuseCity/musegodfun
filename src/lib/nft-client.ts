@@ -4,6 +4,7 @@ import { deploymentChain, sameAddress, type RuntimeConfig, type TokenRecord } fr
 import { LAUNCH_FEE_MAX_WEI, LAUNCH_FEE_STABLE } from "./launch-fee";
 import { isMuse, nftKey, type NftRef, type NftStatus } from "./nft-mode";
 import { chainApi } from "./api";
+import { reservedLaunchName } from "./nft-holdings";
 import { launchIntentStorageKey } from "./launch-intent";
 import { addressSchema, hashSchema, launchFeeSchema, type LaunchInput } from "./validation";
 import { isUserRejection, resolveSentTransaction, type NonceMemo, type NonceTransaction, type SendReader } from "./send-record";
@@ -96,10 +97,12 @@ export function savedNftMode(raw: string | null): boolean {
     return saved?.nftMode === true || (!!saved?.nft && typeof saved.nft === "object");
   } catch { return false; }
 }
-/** Fields a Muse's name fills: only empty ones. The symbol is the name's letters, at most 10, in upper case. */
+/** Fields an NFT's name fills: only empty ones, and never a reserved name or symbol. The symbol is the name's letters, at most 10, in
+ * upper case. Used for Muses (their on-chain name) and for any NFT picked from the wallet (its listed name). */
 export function musePrefill(draft: Pick<LaunchInput, "name" | "symbol">, museName: string): { name?: string; symbol?: string } {
   const name = museName.trim().slice(0, 32), symbol = name.replace(/[^A-Za-z]/g, "").slice(0, 10).toUpperCase();
-  return { ...(!draft.name.trim() && name ? { name } : {}), ...(!draft.symbol.trim() && symbol ? { symbol } : {}) };
+  return { ...(!draft.name.trim() && name && !reservedLaunchName(name, "") ? { name } : {}),
+    ...(!draft.symbol.trim() && symbol && !reservedLaunchName("", symbol) ? { symbol } : {}) };
 }
 
 // ---- the $10 fee, recorded per creator --------------------------------------------------------
