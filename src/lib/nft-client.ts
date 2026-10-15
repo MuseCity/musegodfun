@@ -4,7 +4,7 @@ import { deploymentChain, sameAddress, type RuntimeConfig, type TokenRecord } fr
 import { LAUNCH_FEE_MAX_WEI, LAUNCH_FEE_STABLE } from "./launch-fee";
 import { isMuse, nftKey, type NftRef, type NftStatus } from "./nft-mode";
 import { chainApi } from "./api";
-import { reservedLaunchName } from "./nft-holdings";
+import { reservedLaunchName, type OwnedCollections, type OwnedNfts } from "./nft-holdings";
 import { launchIntentStorageKey } from "./launch-intent";
 import { addressSchema, hashSchema, launchFeeSchema, type LaunchInput } from "./validation";
 import { isUserRejection, resolveSentTransaction, type NonceMemo, type NonceTransaction, type SendReader } from "./send-record";
@@ -49,6 +49,13 @@ export function formatFeeEth(wei: string): string {
 export function readNftStatus(config: Pick<RuntimeConfig, "mode" | "deploymentChainId">, nft: NftRef, account: Address) {
   return chainApi<NftStatus>(deploymentChain(config),
     `/nft-status?nft=${encodeURIComponent(`${nft.chainId}:${nft.contract}:${nft.tokenId}`)}&account=${account}`);
+}
+/** The NFT step's wallet lists (tasks/nft-mode-wallet-picker.md §4): a convenience; the live check stays the authority. */
+export function readNftCollections(config: Pick<RuntimeConfig, "mode" | "deploymentChainId">, owner: Address) {
+  return chainApi<OwnedCollections>(deploymentChain(config), `/nft-collections?owner=${owner}`);
+}
+export function readNftTokens(config: Pick<RuntimeConfig, "mode" | "deploymentChainId">, owner: Address, contract: Address) {
+  return chainApi<OwnedNfts>(deploymentChain(config), `/nft-tokens?owner=${owner}&contract=${contract}`);
 }
 
 /** Ruling: a launch fee is consumed per creator, not per NFT, so the draft keeps it across NFT changes. Only a paid NFT launch sends it. */

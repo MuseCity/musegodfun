@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import type { Address, Hex } from "viem";
-import { deploymentChain, explorerFor, type RuntimeConfig } from "../lib/config";
+import { deploymentChain, explorerFor, shortAddress, type RuntimeConfig } from "../lib/config";
 import { LAUNCH_FEE_STABLE, LAUNCH_FEE_USD } from "../lib/launch-fee";
 import { MUSES, isMuse, nftKey, treasuryFor, type NftRef, type NftStatus } from "../lib/nft-mode";
 import { FEE_MAYBE_SENT, FEE_WAITING, formatFeeEth, readNftStatus, type DraftLaunchFee, type LaunchFeeState, type NftChecked } from "../lib/nft-client";
+import { NftPicker, Thumb, type NftPick } from "./NftPicker";
 import { useLaunchFee } from "../lib/use-launch-fee";
 import { errorMessage, nftRefSchema, type LaunchInput } from "../lib/validation";
 
@@ -55,14 +56,24 @@ function TxHash({ hash, config }: { hash: Hex; config: RuntimeConfig }) {
  * the person changes the NFT or the check says no (not ERC-721, not controlled, already launched); `user`: the person changed the NFT.
  * The NFT the draft already holds (a reload, another tab, a draft link) stays while it is checked again, and through a check that could
  * not run (the error shows with Retry); `checked` in the status tells review whether the check passed, so review never proceeds on it. */
-export function NftLaunchStep({ config, account, draft, error = "", feeRejected, onChange, onCheck, onFee, onPrefill, onStatus }: {
-  config: RuntimeConfig; account: Address | null; draft: LaunchInput; error?: string; feeRejected?: NftFeeRejection | null;
+export function NftLaunchStep({ config, account, draft, connecting, onConnect, error = "", feeRejected, onChange, onCheck, onFee, onPrefill, onStatus }: {
+  config: RuntimeConfig; account: Address | null; draft: LaunchInput; connecting: boolean; onConnect: () => void; error?: string; feeRejected?: NftFeeRejection | null;
   onChange: (nft: NftRef | undefined, user: boolean) => void; onCheck: () => void; onFee: (fee: DraftLaunchFee | undefined) => void;
   onPrefill?: (museName: string) => void; onStatus: (status: NftStepStatus) => void;
 }) {
   const nft = draft.nft;
   const [contract, setContract] = useState<string>(nft?.contract ?? MUSES.contract);
   const [tokenId, setTokenId] = useState(nft?.tokenId ?? "");
+  // How the NFT is chosen: from the wallet's list (default), or typed. A draft that already holds an NFT (a reload, another tab, a draft
+  // link) opens on its summary, so it is checked again rather than hidden behind an empty list.
+  const [manual, setManual] = useState(false), [picking, setPicking] = useState(!nft);
+  const picked = useRef(new Map<string, { name?: string; image?: string }>());
+  const choose = (pick: NftPick) => {
+    const key = nftKey({ chainId: deploymentChain(config), contract: pick.contract, tokenId: pick.tokenId });
+    picked.current.set(key, { name: pick.name, image: pick.image });
+    edit(() => { setContract(pick.contract); setTokenId(pick.tokenId); });
+    setPicking(false); setManual(false);
+  };
   const [status, setStatus] = useState<NftStatus | null>(null), [statusFor, setStatusFor] = useState("");
   const [checkError, setCheckError] = useState(""), [attempt, setAttempt] = useState(0);
   // Parent callbacks are read through a ref, so a new callback identity never re-runs the check.
@@ -98,9 +109,10 @@ export function NftLaunchStep({ config, account, draft, error = "", feeRejected,
         setStatus(result); setStatusFor(run);
         if (!result.erc721 || !result.controls || result.alreadyLaunched) { report(undefined, user); return; }
         report(candidate, user);
-        if (result.free && result.name && prefilled.current !== candidateKey) {
+        const prefillName = result.free ? result.name : picked.current.get(candidateKey)?.name;
+        if (prefillName && prefilled.current !== candidateKey) {
           prefilled.current = candidateKey;
-          latest.current.onPrefill?.(result.name);
+          latest.current.onPrefill?.(prefillName);
         }
       }, (cause: unknown) => { if (active) setCheckError(errorMessage(cause)); });
     }, 400);
@@ -134,19 +146,30 @@ export function NftLaunchStep({ config, account, draft, error = "", feeRejected,
   return (
     <fieldset className="nft-step">
       <legend className="card-title">Launch for an NFT</legend>
-      <label className="field">
-        <span className="field-label">Collection contract</span>
-        <input aria-label="Collection contract" className="mono" value={contract} spellCheck={false} autoComplete="off"
-          onChange={(event) => edit(() => setContract(event.target.value.trim()))} />
-      </label>
-      {contract.toLowerCase() !== MUSES.contract.toLowerCase() &&
-        <button type="button" className="text-button" onClick={() => edit(() => setContract(MUSES.contract))}>Use Muses</button>}
-      <label className="field">
-        <span className="field-label">Token number</span>
-        <input id={NFT_TOKEN_ID} name="nftTokenId" aria-label="Token number" value={tokenId} inputMode="numeric" autoComplete="off"
-          aria-invalid={!!error} aria-describedby={error ? `nft-launch-status ${NFT_ERROR_ID}` : "nft-launch-status"}
-          onChange={(event) => edit(() => setTokenId(event.target.value.trim()))} />
-      </label>
+      {manual ? <>
+        <label className="field">
+          <span className="field-label">Collection contract</span>
+          <input aria-label="Collection contract" className="mono" value={contract} spellCheck={false} autoComplete="off"
+            onChange={(event) => edit(() => setContract(event.target.value.trim()))} />
+        </label>
+        {contract.toLowerCase() !== MUSES.contract.toLowerCase() &&
+          <button type="button" className="text-button" onClick={() => edit(() => setContract(MUSES.contract))}>Use Muses</button>}
+        <label className="field">
+          <span className="field-label">Token number</span>
+          <input id={NFT_TOKEN_ID} name="nftTokenId" aria-label="Token number" value={tokenId} inputMode="numeric" autoComplete="off"
+            aria-invalid={!!error} aria-describedby={error ? `nft-launch-status ${NFT_ERROR_ID}` : "nft-launch-status"}
+            onChange={(event) => edit(() => setTokenId(event.target.value.trim()))} />
+        </label>
+        <button type="button" className="text-button" onClick={() => { setManual(false); setPicking(true); }}>Choose from your wallet instead</button>
+      </> : picking ? <NftPicker key={`${account}|${config.chainId}|${config.deploymentChainId}`} config={config} account={account} connecting={connecting} onConnect={onConnect} onPick={choose} onManual={() => setManual(true)} /> :
+        <div className="nft-selected">
+          <Thumb size={56} src={candidate ? picked.current.get(candidateKey)?.image : undefined} />
+          <div className="nft-collection-text">
+            <span className="nft-collection-name">{(candidate && picked.current.get(candidateKey)?.name) ?? `${candidate && isMuse(candidate) ? "Muse" : "NFT"} #${tokenId}`}</span>
+            <span className="hint mono">{shortAddress(contract)} · #{tokenId}</span>
+          </div>
+          <button type="button" className="secondary" onClick={() => setPicking(true)}>Change</button>
+        </div>}
       <p id="nft-launch-status" className="nft-status" role="status" aria-live="polite">{statusText}</p>
       {checkError && account && candidate && <button type="button" className="text-button" onClick={() => setAttempt((value) => value + 1)}>Retry</button>}
       {error && <p id={NFT_ERROR_ID} className="field-error" role="alert" tabIndex={-1}>{error}</p>}

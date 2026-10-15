@@ -2240,6 +2240,7 @@ function CreatePage({
               </div>
               {(config.nftMode?.enabled || nftMode) && <LaunchModeSwitch nftMode={nftMode} disabled={busy} onChange={chooseNftMode} />}
               {nftMode && <NftLaunchStep key={draftRevision} config={config} account={wallet.account} draft={draft}
+                connecting={wallet.connecting} onConnect={() => void wallet.connect()}
                 error={invalidField === "nft" ? error : ""} feeRejected={nftFeeRejected} onChange={(nft, user) => update("nft", nft, !user)}
                 onCheck={() => { if (invalidField === "nft") { setInvalidField(""); setError(""); } }}
                 onFee={(fee) => { update("launchFee", fee, true); setNftFeeRejected(null); if (fee && invalidField === "nft") { setInvalidField(""); setError(""); } }}

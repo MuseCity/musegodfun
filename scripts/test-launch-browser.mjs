@@ -656,11 +656,13 @@ async function draftLinkCase(page, state) {
   assert.equal(await symbol.inputValue(), 'LINK');
   assert.equal(await page.getByLabel('Description', { exact: true }).inputValue(), 'Prefilled by an agent.');
   assert.equal(await page.getByRole('radio', { name: 'NFT', exact: true }).isChecked(), true);
+  await page.getByRole('button', { name: 'Change', exact: true }).click();
+  await page.getByRole('button', { name: 'Enter a contract and token number instead' }).click();
   assert.equal(await page.getByLabel('Collection contract', { exact: true }).inputValue(), muses);
   assert.equal(await page.getByLabel('Token number', { exact: true }).inputValue(), '2');
   await page.waitForFunction(() => document.getElementById('nft-launch-status')?.textContent === 'Muse launches are free. Muse coins pair with MUSEGOD.');
   assert.equal(await name.inputValue(), 'Linked Muse coin', 'the Muse name prefill never overwrites the link');
-  assert.equal(await page.getByRole('heading', { name: 'Give it a name and a face' }).isVisible(), true, 'the holder lands on step one');
+  assert.equal(await page.getByRole('heading', { name: 'Choose your NFT' }).isVisible(), true, 'the holder lands on the NFT step');
   assert.equal(await page.getByRole('button', { name: 'Review and continue', exact: true }).isVisible(), false);
   assert.equal(await page.getByRole('dialog').count(), 0);
   assert.equal(new URL(page.url()).hash, '');
@@ -723,11 +725,13 @@ async function lockedWalletCase(page, state) {
   assert.equal(await symbol.inputValue(), 'LINK');
   assert.equal(await page.getByLabel('Description', { exact: true }).inputValue(), 'Prefilled by an agent.');
   assert.equal(await page.getByRole('radio', { name: 'NFT', exact: true }).isChecked(), true);
+  await page.getByRole('button', { name: 'Change', exact: true }).click();
+  await page.getByRole('button', { name: 'Enter a contract and token number instead' }).click();
   assert.equal(await page.getByLabel('Collection contract', { exact: true }).inputValue(), muses);
   assert.equal(await page.getByLabel('Token number', { exact: true }).inputValue(), '2');
   await page.waitForFunction(() => document.getElementById('nft-launch-status')?.textContent === 'Muse launches are free. Muse coins pair with MUSEGOD.');
   assert.equal(await name.inputValue(), 'Linked Muse coin');
-  assert.equal(await page.getByRole('heading', { name: 'Give it a name and a face' }).isVisible(), true);
+  assert.equal(await page.getByRole('heading', { name: 'Choose your NFT' }).isVisible(), true);
   // The imported draft now belongs to the account's active intent; the wallet's earlier draft is listed and intact.
   await page.waitForFunction(account => { const intent = localStorage.getItem(`musegod.launch.intent.31337.4663.${account}`);
     return !!intent && JSON.parse(localStorage.getItem(`musegod.launch.draft.31337.4663.${account}.${intent}`) || 'null')?.name === 'Linked Muse coin'; }, creator);
@@ -857,7 +861,14 @@ async function nftReloadCase(page, state) {
   const context = page.context(), errors = [], muse1 = { chainId: 4663, contract: muses, tokenId: '1' };
   const free = 'Muse launches are free. Muse coins pair with MUSEGOD.', checking = 'Checking this NFT…';
   const statusIs = (target, text) => target.waitForFunction(text => document.getElementById('nft-launch-status')?.textContent === text, text);
-  const tokenOf = target => target.getByLabel('Token number', { exact: true }).inputValue();
+  const tokenOf = async target => {
+    if (!await target.getByLabel('Token number', { exact: true }).count()) {
+      await target.getByRole('button', { name: /^Step 1 of 3.*NFT$/ }).click();
+      await target.getByRole('button', { name: 'Change', exact: true }).click();
+      await target.getByRole('button', { name: 'Enter a contract and token number instead' }).click();
+    }
+    return target.getByLabel('Token number', { exact: true }).inputValue();
+  };
   // Shown only while the draft holds the NFT.
   const bound = target => target.getByText(/^Creator fees go to this NFT's treasury/);
   const storedNft = async target => (await storedDraft(target))?.nft;
@@ -865,6 +876,7 @@ async function nftReloadCase(page, state) {
   const choose = page.getByRole('button', { name: /Local acceptance wallet/ }); if (await choose.count()) await choose.click();
   await page.getByRole('button', { name: /^Wallet account / }).waitFor();
   await page.getByRole('radio', { name: 'NFT', exact: true }).check();
+  await page.getByRole('button', { name: 'Enter a contract and token number instead' }).click();
   await page.getByLabel('Token number', { exact: true }).fill('1');
   await statusIs(page, free);
   await page.waitForFunction(() => document.querySelector('input[name="name"]')?.value === 'Bard');
@@ -887,7 +899,6 @@ async function nftReloadCase(page, state) {
   await bound(page).waitFor();
   // Review stays blocked during the re-check, although the draft holds the NFT.
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
-  await page.getByRole('button', { name: 'Review and continue', exact: true }).click();
   await page.locator('#nft-launch-error').getByText(checking, { exact: true }).waitFor();
   assert.equal(await page.getByRole('dialog').count(), 0); assert.equal(state.prepareRequests.length, 0, 'no preflight before the check passes');
   assert.equal(await bound(page).isVisible(), true);
@@ -898,18 +909,19 @@ async function nftReloadCase(page, state) {
   await statusIs(page, free);
   await bound(second).waitFor(); await statusIs(second, free);
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.getByRole('button', { name: 'Review and continue', exact: true }).click();
   await waitForFixture(() => state.prepareRequests.length > 0, 'the NFT prepare request');
   assert.deepEqual(state.prepareRequests[0].draft.nft, muse1);
   await page.getByRole('button', { name: 'Confirm launch · Sign in wallet', exact: true }).waitFor();
-  // The unedited second tab followed the first tab to the second step; its focus moved to that step's heading, not a removed field.
+  // The unedited second tab followed the first tab to Economics; its focus moved to that step's heading, not a removed field.
   await second.waitForFunction(() => document.activeElement?.id === 'quote-heading');
   // A check that cannot run keeps the NFT, says why and offers Retry; review stays blocked until it passes.
   state.failNftStatus = true;
   await page.reload();
-  // The draft was saved on its second step; the NFT step is on the first.
+  // The draft was saved on Economics; open the NFT step to see the failed check.
   await page.getByRole('button', { name: /^Wallet account / }).waitFor();
-  await page.getByRole('button', { name: 'Back', exact: true }).click();
+  await page.getByRole('button', { name: /^Step 1 of 3.*NFT$/ }).click();
   await page.getByRole('button', { name: 'Retry', exact: true }).waitFor();
   await statusIs(page, 'The NFT status could not be read right now.');
   await bound(page).waitFor();
@@ -961,7 +973,6 @@ async function nftReloadCase(page, state) {
   assert.equal(await storedNft(page), undefined, 'the stored draft no longer holds an NFT this wallet does not control');
   assert.equal(await payButtons(), 0); assert.equal(await bound(page).count(), 0);
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
-  await page.getByRole('button', { name: 'Review and continue', exact: true }).click();
   await page.locator('#nft-launch-error').getByText(notControlled, { exact: true }).waitFor();
   assert.equal(await page.getByRole('dialog').count(), 0); assert.equal(state.prepareRequests.length, prepared, 'no preflight for an NFT that is not controlled');
   assert.deepEqual(errors, []);
@@ -984,17 +995,19 @@ async function nftCase(page, state) {
   await page.getByRole('button', { name: 'Connect wallet', exact: true }).click();
   const choose = page.getByRole('button', { name: /Local acceptance wallet/ }); if (await choose.count()) await choose.click();
   await nftRadio.check();
+  await page.getByRole('button', { name: 'Enter a contract and token number instead' }).click();
   assert.equal(await page.getByLabel('Collection contract', { exact: true }).inputValue(), muses, 'Muses are preset');
   // Review never opens, and never prepares a normal coin, while the NFT check has not passed; the status is the reason.
   const blocked = async (reason, focusId) => {
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
-    await reviewAndContinue.click();
     await page.locator('#nft-launch-error').getByText(reason, { exact: true }).waitFor();
     await focused(focusId);
     assert.equal(await page.getByRole('dialog').count(), 0);
     assert.equal(state.prepareRequests.length, 0);
   };
   const review = async () => {
+    if (await page.getByRole('heading', { name: 'Choose your NFT', exact: true }).isVisible())
+      await page.getByRole('button', { name: 'Continue', exact: true }).click();
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
     await reviewAndContinue.click();
     await waitForFixture(() => state.prepareRequests.length > 0, 'the NFT prepare request');
@@ -1005,11 +1018,14 @@ async function nftCase(page, state) {
     // The Muse's name fills the empty fields once; a later selection never overwrites what the user typed.
     await page.waitForFunction(() => document.querySelector('input[name="name"]')?.value === 'Bard');
     assert.equal(await page.getByLabel('Token symbol', { exact: true }).inputValue(), 'BARD');
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
     await page.getByLabel('Token name', { exact: true }).fill('My Muse coin');
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
     await tokenInput.fill('2');
     await statusIs('Muse launches are free. Muse coins pair with MUSEGOD.');
     assert.equal(await page.getByLabel('Token name', { exact: true }).inputValue(), 'My Muse coin');
     assert.equal(await page.getByRole('button', { name: /^Pay / }).count(), 0, 'Muses never show the fee card');
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
     const grid = page.getByRole('group', { name: 'Quote assets' });
     await page.getByText('Muse coins pair with MUSEGOD.', { exact: true }).waitFor();
@@ -1031,8 +1047,6 @@ async function nftCase(page, state) {
     await page.getByLabel('Collection contract', { exact: true }).fill(paidCollection);
     await tokenInput.fill('5');
     await statusIs('Launching for this NFT costs $10, paid before the launch.');
-    await page.getByLabel('Token name', { exact: true }).fill('Paid NFT coin');
-    await page.getByLabel('Token symbol', { exact: true }).fill('PAID');
     // The fee card comes before review: review waits until the fee is paid, and the live summary says the $10 is still due.
     await blocked('Pay the $10 launch fee for this NFT first.', 'nft-launch-fee');
     assert.equal((await launchCostRow(page.locator('aside.preview-column'))).trim(), '$10 launch fee (due before launch) + Robinhood Chain local fork gas');
@@ -1092,10 +1106,17 @@ async function nftCase(page, state) {
     }
     await page.screenshot({ path: `.cache/launch-browser-${mode}-step1.png`, fullPage: true }); report.screenshots.push(`.cache/launch-browser-${mode}-step1.png`);
     // The paid fee belongs to this wallet's next NFT launch, so switching the NFT does not ask for it again.
+    if (!await tokenInput.count()) {
+      await page.getByRole('button', { name: 'Change', exact: true }).click();
+      await page.getByRole('button', { name: 'Enter a contract and token number instead' }).click();
+    }
     await tokenInput.fill('6');
     await statusIs('Launching for this NFT costs $10, paid before the launch.');
     await page.getByText(/Launch fee paid\./).waitFor();
     assert.equal(await page.getByRole('button', { name: /^Pay / }).count(), 0);
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await page.getByLabel('Token name', { exact: true }).fill('Paid NFT coin');
+    await page.getByLabel('Token symbol', { exact: true }).fill('PAID');
     await review();
     await page.getByRole('button', { name: 'Confirm launch · Sign in wallet', exact: true }).waitFor();
     const request = state.prepareRequests.at(-1);
@@ -1141,12 +1162,13 @@ async function nftCase(page, state) {
     const blockedStatus = mode === 'nft_not_controlled' ? 'This wallet does not hold the NFT and has no delegation for it.' : 'This NFT already has its coin.';
     await tokenInput.fill(blockedId);
     await statusIs(blockedStatus);
-    await page.getByLabel('Token name', { exact: true }).fill('Blocked NFT coin');
-    await page.getByLabel('Token symbol', { exact: true }).fill('BLOCK');
-    await blocked(blockedStatus, 'nft-launch-token');
+    await blocked(blockedStatus, 'nft-launch-error');
     // The check passed, but prepare's own check refuses: its message shows next to the NFT step and focus returns to the token number.
     await tokenInput.fill(rejection.tokenId);
     await statusIs('Muse launches are free. Muse coins pair with MUSEGOD.');
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await page.getByLabel('Token name', { exact: true }).fill('Blocked NFT coin');
+    await page.getByLabel('Token symbol', { exact: true }).fill('BLOCK');
     await review();
     await page.locator('#nft-launch-error').getByText(rejection.error, { exact: true }).waitFor();
     await focused('nft-launch-token');
