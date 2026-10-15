@@ -1,6 +1,6 @@
 # Token detail page declutter plan
 
-Status: Run 2 review fixes and verification complete; cross-review acceptance pending (2026-10-16). Branch `claude/codex-redundancy-review-5ebb74`, based on master `9ede4ea`.
+Status: Implemented and cross-review accepted locally (2026-10-16); not released. Branch `claude/codex-redundancy-review-5ebb74`, based on master `9ede4ea`. Pushing to master is a production release and needs the owner's explicit approval.
 
 ## Background
 
@@ -114,3 +114,11 @@ Chrome DevTools rechecked CLAWGOD and MUSEGOD at 1440px in light mode against li
 Fixed X2-1 (P2), C1b-1 and C1b-2 (P3) in `src/components/TokenMarket.tsx`. Verified X2-1 first: the activity block read `summary.data.periods` but sat under the Trades provenance, so it borrowed the trades snapshot's source, time and stale state (and showed no source at all when trades were unavailable). The whole block now sits in the market card between the metrics/summary warning and the chart toolbar, so the Summary provenance, stale marker, linked CoinGecko attribution and warning cover it; visibility rule unchanged, both kinds. Recent trades keeps the list, the Buy/Sell filter, its messages and the Trades provenance. Stale empty chart/trade snapshots now say the empty statement plus the stale or error note; combined transient causes print "Try again later." once. No CSS change was needed: the flow selectors are content-based and both cards share width and gap. A static render of the market card at 390px showed no horizontal overflow.
 
 Tests: 4 new cases in `tests/token-market-declutter.test.ts` fail against `36087af` and pass now (stale summary + fresh trades, fresh summary + stale trades, fresh summary + unavailable trades, for both kinds; visibility rule; stale empty chart/trades with and without a client error and with a filter; single retry sentence). Full suite **1529/1529**; build, diff check and Han scan passed. Details and red/green evidence: `.superpowers/sdd/detail-declutter/claude-fix-r2.md` and `evidence/run4/`. Findings are fixed, not accepted; Codex acceptance is pending. No server, contract, wallet, trade, MusegodTradePanel or Rewards change; no push. Local rollback: revert the Run 4 commit.
+
+### Cross-review closure (2026-10-16)
+
+- Claude review round 1 (`claude-review-r1.md`): C1-1–C1-7 found; codex fixed them in `36087af`; claude accepted all seven (`claude-accept-r1.md`) and raised C1b-1/C1b-2 (P3).
+- Codex review round 2 (`codex-review-r2.md`): X2-1 (P2) found; claude fixed X2-1, C1b-1 and C1b-2 in `83c46d1`; codex accepted all three with pre-fix red tests and a five-view browser recheck (`codex-accept-r2.md`, `evidence/run5/`).
+- Both verdicts are ACCEPT with no open findings (`review-state.md`). Conductor rerun on `83c46d1`: `npm test` **1529/1529**, `npm run build`, `git diff --check` and the Han scan pass.
+- Acceptance items 1–5 are met. Item 6 holds: commits are local only. Connected-wallet fee card tiers are covered by pure/SSR tests, not by a real wallet session.
+- Local rollback: revert `83c46d1`, `36087af`, `8333cc9`, `bf8fcb4` (newest first). After a release, the production rollback point is Worker `6c87963c` (`9ede4ea`, recorded 2026-10-15).
