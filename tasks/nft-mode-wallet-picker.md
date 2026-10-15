@@ -80,7 +80,7 @@ Facts checked on 2026-10-15 with a real Muse holder on Robinhood:
 - Otherwise the person stays on the step, and the step shows which condition is missing. This is how Identity's Continue already works.
 
 **Prefill (W3, W6):**
-- **When:** prefill runs once the live check passes for the chosen NFT.
+- **When:** prefill runs once the live check passes for the chosen NFT. Picking that same checked NFT from the wallet list also applies newly available list metadata (including its image), even when it was first restored or entered manually; it does not repeat the live check or replace user-edited fields.
 - **Name and symbol:**
   - A Muse uses its on-chain name, through `nftPrefill`.
   - Any other NFT uses its listed name.

@@ -76,10 +76,20 @@ export function NftLaunchStep({ config, account, draft, connecting, onConnect, e
   const picked = useRef(new Map<string, { name?: string; image?: string }>());
   const choose = (pick: NftPick) => {
     const key = nftKey({ chainId: deploymentChain(config), contract: pick.contract, tokenId: pick.tokenId });
+    const previousPick = picked.current.get(key);
     picked.current.set(key, { name: pick.name, image: pick.image });
     const apply = () => { setContract(pick.contract); setTokenId(pick.tokenId); };
     if (key === candidateKey) {
       apply();
+      // A restored or manually entered NFT can already be checked before its list image arrives.
+      // Apply new metadata without another ownership check; unchanged picks keep in-flight image work.
+      if (!previousPick || previousPick.name !== pick.name || previousPick.image !== pick.image) {
+        prefilled.current = "";
+        if (passed && current) {
+          prefilled.current = key;
+          latest.current.onNftPassed?.({ name: current.free ? current.name : pick.name, image: pick.image }, !previousPick);
+        }
+      }
       if (!passed) setAttempt((value) => value + 1);
     } else edit(pick.contract, pick.tokenId);
     setPicking(false); setManual(false);

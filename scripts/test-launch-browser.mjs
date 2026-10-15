@@ -22,7 +22,7 @@ const blockHash = '0x' + 'bb'.repeat(32), out = 543327925691014316198420n;
 const wrapRuntime = '0x60006000'; // Local identity fixture, never a deployed-runtime claim.
 const delayedImage = 'https://example.com/delayed-config.png';
 const nftImageOrigin = 'https://nft-images.test';
-const fixtureImage = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jS1sAAAAASUVORK5CYII=', 'base64');
+const fixtureImage = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=', 'base64');
 const fixturePinata = 'https://gateway.pinata.cloud/ipfs/bafkreiexg36mudbth2ete6lyz5pqfejop3k3fgbtlpt6izcka3yraykb6e';
 const plainModes = new Set(['plain', 'idle_plain', 'unknown_send', 'unknown_fetch', 'launch_timeout', 'launch_marker_race', 'token_detail_pending', 'token_detail_error', 'token_detail_state_unavailable', 'token_detail_unregistered_backup', 'token_detail_invalid_pool', 'token_detail_unverified_opening', 'history_track_backoff']);
 const quoteClockModes = new Set(['wrap_near_expiry', 'idle_review', 'hidden_review', 'idle_plain', 'history_track_backoff']);
@@ -30,7 +30,8 @@ const tokenLookupModes = new Set(['token_detail_pending', 'token_detail_error', 
 const timeoutModes = new Set(['approval_timeout', 'payment_timeout', 'launch_timeout', 'approval_timeout_reject']);
 const recoveryRaceModes = new Set(['payment_marker_race', 'launch_marker_race', 'payment_status_race', 'payment_submit_race', 'payment_submit_record_race']);
 // NFT mode: the mode switch, the Muse pair lock, the $10 fee card before review and prepare's NFT rejections. No launch is signed.
-const nftModes = new Set(['nft_reload_keeps_nft', 'nft_muse_free', 'nft_paid_usdg', 'nft_paid_eth', 'nft_fee_sending_reload', 'nft_not_controlled', 'nft_already_launched', 'nft_draft_link_during_reconnect', 'nft_draft_link_locked_wallet', 'nft_fee_no_vault', 'nft_fee_mode_off', 'nft_wallet_picker', 'nft_wallet_switch_mid_load']);
+const nftModes = new Set(['nft_reload_keeps_nft', 'nft_muse_free', 'nft_paid_usdg', 'nft_paid_eth', 'nft_fee_sending_reload', 'nft_not_controlled', 'nft_already_launched', 'nft_draft_link_during_reconnect', 'nft_draft_link_locked_wallet', 'nft_fee_no_vault', 'nft_fee_mode_off', 'nft_wallet_picker', 'nft_wallet_switch_mid_load', 'nft_same_nft_image']);
+const requestedCases = process.env.BROWSER_CASES?.split(',');
 const feeWei = '3333333333333334';
 const muses = '0x13Ea3072b7215d4C9c2Ec4f498A08c5825129836', paidCollection = '0x9999999999999999999999999999999999999999';
 const usdg = '0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168', musegodAsset = ROBINHOOD_STOCKS.find(x => x.symbol === 'MUSEGOD');
@@ -1409,7 +1410,126 @@ async function nftImageRacePins(page, state) {
   assert.equal(await page.locator('.image-drop').getAttribute('aria-busy'), 'false');
   assert.equal(state.tokenImageUploads.length, beforeClear, 'replaced drafts never post late conversions');
 }
+// A passing manual/restored NFT can gain its list image without becoming a different NFT or repeating the live check.
+async function sameNftImageCase(page, state) {
+  const free = 'Muse launches are free. Muse coins pair with MUSEGOD.';
+  const image = page.getByLabel('Image URL', { exact: true }), notice = page.locator('#token-image-nft');
+  const statusPassed = () => page.waitForFunction(text => document.getElementById('nft-launch-status')?.textContent === text, free);
+  const identity = async () => {
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await page.getByRole('heading', { name: 'Give it a name and a face', exact: true }).waitFor();
+  };
+  const imagesLoaded = expected => page.waitForFunction(url => {
+    const images = [document.querySelector('.image-drop-fill'), document.querySelector('aside.preview-column .preview-token .token-icon img')];
+    return images.every(img => img instanceof HTMLImageElement && img.src === url && img.complete && img.naturalWidth > 0 && !img.hidden);
+  }, expected);
+  const pickSame = async () => {
+    await page.getByRole('button', { name: /^Step 1 of 3.*NFT$/ }).click();
+    const fromManual = page.getByRole('button', { name: 'Choose from your wallet instead', exact: true });
+    if (await fromManual.count()) await fromManual.click();
+    else await page.getByRole('button', { name: 'Change', exact: true }).click();
+    await page.getByRole('button', { name: /MUSEGOD Muses/ }).click();
+    await page.getByRole('button', { name: 'Bard', exact: true }).click();
+    await statusPassed(); await identity();
+  };
+  const settledSamePick = async () => {
+    // The live check is debounced by 400 ms; allow an unintended re-check to become observable.
+    await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 650)));
+  };
+  const assertPinned = async before => {
+    await page.waitForFunction(prefix => document.querySelector('input[name="image"]')?.value.startsWith(prefix), fixturePinata, { timeout: 10_000 });
+    const pinned = await image.inputValue();
+    await imagesLoaded(pinned); await notice.waitFor();
+    assert.equal(state.tokenImageUploads.length, before + 1, 'the newly available list image is pinned once');
+    assert.equal(state.tokenImageUploads.at(-1).image, pinned);
+    return pinned;
+  };
+  const reloadPassed = async () => {
+    await page.reload();
+    await page.getByRole('button', { name: /^Wallet account / }).waitFor();
+    await page.getByRole('heading', { name: 'Give it a name and a face', exact: true }).waitFor();
+    await statusPassed();
+  };
+  try {
+    await page.getByRole('button', { name: 'Connect wallet', exact: true }).click();
+    const walletChoice = page.getByRole('button', { name: /Local acceptance wallet/ });
+    if (await walletChoice.count()) await walletChoice.click();
+    await page.getByRole('button', { name: /^Wallet account / }).waitFor();
+    await page.getByRole('radio', { name: 'NFT', exact: true }).check();
+    await page.getByRole('button', { name: 'Enter a contract and token number instead', exact: true }).click();
+    await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Collection contract');
+    await page.getByLabel('Token number', { exact: true }).fill('1');
+    await statusPassed(); await identity();
+    assert.equal(await image.inputValue(), '', 'manual entry has no list image');
+    const manualChecks = state.nftStatusRequests.length, manualPosts = state.tokenImageUploads.length;
+    state.holdTokenImages = true;
+    await pickSame();
+    await waitForFixture(() => state.tokenImageResolvers.length === 1, 'the first same-NFT pin held open');
+    await pickSame(); await settledSamePick();
+    assert.equal(state.tokenImageUploads.length, manualPosts + 1, 'identical metadata never starts a second pending pin');
+    assert.equal(await page.locator('.image-drop').getAttribute('aria-busy'), 'true', 'reselecting identical metadata keeps the first pin active');
+    assert.equal(state.nftStatusRequests.length, manualChecks, 'a pending same-key pin needs no second live check');
+    const pinResponse = page.waitForResponse(response => response.url().endsWith('/token-images'));
+    state.holdTokenImages = false; state.tokenImageResolvers.splice(0).forEach(resolve => resolve());
+    await (await pinResponse).finished();
+    const firstImage = await assertPinned(manualPosts);
+    await settledSamePick();
+    assert.equal(state.nftStatusRequests.length, manualChecks, 'same-key list metadata does not repeat the passing live check');
+    assert(state.nftImageLoads.some(load => load.url.endsWith('/bard.png') && load.origin === origin), 'the list image is converted anonymously');
+
+    const repeatPosts = state.tokenImageUploads.length;
+    await pickSame(); await imagesLoaded(firstImage); await notice.waitFor(); await settledSamePick();
+    assert.equal(await image.inputValue(), firstImage);
+    assert.equal(state.tokenImageUploads.length, repeatPosts, 'reselecting the pinned NFT never posts another image');
+    assert.equal(state.nftStatusRequests.length, manualChecks, 'reselecting the pinned NFT never repeats its passing check');
+
+    // A reload forgets list metadata but retains ownership of the pinned image in the saved draft.
+    await autosaveSettled(page); await reloadPassed();
+    await imagesLoaded(firstImage); await notice.waitFor();
+    const ownedChecks = state.nftStatusRequests.length, ownedPosts = state.tokenImageUploads.length;
+    await pickSame(); await imagesLoaded(firstImage); await notice.waitFor(); await settledSamePick();
+    assert.equal(await image.inputValue(), firstImage, 'same-key metadata preserves the restored owned image');
+    assert.equal(state.tokenImageUploads.length, ownedPosts, 'the restored owned image is never posted again');
+    assert.equal(state.nftStatusRequests.length, ownedChecks, 'restored owned-image metadata needs no second check');
+
+    // An old autosaved draft has an NFT and its identity, but no image or prefill ownership.
+    await autosaveSettled(page);
+    const oldDraft = { ...await storedDraft(page), image: '', step: 1 };
+    delete oldDraft.nftPrefill;
+    await page.evaluate(({ draft, creator }) => {
+      localStorage.setItem(`musegod.launch.draft.31337.4663.${creator}.${draft.intentId}`, JSON.stringify(draft));
+      localStorage.setItem('musegod.launch.draft.31337.4663', JSON.stringify(draft));
+    }, { draft: oldDraft, creator });
+    await reloadPassed();
+    assert.equal(await image.inputValue(), '', 'the restored old draft is empty after its live check passes');
+    const restoredChecks = state.nftStatusRequests.length, restoredPosts = state.tokenImageUploads.length;
+    await pickSame(); await assertPinned(restoredPosts); await settledSamePick();
+    assert.equal(state.nftStatusRequests.length, restoredChecks, 'restored same-key metadata needs no second check');
+
+    // Reload drops tab-local list metadata, so a fresh same-key callback must preserve the person's image too.
+    const manualImage = `${fixturePinata}?manual=same-nft`;
+    await image.fill(manualImage); await autosaveSettled(page); await reloadPassed();
+    assert.equal(await image.inputValue(), manualImage);
+    await page.getByLabel('Token symbol', { exact: true }).fill('');
+    const editedChecks = state.nftStatusRequests.length, editedPosts = state.tokenImageUploads.length;
+    await pickSame(); await imagesLoaded(manualImage); await settledSamePick();
+    assert.equal(await page.getByLabel('Token symbol', { exact: true }).inputValue(), 'BARD', 'the newly available metadata callback runs while preserving the typed image');
+    assert.equal(await image.inputValue(), manualImage, 'newly available list metadata cannot replace a typed image');
+    assert.equal(await notice.count(), 0);
+    assert.equal(state.tokenImageUploads.length, editedPosts, 'a typed image prevents the NFT image post');
+    assert.equal(state.nftStatusRequests.length, editedChecks);
+    assert.equal(state.sends.length, 0); assert.equal(state.prepareRequests.length, 0);
+    state.nftChecks = { manualSameNftImage: true, restoredSameNftImage: true, identityAndPreviewLoaded: true,
+      sameNftNoRecheck: true, sameImageNoRepost: true, ownedImageReloadNoRepost: true, manualImagePreserved: true };
+    const screenshot = '.cache/launch-browser-nft_same_nft_image.png';
+    await page.screenshot({ path: screenshot, fullPage: true }); report.screenshots.push(screenshot);
+  } catch (error) {
+    await page.screenshot({ path: '.cache/launch-browser-nft_same_nft_image-failure.png', fullPage: true });
+    throw error;
+  }
+}
 async function nftCase(page, state) {
+  if (state.mode === 'nft_same_nft_image') return sameNftImageCase(page, state);
   if (['nft_wallet_picker', 'nft_wallet_switch_mid_load'].includes(state.mode)) return walletPickerCase(page, state);
   if (state.mode === 'nft_reload_keeps_nft') return nftReloadCase(page, state);
   if (state.mode === 'nft_draft_link_during_reconnect') return draftLinkCase(page, state);
@@ -1611,7 +1731,7 @@ async function nftCase(page, state) {
   await page.screenshot({ path: `.cache/launch-browser-${mode}.png`, fullPage: true }); report.screenshots.push(`.cache/launch-browser-${mode}.png`);
 }
 try {
-  for (const mode of (process.env.BROWSER_CASES?.split(',') || ['success','plain','duplicate','stale_page','reject_approval','wallet_refuses_sends','expiry','account_change','network_change','simulation_failure','two_tabs','two_tabs_draft','unknown_send','approval_unknown','approval_pending','wrap_flow','wrap_price_change','delayed_config','unknown_fetch','approval_timeout','payment_timeout','launch_timeout','approval_timeout_reject','payment_marker_race','launch_marker_race','payment_status_race','payment_submit_race','payment_submit_record_race','wrap_late_launch_recovery','wrap_near_expiry','idle_review','hidden_review','idle_plain','token_detail_pending','token_detail_error','token_detail_state_unavailable','token_detail_unregistered_backup','token_detail_invalid_pool','token_detail_unverified_opening','history_track_backoff','nft_muse_free','nft_paid_usdg','nft_paid_eth','nft_fee_sending_reload','nft_not_controlled','nft_already_launched','nft_draft_link_during_reconnect','nft_draft_link_locked_wallet','nft_fee_no_vault','nft_fee_mode_off','nft_reload_keeps_nft','nft_wallet_picker','nft_wallet_switch_mid_load'])) {
+  for (const mode of (requestedCases || ['success','plain','duplicate','stale_page','reject_approval','wallet_refuses_sends','expiry','account_change','network_change','simulation_failure','two_tabs','two_tabs_draft','unknown_send','approval_unknown','approval_pending','wrap_flow','wrap_price_change','delayed_config','unknown_fetch','approval_timeout','payment_timeout','launch_timeout','approval_timeout_reject','payment_marker_race','launch_marker_race','payment_status_race','payment_submit_race','payment_submit_record_race','wrap_late_launch_recovery','wrap_near_expiry','idle_review','hidden_review','idle_plain','token_detail_pending','token_detail_error','token_detail_state_unavailable','token_detail_unregistered_backup','token_detail_invalid_pool','token_detail_unverified_opening','history_track_backoff','nft_muse_free','nft_paid_usdg','nft_paid_eth','nft_fee_sending_reload','nft_not_controlled','nft_already_launched','nft_draft_link_during_reconnect','nft_draft_link_locked_wallet','nft_fee_no_vault','nft_fee_mode_off','nft_reload_keeps_nft','nft_wallet_picker','nft_wallet_switch_mid_load','nft_same_nft_image'])) {
     const {context,page,state,pageErrors}=await casePage(mode);
     const plain = plainModes.has(mode);
     if (mode === 'success') {
@@ -1860,11 +1980,13 @@ try {
       ...(state.nftChecks ? { nft: state.nftChecks } : {}),
       status:'passed'}); console.log('PASS browser: '+mode); await context.close();
   }
-  const { context,page,state,pageErrors }=await casePage('success',{width:390,height:844});
-  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
-  await page.screenshot({path:'.cache/launch-scoped-browser-mobile-review.png',fullPage:true}); report.screenshots.push('.cache/launch-scoped-browser-mobile-review.png');
-  await page.getByRole('button',{name:'Confirm launch and first buy',exact:true}).click(); await page.waitForURL('**/token/**'); assert.equal(state.sends.length,2); assert.deepEqual(pageErrors,[]);
-  report.checks.push({mode:'success',viewport:'mobile 390x844',walletCalls:2,status:'passed'}); await context.close();
+  if (!requestedCases || requestedCases.includes('success')) {
+    const { context,page,state,pageErrors }=await casePage('success',{width:390,height:844});
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+    await page.screenshot({path:'.cache/launch-scoped-browser-mobile-review.png',fullPage:true}); report.screenshots.push('.cache/launch-scoped-browser-mobile-review.png');
+    await page.getByRole('button',{name:'Confirm launch and first buy',exact:true}).click(); await page.waitForURL('**/token/**'); assert.equal(state.sends.length,2); assert.deepEqual(pageErrors,[]);
+    report.checks.push({mode:'success',viewport:'mobile 390x844',walletCalls:2,status:'passed'}); await context.close();
+  }
   await writeFile('.cache/launch-scoped-browser.json',JSON.stringify(report,null,2)+'\n');
 } catch (error) {
   if (activePage && !activePage.isClosed()) {

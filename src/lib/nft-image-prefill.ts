@@ -49,7 +49,7 @@ export function createNftImagePrefill(initial: NftPrefill = {}) {
     },
     async prefill(nft: { name?: string; image?: string }, io: ImageWork, restored = false) {
       const owned = { ...previous }, changes = nftPrefill(io.getDraft(), nft, owned);
-      // A restored NFT has no list metadata. Its re-check must retain saved ownership and its notice.
+      // A restored NFT's re-check or first list metadata retains saved ownership and its notice.
       if (restored) for (const field of ["name", "symbol", "image"] as const)
         if (owned[field] && io.getDraft()[field] === owned[field]) delete changes[field];
       const manualPending = manual === request;
