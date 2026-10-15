@@ -393,6 +393,9 @@ app.get(
 app.get("/api/nft-treasury", route(async (req, res) => res.json(await service.nftTreasury(req.query.nft))));
 // The create form's NFT check (holder or delegate, one coin per NFT, free tier); prepare re-checks everything.
 app.get("/api/nft-status", route(async (req, res) => res.json(await service.nftStatus(req.query.nft, req.query.account))));
+// The NFT step's wallet lists (tasks/nft-mode-wallet-picker.md §4); nft-status and prepare stay the authority.
+app.get("/api/nft-collections", route(async (req, res) => res.json(await service.nftCollections(req.query.owner))));
+app.get("/api/nft-tokens", route(async (req, res) => res.json(await service.nftTokens(req.query.owner, req.query.contract))));
 // A platform-signed ETH price for the $10 NFT launch fee; the stablecoin fee needs no quote.
 app.get("/api/launch-fee-quote", route(async (req, res) => res.json(await service.launchFeeQuote(req.query.payer))));
 app.post(
@@ -574,7 +577,7 @@ app.use(
     }
     if(error instanceof BudgetUnavailable){res.setHeader("Retry-After",String(error.retryAfter));res.status(429).json({error:error.message,code:"CAPACITY_LIMITED"});return;}
     const status =
-      error instanceof MarketUnavailable
+      error instanceof MarketUnavailable || (error instanceof NftLaunchError && error.code === "NFT_LIST_UNAVAILABLE")
         ? 503
         : error instanceof z.ZodError
           ? 400

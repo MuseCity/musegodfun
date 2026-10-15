@@ -30,11 +30,12 @@ const noHidden = { "4663": [], "8453": [] };
 // ---- HTTP: catalog, ?nft= filter, hide list, page route ----------------------------------------
 // NFT mode is on unless `nftMode: false`: these surfaces are dark while it is off.
 async function httpFixture(run: (entry: ReturnType<typeof createApp>, origin: string) => Promise<void>, configurePages?: (app: express.Express) => void,
-  { nftMode = true } = {}) {
+  { nftMode = true, chainScoped = false } = {}) {
   const directory = mkdtempSync(join(tmpdir(), "nft-api-"));
   const runtime = runtimeFromEnv(4663, { NODE_ENV: "test", CHAIN_MODE: "fork", FORK_CHAIN_ID: "4663", DATA_DIR: directory,
     PLATFORM_TREASURY: "0x2222222222222222222222222222222222222222", ...(nftMode ? { NFT_MODE_ENABLED: "true" } : {}) });
-  const entry = createApp(configurePages, "loopback", runtime);
+  const dual = chainScoped ? createDualChainApp(configurePages, "loopback", [runtime]) : null;
+  const entry = dual ? { app: dual.app, service: dual.services.get(4663)! } : createApp(configurePages, "loopback", runtime);
   const server = entry.app.listen(0, "127.0.0.1"); await once(server, "listening");
   const bound = server.address(); assert(bound && typeof bound !== "string");
   try { await run(entry, `http://127.0.0.1:${bound.port}`); }
@@ -212,7 +213,9 @@ test("while NFT mode is off, nft-status and nft-treasury answer 422 NFT_MODE_UNA
     service.store.verifiedNftCoin = () => { reads++; throw new Error("no database reads expected"); };
     const account = "0x1111111111111111111111111111111111111111";
     for (const path of [`/api/nft-treasury?nft=4663:${MUSES.contract}:1`, `/api/nft-status?nft=4663:${MUSES.contract}:1&account=${account}`,
-      "/api/nft-treasury?nft=garbage", "/api/nft-status"]) {
+      "/api/nft-treasury?nft=garbage", "/api/nft-status",
+      "/api/nft-collections?owner=0x1111111111111111111111111111111111111111",
+      `/api/nft-tokens?owner=0x1111111111111111111111111111111111111111&contract=${MUSES.contract}`]) {
       const response = await get(origin, path);
       assert.equal(response.status, 422, path);
       assert.deepEqual(await response.json(), { error: "NFT mode is not available on this network.", code: "NFT_MODE_UNAVAILABLE" }, path);
@@ -475,4 +478,50 @@ test("the committed hide list names both chains", () => {
   for (const addresses of Object.values(committedHideList)) for (const a of addresses) assert.match(a, /^0x[0-9a-f]{40}$/);
   // A Base coin launched as "Musegod" (MUSEGOD) under the official X link, before the reserved-name rule; the official token is 0x0379… on Robinhood.
   assert.ok(committedHideList["8453"].includes("0x79ea556198c33bb3025f0243144e74cb9416e670"));
+});
+
+// ---- the NFT step's wallet lists (tasks/nft-mode-wallet-picker.md §4) ----------------------------------------
+const holder = "0x1111111111111111111111111111111111111111";
+test("wallet lists: 400 on a bad address, 503 NFT_LIST_UNAVAILABLE without an Alchemy key, never the key", async () => {
+  for (const path of ["/api/nft-collections", "/api/chains/4663/nft-tokens"]) assert.equal(ingressClass(path), "read");
+  await httpFixture(async (_entry, origin) => {
+    for (const path of ["/api/nft-collections?owner=nope", `/api/nft-tokens?owner=${holder}&contract=nope`])
+      assert.equal((await get(origin, path)).status, 400, path);
+    for (const path of [`/api/nft-collections?owner=${holder}`, `/api/chains/4663/nft-tokens?owner=${holder}&contract=${MUSES.contract}`]) {
+      const response = await get(origin, path);
+      assert.equal(response.status, 503, path);
+      assert.deepEqual(await response.json(), { error: "Your NFTs could not be loaded. Enter the contract and token number instead.", code: "NFT_LIST_UNAVAILABLE" });
+    }
+  }, undefined, { chainScoped: true });
+});
+
+test("wallet lists answer the §4 shapes; launched marks verified coins only; Muses are free", async () => {
+  await httpFixture(async ({ service }, origin) => {
+    await service.store.saveToken(coin(1, { nft: nftOf("1"), nftVerification: verified }));
+    await service.store.saveToken(coin(2, { nft: nftOf("2"), nftVerification: rejected }));
+    const seen: string[] = [];
+    service.nftHoldings = {
+      collections: async (owner, isFree) => { seen.push(`c:${owner}`); return { truncated: false, collections: [
+        { contract: MUSES.contract, name: "MUSEGOD Muses", held: 3, free: isFree(MUSES.contract), openSeaVerified: true }] }; },
+      tokens: async (owner, contract) => { seen.push(`t:${owner}:${contract}`); return { truncated: true, tokens: [{ tokenId: "1" }, { tokenId: "2", name: "Two" }, { tokenId: "3" }] }; },
+    };
+    const collections = await (await get(origin, `/api/chains/4663/nft-collections?owner=${holder}`)).json();
+    assert.deepEqual(collections, { owner: getAddress(holder), truncated: false,
+      collections: [{ contract: MUSES.contract, name: "MUSEGOD Muses", held: 3, free: true, openSeaVerified: true }] });
+    const tokens = await (await get(origin, `/api/nft-tokens?owner=${holder}&contract=${MUSES.contract.toLowerCase()}`)).json();
+    assert.deepEqual(tokens, { owner: getAddress(holder), contract: MUSES.contract, truncated: true,
+      tokens: [{ tokenId: "1", launched: true }, { tokenId: "2", name: "Two", launched: false }, { tokenId: "3", launched: false }] });
+    assert.deepEqual(seen, [`c:${getAddress(holder)}`, `t:${getAddress(holder)}:${MUSES.contract}`]);
+  }, undefined, { chainScoped: true });
+});
+
+test("wallet lists stay dark on Base: NFT_MODE_UNAVAILABLE before any read", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "nft-base-"));
+  const service = new LaunchpadService(runtimeFromEnv(8453, { NODE_ENV: "test", CHAIN_MODE: "fork", FORK_CHAIN_ID: "8453", DATA_DIR: directory,
+    PLATFORM_TREASURY: "0x2222222222222222222222222222222222222222", NFT_MODE_ENABLED: "true" }));
+  try {
+    service.nftHoldings = { collections: async () => assert.fail("no read"), tokens: async () => assert.fail("no read") };
+    for (const run of [() => service.nftCollections(holder), () => service.nftTokens(holder, MUSES.contract)])
+      await assert.rejects(run, (e: any) => e.code === "NFT_MODE_UNAVAILABLE");
+  } finally { service.store.close(); rmSync(directory, { recursive: true, force: true }); }
 });

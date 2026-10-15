@@ -70,6 +70,8 @@ import { NftLaunchError, assertNftDraftRules, inspectVaultFactory, launchFeeQuot
 import { isMuse, nftKey, treasuryFor, vaultFor, type NftRef, type NftStatus } from "../src/lib/nft-mode";
 import { ERC1967_IMPLEMENTATION_SLOT, treasuryInitialized } from "../src/lib/nft-treasury";
 import { LAUNCH_FEE_QUOTE_TTL, LAUNCH_FEE_STABLE, LAUNCH_FEE_USD, type LaunchFee } from "../src/lib/launch-fee";
+import { AlchemyNftHoldings } from "./nft-holdings";
+import type { OwnedCollections, OwnedNfts } from "../src/lib/nft-holdings";
 import type { EngineClaimPreview } from "../src/lib/buyback-engine";
 
 import { runtimeFromEnv, mainnetRpcUrl, redact } from "./config";
@@ -87,6 +89,8 @@ export class LaunchpadService {
   get contracts() { return contractsFor(this.runtime.config); }
   get assets() { return assetsFor(this.runtime.config); }
   readonly store: StoreBackend;
+  /** The NFT step's wallet lists (tasks/nft-mode-wallet-picker.md §4). Tests replace it. */
+  nftHoldings: Pick<AlchemyNftHoldings, "collections" | "tokens">;
   private readonly guardCandidate: Address | null;
   private readonly firstBuyGuardCandidate: Address | null;
   private readonly feeEngineCandidate: Address | null;
@@ -151,6 +155,7 @@ export class LaunchpadService {
           )
         : new Store(runtime.dataDir, runtime.config.chainId);
     this.runtime.lifi.budget = this.store;
+    this.nftHoldings = new AlchemyNftHoldings({ apiKey: runtime.environment?.ALCHEMY_API_KEY });
   }
   async assertNetwork() {
     if ((await this.client.getChainId()) !== this.runtime.config.chainId)
@@ -1394,6 +1399,27 @@ export class LaunchpadService {
     const profile = { ...(name ? { name } : {}), ...(agentId ? { agentId } : {}) };
     if (name || agentId) profiles.set(nft.tokenId, profile);
     return { ...control, alreadyLaunched: !!existing, free, ...profile };
+  }
+  /** The connected wallet's ERC-721 collections for the NFT step: a convenience only; nft-status and prepare stay the authority. */
+  async nftCollections(rawOwner: unknown): Promise<OwnedCollections> {
+    await this.assertNftModeAvailable();
+    const owner = addressSchema.parse(rawOwner);
+    const chainId = this.assertNftListNetwork(), free = new Set(this.runtime.config.nftMode?.freeCollections ?? []);
+    const { truncated, collections } = await this.nftHoldings.collections(owner, (contract) => free.has(`${chainId}:${contract.toLowerCase()}`));
+    return { owner, truncated, collections };
+  }
+  /** The wallet's NFTs of one collection; `launched` uses the same rule as nft-status (a verified coin for this NFT). */
+  async nftTokens(rawOwner: unknown, rawContract: unknown): Promise<OwnedNfts> {
+    await this.assertNftModeAvailable();
+    const owner = addressSchema.parse(rawOwner), contract = addressSchema.parse(rawContract), chainId = this.assertNftListNetwork();
+    const [{ truncated, tokens }, catalog] = await Promise.all([this.nftHoldings.tokens(owner, contract), this.tokens()]);
+    const launched = new Set(catalog.flatMap((coin) => coin.nft && coin.nftVerification?.status === "verified" ? [nftKey(coin.nft)] : []));
+    return { owner, contract, truncated, tokens: tokens.map((token) => ({ ...token, launched: launched.has(nftKey({ chainId, contract, tokenId: token.tokenId })) })) };
+  }
+  private assertNftListNetwork(): 4663 {
+    const chainId = deploymentChain(this.runtime.config);
+    if (chainId !== 4663) throw new NftLaunchError("NFT_CHAIN_UNSUPPORTED", "Wallet NFT lists are available on Robinhood Chain only.");
+    return chainId;
   }
   async firstBuyLock(address: Address): Promise<FirstBuyLockStatus | null> {
     await this.assertNetwork();
