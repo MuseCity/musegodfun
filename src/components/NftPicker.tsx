@@ -43,11 +43,14 @@ export function NftPicker({ config, account, connecting, onConnect, onPick, onMa
       () => { if (active) setTokens({ state: "error" }); });
     return () => { active = false; };
   }, [account, open?.contract, config.chainId, config.deploymentChainId, tokenAttempt]);
-  // Only an explicit return to the picker requests focus; keep that request until the list settles.
+  // Only an explicit return requests focus; on settle, leave focus alone if the person moved on.
   useEffect(() => {
     if (!focusSearch) return;
-    (search.current ?? listStatus.current)?.focus();
-    if (!account || collections.state !== "loading") onSearchFocused();
+    if (account && collections.state === "loading") { listStatus.current?.focus(); return; }
+    if (document.activeElement === document.body || document.activeElement === listStatus.current) {
+      (search.current ?? listStatus.current)?.focus();
+    }
+    onSearchFocused();
   }, [account, collections.state, focusSearch, onSearchFocused]);
 
   const manual = <button type="button" className="text-button" onClick={onManual}>Enter a contract and token number instead</button>;

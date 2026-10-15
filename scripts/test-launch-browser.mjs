@@ -1091,6 +1091,17 @@ async function walletPickerCase(page, state) {
   await page.waitForFunction(text => document.getElementById('nft-launch-status')?.textContent === text, chooseText);
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.locator('#nft-launch-error').getByText(chooseText, { exact: true }).waitFor();
+  // A failed manual check's Retry must not select that hidden NFT after returning to the list.
+  await page.getByRole('button', { name: 'Enter a contract and token number instead', exact: true }).click();
+  state.failNftStatus = true;
+  await page.getByLabel('Token number', { exact: true }).fill('8');
+  await page.waitForFunction(() => document.getElementById('nft-launch-status')?.textContent === 'The NFT status could not be read right now.');
+  await page.getByRole('button', { name: 'Retry', exact: true }).waitFor();
+  await returnToPicker('Choose from your wallet instead');
+  assert.equal(await page.locator('#nft-launch-status').innerText(), chooseText);
+  assert.equal(await page.getByRole('button', { name: 'Retry', exact: true }).count(), 0, 'no Retry for a hidden manual NFT while choosing');
+  assert.equal(await page.getByRole('button', { name: 'Keep #8', exact: true }).count(), 0);
+  state.failNftStatus = false;
   await page.getByRole('button', { name: /Bronze Keys/ }).click();
   await page.getByRole('heading', { name: 'Bronze Keys', exact: true }).waitFor();
   await page.waitForFunction(() => document.activeElement?.textContent === 'Bronze Keys');

@@ -127,9 +127,10 @@ export function NftLaunchStep({ config, account, draft, connecting, onConnect, e
   }, [candidateKey, account, config.chainId, config.deploymentChainId, attempt]);
   const current = statusFor === run ? status : null;
   const passed = !!account && !!candidate && !checkError && !!current && current.erc721 && current.controls && !current.alreadyLaunched;
+  const choosing = !manual && picking && !nft;
 
   const statusText = !account ? "Connect the wallet that holds the NFT."
-    : !manual && picking && !nft ? "Choose an NFT from your wallet, or enter a contract and token number."
+    : choosing ? "Choose an NFT from your wallet, or enter a contract and token number."
     : tokenId && !parsed.success ? parsed.error.issues[0]?.message ?? "Check the contract and token number."
     : !candidate ? "Enter the token number to check it."
     : checkError ? checkError
@@ -182,7 +183,7 @@ export function NftLaunchStep({ config, account, draft, connecting, onConnect, e
           <button type="button" className="secondary" onClick={showPicker}>Change</button>
         </div>}
       <p id="nft-launch-status" className="nft-status" role="status" aria-live="polite">{statusText}</p>
-      {checkError && account && candidate && <button type="button" className="text-button" onClick={() => setAttempt((value) => value + 1)}>Retry</button>}
+      {!choosing && checkError && account && candidate && <button type="button" className="text-button" onClick={() => setAttempt((value) => value + 1)}>Retry</button>}
       {error && <p id={NFT_ERROR_ID} className="field-error" role="alert" tabIndex={-1}>{error}</p>}
       {/* The fee state shows whenever a payment exists, even while the NFT check is pending or failed. */}
       {(record || needsFee || feeRejected) && <section className="nft-fee" aria-labelledby={NFT_FEE_ID}>
