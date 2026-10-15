@@ -1577,7 +1577,7 @@ function CreatePage({
   async function uploadImage(file: File) {
     generation.current++;
     setReview(false); setPlan(null); setError(""); setMessage("");
-    if (await imagePrefill.upload(file, imageWork())) setInvalidField("");
+    if (await imagePrefill.upload(file, imageWork())) { setInvalidField(""); setError(""); setMessage(""); }
   }
   function showInvalidField(field: string, message: string) {
     setInvalidField(field);

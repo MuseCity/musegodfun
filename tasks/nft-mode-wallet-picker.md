@@ -209,7 +209,7 @@ There are two new read endpoints. They sit next to `nft-status` and are served u
    - the rest by NFTs held.
    Search filters by name or address.
 3. Opening a collection lists the wallet's NFTs in it. Already launched NFTs cannot be selected.
-4. Selecting an NFT runs the existing check and fee flow. Continue, and the step bar, move on only when `nftReviewBlocker` would pass; otherwise the step says why. Name and symbol are prefilled only into empty fields, never with a reserved name.
+4. Selecting an NFT runs the existing check and fee flow. Continue, and the step bar, move on only when `nftReviewBlocker` would pass; otherwise the step says why. Name, symbol and, for wallet picks, the image prefill empty or still-prefilled fields and follow NFT changes (§3.2, §3.3), never with a reserved name.
 5. Manual entry works, and it is offered when the list is empty or fails.
 6. The endpoints return the §4 shapes and codes: 400, 422 (including Base), 503 `NFT_LIST_UNAVAILABLE`. They respect the 300 caps with `truncated`, cache for 60 s, and never expose a provider key.
 7. Drafts restore their step as §3.3 says. A draft link with `nft` opens on the NFT step with that NFT selected. Two tabs on one draft never move each other's step unless the saved step itself changed.

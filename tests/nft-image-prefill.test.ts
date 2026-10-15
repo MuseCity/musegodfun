@@ -51,6 +51,43 @@ test("A to B during conversion keeps only B and never pins stale A", async () =>
   assert.equal(state.busy, false);
 });
 
+test("a late NFT pin is dropped when the next NFT has no image", async () => {
+  const { state, work, io } = fixture(), held = deferred<string>(), entered = deferred<void>();
+  io.pin = async (image, interactive) => {
+    state.pins.push({ image, interactive }); entered.resolve(); return held.promise;
+  };
+  const pending = work.prefill(a, io); await entered.promise;
+  await work.prefill({ name: "B" }, io);
+  assert.equal(state.busy, false);
+  held.resolve("https://pin.test/a"); await pending;
+  assert.deepEqual(state.draft, { name: "B", symbol: "B", image: "" });
+  assert.equal(work.previous.image, undefined); assert.equal(state.error, "");
+  assert.deepEqual(state.pins, [{ image: "a", interactive: false }]);
+});
+
+test("a stale NFT conversion finishing keeps the current conversion busy", async () => {
+  const { state, work, io } = fixture(), first = deferred<string>(), second = deferred<string>();
+  io.convertUrl = url => url === "a" ? first.promise : second.promise;
+  const pendingA = work.prefill(a, io), pendingB = work.prefill(b, io);
+  assert.equal(state.busy, true);
+  first.resolve("a"); await pendingA;
+  assert.equal(state.busy, true); assert.deepEqual(state.pins, []);
+  second.resolve("b"); await pendingB;
+  assert.equal(state.draft.image, "https://pin.test/b"); assert.equal(state.busy, false);
+});
+
+test("typing an image stops the spinner immediately and suppresses a late NFT failure", async () => {
+  const { state, work, io } = fixture(), held = deferred<string>();
+  io.convertUrl = () => held.promise;
+  const pending = work.prefill(a, io);
+  assert.equal(state.busy, true);
+  work.edit("image", io); state.draft.image = "https://mine.test/typed";
+  const busyAfterEdit = state.busy;
+  held.reject(new Error("late conversion failure")); await pending;
+  assert.equal(busyAfterEdit, false); assert.equal(state.busy, false); assert.equal(state.error, "");
+  assert.equal(state.draft.image, "https://mine.test/typed"); assert.deepEqual(state.pins, []);
+});
+
 for (const edit of ["typed", "uploaded"] as const) test(`a late NFT pin cannot overwrite a ${edit} image`, async () => {
   const { state, work, io } = fixture(), held = deferred<string>(), entered = deferred<void>();
   io.pin = async (image, interactive) => {
@@ -134,4 +171,44 @@ test("failed manual uploads keep the existing prefill and error, and manual edit
   for (const field of ["name", "symbol", "image"] as const) work.edit(field, io);
   await work.prefill(b, io);
   assert.deepEqual(state.draft, initial); assert.deepEqual(work.previous, {}); assert.deepEqual(state.pins, []);
+});
+
+test("a failed manual upload releases priority for a later NFT image", async () => {
+  const { state, work, io } = fixture();
+  io.convertFile = async () => { throw new Error("manual validation failed"); };
+  await work.upload(file, io);
+  assert.equal(state.error, "manual validation failed"); assert.equal(state.busy, false);
+  await work.prefill(a, io);
+  assert.equal(state.draft.image, "https://pin.test/a"); assert.equal(work.previous.image, state.draft.image);
+  assert.deepEqual(state.conversions, ["a"]); assert.deepEqual(state.pins, [{ image: "a", interactive: false }]);
+  assert.equal(state.busy, false); assert.equal(state.error, "");
+});
+
+test("replacing the draft during a manual conversion drops the late result without pinning", async () => {
+  const { state, work, io } = fixture(), held = deferred<string>();
+  io.convertFile = () => held.promise;
+  const pending = work.upload(file, io);
+  const next = { name: "Adopted", symbol: "ADOPTED", image: "https://pin.test/adopted" };
+  state.draft = next; work.replace(next, io);
+  assert.equal(state.busy, false);
+  held.resolve("mine"); await pending;
+  assert.deepEqual(state.draft, next); assert.deepEqual(work.previous, next); assert.deepEqual(state.pins, []);
+  assert.equal(state.busy, false); assert.equal(state.error, "");
+});
+
+for (const outcome of ["success", "failure"] as const) test(`replacing the draft during a manual pin drops its late ${outcome}`, async () => {
+  const { state, work, io } = fixture(), held = deferred<string>(), entered = deferred<void>();
+  io.pin = async (image, interactive) => {
+    state.pins.push({ image, interactive }); entered.resolve(); return held.promise;
+  };
+  const pending = work.upload(file, io); await entered.promise;
+  const next = { name: "Adopted", symbol: "ADOPTED", image: "https://pin.test/adopted" };
+  state.draft = next; work.replace(next, io);
+  assert.equal(state.busy, false);
+  if (outcome === "success") held.resolve("https://pin.test/mine");
+  else held.reject(new Error("late manual pin failure"));
+  await pending;
+  assert.deepEqual(state.draft, next); assert.deepEqual(work.previous, next);
+  assert.deepEqual(state.pins, [{ image: "manual", interactive: true }]);
+  assert.equal(state.busy, false); assert.equal(state.error, "");
 });
