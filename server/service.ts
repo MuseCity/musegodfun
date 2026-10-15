@@ -70,7 +70,7 @@ import { NftLaunchError, assertNftDraftRules, inspectVaultFactory, launchFeeQuot
 import { isMuse, nftKey, treasuryFor, vaultFor, type NftRef, type NftStatus } from "../src/lib/nft-mode";
 import { ERC1967_IMPLEMENTATION_SLOT, treasuryInitialized } from "../src/lib/nft-treasury";
 import { LAUNCH_FEE_QUOTE_TTL, LAUNCH_FEE_STABLE, LAUNCH_FEE_USD, type LaunchFee } from "../src/lib/launch-fee";
-import { AlchemyNftHoldings } from "./nft-holdings";
+import { NftHoldings } from "./nft-holdings";
 import type { OwnedCollections, OwnedNfts } from "../src/lib/nft-holdings";
 import type { EngineClaimPreview } from "../src/lib/buyback-engine";
 
@@ -90,7 +90,7 @@ export class LaunchpadService {
   get assets() { return assetsFor(this.runtime.config); }
   readonly store: StoreBackend;
   /** The NFT step's wallet lists (tasks/nft-mode-wallet-picker.md §4). Tests replace it. */
-  nftHoldings: Pick<AlchemyNftHoldings, "collections" | "tokens">;
+  nftHoldings: Pick<NftHoldings, "collections" | "tokens">;
   private readonly guardCandidate: Address | null;
   private readonly firstBuyGuardCandidate: Address | null;
   private readonly feeEngineCandidate: Address | null;
@@ -155,7 +155,7 @@ export class LaunchpadService {
           )
         : new Store(runtime.dataDir, runtime.config.chainId);
     this.runtime.lifi.budget = this.store;
-    this.nftHoldings = new AlchemyNftHoldings({ apiKey: runtime.environment?.ALCHEMY_API_KEY });
+    this.nftHoldings = new NftHoldings({ alchemyKey: runtime.environment?.ALCHEMY_API_KEY, openSeaKey: runtime.environment?.OPENSEA_API_KEY });
   }
   async assertNetwork() {
     if ((await this.client.getChainId()) !== this.runtime.config.chainId)

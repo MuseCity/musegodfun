@@ -118,7 +118,7 @@ export function redact(value: unknown, environment: RuntimeEnvironment = process
   let message = value instanceof Error ? value.message : String(value);
   if (/BASE_MAINNET is not enabled|ROBINHOOD_MAINNET is not enabled/.test(message))
     return `Enable ${message.includes("BASE_MAINNET") ? "Base" : "Robinhood Chain"} in the Alchemy application.`;
-  for (const name of ["ALCHEMY_API_KEY", "COINGECKO_API_KEY", "BASE_RPC_URL", "ROBINHOOD_RPC_URL", "FORK_RPC_URL", "SUPABASE_SECRET_KEY", "SUPABASE_DB_URL", "PINATA_API_KEY", "PINATA_API_SECRET", "PINATA_JWT", "LIFI_API_KEY", "TURNSTILE_SECRET_KEY", "MUSEGOD_DEPLOY_PRIVATE_KEY", "MUSEGOD_KEEPER_PRIVATE_KEY", "EVM_DY", "PLAN_ATTESTATION_KEY", "PLAN_ATTESTATION_PREVIOUS_KEYS"]) {
+  for (const name of ["ALCHEMY_API_KEY", "OPENSEA_API_KEY", "COINGECKO_API_KEY", "BASE_RPC_URL", "ROBINHOOD_RPC_URL", "FORK_RPC_URL", "SUPABASE_SECRET_KEY", "SUPABASE_DB_URL", "PINATA_API_KEY", "PINATA_API_SECRET", "PINATA_JWT", "LIFI_API_KEY", "TURNSTILE_SECRET_KEY", "MUSEGOD_DEPLOY_PRIVATE_KEY", "MUSEGOD_KEEPER_PRIVATE_KEY", "EVM_DY", "PLAN_ATTESTATION_KEY", "PLAN_ATTESTATION_PREVIOUS_KEYS"]) {
     for (const secret of name === "PLAN_ATTESTATION_PREVIOUS_KEYS" ? (environment[name] ?? "").split(",") : [environment[name]])
       if (secret?.trim()) message = message.replace(new RegExp(secret.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), "[redacted]");
   }

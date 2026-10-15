@@ -363,6 +363,19 @@ test("errors redact both secret values and upstream URLs; Alchemy takes preceden
     else process.env.ALCHEMY_API_KEY = old;
   }
 });
+test("errors redact the OpenSea key from the runtime environment and process environment", () => {
+  const key = "openSea.test+[secret]";
+  const message = new Error(`provider failed with ${key} and ${key.toUpperCase()}`);
+  assert.equal(redact(message, { OPENSEA_API_KEY: key }), "provider failed with [redacted] and [redacted]");
+  const previous = process.env.OPENSEA_API_KEY;
+  try {
+    process.env.OPENSEA_API_KEY = key;
+    assert.equal(redact(message), "provider failed with [redacted] and [redacted]");
+  } finally {
+    if (previous === undefined) delete process.env.OPENSEA_API_KEY;
+    else process.env.OPENSEA_API_KEY = previous;
+  }
+});
 test("errors redact all server-only Pinata credentials", () => {
   const names = ["PINATA_API_KEY", "PINATA_API_SECRET", "PINATA_JWT"];
   const previous = names.map(name => process.env[name]);

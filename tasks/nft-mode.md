@@ -184,7 +184,7 @@ The vault is the Doppler creator-fee beneficiary of every coin bound to that NFT
 - **Create:**
   - A mode switch: Normal | NFT.
   - NFT mode is three steps: NFT → Identity → Economics (`tasks/nft-mode-wallet-picker.md`). The launch type cards sit above the step bar.
-  - NFT step: the connected wallet's ERC-721 collections (Alchemy NFT API v3 through `nft-collections`; Muses pinned by address, then OpenSea-verified, then by NFTs held; searchable), then the wallet's NFTs in one collection (`nft-tokens`; already launched NFTs disabled). Manual entry (contract + token number) remains for delegated wallets and unlisted NFTs.
+  - NFT step: the connected wallet's ERC-721 collections (Alchemy NFT API v3 through `nft-collections`; Muses pinned by address, then OpenSea-verified, then by NFTs held; searchable), then the wallet's NFTs with names and images from OpenSea API v2 (`nft-tokens`, server secret `OPENSEA_API_KEY`; already launched NFTs disabled). Manual entry (contract + token number) remains for delegated wallets and unlisted NFTs.
   - Live checks run on the chosen NFT as before: ERC-721, holder or delegate, tier, plus the vault and treasury addresses.
   - Prefill: only empty name and symbol fields, from the Muse's on-chain name or a picked NFT's listed name, skipping reserved values. The coin image is uploaded by the user.
   - Pair lock for Muses, enforced centrally in `restoreDraft` and the unsupported-asset effect (`src/App.tsx:1251-1260`).
@@ -230,7 +230,7 @@ The vault is the Doppler creator-fee beneficiary of every coin bound to that NFT
 | Prepare (NFT mode) | 1–2 extra round trips (`supportsInterface` and `ownerOf` in parallel; the delegate check only when the launcher is not the owner), plus 1–2 DB reads |
 | Register (NFT mode) | 1–2 `eth_call`s (control), payment receipt reads for paid tiers, plus 2 DB reads |
 | Create live checks | debounced reads through the RPC proxy (ingress class `read`) |
-| NFT step lists | 1–3 Alchemy NFT API calls per admitted uncached load (`getContractsForOwner`, `getNFTsForOwner`, pages of 100, at most 3), cached 60 s per owner (and contract for NFTs); identical in-flight loads share one request; at most 6 concurrent loads and 120 provider calls per rolling minute per holdings instance; `NFT_LIST_UNAVAILABLE` is never automatically retried by the client; `nft-tokens` adds one catalog read |
+| NFT step lists | Collections: 1–3 Alchemy NFT API calls (`getContractsForOwner`). NFTs: 1–3 OpenSea account-NFT pages by collection, plus a contract-to-slug lookup cached 1 h per lowercase contract (at most 500 slugs). Pages of 100, at most 3 per list; answers cached 60 s per owner (and contract for NFTs); identical in-flight loads share one request. A shared cap of 6 concurrent uncached loads and separate budgets of 120 Alchemy calls and 120 OpenSea calls per rolling minute per holdings instance; failed calls, slug lookups and pages spend budget. `NFT_LIST_UNAVAILABLE` is never automatically retried by the client; `nft-tokens` adds one catalog read |
 | Treasury endpoint | about 3–5 reads, cached briefly |
 
 Vault and treasury addresses are computed locally. Nothing re-verifies on reads.
