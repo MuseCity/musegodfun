@@ -1058,6 +1058,12 @@ async function walletPickerCase(page, state) {
   await page.getByRole('button', { name: '← All collections', exact: true }).click();
   await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Search your collections');
   const chooseText = 'Choose an NFT from your wallet, or enter a contract and token number.';
+  await page.getByRole('button', { name: 'Enter a contract and token number instead', exact: true }).click();
+  await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Collection contract');
+  await page.getByLabel('Collection contract', { exact: true }).fill('invalid');
+  await page.getByLabel('Token number', { exact: true }).fill('1');
+  await page.getByRole('button', { name: 'Choose from your wallet instead', exact: true }).click();
+  await page.waitForFunction(text => document.getElementById('nft-launch-status')?.textContent === text, chooseText);
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.locator('#nft-launch-error').getByText(chooseText, { exact: true }).waitFor();
   await page.getByRole('button', { name: /Bronze Keys/ }).click();

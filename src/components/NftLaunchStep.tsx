@@ -129,8 +129,9 @@ export function NftLaunchStep({ config, account, draft, connecting, onConnect, e
   const passed = !!account && !!candidate && !checkError && !!current && current.erc721 && current.controls && !current.alreadyLaunched;
 
   const statusText = !account ? "Connect the wallet that holds the NFT."
+    : !manual && !candidate ? "Choose an NFT from your wallet, or enter a contract and token number."
     : tokenId && !parsed.success ? parsed.error.issues[0]?.message ?? "Check the contract and token number."
-    : !candidate ? manual ? "Enter the token number to check it." : "Choose an NFT from your wallet, or enter a contract and token number."
+    : !candidate ? "Enter the token number to check it."
     : checkError ? checkError
     : !current ? "Checking this NFT…"
     : !current.erc721 ? "This contract is not an ERC-721 collection."
