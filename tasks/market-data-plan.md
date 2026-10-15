@@ -2,7 +2,7 @@
 
 日期：2026-10-15（Asia/Shanghai）
 
-状态：Run 5 已修复 Round 2 C3/B1 与 R2-1–R2-5，本地检查见交付记录；浏览器复验待本轮提交后执行。H1 将两链普通 holders 明确降级为暂不提供。生产 Demo secret、登记 Base 正向样本、Robinhood 非空/长历史 trades 与独立复审/发布验收仍未满足；不宣称生产恢复。
+状态：Run 5 已修复 Round 2 C3/B1 与 R2-1–R2-5；全量1502/1502、构建与提交后浏览器复验通过，见交付记录。H1 将两链普通 holders 明确降级为暂不提供。生产 Demo secret、登记 Base 正向样本、Robinhood 非空/长历史 trades 与独立复审/发布验收仍未满足；不宣称生产恢复。
 
 ## 目标与完成条件
 
@@ -130,10 +130,10 @@
 - [x] 验证 MUSEGOD 独立路由、固定身份、专用缓存、一分钟刷新及 FDV 未知语义；不因普通代币接入而覆盖此路径。
 - [x] 先跑受影响测试，再跑 `npm test`、`npm run build` 和 `git diff --check`。Worker 出站、JSON/redirect/timeout 行为须有原生 Worker 边界验证。
 - [x] 调整现有只读验收脚本：显式接受 chain / token / pool，支持真实空历史，区分 fixture、真实 API 和链上证据；不能强制首个代币必须有交易，也不能用 skip 冒充通过。直接运行，不通过会加载真实 `.env` 的 wrapper。
-- [ ] 浏览器验收首页和详情页，包含桌面/390px、浅色/深色、切链、六周期、成交筛选、持有人切换、旧快照及故障恢复。既有数据与受控故障 fixture 分别标识；无需连接或签署真实钱包。
+- [x] 本地浏览器验收：首页和详情的桌面/390px、浅色/深色、切链、六周期、成交筛选、holders、旧快照与恢复见 Run 4；Run 5 提交后修复并复验列表B1及实际来源署名，抽查R3 1h/MUSEGOD/两链holders。实际数据与fixture明确分开，不含真实钱包/生产验收；Base正向行情、RH非空成交等数据缺口仍在P1/P3/P4未勾选。
 - [x] 在本计划勾选实施结果，同时更新 `docs/SPEC.md` 和必要的 README，移除已被实现替代的“普通 Robinhood 不支持”描述；保留仍真实存在的限制。
 - [x] Round 1 独立 reviewer 只读审查已完成；Run 3 fixer 核实 C1–C11 并修复，不改 RPC 或运行时权限。
-- [ ] 修复后独立 reviewer 复审仍留下一轮，不能以 fixer 自检冒充独立验收。
+- [ ] Round 2 独立复审已执行并请求C3/R2-1等修改；Run 5修复后的独立复审仍留下一轮，不能以fixer浏览器/自检冒充。
 - [ ] 后续获准发布时，先记录两个域名当前 release / source / Worker 版本与两链运行控制，再按既有流水线发布；`musegod.fun`、`www.musegod.fun` 的构建身份、实际 API 和浏览器均通过才标记生产完成。
 - [ ] 回滚点为发布前实际记录的 Worker / immutable build。回滚后核验两域名、两链 API、数据状态和原有运行控制；不得恢复已被判为错链/错池的旧缓存。代码回滚不自动回退生产配置。
 
@@ -249,4 +249,16 @@ R2-5 已核对现有 SQL：cleanup、backup、restore 均严格按 scope，不�
 
 TDD：`evidence/run5-red.log` 首次75项中8项失败，覆盖缺少列表状态/署名、重复写失败扣额、MUSEGOD分钟保护/HTTP边界、网络分类和成功响应退避。修复后定向98/98通过（包含真实Express路由、SSR与实际hook回归）；全量、build、提交结果及浏览器覆盖在后续记录补齐。
 
-Run 5 浏览器前最终检查：`evidence/run5-final-test.log` 全量 **1502/1502**，0 fail/cancelled/skipped/todo；`run5-final-build.log` 两套tsc+Vite通过（仅既有大chunk提示）；`git diff --check`通过。更正SSR属性名大小写后的测试已在原 `aa0afdd` App 上重新执行，`run5-ui-baseline-red.log` 9项中2项失败，确认仍真实检测缺少逐行状态/来源/时间与错误说明栏，并恢复当前源码。受保护的MUSEGOD专用reader、alchemy-rpc、合约、supabase源码对起点均无差异。浏览器复验与本地提交摘要后补。
+Run 5 浏览器前最终检查：`evidence/run5-final-test.log` 全量 **1502/1502**，0 fail/cancelled/skipped/todo；`run5-final-build.log` 两套tsc+Vite通过（仅既有大chunk提示）；`git diff --check`通过。更正SSR属性名大小写后的测试已在原 `aa0afdd` App 上重新执行，`run5-ui-baseline-red.log` 9项中2项失败，确认仍真实检测缺少逐行状态/来源/时间与错误说明栏，并恢复当前源码。受保护的MUSEGOD专用reader、alchemy-rpc、合约、supabase源码对起点均无差异。
+
+### Run 5 提交后浏览器与收尾
+
+源码提交 `9d86fda`（`fix(market): resolve second reliability review and list provenance`）；先通过全量1502/1502、build和diff检查，再用Run4原harness做本轮隔离复验。未读取项目环境启动应用；仅进程内提取CG key，Vite禁用项目env，127.0.0.1:4173、非GET405（本机fixture控制除外）、独立SQLite，无server/index/wrangler/生产Store。Chrome DevTools MCP由本轮启动参数`--isolated`创建独立Chrome；未操作用户ChatGPT的Chrome。
+
+真实列表3个普通行均显示CoinGecko+各自Fetched，featured独立Bankr/Pools时间不借用；说明栏有可见带链接署名。fresh未知指标为破折号。390px深色下unavailable/quota和stale/Previous snapshot可见，fixture恢复后变回Fetched；首页网格和详情署名一致。R3真实1h为2根GT蜡烛、CG summary price约0.00000498192、市值仍未知、24h trades仍合法空；Base隐藏提示及全null/空索引保持诚实，不能算Base正向行情。MUSEGOD实际只读代理summary/candles/trades均加载并标Bankr/Pools链接、minute说明保留；两链holders显示不可用且浏览器0自动holders请求。
+
+证据：`evidence/browser-run5/`，包括DOM/截图/DevTools网络、真实provider原文、fixture API不可用/旧快照/恢复各独立摘录。`qa-summary.json`对30项保存证据检查通过。页面390px scrollWidth=clientWidth=390；初始检查误把可横向滚动表格内flex盒宽度当文字越界，已改用真实文字Range边界，`mobile-status-text-layout.json`显示所有状态文字在390px内，源码无需修改。R3初次等待器误查Chart文案超时，但实际组件为Candles，截图/a11y/API独立证明2根，不把等待器超时当API失败。控制台仅2次被网关拒绝的自动RPC POST（405），无新增未捕获JS异常；不声称MUSEGOD burn/RPC已验收。
+
+本轮CG Demo真实5次（≤20），GT1、Bankr1；生产只读GET代理24次，代理后内部provider请求本地不可逐项计数。生产写入、Supabase读/写/quota RPC、链上RPC、钱包连接/签名均0。fixture为合成供应商数据+隔离Store拒绝额度/回拨16分钟，不能当真实成交或生产自然恢复证明。本机key不代表Worker已配置。浏览器期间tracked diff为空，验收源码仍9d86fda；代码未因QA修改。
+
+`cleanup.json`确认harness41482和本轮独立Chrome root41521的8个进程树成员（含root）均退出，4173无监听，用户Chrome保持运行。复验后仅补文档记录，不重复无新增改动的全量测试。完整Run5报告和Round2逐项fixer响应位于既存协作目录；最后文档提交号在报告记录。仍待独立复审、生产secret授权配置、Base登记正向样本、RH非空/长历史trade覆盖与发布门。本轮无生产变更；本地回滚按逆序revert本轮文档提交和9d86fda，不删除历史快照/额度或更改生产配置。
