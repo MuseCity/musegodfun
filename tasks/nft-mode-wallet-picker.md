@@ -74,8 +74,8 @@ Facts checked on 2026-10-15 with a real Muse holder on Robinhood:
 - The list is only a convenience; the live check is the authority.
 
 **Continue:**
-- It is enabled when the live check passed for the connected account and the fee is settled (free, or paid and confirmed).
-- These are the conditions `nftReviewBlocker` already applies. When Continue is disabled, a line says which condition is missing.
+- It moves on only when the live check passed for the connected account and the fee is settled (free, or paid and confirmed). These are the conditions `nftReviewBlocker` already applies.
+- Otherwise the person stays on the step, and the step shows which condition is missing. This is how Identity's Continue already works.
 
 **Prefill (W3):**
 - A Muse keeps today's prefill (its on-chain name, through `musePrefill`).
@@ -89,9 +89,18 @@ Facts checked on 2026-10-15 with a real Muse holder on Robinhood:
 
 ### 3.3 Drafts and draft links
 
-- A draft keeps `nftMode`, `nft` and its step.
-- An NFT-mode draft saved before this change at the old step 1 (Identity, which then held the NFT) reopens at the NFT step. An old step 2 reopens at Economics. Normal drafts are unchanged.
-- A draft link that carries `nft` (see `public/skill.md`) opens NFT mode on the NFT step, with that NFT selected. It is checked once the wallet is connected.
+- A draft keeps `nftMode`, `nft` and its step. The saved step numbers are:
+  - `0`: the NFT step, which exists in NFT mode only;
+  - `1`: Identity;
+  - `2`: Economics.
+- **Restoring a step:**
+  - Saved `1` and `2` reopen where they were, in both modes. This includes NFT drafts saved before this change.
+  - Saved `0` reopens at the NFT step in NFT mode, and at Identity otherwise.
+  - A draft with no saved step reopens at the NFT step in NFT mode, and at Identity otherwise. A draft link has no saved step.
+  - Old drafts are not remapped. A remap could not tell an old step 1 from a new one, and two tabs would then move each other's step.
+- **If the NFT check has not passed:** an NFT draft restored at Identity or Economics is sent back to the NFT step by Continue or Review, with the `nftReviewBlocker` message.
+- **Launching:** after a launch, an NFT-mode draft resets to the NFT step. A normal draft resets to Identity.
+- **Draft links:** a link that carries `nft` (see `public/skill.md`) opens NFT mode on the NFT step, with that NFT selected. It is checked once the wallet is connected.
   - The link's identity fields import as today.
   - "The page stays on step 1" in `skill.md` stays true: step 1 is now the NFT step.
 - Review stays blocked by `nftReviewBlocker` whatever step a draft restores to.
@@ -167,10 +176,10 @@ There are two new read endpoints. They sit next to `nft-status` and are served u
    - the rest by NFTs held.
    Search filters by name or address.
 3. Opening a collection lists the wallet's NFTs in it. Already launched NFTs cannot be selected.
-4. Selecting an NFT runs the existing check and fee flow. Continue is enabled only when `nftReviewBlocker` would pass. Name and symbol are prefilled only into empty fields, never with a reserved name.
+4. Selecting an NFT runs the existing check and fee flow. Continue, and the step bar, move on only when `nftReviewBlocker` would pass; otherwise the step says why. Name and symbol are prefilled only into empty fields, never with a reserved name.
 5. Manual entry works, and it is offered when the list is empty or fails.
 6. The endpoints return the §4 shapes and codes: 400, 422 (including Base), 503 `NFT_LIST_UNAVAILABLE`. They respect the 300 caps with `truncated`, cache for 60 s, and never expose the Alchemy key.
-7. Old NFT drafts reopen as §3.3 says. A draft link with `nft` opens on the NFT step with that NFT selected.
+7. Drafts restore their step as §3.3 says. A draft link with `nft` opens on the NFT step with that NFT selected. Two tabs on one draft never move each other's step unless the saved step itself changed.
 8. Normal mode, Base, and every other page behave as before.
 9. At 375 px there is no horizontal page scroll, and every control is reachable by keyboard with an accessible name.
 10. `npm test` passes, with new unit tests for:
@@ -181,7 +190,7 @@ There are two new read endpoints. They sit next to `nft-status` and are served u
     - cache expiry;
     - the `launched` marking;
     - prefill rules;
-    - draft step migration.
+    - draft step restore.
 11. Review follows the owner's codex ↔ claude cross-review rules before release.
 12. After an owner-approved release, codex runs a read-only QA of the live site in Chrome: no wallet, so only the not-connected state, the step bar, manual entry and the endpoint error paths.
     The owner checks the connected-wallet list with their own wallet.
