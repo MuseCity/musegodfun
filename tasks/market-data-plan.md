@@ -2,7 +2,7 @@
 
 日期：2026-10-15（Asia/Shanghai）
 
-状态：Run 5 已修复 Round 2 C3/B1 与 R2-1–R2-5；全量1502/1502、构建与提交后浏览器复验通过，见交付记录。H1 将两链普通 holders 明确降级为暂不提供。生产 Demo secret、登记 Base 正向样本、Robinhood 非空/长历史 trades 与独立复审/发布验收仍未满足；不宣称生产恢复。
+状态：已发布（2026-10-15，`50d5047`，build-38732268647-1）。Worker 已配置 `COINGECKO_API_KEY`；两域名线上 API 与浏览器验收通过，见交付记录「发布与线上验收」。H1：两链普通 holders 暂不提供。仍未满足：登记 Base 池无真实成交（无正向样本）、Robinhood 非空/长历史 trades 未验收。
 
 ## 目标与完成条件
 
@@ -133,9 +133,9 @@
 - [x] 本地浏览器验收：首页和详情的桌面/390px、浅色/深色、切链、六周期、成交筛选、holders、旧快照与恢复见 Run 4；Run 5 提交后修复并复验列表B1及实际来源署名，抽查R3 1h/MUSEGOD/两链holders。实际数据与fixture明确分开，不含真实钱包/生产验收；Base正向行情、RH非空成交等数据缺口仍在P1/P3/P4未勾选。
 - [x] 在本计划勾选实施结果，同时更新 `docs/SPEC.md` 和必要的 README，移除已被实现替代的“普通 Robinhood 不支持”描述；保留仍真实存在的限制。
 - [x] Round 1 独立 reviewer 只读审查已完成；Run 3 fixer 核实 C1–C11 并修复，不改 RPC 或运行时权限。
-- [ ] Round 2 独立复审已执行并请求C3/R2-1等修改；Run 5修复后的独立复审仍留下一轮，不能以fixer浏览器/自检冒充。
-- [ ] 后续获准发布时，先记录两个域名当前 release / source / Worker 版本与两链运行控制，再按既有流水线发布；`musegod.fun`、`www.musegod.fun` 的构建身份、实际 API 和浏览器均通过才标记生产完成。
-- [ ] 回滚点为发布前实际记录的 Worker / immutable build。回滚后核验两域名、两链 API、数据状态和原有运行控制；不得恢复已被判为错链/错池的旧缓存。代码回滚不自动回退生产配置。
+- [x] 独立复审：Round 2 请求 C3/R2-1 等修改；Run 5 修复后 Round 3（claude accept）结论 ACCEPT，0 新 finding。
+- [x] 发布（owner 2026-10-15 授权）：发布前记录两域名 build / Worker 版本与两链运行控制；按既有流水线发布 `50d5047`；两域名构建身份、实际 API 与浏览器均已验收，见「发布与线上验收」。
+- [x] 回滚点已记录（未执行回滚）：Worker `27772523-6fde-4b12-972c-e4c84f5f8d52`（tag `57624e9`，build-38708671686-1，无 CoinGecko secret）；配置 secret 的中间版本 `e0e9e577-b39f-4cf8-870b-87b4c00ef2fd`（同一代码）。回滚后须核验两域名、两链 API、数据状态和原有运行控制；不得恢复已判为错链/错池的旧缓存；代码回滚不自动删除 secret。
 
 ## 交付记录
 
@@ -262,3 +262,43 @@ Run 5 浏览器前最终检查：`evidence/run5-final-test.log` 全量 **1502/15
 本轮CG Demo真实5次（≤20），GT1、Bankr1；生产只读GET代理24次，代理后内部provider请求本地不可逐项计数。生产写入、Supabase读/写/quota RPC、链上RPC、钱包连接/签名均0。fixture为合成供应商数据+隔离Store拒绝额度/回拨16分钟，不能当真实成交或生产自然恢复证明。本机key不代表Worker已配置。浏览器期间tracked diff为空，验收源码仍9d86fda；代码未因QA修改。
 
 `cleanup.json`确认harness41482和本轮独立Chrome root41521的8个进程树成员（含root）均退出，4173无监听，用户Chrome保持运行。复验后仅补文档记录，不重复无新增改动的全量测试。完整Run5报告和Round2逐项fixer响应位于既存协作目录；最后文档提交号在报告记录。仍待独立复审、生产secret授权配置、Base登记正向样本、RH非空/长历史trade覆盖与发布门。本轮无生产变更；本地回滚按逆序revert本轮文档提交和9d86fda，不删除历史快照/额度或更改生产配置。
+
+
+### 发布与线上验收（2026-10-15，owner 授权）
+
+发布前记录（20:05 北京时间）：两域名 `build-38708671686-1` / `57624e9`，Worker `27772523`；两链运行控制均为 writesEnabled=true、signingPaused=false、controlRevision=1，Robinhood NFT 模式开、Base 关。
+
+步骤：
+
+1. 用本机 Demo key 经管道执行 `wrangler versions secret put COINGECKO_API_KEY --tag 57624e9`，生成 `e0e9e577` 并部署 100%。先配 secret 是因为 release.ts 要求新旧版本 secret 集合一致（`assertPreservedBindings`）。该次部署未带 `--durable-objects-code-update-mode immediate`，DO 仍在旧实例上，旧代码请求仍 503；随后的正式发布按 immediate 模式更新。
+2. master 快进至 `50d5047` 并推送；CI run 38732268647 成功，`build-38732268647-1`，Worker `cb269df2-9760-44c3-b1d2-030532fc549b` 100%，tag `50d5047`。
+
+线上 API（单次只读，证据为协作目录 `release/online-api.json`）：
+
+| 项目 | 结果 |
+| --- | --- |
+| 构建身份 | 两域名 build-info 与 `x-source-commit` 均为 `50d5047` |
+| Base B1 | summary、六周期 candles、trades 均为 200 fresh CoinGecko；指标为 null，蜡烛与成交为空（合法空，不是正向样本）。原 503 已消失 |
+| Robinhood R3（MV2C） | summary 价格 0.000004981916994；六周期蜡烛 20/5/2/2/1/1，来源 CoinGecko（Bankr 身份缺失，GT 429 后兜底）；24h trades 为空 |
+| Robinhood R1/R2 | summary、trades 200（字段未知/空）；candles 为 Bankr 合法空，附 GT `rate_limited` / `backoff` 原因 |
+| 批量摘要 | 两链 200，逐行 fresh，来源 CoinGecko |
+| holders | 四币均为 503 `source_not_provided`，无上游请求 |
+| MUSEGOD 专用 | Bankr fresh，1h 199 根蜡烛，30 笔成交，未受影响 |
+| 运行控制 | 发布后与发布前一致 |
+
+线上浏览器（codex，chrome-devtools 只读，两域名）：构建身份、首页网格/列表的来源与时间、CoinGecko 带链接署名、隐藏币过滤、MV2C 六周期蜡烛、未知指标破折号、Base 隐藏币提示与状态、两链 holders 不可用且无 Blockscout 请求、MUSEGOD Pools 链接与分钟刷新、390px/桌面/深浅主题均通过。
+
+codex 报告三项「失败」，指挥者复核结论：
+
+1. 切链后约 0.1–0.5 秒内仍显示旧链标题与代币入口（行情数值已清空，链接带链名）。本次发布未改动目录加载与切链逻辑，属既有过渡态问题，已另开后续任务，不阻断本计划。
+2. 首页存在 MUSEGOD 专用 summary 请求。这是计划保留的独立一分钟路径，不是逐卡 N+1；验收简报未注明此例外。
+3. `--isolated` 参数核对属执行环境细节：已通过命令行 `-c` 传入，codex 检查的是配置文件。不影响产品结论。
+
+结论：本计划范围内的线上发布验收通过。
+
+剩余已知限制（非本次故障）：
+
+- 登记 Base 池无真实成交，无法做正向成交验收。
+- Robinhood 免费 trades 只覆盖 24h。
+- GT 从 Worker 出站持续 429。
+- holders 按 H1 暂不提供。
