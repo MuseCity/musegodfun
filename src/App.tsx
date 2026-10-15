@@ -143,35 +143,8 @@ import { useTheme } from "./lib/theme";
 import { relativeTime, usdCompact, percentChange, changeClass, dateLabel, feePercent, tokenImageSrc } from "./lib/format";
 import TokenCard, { CardMarketStatus, NftBadge } from "./components/TokenCard";
 import { useTokenCardMarkets } from "./lib/token-card-market";
+import { useResource } from "./lib/resource";
 
-function useResource<T>(path: string, version = 0) {
-  const { chainId } = useNetwork();
-  const scope = useRef(`${chainId}:${path}`);
-  const [data, setData] = useState<T | null>(null),
-    [error, setError] = useState(""),
-    [loading, setLoading] = useState(true);
-  useEffect(() => {
-    let active = true;
-    setLoading(true);
-    const nextScope = `${chainId}:${path}`;
-    if (scope.current !== nextScope) { scope.current = nextScope; setData(null); }
-    setError("");
-    chainApi<T>(chainId, path)
-      .then((x) => {
-        if (active) setData(x);
-      })
-      .catch((e) => {
-        if (active) setError(errorMessage(e));
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [path, version, chainId]);
-  return { data, error, loading };
-}
 // Keep a user reading or editing supplied with fresh previews, without letting
 // an abandoned or hidden tab consume the shared execution-quote budget.
 function useQuoteActivity() {
@@ -729,7 +702,7 @@ export type ExploreToken = Pick<TokenRecord, "address" | "name" | "symbol" | "de
   locked?: boolean;
 };
 export function exploreTokens(
-  tokens: TokenRecord[], config: RuntimeConfig | null, search: string,
+  tokens: TokenRecord[], config: RuntimeConfig | Pick<RuntimeConfig, "mode" | "deploymentChainId"> | null, search: string,
   filter: string, order: "new" | "name",
 ): ExploreToken[] {
   const featured = deploymentChain(config ?? { mode: "robinhood", deploymentChainId: 4663 }) === 4663;
@@ -807,17 +780,20 @@ export function Explore({
   // Resource refreshes temporarily clear their data. Keep the confirmed
   // directory visible, without carrying entries into another deployment.
   const directory = useRef<{ config: RuntimeConfig | null; tokens: TokenRecord[] }>({ config: null, tokens: [] });
+  const { chainId: selectedChain } = useNetwork();
   if (config && directory.current.config &&
     (config.mode !== directory.current.config.mode || config.chainId !== directory.current.config.chainId ||
       deploymentChain(config) !== deploymentChain(directory.current.config))) directory.current.tokens = [];
   if (config) directory.current.config = config;
   const displayConfig = config ?? directory.current.config;
+  // While the selected chain's configuration loads, describe that chain rather than a default one.
+  const chain: Pick<RuntimeConfig, "mode" | "deploymentChainId"> = displayConfig
+    ?? { mode: selectedChain === 8453 ? "base" : "robinhood", deploymentChainId: selectedChain };
   // An operator-hidden coin stays tradable from its own page but is left out of every Explore view and count.
-  if (tokens !== null) directory.current.tokens = (displayConfig
-    ? listedTokens(tokens, displayConfig.mode, deploymentChain(displayConfig)) : tokens).filter((token) => !token.hidden);
-  const assets = assetsFor(displayConfig ?? undefined);
-  const launchAssets = launchAssetsFor(displayConfig ?? undefined);
-  const chainName = displayConfig ? networkName(displayConfig) : "Robinhood Chain";
+  if (tokens !== null) directory.current.tokens = listedTokens(tokens, chain.mode, deploymentChain(chain)).filter((token) => !token.hidden);
+  const assets = assetsFor(chain);
+  const launchAssets = launchAssetsFor(chain);
+  const chainName = networkName(chain);
   const [search, setSearch] = useState(""),
     [filter, setFilter] = useState("all"),
     [order, setOrder] = useState("new"),
@@ -831,7 +807,7 @@ export function Explore({
   const nftCount = listed.filter(listedNftCoin).length, museCount = listed.filter((token) => listedNftCoin(token) && isMuse(token.nft!)).length;
   const showNft = nftCount > 0 || !!displayConfig?.nftMode?.enabled;
   const activeQuick: QuickFilter = quick === "mine" && !account || (quick === "nft" || quick === "muse") && !showNft ? "all" : quick;
-  const filtered = exploreTokens(listed, displayConfig, search, filter, order === "name" ? "name" : "new")
+  const filtered = exploreTokens(listed, chain, search, filter, order === "name" ? "name" : "new")
     .filter((entry) => activeQuick === "all" || entry.kind === "launch" && (
       activeQuick === "new" ? now - entry.createdAt < DAY
         : activeQuick === "locked" ? entry.locked

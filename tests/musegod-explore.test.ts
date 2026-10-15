@@ -85,6 +85,23 @@ test("the homepage still renders its local-logo featured card when catalog loadi
   }
 });
 
+test("Explore describes the selected chain, not a default one, while that chain's configuration loads", () => {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, "location");
+  try {
+    for (const [path, name, featured] of [["/?chainId=8453", "Base", false], ["/?chainId=4663", "Robinhood Chain", true]] as const) {
+      Object.defineProperty(globalThis, "location", { configurable: true, value: new URL(path, "https://local.invalid") });
+      const markup = renderToStaticMarkup(createElement(NetworkProvider, null, createElement(Explore, {
+        tokens: null, tokenError: "", stocks: null, stockError: "", loading: true, config: null, refresh: () => {},
+      })));
+      assert.match(markup, new RegExp(`ON ${name.toUpperCase()}`));
+      assert.doesNotMatch(markup, new RegExp(`ON ${(name === "Base" ? "Robinhood Chain" : "Base").toUpperCase()}`));
+      assert.equal(markup.includes(`/token/robinhood/${MUSEGOD.token}`), featured, "the Robinhood-only featured card follows the selected chain");
+    }
+  } finally {
+    if (previous) Object.defineProperty(globalThis, "location", previous); else Reflect.deleteProperty(globalThis, "location");
+  }
+});
+
 test("Explore counts Muse and NFT coins, leaving out rejected and hidden ones everywhere", () => {
   const musegodQuote = ROBINHOOD_STOCKS.find((asset) => asset.symbol === "MUSEGOD")!.address;
   const nftOf = (contract: `0x${string}`, tokenId: string) => ({ chainId: 4663 as const, contract, tokenId });
