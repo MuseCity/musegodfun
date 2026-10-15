@@ -1,6 +1,6 @@
 # Token detail page declutter plan
 
-Status: In progress (2026-10-15). Branch `claude/codex-redundancy-review-5ebb74`, based on master `9ede4ea`.
+Status: Run 1 implementation and browser checks complete; cross-review pending (2026-10-15). Branch `claude/codex-redundancy-review-5ebb74`, based on master `9ede4ea`.
 
 ## Background
 
@@ -94,6 +94,10 @@ The `refreshKey` effect in `TokenMarket` must not bump the revision on mount. Ea
 
 ## Delivery record
 
-### Run 1 implementation (2026-10-15)
+### Run 1 (2026-10-15)
 
-D1–D7 implemented locally, with the original plan included in the first implementation commit. Added category-aware display helpers, collapsed trading/fee disclosures, tested token fee-card tiers, honest compact market empty states/provenance, removal of detail holders UI, and mount-safe trade refresh. Full suite: 1517/1517; build and diff checks passed. Evidence: `.superpowers/sdd/detail-declutter/evidence/run1-test-final.log`, `run1-build-final.log`, `run1-target-green.log`; red logs are in the same directory. Read-only browser verification and the conductor-led cross-review rounds are still pending at this implementation checkpoint. No production changes.
+D1–D7 implemented in `bf8fcb4`; the original plan is included in that first commit. The closeout preserves the shared `.about-facts` styles still used by MUSEGOD. Full suite: **1517/1517**, build, diff and Han scan passed. Evidence: `.superpowers/sdd/detail-declutter/evidence/run1-test-final2.log`, `run1-build-final2.log`, and `run1/summary.json`; per-item changes and red/green evidence are in `.superpowers/sdd/detail-declutter/run1-report.md`.
+
+Read-only Chrome DevTools preview: all four routes at 1440px/390px in light/dark passed (16 views); each market section loaded once, attribution and guest quote controls remained, and three guest quotes returned minimum receive/expiry. The gateway forwarded only GET API requests, three quote POSTs and allowlisted read-only RPCs; its write-method probe was rejected locally. Preview PID 44911 exited, port 4178 closed, and the stale PID file was removed after independent verification (`evidence/preview-cleanup.json`). No wallet, production writes, push or deployment.
+
+Run 1 scope is complete. The conductor-led cross-review rounds and both acceptances are pending; this is not final acceptance of the whole plan. Local rollback: revert the closeout commit, then `bf8fcb4`, after checking for later work. No production rollback is required.

@@ -521,6 +521,9 @@ dialog.modal[open] { display: flex; flex-direction: column; gap: 16px; }
 .detail-main { min-width: 0; display: flex; flex-direction: column; gap: 24px; }
 .body-copy { font-size: 14px; line-height: 20px; color: var(--ink); overflow-wrap: anywhere; }
 .about-card .card-title { font-size: 17px; }
+.about-facts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; font-size: 12px; line-height: 16px; color: var(--ink-muted); }
+.about-facts code, .about-facts .mono { color: var(--ink); }
+.about-facts a { display: inline-flex; align-items: center; gap: 4px; min-height: 28px; font-size: 13px; font-weight: 600; }
 .mechanism-link { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 600; }
 .callout { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 14px 16px; border-radius: 14px; background: var(--halo-tint); font-size: 13px; line-height: 18px; }
 .callout > svg { flex: none; color: var(--halo-ink); }
