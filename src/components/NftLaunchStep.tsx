@@ -77,7 +77,11 @@ export function NftLaunchStep({ config, account, draft, connecting, onConnect, e
   const choose = (pick: NftPick) => {
     const key = nftKey({ chainId: deploymentChain(config), contract: pick.contract, tokenId: pick.tokenId });
     picked.current.set(key, { name: pick.name, image: pick.image });
-    edit(() => { setContract(pick.contract); setTokenId(pick.tokenId); });
+    const apply = () => { setContract(pick.contract); setTokenId(pick.tokenId); };
+    if (key === candidateKey) {
+      apply();
+      if (!passed) setAttempt((value) => value + 1);
+    } else edit(apply);
     setPicking(false); setManual(false);
     requestAnimationFrame(() => selectedName.current?.focus());
   };
