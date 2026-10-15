@@ -6,20 +6,20 @@ import { registerHooks } from "node:module";
 import { pathToFileURL } from "node:url";
 import { syntheticToken } from "./fixtures";
 import { emptyCandlesMessage, marketEndpoint } from "../src/components/TokenMarket";
-import type { MarketSummary, CandleData } from "../src/lib/market";
+import type { MarketSummary, CandleData, TradeData } from "../src/lib/market";
 
 const token = syntheticToken({ mode: "robinhood", deploymentChainId: 4663 });
 const emptySummary: MarketSummary = { fetchedAt: new Date().toISOString(), source: "CoinGecko", status: "fresh", priceUsd: null, marketCapUsd: null, fdvUsd: null, liquidityUsd: null, periods: { h24: { volume: null, buys: null, sells: null, change: null } } };
 
-async function renderMarket({ summary = emptySummary, error = "", candles = {}, kind = "launch", metric }: { summary?: MarketSummary | null; error?: string; candles?: Partial<CandleData>; kind?: "launch" | "musegod"; metric?: { label: string; value: string } } = {}) {
+async function renderMarket({ summary = emptySummary, error = "", candles = {}, historyError = "", trades = {}, tradesError = "", loading = false, filter = "all", kind = "launch", metric }: { summary?: MarketSummary | null; error?: string; candles?: Partial<CandleData> | null; historyError?: string; trades?: Partial<TradeData> | null; tradesError?: string; loading?: boolean; filter?: string; kind?: "launch" | "musegod"; metric?: { label: string; value: string } } = {}) {
   const entry = pathToFileURL(`${process.cwd()}/src/components/TokenMarket.tsx`); entry.search = `fixture=${crypto.randomUUID()}`;
   const key = `__declutter${crypto.randomUUID().replaceAll("-", "")}`;
   let dataIndex = 0;
   const mock = {
     useState(initial: any) {
       const data = ++dataIndex;
-      if (typeof initial !== "object" || initial === null || !("loading" in initial)) { dataIndex--; return [initial, () => {}]; }
-      return [{ data: data === 1 ? summary : data === 2 ? { ...emptySummary, candles: [], ...candles } : { ...emptySummary, trades: [] }, error: data === 1 ? error : "", loading: false }, () => {}];
+      if (typeof initial !== "object" || initial === null || !("loading" in initial)) { dataIndex--; return [initial === "all" ? filter : initial, () => {}]; }
+      return [{ data: data === 1 ? summary : data === 2 ? candles === null ? null : { ...emptySummary, candles: [], ...candles } : trades === null ? null : { ...emptySummary, trades: [], ...trades }, error: data === 1 ? error : data === 2 ? historyError : tradesError, loading }, () => {}];
     },
     useRef(initial: any) { return { current: initial === "" ? marketEndpoint(token, kind, "summary").key : initial }; },
   };
@@ -61,9 +61,73 @@ test("D4 request errors, stale empty snapshots and partial values remain distinc
 
 test("D4 empty candles with fallback failure do not mislabel the primary source or suggest interval changes", async () => {
   const html = await renderMarket({ candles: { source: "Bankr", reason: "backoff", causes: [{ source: "GeckoTerminal", reason: "backoff" }] } });
-  assert.match(html, /Bankr.*no indexed price records/i);
-  assert.match(html, /GeckoTerminal.*backoff/i);
-  assert.doesNotMatch(html, /Try a longer interval|Bankr.*unavailable/);
+  assert.match(html, /No indexed price records.*provider.*pausing updates/i);
+  assert.match(html, /Candles.*Bankr \/ Pools/);
+  assert.doesNotMatch(html, /Try a longer interval|Bankr.*unavailable|Source checks|GeckoTerminal:/);
+});
+
+test("C1-1 missing sections show each error once without relabeling not-indexed, expiry or fork states", async () => {
+  for (const error of ["Market data unavailable", "Market records are not indexed for this pool yet.", "The market snapshot is more than 24 hours old. Refresh to update.", "The local fork does not show mainnet market data. Use the on-chain quote panel on the right."]) {
+    for (const kind of ["launch", "musegod"] as const) {
+      const html = await renderMarket({ summary: null, error, candles: null, historyError: error, trades: null, tradesError: error, kind });
+      assert.doesNotMatch(html, /Request failed:/);
+      const [market, feed] = html.split('<section class="card market-feed"');
+      assert.equal(market.split(error).length - 1, 2, error);
+      assert.equal(feed.split(error).length - 1, 1, error);
+      assert.doesNotMatch(html, /CoinGecko|Fetched/);
+    }
+  }
+});
+
+test("C1-1 stale empty chart and trades retain their own warnings exactly once", async () => {
+  const html = await renderMarket({
+    summary: { ...emptySummary, status: "stale", warning: "Summary refresh failed" },
+    candles: { status: "stale", source: "Bankr", fetchedAt: "2026-10-15T10:01:00Z", warning: "Chart refresh failed" },
+    trades: { status: "stale", source: "GeckoTerminal", fetchedAt: "2026-10-15T10:02:00Z", warning: "Trades refresh failed" },
+    historyError: "Chart refresh failed", tradesError: "Trades refresh failed",
+  });
+  for (const warning of ["Summary refresh failed", "Chart refresh failed", "Trades refresh failed"]) assert.equal(html.split(warning).length - 1, 1, warning);
+  assert.match(html, /Summary.*Previous snapshot.*CoinGecko/);
+  assert.match(html, /Candles.*Previous snapshot.*Bankr.*2026-10-15T10:01:00Z/);
+  assert.match(html, /Trades.*Previous snapshot.*GeckoTerminal.*2026-10-15T10:02:00Z/);
+});
+
+test("C1-3 loading or failed MUSEGOD sections never leave a leading provenance separator", async () => {
+  for (const loading of [true, false]) {
+    const html = await renderMarket({ summary: null, candles: null, trades: null, loading, kind: "musegod" });
+    assert.match(html, /<p class="feed-note">refreshes every minute while visible<\/p>/);
+    assert.doesNotMatch(html, /<p class="feed-note"> ·/);
+  }
+});
+
+test("C1-4 filter copy appears only when the snapshot contains trades", async () => {
+  const empty = await renderMarket();
+  assert.match(empty, /No indexed trades in this snapshot\./);
+  assert.doesNotMatch(empty, /Trade filter|match this filter/);
+  const filtered = await renderMarket({ filter: "sell", trades: { trades: [{ id: "buy", hash: "0x123", account: null, at: emptySummary.fetchedAt, side: "buy", amount: 1, usd: 1, price: 1 }] } });
+  assert.match(filtered, /Trade filter/);
+  assert.match(filtered, /No indexed trades match this filter\./);
+});
+
+test("C1-1 a stale trade snapshot with no filter matches shows its warning once", async () => {
+  const html = await renderMarket({ filter: "sell", tradesError: "Trade refresh failed", trades: { status: "stale", trades: [{ id: "buy", hash: "0x123", account: null, at: emptySummary.fetchedAt, side: "buy", amount: 1, usd: 1, price: 1 }] } });
+  assert.equal(html.split("Trade refresh failed").length - 1, 1);
+  assert.match(html, /Trade filter/);
+  assert.match(html, /Trades.*Previous snapshot/);
+});
+
+test("C1-7 empty market cards give one quote pointer and buyer-readable provider causes", async () => {
+  for (const reason of [undefined, "backoff", "rate_limited", "not_indexed"] as const) {
+    for (const summary of [emptySummary, { ...emptySummary, priceUsd: 1 }]) {
+      const html = await renderMarket({ summary, candles: { source: "Bankr", reason, ...(reason ? { causes: [{ source: "GeckoTerminal", reason }] } : {}) } });
+      const market = html.split('<section class="card market-feed"')[0];
+      assert.equal(market.split("Use the on-chain quote for a price preview.").length - 1, 1);
+      assert.doesNotMatch(market, /Source checks|temporarily in backoff|GeckoTerminal:/);
+      if (reason === "not_indexed") assert.match(market, /pool is not indexed yet/);
+      if (reason === "rate_limited") assert.match(market, /provider is rate limited/);
+      if (reason === "backoff") assert.match(market, /provider is temporarily pausing updates/);
+    }
+  }
 });
 
 test("D7 mounting loads each real market section once and a later trade refresh loads each again", async () => {
@@ -110,8 +174,8 @@ test("D4 the longest interval never suggests a longer one and reason codes remai
   assert.match(emptyCandlesMessage(null, "1h"), /Try a longer interval/);
   assert.doesNotMatch(emptyCandlesMessage(null, "1d"), /longer interval/);
   const data = { ...emptySummary, candles: [] };
-  assert.match(emptyCandlesMessage({ ...data, reason: "not_indexed" }, "1d"), /pool not indexed/);
-  assert.match(emptyCandlesMessage({ ...data, reason: "quota_exhausted" }, "1h"), /quota exhausted/);
+  assert.match(emptyCandlesMessage({ ...data, reason: "not_indexed" }, "1d"), /pool is not indexed/);
+  assert.match(emptyCandlesMessage({ ...data, reason: "quota_exhausted" }, "1h"), /data limit/);
   assert.match(emptyCandlesMessage({ ...data, reason: "rate_limited" }, "1h"), /rate limited/);
   assert.doesNotMatch(emptyCandlesMessage({ ...data, reason: "backoff" }, "1h"), /Try a longer interval/);
 });

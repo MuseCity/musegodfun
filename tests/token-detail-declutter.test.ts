@@ -35,20 +35,31 @@ test("D1 legacy stocks, penny stocks and ETFs retain their appropriate disclosur
 test("D2 default trade notes contain only the short state and move guidance into a closed disclosure", () => {
   for (const stock of [asset("WETH"), { ...asset("WETH"), category: "ETF" }, STOCKS[0]]) {
     for (const url of [undefined, "https://doppler.lol/token/verified"]) {
-      const html = renderToStaticMarkup(createElement(TokenTradeNotes, { stock, symbol: "COIN", payingEth: false, writesEnabled: false, doppler: url }));
+      const html = renderToStaticMarkup(createElement(TokenTradeNotes, { stock, symbol: "COIN", payingEth: false, config: { writesEnabled: false }, doppler: url }));
       const outside = html.replace(/<details[\s\S]*?<\/details>/g, "");
       assert.match(outside, /Transactions are disabled; quotes are previews/);
       assert.doesNotMatch(outside, /approval|5 minutes|slippage|pending|Get a quote here/);
       assert.match(html, /<details[^>]*><summary>Trading details<\/summary>/);
       assert.match(html, /approval.*5 minutes/);
+      assert.doesNotMatch(html, /confirm the trade|confirm.*wallet/i);
       if (url) assert.match(outside, /Trade on Doppler/);
       else { assert.doesNotMatch(html, /verified Doppler link|Trade on Doppler/); assert.match(html, /Doppler trading is pending/); }
       if (stock.category === "OTHERS") assert.doesNotMatch(html, /stock token|ownership/);
       else { assert.match(html, /transfer rules/); assert.match(outside, /ownership/); }
     }
   }
-  const html = renderToStaticMarkup(createElement(TokenTradeNotes, { stock: asset("WETH"), symbol: "COIN", payingEth: true, writesEnabled: true, fork: true }));
+  const html = renderToStaticMarkup(createElement(TokenTradeNotes, { stock: asset("WETH"), symbol: "COIN", payingEth: true, config: { writesEnabled: true }, fork: true }));
   assert.match(html, /LI.FI.*fee is included/); assert.doesNotMatch(html, /Doppler|Transactions are disabled/);
+});
+
+test("C1-2 loading config does not claim transactions are disabled or invite confirmation", () => {
+  for (const config of [null, { writesEnabled: false }, { writesEnabled: true }]) {
+    const html = renderToStaticMarkup(createElement(TokenTradeNotes, { stock: asset("WETH"), symbol: "COIN", payingEth: false, config }));
+    if (config?.writesEnabled === false) assert.match(html, /Transactions are disabled; quotes are previews/);
+    else assert.doesNotMatch(html, /Transactions are disabled/);
+    if (config?.writesEnabled === true) assert.match(html, /Get a quote here and confirm the trade in your wallet/);
+    else assert.doesNotMatch(html, /confirm the trade|confirm.*wallet/i);
+  }
 });
 
 test("D3 every connected beneficiary can reach fee checks, including catalog mismatches", () => {
@@ -67,7 +78,30 @@ test("D6 the fee split is inside the collapsed token disclosure, retaining its p
   const html = renderToStaticMarkup(createElement(TokenFeeDisclosure, { token: syntheticToken({ tradingFeeBps: 100, feePolicy: "creator-70-musegod-v2" }), children: createElement("a", { href: "/buyback" }, "View the buyback policy and status") }));
   assert.match(html, /^<details class="disclosure boxed"><summary>How fees are distributed<\/summary><div class="fee-split"/);
   assert.match(html, /href="\/buyback"/);
-  assert.doesNotMatch(html, /How the buyback works|about-facts/);
+});
+
+test("C1-5 the actual About card keeps facts inside Contract details and the split inside fee details", async () => {
+  const { default: TokenAbout } = await import("../src/components/TokenAbout");
+  for (const mode of ["base", "fork"] as const) {
+    const token = syntheticToken({ mode, tradingFeeBps: 100, feePolicy: "creator-70-musegod-v2", openingValuationUnverified: true });
+    const html = renderToStaticMarkup(createElement(TokenAbout, { token, stock: STOCKS[0], children: createElement(TokenFeeDisclosure, { token, children: createElement("a", { href: "/buyback" }, "View the buyback policy and status") }) }));
+    const contract = html.match(/<details[^>]*><summary>Contract details<\/summary>([\s\S]*?)<\/details>/)?.[0];
+    assert(contract);
+    assert.match(contract, /Pool ID.*<code title=/);
+    assert(contract.includes(token.poolId));
+    assert.match(contract, /Supply.*1,000,000,000/);
+    assert.match(contract, /Token contract.*Quote asset.*Creator.*Opening valuation.*Unverified.*Created/);
+    const outsideContract = html.replace(contract, "");
+    assert.doesNotMatch(outsideContract, /Pool ID|Supply/);
+    assert.doesNotMatch(html, /about-facts|How the buyback works/);
+    assert.equal((html.match(/href="\/buyback"/g) ?? []).length, 1);
+    const outsideDetails = html.replace(/<details[\s\S]*<\/details>/g, "");
+    assert.doesNotMatch(outsideDetails, /fee-split|Pool ID|Supply/);
+    assert.match(outsideDetails, /About Synthetic Meme/);
+    assert(outsideDetails.includes(token.description));
+    if (mode === "base") assert.match(contract, /https:\/\/basescan.org\/token\//);
+    else assert.doesNotMatch(contract, /https:/);
+  }
 });
 
 test("D3 compact fee UI keeps both claims and allocation but omits catalog identity and policy; rewards retain them", async () => {

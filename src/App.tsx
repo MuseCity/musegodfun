@@ -133,6 +133,7 @@ import NftPage, { MyNftTreasuries } from "./components/NftPage";
 import { MUSEGOD } from "./lib/musegod";
 import BuybackPage from "./components/BuybackPage";
 import TokenTradeNotes from "./components/TokenTradeNotes";
+import TokenAbout from "./components/TokenAbout";
 import { buyPresets, stockStatusFailure, tokenFeeCardTier } from "./lib/token-detail";
 import FeeBreakdown, { TokenFeeDisclosure } from "./components/FeeBreakdown";
 import ShareDialog from "./components/ShareDialog";
@@ -3343,60 +3344,7 @@ function TokenPage({
           <NftCoinCard token={token} config={config} navigate={navigate} />
           {feeTier && <FeeCard token={token} config={config} variant={feeTier} />}
           <FirstBuyLock token={token} config={config} hideWhenEmpty />
-          <section className="card about-card" aria-labelledby="about-title">
-            <h2 id="about-title" className="card-title">About {token.name}</h2>
-            <p className="body-copy">
-              {token.description || "The creator has not added a description yet."}
-            </p>
-            <details className="disclosure boxed">
-              <summary>Contract details</summary>
-              <dl className="rows">
-                <div>
-                  <dt>Token contract</dt>
-                  <dd>
-                    {token.mode === "fork" ? (
-                      <code>{shortAddress(token.address)}</code>
-                    ) : (
-                      <External
-                        href={`${explorer}/token/${token.address}`}
-                      >
-                        {shortAddress(token.address)}
-                      </External>
-                    )}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Quote asset</dt>
-                  <dd>
-                    {explorer ? <External href={`${explorer}/token/${stock.address}`}>
-                      {stock.symbol}
-                    </External> : <code>{stock.symbol}</code>}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Creator</dt>
-                  <dd>
-                    {token.creator ? shortAddress(token.creator) : "Not verified"}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Pool ID</dt>
-                  <dd><code title={token.poolId}>{shortAddress(token.poolId)}</code></dd>
-                </div>
-                <div>
-                  <dt>Supply</dt>
-                  <dd>1,000,000,000</dd>
-                </div>
-                {token.openingValuationUnverified && <div>
-                  <dt>Opening valuation</dt>
-                  <dd className="sans">Unverified · recovered from a backup without a platform attestation</dd>
-                </div>}
-                <div>
-                  <dt>Created</dt>
-                  <dd>{new Date(token.createdAt).toLocaleString("en-US")}</dd>
-                </div>
-              </dl>
-            </details>
+          <TokenAbout token={token} stock={stock}>
             <TokenFeeDisclosure token={token}>
               <Link href="/buyback" className="mechanism-link">View the buyback policy and status <ArrowUpRight size={14} /></Link>
             </TokenFeeDisclosure>
@@ -3407,7 +3355,7 @@ function TokenPage({
                 openingValuation={token.openingValuation} quoteDecimals={stock.decimals}
                 tokenAddress={token.address} quoteAddress={stock.address} />
             </details>
-          </section>
+          </TokenAbout>
         </div>
         <section className="card trade-panel" id="trade" aria-labelledby="trade-title">
           <div className="trade-panel-heading">
@@ -3681,7 +3629,7 @@ function TokenPage({
               label={ethDone.conversionHash ? `View ${stock.symbol} → ${token.symbol} transaction` : "View transaction"} />}
           </div> : hash && config && <TxLink hash={hash} config={config} />}
           <TokenTradeNotes stock={stock} symbol={token.symbol} payingEth={payingEth}
-            writesEnabled={!!config?.writesEnabled} doppler={dopplerUrl(token) ?? undefined} fork={token.mode === "fork"} />
+            config={config} doppler={dopplerUrl(token) ?? undefined} fork={token.mode === "fork"} />
         </section>
       </div>
     </>

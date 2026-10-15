@@ -31,8 +31,8 @@ export function marketEndpoint(token: MarketToken, kind: "launch" | "musegod", s
     : { ...token, poolId: token.poolId ?? "unknown", quoteAddress: token.quoteAddress ?? "unknown" };
   return { chainId, path, key: `${kind}:${marketSnapshotKey(identity, section)}` };
 }
-export function MarketProvenance({ label, data, error, kind }: { label: string; data: (SnapshotMeta & { fetchedAt: string }) | null; error?: string; kind?: "launch" | "musegod" }) {
-  if (!data) return error ? <span>{label} · Request failed: {error}</span> : null;
+export function MarketProvenance({ label, data, kind }: { label: string; data: (SnapshotMeta & { fetchedAt: string }) | null; kind?: "launch" | "musegod" }) {
+  if (!data) return null;
   return <span>{label} · {data.status === "stale" ? "Previous snapshot · " : ""}{data.source === "Bankr" ? kind === "musegod"
     ? <a href={MUSEGOD.sourceUrl} target="_blank" rel="noopener noreferrer">Bankr / Pools ↗</a> : "Bankr / Pools"
     : data.source === "CoinGecko" ? <a href="https://www.coingecko.com/en/api" target="_blank" rel="noopener noreferrer">Data provided by CoinGecko</a>
@@ -41,15 +41,16 @@ export function MarketProvenance({ label, data, error, kind }: { label: string; 
 export function emptyCandlesMessage(data: CandleData | null, interval: ChartInterval) {
   if (data?.reason) {
     const reasons = {
-      missing_config: "configuration unavailable", quota_exhausted: "quota exhausted", not_indexed: "pool not indexed", rate_limited: "rate limited",
-      upstream_http: "request failed", upstream_transport: "connection failed", upstream_unclassified: "request failed for an unclassified reason",
-      invalid_identity: "pool identity not verified", invalid_schema: "response not usable", source_not_provided: "data not provided",
-      storage_unavailable: "snapshot storage unavailable", internal_error: "internal error", backoff: "temporarily in backoff",
+      missing_config: "Price data is not configured.", quota_exhausted: "The price provider has reached its data limit.",
+      not_indexed: "The pool is not indexed yet.", rate_limited: "The price provider is rate limited. Try again later.",
+      upstream_http: "The price request failed.", upstream_transport: "The price provider could not be reached.", upstream_unclassified: "The price request failed.",
+      invalid_identity: "The pool could not be verified.", invalid_schema: "The price response could not be read.", source_not_provided: "The source does not provide price data.",
+      storage_unavailable: "Saved price data is unavailable.", internal_error: "Price data is temporarily unavailable.", backoff: "The price provider is temporarily pausing updates. Try again later.",
     };
     const causes = data.causes?.length ? data.causes : [{ source: undefined, reason: data.reason }];
-    return `${data.source === "Bankr" ? "Bankr / Pools" : data.source ?? "The source"} returned no indexed price records for this interval. Source checks: ${causes.map(c => `${c.source ?? "upstream"}: ${reasons[c.reason]}`).join("; ")}. Use the on-chain quote for a price preview.`;
+    return `No indexed price records for this interval. ${[...new Set(causes.map(c => reasons[c.reason]))].join(" ")}`;
   }
-  return `No indexed price records for this interval.${interval !== CHART_INTERVALS[CHART_INTERVALS.length - 1] ? " Try a longer interval." : " Use the on-chain quote for a price preview."}`;
+  return `No indexed price records for this interval.${interval !== CHART_INTERVALS[CHART_INTERVALS.length - 1] ? " Try a longer interval." : ""}`;
 }
 function useMarket<
   T extends { fetchedAt: string; status?: string; warning?: string },
@@ -73,7 +74,7 @@ function useMarket<
     if (token.mode === "fork") {
       setResult({
         data: null,
-        error: "The local fork does not show mainnet market data. Use the on-chain quote panel on the right.",
+        error: "The local fork does not show mainnet market data.",
         loading: false,
       });
       return;
@@ -193,7 +194,7 @@ export default function TokenMarket({
   const hasActivity = !!stats && Object.values(stats.periods).some(value => [value.buys, value.sells, value.volume, value.change].some(n => n != null));
   const emptySummary = stats?.status === "stale"
     ? `Previous snapshot has no displayable market values. ${summary.error || stats.warning || "Refresh to update."}`
-    : summary.error || (summary.loading ? "Loading market data…" : "The source has no price for this pool yet. Use the on-chain quote for a price preview.");
+    : summary.error || (summary.loading ? "Loading market data…" : "The source has no price for this pool yet.");
 
   const items =
     trades.data?.trades.filter((t) => filter === "all" || t.side === filter) ??
@@ -271,7 +272,7 @@ export default function TokenMarket({
             ))}
           </div>
         </div>
-        {history.data?.status === "stale" && (
+        {!!history.data?.candles.length && history.data.status === "stale" && (
           <p className="market-warning">
             {history.error || history.data.warning || "Previous chart snapshot. Refresh to update."}
           </p>
@@ -287,16 +288,17 @@ export default function TokenMarket({
           </Suspense>
         ) : (
           <Message
-            loading={history.loading}
-            error={history.error}
+            loading={history.loading && !history.data}
+            error={history.error || (history.data?.status === "stale" ? history.data.warning || "Previous chart snapshot. Refresh to update." : "")}
             empty={emptyCandlesMessage(history.data, interval)}
           />
         )}
-        {(summary.data || summary.error || history.data || history.error || kind === "musegod") && <p className="feed-note">
-          <MarketProvenance label="Summary" data={summary.data} error={summary.error} kind={kind} />
-          {(summary.data || summary.error) && (history.data || history.error) ? " · " : ""}
-          <MarketProvenance label="Candles" data={history.data} error={history.error} kind={kind} />
-          {kind === "musegod" && " · refreshes every minute while visible"}
+        {(!hasValues && !summary.loading || !history.data?.candles.length && !history.loading) && <p className="hint">Use the on-chain quote for a price preview.</p>}
+        {(summary.data || history.data || kind === "musegod") && <p className="feed-note">
+          <MarketProvenance label="Summary" data={summary.data} kind={kind} />
+          {summary.data && history.data ? " · " : ""}
+          <MarketProvenance label="Candles" data={history.data} kind={kind} />
+          {kind === "musegod" && <>{summary.data || history.data ? " · " : ""}refreshes every minute while visible</>}
         </p>}
       </section>
       <section className="card market-feed" aria-label="Recent trades">
@@ -409,14 +411,14 @@ export default function TokenMarket({
           </div>
         ) : (
           <Message
-            loading={trades.loading}
-            error={trades.error}
-            empty="No indexed trades match this filter."
+            loading={trades.loading && !trades.data}
+            error={trades.error || (trades.data?.status === "stale" ? trades.data.warning || "Previous trades snapshot. Refresh to update." : "")}
+            empty={trades.data?.trades.length ? "No indexed trades match this filter." : "No indexed trades in this snapshot."}
           />
         )}
-        {(trades.data?.trades.length && (trades.error || trades.data.status === "stale")) ? <p className="market-warning" role="status">{trades.error || trades.data.warning || "Previous trades snapshot. Refresh to update."}</p> : null}
+        {items.length && (trades.error || trades.data?.status === "stale") ? <p className="market-warning" role="status">{trades.error || trades.data?.warning || "Previous trades snapshot. Refresh to update."}</p> : null}
         <p className="feed-note">
-          <MarketProvenance label="Trades" data={trades.data} error={trades.error} kind={kind} />{trades.data || trades.error ? " · " : ""}
+          <MarketProvenance label="Trades" data={trades.data} kind={kind} />{trades.data ? " · " : ""}
           Latest 30 indexed trades · indexing may lag the chain.
         </p>
       </section>

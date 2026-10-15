@@ -1,6 +1,6 @@
 # Token detail page declutter plan
 
-Status: Run 1 implementation and browser checks complete; cross-review pending (2026-10-15). Branch `claude/codex-redundancy-review-5ebb74`, based on master `9ede4ea`.
+Status: Run 2 review fixes and verification complete; cross-review acceptance pending (2026-10-16). Branch `claude/codex-redundancy-review-5ebb74`, based on master `9ede4ea`.
 
 ## Background
 
@@ -101,3 +101,9 @@ D1–D7 implemented in `bf8fcb4`; the original plan is included in that first co
 Read-only Chrome DevTools preview: all four routes at 1440px/390px in light/dark passed (16 views); each market section loaded once, attribution and guest quote controls remained, and three guest quotes returned minimum receive/expiry. The gateway forwarded only GET API requests, three quote POSTs and allowlisted read-only RPCs; its write-method probe was rejected locally. Preview PID 44911 exited, port 4178 closed, and the stale PID file was removed after independent verification (`evidence/preview-cleanup.json`). No wallet, production writes, push or deployment.
 
 Run 1 scope is complete. The conductor-led cross-review rounds and both acceptances are pending; this is not final acceptance of the whole plan. Local rollback: revert the closeout commit, then `bf8fcb4`, after checking for later work. No production rollback is required.
+
+### Run 2 (2026-10-16)
+
+Verified and fixed C1-1–C1-7: removed duplicate/error-mislabeling provenance, kept loading config separate from disabled trading, corrected loading separators and hidden-filter copy, tested the extracted About/Contract markup, removed the dead CSS selector, and consolidated quote guidance with short provider causes. Each finding except C1-6 has failing-before evidence; the About test also rejects three temporary regression mutations. Full suite: **1525/1525**; build, diff check and Han scan passed. Report and red/green evidence: `.superpowers/sdd/detail-declutter/run2-report.md` and `evidence/run2/` beneath the same directory.
+
+Chrome DevTools rechecked CLAWGOD and MUSEGOD at 1440px in light mode against live read-only responses; both passed with their own section attribution and timestamps. The gateway allowed GETs and allowlisted read-only RPCs, capped quotes at zero, and forwarded no quote POSTs. Preview PID 92063 exited, port 4178 closed, and its stale PID file was removed after independent verification. No wallet, production writes, push or deployment. Findings are fixed, not self-accepted; both cross-review acceptances remain pending. Local rollback: revert this Run 2 fix commit after checking for later work.
