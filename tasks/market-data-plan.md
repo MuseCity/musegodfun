@@ -74,12 +74,12 @@
 
 涉及：`server/market.ts`、`server/app.ts`、`src/lib/market.ts`、相关解析测试。
 
-- [ ] 增加明确的 Robinhood 分支，按链选择端点与身份前缀；不能只删除 `assertLive()` 后继续访问 Base 数据。
+- [x] 增加明确的 Robinhood 分支，按链选择端点与身份前缀；不能只删除 `assertLive()` 后继续访问 Base 数据。
 - [ ] summary / trades 采用 P1 验证通过的登记池来源；Bankr 仅在能证明覆盖目标 pool 时复用。token 级全池聚合不得冒充单一登记池数据。
-- [ ] holders 按目标链和 token 校验，与行情数据独立缓存、独立失败。
+- [x] holders 按目标链和 token 校验，与行情数据独立缓存、独立失败。
 - [ ] 替代持有人来源若不提供总数、合约标识或更新时间，不能默认为零、普通钱包或当前时间；按现有展示需要保留未知并明确数据范围。
-- [ ] 正反向池统一以 meme token 为展示视角。USD 价格不能简单取倒数；市值、FDV、涨跌和买卖数缺少目标 token 对应字段时保持 `null`。
-- [ ] candles 优先按完整 token 地址请求，并核对实际计价和方向。保留现有 Bankr → GeckoTerminal 路径及 OHLC、时间、去重校验，不填补人工蜡烛。
+- [x] 正反向池统一以 meme token 为展示视角。USD 价格不能简单取倒数；市值、FDV、涨跌和买卖数缺少目标 token 对应字段时保持 `null`。
+- [x] candles 优先按完整 token 地址请求，并核对实际计价和方向。保留现有 Bankr → GeckoTerminal 路径及 OHLC、时间、去重校验，不填补人工蜡烛。
 - [ ] trades 按 from/to 资产地址推导买卖及数量，按 chain / txHash / logIndex 去重。只对原始整数按各资产 decimals 转换；已归一化金额不得再缩放。覆盖 B20 quote 8 位、meme 18 位和 WETH 18 位。
 
 阶段门：普通 Robinhood 三项功能有真实数据路径；原 MuseVader 即使仍无索引记录，也不能继续收到“整条链功能未配置”的固定错误。没有正向样本不能证明新接入成功。
@@ -176,3 +176,15 @@ Authority: Run 2 commander's decisions supersede the Run 1 implementation hold; 
 Evidence under `.superpowers/sdd/market-data-reliability/evidence/`: `run2-p2-red.log` demonstrates two failing new tests before implementation; `run2-p2-test.log` passes 1466/1466 (zero skips/todos); `run2-p2-build.log` passes both TypeScript targets and Vite. `git diff --check` passes. MUSEGOD source remains unchanged.
 
 `run2-gt-worker-egress.json`: four unbound remote-dev GETs (R3 summary/hour/trades and B1 summary) all returned HTTP 429. GT identity/nonempty coverage remains unverified; no new Base fallback is implemented. Production Demo secret and holders source remain dependencies; this stage is a diagnostic improvement, not restored production data.
+
+### Run 2 / P3: explicit Robinhood data paths
+
+`server/market.ts` selects CoinGecko network/prefix `base` or `robinhood` and the matching Blockscout host. Reverse summaries use only `quote_token_price_usd` for the target meme token; FDV/market cap/change/buy/sell counts remain null because those fields describe the provider base asset. Pool liquidity and USD volume remain pool-level values. No count inversion is assumed.
+
+Final Robinhood candle order: CoinGecko -> existing Bankr -> existing GeckoTerminal, at most one attempt each. CoinGecko is first because its exact R3 identity has nonempty summary and all six USD intervals (20/5/2/2/1/1 candles), and it keeps homepage/detail semantics consistent. A legal CoinGecko empty result terminates immediately; only errors reach the existing fallback. Existing Bankr empty comparison is bounded to one GT attempt, preserving the prior behavior; a valid Bankr empty survives failed GT. No Base GT path is added, and GT is not described as verified. All CG calls reuse the existing persistent shared `quotaScope=base`, 300/day and 9000/month; no quota production RPC was called during verification.
+
+Trade side derives from exact from/to addresses. Demo amounts are already normalized human units and are never scaled again. Event ids decode the provider network/block/hash/logIndex/timestamp, or explicit log_index, then deduplicate by chain/hash/logIndex. Invalid/ambiguous event identity is rejected. Fixture precision coverage is distinct from real supply/holder coverage.
+
+TDD evidence: `run2-p3-red.log`, `run2-p3-trades-red.log`, `run2-p3-target.log`; full `run2-p3-test.log` 1469/1469 (zero skips/todos), `run2-p3-build.log` both TypeScript targets + Vite, diff check passed. `run2-r3-swap-proof.json` independently verifies Oct 8 exact-pool Swap receipts in two historical canary transactions, using 7 direct Alchemy reads including receipt/block timestamps, no logs scan. Candidate hashes came from the existing local canary journal linked by the tracked evidence's journal digest; they are test volume, not organic demand.
+
+`run2-base-parser-proof.json`: nonregistered Base v4 KAI/NVDAc 18/8 pool has nonempty summary/trades. The 200-row hourly response contains conflicting duplicates and correctly fails closed; the same exact-token 30-row query passes (`run2-base-candles-30.json`). This is parser evidence only; registered B1 remains without a positive sample. Real raw evidence is retained, not trimmed into a fake successful response. Two-chain holders still have no verified positive source, and long-history trades/production credentials remain dependencies.

@@ -34,7 +34,7 @@ function normalizeCandles(rows: z.infer<typeof candleRows>, now: number): Candle
   const unique = new Map<number, CandleData["candles"][number]>();
   for (const [time, open, high, low, close, volume] of rows) {
     if (low > Math.min(open, close) || high < Math.max(open, close) || time > now / 1000 + 60)
-      throw new Error("Invalid candle data");
+      throw new MarketFailure("invalid_schema", "CoinGecko");
     const candle = { time, open, high, low, close, volume }, previous = unique.get(time);
     if (previous) {
       // Providers may append a last-trade fragment after the complete candle.
@@ -43,7 +43,7 @@ function normalizeCandles(rows: z.infer<typeof candleRows>, now: number): Candle
         a.close === b.close && a.high >= b.high && a.low <= b.low &&
         (a.volume > b.volume || (a.volume === b.volume && a.open === b.open && a.high === b.high && a.low === b.low));
       if (contains(previous, candle)) continue;
-      if (!contains(candle, previous)) throw new Error("Conflicting duplicate candle data");
+      if (!contains(candle, previous)) throw new MarketFailure("invalid_schema", "CoinGecko");
     }
     unique.set(time, candle);
   }
@@ -54,6 +54,7 @@ const poolSchema = z.object({
     attributes: z.object({
       address: hash,
       base_token_price_usd: optionalPositive,
+      quote_token_price_usd: optionalPositive,
       fdv_usd: optionalPositive,
       market_cap_usd: optionalPositive,
       reserve_in_usd: optionalPositive,
@@ -77,29 +78,26 @@ export function parseMarketSummary(
   token: TokenRecord,
 ): MarketSummary {
   const { attributes: a, relationships: r } = poolSchema.parse(raw).data;
-  // Avoid accidentally showing the stock's price or another pool's statistics.
-  if (
-    !sameAddress(a.address, token.poolId) ||
-    r.base_token.data.id.toLowerCase() !==
-      `base_${token.address.toLowerCase()}` ||
-    r.quote_token.data.id.toLowerCase() !==
-      `base_${token.quoteAddress.toLowerCase()}`
-  )
+  const network = token.mode === "robinhood" ? "robinhood" : "base";
+  const meme = `${network}_${token.address.toLowerCase()}`, quote = `${network}_${token.quoteAddress.toLowerCase()}`;
+  const baseId = r.base_token.data.id.toLowerCase(), quoteId = r.quote_token.data.id.toLowerCase();
+  const forward = baseId === meme && quoteId === quote;
+  if (!sameAddress(a.address, token.poolId) || !(forward || baseId === quote && quoteId === meme))
     throw new MarketFailure("invalid_identity", "CoinGecko");
   return {
     fetchedAt: new Date().toISOString(),
-    priceUsd: a.base_token_price_usd,
-    fdvUsd: a.fdv_usd,
-    marketCapUsd: a.market_cap_usd,
+    priceUsd: forward ? a.base_token_price_usd : a.quote_token_price_usd,
+    fdvUsd: forward ? a.fdv_usd : null,
+    marketCapUsd: forward ? a.market_cap_usd : null,
     liquidityUsd: a.reserve_in_usd,
     periods: Object.fromEntries(
       ["m5", "h1", "h6", "h24"].map((period) => [
         period,
         {
-          change: a.price_change_percentage[period] ?? null,
+          change: forward ? a.price_change_percentage[period] ?? null : null,
           volume: a.volume_usd[period] ?? null,
-          buys: a.transactions[period]?.buys ?? null,
-          sells: a.transactions[period]?.sells ?? null,
+          buys: forward ? a.transactions[period]?.buys ?? null : null,
+          sells: forward ? a.transactions[period]?.sells ?? null : null,
         },
       ]),
     ),
@@ -135,7 +133,7 @@ export function parseBankrCandles(raw: unknown, token: TokenRecord, now = Date.n
   }).parse(raw);
   if (!sameAddress(data.pool.address, token.poolId) || data.pair.baseSymbol !== token.symbol ||
     data.pair.quoteSymbol !== quoteAsset(token).symbol)
-    throw new Error("The Bankr candle trading pair does not match");
+    throw new MarketFailure("invalid_identity", "Bankr");
   return { ...normalizeCandles(data.ohlcv, now), source: "Bankr", watermark: data.watermark ?? null };
 }
 export function parseTrades(raw: unknown, token: TokenRecord): TradeData {
@@ -147,6 +145,7 @@ export function parseTrades(raw: unknown, token: TokenRecord): TradeData {
             id: z.string(),
             attributes: z.object({
               tx_hash: hash,
+              log_index: finite.int().safe().optional(),
               tx_from_address: address,
               block_timestamp: z.iso.datetime(),
               kind: z.enum(["buy", "sell"]),
@@ -163,9 +162,10 @@ export function parseTrades(raw: unknown, token: TokenRecord): TradeData {
         .max(500),
     })
     .parse(raw).data;
+  const seen = new Set<string>();
   return {
     fetchedAt: new Date().toISOString(),
-    trades: rows.map(({ id, attributes: a }) => {
+    trades: rows.flatMap(({ id, attributes: a }) => {
       const buy = sameAddress(a.to_token_address, token.address);
       if (
         !sameAddress(
@@ -177,9 +177,17 @@ export function parseTrades(raw: unknown, token: TokenRecord): TradeData {
           token.address,
         )
       )
-        throw new Error("The trade assets do not match");
-      return {
-        id,
+        throw new MarketFailure("invalid_identity", "CoinGecko");
+      // Demo amounts already use human token units, for both 8 and 18 decimals.
+      // The provider event id encodes network_block_txHash_logIndex_timestamp.
+      const encoded = new RegExp(`^${token.mode === "robinhood" ? "robinhood" : "base"}_\\d+_${a.tx_hash}_(\\d+)_\\d+$`, "i").exec(id);
+      const logIndex = a.log_index ?? (encoded ? Number(encoded[1]) : undefined);
+      if (logIndex === undefined || !Number.isSafeInteger(logIndex)) throw new MarketFailure("invalid_schema", "CoinGecko");
+      const eventKey = `${token.mode === "robinhood" ? 4663 : 8453}:${a.tx_hash.toLowerCase()}:${logIndex}`;
+      if (seen.has(eventKey)) return [];
+      seen.add(eventKey);
+      return [{
+        id: eventKey,
         hash: a.tx_hash,
         account: a.tx_from_address,
         at: a.block_timestamp,
@@ -187,7 +195,7 @@ export function parseTrades(raw: unknown, token: TokenRecord): TradeData {
         amount: buy ? a.to_token_amount : a.from_token_amount,
         usd: a.volume_in_usd,
         price: buy ? a.price_to_in_usd : a.price_from_in_usd,
-      };
+      }];
     }),
   };
 }
@@ -223,12 +231,9 @@ export class MarketReader {
   private assertLive(token: TokenRecord, source = "CoinGecko") {
     if (token.mode === "fork")
       throw new Error("Local forks do not display mainnet market or holder data. Local onchain quotes remain available.");
-    if (token.mode !== "base")
-      throw new MarketUnavailable(
-        "Market statistics, indexed trades and holder data for Robinhood Chain are not configured. Candlestick data and onchain quotes remain available.",
-        new Date((this.options.now || Date.now)() + 15 * 60_000).toISOString(),
-        source,
-      );
+    const expected = token.mode === "robinhood" ? 4663 : 8453;
+    if (token.deploymentChainId !== undefined && token.deploymentChainId !== expected)
+      throw new Error(token.mode === "robinhood" ? "Robinhood Chain mainnet is required" : "Base mainnet is required");
   }
   private async json(url: string) {
     const host = new URL(url).hostname, now = (this.options.now || Date.now)();
@@ -265,7 +270,7 @@ export class MarketReader {
     catch { throw new MarketFailure("invalid_schema", source); }
   }
   private pool(token: TokenRecord) {
-    return `https://api.coingecko.com/api/v3/onchain/networks/base/pools/${token.poolId}`;
+    return `https://api.coingecko.com/api/v3/onchain/networks/${token.mode === "robinhood" ? "robinhood" : "base"}/pools/${token.poolId}`;
   }
   summary(token: TokenRecord) {
     this.assertLive(token);
@@ -275,11 +280,12 @@ export class MarketReader {
   }
   summaries(tokens: TokenRecord[]) {
     tokens.forEach((token) => this.assertLive(token));
+    if (tokens.some(token => token.mode !== tokens[0].mode)) throw new Error("Market batches require a single network");
     if (tokens.length > 30) throw new Error("You can query up to 30 pools at a time");
     let batch: Promise<unknown> | undefined;
     const read = () =>
       (batch ??= this.json(
-        `https://api.coingecko.com/api/v3/onchain/networks/base/pools/multi/${tokens.map((t) => t.poolId).join(",")}`,
+        `https://api.coingecko.com/api/v3/onchain/networks/${tokens[0].mode === "robinhood" ? "robinhood" : "base"}/pools/multi/${tokens.map((t) => t.poolId).join(",")}`,
       ));
     return Promise.all(
       tokens.map(async (token) => {
@@ -321,9 +327,7 @@ export class MarketReader {
     );
   }
   candles(token: TokenRecord, interval: ChartInterval) {
-    if (token.mode !== "robinhood") this.assertLive(token);
-    else if (token.deploymentChainId !== undefined && token.deploymentChainId !== 4663)
-      throw new Error("Robinhood candlestick data requires Robinhood Chain mainnet");
+    this.assertLive(token);
     const [frame, aggregate] = (
       {
         "1m": ["minute", 1],
@@ -338,6 +342,9 @@ export class MarketReader {
       const key = `candles:robinhood:${token.address.toLowerCase()}:${token.poolId.toLowerCase()}:${interval}`;
       return this.cached(key, async (): Promise<CandleData> => {
         const now = () => (this.options.now || Date.now)();
+        try {
+          return { ...parseCandles(await this.json(`${this.pool(token)}/ohlcv/${frame}?aggregate=${aggregate}&limit=200&currency=usd&token=${token.address}`), token, now()), source: "CoinGecko" };
+        } catch { /* Bounded existing Bankr -> GeckoTerminal path, with no retry of CoinGecko. */ }
         let empty: CandleData | undefined;
         try {
           const data = parseBankrCandles(await this.json(
@@ -355,7 +362,7 @@ export class MarketReader {
           if (empty) return empty;
           throw error;
         }
-      }, "Bankr");
+      }, "CoinGecko");
     }
     return this.cached(`${token.address}:${interval}`, async () =>
       parseCandles(
@@ -375,7 +382,7 @@ export class MarketReader {
   holders(token: TokenRecord): Promise<HolderData> {
     this.assertLive(token, "Blockscout");
     return this.cached(`${token.address}:holders`, async () => {
-      const root = `https://base.blockscout.com/api/v2/tokens/${token.address}`;
+      const root = `https://${token.mode === "robinhood" ? "robinhoodchain" : "base"}.blockscout.com/api/v2/tokens/${token.address}`;
       const [rawInfo, rawHolders] = await Promise.all([
         this.json(root),
         this.json(`${root}/holders`),

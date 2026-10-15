@@ -135,7 +135,7 @@ test("complete duplicate candles win over contained fragments without adding vol
     assert.deepEqual(parseCandles({ ...gecko(), data: { attributes: { ohlcv_list: data } } }, token, NOW).candles, parsed.candles);
   }
   assert.throws(() => parseBankrCandles({ ...bankr(), ohlcv: [full, [TIME, 1.25, 2, 0.5, 1.5, 10]] }, token, NOW),
-    /Conflicting duplicate candle/);
+    (e: any) => e.reason === "invalid_schema");
 });
 
 test("Robinhood cache is isolated from Base, pool changes and forks", async () => {
@@ -163,4 +163,16 @@ test("Gecko fallback caps outbound calls at 30 per rolling minute per reader", a
   assert.equal(geckoCalls, 30);
   f.advance(60_000);
   await f.reader.candles(record(32), "1h"); assert.equal(geckoCalls, 31);
+});
+
+test("configured CoinGecko is first for Robinhood and valid empty history stops fallback", async () => {
+  for (const empty of [false,true]) {
+    const calls:string[]=[];
+    const f=fixture(async input=>{calls.push(String(input));return Response.json({...gecko(),data:{attributes:{ohlcv_list:empty?[]:rows}}});});
+    const store={...f.options.store,reserveMarketCall:()=>true};
+    const reader=new MarketReader({...f.options,store,apiKey:'fixture'});
+    const result=await reader.candles(token,'1h');
+    assert.equal(result.source,'CoinGecko');assert.equal(result.candles.length,empty?0:1);
+    assert.equal(calls.length,1);assert(calls[0].includes('/networks/robinhood/'));
+  }
 });

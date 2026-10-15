@@ -122,6 +122,7 @@ test("trade side and token amount derive from asset addresses, not provider labe
       {
         id: "event-1",
         attributes: {
+          log_index: 1,
           tx_hash: `0x${"1".repeat(64)}`,
           tx_from_address: STOCKS[0].address,
           block_timestamp: "2026-09-21T12:00:00Z",
@@ -152,26 +153,6 @@ test("fork mode refuses all external mainnet market data before making requests"
   assert.throws(() => market.trades(fork), /Local forks/);
   assert.throws(() => market.candles(fork, "1h"), /Local forks/);
   assert.throws(() => market.holders(fork), /Local forks/);
-});
-
-test("Robinhood assets cannot fetch or reuse Base market and holder data", () => {
-  let reads = 0;
-  const reader = new MarketReader({
-    store: { snapshot: () => { reads++; throw new Error("Base cache must not be read"); } } as never,
-    fetch: async () => { reads++; throw new Error("Base providers must not be queried"); },
-    now: () => 1_800_000_000_000,
-  });
-  const robinhoodToken = syntheticToken({ mode: "robinhood", deploymentChainId: 4663 });
-  const unavailable = (error: unknown) => {
-    const value = error as { message: string; status: string; nextRefreshAt: string };
-    return value.status === "unavailable" && /Robinhood Chain/.test(value.message) &&
-      value.nextRefreshAt === new Date(1_800_000_900_000).toISOString();
-  };
-  assert.throws(() => reader.summary(robinhoodToken), unavailable);
-  assert.throws(() => reader.summaries([robinhoodToken]), unavailable);
-  assert.throws(() => reader.trades(robinhoodToken), unavailable);
-  assert.throws(() => reader.holders(robinhoodToken), unavailable);
-  assert.equal(reads, 0);
 });
 
 test("missing summary sections stay unknown while identity remains mandatory", () => {
@@ -256,4 +237,50 @@ test("upstream HTTP causes survive stale snapshots, retry suppression and batch 
       if (status === 429) assert(Date.parse(stale.nextRefreshAt!) >= now + 3_600_000);
     } finally { store.close(); rmSync(dir, { recursive: true }); }
   }
+});
+
+test("Robinhood summary validates chain/pool/pair and reverse prices keep token metrics unknown", () => {
+  const rh = syntheticToken({ mode: "robinhood", deploymentChainId: 4663 });
+  const raw = structuredClone(pool);
+  raw.data.relationships.base_token.data.id = `robinhood_${rh.address}`;
+  raw.data.relationships.quote_token.data.id = `robinhood_${rh.quoteAddress}`;
+  assert.equal(parseMarketSummary(raw, rh).priceUsd, 0.0004);
+  assert.throws(() => parseMarketSummary(raw, token));
+  [raw.data.relationships.base_token, raw.data.relationships.quote_token] = [raw.data.relationships.quote_token, raw.data.relationships.base_token];
+  Object.assign(raw.data.attributes, { quote_token_price_usd: "0.003" });
+  const reverse = parseMarketSummary(raw, rh);
+  assert.equal(reverse.priceUsd, 0.003); assert.equal(reverse.fdvUsd, null);
+  assert.equal(reverse.marketCapUsd, null); assert.equal(reverse.periods.h24.change, null);
+  assert.equal(reverse.periods.h24.buys, null); assert.equal(reverse.periods.h24.sells, null);
+  assert.equal(reverse.liquidityUsd, 300000); assert.equal(reverse.periods.h24.volume, 10);
+  delete (raw.data.attributes as any).quote_token_price_usd;
+  assert.equal(parseMarketSummary(raw, rh).priceUsd, null);
+});
+
+test("Robinhood summary/trades/holders use their own endpoints and fail independently", async () => {
+  const rh = syntheticToken({ mode: "robinhood", deploymentChainId: 4663 });
+  const raw = structuredClone(pool);
+  raw.data.relationships.base_token.data.id = `robinhood_${rh.address}`;
+  raw.data.relationships.quote_token.data.id = `robinhood_${rh.quoteAddress}`;
+  const rows = new Map(); const calls: string[] = [];
+  const store = { snapshot: (key: string) => rows.get(key), saveSnapshot: (k: string,data: unknown,at: number)=>rows.set(k,{data,at}), reserveMarketCall: ()=>true };
+  const reader = new MarketReader({store:store as never, apiKey:"fixture",fetch:async input=>{
+    const url=String(input);calls.push(url);assert(!url.includes('/networks/base/'));
+    if(url.includes('blockscout'))return new Response('challenge',{status:403});
+    return Response.json(url.endsWith('/trades')?{data:[]}:url.includes('/multi/')?{data:[raw.data]}:raw);
+  }});
+  const batch=await reader.summaries([rh]); assert.equal(batch[0].summary?.priceUsd,0.0004);
+  assert.equal((await reader.summary(rh)).fetchedAt,batch[0].summary?.fetchedAt);
+  assert.deepEqual((await reader.trades(rh)).trades,[]);
+  await assert.rejects(reader.holders(rh),(e:any)=>e.source==='Blockscout'&&e.reason==='upstream_http'&&e.upstreamStatus===403);
+  assert.equal((await reader.summary(rh)).priceUsd,0.0004);
+  assert(calls.some(u=>u.includes('robinhoodchain.blockscout.com')));
+});
+
+test("normalized trade amounts are not scaled twice and repeated chain/transaction/log events deduplicate", () => {
+  const attributes={tx_hash:`0x${'1'.repeat(64)}`,tx_from_address:token.quoteAddress,block_timestamp:'2026-10-08T09:00:00Z',kind:'sell',from_token_address:token.quoteAddress,to_token_address:token.address,from_token_amount:'0.12345678',to_token_amount:'12.123456789012345678',volume_in_usd:'1',log_index:7};
+  const raw={data:[{id:'first',attributes},{id:'duplicate',attributes},{id:'second',attributes:{...attributes,log_index:8}}]};
+  const result=parseTrades(raw,token);
+  assert.equal(result.trades.length,2); assert.equal(result.trades[0].amount,12.123456789012345678);
+  assert.notEqual(result.trades[0].id,result.trades[1].id);
 });
