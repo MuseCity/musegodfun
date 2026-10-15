@@ -21,7 +21,8 @@ Normal mode keeps its two steps (Identity, Economics).
 | W1 | Step order: NFT → Identity → Economics. Identity and Economics keep today's pages. |
 | W2 | The collection list pins Muses at the top and is searchable. Manual entry (contract + token number) stays as a fallback. |
 | W3 | Selecting an NFT prefills only the coin's name and symbol. The coin image is still uploaded by the user. |
-| W4 | Data source: the Alchemy NFT API v3 with the server's existing `ALCHEMY_API_KEY`. Its responses carry OpenSea collection metadata (name, logo, safelist status), which is used for display and ordering. The OpenSea API is not called; `OPENSEA_API_KEY` is not used. |
+| W4 | Collections come from the Alchemy NFT API v3 (`getContractsForOwner`), using the server's existing `ALCHEMY_API_KEY`. Its responses carry OpenSea collection metadata (name, logo, safelist status), which is used for display and ordering. |
+| W5 | (2026-10-15, after release `3391d62`) A collection's NFTs, with their names and images, come from the **OpenSea API v2**, using the Worker secret `OPENSEA_API_KEY`. The owner approved adding that secret, and it was published that day as version `8e62248d` on the same code. |
 
 Facts checked on 2026-10-15 with a real Muse holder on Robinhood:
 - Alchemy `getContractsForOwner` and `getNFTsForOwner` work on `robinhood-mainnet`. That holder has 203 collections and 379 NFTs.
@@ -134,11 +135,18 @@ There are two new read endpoints. They sit next to `nft-status` and are served u
   "tokens": [ { "tokenId": "631", "name": "Sealed Muse", "image": "https://…", "launched": false } ] }
 ```
 
-- **Source:** Alchemy `getNFTsForOwner` with `contractAddresses[]=contract`, `withMetadata=true` and `pageSize=100`, for at most 3 pages (300 NFTs).
+- **Why OpenSea (W5):** Alchemy's cached token metadata can stay frozen before a reveal.
+  - On 2026-10-15 Alchemy still had every Muse as "Sealed Muse", with the pre-reveal art, last updated 2026-10-03, and `refreshNftMetadata` did not change it.
+  - The chain (`tokenURI(631)` = `ipfs://QmPc3r…/96`) and OpenSea both had the revealed Muse ("Dimple").
+- **Source:**
+  1. **Collection slug:** `GET https://api.opensea.io/api/v2/chain/robinhood/contract/{contract}` gives `collection`. It is kept for 1 hour per contract, and a failure is not kept.
+  2. **The wallet's NFTs in that collection:** `GET https://api.opensea.io/api/v2/chain/robinhood/account/{owner}/nfts?collection={slug}&limit=100`, following `next` for at most 3 pages (300 NFTs). `truncated` is true when more remain.
+  - Each request sends `accept: application/json` and the key in the `x-api-key` header, never in the URL.
 - **Fields:**
-  - `tokenId` is a decimal string.
-  - `name` is the NFT's name, else absent.
-  - `image` is `image.thumbnailUrl`, else `image.cachedUrl`, https only.
+  - Only NFTs whose `contract` equals the requested contract (any case) and whose `token_standard` is `erc721` are kept.
+  - `tokenId` is `identifier`, a decimal string.
+  - `name` is the NFT's name (trimmed, at most 80 characters), else absent.
+  - `image` is `display_image_url`, else `image_url`, https only.
 - **`launched`:** true when a `verified` coin exists for `(4663, contract, tokenId)`, the same rule as `nft-status`'s `alreadyLaunched`. It is read in one pass over the catalog, not once per token.
 
 ### 4.3 Both endpoints
@@ -147,7 +155,13 @@ There are two new read endpoints. They sit next to `nft-status` and are served u
 - **Network:**
   - NFT mode off, including every Base request: HTTP 422 `NFT_MODE_UNAVAILABLE`, before any provider call (`assertNftModeAvailable`).
   - A network other than the deployment's: `NFT_CHAIN_UNSUPPORTED`, as `nft-status` does.
-- **Provider failure:** no `ALCHEMY_API_KEY`, a timeout (8 s per call), a non-2xx response, a malformed body, or reaching the list's load cap (6 concurrent uncached loads) or provider budget (120 Alchemy calls per rolling minute) all give HTTP 503 `NFT_LIST_UNAVAILABLE`, "Your NFTs could not be loaded. Enter the contract and token number instead." Identical in-flight requests share one load.
+- **Provider failure:** each of these gives HTTP 503 `NFT_LIST_UNAVAILABLE`, "Your NFTs could not be loaded. Enter the contract and token number instead.":
+  - a missing provider key: `ALCHEMY_API_KEY` for collections, `OPENSEA_API_KEY` for NFTs;
+  - a timeout (8 s per call), a non-2xx response or a malformed body;
+  - an unknown slug;
+  - reaching the shared load cap (6 concurrent uncached loads);
+  - reaching a provider budget: 120 Alchemy calls, or 120 OpenSea calls (slug lookups and pages), per rolling minute.
+  - Identical in-flight requests share one load.
 - **Caching:** in memory for 60 s, per owner for collections and per owner + contract for NFTs. Keys are lowercase addresses. A failure is not cached.
 - **Secrecy:** the Alchemy key stays on the server. Responses carry no Alchemy URL other than image URLs.
 - **Cost:** at most 3 Alchemy calls per uncached request. They go to the NFT API host (`robinhood-mainnet.g.alchemy.com/nft/v3/…`), not to the RPC proxy.
@@ -199,7 +213,8 @@ There are two new read endpoints. They sit next to `nft-status` and are served u
 
 | Risk | Handling |
 |---|---|
-| Alchemy compute use | 60 s cache, 3-page caps, `read` ingress limits, identical in-flight requests share one load, 6 concurrent uncached loads, 120 Alchemy calls per rolling minute |
+| Provider use (Alchemy for collections, OpenSea for NFTs) | 60 s cache, a 1 h slug cache, 3-page caps, `read` ingress limits, identical in-flight requests share one load, 6 concurrent uncached loads, and 120 calls per rolling minute per provider |
+| Stale NFT metadata (for example after a reveal) | NFT names and images come from OpenSea (W5). The live check and prepare never use list metadata, and a Muse's prefill uses its on-chain name. |
 | A new mint is not yet indexed by Alchemy | Manual entry |
 | A copycat collection named like Muses | Muses are pinned and marked free by contract address only. The existing disclaimer ("musegod.fun does not endorse NFT collections…") stays on the step. |
 | "Verified on OpenSea" read as a musegod.fun endorsement | The badge names OpenSea, and the disclaimer stays |
