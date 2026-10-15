@@ -1,6 +1,6 @@
 # Token detail page declutter plan
 
-Status: Implemented and cross-review accepted locally (2026-10-16); not released. Branch `claude/codex-redundancy-review-5ebb74`, based on master `9ede4ea`. Pushing to master is a production release and needs the owner's explicit approval.
+Status: Released 2026-10-16 (`ae62e5c`, build-38821395839-1); live acceptance passed for all in-scope checks. Branch `claude/codex-redundancy-review-5ebb74`, based on master `9ede4ea`.
 
 ## Background
 
@@ -46,7 +46,7 @@ Directly under the primary action, show only real states and at most one short l
 - For STOCK/PENNY_STOCK/ETF pairs, the one-line ownership disclaimer from D1.
 - The "Trade on Doppler ↗" link when `dopplerUrl(token)` exists.
 
-Everything else moves into one collapsed `<details>` ("Trading details"): router approval scope and lifetime, the LI.FI fee note, slippage/liquidity and transfer rules, Doppler-pending status and how-to text. No sentence may reference a Doppler link when none exists. The `trade-live` status region, errors, quote summary and ETH-buy controls are unchanged.
+Everything else moves into one collapsed `<details>` ("Trading details"): router approval scope and lifetime, the LI.FI fee note, slippage/liquidity and transfer rules, Doppler-pending status and how-to text. No sentence may tell the user to use a Doppler link when none exists; the pending status may say when trading on Doppler opens (clarified 2026-10-16 after live QA). The `trade-live` status region, errors, quote summary and ETH-buy controls are unchanged.
 
 ### D3 Fee card tiers on the token page
 
@@ -122,3 +122,10 @@ Tests: 4 new cases in `tests/token-market-declutter.test.ts` fail against `36087
 - Both verdicts are ACCEPT with no open findings (`review-state.md`). Conductor rerun on `83c46d1`: `npm test` **1529/1529**, `npm run build`, `git diff --check` and the Han scan pass.
 - Acceptance items 1–5 are met. Item 6 holds: commits are local only. Connected-wallet fee card tiers are covered by pure/SSR tests, not by a real wallet session.
 - Local rollback: revert `83c46d1`, `36087af`, `8333cc9`, `bf8fcb4` (newest first). After a release, the production rollback point is Worker `6c87963c` (`9ede4ea`, recorded 2026-10-15).
+
+### Release and online acceptance (2026-10-16)
+
+- Owner approved the release (translated: "release"). Pushed `9ede4ea..ae62e5c` to master. CI run 38821395839 passed; build `build-38821395839-1`, Worker version `80ffc154-16c6-4a6c-8e70-97c6d7d0f090`, deployment verified on both origins by `scripts/verify-deployment.ts`. Production rollback point: Worker `6c87963c` (`9ede4ea`).
+- Conductor spot check on https://musegod.fun (CLAWGOD, no wallet): `build-info.json` reports `build-38821395839-1` / `ae62e5c`; no stock wording in the trade panel, WETH presets 0.001/0.005/0.01, no guest fee card, no Holders tab, quote button present, summary/candles/trades each requested once.
+- Codex read-only Chrome QA (gpt-6.1-sol xhigh) on both domains, 1440px and 390px, light, plus MUSEGOD dark: every in-scope check passed, including build identity, presets, disclaimers, guest fee card absence, feed, empty summary, activity placement, provenance, guest actions, collapsed Trading details, About disclosures, single requests, no 390px overflow, one guest quote preview, Explore and Rewards sanity.
+- Its four FAIL rows were triaged as outside this change: the global footer sentence about "the underlying stock" is pre-existing owner-approved copy (`tasks/todo.md`, 2026-10-09); the Doppler pending status inside the closed Trading details is allowed by D2 (wording clarified above); the MUSEGOD page's trade notes and About/header use `MusegodTradePanel`/`MusegodPage`, which this plan leaves unchanged. The QA brief applied token-page checks too broadly; no regression was found.
