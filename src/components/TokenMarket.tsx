@@ -1,11 +1,14 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { ArrowDownRight, ArrowUpRight, RefreshCw } from "lucide-react";
 import { formatUnits } from "viem";
-import { chainApi } from "../lib/api";
+import { ApiError, chainApi } from "../lib/api";
 import { deploymentChain, explorerFor, shortAddress, type TokenRecord } from "../lib/config";
 import { MUSEGOD } from "../lib/musegod";
 import {
   CHART_INTERVALS,
+  marketSnapshotKey,
+  marketStatusMessage,
+  type SnapshotMeta,
   type CandleData,
   type ChartInterval,
   type HolderData,
@@ -21,11 +24,19 @@ const usd = (n: number | null | undefined, precise = false) =>
     : `$${n.toLocaleString("en-US", precise ? { maximumSignificantDigits: 6 } : { notation: "compact", maximumFractionDigits: 2 })}`;
 const count = (n: number) =>
   n.toLocaleString("en-US", { notation: "compact", maximumFractionDigits: 2 });
-export type MarketToken = Pick<TokenRecord, "address" | "symbol" | "mode" | "deploymentChainId">;
+export type MarketToken = Pick<TokenRecord, "address" | "symbol" | "mode" | "deploymentChainId"> & Partial<Pick<TokenRecord, "poolId" | "quoteAddress">>;
 export function marketEndpoint(token: MarketToken, kind: "launch" | "musegod", section: string) {
   const chainId = kind === "musegod" ? 4663 : deploymentChain(token);
   const path = kind === "musegod" ? `/musegod/market/${section}` : `/tokens/${token.address}/market/${section}`;
-  return { chainId, path, key: `${chainId}:${token.mode}:${path}` };
+  const identity = kind === "musegod"
+    ? { ...token, address: MUSEGOD.token, poolId: MUSEGOD.pool, quoteAddress: MUSEGOD.weth, deploymentChainId: 4663 as const }
+    : { ...token, poolId: token.poolId ?? "unknown", quoteAddress: token.quoteAddress ?? "unknown" };
+  return { chainId, path, key: `${kind}:${marketSnapshotKey(identity, section)}` };
+}
+export function MarketProvenance({ label, data }: { label: string; data: (SnapshotMeta & { fetchedAt: string }) | null }) {
+  return <span>{label} · {data?.status === "stale" ? "Previous snapshot · " : ""}{data?.source ?? "Source pending"} · {data
+    ? <>Fetched <time dateTime={data.fetchedAt} title={data.fetchedAt}>{new Date(data.fetchedAt).toLocaleString("en-US")}</time></>
+    : "Source and fetch time appear after data loads"}</span>;
 }
 function useMarket<
   T extends { fetchedAt: string; status?: string; warning?: string },
@@ -64,6 +75,7 @@ function useMarket<
           setResult((previous) => ({
             data:
               previous.data &&
+              Number.isFinite(Date.parse(previous.data.fetchedAt)) &&
               Date.now() - Date.parse(previous.data.fetchedAt) < 86400000
                 ? {
                     ...previous.data,
@@ -71,7 +83,7 @@ function useMarket<
                     warning: "Network unavailable. Showing the previous snapshot.",
                   }
                 : null,
-            error: errorMessage(e),
+            error: e instanceof ApiError && e.reason ? marketStatusMessage(e.reason) : errorMessage(e),
             loading: false,
           }));
       });
@@ -171,11 +183,7 @@ export default function TokenMarket({
   const stats = summary.data,
     activity = stats?.periods[period],
     change = stats?.periods.h24.change;
-  const chartSnapshot = history.data ?? stats;
-  const chartSource = history.data?.source ?? (kind === "musegod" || token.mode === "robinhood" ? "Bankr" : "CoinGecko");
-  const chartSourceUrl = chartSource === "Bankr"
-    ? kind === "musegod" ? MUSEGOD.sourceUrl : "https://bankr.bot"
-    : chartSource === "GeckoTerminal" ? "https://www.geckoterminal.com" : "https://www.coingecko.com/en/api";
+
   const items =
     trades.data?.trades.filter((t) => filter === "all" || t.side === filter) ??
     [];
@@ -229,11 +237,12 @@ export default function TokenMarket({
             <dd>{usd(stats?.periods.h24.volume)}</dd>
           </div>
         </dl>
-        {(summary.error || stats?.status === "stale") && (
+        {(summary.loading || summary.error || stats?.status === "stale") && (
           <p className="market-warning" role="status">
-            {summary.error || stats?.warning}
+            {summary.loading ? "Loading market data…" : summary.error || stats?.warning}
           </p>
         )}
+        <p className="feed-note"><MarketProvenance label="Summary" data={summary.data} /></p>
         <div className="chart-toolbar">
           <div className="segmented" role="group" aria-label="Chart type">
             <button type="button" aria-pressed={chartType === "line"} onClick={() => setChartType("line")}>Line</button>
@@ -260,7 +269,7 @@ export default function TokenMarket({
         {history.data?.candles.length ? (
           <Suspense fallback={<Message loading error="" empty="" />}>
             <PriceChart
-              key={`${token.address}:${interval}`}
+              key={marketEndpoint(token, kind, `candles?interval=${interval}`).key}
               candles={history.data.candles}
               symbol={token.symbol}
               type={chartType}
@@ -273,20 +282,7 @@ export default function TokenMarket({
             empty="No indexed trades for this interval. Try a longer interval."
           />
         )}
-        <div className="market-attribution">
-          <span>
-            <a
-              href={chartSourceUrl}
-              target="_blank"
-              rel="noreferrer"
-            >
-              {kind === "musegod" && chartSource === "Bankr" ? "Bankr / Pools" : chartSource} ↗
-            </a>{" "}
-            {chartSnapshot
-              ? `· ${kind === "musegod" ? "refreshes every minute while visible" : "shared 15-minute snapshot"} · ${new Date(chartSnapshot.fetchedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}`
-              : "· update time appears after market data loads"}
-          </span>
-        </div>
+        <div className="market-attribution"><MarketProvenance label="Candles" data={history.data} /></div>
       </section>
       <section className="card market-feed" aria-label={kind === "launch" ? "Trades and holders" : "Recent trades"}>
         <div className="feed-head">
@@ -369,7 +365,7 @@ export default function TokenMarket({
                       <th className="num">Amount (USD)</th>
                       <th className="num">{token.symbol}</th>
                       <th className="num">Price (USD)</th>
-                      <th className="num">Trader</th>
+                      <th className="num">Transaction sender</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -419,8 +415,8 @@ export default function TokenMarket({
               />
             )}
             <p className="feed-note">
-              {trades.data?.status === "stale" ? "Previous snapshot · " : ""}{kind === "musegod" ? "Bankr / Pools" : "CoinGecko"} ·
-              Latest 30 trades · indexing may lag the chain.
+              <MarketProvenance label="Trades" data={trades.data} /> ·
+              Latest 30 indexed trades · indexing may lag the chain.
             </p>
           </>
         ) : (
@@ -476,14 +472,11 @@ export default function TokenMarket({
               <Message
                 loading={holders.loading}
                 error={holders.error}
-                empty="No indexed holders yet."
+                empty="No indexed holder records returned."
               />
             )}
             <p className="feed-note">
-              {holders.data?.status === "stale" ? "Previous snapshot · " : ""}Blockscout ·{" "}
-              {holders.data
-                ? `Fetched at ${new Date(holders.data.fetchedAt).toLocaleTimeString("en-US")}. `
-                : ""}
+              <MarketProvenance label="Holders" data={holders.data} /> ·{" "}
               Indexing may be incomplete; pool contracts, burn addresses, or other holders may be missing. This list does not represent all holders.
             </p>
           </>

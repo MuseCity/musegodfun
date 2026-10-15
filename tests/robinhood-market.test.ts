@@ -122,7 +122,7 @@ test("wrong Gecko token/quote and ambiguous duplicate candles fail closed withou
     { ...gecko(), data: { attributes: { ohlcv_list: [rows[0], [TIME, 1, 2, 0.5, 1.8, 10]] } } }]) {
     const f = fixture(async input => new URL(String(input)).hostname === "api.bankr.bot"
       ? new Response(null, { status: 503 }) : Response.json(data));
-    await assert.rejects(f.reader.candles(token, "1h"), { status: "unavailable" });
+    await assert.rejects(f.reader.candles(token, "1h"), (e: any) => e.status === "unavailable" && e.source === "GeckoTerminal" && ["invalid_identity", "invalid_schema"].includes(e.reason));
     assert.equal(f.snapshots.size, 0);
   }
 });

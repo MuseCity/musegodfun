@@ -2,7 +2,7 @@
 
 日期：2026-10-15（Asia/Shanghai）
 
-状态：Run 2 按指挥者裁定实施中；P2 本地诊断改动已验证。完整数据恢复仍受生产 secret、登记 Base 正向样本和 holders 来源限制。
+状态：Run 2 授权的本地实施、P4 评估与 P6 本地验证完成；最终测试 1479/1479。完整恢复仍受生产 secret、登记 Base 正向样本、holders 来源与长历史 trades 限制；浏览器、review、发布验收留后续，结论 NEEDS_DECISION。
 
 ## 目标与完成条件
 
@@ -39,7 +39,7 @@
 - 默认不购买付费 API、不增加后台采集常驻进程、不做全链索引。只有取证证明必要时，另列数据依赖方案及成本；依赖解决前不宣称完整恢复。
 - 实施时使用独立分支 `codex/market-data-reliability`，先检查并复用合适的已附加工作区。保护其他任务。
 - 不加载真实 `.env`，不启动会写生产库的开发服务。验证采用隔离存储、受控只读 API 代理或原生 Worker 测试；凭据不进浏览器、日志或 Git。
-- 原计划只授权排查与制定计划；本轮 Run 1 brief 另行明确授权 P1 只读取证、更新本计划和本地提交。此授权不包含 P2–P6 实施、推送、生产配置修改或部署。后续实施与发布必须沿用届时明确授权。
+- Run 1 仅授权 P1；Run 2 brief 的指挥者裁定另行授权 P2/P3/P5 实施、P4 评估和 P6 本地验证及本地提交。浏览器、review 和发布验收仍留后续；推送、生产配置修改、部署、采集器和购买仍禁止。
 
 ## 实施顺序
 
@@ -62,10 +62,10 @@
 涉及：`server/market.ts`、`server/snapshots.ts`、`src/lib/market.ts`、`server/app.ts`。
 
 - [x] 在现有错误与快照元数据上补充稳定、脱敏的原因码，至少区分配置缺失、额度不足、未索引、限流、请求失败、身份/数据校验失败。保留已有 fresh / stale / unavailable 语义，不重做接口协议。
-- [ ] 根据 P1 证据修复 Base 的实际根因。生产凭据或配置修改单列到发布步骤，不在代码修复时擅自修改。
+- [ ] 根据 P1 证据修复 Base 的实际根因。Run 2 已完成原因保留；缺失的 Worker Demo secret 仍待另行授权配置，不能勾选为生产修复。
 - [ ] 仅在 P1 验证可用后，为 Base summary / candles / trades 增加 GeckoTerminal 回退；按错误类型触发，不做无界重试。CoinGecko 和 GeckoTerminal 可能共享索引，回退不代表独立索引保障。
-- [ ] 保留已有真实零值与合法空结果；全空字段不得当作“行情已恢复”的正向验收证据。请求失败不能转换为成功的空数组。
-- [ ] 持有人独立处理，不因 CoinGecko 行情故障一起失效；Blockscout 失败时仅使用已验证的替代来源。
+- [x] 保留已有真实零值与合法空结果；全空字段不得当作“行情已恢复”的正向验收证据。请求失败不能转换为成功的空数组。
+- [x] 持有人独立处理，不因 CoinGecko 行情故障一起失效；Blockscout 失败时仅使用已验证的替代来源。
 - [x] 批量摘要保留逐行状态和原因；HTTP 200 不代表每个代币都有有效行情。
 
 阶段门：Base 原故障得到解释；有成交样本能返回真实行情、六周期 K 线和成交，持有人有独立可验证路径。尚未解决的外部覆盖问题进入 P4，不能仅靠修改文案结项。
@@ -75,12 +75,12 @@
 涉及：`server/market.ts`、`server/app.ts`、`src/lib/market.ts`、相关解析测试。
 
 - [x] 增加明确的 Robinhood 分支，按链选择端点与身份前缀；不能只删除 `assertLive()` 后继续访问 Base 数据。
-- [ ] summary / trades 采用 P1 验证通过的登记池来源；Bankr 仅在能证明覆盖目标 pool 时复用。token 级全池聚合不得冒充单一登记池数据。
+- [ ] summary / trades 采用 P1 验证通过的登记池来源；Run 2 已接入 CoinGecko 精确池，R3 summary 非空、当前 24h trades 合法空，仍缺 Robinhood 非空 trade 列表验收；不将 canary 回执替代该供应商响应。
 - [x] holders 按目标链和 token 校验，与行情数据独立缓存、独立失败。
 - [ ] 替代持有人来源若不提供总数、合约标识或更新时间，不能默认为零、普通钱包或当前时间；按现有展示需要保留未知并明确数据范围。
 - [x] 正反向池统一以 meme token 为展示视角。USD 价格不能简单取倒数；市值、FDV、涨跌和买卖数缺少目标 token 对应字段时保持 `null`。
 - [x] candles 优先按完整 token 地址请求，并核对实际计价和方向。保留现有 Bankr → GeckoTerminal 路径及 OHLC、时间、去重校验，不填补人工蜡烛。
-- [ ] trades 按 from/to 资产地址推导买卖及数量，按 chain / txHash / logIndex 去重。只对原始整数按各资产 decimals 转换；已归一化金额不得再缩放。覆盖 B20 quote 8 位、meme 18 位和 WETH 18 位。
+- [ ] trades 按 from/to 地址和 chain / txHash / logIndex 去重的代码及 8/18 位 fixture 已完成，非登记 Base 真实 11 条归一化 trade 通过；Robinhood 非空 trade 列表仍缺真实验收，故保留未勾选。没有新增原始整数金额通道，Demo 已归一化金额不再缩放。
 
 阶段门：普通 Robinhood 三项功能有真实数据路径；原 MuseVader 即使仍无索引记录，也不能继续收到“整条链功能未配置”的固定错误。没有正向样本不能证明新接入成功。
 
@@ -88,43 +88,57 @@
 
 此阶段按实际缺口触发，不预先建设 indexer，也不能跳过未解决项后宣称完成。下列采集方案仅是设计与可行性检查；新增采集器、常驻任务、付费服务或运行权限需要另行明确授权。
 
-- [ ] 若免费/现有持有人来源不能覆盖，先比较可用的托管 API。CoinGecko Pro top_holders 文档列出 Base 与 Robinhood，但需 Pro 鉴权且处于 Beta；须验证目标 token、更新频率、金额单位和实际套餐权限后再提出成本选择，不能默认已有权限。
-- [ ] 若已证明存在链上成交，而所有已验证供应商仍缺失历史，提出范围仅限本站登记池的采集方案：固定起始块、持久游标、重组回退、幂等事件键、每轮/每日请求上限和恢复办法。
-- [ ] 独立采集方案必须先证明在现有 Alchemy 限制与预算内可行；否则将服务等级或架构调整作为明确依赖，不能偷偷放宽主 RPC 限制或开放浏览器扫链。
-- [ ] 若持有人改用 Transfer 重建，必须覆盖完整历史、mint/burn 并核对同一参考块的余额和供应量。部分扫描不能声称总持有人数或全局 Top 10。
-- [ ] 链上读只能生成可证明的量。没有同期可靠 USD 参考时，不能用今日价格或开盘估值生成历史美元成交量、市值或 K 线；未证实字段继续 `null`。
-- [ ] 不把 v4 PoolManager 的共享代币余额或 active liquidity 当作单池 TVL；不把 router / Swap sender 当作真实最终交易者。市值与 FDV 保持各自供应量口径。
+- [x] 若免费/现有持有人来源不能覆盖，先比较可用的托管 API。CoinGecko Pro top_holders 文档列出 Base 与 Robinhood，但需 Pro 鉴权且处于 Beta；须验证目标 token、更新频率、金额单位和实际套餐权限后再提出成本选择，不能默认已有权限。
+- [x] 若已证明存在链上成交，而所有已验证供应商仍缺失历史，提出范围仅限本站登记池的采集方案：固定起始块、持久游标、重组回退、幂等事件键、每轮/每日请求上限和恢复办法。
+- [x] 独立采集方案必须先证明在现有 Alchemy 限制与预算内可行；否则将服务等级或架构调整作为明确依赖，不能偷偷放宽主 RPC 限制或开放浏览器扫链。
+- [x] 若持有人改用 Transfer 重建，必须覆盖完整历史、mint/burn 并核对同一参考块的余额和供应量。部分扫描不能声称总持有人数或全局 Top 10。
+- [x] 链上读只能生成可证明的量。没有同期可靠 USD 参考时，不能用今日价格或开盘估值生成历史美元成交量、市值或 K 线；未证实字段继续 `null`。
+- [x] 不把 v4 PoolManager 的共享代币余额或 active liquidity 当作单池 TVL；不把 router / Swap sender 当作真实最终交易者。市值与 FDV 保持各自供应量口径。
 
 阶段门：每个缺口都有经验证的数据来源，或清楚列明待解决依赖及剩余工作。只有提示诚实但数据依赖未解决，属于降级改善，不是完整修复。
+
+#### Run 2 / P4 评估（2026-10-15；没有购买、接入新服务或建设采集器）
+
+| 缺口 / 选项 | 影响与成本 | 推荐及收敛条件 |
+| --- | --- | --- |
+| Blockscout PRO API 免费 key | 通用官方文档列免费 100K credits/day、5 RPS，无信用卡；服务器端 `proapi_` key，经 `https://api.blockscout.com/{chain_id}/api/v2/...` 访问。Base 专页却明确列从 Builder $49/月开始，文档存在套餐口径差异。Robinhood 专页明确列 4663 与免费档，但本轮无 key、未验证目标 token | 优先由人类确认免费档的两链实际权限，再用每链一个完整 token 的 info/holders 验证总数、Top10、金额单位、合约标识、更新时间。文档链支持不能代替目标覆盖。代码仍使用现有独立 Blockscout 路径，不先新增配置或供应商抽象 |
+| CoinGecko Analyst holders / 长历史 trades | Run 1 Demo 对 holders 与 30d trades 返回 401；Analyst 标价 $129/月，年付折合 $103.2/月，目标实际覆盖仍未知 | 先让供应商核对目标 token/pool 与全部所需字段，不购买，不假定套餐升级必然补齐。holders 来源由人类裁定 |
+| 暂不提供 holders | 订阅成本 $0；总数、Top10、合约标识与索引时间均不可用 | 在来源落实前保留真实失败与未知值；不能填零或将 403 challenge 标为 not_indexed。不得将降级视为完整恢复 |
+| Base 登记池 B1 正向样本 | 原池索引仍为空/核心值 null；非登记 KAI/NVDAc 的非空解析仅验证代码，对登记池验收贡献为零 | 不制造成交。等待原池可追溯的已有 Swap hash 或自然历史；再用获准只读通道抽查。缺 secret 的生产阻断另列发布步骤 |
+| R3 长历史 trades | 已独立验证 10 月 8 日历史 canary 的精确池 Swap；免费端点默认 24h 空列表不覆盖该历史。六周期蜡烛可用不等于 trade 列表有长历史 | 先决定产品需要最近索引还是完整历史。保留覆盖限制；不把 24h 空数组当作从未交易 |
+| 仅登记池采集设计 | 若从 R3 首笔已知 Swap 块 83223147 到约 88M 块回补，仅 10 区块/请求需约 50 万请求；20 次取证预算不可行，且尚无原池完整起点。未测服务成本，不能给虚假报价 | 暂不建设。候选设计仅固定登记池与已证明起点，持久游标、幂等 chain/txHash/logIndex、参考块哈希、重组回退到最后已确认游标、每轮/每日固定预算、失败续跑。须先证明现有 Alchemy 权限预算可行；不能提高公开 RPC 限制、换主 RPC 或让浏览器扫链 |
+| Transfer 重建 / 历史 USD | 部分 Transfer 或共享 PoolManager 余额不能给全局持有人数/单池 TVL；没有同期 USD 参考不能重建美元蜡烛 | 若另获准设计，要求完整 mint/burn/Transfer 历史、同一参考块余额与 supply 核对；缺美元参考继续 null。sender/router 只称交易发送者，不推断最终交易者 |
+
+官方来源（文档快照，不是目标实测）：[PRO 通用免费档](https://docs.blockscout.com/devs/pro-api)、[PRO 鉴权及路由](https://docs.blockscout.com/devs/pro-api-responses-and-routes)、[Base 套餐](https://docs.blockscout.com/base-api)、[Robinhood 支持说明](https://docs.blockscout.com/robinhood-api)、[CoinGecko holders](https://docs.coingecko.com/reference/top-token-holders-token-address)、[CoinGecko 价格](https://www.coingecko.com/en/api/pricing)。本轮只评估，未向供应商发送凭据、创建账号或新增任何常驻流程。
 
 ### P5：统一首页与详情页状态、来源、时间和缓存
 
 涉及：`src/components/TokenMarket.tsx`、`src/components/TokenCard.tsx`、`src/lib/token-card-market.ts`、`src/lib/market.ts`、`server/market.ts`、`server/snapshots.ts`。
 
-- [ ] 首页普通 Robinhood 卡片接入已实现的批量摘要路径，避免逐卡重复请求；首页与详情页同一指标复用同一快照。
-- [ ] 分别展示加载中、索引未返回记录、未索引、请求不可用、旧快照。只有明确范围的链上核验支持时才说“没有链上成交”；空数组只说当前索引/周期没有记录。
-- [ ] summary、candles、trades、holders 使用各自真实 source 与 fetchedAt，去掉成交栏固定 CoinGecko 的归因。抓取时间不冒充最后成交时间，刷新失败不把旧数据时间改成现在。
-- [ ] 保留共享 15 分钟快照、最多 24 小时旧快照的现有边界。新缓存身份包含链/模式、token、pool、quote、section、interval；解析语义变化隔离不再可信的旧键，不删除历史记录。
-- [ ] 缓存命中不消耗外部额度；同请求合并、限制并发与回退次数、按需加载持有人和周期、尊重限流退避。扩展首页后不得形成 N+1 请求或多实例绕过预算。
-- [ ] 一个 section、代币或链失败不清空其他有效数据；切链、换池、请求晚到及 fork 均不得串数据。
-- [ ] 产品提示使用英文，只说明用户需要知道的数据状态；具体内部故障保留在脱敏诊断中。
+- [x] 首页普通 Robinhood 卡片接入已实现的批量摘要路径，避免逐卡重复请求；首页与详情页同一指标复用同一快照。
+- [x] 分别展示加载中、索引未返回记录、未索引、请求不可用、旧快照。只有明确范围的链上核验支持时才说“没有链上成交”；空数组只说当前索引/周期没有记录。
+- [x] summary、candles、trades、holders 使用各自真实 source 与 fetchedAt，去掉成交栏固定 CoinGecko 的归因。抓取时间不冒充最后成交时间，刷新失败不把旧数据时间改成现在。
+- [x] 保留共享 15 分钟快照、最多 24 小时旧快照的现有边界。新缓存身份包含链/模式、token、pool、quote、section、interval；解析语义变化隔离不再可信的旧键，不删除历史记录。
+- [x] 缓存命中不消耗外部额度；同请求合并、限制并发与回退次数、按需加载持有人和周期、尊重限流退避。扩展首页后不得形成 N+1 请求或多实例绕过预算。
+- [x] 一个 section、代币或链失败不清空其他有效数据；切链、换池、请求晚到及 fork 均不得串数据。
+- [x] 产品提示使用英文，只说明用户需要知道的数据状态；具体内部故障保留在脱敏诊断中。
 
 ### P6：验证、文档同步与后续发布
 
-- [ ] 为新增行为先建立有意义的失败用例，再修复。扩展现有 market / robinhood-market / worker-market / token-market-network / token-card-market 测试，不复制实现写断言。
-- [ ] 覆盖矩阵：两链、正反向池、8/18 位 quote、token 与 pool 粒度、错误身份、真实零/null/空数组、401/403/404/429/超时、部分字段、主源失败后回退、旧快照和过期、并发及跨链缓存。
-- [ ] 验证 MUSEGOD 独立路由、固定身份、专用缓存、一分钟刷新及 FDV 未知语义；不因普通代币接入而覆盖此路径。
-- [ ] 先跑受影响测试，再跑 `npm test`、`npm run build` 和 `git diff --check`。Worker 出站、JSON/redirect/timeout 行为须有原生 Worker 边界验证。
-- [ ] 调整现有只读验收脚本：显式接受 chain / token / pool，支持真实空历史，区分 fixture、真实 API 和链上证据；不能强制首个代币必须有交易，也不能用 skip 冒充通过。直接运行，不通过会加载真实 `.env` 的 wrapper。
+- [x] 为新增行为先建立有意义的失败用例，再修复。扩展现有 market / robinhood-market / worker-market / token-market-network / token-card-market 测试，不复制实现写断言。
+- [x] 覆盖矩阵：两链、正反向池、8/18 位 quote、token 与 pool 粒度、错误身份、真实零/null/空数组、401/403/404/429/超时、部分字段、主源失败后回退、旧快照和过期、并发及跨链缓存。
+- [x] 验证 MUSEGOD 独立路由、固定身份、专用缓存、一分钟刷新及 FDV 未知语义；不因普通代币接入而覆盖此路径。
+- [x] 先跑受影响测试，再跑 `npm test`、`npm run build` 和 `git diff --check`。Worker 出站、JSON/redirect/timeout 行为须有原生 Worker 边界验证。
+- [x] 调整现有只读验收脚本：显式接受 chain / token / pool，支持真实空历史，区分 fixture、真实 API 和链上证据；不能强制首个代币必须有交易，也不能用 skip 冒充通过。直接运行，不通过会加载真实 `.env` 的 wrapper。
 - [ ] 浏览器验收首页和详情页，包含桌面/390px、浅色/深色、切链、六周期、成交筛选、持有人切换、旧快照及故障恢复。既有数据与受控故障 fixture 分别标识；无需连接或签署真实钱包。
-- [ ] 在本计划勾选实施结果，同时更新 `docs/SPEC.md` 和必要的 README，移除已被实现替代的“普通 Robinhood 不支持”描述；保留仍真实存在的限制。
+- [x] 在本计划勾选实施结果，同时更新 `docs/SPEC.md` 和必要的 README，移除已被实现替代的“普通 Robinhood 不支持”描述；保留仍真实存在的限制。
 - [ ] 独立 reviewer 只读审查；fixer 核实后修复，不借审查改变 RPC 或运行时权限。
 - [ ] 后续获准发布时，先记录两个域名当前 release / source / Worker 版本与两链运行控制，再按既有流水线发布；`musegod.fun`、`www.musegod.fun` 的构建身份、实际 API 和浏览器均通过才标记生产完成。
 - [ ] 回滚点为发布前实际记录的 Worker / immutable build。回滚后核验两域名、两链 API、数据状态和原有运行控制；不得恢复已被判为错链/错池的旧缓存。代码回滚不自动回退生产配置。
 
 ## 交付记录
 
-实施时在此文件记录每阶段结论和证据路径，不再另写第二份规格。供应商探针、API 响应摘要和浏览器证据仅保留最小必要的脱敏记录。业务代码、配置、部署和运行权限均未修改。
+实施时在此文件记录每阶段结论和证据路径，不再另写第二份规格。供应商探针和 API 响应摘要保留最小必要的脱敏记录；Run 2 修改业务代码和本地验收脚本，未改生产配置、部署或运行权限。
 
 ### Run 1 / P1：2026-10-15，只读取证；阶段门未通过
 
@@ -185,6 +199,24 @@ Final Robinhood candle order: CoinGecko -> existing Bankr -> existing GeckoTermi
 
 Trade side derives from exact from/to addresses. Demo amounts are already normalized human units and are never scaled again. Event ids decode the provider network/block/hash/logIndex/timestamp, or explicit log_index, then deduplicate by chain/hash/logIndex. Invalid/ambiguous event identity is rejected. Fixture precision coverage is distinct from real supply/holder coverage.
 
-TDD evidence: `run2-p3-red.log`, `run2-p3-trades-red.log`, `run2-p3-target.log`; full `run2-p3-test.log` 1469/1469 (zero skips/todos), `run2-p3-build.log` both TypeScript targets + Vite, diff check passed. `run2-r3-swap-proof.json` independently verifies Oct 8 exact-pool Swap receipts in two historical canary transactions, using 7 direct Alchemy reads including receipt/block timestamps, no logs scan. Candidate hashes came from the existing local canary journal linked by the tracked evidence's journal digest; they are test volume, not organic demand.
+TDD evidence: `run2-p3-red.log`, `run2-p3-trades-red.log`, `run2-p3-target.log`; full `run2-p3-test.log` 1469/1469 (zero skips/todos), `run2-p3-build.log` both TypeScript targets + Vite, diff check passed. `run2-r3-swap-proof.json` independently verifies Oct 8 exact-pool Swap receipts in two historical canary transactions, using 7 direct Alchemy reads including receipt/block timestamps, no logs scan. Candidate hashes came from the existing local canary journal. Its current digest differs from the tracked historical journal digest, so it is only a candidate locator; independent Alchemy receipts, manager/pool topics and canonical block timestamps are the evidence. These are historical canary test trades, not organic demand.
 
 `run2-base-parser-proof.json`: nonregistered Base v4 KAI/NVDAc 18/8 pool has nonempty summary/trades. The 200-row hourly response contains conflicting duplicates and correctly fails closed; the same exact-token 30-row query passes (`run2-base-candles-30.json`). This is parser evidence only; registered B1 remains without a positive sample. Real raw evidence is retained, not trimmed into a fake successful response. Two-chain holders still have no verified positive source, and long-history trades/production credentials remain dependencies.
+
+### Run 2 / P5 + P6 local: homepage, provenance, cache identity and acceptance
+
+`src/lib/token-card-market.ts`, `src/App.tsx`, `TokenCard.tsx` and `TokenMarket.tsx` now use registered-address batches on both mainnets, retain independent per-row failures, and show each section's real source/fetch time. Chart attribution never borrows summary time, and trades no longer hard-code CoinGecko. Loading has no assumed provider. Empty history only describes indexed records; transaction sender is not claimed to be the final trader. `src/lib/api.ts` retains sanitized reasons for state messages; `server/app.ts` includes Retry-After so HTTP clients do not immediately retry known failures.
+
+The shared `market:v2` cache identity binds deployment chain/mode, complete token, pool, quote, section and candle interval. Both summary routes share the same key. Old keys are retained and isolated; no history deletion or migration occurs. Frontend scope/key changes and the existing request cancellation guard prevent reuse after chain, pool, quote or period changes. 15-minute fresh / 24-hour stale and actual snapshot timestamps remain; MUSEGOD server source, dedicated keys and one-minute TTL are unchanged.
+
+TDD logs: `run2-p5-red.log`, `run2-p5-source-red.log`, `run2-p5-batch-red.log`, `run2-http-red.log`, `run2-worker-timeout-red.log`. Native Workerd checks use controlled fixture upstreams, including manual redirects, JSON rejection, 429 backoff and injected timeout; they are not live provider evidence. The direct HTTP script explicitly accepts origin/chain/token/pool/evidence/output, loads no dotenv, records legal empty histories as contract observations, and exits incomplete for failed dependencies rather than skipping. `package.json` no longer wraps this script with `scripts/run.ts`. `docs/SPEC.md` and README now describe implemented RH paths and remaining dependencies.
+
+P4 evaluation is recorded above. Its checked items mean the scoped assessment is complete; holders, Base registered positive data, long-history trades and any future collector remain unresolved. Browser, independent review and publication gates remain unchecked for later runs.
+
+Quota estimate: for the observed catalog (Base 1 pool, RH 3), homepage cold-cache work is `ceil(1/30)+ceil(3/30)=2` Demo GETs per 15 minutes across the two canonical chain runtimes, or 192/day under continuous use. MUSEGOD consumes no Demo quota. A controlled 30-pool test proves one multi GET/one quota reservation, duplicate batch coalescing and free detail cache hits. All six intervals plus trades for all 4 pools adds 28 calls/cycle; with prefetched summaries this is 30/cycle, 2880/day requested if continually exercised. Thus the current budget cannot promise unlimited detail freshness: persistent shared `quotaScope=base` stops outbound Demo calls at 300/day and 9000/month and reports quota_exhausted/stale. Cold detail-only work can be 32/cycle. Restarts or changing batches can cause additional misses; a universal cross-instance maximum in a single 15-minute window is the remaining daily allowance (at most 300), not 2. No new per-card single-summary request is introduced by the homepage.
+
+Local rollback: revert the Run 2 commits in reverse order on this branch; production is unchanged. Reverting code alone does not delete new/old snapshots or change future secret/configuration state. Any later rollout must capture its actual production rollback point and honor the separate release gate.
+
+Final local validation: `run2-final-test.log` passes 1479/1479, zero skipped/todo/cancelled; `run2-final-build.log` passes both TypeScript targets and Vite (existing large-chunk warning only); `git diff --check` passes. `run2-secret-scan.json` finds zero plaintext matches for the two permitted credentials across Run 2 evidence and the complete diff. `run2-r3-proof-binding.json` binds all target Swap logs to the pinned Robinhood PoolManager; `run2-chain-binding.json` independently confirms chain 4663. `run2-probe-persistence-check.json` confirms the temporary probe resource is absent. Final Run 2 request count: Demo 11 (5 Base, 6 R3 intervals), GT remote-dev 4, Alchemy read-only 8, production Supabase GET/write/quota RPC 0. No browser, push, deployment, signing, production control/configuration or collector change occurred.
+
+Stage commits: P2 `ec1ffe0`, P3 `7579133`, P5/P4/P6 in this final local commit. Full Run 2 report: `.superpowers/sdd/market-data-reliability/run2-report.md`. Result remains NEEDS_DECISION for production secret/holders and the positive registered Base/long-history gaps; local implementation and scoped validation are complete, full production restoration is not.

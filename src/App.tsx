@@ -839,7 +839,7 @@ export function Explore({
             : activeQuick === "muse" ? listedNftCoin(entry) && isMuse(entry.nft!)
               : !!account && !!entry.creator && sameAddress(entry.creator, account)));
   const markets = useTokenCardMarkets(listed, config, refreshVersion);
-  const showMarket = displayConfig?.mode === "base";
+  const showMarket = displayConfig?.mode === "base" || displayConfig?.mode === "robinhood";
   const marketFor = (entry: ExploreToken) => markets[entry.address.toLowerCase()] ?? {
     data: null, loading: !config, error: entry.mode === "fork" ? "Fork test" : "Market data unavailable",
   };
@@ -984,7 +984,7 @@ export function Explore({
         <p className="market-note">
           <span>{displayConfig?.mode === "fork" ? "Local fork launches have no mainnet market data. Open a token for an on-chain quote."
             : showMarket ? `Market data from CoinGecko · shared 15-minute snapshot${fetched ? ` · updated ${new Date(fetched).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}` : ""}`
-              : "Robinhood Chain launch listings have no market statistics yet. Open a token for its chart and an on-chain quote."}</span>
+              : "Market data is unavailable. Open a token for its on-chain quote."}</span>
           <span>New launches are listed after on-chain confirmation.</span>
         </p>
         {tokenError && <Notice kind="error">Platform launches could not be loaded: {tokenError}</Notice>}

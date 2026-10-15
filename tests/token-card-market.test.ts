@@ -26,18 +26,18 @@ const summary = (patch: Partial<MarketSummary> = {}): MarketSummary => ({
 const state = (data: MarketSummary | null): CardMarketState => ({ data, loading: false, error: "" });
 const address = (index: number) => `0x${index.toString(16).padStart(40, "0")}`;
 
-test("endpoint selection excludes Robinhood launches, forks and unconfirmed runtime", async () => {
+test("endpoint selection batches ordinary Robinhood launches while forks stay isolated", async () => {
   const launch = syntheticToken({ mode: "robinhood", quoteAddress: MUSEGOD.weth });
   const live = cardMarketPlan([launch], robinhood);
   assert.equal(live.musegod, true);
-  assert.deepEqual(live.baseAddresses, []);
-  assert.equal(live.rows[launch.address.toLowerCase()].error, "Market data unavailable");
+  assert.deepEqual(live.addresses, [launch.address.toLowerCase()]);
+  assert.equal(live.rows[launch.address.toLowerCase()].loading, true);
   for (const config of [null, { ...robinhood, mode: "fork" as const, chainId: 31337 }]) {
     const plan = cardMarketPlan([launch], config);
     assert.equal(plan.musegod, false);
-    assert.deepEqual(plan.baseAddresses, []);
+    assert.deepEqual(plan.addresses, []);
     let requests = 0;
-    assert.deepEqual(await loadCardMarkets(4663, plan.baseAddresses, plan.musegod, async () => {
+    assert.deepEqual(await loadCardMarkets(4663, plan.addresses, plan.musegod, async () => {
       requests++; throw new Error("Unexpected request");
     }), {});
     assert.equal(requests, 0);
@@ -119,7 +119,7 @@ test("market loaders reject requests whose tokens or featured token belong to an
   let requests = 0;
   const read = async <T>() => { requests++; return summary() as T; };
   await assert.rejects(loadCardMarkets(8453, [], true, read), /selected network/);
-  await assert.rejects(loadCardMarkets(4663, [address(1)], false, read), /selected network/);
+  assert.equal((await loadCardMarkets(4663, [address(1)], false, async <T>() => [{address:address(1),summary:summary()}] as T))[address(1)].data?.priceUsd, 0);
   assert.equal(requests, 0);
 });
 
@@ -144,9 +144,9 @@ test("runtime scope separates networks and initial hook output never claims an a
   const launch = syntheticToken();
   assert.notEqual(cardMarketPlan([launch], base).scope, cardMarketPlan([launch], robinhood).scope);
   assert.notEqual(cardMarketPlan([launch], base).scope, cardMarketPlan([launch], { ...base, mode: "fork", chainId: 31337 }).scope);
-  assert.deepEqual(cardMarketPlan([launch], base).baseAddresses, [launch.address.toLowerCase()]);
-  assert.deepEqual(cardMarketPlan([launch], { ...base, chainId: 31337 }).baseAddresses, []);
-  assert.deepEqual(cardMarketPlan([launch], { ...base, deploymentChainId: 4663 }).baseAddresses, []);
+  assert.deepEqual(cardMarketPlan([launch], base).addresses, [launch.address.toLowerCase()]);
+  assert.deepEqual(cardMarketPlan([launch], { ...base, chainId: 31337 }).addresses, []);
+  assert.deepEqual(cardMarketPlan([launch], { ...base, deploymentChainId: 4663 }).addresses, []);
   function View({ config }: { config: RuntimeConfig | null }) {
     const rows = useTokenCardMarkets(null, config, 0);
     return createElement("pre", null, JSON.stringify(rows[MUSEGOD.token.toLowerCase()]));
@@ -157,4 +157,15 @@ test("runtime scope separates networks and initial hook output never claims an a
   const fork = renderToStaticMarkup(createElement(View, { config: { ...robinhood, mode: "fork", chainId: 31337 } }));
   assert.match(fork, /Fork test/);
   assert.match(fork, /&quot;loading&quot;:false/);
+});
+
+
+test("card scope changes on pool/quote identity and Robinhood batches preserve row diagnostics", async () => {
+  const token=syntheticToken({mode:'robinhood',deploymentChainId:4663});
+  assert.notEqual(cardMarketPlan([token],robinhood).scope,cardMarketPlan([{...token,poolId:`0x${'c'.repeat(64)}`}],robinhood).scope);
+  assert.notEqual(cardMarketPlan([token],robinhood).scope,cardMarketPlan([{...token,quoteAddress:token.address}],robinhood).scope);
+  let calls=0;
+  const rows=await loadCardMarkets(4663,[token.address],false,async <T>(chain: 8453 | 4663,path: string)=>{calls++;assert.equal(chain,4663);assert(path.startsWith('/market/summaries?'));return [{address:token.address,summary:null,status:'unavailable',reason:'missing_config',source:'CoinGecko'}] as T});
+  assert.equal(calls,1);assert.equal(rows[token.address.toLowerCase()].reason,'missing_config');
+  assert.equal(rows[token.address.toLowerCase()].error,'Market data unavailable');
 });

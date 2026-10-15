@@ -1,3 +1,4 @@
+import { marketSnapshotKey } from "../src/lib/market";
 import type { StoreBackend } from "./supabase-store";
 import { MarketFailure, MarketUnavailable, Snapshots } from "./snapshots";
 import { z } from "zod";
@@ -30,11 +31,11 @@ const address = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
 const hash = z.string().regex(/^0x[0-9a-fA-F]{64}$/);
 const candleRows = z.array(z.tuple([finite.int().safe(), finite, finite, finite, finite, finite])).max(200);
 
-function normalizeCandles(rows: z.infer<typeof candleRows>, now: number): CandleData {
+function normalizeCandles(rows: z.infer<typeof candleRows>, now: number, source: MarketSource = "CoinGecko"): CandleData {
   const unique = new Map<number, CandleData["candles"][number]>();
   for (const [time, open, high, low, close, volume] of rows) {
     if (low > Math.min(open, close) || high < Math.max(open, close) || time > now / 1000 + 60)
-      throw new MarketFailure("invalid_schema", "CoinGecko");
+      throw new MarketFailure("invalid_schema", source);
     const candle = { time, open, high, low, close, volume }, previous = unique.get(time);
     if (previous) {
       // Providers may append a last-trade fragment after the complete candle.
@@ -43,7 +44,7 @@ function normalizeCandles(rows: z.infer<typeof candleRows>, now: number): Candle
         a.close === b.close && a.high >= b.high && a.low <= b.low &&
         (a.volume > b.volume || (a.volume === b.volume && a.open === b.open && a.high === b.high && a.low === b.low));
       if (contains(previous, candle)) continue;
-      if (!contains(candle, previous)) throw new MarketFailure("invalid_schema", "CoinGecko");
+      if (!contains(candle, previous)) throw new MarketFailure("invalid_schema", source);
     }
     unique.set(time, candle);
   }
@@ -103,7 +104,7 @@ export function parseMarketSummary(
     ),
   };
 }
-export function parseCandles(raw: unknown, token: TokenRecord, now = Date.now()): CandleData {
+export function parseCandles(raw: unknown, token: TokenRecord, now = Date.now(), source: MarketSource = "CoinGecko"): CandleData {
   const data = z
     .object({
       data: z.object({
@@ -116,13 +117,15 @@ export function parseCandles(raw: unknown, token: TokenRecord, now = Date.now())
         quote: z.object({ address }),
       }),
     })
-    .parse(raw);
+    .safeParse(raw);
+  if (!data.success) throw new MarketFailure("invalid_schema", source);
+  const value = data.data;
   if (
-    !sameAddress(data.meta.base.address, token.address) ||
-    !sameAddress(data.meta.quote.address, token.quoteAddress)
+    !sameAddress(value.meta.base.address, token.address) ||
+    !sameAddress(value.meta.quote.address, token.quoteAddress)
   )
-    throw new MarketFailure("invalid_identity", "CoinGecko");
-  return normalizeCandles(data.data.attributes.ohlcv_list, now);
+    throw new MarketFailure("invalid_identity", source);
+  return normalizeCandles(value.data.attributes.ohlcv_list, now, source);
 }
 export function parseBankrCandles(raw: unknown, token: TokenRecord, now = Date.now()): CandleData {
   const data = z.object({
@@ -134,7 +137,7 @@ export function parseBankrCandles(raw: unknown, token: TokenRecord, now = Date.n
   if (!sameAddress(data.pool.address, token.poolId) || data.pair.baseSymbol !== token.symbol ||
     data.pair.quoteSymbol !== quoteAsset(token).symbol)
     throw new MarketFailure("invalid_identity", "Bankr");
-  return { ...normalizeCandles(data.ohlcv, now), source: "Bankr", watermark: data.watermark ?? null };
+  return { ...normalizeCandles(data.ohlcv, now, "Bankr"), source: "Bankr", watermark: data.watermark ?? null };
 }
 export function parseTrades(raw: unknown, token: TokenRecord): TradeData {
   const rows = z
@@ -228,7 +231,7 @@ export class MarketReader {
       read,
     );
   }
-  private assertLive(token: TokenRecord, source = "CoinGecko") {
+  private assertLive(token: TokenRecord) {
     if (token.mode === "fork")
       throw new Error("Local forks do not display mainnet market or holder data. Local onchain quotes remain available.");
     const expected = token.mode === "robinhood" ? 4663 : 8453;
@@ -274,7 +277,7 @@ export class MarketReader {
   }
   summary(token: TokenRecord) {
     this.assertLive(token);
-    return this.cached(`${token.address}:summary`, async () =>
+    return this.cached(marketSnapshotKey(token, "summary"), async () =>
       parseMarketSummary(await this.json(this.pool(token)), token),
     );
   }
@@ -291,7 +294,7 @@ export class MarketReader {
       tokens.map(async (token) => {
         try {
           const summary = await this.cached(
-            `${token.address}:summary`,
+            marketSnapshotKey(token, "summary"),
             async () => {
               const raw = z
                 .object({
@@ -307,6 +310,7 @@ export class MarketReader {
               const entry = raw.data.find((d) =>
                 sameAddress(d.attributes.address, token.poolId),
               );
+              if (!entry) throw new MarketFailure("not_indexed", "CoinGecko");
               return parseMarketSummary({ data: entry }, token);
             },
           );
@@ -339,7 +343,7 @@ export class MarketReader {
       } as const
     )[interval];
     if (token.mode === "robinhood") {
-      const key = `candles:robinhood:${token.address.toLowerCase()}:${token.poolId.toLowerCase()}:${interval}`;
+      const key = marketSnapshotKey(token, `candles:${interval}`);
       return this.cached(key, async (): Promise<CandleData> => {
         const now = () => (this.options.now || Date.now)();
         try {
@@ -356,7 +360,7 @@ export class MarketReader {
         try {
           const data = parseCandles(await this.json(
             `https://api.geckoterminal.com/api/v2/networks/robinhood/pools/${token.poolId}/ohlcv/${frame}?aggregate=${aggregate}&limit=200&currency=usd&token=${token.address}`,
-          ), token, now());
+          ), token, now(), "GeckoTerminal");
           return data.candles.length || !empty ? { ...data, source: "GeckoTerminal" } : empty;
         } catch (error) {
           if (empty) return empty;
@@ -364,7 +368,7 @@ export class MarketReader {
         }
       }, "CoinGecko");
     }
-    return this.cached(`${token.address}:${interval}`, async () =>
+    return this.cached(marketSnapshotKey(token, `candles:${interval}`), async () =>
       parseCandles(
         await this.json(
           `${this.pool(token)}/ohlcv/${frame}?aggregate=${aggregate}&limit=200&currency=usd&token=${token.address}`,
@@ -375,13 +379,13 @@ export class MarketReader {
   }
   trades(token: TokenRecord) {
     this.assertLive(token);
-    return this.cached(`${token.address}:trades`, async () =>
+    return this.cached(marketSnapshotKey(token, "trades"), async () =>
       parseTrades(await this.json(`${this.pool(token)}/trades`), token),
     );
   }
   holders(token: TokenRecord): Promise<HolderData> {
-    this.assertLive(token, "Blockscout");
-    return this.cached(`${token.address}:holders`, async () => {
+    this.assertLive(token);
+    return this.cached(marketSnapshotKey(token, "holders"), async () => {
       const root = `https://${token.mode === "robinhood" ? "robinhoodchain" : "base"}.blockscout.com/api/v2/tokens/${token.address}`;
       const [rawInfo, rawHolders] = await Promise.all([
         this.json(root),

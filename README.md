@@ -76,6 +76,7 @@ npm run verify:asset-logos
 | `npm run test:first-buy-payment-fork` | Real LI.FI same-chain swaps and min-output failures on fresh isolated Base/RH forks; requires Anvil and the server-side LI.FI configuration |
 | `npm run test:robinhood-fork` | Isolated creation, trades, claims and recovery under the verified fee engine; reads only `.env.fork` (ALCHEMY_API_KEY); requires Anvil |
 | `npm run test:musegod-fork` | Router/source executable-code correspondence and isolated native ETH buy/approve/sell, refunds and failure rollback; requires Anvil |
+| `npm run test:market-http -- --origin <origin> --chain <chainId> --token <address> --pool <bytes32> --evidence <kind> --output <path>` | Read-only explicit registered-pool HTTP contracts, six intervals and shared snapshots; valid empty history is recorded, failed dependencies exit incomplete; loads no dotenv |
 | `npm run test:musegod-http` | Running read-only local Node server on 5192, real MUSEGOD quotes and Bankr snapshots; uses local storage for acceptance |
 | `npm run test:http` | Running local server with valid treasury; mainnet reads and unsigned simulations |
 | `npm run verify:database` | Database persistence and backup/restore in isolated scopes |
@@ -175,3 +176,5 @@ Repeat for `8453` when both chains must be stopped, and read both `/api/chains/:
 - [Product, pricing, fees and runtime rules](docs/SPEC.md)
 - [Fixed-opening local checks](docs/evidence/fixed-opening-acceptance.json) · [production checks](docs/evidence/fixed-opening-production.json)
 - [Image-upload verification](docs/evidence/token-image-pinata.json)
+
+Ordinary Base and Robinhood market data uses chain-bound CoinGecko onchain summaries/candles/trades and separate Blockscout holders. Robinhood candles retain the bounded Bankr/GeckoTerminal fallback. Shared snapshots are fresh for 15 minutes and stale for at most 24 hours; homepage requests batch up to 30 pools. Each section reports its own source/fetch time and sanitized failure reason. Run 2 is local only: production CoinGecko Demo secret configuration remains a release dependency, holders lack a verified working source, and the registered Base pool lacks positive data acceptance. Empty indexed history is not proof of no onchain trades. See [the reliability plan](tasks/market-data-plan.md).

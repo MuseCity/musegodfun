@@ -1,10 +1,11 @@
+import type { MarketReason } from "./market";
 import { observeServerTime, quoteNow } from "./quote-clock";
 
 export type ChallengeRequest = { siteKey: string; action: string; resolve: (token: string) => void; reject: (error: Error) => void };
 export type ApiOptions = { challenge?: boolean };
 export class ApiError extends Error {
   // Seconds the server asked the caller to wait before retrying, if any.
-  constructor(message: string, public status: number, public code?: string, public retryAfter?: number) { super(message); }
+  constructor(message: string, public status: number, public code?: string, public retryAfter?: number, public reason?: MarketReason) { super(message); }
 }
 // Short capacity waits are absorbed here; a longer server-requested wait is
 // returned to the caller (with retryAfter) instead of being cut short.
@@ -42,7 +43,7 @@ export async function api<T>(path: string, body?: unknown, options: ApiOptions =
     await new Promise((resolve) => setTimeout(resolve, Math.max(500, (retryAfter ?? 1) * 1000)));
     continue;
   }
-  if (!response.ok) throw new ApiError(result.error || "Request failed", response.status, result.code, retryAfter);
+  if (!response.ok) throw new ApiError(result.error || "Request failed", response.status, result.code, retryAfter, result.reason);
   return result as T;
   }
 }

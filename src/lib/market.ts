@@ -1,3 +1,8 @@
+import { deploymentChain, type TokenRecord } from "./config";
+
+export function marketSnapshotKey(token: Pick<TokenRecord, "mode" | "deploymentChainId"> & { address: string; poolId: string; quoteAddress: string }, section: string) {
+  return `market:v2:${deploymentChain(token)}:${token.mode}:${token.address.toLowerCase()}:${token.poolId.toLowerCase()}:${token.quoteAddress.toLowerCase()}:${section}`;
+}
 export type MarketSource = "CoinGecko" | "Blockscout" | "Bankr" | "GeckoTerminal";
 export type MarketReason = "missing_config" | "quota_exhausted" | "not_indexed" | "rate_limited" | "upstream_http" | "upstream_transport" | "invalid_identity" | "invalid_schema";
 export type SnapshotMeta = {
@@ -64,3 +69,7 @@ export type HolderData = SnapshotMeta & {
   totalSupply: string;
   holders: { address: string; amount: string; isContract: boolean }[];
 };
+
+export function marketStatusMessage(reason?: MarketReason) {
+  return reason === "not_indexed" ? "Market records are not indexed for this pool yet." : "Market data unavailable";
+}

@@ -43,7 +43,7 @@ export default function TokenCard({ token, market, onNavigate }: {
   const changeClass = changeKind(change);
   const source = stats?.source === "Bankr" ? "Bankr / Pools" : stats?.source;
   const at = stats && Number.isFinite(Date.parse(stats.fetchedAt)) ? new Date(stats.fetchedAt) : null;
-  const snapshotLabel = stats?.status === "stale" ? "Previous snapshot" : "Updated";
+  const snapshotLabel = stats?.status === "stale" ? "Previous snapshot" : "Fetched";
   const href = tokenPath(token);
   const details = token.kind === "musegod" ? "Featured · SushiSwap v3 · 1% pool"
     : ["Doppler · Uniswap v4", token.tradingFeeBps !== undefined ? `${token.tradingFeeBps / 100}% fee` : null,

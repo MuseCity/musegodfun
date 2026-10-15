@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { chainApi } from "./api";
 import { deploymentChain, type RuntimeConfig, type TokenRecord } from "./config";
-import type { MarketSummary } from "./market";
+import { marketSnapshotKey, marketStatusMessage, type MarketSummary, type MarketReason } from "./market";
 import { MUSEGOD } from "./musegod";
 import { errorMessage } from "./validation";
 
@@ -9,13 +9,14 @@ export type CardMarketState = {
   data: MarketSummary | null;
   loading: boolean;
   error: string;
+  reason?: MarketReason;
 };
 type CardMarkets = Record<string, CardMarketState>;
 type MarketStore = { scope: string | null; rows: CardMarkets };
 type MarketPlan = {
   scope: string | null;
   rows: CardMarkets;
-  baseAddresses: string[];
+  addresses: string[];
   musegod: boolean;
 };
 type SummaryReader = typeof chainApi;
@@ -31,14 +32,16 @@ const validSnapshot = (data: MarketSummary | null, now: number) =>
 
 // Keep endpoint selection separate from presentation and from launch records.
 export function cardMarketPlan(tokens: TokenRecord[], config: RuntimeConfig | null): MarketPlan {
-  const scope = config ? `${config.mode}:${config.chainId}:${deploymentChain(config)}` : null;
+  const identities = tokens.map(token => marketSnapshotKey(token, "summary")).sort().join(",");
+  const scope = config ? `${config.mode}:${config.chainId}:${deploymentChain(config)}:${identities}` : null;
   const rows: CardMarkets = {};
-  const baseAddresses: string[] = [];
+  const addresses: string[] = [];
   for (const token of tokens) {
     const address = token.address.toLowerCase();
-    if (config?.mode === "base" && config.chainId === 8453 && deploymentChain(config) === 8453 && token.mode === "base") {
+    if (config && config.mode !== "fork" && token.mode === config.mode && config.chainId === deploymentChain(config)
+      && deploymentChain(token) === deploymentChain(config)) {
       rows[address] = waiting();
-      baseAddresses.push(address);
+      addresses.push(address);
     } else {
       rows[address] = config === null ? waiting()
         : unavailable(config.mode === "fork" ? "Fork test" : undefined);
@@ -48,17 +51,17 @@ export function cardMarketPlan(tokens: TokenRecord[], config: RuntimeConfig | nu
   const musegod = config?.mode === "robinhood" && config.chainId === 4663;
   if (featured) rows[MUSEGOD_ADDRESS] = config === null || musegod ? waiting()
     : unavailable(config.mode === "fork" ? "Fork test" : undefined);
-  return { scope, rows, baseAddresses: [...new Set(baseAddresses)].sort(), musegod };
+  return { scope, rows, addresses: [...new Set(addresses)].sort(), musegod };
 }
 
 // The existing endpoint admits at most 30 registered addresses per request.
 export async function loadCardMarkets(
-  chainId: 8453 | 4663, baseAddresses: string[], musegod: boolean, read: SummaryReader = chainApi,
+  chainId: 8453 | 4663, addresses: string[], musegod: boolean, read: SummaryReader = chainApi,
   isActive: () => boolean = () => true,
 ): Promise<CardMarkets> {
   const rows: CardMarkets = {};
   if (!isActive()) return rows;
-  if ((musegod && chainId !== 4663) || (baseAddresses.length > 0 && chainId !== 8453))
+  if (musegod && chainId !== 4663)
     throw new Error("The market request does not match the selected network");
   if (musegod) {
     try {
@@ -70,20 +73,20 @@ export async function loadCardMarkets(
       rows[MUSEGOD_ADDRESS] = unavailable(errorMessage(error));
     }
   }
-  const addresses = [...new Set(baseAddresses.map((address) => address.toLowerCase()))].sort();
-  for (let offset = 0; offset < addresses.length; offset += 30) {
+  const uniqueAddresses = [...new Set(addresses.map((address) => address.toLowerCase()))].sort();
+  for (let offset = 0; offset < uniqueAddresses.length; offset += 30) {
     if (!isActive()) return rows;
-    const batch = addresses.slice(offset, offset + 30);
+    const batch = uniqueAddresses.slice(offset, offset + 30);
     try {
-      const result = await read<{ address: string; summary: MarketSummary | null }[]>(
+      const result = await read<{ address: string; summary: MarketSummary | null; reason?: MarketReason }[]>(
         chainId,
         `/market/summaries?addresses=${encodeURIComponent(batch.join(","))}`,
       );
       if (!isActive()) return rows;
-      const received = new Map(result.map((row) => [row.address.toLowerCase(), row.summary]));
+      const received = new Map(result.map((row) => [row.address.toLowerCase(), row]));
       for (const address of batch) {
-        const data = received.get(address);
-        rows[address] = data ? { data, loading: false, error: "" } : unavailable();
+        const row = received.get(address), data = row?.summary;
+        rows[address] = data ? { data, loading: false, error: "" } : { ...unavailable(marketStatusMessage(row?.reason)), reason: row?.reason };
       }
     } catch (error) {
       if (!isActive()) return rows;
@@ -133,7 +136,7 @@ export function useTokenCardMarkets(
   const [revision, setRevision] = useState(0);
   const scope = plan.scope;
   const targetKey = Object.keys(plan.rows).sort().join(",");
-  const baseKey = config !== null && tokens !== null ? plan.baseAddresses.join(",") : "";
+  const addressKey = config !== null && tokens !== null ? plan.addresses.join(",") : "";
   const requestMusegod = config !== null && plan.musegod;
 
   useEffect(() => {
@@ -142,8 +145,8 @@ export function useTokenCardMarkets(
       address, state.loading && previous.scope === scope
         ? retainCardMarket(previous.rows[address], state) : state,
     ])) }));
-    if (baseKey || requestMusegod) {
-      void loadCardMarkets(deploymentChain(config!), baseKey ? baseKey.split(",") : [], requestMusegod, chainApi, () => active).then((result) => {
+    if (addressKey || requestMusegod) {
+      void loadCardMarkets(deploymentChain(config!), addressKey ? addressKey.split(",") : [], requestMusegod, chainApi, () => active).then((result) => {
         if (!active) return;
         setStore((previous) => {
           if (previous.scope !== scope) return previous;
@@ -156,15 +159,15 @@ export function useTokenCardMarkets(
       });
     }
     return () => { active = false; };
-  }, [scope, targetKey, baseKey, requestMusegod, refreshVersion, revision]);
+  }, [scope, targetKey, addressKey, requestMusegod, refreshVersion, revision]);
 
   useEffect(() => {
-    if (!config || (!baseKey && !requestMusegod)) return;
+    if (!config || (!addressKey && !requestMusegod)) return;
     const timer = setInterval(() => {
       if (document.visibilityState === "visible") setRevision((value) => value + 1);
     }, requestMusegod ? 60_000 : 15 * 60_000);
     return () => clearInterval(timer);
-  }, [config !== null, scope, baseKey, requestMusegod]);
+  }, [config !== null, scope, addressKey, requestMusegod]);
 
   useEffect(() => {
     const expiries = Object.values(store.rows).flatMap((state) =>

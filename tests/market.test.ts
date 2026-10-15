@@ -284,3 +284,50 @@ test("normalized trade amounts are not scaled twice and repeated chain/transacti
   assert.equal(result.trades.length,2); assert.equal(result.trades[0].amount,12.123456789012345678);
   assert.notEqual(result.trades[0].id,result.trades[1].id);
 });
+
+test("snapshot identities isolate pool/quote/version and preserve legacy records", async () => {
+  const rows=new Map<string,any>([[`${token.address}:summary`,{data:{priceUsd:99},at:Date.now()}]]);
+  let calls=0;
+  const reader=new MarketReader({store:{snapshot:(k:string)=>rows.get(k),saveSnapshot:(k:string,data:unknown,at:number)=>rows.set(k,{data,at}),reserveMarketCall:()=>true} as never,apiKey:'fixture',fetch:async()=>{calls++;return Response.json(pool)}});
+  await reader.summary(token);
+  await assert.rejects(reader.summary({...token,poolId:`0x${'c'.repeat(64)}`}));
+  await assert.rejects(reader.summary({...token,quoteAddress:STOCKS[1].address}));
+  assert.equal(calls,3);assert(rows.has(`${token.address}:summary`));
+  const key=[...rows.keys()].find(k=>k!==`${token.address}:summary`)!;
+  assert(key.includes('v2')&&key.includes('8453')&&key.includes(token.poolId.toLowerCase())&&key.includes(token.quoteAddress.toLowerCase()));
+});
+
+test("30-pool homepage batches coalesce with concurrent detail reads and cache hits cost no quota", async () => {
+  const tokens=Array.from({length:30},(_,i)=>syntheticToken({address:`0x${(i+1).toString(16).padStart(40,'0')}`,poolId:`0x${(i+1).toString(16).padStart(64,'0')}`}));
+  const rows=new Map();let calls=0,quota=0;
+  const reader=new MarketReader({store:{snapshot:(k:string)=>rows.get(k),saveSnapshot:(k:string,data:unknown,at:number)=>rows.set(k,{data,at}),reserveMarketCall:()=>{quota++;return true}} as never,apiKey:'fixture',fetch:async url=>{
+    calls++;assert(String(url).includes('/multi/'));return Response.json({data:tokens.map(t=>({...pool.data,attributes:{...pool.data.attributes,address:t.poolId},relationships:{...pool.data.relationships,base_token:{data:{id:`base_${t.address}`}}}}))});
+  }});
+  const [batch,duplicate]=await Promise.all([reader.summaries(tokens),reader.summaries(tokens)]);
+  assert.equal(batch.length,30);assert(batch.every(r=>r.summary?.priceUsd===0.0004));assert.deepEqual(batch,duplicate);
+  await Promise.all(tokens.map(t=>reader.summary(t)));
+  assert.equal(calls,1);assert.equal(quota,1);
+});
+
+test("quota, schema and transport errors remain failures while holders bypass Demo quota", async () => {
+  for(const [kind,fetcher] of [['invalid_schema',async()=>new Response('not-json')],['upstream_transport',async()=>{throw new Error('private-token-in-url')}]] as const){
+    const rows=new Map();const reader=new MarketReader({store:{snapshot:(k:string)=>rows.get(k),saveSnapshot:(k:string,data:unknown,at:number)=>rows.set(k,{data,at}),reserveMarketCall:()=>true} as never,apiKey:'fixture',fetch:fetcher});
+    await assert.rejects(reader.summary(token),(e:any)=>e.reason===kind&&!JSON.stringify(e).includes('private-token-in-url'));
+    assert.equal(rows.size,0);
+  }
+  let fetches=0;const reader=new MarketReader({store:{snapshot:()=>null,saveSnapshot:()=>{},reserveMarketCall:()=>false} as never,apiKey:'fixture',fetch:async()=>{fetches++;return new Response(null,{status:403})}});
+  await assert.rejects(reader.summary(token),(e:any)=>e.reason==='quota_exhausted');assert.equal(fetches,0);
+  await assert.rejects(reader.holders(token),(e:any)=>e.source==='Blockscout'&&e.reason==='upstream_http');assert.equal(fetches,2);
+});
+
+test("a missing multi-pool row preserves not-indexed state without inventing an upstream 404", async () => {
+  const reader=new MarketReader({store:{snapshot:()=>null,saveSnapshot:()=>{},reserveMarketCall:()=>true} as never,apiKey:'fixture',fetch:async()=>Response.json({data:[]})});
+  const [row]=await reader.summaries([token]);assert.equal(row.reason,'not_indexed');assert.equal(row.upstreamStatus,undefined);assert.equal(row.summary,null);
+});
+
+test("Robinhood WETH 18-decimal quotes keep normalized sell amounts and exact asset direction", () => {
+  const rh=syntheticToken({mode:'robinhood',deploymentChainId:4663,quoteAddress:'0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73'});
+  const attributes={tx_hash:`0x${'2'.repeat(64)}`,log_index:12,tx_from_address:rh.quoteAddress,block_timestamp:'2026-10-08T09:00:00Z',kind:'buy',from_token_address:rh.address,to_token_address:rh.quoteAddress,from_token_amount:'0.123456789012345678',to_token_amount:'0.000000000000000001',volume_in_usd:null};
+  const [trade]=parseTrades({data:[{id:'fixture-sell',attributes}]},rh).trades;
+  assert.equal(trade.side,'sell');assert.equal(trade.amount,0.123456789012345678);assert.equal(trade.usd,null);assert.match(trade.id,/^4663:/);
+});

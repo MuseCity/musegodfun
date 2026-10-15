@@ -582,6 +582,8 @@ app.use(
         : error instanceof z.ZodError
           ? 400
           : 422;
+    if (error instanceof MarketUnavailable)
+      res.setHeader("Retry-After", String(Math.max(1, Math.ceil((Date.parse(error.nextRefreshAt) - Date.now()) / 1000))));
     res.status(status).json({
       error: redact(error instanceof z.ZodError ? errorMessage(error) : error, runtime.environment),
       ...(error instanceof BuybackError || error instanceof NftLaunchError || error instanceof EthBuyError
