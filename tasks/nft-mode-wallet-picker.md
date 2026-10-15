@@ -82,7 +82,7 @@ Facts checked on 2026-10-15 with a real Muse holder on Robinhood:
 **Prefill (W3, W6):**
 - **When:** prefill runs once the live check passes for the chosen NFT.
 - **Name and symbol:**
-  - A Muse uses its on-chain name, through `musePrefill`.
+  - A Muse uses its on-chain name, through `nftPrefill`.
   - Any other NFT uses its listed name.
   - The symbol is the name's letters, at most 10, in upper case.
   - A name or symbol the reserved-name rule would refuse (D8, MUSEGOD) is not prefilled.
@@ -108,6 +108,7 @@ Facts checked on 2026-10-15 with a real Muse holder on Robinhood:
 
 ### 3.3 Drafts and draft links
 
+- Autosaved drafts also keep the applied NFT prefill values for name, symbol and image. On reload or adoption, only exact matches retain ownership and the image notice. Old drafts and draft links have no prefill ownership.
 - A draft keeps `nftMode`, `nft` and its step. The saved step numbers are:
   - `0`: the NFT step, which exists in NFT mode only;
   - `1`: Identity;

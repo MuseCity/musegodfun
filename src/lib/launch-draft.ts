@@ -2,7 +2,25 @@ import { deploymentChain, STOCKS, ROBINHOOD_STOCKS, sameAddress, type RuntimeCon
 import { launchSchema, restoreDraft } from "./validation";
 import { firstBuyPaymentAssets } from "./first-buy-payment";
 import { isPristineDraft } from "./draft-link";
-import { savedNftMode } from "./nft-client";
+import { savedNftMode, type NftIdentity, type NftPrefill } from "./nft-client";
+import type { LaunchInput } from "./validation";
+
+/** Only exact, nonempty applied values retain ownership; old drafts and links carry none. */
+export function matchingNftPrefill(draft: NftIdentity, saved: NftPrefill = {}): NftPrefill {
+  const owned: NftPrefill = {};
+  for (const field of ["name", "symbol", "image"] as const)
+    if (typeof saved[field] === "string" && saved[field] && saved[field] === draft[field]) owned[field] = saved[field];
+  return owned;
+}
+export function savedNftPrefill(raw: string | null, draft: NftIdentity): NftPrefill {
+  try { return matchingNftPrefill(draft, JSON.parse(raw || "null")?.nftPrefill ?? {}); }
+  catch { return {}; }
+}
+/** Shared by autosave and its loaded basis, so another tab's adoption never echoes a format change. */
+export function launchDraftPayload(draft: LaunchInput, firstBuy: FirstBuyDraft, intentId: string, step: LaunchStep,
+  nftMode: boolean, prefill: NftPrefill = {}): string {
+  return JSON.stringify({ ...draft, firstBuy, intentId, step, nftMode, nftPrefill: matchingNftPrefill(draft, prefill) });
+}
 
 export type FirstBuyDraft = { amount: string; slippageBps: number; payAddress: string; lockDays: 0 | 30 | 90 | 365 };
 /** 0: the NFT step (NFT mode only); 1: Identity; 2: Economics (tasks/nft-mode-wallet-picker.md §3.3). */

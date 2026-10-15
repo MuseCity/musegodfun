@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { ADMITTED_BASE_ASSET_COUNT, STOCKS, ROBINHOOD_STOCKS, launchAssetsFor, stockByAddress, sameAddress, type RuntimeConfig } from "../src/lib/config";
-import { draftAutosave, firstBuyDraft, isBlankDraft, type DraftBasis, launchDraftKey, launchDraftStep, launchSteps, stepHeadingId, resetLaunchedDraftStep, savedLaunchDraft } from "../src/lib/launch-draft";
+import { draftAutosave, firstBuyDraft, launchDraftPayload, savedNftPrefill, isBlankDraft, type DraftBasis, launchDraftKey, launchDraftStep, launchSteps, stepHeadingId, resetLaunchedDraftStep, savedLaunchDraft } from "../src/lib/launch-draft";
+import { encodeDraftLink, decodeDraftFragment, importDraftLink } from "../src/lib/draft-link";
 import { firstBuyPaymentAssets } from "../src/lib/first-buy-payment";
 import { LAUNCH_IDENTITY_FIELDS, launchIdentityIssue, launchSchema, restoreDraft } from "../src/lib/validation";
 import { DEFAULT_TRADING_FEE_BPS, TRADING_FEE_BPS } from "../src/lib/trading-fee";
@@ -291,4 +292,48 @@ test("the wizard lists the NFT step only in NFT mode, and each step has its head
   assert.deepEqual(launchSteps(false).map((s) => s.label), ["Identity", "Economics"]);
   assert.deepEqual(launchSteps(true).map((s) => [s.step, s.label]), [[0, "NFT"], [1, "Identity"], [2, "Economics"]]);
   assert.deepEqual([0, 1, 2].map((s) => stepHeadingId(s as 0 | 1 | 2)), ["nft-heading", "identity-heading", "quote-heading"]);
+});
+
+test("autosave and reload retain only the exact applied NFT prefill values", () => {
+  const rh = config(4663), owned = { name: "A", symbol: "A", image: "https://pin.test/a" };
+  const draft = { ...restoreDraft(null, rh), ...owned }, buy = firstBuyDraft(rh, null);
+  const raw = launchDraftPayload(draft, buy, "intent", 1, true, owned);
+  assert.deepEqual(JSON.parse(raw).nftPrefill, owned);
+  const restored = restoreDraft(raw, rh);
+  assert.deepEqual(savedNftPrefill(raw, restored), owned);
+  assert.deepEqual(savedNftPrefill(raw, { ...restored, name: "Mine", image: "https://mine.test/a" }), { symbol: "A" });
+  assert.deepEqual(JSON.parse(launchDraftPayload({ ...draft, symbol: "MINE" }, buy, "intent", 1, true, owned)).nftPrefill,
+    { name: "A", image: "https://pin.test/a" });
+});
+
+test("an adopting tab serializes the same prefill payload and ends unchanged", () => {
+  const rh = config(4663), owned = { name: "A", symbol: "A", image: "https://pin.test/a" };
+  const raw = launchDraftPayload({ ...restoreDraft(null, rh), ...owned }, firstBuyDraft(rh, null), "intent", 1, true, owned);
+  const loaded = () => {
+    const draft = restoreDraft(raw, rh);
+    return launchDraftPayload(draft, firstBuyDraft(rh, raw), "intent", launchDraftStep(raw), true, savedNftPrefill(raw, draft));
+  };
+  const basis = { raw, payload: loaded() };
+  assert.equal(loaded(), raw);
+  assert.equal(draftAutosave(raw, loaded(), basis, rh), "unchanged");
+});
+
+test("draft links never import prefill ownership", () => {
+  const rh = config(4663), draft = { ...restoreDraft(null, rh), name: "Linked", symbol: "LINKED", image: "https://pin.test/a" };
+  const linked = { ...draft, nftPrefill: { name: draft.name, symbol: draft.symbol, image: draft.image } };
+  const url = new URL(encodeDraftLink(linked));
+  const fragment = decodeDraftFragment(url.hash);
+  assert(fragment && "draft" in fragment);
+  const { raw } = importDraftLink(fragment.draft, rh);
+  assert.equal(JSON.parse(raw).nftPrefill, undefined);
+  assert.deepEqual(savedNftPrefill(raw, restoreDraft(raw, rh)), {});
+  const forged = btoa(JSON.stringify({ v: 1, name: "Linked", nftPrefill: linked.nftPrefill })).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  assert.deepEqual(decodeDraftFragment(`#draft=${forged}`), { error: "This draft link was not imported: it has an unknown field." });
+});
+
+test("old and malformed draft provenance stays user-owned", () => {
+  const rh = config(4663);
+  for (const raw of [null, "{invalid", JSON.stringify({ name: "Old", symbol: "OLD", image: "https://pin.test/old" }),
+    JSON.stringify({ name: "Old", nftPrefill: { name: 7, symbol: "OLD", image: "https://pin.test/old" } })])
+    assert.deepEqual(savedNftPrefill(raw, restoreDraft(raw, rh)), {});
 });

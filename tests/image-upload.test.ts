@@ -111,3 +111,16 @@ test("manual file validation and decode errors keep their existing messages", as
   await assert.rejects(prepareTokenImage(new File(["png"], "image.png", { type: "image/png" })),
     { message: "This image could not be read. Choose another image." });
 });
+
+test("an NFT image that never decodes fails at 20 seconds and cancels its load", async t => {
+  const browser = imageBrowser(t);
+  t.mock.method(Image.prototype, "decode", () => new Promise<void>(() => {}));
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const pending = prepareTokenImageFromUrl("https://images.test/nft.avif");
+  let settled = false;
+  const rejected = assert.rejects(pending, { message: NFT_IMAGE_ERROR }).then(() => { settled = true; });
+  t.mock.timers.tick(19_999); await Promise.resolve();
+  assert.equal(settled, false); assert.notEqual(browser.images[0].src, "");
+  t.mock.timers.tick(1); await rejected;
+  assert.equal(browser.images[0].src, ""); assert.equal(browser.inputs.length, 0); assert.equal(browser.fetches(), 0);
+});

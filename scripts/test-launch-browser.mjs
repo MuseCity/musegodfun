@@ -94,9 +94,11 @@ async function casePage(mode, viewport = { width: 1440, height: 1000 }) {
     unresolvedRequests: new Map(), holdVerification: ['payment_submit_race', 'payment_submit_record_race'].includes(mode), releaseVerification: null,
     holdRegistration: false, releaseRegistration: null, priceRequests: 0, paymentQuoteRequests: [], releaseDetail: null, detailRequested: false,
     trackRequests: 0, trackedHash: null, trackedReceipt: false, nftStatusRequests: [], feeReceipt: true, holdReconnect: false, reconnectHeld: false, reconnectResolvers: [], walletLocked: false, refusedSends: 0, nftCollectionRequests: [], nftTokenRequests: [],
-    holdNftCollections: mode === 'nft_wallet_switch_mid_load', nftCollectionResolvers: [], tokenImageUploads: [], nftImageLoads: [] };
-  await context.route(`${nftImageOrigin}/**`, route => {
+    holdNftCollections: mode === 'nft_wallet_switch_mid_load', nftCollectionResolvers: [], tokenImageUploads: [], nftImageLoads: [], heldNftImages: new Set(), nftImageResolvers: [], holdTokenImages: false, tokenImageResolvers: [] };
+  await context.route(`${nftImageOrigin}/**`, async route => {
     state.nftImageLoads.push({ url: route.request().url(), origin: route.request().headers().origin });
+    if (state.heldNftImages.has(new URL(route.request().url()).pathname))
+      await new Promise(resolve => state.nftImageResolvers.push({ url: route.request().url(), resolve }));
     return route.fulfill({ headers: { 'access-control-allow-origin': '*' },
       contentType: route.request().url().endsWith('/broken') ? 'text/plain' : 'image/png',
       body: route.request().url().endsWith('/broken') ? 'not a decodable picture' : fixtureImage });
@@ -190,6 +192,7 @@ async function casePage(mode, viewport = { width: 1440, height: 1000 }) {
       assert(Buffer.from(payload.image.split(',')[1], 'base64').length <= 40 * 1024);
       const image = `${fixturePinata}?fixture=${state.tokenImageUploads.length + 1}`;
       state.tokenImageUploads.push({ data: payload.image, image });
+      if (state.holdTokenImages) await new Promise(resolve => state.tokenImageResolvers.push(resolve));
       return reply({ image });
     }
     if (path === '/api/config') {
@@ -1241,12 +1244,11 @@ async function walletPickerCase(page, state) {
   await page.getByRole('heading', { name: 'Give it a name and a face', exact: true }).waitFor();
   assert.equal(await page.getByLabel('Token name', { exact: true }).inputValue(), 'Bronze Key #2014');
   assert.equal(await page.getByLabel('Token symbol', { exact: true }).inputValue(), 'BRONZEKEY');
-  // Restored identity fields are kept as entered. Empty them, then exercise prefill ownership in this tab.
+  // Reloads retain prefill ownership, so the restored image notice and subsequent NFT changes need no field clearing.
   const imageInput = page.getByLabel('Image URL', { exact: true });
   const imageNotice = page.getByText("Using your NFT's image. You can replace it.", { exact: true });
-  await imageInput.fill('');
-  await page.getByLabel('Token name', { exact: true }).fill('');
-  await page.getByLabel('Token symbol', { exact: true }).fill('');
+  await imageNotice.waitFor();
+  assert.match(await page.getByRole('button', { name: 'Replace token image', exact: true }).getAttribute('aria-describedby'), /token-image-nft/);
   const changeNft = async name => {
     await page.getByRole('button', { name: /^Step 1 of 3.*NFT$/ }).click();
     await returnToPicker('Change');
@@ -1286,8 +1288,126 @@ async function walletPickerCase(page, state) {
   assert.equal(state.sends.length, 1); assert.equal(state.sends[0].fee, true, 'only the mock fee was sent');
   assert.equal(state.prepareRequests.length, 0);
   assert(state.nftTokenRequests.some(row => row.contract.toLowerCase() === paidCollection));
-  state.nftChecks = { walletPicker: true, listedNamePrefill: true, alreadyLaunchedDisabled: true, summary: true, sameNftKeptThroughRetry: true, sameManualNftKeptThroughRetry: true, identityAfterFee: true,
+  await nftImageRacePins(page, state);
+  state.nftChecks = { imageRaces: true, walletPicker: true, listedNamePrefill: true, alreadyLaunchedDisabled: true, summary: true, sameNftKeptThroughRetry: true, sameManualNftKeptThroughRetry: true, identityAfterFee: true,
     listImagePinned: true, imageNotice: true, imageFollowsNft: true, decodeFailureNonblocking: true, manualImagePreserved: true };
+}
+// Deferred browser pins for App/NftLaunchStep wiring. Syntax-checked only in the image-fix task.
+async function nftImageRacePins(page, state) {
+  const image = page.getByLabel('Image URL', { exact: true });
+  const notice = page.locator('#token-image-nft');
+  const inputFile = () => page.getByLabel('Token image file', { exact: true }).setInputFiles({ name: 'race.png', mimeType: 'image/png', buffer: fixtureImage });
+  const frames = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const seed = async () => {
+    await autosaveSettled(page);
+    const draft = { ...await storedDraft(page), name: '', symbol: '', image: '', nftPrefill: {}, step: 1, nftMode: true,
+      nft: { chainId: 4663, contract: paidCollection, tokenId: '5' } };
+    await page.evaluate(({ draft, creator }) => {
+      localStorage.setItem(`musegod.launch.draft.31337.4663.${creator}.${draft.intentId}`, JSON.stringify(draft));
+      localStorage.setItem('musegod.launch.draft.31337.4663', JSON.stringify(draft));
+    }, { draft, creator });
+    await page.reload();
+    await page.getByRole('button', { name: /^Wallet account / }).waitFor();
+    await page.getByRole('heading', { name: 'Give it a name and a face', exact: true }).waitFor();
+  };
+  const pick = async name => {
+    await page.getByRole('button', { name: /^Step 1 of 3.*NFT$/ }).click();
+    await page.getByRole('button', { name: 'Change', exact: true }).click();
+    await page.getByRole('button', { name: /Bronze Keys/ }).click();
+    await page.getByRole('button', { name, exact: true }).click();
+  };
+  const identity = async () => {
+    await page.waitForFunction(() => document.getElementById('nft-launch-status')?.textContent === 'Launching for this NFT costs $10, paid before the launch.');
+    await page.getByText(/Launch fee paid\./).waitFor();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await page.getByRole('heading', { name: 'Give it a name and a face', exact: true }).waitFor();
+  };
+  const silverPending = async () => {
+    state.heldNftImages.add('/silver.png');
+    await pick('Silver Key #6');
+    await waitForFixture(() => state.nftImageResolvers.length > 0, 'Silver conversion held open');
+    await identity();
+  };
+  const releaseSilver = async () => {
+    const response = page.waitForResponse(`${nftImageOrigin}/silver.png`);
+    state.heldNftImages.delete('/silver.png');
+    state.nftImageResolvers.splice(0).forEach(held => held.resolve());
+    await (await response).finished(); await frames();
+  };
+  // A manual upload starts while the live check waits, then survives both the passing callback and leaving NFT mode.
+  state.holdNftStatus = true;
+  await seed();
+  await pick('Silver Key #6');
+  await waitForFixture(() => state.nftStatusRequests.at(-1)?.tokenId === '6' && state.nftStatusResolvers?.length, 'Silver check pending');
+  state.holdTokenImages = true;
+  await inputFile();
+  await waitForFixture(() => state.tokenImageResolvers.length > 0, 'manual upload pending during check');
+  const loads = state.nftImageLoads.length;
+  state.holdNftStatus = false; state.nftStatusResolvers.splice(0).forEach(resolve => resolve());
+  await page.waitForFunction(() => document.querySelector('input[name="name"]')?.value === 'Silver Key #6');
+  assert.equal(state.nftImageLoads.length, loads, 'the passing check cannot replace a pending manual upload');
+  await page.getByRole('radio', { name: 'Normal', exact: true }).check();
+  assert.equal(await page.locator('.image-drop').getAttribute('aria-busy'), 'true', 'clearing the NFT keeps the manual spinner');
+  const manualUrl = state.tokenImageUploads.at(-1).image;
+  state.holdTokenImages = false; state.tokenImageResolvers.splice(0).forEach(resolve => resolve());
+  await page.waitForFunction(url => document.querySelector('input[name="image"]')?.value === url, manualUrl);
+  assert.equal(await notice.count(), 0);
+
+  // A -> B mid-conversion drops A before the upload endpoint; returning to B uses the tab cache.
+  await seed(); await silverPending();
+  const posts = state.tokenImageUploads.length;
+  await pick('Bronze Key #2014'); await identity();
+  await notice.waitFor(); const bronze = await image.inputValue();
+  await releaseSilver();
+  assert.equal(await image.inputValue(), bronze); assert.equal(state.tokenImageUploads.length, posts + 1);
+  await pick('Silver Key #6'); await identity(); await notice.waitFor();
+  const beforeRepeat = state.tokenImageUploads.length;
+  await pick('Bronze Key #2014'); await identity(); await notice.waitFor();
+  assert.equal(await image.inputValue(), bronze); assert.equal(state.tokenImageUploads.length, beforeRepeat, 'A -> B -> A never re-posts cached A');
+
+  // A typed image and a manual upload each win over an already-posted, late NFT completion.
+  for (const manual of [false, true]) {
+    await seed(); state.holdTokenImages = true;
+    await pick('Silver Key #6');
+    await waitForFixture(() => state.tokenImageResolvers.length > 0, 'NFT pin held open');
+    await identity();
+    if (manual) {
+      await inputFile();
+      await waitForFixture(() => state.tokenImageResolvers.length === 2, 'manual pin supersedes held NFT pin');
+      state.tokenImageResolvers.pop()();
+      await page.waitForFunction(url => document.querySelector('input[name="image"]')?.value === url, state.tokenImageUploads.at(-1).image);
+    } else await image.fill('https://manual.test/typed.webp');
+    const expected = await image.inputValue();
+    const response = page.waitForResponse(response => response.url().endsWith('/token-images'));
+    state.holdTokenImages = false; state.tokenImageResolvers.splice(0).forEach(resolve => resolve());
+    await (await response).finished(); await frames();
+    assert.equal(await image.inputValue(), expected); assert.equal(await notice.count(), 0);
+    assert.equal(await page.locator('.image-drop').getAttribute('aria-busy'), 'false');
+  }
+
+  // Another real tab's saved form is adopted while conversion waits; its ownership and payload remain stable.
+  await seed(); await silverPending(); await autosaveSettled(page);
+  const other = await page.context().newPage();
+  await other.goto(origin + '/create?chainId=4663');
+  await other.getByRole('button', { name: /^Wallet account / }).waitFor();
+  await other.getByLabel('Token name', { exact: true }).fill('Adopted image draft');
+  await other.getByLabel('Image URL', { exact: true }).fill('https://manual.test/adopted.webp');
+  await autosaveSettled(other);
+  await page.waitForFunction(() => document.querySelector('input[name="image"]')?.value === 'https://manual.test/adopted.webp');
+  assert.equal(await page.locator('.image-drop').getAttribute('aria-busy'), 'false');
+  const adopted = await storedDraft(page);
+  await releaseSilver(); await autosaveSettled(page);
+  assert.equal(await image.inputValue(), adopted.image); assert.deepEqual(await storedDraft(page), adopted, 'adoption ends unchanged without an echo');
+  await other.close();
+
+  // Clear draft calls replaceDraft while conversion waits, and removes ownership and busy state.
+  await seed(); await silverPending();
+  const beforeClear = state.tokenImageUploads.length;
+  await page.getByRole('button', { name: 'Clear draft', exact: true }).click();
+  await releaseSilver();
+  assert.equal(await image.inputValue(), ''); assert.equal(await notice.count(), 0);
+  assert.equal(await page.locator('.image-drop').getAttribute('aria-busy'), 'false');
+  assert.equal(state.tokenImageUploads.length, beforeClear, 'replaced drafts never post late conversions');
 }
 async function nftCase(page, state) {
   if (['nft_wallet_picker', 'nft_wallet_switch_mid_load'].includes(state.mode)) return walletPickerCase(page, state);

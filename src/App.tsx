@@ -96,14 +96,14 @@ import {
   safeSocialLink,
   type LaunchInput,
 } from "./lib/validation";
-import { ApiError, api, chainApi } from "./lib/api";
+import { ApiError, api, chainApi, type ApiOptions } from "./lib/api";
 import { LaunchModeSwitch, NftLaunchStep, NFT_DISCLAIMER, NFT_ERROR_ID, NFT_FEE_ID, NFT_TOKEN_ID, type NftFeeRejection, type NftStepStatus } from "./components/NftLaunchStep";
-import { forgetLaunchFee, launchFeeStorageKey, nftPrefill, nftCheckPassed, nftLaunchFeeCost, nftReviewBlocker, prepareDraft, rewardsShareCopy, savedNftMode, type NftPrefill } from "./lib/nft-client";
+import { forgetLaunchFee, launchFeeStorageKey, nftCheckPassed, nftLaunchFeeCost, nftReviewBlocker, prepareDraft, rewardsShareCopy, savedNftMode } from "./lib/nft-client";
 import { SAVED_LAUNCHES_NOTE, decodeDraftFragment, importDraftLink, isPristineDraft, type DraftFragment } from "./lib/draft-link";
 import { isMuse, treasuryFor, vaultFor } from "./lib/nft-mode";
 import { listedNftCoin } from "./lib/nft-treasury";
 import { useNetwork, tokenPath, nftPath } from "./lib/network";
-import { draftAutosave, firstBuyDraft, type DraftBasis, launchDraftKey, launchDraftStep, launchSteps, stepHeadingId, resetLaunchedDraftStep, savedLaunchDraft, type FirstBuyDraft, type LaunchStep } from "./lib/launch-draft";
+import { draftAutosave, firstBuyDraft, launchDraftPayload, savedNftPrefill, type DraftBasis, launchDraftKey, launchDraftStep, launchSteps, stepHeadingId, resetLaunchedDraftStep, savedLaunchDraft, type FirstBuyDraft, type LaunchStep } from "./lib/launch-draft";
 import FirstBuy from "./components/FirstBuy";
 import FirstBuyLock from "./components/FirstBuyLock";
 import { FIRST_BUY_SLIPPAGE_BPS, firstBuyPaymentAssets, assertFirstBuyPaymentQuote, type FirstBuyPrices, type FirstBuyPaymentQuote, type FirstBuyPaymentVerification } from "./lib/first-buy-payment";
@@ -113,8 +113,9 @@ import {
   OPENING_CAP_USD,
   assertOpeningValuation,
 } from "./lib/opening-valuation";
+import { createNftImagePrefill } from "./lib/nft-image-prefill";
 import { TOKEN_IMAGE_ACCEPT } from "./lib/token-image";
-import { NFT_IMAGE_ERROR, prepareTokenImage, prepareTokenImageFromUrl } from "./lib/image-upload";
+import { prepareTokenImage, prepareTokenImageFromUrl } from "./lib/image-upload";
 import { transactionClient, useWallet, type Quote } from "./lib/wallet";
 import { ETH_BUY_ROUTE, EthBuyIncomplete, amountWords, assertEthBuyResponse, defaultPayWith, ethBuyAvailable, ethBuyDisclosure, executeEthBuy,
   pairShortfall, resolvePayWith, twoStepLabels, twoStepMinimum, type EthBuyQuoteResponse, type LifiTradeTarget, type PayWith, type SwapQuote } from "./lib/eth-buy";
@@ -421,8 +422,8 @@ function isFeeBeneficiary(token: Pick<TokenRecord, "creator" | "feeTreasury">, a
   return !!account && (!!token.creator && sameAddress(token.creator, account) || !!token.feeTreasury && sameAddress(token.feeTreasury, account));
 }
 function scopedApi(config: RuntimeConfig | null) {
-  return <T,>(path: string, body?: unknown): Promise<T> => config
-    ? chainApi<T>(deploymentChain(config), path, body)
+  return <T,>(path: string, body?: unknown, options?: ApiOptions): Promise<T> => config
+    ? chainApi<T>(deploymentChain(config), path, body, options)
     : Promise.reject(new Error("Wait for the network configuration to load."));
 }
 
@@ -1115,8 +1116,6 @@ function CreatePage({
   const activeSimulation = useRef<number | null>(null);
   const formRef = useRef<HTMLFormElement>(null),
     imageInput = useRef<HTMLInputElement>(null),
-    imageUpload = useRef(0),
-    manualImageUpload = useRef<number | null>(null),
     reviewDialog = useRef<HTMLDialogElement>(null);
   const wallet = useWallet();
   const initialSavedDraft = () => {
@@ -1143,7 +1142,8 @@ function CreatePage({
     }),
     [firstBuy, setFirstBuy] = useState<FirstBuyDraft>(() => firstBuyDraft(config, initialSavedDraft())),
     [step, setStep] = useState<LaunchStep>(() => launchDraftStep(initialSavedDraft()));
-  const latestDraft = useRef(draft), previousPrefill = useRef<NftPrefill>({});
+  const latestDraft = useRef(draft);
+  const [imagePrefill] = useState(() => createNftImagePrefill(savedNftPrefill(initialSavedDraft(), draft)));
   latestDraft.current = draft;
   // NFT mode is a choice of its own: while a new NFT's check is pending the draft has no `nft` (a restored NFT stays while it is checked
   // again), and review stays blocked until the step's check passes.
@@ -1210,12 +1210,12 @@ function CreatePage({
       const carry = keep && !!saved && !(isPristineDraft(restoreDraft(saved, config), launchDraftStep(saved)) && !intentHasRecords(config, wallet.account, next));
       if (wallet.account) importedAnonymously.current = false;
       const target = carry ? newIntentId() : next;
-      draftScope.current = scope; imageUpload.current++;
+      draftScope.current = scope; imagePrefill.cancel(imageStatus());
       generation.current++; setIntentId(target); currentPlan.current = null;
       setPlan(null); setPaymentQuote(null); setTxHash(null); setConfirmed(false); setBusy(false); setUploadingImage(false); setReview(false);
       if (carry) {
         selectLaunchIntent(config, wallet.account, target);
-        const key = launchIntentStorageKey(config, wallet.account, target, "draft"), raw = JSON.stringify({ ...draft, firstBuy, intentId: target, step, nftMode });
+        const key = launchIntentStorageKey(config, wallet.account, target, "draft"), raw = launchDraftPayload(draft, firstBuy, target, step, nftMode, imagePrefill.previous);
         localStorage.setItem(key, raw); draftBasis.current = { key, raw, payload: raw };
         setLinkNotice((notice) => notice && !notice.text.includes(SAVED_LAUNCHES_NOTE) ? { ...notice, text: `${notice.text} ${SAVED_LAUNCHES_NOTE}` } : notice);
       }
@@ -1346,7 +1346,7 @@ function CreatePage({
       generation.current++;
     };
   }, [wallet.revision]);
-  useEffect(() => () => { imageUpload.current++; }, []);
+  useEffect(() => () => { imagePrefill.cancel({ setBusy() {}, setError() {} }); }, []);
   // A Muse coin pairs with MUSEGOD; any other pair must still be a supported launch asset.
   const museLocked = !!draft.nft && isMuse(draft.nft), musegodPair = assets.find((asset) => asset.symbol === "MUSEGOD");
   useEffect(() => {
@@ -1384,7 +1384,7 @@ function CreatePage({
     setDraftSaved(false);
     const timer = setTimeout(() => {
       try {
-        const payload = JSON.stringify({ ...draft, firstBuy, intentId, step, nftMode });
+        const payload = launchDraftPayload(draft, firstBuy, intentId, step, nftMode, imagePrefill.previous);
         const key = launchIntentStorageKey(config, wallet.account, intentId, "draft"), { stored, decision } = intentDraftDecision(key, payload);
         if (decision === "adopt") { adoptDraft(key, stored!); return; }
         if (decision === "hold") return;
@@ -1407,7 +1407,7 @@ function CreatePage({
     const changed = (event: StorageEvent) => {
       if (event.key !== key) return;
       try {
-        const { stored, decision } = intentDraftDecision(key, JSON.stringify({ ...draft, firstBuy, intentId, step, nftMode }));
+        const { stored, decision } = intentDraftDecision(key, launchDraftPayload(draft, firstBuy, intentId, step, nftMode, imagePrefill.previous));
         if (decision === "adopt") adoptDraft(key, stored!);
       } catch { /* The autosave checks the stored draft again before it writes. */ }
     };
@@ -1482,14 +1482,14 @@ function CreatePage({
   }
   // A saved (or empty) draft replaces the form, with its NFT mode; the NFT step starts over from the restored NFT.
   function replaceDraft(raw: string | null) {
-    imageUpload.current++; setUploadingImage(false); setImageError(""); previousPrefill.current = {};
     latestDraft.current = restoreDraft(raw, config ?? undefined);
+    imagePrefill.replace(savedNftPrefill(raw, latestDraft.current), imageStatus());
     setDraft(latestDraft.current); setNftMode(savedNftMode(raw)); setDraftRevision((value) => value + 1); setLinkNotice(null);
   }
   // The payload this form holds right after loading `raw` for `intent` (as `replaceDraft` and the first-buy and step setters load it).
   function loadedPayload(raw: string | null, intent: string) {
-    return JSON.stringify({ ...restoreDraft(raw, config ?? undefined), firstBuy: firstBuyDraft(config, raw), intentId: intent, step: launchDraftStep(raw),
-      nftMode: savedNftMode(raw) });
+    const restored = restoreDraft(raw, config ?? undefined);
+    return launchDraftPayload(restored, firstBuyDraft(config, raw), intent, launchDraftStep(raw), savedNftMode(raw), savedNftPrefill(raw, restored));
   }
   // Whether this tab writes `payload` over the intent's stored draft, takes the stored draft, or holds its form (see `draftAutosave`).
   function intentDraftDecision(key: string, payload: string) {
@@ -1537,12 +1537,8 @@ function CreatePage({
   // `quiet` keeps the page's notices and errors: the NFT step's own checks and the stored fee change the draft without the user.
   function update<K extends keyof LaunchInput>(key: K, value: LaunchInput[K], quiet = false) {
     if (draft[key] !== value) currentPlan.current = null;
-    if (key === "image" || (key === "nft" && !value)) {
-      imageUpload.current++;
-      setUploadingImage(false);
-      setImageError("");
-    }
-    if (!quiet && (key === "name" || key === "symbol" || key === "image")) delete previousPrefill.current[key as keyof NftPrefill];
+    if (key === "nft" && !value) imagePrefill.clearNft(imageStatus());
+    if (!quiet && (key === "name" || key === "symbol" || key === "image")) imagePrefill.edit(key, imageStatus());
     generation.current++;
     latestDraft.current = { ...latestDraft.current, [key]: value };
     setDraft((d) => ({ ...d, [key]: value }));
@@ -1571,62 +1567,17 @@ function CreatePage({
     setError("");
     setMessage("");
   }
-  async function uploadImage(file: File) {
-    const request = ++imageUpload.current;
-    manualImageUpload.current = request;
-    setUploadingImage(true);
-    setImageError("");
-    generation.current++;
-    setReview(false);
-    setPlan(null);
-    setError("");
-    setMessage("");
-    try {
-      const image = await prepareTokenImage(file);
-      if (request !== imageUpload.current) return;
-      const uploaded = await api<{ image: string }>("/token-images", { image });
-      if (request !== imageUpload.current) return;
-      update("image", uploaded.image);
-    } catch (error) {
-      if (request === imageUpload.current) setImageError(errorMessage(error));
-    } finally {
-      if (request === imageUpload.current) setUploadingImage(false);
-      if (manualImageUpload.current === request) manualImageUpload.current = null;
-    }
+  function imageStatus() { return { setBusy: setUploadingImage, setError: setImageError }; }
+  function imageWork() {
+    return { ...imageStatus(), getDraft: () => latestDraft.current,
+      apply: (field: "name" | "symbol" | "image", value: string) => update(field, value, true),
+      convertUrl: prepareTokenImageFromUrl, convertFile: prepareTokenImage,
+      pin: async (image: string, interactive: boolean) => (await api<{ image: string }>("/token-images", { image }, { challenge: interactive })).image };
   }
-  async function prefillNft(nft: { name?: string; image?: string }) {
-    const previous = { ...previousPrefill.current }, changes = nftPrefill(latestDraft.current, nft, previous);
-    // A manual upload begun while the check was pending keeps priority, even before it has a pinned URL.
-    const manualPending = manualImageUpload.current === imageUpload.current;
-    if (!manualPending) { imageUpload.current++; setUploadingImage(false); setImageError(""); }
-    for (const field of ["name", "symbol"] as const) {
-      const value = changes[field];
-      if (value === undefined) continue;
-      update(field, value, true);
-      if (value) previousPrefill.current[field] = value;
-      else delete previousPrefill.current[field];
-    }
-    if (manualPending || changes.image === undefined) return;
-    // Do not leave the previous NFT's picture behind if loading or pinning the new picture fails.
-    update("image", "", true); delete previousPrefill.current.image;
-    if (!changes.image) return;
-    const request = ++imageUpload.current;
-    setUploadingImage(true);
-    try {
-      const image = await prepareTokenImageFromUrl(changes.image);
-      if (request !== imageUpload.current) return;
-      const uploaded = await api<{ image: string }>("/token-images", { image });
-      if (request !== imageUpload.current) return;
-      const allowed = nftPrefill(latestDraft.current, { image: uploaded.image }, previous);
-      if (allowed.image !== undefined) {
-        update("image", uploaded.image, true);
-        previousPrefill.current.image = uploaded.image;
-      }
-    } catch {
-      if (request === imageUpload.current) setImageError(NFT_IMAGE_ERROR);
-    } finally {
-      if (request === imageUpload.current) setUploadingImage(false);
-    }
+  async function uploadImage(file: File) {
+    generation.current++;
+    setReview(false); setPlan(null); setError(""); setMessage("");
+    if (await imagePrefill.upload(file, imageWork())) setInvalidField("");
   }
   function showInvalidField(field: string, message: string) {
     setInvalidField(field);
@@ -2214,9 +2165,9 @@ function CreatePage({
   function resumeIntent(next: string): boolean {
     if (!config || busy) return false;
     // The form is saved under the intent it leaves only where the autosave would write it (never a blank draft over another tab's).
-    const current = launchIntentStorageKey(config, wallet.account, intentId, "draft"), payload = JSON.stringify({ ...draft, firstBuy, intentId, step, nftMode });
+    const current = launchIntentStorageKey(config, wallet.account, intentId, "draft"), payload = launchDraftPayload(draft, firstBuy, intentId, step, nftMode, imagePrefill.previous);
     if (intentDraftDecision(current, payload).decision === "write") localStorage.setItem(current, payload);
-    selectLaunchIntent(config, wallet.account, next); generation.current++; imageUpload.current++; currentPlan.current = null;
+    selectLaunchIntent(config, wallet.account, next); generation.current++; currentPlan.current = null;
     const nextKey = launchIntentStorageKey(config, wallet.account, next, "draft"), saved = localStorage.getItem(nextKey);
     draftBasis.current = { key: nextKey, raw: saved, payload: loadedPayload(saved, next) };
     setUploadingImage(false);
@@ -2308,7 +2259,7 @@ function CreatePage({
                 onCheck={() => { if (invalidField === "nft") { setInvalidField(""); setError(""); } }}
                 onFee={(fee) => { update("launchFee", fee, true); setNftFeeRejected(null); if (fee && invalidField === "nft") { setInvalidField(""); setError(""); } }}
                 onStatus={setNftStep}
-                onNftPassed={(nft) => void prefillNft(nft)} />
+                onNftPassed={(nft, restored) => void imagePrefill.prefill(nft, imageWork(), restored)} />
             </section>
           </div>}
           <div className="wizard-panel" hidden={step !== 1}>
@@ -2327,7 +2278,7 @@ function CreatePage({
                   type="button"
                   className={`image-drop${imageSrc ? " has-image" : ""}`}
                   aria-label={draft.image ? "Replace token image" : "Upload token image"}
-                  aria-describedby="token-image-help"
+                  aria-describedby={["token-image-help", imagePrefill.previous.image && draft.image === imagePrefill.previous.image ? "token-image-nft" : "", imageError ? "token-image-error" : ""].filter(Boolean).join(" ")}
                   aria-busy={uploadingImage}
                   disabled={uploadingImage}
                   onClick={() => imageInput.current?.click()}
@@ -2399,10 +2350,10 @@ function CreatePage({
                 </div>
               </div>
               <p className="hint" id="token-image-help">PNG, JPG, WebP or GIF · Up to 5 MB. GIFs use the first frame.</p>
-              {previousPrefill.current.image && draft.image === previousPrefill.current.image &&
-                <p className="hint">Using your NFT's image. You can replace it.</p>}
+              {imagePrefill.previous.image && draft.image === imagePrefill.previous.image &&
+                <p className="hint" id="token-image-nft">Using your NFT's image. You can replace it.</p>}
               {uploadingImage && <span className="hint" role="status">Uploading token image…</span>}
-              {imageError && <span className="field-error" role="alert">{imageError}</span>}
+              {imageError && <span className="field-error" id="token-image-error" role="alert">{imageError}</span>}
               <label className="field">
                 <span className="field-label"><span>Description <span className="optional">Optional</span></span><span className="field-counter">{draft.description.length} / 280</span></span>
                 <textarea
@@ -2669,9 +2620,6 @@ function CreatePage({
                 disabled={busy || (!!paymentAttempt && !paymentAttempt.actualOutput)}
                 onClick={() => {
                   generation.current++;
-                  imageUpload.current++;
-                  setUploadingImage(false);
-                  setImageError("");
                   currentPlan.current = null; replaceDraft(null);
                   // Clearing is the creator's own choice: it clears the intent's stored draft as it is now, whichever tab saved it.
                   try {

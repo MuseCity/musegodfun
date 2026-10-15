@@ -81,3 +81,9 @@ test("prefill ownership uses exact values and may be relinquished even when a ma
   assert.equal(nftPrefill(current, { image: "https://gateway.pinata.cloud/ipfs/new" }, previous).image, undefined,
     "the completion check reads the latest image, not the draft captured before the upload");
 });
+
+test("a prefilled name is trimmed again after the 32-character bound", () => {
+  const result = nftPrefill({ name: "", symbol: "", image: "" }, { name: "Pudgy Penguins Lil Pudgy Club o #42" });
+  assert.equal(result.name, "Pudgy Penguins Lil Pudgy Club o");
+  assert.equal(result.name?.trim(), result.name);
+});

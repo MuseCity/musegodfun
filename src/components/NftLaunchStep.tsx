@@ -59,7 +59,7 @@ function TxHash({ hash, config }: { hash: Hex; config: RuntimeConfig }) {
 export function NftLaunchStep({ config, account, draft, connecting, onConnect, error = "", feeRejected, onChange, onCheck, onFee, onNftPassed, onStatus }: {
   config: RuntimeConfig; account: Address | null; draft: LaunchInput; connecting: boolean; onConnect: () => void; error?: string; feeRejected?: NftFeeRejection | null;
   onChange: (nft: NftRef | undefined, user: boolean) => void; onCheck: () => void; onFee: (fee: DraftLaunchFee | undefined) => void;
-  onNftPassed?: (nft: { name?: string; image?: string }) => void; onStatus: (status: NftStepStatus) => void;
+  onNftPassed?: (nft: { name?: string; image?: string }, restored: boolean) => void; onStatus: (status: NftStepStatus) => void;
 }) {
   const nft = draft.nft;
   const [contract, setContract] = useState<string>(nft?.contract ?? MUSES.contract);
@@ -135,7 +135,7 @@ export function NftLaunchStep({ config, account, draft, connecting, onConnect, e
         const pick = picked.current.get(candidateKey);
         if (prefilled.current !== candidateKey) {
           prefilled.current = candidateKey;
-          latest.current.onNftPassed?.({ name: result.free ? result.name : pick?.name, image: pick?.image });
+          latest.current.onNftPassed?.({ name: result.free ? result.name : pick?.name, image: pick?.image }, !user && !pick && !!nft && nftKey(nft) === candidateKey);
         }
       }, (cause: unknown) => { if (active) setCheckError(errorMessage(cause)); });
     }, 400);

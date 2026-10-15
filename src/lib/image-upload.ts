@@ -22,7 +22,12 @@ export async function prepareTokenImageFromUrl(url: string): Promise<string> {
     img.crossOrigin = "anonymous";
     img.referrerPolicy = "no-referrer";
     img.src = url;
-    await img.decode();
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([img.decode(), new Promise<never>((_, reject) => {
+        deadline = setTimeout(() => { img.src = ""; reject(new Error(NFT_IMAGE_ERROR)); }, 20_000);
+      })]);
+    } finally { clearTimeout(deadline); }
     return encodeTokenImage(await createImageBitmap(img));
   } catch { throw new Error(NFT_IMAGE_ERROR); }
 }
