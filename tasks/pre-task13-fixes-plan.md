@@ -1,6 +1,6 @@
 # Pre-Task-13 fixes — implementation plan
 
-Owner request (2026-10-14): "先完成 3 个任务卡片，再开始 Task 13".
+Owner request (2026-10-14, translated from Chinese): "Finish the 3 task cards first, then start Task 13."
 
 These three issues were already on master. They were found while reviewing NFT mode and must be fixed before the Task 13 release.
 

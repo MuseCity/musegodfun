@@ -15,7 +15,7 @@
     "requireFinalizedAccountCheck": true,
     "collectorMustRemainPaused": true,
     "publicBaseMustRemainPaused": true,
-    "message": "确认，等 finalized 检查通过后，用现有 D5 钱包按总 gas 上限 0.00002 ETH 部署 Collector。Collector 和 Base 继续保持暂停。"
+    "message": "Confirmed. After the finalized check passes, deploy the Collector from the existing D5 wallet with a total gas cap of 0.00002 ETH. Keep the Collector and Base paused. (translated from Chinese)"
   },
   "collector": "0x3B6d01e627Fe6e06C831E0f9f57aC976a88309Ff",
   "deployer": "0xd5C256e6411a6835543F2bCd763341639e3Cf56f",

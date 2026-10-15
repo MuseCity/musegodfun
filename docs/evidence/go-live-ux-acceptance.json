@@ -1736,7 +1736,7 @@
     "automaticPublicationAndBothDomainByteVerification": "CI37783451630 passed;204assets each; Robinhood open after verified CAS resume",
     "publicSigningResume": "verified_Robinhood_revision1_unpaused; Base_revision0_paused",
     "baseSigning": "remains disabled in source",
-    "authority": "User explicitly requested 启用公开发币 after the prior V2 activation/funding authority. This operation opens only Robinhood; no additional financial execution or subscription.",
+    "authority": "User explicitly requested \"enable public token launches\" (translated from Chinese) after the prior V2 activation/funding authority. This operation opens only Robinhood; no additional financial execution or subscription.",
     "executionChecklist": {
       "path": "docs/SPEC.md",
       "line": 294,
@@ -4906,7 +4906,7 @@
   "authorizedPublicIssuanceExecution": {
     "observedAt": "2026-10-08T13:29:57.597043+00:00",
     "status": "robinhood_public_issuance_enabled_base_paused_verified",
-    "authority": "User explicitly requested 启用公开发币. Robinhood4663 only; no additional mainnet spending or subscription change.",
+    "authority": "User explicitly requested \"enable public token launches\" (translated from Chinese). Robinhood4663 only; no additional mainnet spending or subscription change.",
     "baseCommit": "7bb52c6c400ac525f6e9f51604a2596f690a2f7a",
     "sourceHashes": {
       "server/app.ts": "f9bead90734f79ccc5949f83522a716ec4166ac273f469aa8c9125db58398130",

@@ -1,7 +1,7 @@
 {
   "observedAt": "2026-10-07T07:08:28.174210+00:00",
   "scope": "Authorized V2 mainnet contract deployment and chain-scoped application configuration. Mainnet token launch, first buy and claim are not run.",
-  "authorization": "User: V2 Guard 也要进行主网部署，完成后部署并推送",
+  "authorization": "User (translated from Chinese): The V2 Guard also needs a mainnet deployment; when it is done, deploy and push.",
   "sourceCommit": "1753a25e45c32bfb3d1cba62fce025d687806772",
   "artifactSha256": "c0c0faeffbefd973e717c3c93c0be15b0d0dbec58acf85d3792350946ef0ad8a",
   "compilerInputSha256": "c300fe6c43d43ac7bf98a8a8383972f93d3f9b5649a00175199b17df45631d3a",

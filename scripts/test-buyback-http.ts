@@ -48,7 +48,7 @@ const invalidAuthorization = await call(origin, "/api/buyback/batches", {
   },
 });
 rejected(invalidAuthorization, [400, 401, 403, 422]);
-assert.match(invalidAuthorization.body.error, /授权|authorization/i,
+assert.match(invalidAuthorization.body.error, /authorization/i,
   "Server must implement budget authorization before testing the old prepare shape");
 const unauthorized = await call(origin, "/api/buyback/batches", { ...input, authorization: {} });
 rejected(unauthorized, [400, 401, 403, 422]);
@@ -133,14 +133,14 @@ try {
   for (const path of ["/api/buyback/stats", "/api/buyback/batches"]) {
     const result = await call(forkOrigin, path);
     rejected(result, [422]);
-    assert.match(result.body.error, /分叉/);
+    assert.match(result.body.error, /fork/i);
   }
   const quote = await call(forkOrigin, "/api/buyback/quote", input);
   rejected(quote, [422]);
-  assert.match(quote.body.error, /分叉/);
+  assert.match(quote.body.error, /fork/i);
   const read = await call(forkOrigin, "/api/rpc/robinhood", { jsonrpc: "2.0", id: 1, method: "eth_chainId", params: [] });
   assert.equal(read.body.error.code, -32000);
-  assert.match(read.body.error.message, /分叉/);
+  assert.match(read.body.error.message, /fork/i);
   checks.push("isolated fork-mode server rejects mainnet buyback statistics, quotes, batches and Robinhood RPC reads");
 } finally {
   if (child) await stop(child);

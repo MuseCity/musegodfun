@@ -531,7 +531,7 @@
     "requireFinalizedAccountCheck": true,
     "collectorMustRemainPaused": true,
     "publicBaseMustRemainPaused": true,
-    "message": "确认，等 finalized 检查通过后，用现有 D5 钱包按总 gas 上限 0.00002 ETH 部署 Collector。Collector 和 Base 继续保持暂停。"
+    "message": "Confirmed. After the finalized check passes, deploy the Collector from the existing D5 wallet with a total gas cap of 0.00002 ETH. Keep the Collector and Base paused. (translated from Chinese)"
   },
   "pausedProductionPublication": {
     "authorization": "User explicitly requested production database migration and publication of a paused Collector-compatible version",
@@ -789,7 +789,7 @@
   "trustedSplitsLaunchPreparation": {
     "recordedAt": "2026-10-11T10:42:15.108Z",
     "status": "implementation_and_contract_wiring_prepared_not_deployed_or_activated",
-    "ownerDecision": "OK，按信任 0xSplits 的方案继续，完成 Base 的配置和接线核对，取消专门制造手续费的测试门禁，保留实际到账和销毁记账。Base 先保持暂停，准备好后给我具体上线确认项。",
+    "ownerDecision": "OK, continue with the plan that trusts 0xSplits: finish the Base configuration and wiring checks, drop the test gate that deliberately generates fees, and keep the real receipt and burn accounting. Keep Base paused for now; when it is ready, give me the concrete go-live confirmation items. (translated from Chinese)",
     "supersededCanaryChecklist": [
       {
         "step": 5,
@@ -996,7 +996,7 @@
       "unknownRecoveryGasWei": "0",
       "maximumFeeEstimateExpiry": "Reestimate immediately before approved execution; stale estimates cannot authorize broadcasting",
       "approval": {
-        "ownerMessage": "继续",
+        "ownerMessage": "Continue (translated from Chinese)",
         "scope": "Previously presented concrete launch confirmation items and fixed 20e12 wei Base gas split",
         "recordedAt": "2026-10-11T12:32:25.745Z"
       },
@@ -1074,7 +1074,7 @@
   },
   "round12KeeperGasPolicy": {
     "recordedAt": "2026-10-12T12:03:01.507454+00:00",
-    "ownerDecision": "Base 的累计上限应该和 Robinhood 的一致。",
+    "ownerDecision": "Base's cumulative cap should match Robinhood's. (translated from Chinese)",
     "request": "/Volumes/code/opc/musegodfun/.claude/worktrees/base-blocking-issues-fix-9d9962/review/base-gas-policy-round12-2026-10-12.md",
     "status": "local_implementation_only_not_committed_not_deployed",
     "superseded": "Only the prior genuine Base keeper lifetime cumulative gas ceiling. Original transaction/deployment/governor/funding authorizations and signed configuration are retained as historical evidence.",

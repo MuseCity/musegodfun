@@ -162,7 +162,7 @@
     ]
   },
   "trustedSplitsLaunchPreparation": {
-    "ownerDecision": "OK，按信任 0xSplits 的方案继续，完成 Base 的配置和接线核对，取消专门制造手续费的测试门禁，保留实际到账和销毁记账。Base 先保持暂停，准备好后给我具体上线确认项。",
+    "ownerDecision": "OK, continue with the plan that trusts 0xSplits: finish the Base configuration and wiring checks, drop the test gate that deliberately generates fees, and keep the real receipt and burn accounting. Keep Base paused for now; when it is ready, give me the concrete go-live confirmation items. (translated from Chinese)",
     "currentStatus": "trusted_splits_configuration_prepared_base_paused_owner_confirmation_pending",
     "sourceTreeSha256": "8311f732a708eedc990242e2c35e05d18e49760fc3bd25c96a71c3ac4fe72569",
     "validation": {
@@ -3303,8 +3303,8 @@
       "rhWorkerPerFiveMinuteRound": {
         "calls": "12-15",
         "cu": "280-350",
-        "monthlyCu": "approximately 250-300万",
-        "additionalPoolMonthlyCu": "approximately 80万"
+        "monthlyCu": "approximately 2.5-3M",
+        "additionalPoolMonthlyCu": "approximately 800K"
       },
       "currentDeployed65": "does not receive local cache savings until separately authorized publication",
       "hostRetriesAndPublicTraffic": "additional, measured separately; no paid service"
@@ -4881,8 +4881,8 @@
   "round12": {
     "recordedAt": "2026-10-12T12:18:22.181089+00:00",
     "status": "round12_local_acceptance_passed_not_committed_not_deployed",
-    "ownerDecision": "Base 的累计上限应该和 Robinhood 的一致。",
-    "ownerRequest": "第 12 轮：Base keeper 的 gas 规则改成与 Robinhood 一致（共享 KEEPER_TASK_RETRY_POLICY），取消 0.000016 ETH 终身上限，两个 keeper 都加余额告警。不提交、不部署。",
+    "ownerDecision": "Base's cumulative cap should match Robinhood's. (translated from Chinese)",
+    "ownerRequest": "Round 12: make the Base keeper gas rules match Robinhood (shared KEEPER_TASK_RETRY_POLICY), remove the 0.000016 ETH lifetime cap, and add balance alerts to both keepers. Do not commit or deploy. (translated from Chinese)",
     "reviewRequest": "/Volumes/code/opc/musegodfun/.claude/worktrees/base-blocking-issues-fix-9d9962/review/base-gas-policy-round12-2026-10-12.md",
     "reviewFileSha256": "1200d2cc0a168853c8155d71541b24031d1879f5b68cd8a5ad43252c31826e30",
     "sourceBaseline": "f20d04031fb487ad060832e697dddc71185c68f4",
@@ -6321,7 +6321,7 @@
   },
   "round12PublicationAuthorization": {
     "authorizedAt": "2026-10-12T12:40:02.245694+00:00",
-    "authorizationSource": "Explicit owner message in this task: 第 12 轮已通过 Claude 复核，owner 授权提交到 master 并发布；不改动现有控制状态。",
+    "authorizationSource": "Explicit owner message in this task (translated from Chinese): Round 12 passed Claude's review; the owner authorizes committing to master and releasing; do not change the existing control state.",
     "reviewRequest": "/Volumes/code/opc/musegodfun/.claude/worktrees/base-blocking-issues-fix-9d9962/review/base-gas-policy-round12-review-2026-10-12.md",
     "reviewFileSha256": "2229c71784fadb8920d5c201c59980c35d60b8461eb4daadc5684bed33543347",
     "reviewOutcome": "Claude acceptance: 960/960 unit tests,171/171 contracts,typecheck/build passed; can commit/publish.",
