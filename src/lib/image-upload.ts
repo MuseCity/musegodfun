@@ -1,4 +1,7 @@
 import { MAX_IMAGE_FILE_BYTES, MAX_TOKEN_IMAGE_BYTES, TOKEN_IMAGE_ACCEPT, TOKEN_IMAGE_SIZE } from "./token-image";
+import { httpsImage } from "./nft-holdings";
+
+export const NFT_IMAGE_ERROR = "We couldn't use this NFT's image. Upload one instead.";
 
 export async function prepareTokenImage(file: File): Promise<string> {
   if (!TOKEN_IMAGE_ACCEPT.split(",").includes(file.type))
@@ -8,6 +11,23 @@ export async function prepareTokenImage(file: File): Promise<string> {
   let bitmap: ImageBitmap;
   try { bitmap = await createImageBitmap(file); }
   catch { throw new Error("This image could not be read. Choose another image."); }
+  return encodeTokenImage(bitmap);
+}
+
+/** An anonymous image load is allowed by img-src; fetching the CDN would be refused by connect-src. */
+export async function prepareTokenImageFromUrl(url: string): Promise<string> {
+  try {
+    if (!httpsImage(url)) throw new Error(NFT_IMAGE_ERROR);
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.referrerPolicy = "no-referrer";
+    img.src = url;
+    await img.decode();
+    return encodeTokenImage(await createImageBitmap(img));
+  } catch { throw new Error(NFT_IMAGE_ERROR); }
+}
+
+function encodeTokenImage(bitmap: ImageBitmap): string {
   try {
     if (!bitmap.width || !bitmap.height || bitmap.width * bitmap.height > 40_000_000)
       throw new Error("Choose an image with fewer than 40 million pixels.");

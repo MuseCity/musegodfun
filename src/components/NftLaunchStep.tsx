@@ -56,10 +56,10 @@ function TxHash({ hash, config }: { hash: Hex; config: RuntimeConfig }) {
  * the person changes the NFT or the check says no (not ERC-721, not controlled, already launched); `user`: the person changed the NFT.
  * The NFT the draft already holds (a reload, another tab, a draft link) stays while it is checked again, and through a check that could
  * not run (the error shows with Retry); `checked` in the status tells review whether the check passed, so review never proceeds on it. */
-export function NftLaunchStep({ config, account, draft, connecting, onConnect, error = "", feeRejected, onChange, onCheck, onFee, onPrefill, onStatus }: {
+export function NftLaunchStep({ config, account, draft, connecting, onConnect, error = "", feeRejected, onChange, onCheck, onFee, onNftPassed, onStatus }: {
   config: RuntimeConfig; account: Address | null; draft: LaunchInput; connecting: boolean; onConnect: () => void; error?: string; feeRejected?: NftFeeRejection | null;
   onChange: (nft: NftRef | undefined, user: boolean) => void; onCheck: () => void; onFee: (fee: DraftLaunchFee | undefined) => void;
-  onPrefill?: (nftName: string) => void; onStatus: (status: NftStepStatus) => void;
+  onNftPassed?: (nft: { name?: string; image?: string }) => void; onStatus: (status: NftStepStatus) => void;
 }) {
   const nft = draft.nft;
   const [contract, setContract] = useState<string>(nft?.contract ?? MUSES.contract);
@@ -88,8 +88,8 @@ export function NftLaunchStep({ config, account, draft, connecting, onConnect, e
   const [status, setStatus] = useState<NftStatus | null>(null), [statusFor, setStatusFor] = useState("");
   const [checkError, setCheckError] = useState(""), [attempt, setAttempt] = useState(0);
   // Parent callbacks are read through a ref, so a new callback identity never re-runs the check.
-  const latest = useRef({ onChange, onCheck, onFee, onPrefill, onStatus });
-  latest.current = { onChange, onCheck, onFee, onPrefill, onStatus };
+  const latest = useRef({ onChange, onCheck, onFee, onNftPassed, onStatus });
+  latest.current = { onChange, onCheck, onFee, onNftPassed, onStatus };
   // The NFT the parent holds; a report that would not change it is skipped, so `undefined` is never sent twice in a row.
   const reported = useRef("");
   reported.current = nft ? nftKey(nft) : "";
@@ -115,6 +115,7 @@ export function NftLaunchStep({ config, account, draft, connecting, onConnect, e
     const user = edited.current;
     checkEdited.current = user;
     edited.current = false;
+    if (prefilled.current !== candidateKey) prefilled.current = "";
     latest.current.onCheck();
     // The NFT the draft already holds is checked again without being dropped; any other NFT is not in the draft until it passes.
     if (user || !candidate || reported.current !== candidateKey) report(undefined, user);
@@ -131,10 +132,10 @@ export function NftLaunchStep({ config, account, draft, connecting, onConnect, e
         setStatus(result); setStatusFor(run);
         if (!result.erc721 || !result.controls || result.alreadyLaunched) { report(undefined, user); return; }
         report(candidate, user);
-        const prefillName = result.free ? result.name : picked.current.get(candidateKey)?.name;
-        if (prefillName && prefilled.current !== candidateKey) {
+        const pick = picked.current.get(candidateKey);
+        if (prefilled.current !== candidateKey) {
           prefilled.current = candidateKey;
-          latest.current.onPrefill?.(prefillName);
+          latest.current.onNftPassed?.({ name: result.free ? result.name : pick?.name, image: pick?.image });
         }
       }, (cause: unknown) => { if (active) setCheckError(errorMessage(cause)); });
     }, 400);

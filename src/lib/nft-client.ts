@@ -104,12 +104,20 @@ export function savedNftMode(raw: string | null): boolean {
     return saved?.nftMode === true || (!!saved?.nft && typeof saved.nft === "object");
   } catch { return false; }
 }
-/** Fields an NFT's name fills: only empty ones, and never a reserved name or symbol. The symbol is the name's letters, at most 10, in
- * upper case. Used for Muses (their on-chain name) and for any NFT picked from the wallet (its listed name). */
-export function musePrefill(draft: Pick<LaunchInput, "name" | "symbol">, nftName: string): { name?: string; symbol?: string } {
-  const name = nftName.trim().slice(0, 32), symbol = name.replace(/[^A-Za-z]/g, "").slice(0, 10).toUpperCase();
-  return { ...(!draft.name.trim() && name && !reservedLaunchName(name, "") ? { name } : {}),
-    ...(!draft.symbol.trim() && symbol && !reservedLaunchName("", symbol) ? { symbol } : {}) };
+export type NftIdentity = Pick<LaunchInput, "name" | "symbol" | "image">;
+export type NftPrefill = Partial<NftIdentity>;
+/** Only empty fields and values the previous prefill still owns follow the NFT. Missing or reserved values clear an owned field.
+ * Image decisions can be made before conversion, but only the pinned result is applied to the draft. */
+export function nftPrefill(draft: NftIdentity, nft: { name?: string; image?: string }, previous: NftPrefill = {}): NftPrefill {
+  const name = (nft.name ?? "").trim().slice(0, 32), symbol = name.replace(/[^A-Za-z]/g, "").slice(0, 10).toUpperCase();
+  const values = { name: reservedLaunchName(name, "") ? "" : name,
+    symbol: reservedLaunchName("", symbol) ? "" : symbol, image: nft.image ?? "" };
+  const changes: NftPrefill = {};
+  for (const field of ["name", "symbol", "image"] as const) {
+    const owned = previous[field] !== undefined && draft[field] === previous[field];
+    if ((!draft[field].trim() || owned) && (values[field] || owned)) changes[field] = values[field];
+  }
+  return changes;
 }
 
 // ---- the $10 fee, recorded per creator --------------------------------------------------------

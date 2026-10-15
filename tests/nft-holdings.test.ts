@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { getAddress } from "viem";
 import { filterCollections, httpsImage, nftTokensMatch, reservedLaunchName, sortCollections, type OwnedCollection } from "../src/lib/nft-holdings";
-import { musePrefill } from "../src/lib/nft-client";
+import { nftPrefill } from "../src/lib/nft-client";
 import { MUSES } from "../src/lib/nft-mode";
 
 const at = (n: number) => getAddress(`0x${n.toString(16).padStart(40, "0")}`);
@@ -48,8 +48,36 @@ test("the reserved name rule compares letters and digits of the name, and the sy
 });
 
 test("prefill fills only empty fields and never a reserved name or symbol", () => {
-  assert.deepEqual(musePrefill({ name: "", symbol: "" }, "Bronze Key #2014"), { name: "Bronze Key #2014", symbol: "BRONZEKEY" });
-  assert.deepEqual(musePrefill({ name: "Mine", symbol: "" }, "Sealed Muse"), { symbol: "SEALEDMUSE" });
-  assert.deepEqual(musePrefill({ name: "", symbol: "" }, "Muse-God"), {});
-  assert.deepEqual(musePrefill({ name: "", symbol: "" }, "Musegod #7"), { name: "Musegod #7" }); // name is not reserved ("MUSEGOD7"); symbol "MUSEGOD" is
+  assert.deepEqual(nftPrefill({ image: "", name: "", symbol: "" }, { name: "Bronze Key #2014" }), { name: "Bronze Key #2014", symbol: "BRONZEKEY" });
+  assert.deepEqual(nftPrefill({ image: "", name: "Mine", symbol: "" }, { name: "Sealed Muse" }), { symbol: "SEALEDMUSE" });
+  assert.deepEqual(nftPrefill({ image: "", name: "", symbol: "" }, { name: "Muse-God" }), {});
+  assert.deepEqual(nftPrefill({ image: "", name: "", symbol: "" }, { name: "Musegod #7" }), { name: "Musegod #7" }); // name is not reserved ("MUSEGOD7"); symbol "MUSEGOD" is
+});
+
+test("prefilled identity follows a new NFT while typed and uploaded fields stay untouched", () => {
+  const previous = { name: "Bard", symbol: "BARD", image: "https://gateway.pinata.cloud/ipfs/old" };
+  const next = { name: "Dimple", image: "https://gateway.pinata.cloud/ipfs/new" };
+  assert.deepEqual(nftPrefill(previous, next, previous), { ...next, symbol: "DIMPLE" });
+  assert.deepEqual(nftPrefill({ name: "My name", symbol: "MINE", image: "https://mine.test/upload" }, next, previous), {});
+  assert.deepEqual(nftPrefill({ ...previous, symbol: "MINE" }, next, previous), next);
+  assert.deepEqual(nftPrefill({ name: "", symbol: "", image: "" }, next, previous), { ...next, symbol: "DIMPLE" });
+});
+
+test("missing or reserved NFT values clear only the previous prefill's fields", () => {
+  const previous = { name: "Bard", symbol: "BARD", image: "https://gateway.pinata.cloud/ipfs/old" };
+  assert.deepEqual(nftPrefill(previous, {}, previous), { name: "", symbol: "", image: "" });
+  assert.deepEqual(nftPrefill({ ...previous, image: "https://mine.test/upload" }, {}, previous), { name: "", symbol: "" });
+  assert.deepEqual(nftPrefill(previous, { name: "Muse-God" }, previous), { name: "", symbol: "", image: "" });
+  assert.deepEqual(nftPrefill(previous, { name: "Musegod #7" }, previous), { name: "Musegod #7", symbol: "", image: "" });
+  assert.deepEqual(nftPrefill(previous, { name: "123" }, previous), { name: "123", symbol: "", image: "" });
+  assert.deepEqual(nftPrefill({ name: "Mine", symbol: "MINE", image: "https://mine.test/upload" }, {}, previous), {});
+});
+
+test("prefill ownership uses exact values and may be relinquished even when a manual value matches", () => {
+  const previous = { name: "Bard", symbol: "BARD", image: "https://gateway.pinata.cloud/ipfs/old" };
+  assert.deepEqual(nftPrefill({ ...previous, name: " Bard " }, { name: "Dimple" }, previous), { symbol: "DIMPLE", image: "" });
+  assert.deepEqual(nftPrefill(previous, { name: "Dimple", image: "https://next.test/image" }, {}), {});
+  const current = { ...previous, image: "https://mine.test/upload" };
+  assert.equal(nftPrefill(current, { image: "https://gateway.pinata.cloud/ipfs/new" }, previous).image, undefined,
+    "the completion check reads the latest image, not the draft captured before the upload");
 });

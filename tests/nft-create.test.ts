@@ -15,7 +15,7 @@ import { launchIntentStorageKey } from "../src/lib/launch-intent";
 import {
   FEE_CANCELLED, FEE_NFT_MODE_OFF, FEE_REVERTED, FEE_UNCONFIRMED, assertLaunchFeePayable, FEE_WALLET_CANCELLED, FEE_WALLET_REFUSED, formatFeeEth, isLaunchFeeTx,
   launchFeeClearedNotice, launchFeeEthTx, launchFeeStableTx,
-  launchFeeStorageKey, musePrefill, nftLaunchFeeCost, nftReviewBlocker, parseLaunchFeeRecord, prepareDraft, readNftStatus, resolveLaunchFee, rewardsShareCopy, savedNftMode,
+  launchFeeStorageKey, nftPrefill, nftLaunchFeeCost, nftReviewBlocker, parseLaunchFeeRecord, prepareDraft, readNftStatus, resolveLaunchFee, rewardsShareCopy, savedNftMode,
 } from "../src/lib/nft-client";
 import * as nftClient from "../src/lib/nft-client";
 import { attemptAfterSendError, createSendPoller, isUserRejection, sendPollDelay } from "../src/lib/send-record";
@@ -447,12 +447,12 @@ test("polling: Check again re-checks at once and restarts the back-off; a hidden
 });
 
 test("a Muse name prefills only empty fields, and the symbol keeps up to 10 letters in upper case", () => {
-  assert.deepEqual(musePrefill(draftOf({ name: "", symbol: "" }), "Bard of the 7 Seas"), { name: "Bard of the 7 Seas", symbol: "BARDOFTHES" });
-  assert.deepEqual(musePrefill(draftOf({ name: "Mine", symbol: "" }), "Bard"), { symbol: "BARD" });
-  assert.deepEqual(musePrefill(draftOf({ name: "", symbol: "MINE" }), "Bard"), { name: "Bard" });
-  assert.deepEqual(musePrefill(draftOf({ name: "Mine", symbol: "MINE" }), "Bard"), {});
-  assert.deepEqual(musePrefill(draftOf({ name: "  ", symbol: "" }), "7 8"), { name: "7 8" }, "no letters, no symbol");
-  assert.equal(musePrefill(draftOf({ name: "", symbol: "" }), "x".repeat(40)).name?.length, 32);
+  assert.deepEqual(nftPrefill(draftOf({ name: "", symbol: "" }), { name: "Bard of the 7 Seas" }), { name: "Bard of the 7 Seas", symbol: "BARDOFTHES" });
+  assert.deepEqual(nftPrefill(draftOf({ name: "Mine", symbol: "" }), { name: "Bard" }), { symbol: "BARD" });
+  assert.deepEqual(nftPrefill(draftOf({ name: "", symbol: "MINE" }), { name: "Bard" }), { name: "Bard" });
+  assert.deepEqual(nftPrefill(draftOf({ name: "Mine", symbol: "MINE" }), { name: "Bard" }), {});
+  assert.deepEqual(nftPrefill(draftOf({ name: "  ", symbol: "" }), { name: "7 8" }), { name: "7 8" }, "no letters, no symbol");
+  assert.equal(nftPrefill(draftOf({ name: "", symbol: "" }), { name: "x".repeat(40) }).name?.length, 32);
 });
 
 test("readNftStatus asks the deployment chain's API with the canonical query", async () => {

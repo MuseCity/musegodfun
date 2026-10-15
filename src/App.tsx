@@ -98,7 +98,7 @@ import {
 } from "./lib/validation";
 import { ApiError, api, chainApi } from "./lib/api";
 import { LaunchModeSwitch, NftLaunchStep, NFT_DISCLAIMER, NFT_ERROR_ID, NFT_FEE_ID, NFT_TOKEN_ID, type NftFeeRejection, type NftStepStatus } from "./components/NftLaunchStep";
-import { forgetLaunchFee, launchFeeStorageKey, musePrefill, nftCheckPassed, nftLaunchFeeCost, nftReviewBlocker, prepareDraft, rewardsShareCopy, savedNftMode } from "./lib/nft-client";
+import { forgetLaunchFee, launchFeeStorageKey, nftPrefill, nftCheckPassed, nftLaunchFeeCost, nftReviewBlocker, prepareDraft, rewardsShareCopy, savedNftMode, type NftPrefill } from "./lib/nft-client";
 import { SAVED_LAUNCHES_NOTE, decodeDraftFragment, importDraftLink, isPristineDraft, type DraftFragment } from "./lib/draft-link";
 import { isMuse, treasuryFor, vaultFor } from "./lib/nft-mode";
 import { listedNftCoin } from "./lib/nft-treasury";
@@ -114,7 +114,7 @@ import {
   assertOpeningValuation,
 } from "./lib/opening-valuation";
 import { TOKEN_IMAGE_ACCEPT } from "./lib/token-image";
-import { prepareTokenImage } from "./lib/image-upload";
+import { NFT_IMAGE_ERROR, prepareTokenImage, prepareTokenImageFromUrl } from "./lib/image-upload";
 import { transactionClient, useWallet, type Quote } from "./lib/wallet";
 import { ETH_BUY_ROUTE, EthBuyIncomplete, amountWords, assertEthBuyResponse, defaultPayWith, ethBuyAvailable, ethBuyDisclosure, executeEthBuy,
   pairShortfall, resolvePayWith, twoStepLabels, twoStepMinimum, type EthBuyQuoteResponse, type LifiTradeTarget, type PayWith, type SwapQuote } from "./lib/eth-buy";
@@ -1116,6 +1116,7 @@ function CreatePage({
   const formRef = useRef<HTMLFormElement>(null),
     imageInput = useRef<HTMLInputElement>(null),
     imageUpload = useRef(0),
+    manualImageUpload = useRef<number | null>(null),
     reviewDialog = useRef<HTMLDialogElement>(null);
   const wallet = useWallet();
   const initialSavedDraft = () => {
@@ -1142,6 +1143,8 @@ function CreatePage({
     }),
     [firstBuy, setFirstBuy] = useState<FirstBuyDraft>(() => firstBuyDraft(config, initialSavedDraft())),
     [step, setStep] = useState<LaunchStep>(() => launchDraftStep(initialSavedDraft()));
+  const latestDraft = useRef(draft), previousPrefill = useRef<NftPrefill>({});
+  latestDraft.current = draft;
   // NFT mode is a choice of its own: while a new NFT's check is pending the draft has no `nft` (a restored NFT stays while it is checked
   // again), and review stays blocked until the step's check passes.
   const [nftMode, setNftMode] = useState(() => savedNftMode(initialSavedDraft())), [draftRevision, setDraftRevision] = useState(0);
@@ -1479,7 +1482,9 @@ function CreatePage({
   }
   // A saved (or empty) draft replaces the form, with its NFT mode; the NFT step starts over from the restored NFT.
   function replaceDraft(raw: string | null) {
-    setDraft(restoreDraft(raw, config ?? undefined)); setNftMode(savedNftMode(raw)); setDraftRevision((value) => value + 1); setLinkNotice(null);
+    imageUpload.current++; setUploadingImage(false); setImageError(""); previousPrefill.current = {};
+    latestDraft.current = restoreDraft(raw, config ?? undefined);
+    setDraft(latestDraft.current); setNftMode(savedNftMode(raw)); setDraftRevision((value) => value + 1); setLinkNotice(null);
   }
   // The payload this form holds right after loading `raw` for `intent` (as `replaceDraft` and the first-buy and step setters load it).
   function loadedPayload(raw: string | null, intent: string) {
@@ -1532,12 +1537,14 @@ function CreatePage({
   // `quiet` keeps the page's notices and errors: the NFT step's own checks and the stored fee change the draft without the user.
   function update<K extends keyof LaunchInput>(key: K, value: LaunchInput[K], quiet = false) {
     if (draft[key] !== value) currentPlan.current = null;
-    if (key === "image") {
+    if (key === "image" || (key === "nft" && !value)) {
       imageUpload.current++;
       setUploadingImage(false);
       setImageError("");
     }
+    if (!quiet && (key === "name" || key === "symbol" || key === "image")) delete previousPrefill.current[key as keyof NftPrefill];
     generation.current++;
+    latestDraft.current = { ...latestDraft.current, [key]: value };
     setDraft((d) => ({ ...d, [key]: value }));
     if (key === "quoteAddress" && !sameAddress(String(value), draft.quoteAddress))
       setFirstBuy((previous) => ({ ...previous, amount: "0", payAddress: String(value), lockDays: 0 }));
@@ -1566,6 +1573,7 @@ function CreatePage({
   }
   async function uploadImage(file: File) {
     const request = ++imageUpload.current;
+    manualImageUpload.current = request;
     setUploadingImage(true);
     setImageError("");
     generation.current++;
@@ -1581,6 +1589,41 @@ function CreatePage({
       update("image", uploaded.image);
     } catch (error) {
       if (request === imageUpload.current) setImageError(errorMessage(error));
+    } finally {
+      if (request === imageUpload.current) setUploadingImage(false);
+      if (manualImageUpload.current === request) manualImageUpload.current = null;
+    }
+  }
+  async function prefillNft(nft: { name?: string; image?: string }) {
+    const previous = { ...previousPrefill.current }, changes = nftPrefill(latestDraft.current, nft, previous);
+    // A manual upload begun while the check was pending keeps priority, even before it has a pinned URL.
+    const manualPending = manualImageUpload.current === imageUpload.current;
+    if (!manualPending) { imageUpload.current++; setUploadingImage(false); setImageError(""); }
+    for (const field of ["name", "symbol"] as const) {
+      const value = changes[field];
+      if (value === undefined) continue;
+      update(field, value, true);
+      if (value) previousPrefill.current[field] = value;
+      else delete previousPrefill.current[field];
+    }
+    if (manualPending || changes.image === undefined) return;
+    // Do not leave the previous NFT's picture behind if loading or pinning the new picture fails.
+    update("image", "", true); delete previousPrefill.current.image;
+    if (!changes.image) return;
+    const request = ++imageUpload.current;
+    setUploadingImage(true);
+    try {
+      const image = await prepareTokenImageFromUrl(changes.image);
+      if (request !== imageUpload.current) return;
+      const uploaded = await api<{ image: string }>("/token-images", { image });
+      if (request !== imageUpload.current) return;
+      const allowed = nftPrefill(latestDraft.current, { image: uploaded.image }, previous);
+      if (allowed.image !== undefined) {
+        update("image", uploaded.image, true);
+        previousPrefill.current.image = uploaded.image;
+      }
+    } catch {
+      if (request === imageUpload.current) setImageError(NFT_IMAGE_ERROR);
     } finally {
       if (request === imageUpload.current) setUploadingImage(false);
     }
@@ -2265,7 +2308,7 @@ function CreatePage({
                 onCheck={() => { if (invalidField === "nft") { setInvalidField(""); setError(""); } }}
                 onFee={(fee) => { update("launchFee", fee, true); setNftFeeRejected(null); if (fee && invalidField === "nft") { setInvalidField(""); setError(""); } }}
                 onStatus={setNftStep}
-                onPrefill={(name) => { for (const [field, value] of Object.entries(musePrefill(draft, name))) update(field as "name" | "symbol", value, true); }} />
+                onNftPassed={(nft) => void prefillNft(nft)} />
             </section>
           </div>}
           <div className="wizard-panel" hidden={step !== 1}>
@@ -2356,6 +2399,8 @@ function CreatePage({
                 </div>
               </div>
               <p className="hint" id="token-image-help">PNG, JPG, WebP or GIF · Up to 5 MB. GIFs use the first frame.</p>
+              {previousPrefill.current.image && draft.image === previousPrefill.current.image &&
+                <p className="hint">Using your NFT's image. You can replace it.</p>}
               {uploadingImage && <span className="hint" role="status">Uploading token image…</span>}
               {imageError && <span className="field-error" role="alert">{imageError}</span>}
               <label className="field">
