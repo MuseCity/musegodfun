@@ -31,17 +31,29 @@ export function marketEndpoint(token: MarketToken, kind: "launch" | "musegod", s
     : { ...token, poolId: token.poolId ?? "unknown", quoteAddress: token.quoteAddress ?? "unknown" };
   return { chainId, path, key: `${kind}:${marketSnapshotKey(identity, section)}` };
 }
-export function MarketProvenance({ label, data, kind }: { label: string; data: (SnapshotMeta & { fetchedAt: string }) | null; kind?: "launch" | "musegod" }) {
-  return <span>{label} · {data?.status === "stale" ? "Previous snapshot · " : ""}{data?.source === "Bankr" ? kind === "musegod"
+export function MarketProvenance({ label, data, error, kind }: { label: string; data: (SnapshotMeta & { fetchedAt: string }) | null; error?: string; kind?: "launch" | "musegod" }) {
+  if (!data) return error ? <span>{label} · Request failed: {error}</span> : null;
+  return <span>{label} · {data.status === "stale" ? "Previous snapshot · " : ""}{data.source === "Bankr" ? kind === "musegod"
     ? <a href={MUSEGOD.sourceUrl} target="_blank" rel="noopener noreferrer">Bankr / Pools ↗</a> : "Bankr / Pools"
-    : data?.source === "CoinGecko" ? <a href="https://www.coingecko.com/en/api" target="_blank" rel="noopener noreferrer">Data provided by CoinGecko</a>
-      : data?.source ?? "Source pending"} · {data
-    ? <>Fetched <time dateTime={data.fetchedAt} title={data.fetchedAt}>{new Date(data.fetchedAt).toLocaleString("en-US")}</time></>
-    : "Source and fetch time appear after data loads"}</span>;
+    : data.source === "CoinGecko" ? <a href="https://www.coingecko.com/en/api" target="_blank" rel="noopener noreferrer">Data provided by CoinGecko</a>
+      : data.source ?? "Source unspecified"} · Fetched <time dateTime={data.fetchedAt} title={data.fetchedAt}>{new Date(data.fetchedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}</time></span>;
+}
+export function emptyCandlesMessage(data: CandleData | null, interval: ChartInterval) {
+  if (data?.reason) {
+    const reasons = {
+      missing_config: "configuration unavailable", quota_exhausted: "quota exhausted", not_indexed: "pool not indexed", rate_limited: "rate limited",
+      upstream_http: "request failed", upstream_transport: "connection failed", upstream_unclassified: "request failed for an unclassified reason",
+      invalid_identity: "pool identity not verified", invalid_schema: "response not usable", source_not_provided: "data not provided",
+      storage_unavailable: "snapshot storage unavailable", internal_error: "internal error", backoff: "temporarily in backoff",
+    };
+    const causes = data.causes?.length ? data.causes : [{ source: undefined, reason: data.reason }];
+    return `${data.source === "Bankr" ? "Bankr / Pools" : data.source ?? "The source"} returned no indexed price records for this interval. Source checks: ${causes.map(c => `${c.source ?? "upstream"}: ${reasons[c.reason]}`).join("; ")}. Use the on-chain quote for a price preview.`;
+  }
+  return `No indexed price records for this interval.${interval !== CHART_INTERVALS[CHART_INTERVALS.length - 1] ? " Try a longer interval." : " Use the on-chain quote for a price preview."}`;
 }
 function useMarket<
   T extends { fetchedAt: string; status?: string; warning?: string },
->(token: MarketToken, kind: "launch" | "musegod", section: string, revision: number, enabled = true) {
+>(token: MarketToken, kind: "launch" | "musegod", section: string, revision: number) {
   const [result, setResult] = useState<{
     data: T | null;
     error: string;
@@ -56,9 +68,8 @@ function useMarket<
     setResult((previous) => ({
       data: samePath ? previous.data : null,
       error: "",
-      loading: enabled,
+      loading: true,
     }));
-    if (!enabled) return;
     if (token.mode === "fork") {
       setResult({
         data: null,
@@ -91,7 +102,7 @@ function useMarket<
     return () => {
       active = false;
     };
-  }, [key, chainId, path, revision, enabled]);
+  }, [key, chainId, path, revision]);
   useEffect(() => {
     if (!result.data) return;
     const remaining = Date.parse(result.data.fetchedAt) + 86400000 - Date.now();
@@ -100,7 +111,7 @@ function useMarket<
     const timer=setTimeout(expire,remaining);
     return () => clearTimeout(timer);
   },[result.data?.fetchedAt]);
-  return previousPath.current === key ? result : { data: null, error: "", loading: enabled };
+  return previousPath.current === key ? result : { data: null, error: "", loading: true };
 }
 function Message({
   loading,
@@ -133,9 +144,11 @@ export default function TokenMarket({
   const [interval, setIntervalValue] = useState<ChartInterval>("1h"),
     [revision, setRevision] = useState(0);
   const [period, setPeriod] = useState("h24"),
-    [tab, setTab] = useState<"trades" | "holders">("trades"),
     [filter, setFilter] = useState("all");
+  const previousRefreshKey = useRef(refreshKey);
   useEffect(() => {
+    if (previousRefreshKey.current === refreshKey) return;
+    previousRefreshKey.current = refreshKey;
     setRevision((n) => n + 1);
   }, [refreshKey]);
   useEffect(() => {
@@ -171,12 +184,16 @@ export default function TokenMarket({
     kind,
     "trades",
     revision,
-    tab === "trades" || kind === "musegod",
   );
   const explorer = explorerFor(token);
   const stats = summary.data,
     activity = stats?.periods[period],
-    change = stats?.periods.h24.change;
+    change = stats?.periods.h24?.change;
+  const hasValues = !!stats && [stats.priceUsd, stats.marketCapUsd, stats.fdvUsd, stats.liquidityUsd, stats.periods.h24?.volume].some(value => value != null);
+  const hasActivity = !!stats && Object.values(stats.periods).some(value => [value.buys, value.sells, value.volume, value.change].some(n => n != null));
+  const emptySummary = stats?.status === "stale"
+    ? `Previous snapshot has no displayable market values. ${summary.error || stats.warning || "Refresh to update."}`
+    : summary.error || (summary.loading ? "Loading market data…" : "The source has no price for this pool yet. Use the on-chain quote for a price preview.");
 
   const items =
     trades.data?.trades.filter((t) => filter === "all" || t.side === filter) ??
@@ -190,7 +207,7 @@ export default function TokenMarket({
         <div className="market-price-row">
           <div>
             <span className="eyebrow">{token.symbol} PRICE</span>
-            <div className="market-price">
+            {hasValues ? <div className="market-price">
               <span className="mono">{usd(stats?.priceUsd, true)}</span>
               <span className={`change-chip ${changeKind}`}>
                 {changeKind === "positive" ? <ArrowUpRight size={14} /> : changeKind === "negative" ? <ArrowDownRight size={14} /> : null}
@@ -198,7 +215,7 @@ export default function TokenMarket({
                   ? "—"
                   : `${change >= 0 ? "+" : ""}${change.toFixed(2)}%`} · 24h
               </span>
-            </div>
+            </div> : <p className="hint" role="status">{emptySummary}</p>}
           </div>
           <button
             type="button"
@@ -210,33 +227,32 @@ export default function TokenMarket({
             <RefreshCw size={18} />
           </button>
         </div>
-        <dl className="stat-grid market-metrics">
-          <div>
+        {(hasValues || metric) && <dl className="stat-grid market-metrics">
+          {hasValues && <div>
             <dt>Market cap</dt>
             <dd>{usd(stats?.marketCapUsd)}</dd>
-          </div>
+          </div>}
           {metric ? <div>
             <dt>{metric.label}</dt>
             <dd title={metric.title}>{metric.value}</dd>
-          </div> : <div>
+          </div> : hasValues && <div>
             <dt>Fully diluted valuation</dt>
             <dd>{usd(stats?.fdvUsd)}</dd>
           </div>}
-          <div>
+          {hasValues && <><div>
             <dt>Liquidity</dt>
             <dd>{usd(stats?.liquidityUsd)}</dd>
           </div>
           <div>
             <dt>24h volume</dt>
-            <dd>{usd(stats?.periods.h24.volume)}</dd>
-          </div>
-        </dl>
-        {((summary.loading && !stats) || summary.error || stats?.status === "stale") && (
+            <dd>{usd(stats?.periods.h24?.volume)}</dd>
+          </div></>}
+        </dl>}
+        {hasValues && (summary.error || stats?.status === "stale") && (
           <p className="market-warning" role="status">
-            {summary.loading && !stats ? "Loading market data…" : summary.error || stats?.warning}
+            {summary.error || stats?.warning || "Previous snapshot. Refresh to update."}
           </p>
         )}
-        <p className="feed-note"><MarketProvenance label="Summary" data={summary.data} kind={kind} />{kind === "musegod" && " · refreshes every minute while visible"}</p>
         <div className="chart-toolbar">
           <div className="segmented" role="group" aria-label="Chart type">
             <button type="button" aria-pressed={chartType === "line"} onClick={() => setChartType("line")}>Line</button>
@@ -257,7 +273,7 @@ export default function TokenMarket({
         </div>
         {history.data?.status === "stale" && (
           <p className="market-warning">
-            Previous chart snapshot · {history.data.fetchedAt}
+            {history.error || history.data.warning || "Previous chart snapshot. Refresh to update."}
           </p>
         )}
         {history.data?.candles.length ? (
@@ -273,30 +289,20 @@ export default function TokenMarket({
           <Message
             loading={history.loading}
             error={history.error}
-            empty="No indexed price records for this interval. Try a longer interval."
+            empty={emptyCandlesMessage(history.data, interval)}
           />
         )}
-        <div className="market-attribution"><MarketProvenance label="Candles" data={history.data} kind={kind} /></div>
+        {(summary.data || summary.error || history.data || history.error || kind === "musegod") && <p className="feed-note">
+          <MarketProvenance label="Summary" data={summary.data} error={summary.error} kind={kind} />
+          {(summary.data || summary.error) && (history.data || history.error) ? " · " : ""}
+          <MarketProvenance label="Candles" data={history.data} error={history.error} kind={kind} />
+          {kind === "musegod" && " · refreshes every minute while visible"}
+        </p>}
       </section>
-      <section className="card market-feed" aria-label={kind === "launch" ? "Trades and holders" : "Recent trades"}>
+      <section className="card market-feed" aria-label="Recent trades">
         <div className="feed-head">
-          {kind === "launch" ? <div className="feed-tabs" role="group" aria-label="Market feed">
-            <button
-              type="button"
-              aria-pressed={tab === "trades"}
-              onClick={() => setTab("trades")}
-            >
-              Recent trades
-            </button>
-            <button
-              type="button"
-              aria-pressed={tab === "holders"}
-              onClick={() => setTab("holders")}
-            >
-              Holders
-            </button>
-          </div> : <h2 className="card-title">Recent trades</h2>}
-          {tab === "trades" || kind === "musegod" ? <div className="segmented compact" role="group" aria-label="Trade filter">
+          <h2 className="card-title">Recent trades</h2>
+          {!!trades.data?.trades.length && <div className="segmented compact" role="group" aria-label="Trade filter">
             {[
               ["all", "All"],
               ["buy", "Buy"],
@@ -311,10 +317,9 @@ export default function TokenMarket({
                 {label}
               </button>
             ))}
-          </div> : null}
+          </div>}
         </div>
-        {tab === "trades" || kind === "musegod" ? (
-          <>
+        {hasActivity && <>
             <div className="trade-flow">
               <div className="segmented mono compact" role="group" aria-label="Activity period">
                 {[
@@ -350,74 +355,70 @@ export default function TokenMarket({
                   : `${activity.change > 0 ? "+" : ""}${activity.change.toFixed(2)}%`}
               </span>
             </p>
-            {items.length ? (
-              <div className="table-scroll">
-                <table className="data-table market-table">
-                  <thead>
-                    <tr>
-                      <th>Type / time</th>
-                      <th className="num">Amount (USD)</th>
-                      <th className="num">{token.symbol}</th>
-                      <th className="num">Price (USD)</th>
-                      <th className="num">Transaction sender</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {items.slice(0, 30).map((t) => (
-                      <tr key={t.id}>
-                        <td className="trade-type">
-                          <a
-                            className={`side-tag ${t.side === "buy" ? "positive" : "negative"}`}
-                            href={explorer ? `${explorer}/tx/${t.hash}` : undefined}
-                            target="_blank"
-                            rel="noreferrer"
-                            title="View transaction"
-                          >
-                            {t.side === "buy" ? "Buy" : "Sell"}
-                          </a>{" "}
-                          <small className="mono" title={t.at}>
-                            {new Date(t.at).toLocaleString("en-US", {
-                              month: "2-digit",
-                              day: "2-digit",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
-                          </small>
-                        </td>
-                        <td className="num">{usd(t.usd)}</td>
-                        <td className="num" title={String(t.amount)}>{count(t.amount)}</td>
-                        <td className="num">{usd(t.price, true)}</td>
-                        <td className="num">
-                          {t.account ? <a
-                            href={explorer ? `${explorer}/address/${t.account}` : undefined}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            {shortAddress(t.account)}
-                          </a> : "—"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <Message
-                loading={trades.loading}
-                error={trades.error}
-                empty="No indexed trades match this filter."
-              />
-            )}
-            <p className="feed-note">
-              <MarketProvenance label="Trades" data={trades.data} kind={kind} /> ·
-              Latest 30 indexed trades · indexing may lag the chain.
-            </p>
-          </>
-        ) : null}
-        {kind === "launch" && <div hidden={tab !== "holders"}>
-          <Message loading={false} error="" empty="Holder data unavailable" />
-          <p className="feed-note">Holder information is currently unavailable for this token.</p>
-        </div>}
+        </>}
+        {items.length ? (
+          <div className="table-scroll">
+            <table className="data-table market-table">
+              <thead>
+                <tr>
+                  <th>Type / time</th>
+                  <th className="num">Amount (USD)</th>
+                  <th className="num">{token.symbol}</th>
+                  <th className="num">Price (USD)</th>
+                  <th className="num">Transaction sender</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.slice(0, 30).map((t) => (
+                  <tr key={t.id}>
+                    <td className="trade-type">
+                      <a
+                        className={`side-tag ${t.side === "buy" ? "positive" : "negative"}`}
+                        href={explorer ? `${explorer}/tx/${t.hash}` : undefined}
+                        target="_blank"
+                        rel="noreferrer"
+                        title="View transaction"
+                      >
+                        {t.side === "buy" ? "Buy" : "Sell"}
+                      </a>{" "}
+                      <small className="mono" title={t.at}>
+                        {new Date(t.at).toLocaleString("en-US", {
+                          month: "2-digit",
+                          day: "2-digit",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </small>
+                    </td>
+                    <td className="num">{usd(t.usd)}</td>
+                    <td className="num" title={String(t.amount)}>{count(t.amount)}</td>
+                    <td className="num">{usd(t.price, true)}</td>
+                    <td className="num">
+                      {t.account ? <a
+                        href={explorer ? `${explorer}/address/${t.account}` : undefined}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {shortAddress(t.account)}
+                      </a> : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <Message
+            loading={trades.loading}
+            error={trades.error}
+            empty="No indexed trades match this filter."
+          />
+        )}
+        {(trades.data?.trades.length && (trades.error || trades.data.status === "stale")) ? <p className="market-warning" role="status">{trades.error || trades.data.warning || "Previous trades snapshot. Refresh to update."}</p> : null}
+        <p className="feed-note">
+          <MarketProvenance label="Trades" data={trades.data} error={trades.error} kind={kind} />{trades.data || trades.error ? " · " : ""}
+          Latest 30 indexed trades · indexing may lag the chain.
+        </p>
       </section>
     </>
   );

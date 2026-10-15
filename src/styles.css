@@ -521,9 +521,6 @@ dialog.modal[open] { display: flex; flex-direction: column; gap: 16px; }
 .detail-main { min-width: 0; display: flex; flex-direction: column; gap: 24px; }
 .body-copy { font-size: 14px; line-height: 20px; color: var(--ink); overflow-wrap: anywhere; }
 .about-card .card-title { font-size: 17px; }
-.about-facts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; font-size: 12px; line-height: 16px; color: var(--ink-muted); }
-.about-facts code, .about-facts .mono { color: var(--ink); }
-.about-facts a { display: inline-flex; align-items: center; gap: 4px; min-height: 28px; font-size: 13px; font-weight: 600; }
 .mechanism-link { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 600; }
 .callout { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 14px 16px; border-radius: 14px; background: var(--halo-tint); font-size: 13px; line-height: 18px; }
 .callout > svg { flex: none; color: var(--halo-ink); }
@@ -543,14 +540,11 @@ dialog.modal[open] { display: flex; flex-direction: column; gap: 16px; }
 .chart-ohlc { display: flex; flex-wrap: wrap; gap: 4px 10px; font-family: var(--font-mono); font-size: 11px; line-height: 16px; color: var(--ink-faint); }
 .chart-ohlc b { font-weight: 500; color: var(--ink-muted); }
 .price-chart { height: 260px; width: 100%; }
-.chart-credit, .market-attribution { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; font-size: 11px; line-height: 16px; color: var(--ink-faint); }
-.chart-credit a, .market-attribution a { color: var(--sky); }
+.chart-credit { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; font-size: 11px; line-height: 16px; color: var(--ink-faint); }
+.chart-credit a { color: var(--sky); }
 .market-empty { display: flex; align-items: center; justify-content: center; min-height: 120px; padding: 16px; border-radius: 14px; background: var(--surface-sunken);
   color: var(--ink-muted); font-size: 13px; text-align: center; }
 .feed-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
-.feed-tabs { display: flex; gap: 4px; }
-.feed-tabs button { height: 40px; padding: 0 16px; border-radius: 999px; border: 1px solid transparent; color: var(--ink-muted); font-size: 14px; font-weight: 650; }
-.feed-tabs button[aria-pressed="true"] { border-color: var(--line-strong); background: var(--surface-sunken); color: var(--ink); }
 .trade-flow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; font-size: 12px; line-height: 16px; }
 .flow-bar { flex: 1 1 120px; display: flex; gap: 2px; height: 6px; border-radius: 999px; overflow: hidden; }
 .flow-bar i { display: block; min-width: 2px; }
@@ -666,8 +660,6 @@ dialog.modal[open] { display: flex; flex-direction: column; gap: 16px; }
 .trade-quote { min-height: 44px; }
 .trade-note, .launch-blocked { font-size: 12px; line-height: 16px; color: var(--ink-muted); }
 .launch-blocked { color: var(--warning); }
-.doppler-entry { display: flex; flex-direction: column; gap: 4px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 12px; line-height: 16px; color: var(--ink-muted); }
-.doppler-entry .text-button { align-self: flex-start; }
 .musegod-transaction { font-size: 13px; }
 
 /* Share */

@@ -132,7 +132,9 @@ import NftCoinCard from "./components/NftCoinCard";
 import NftPage, { MyNftTreasuries } from "./components/NftPage";
 import { MUSEGOD } from "./lib/musegod";
 import BuybackPage from "./components/BuybackPage";
-import FeeBreakdown, { FeeSplitBar } from "./components/FeeBreakdown";
+import TokenTradeNotes from "./components/TokenTradeNotes";
+import { buyPresets, stockStatusFailure, tokenFeeCardTier } from "./lib/token-detail";
+import FeeBreakdown, { TokenFeeDisclosure } from "./components/FeeBreakdown";
 import ShareDialog from "./components/ShareDialog";
 import SlippageControl from "./components/SlippageControl";
 import { LP_FEE_PPM, TRADING_FEE_BPS, tradingFeeBpsFor } from "./lib/trading-fee";
@@ -3282,7 +3284,7 @@ function TokenPage({
       if (live()) setBusy(false);
     }
   }
-  const beneficiary = isFeeBeneficiary(token, wallet.account);
+  const feeTier = tokenFeeCardTier(token, wallet.account);
   const chainLabel = token.mode === "fork" ? "Fork test asset" : token.mode === "robinhood" ? "Robinhood Chain" : "Base";
   const canonicalUrl = `${location.origin}${tokenPath(token)}`;
   return (
@@ -3339,19 +3341,13 @@ function TokenPage({
         <div className="detail-main">
           <TokenMarket token={token} refreshKey={hash ?? ""} />
           <NftCoinCard token={token} config={config} navigate={navigate} />
-          <FeeCard token={token} config={config} variant={beneficiary ? "token" : "rewards"} />
+          {feeTier && <FeeCard token={token} config={config} variant={feeTier} />}
           <FirstBuyLock token={token} config={config} hideWhenEmpty />
           <section className="card about-card" aria-labelledby="about-title">
             <h2 id="about-title" className="card-title">About {token.name}</h2>
             <p className="body-copy">
               {token.description || "The creator has not added a description yet."}
             </p>
-            <FeeSplitBar policy={token.feePolicy} tradingFeeBps={token.tradingFeeBps} creatorLabel={token.nft ? "NFT treasury" : undefined} />
-            <div className="about-facts">
-              <span>Pool ID <code title={token.poolId}>{shortAddress(token.poolId)}</code></span>
-              <span>Supply <span className="mono">1,000,000,000</span></span>
-              <Link href="/buyback">How the buyback works <ArrowRight size={13} /></Link>
-            </div>
             <details className="disclosure boxed">
               <summary>Contract details</summary>
               <dl className="rows">
@@ -3384,6 +3380,10 @@ function TokenPage({
                   </dd>
                 </div>
                 <div>
+                  <dt>Pool ID</dt>
+                  <dd><code title={token.poolId}>{shortAddress(token.poolId)}</code></dd>
+                </div>
+                <div>
                   <dt>Supply</dt>
                   <dd>1,000,000,000</dd>
                 </div>
@@ -3397,12 +3397,9 @@ function TokenPage({
                 </div>
               </dl>
             </details>
-            <details className="disclosure boxed">
-              <summary>How fees are distributed</summary>
-              <FeeBreakdown policy={token.feePolicy} tradingFeeBps={token.tradingFeeBps} creatorLabel={token.nft ? "NFT treasury" : undefined}>
-                <Link href="/buyback" className="mechanism-link">View the buyback policy and status <ArrowUpRight size={14} /></Link>
-              </FeeBreakdown>
-            </details>
+            <TokenFeeDisclosure token={token}>
+              <Link href="/buyback" className="mechanism-link">View the buyback policy and status <ArrowUpRight size={14} /></Link>
+            </TokenFeeDisclosure>
             <details className="disclosure boxed launch-curve-details">
               <summary>View launch curve</summary>
               {token.openingValuationUnverified && <p className="muted">The opening valuation behind this curve is not verified by the platform.</p>}
@@ -3492,7 +3489,7 @@ function TokenPage({
           </p>}
           <div className="quick-amounts">
             {side === "buy"
-              ? (payingEth ? ["0.001", "0.005", "0.01"] : ["1", "5", "10"]).map(
+              ? buyPresets(stock, payingEth).map(
                   (value) => (
                     <button
                       type="button"
@@ -3671,7 +3668,7 @@ function TokenPage({
           {error && <Notice kind="error">{error}</Notice>}
           {stockResource.error && (
             <Notice kind="error">
-              Could not load the stock multiplier. The share equivalent is unavailable. {stockResource.error}
+              {stockStatusFailure(stock)} {stockResource.error}
             </Notice>
           )}
           {config && ethPayable && (ethBuy.record?.state === "pending" || ethBuy.adopted) && <div className="trade-links">
@@ -3683,35 +3680,8 @@ function TokenPage({
             {ethDone && <TxLink hash={ethDone.hash} config={config}
               label={ethDone.conversionHash ? `View ${stock.symbol} → ${token.symbol} transaction` : "View transaction"} />}
           </div> : hash && config && <TxLink hash={hash} config={config} />}
-          <p className="trade-note">
-            {payingEth
-              ? <>Paying with ETH goes through LI.FI; its fee is included in the quote and network gas is extra. </>
-              : <>Router approval is limited to this amount and valid for 5 minutes. </>}
-            Execution depends on slippage and liquidity and follows the stock token’s transfer rules. {token.symbol} does not represent ownership of {stock.name} stock.
-          </p>
-          {token.mode !== "fork" && (
-            <div className="doppler-entry">
-              {dopplerUrl(token) ? (
-                <a
-                  className="text-button"
-                  href={dopplerUrl(token)!}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Trade on Doppler ↗
-                </a>
-              ) : (
-                <p role="status">
-                  Doppler trading is pending: the link opens after listing and quote verification.
-                </p>
-              )}
-              <p>
-                {config?.writesEnabled
-                  ? "Get a quote here and confirm the trade in your wallet, or use the verified Doppler link."
-                  : "This site provides read-only market data and on-chain quote previews. Transactions are currently disabled."}
-              </p>
-            </div>
-          )}
+          <TokenTradeNotes stock={stock} symbol={token.symbol} payingEth={payingEth}
+            writesEnabled={!!config?.writesEnabled} doppler={dopplerUrl(token) ?? undefined} fork={token.mode === "fork"} />
         </section>
       </div>
     </>
@@ -3755,14 +3725,14 @@ function FeeIncomeReference({ token, account, currency, amount, vaultFactory }: 
     </div>)}</dl>
   </div>;
 }
-function FeeCard({
+export function FeeCard({
   token,
   config,
   variant = "rewards",
 }: {
   token: TokenRecord;
   config: RuntimeConfig | null;
-  variant?: "token" | "rewards";
+  variant?: "token" | "compact" | "rewards";
 }) {
   const api = scopedApi(config);
   const generation = useRef(0);
@@ -3866,18 +3836,18 @@ function FeeCard({
       <Link href={nftPath(token.nft)} className="text-button">View the NFT treasury <ArrowRight size={14} /></Link>
     </section>
   );
-  if (variant === "token") return (
+  if (variant === "token" || variant === "compact") return (
     <section className="card fee-panel" aria-labelledby={`fees-${token.address}`}>
       <div className="card-head">
-        <h2 id={`fees-${token.address}`} className="card-title"><Coins size={18} />{isCreator ? "You created this token" : `${token.symbol} ${incomeTitle}`}</h2>
-        <span className="button-row">{checkButton}<Link href="/rewards" className="text-button">Manage in My rewards <ArrowRight size={14} /></Link></span>
+        <h2 id={`fees-${token.address}`} className="card-title"><Coins size={18} />{variant === "compact" ? "Beneficiary fees" : isCreator ? "You created this token" : `${token.symbol} ${incomeTitle}`}</h2>
+        <span className="button-row">{checkButton}{variant === "token" && <Link href="/rewards" className="text-button">Manage in My rewards <ArrowRight size={14} /></Link>}</span>
       </div>
-      {policyNote && <p className="hint">{policyNote}</p>}
+      {variant === "compact" ? <p className="hint">For on-chain fee beneficiaries. Check your claimable amounts.</p> : policyNote && <p className="hint">{policyNote}</p>}
       <dl className="tile-grid">
         <div className="tile"><dt>Trading fee to claim</dt>{amounts("trade")}</div>
         <div className="tile"><dt>LP fee to claim</dt>{amounts("lp")}</div>
       </dl>
-      {!data && <p className="hint">Click Check fees to read the current claimable on-chain amounts. Trading and LP fees are claimed separately and sent to the on-chain beneficiaries.</p>}
+      {variant === "token" && !data && <p className="hint">Click Check fees to read the current claimable on-chain amounts. Trading and LP fees are claimed separately and sent to the on-chain beneficiaries.</p>}
       <div className="button-row">
         <button type="button" className="secondary" disabled={claimDisabled("trade")} onClick={() => void claim("trade")}>Claim trading fee</button>
         <button type="button" className="secondary" disabled={claimDisabled("lp")} onClick={() => void claim("lp")}>Claim LP fee</button>

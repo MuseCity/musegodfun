@@ -39,7 +39,7 @@ test("section provenance never borrows another section's source or time", async 
   const text=renderToStaticMarkup(createElement(MarketProvenance,{label:'Trades',data:{source:'GeckoTerminal',fetchedAt:'2026-10-08T09:00:00Z',status:'stale'}}));
   assert.match(text,/GeckoTerminal/);assert.match(text,/2026-10-08T09:00:00Z/);assert.match(text,/Previous snapshot/);assert.doesNotMatch(text,/CoinGecko/);
   const missing=renderToStaticMarkup(createElement(MarketProvenance,{label:'Candles',data:null}));
-  assert.doesNotMatch(missing,/Bankr|CoinGecko|GeckoTerminal/);assert.match(missing,/Source and fetch time/);
+  assert.doesNotMatch(missing,/Bankr|CoinGecko|GeckoTerminal/);assert.equal(missing, "");
   const cg = renderToStaticMarkup(createElement(MarketProvenance, { label: "Summary", data: { source: "CoinGecko", fetchedAt: "2026-10-15T09:00:00Z" } }));
   assert.match(cg, /<a href="https:\/\/www.coingecko.com\/en\/api"[^>]*rel="noopener noreferrer"[^>]*>[^<]*CoinGecko/);
 });
@@ -102,7 +102,7 @@ test("refreshing populated summaries hide initial loading banners and empty char
         ? ++dataIndex === 1 ? { data, error: "", loading: true } : { data: { ...data, candles: [], trades: [] }, error: "", loading: false }
         : initial, () => {}];
     },
-    useRef() { return { current: endpoints[refIndex++] }; },
+    useRef(initial: any) { return { current: refIndex++ === 0 ? initial : endpoints[refIndex - 2] }; },
   };
   Reflect.set(globalThis, key, mock);
   const hooks = registerHooks({ resolve(specifier, context, next) {

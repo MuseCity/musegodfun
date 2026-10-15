@@ -302,3 +302,7 @@ Remaining known limitations (not failures of this release):
 - Robinhood free trades cover only 24h.
 - GT egress from the Worker keeps returning 429.
 - holders are not provided for now per H1.
+
+### Detail page H1 presentation amendment (2026-10-15)
+
+Owner-approved on 2026-10-15: while H1 holds with no holder data on either chain and no restoration date, token detail pages omit the Holders tab and its unavailable block. Both feed cards are titled "Recent trades". The holders API still returns an explicit `source_not_provided`; its route and `scripts/test-market-http.ts` contract are unchanged.

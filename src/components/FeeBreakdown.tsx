@@ -1,3 +1,4 @@
+import type { TokenRecord } from "../lib/config";
 import type { ReactNode } from "react";
 import { ENGINE_FEE_POLICY, BASE_AUTOMATION_FEE_POLICY, BASE_COLLECTOR_FEE_POLICY, feePolicyFor } from "../lib/fee-policy";
 import { LP_FEE_PPM, TRADING_FEE_BPS } from "../lib/trading-fee";
@@ -88,4 +89,13 @@ export function FeeSplitBar({ policy, tradingFeeBps, creatorLabel = "Creator" }:
       {parts.map((part) => <div key={part.key}><dt><i className={part.key} aria-hidden="true" />{part.label}</dt><dd>{of(part.share)}</dd></div>)}
     </dl>
   </div>;
+}
+
+export function TokenFeeDisclosure({ token, children }: { token: Pick<TokenRecord, "feePolicy" | "tradingFeeBps" | "nft">; children: ReactNode }) {
+  const creatorLabel = token.nft ? "NFT treasury" : undefined;
+  return <details className="disclosure boxed">
+    <summary>How fees are distributed</summary>
+    <FeeSplitBar policy={token.feePolicy} tradingFeeBps={token.tradingFeeBps} creatorLabel={creatorLabel} />
+    <FeeBreakdown policy={token.feePolicy} tradingFeeBps={token.tradingFeeBps} creatorLabel={creatorLabel}>{children}</FeeBreakdown>
+  </details>;
 }
