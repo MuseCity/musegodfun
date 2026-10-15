@@ -186,6 +186,7 @@ A saved preview checks control at the latest block; a backup checks it at its re
 - `tokens?nft=<chainId>:<contract>:<tokenId>|any`: `verified` and `unverified` bound coins, never rejected or hidden ones, with `Access-Control-Allow-Origin: *`.
 - `nft-treasury?nft=…`: vault and treasury addresses, whether each is deployed, every bound coin of any status (the sweep set), balances and pending fees.
 - `nft-status?nft=…&account=…`: control, the one-coin rule and the fee tier, for the create form.
+- `nft-collections?owner=` and `nft-tokens?owner=&contract=` list the connected wallet's ERC-721 collections and NFTs for the NFT step (at most 300 each, `truncated` beyond, cached 60 s). They answer 422 `NFT_MODE_UNAVAILABLE` while NFT mode is off (always on Base), 400 for a bad address, and 503 `NFT_LIST_UNAVAILABLE` when the provider fails; the live check and prepare stay the authority.
 - `launch-fee-quote?payer=…`: the ETH quote.
 
 **Hide list.** `src/lib/hidden-tokens.json` (chain id → coin addresses) ships with a release. The catalog keeps hidden coins and marks them `hidden: true`: Explore leaves them out, Rewards and treasury pages keep them, and the public `?nft=` listing omits them.

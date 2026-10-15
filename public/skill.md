@@ -69,7 +69,7 @@ What your holder sees when they open it:
 
 - The page waits for their wallet to reconnect, then fills in a new draft. A draft they were already working on stays under "Saved launches".
 - If their wallet is locked or not connected, the link still imports, and the draft moves to their account when they connect.
-- A notice says "Imported from a link — check every field." The page stays on step 1.
+- A notice says "Imported from a link — check every field." The page stays on step 1. With an NFT in the link, step 1 is the NFT step: the NFT is already selected, and it is checked as soon as their wallet is connected.
 - Nothing is reviewed, signed or sent. If NFT mode is off on that network, or the NFT is on a different network than the page, the NFT is dropped and the other fields still import, with a notice saying so.
 - A link that is malformed or has a bad field is refused with a message that names the field (the message never repeats text from the link), and nothing changes.
 
