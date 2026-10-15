@@ -42,13 +42,14 @@ export function emptyCandlesMessage(data: CandleData | null, interval: ChartInte
   if (data?.reason) {
     const reasons = {
       missing_config: "Price data is not configured.", quota_exhausted: "The price provider has reached its data limit.",
-      not_indexed: "The pool is not indexed yet.", rate_limited: "The price provider is rate limited. Try again later.",
+      not_indexed: "The pool is not indexed yet.", rate_limited: "The price provider is rate limited.",
       upstream_http: "The price request failed.", upstream_transport: "The price provider could not be reached.", upstream_unclassified: "The price request failed.",
       invalid_identity: "The pool could not be verified.", invalid_schema: "The price response could not be read.", source_not_provided: "The source does not provide price data.",
-      storage_unavailable: "Saved price data is unavailable.", internal_error: "Price data is temporarily unavailable.", backoff: "The price provider is temporarily pausing updates. Try again later.",
+      storage_unavailable: "Saved price data is unavailable.", internal_error: "Price data is temporarily unavailable.", backoff: "The price provider is temporarily pausing updates.",
     };
     const causes = data.causes?.length ? data.causes : [{ source: undefined, reason: data.reason }];
-    return `No indexed price records for this interval. ${[...new Set(causes.map(c => reasons[c.reason]))].join(" ")}`;
+    const retry = causes.some(c => c.reason === "rate_limited" || c.reason === "backoff") ? " Try again later." : "";
+    return `No indexed price records for this interval. ${[...new Set(causes.map(c => reasons[c.reason]))].join(" ")}${retry}`;
   }
   return `No indexed price records for this interval.${interval !== CHART_INTERVALS[CHART_INTERVALS.length - 1] ? " Try a longer interval." : ""}`;
 }
@@ -114,18 +115,14 @@ function useMarket<
   },[result.data?.fetchedAt]);
   return previousPath.current === key ? result : { data: null, error: "", loading: true };
 }
-function Message({
-  loading,
-  error,
-  empty,
-}: {
-  loading: boolean;
-  error: string;
-  empty: string;
-}) {
+// A stale snapshot with no rows keeps its empty statement beside the stale note, like the summary does.
+function emptyText(data: { status?: string; warning?: string } | null, error: string, empty: string, fallback: string) {
+  return data?.status === "stale" ? `${empty} ${error || data.warning || fallback}` : error || empty;
+}
+function Message({ loading, text }: { loading: boolean; text: string }) {
   return (
     <div className="market-empty" role="status">
-      {loading ? "Loading market data…" : error || empty}
+      {loading ? "Loading market data…" : text}
     </div>
   );
 }
@@ -254,6 +251,43 @@ export default function TokenMarket({
             {summary.error || stats?.warning || "Previous snapshot. Refresh to update."}
           </p>
         )}
+        {hasActivity && <>
+          <div className="trade-flow">
+            <div className="segmented mono compact" role="group" aria-label="Activity period">
+              {[
+                ["m5", "5m"],
+                ["h1", "1h"],
+                ["h6", "6h"],
+                ["h24", "24h"],
+              ].map(([value, label]) => (
+                <button
+                  type="button"
+                  key={value}
+                  aria-pressed={period === value}
+                  onClick={() => setPeriod(value)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <span className="mono positive">{buys ?? "—"} buys</span>
+            <div className="flow-bar" aria-hidden="true">
+              {flowTotal > 0 ? <>
+                <i className="buy" style={{ flex: buys ?? 0 }} />
+                <i className="sell" style={{ flex: sells ?? 0 }} />
+              </> : <i className="none" />}
+            </div>
+            <span className="mono negative">{sells ?? "—"} sells</span>
+          </div>
+          <p className="flow-stats hint">
+            Volume <span className="mono">{usd(activity?.volume)}</span> · Price change{" "}
+            <span className={`mono ${(activity?.change ?? 0) < 0 ? "negative" : (activity?.change ?? 0) > 0 ? "positive" : ""}`}>
+              {activity?.change == null
+                ? "—"
+                : `${activity.change > 0 ? "+" : ""}${activity.change.toFixed(2)}%`}
+            </span>
+          </p>
+        </>}
         <div className="chart-toolbar">
           <div className="segmented" role="group" aria-label="Chart type">
             <button type="button" aria-pressed={chartType === "line"} onClick={() => setChartType("line")}>Line</button>
@@ -278,7 +312,7 @@ export default function TokenMarket({
           </p>
         )}
         {history.data?.candles.length ? (
-          <Suspense fallback={<Message loading error="" empty="" />}>
+          <Suspense fallback={<Message loading text="" />}>
             <PriceChart
               key={marketEndpoint(token, kind, `candles?interval=${interval}`).key}
               candles={history.data.candles}
@@ -289,8 +323,7 @@ export default function TokenMarket({
         ) : (
           <Message
             loading={history.loading && !history.data}
-            error={history.error || (history.data?.status === "stale" ? history.data.warning || "Previous chart snapshot. Refresh to update." : "")}
-            empty={emptyCandlesMessage(history.data, interval)}
+            text={emptyText(history.data, history.error, emptyCandlesMessage(history.data, interval), "Previous chart snapshot. Refresh to update.")}
           />
         )}
         {(!hasValues && !summary.loading || !history.data?.candles.length && !history.loading) && <p className="hint">Use the on-chain quote for a price preview.</p>}
@@ -321,43 +354,6 @@ export default function TokenMarket({
             ))}
           </div>}
         </div>
-        {hasActivity && <>
-            <div className="trade-flow">
-              <div className="segmented mono compact" role="group" aria-label="Activity period">
-                {[
-                  ["m5", "5m"],
-                  ["h1", "1h"],
-                  ["h6", "6h"],
-                  ["h24", "24h"],
-                ].map(([value, label]) => (
-                  <button
-                    type="button"
-                    key={value}
-                    aria-pressed={period === value}
-                    onClick={() => setPeriod(value)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-              <span className="mono positive">{buys ?? "—"} buys</span>
-              <div className="flow-bar" aria-hidden="true">
-                {flowTotal > 0 ? <>
-                  <i className="buy" style={{ flex: buys ?? 0 }} />
-                  <i className="sell" style={{ flex: sells ?? 0 }} />
-                </> : <i className="none" />}
-              </div>
-              <span className="mono negative">{sells ?? "—"} sells</span>
-            </div>
-            <p className="flow-stats hint">
-              Volume <span className="mono">{usd(activity?.volume)}</span> · Price change{" "}
-              <span className={`mono ${(activity?.change ?? 0) < 0 ? "negative" : (activity?.change ?? 0) > 0 ? "positive" : ""}`}>
-                {activity?.change == null
-                  ? "—"
-                  : `${activity.change > 0 ? "+" : ""}${activity.change.toFixed(2)}%`}
-              </span>
-            </p>
-        </>}
         {items.length ? (
           <div className="table-scroll">
             <table className="data-table market-table">
@@ -412,8 +408,7 @@ export default function TokenMarket({
         ) : (
           <Message
             loading={trades.loading && !trades.data}
-            error={trades.error || (trades.data?.status === "stale" ? trades.data.warning || "Previous trades snapshot. Refresh to update." : "")}
-            empty={trades.data?.trades.length ? "No indexed trades match this filter." : "No indexed trades in this snapshot."}
+            text={emptyText(trades.data, trades.error, trades.data?.trades.length ? "No indexed trades match this filter." : "No indexed trades in this snapshot.", "Previous trades snapshot. Refresh to update.")}
           />
         )}
         {items.length && (trades.error || trades.data?.status === "stale") ? <p className="market-warning" role="status">{trades.error || trades.data?.warning || "Previous trades snapshot. Refresh to update."}</p> : null}

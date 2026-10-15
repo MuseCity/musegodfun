@@ -130,6 +130,83 @@ test("C1-7 empty market cards give one quote pointer and buyer-readable provider
   }
 });
 
+const cards = (html: string) => html.split('<section class="card market-feed"') as [string, string];
+const activitySummary = (kind: "launch" | "musegod", over: Partial<MarketSummary> = {}): MarketSummary => ({
+  ...emptySummary, source: kind === "musegod" ? "Bankr" : "CoinGecko", fetchedAt: "2026-10-16T01:00:00Z", priceUsd: 1,
+  periods: { h24: { volume: 123, buys: 7, sells: 2, change: 4 } }, ...over,
+});
+const summaryProvenance = (kind: "launch" | "musegod", stale: boolean) => new RegExp(`Summary · ${stale ? "Previous snapshot · " : "(?!Previous snapshot)"}${kind === "musegod" ? '<a href="[^"]*"[^>]*>Bankr / Pools' : '<a href="https://www.coingecko.com/en/api"[^>]*>Data provided by CoinGecko'}[^<]*</a> · Fetched <time dateTime="2026-10-16T01:00:00Z"`);
+
+test("X2-1 activity sits in the market card with the summary's own source, time and stale state", async () => {
+  for (const kind of ["launch", "musegod"] as const) {
+    const staleSummary = activitySummary(kind, { status: "stale", warning: "Summary-only refresh failed" });
+    const staleMixed = await renderMarket({ kind, summary: staleSummary, trades: { source: "GeckoTerminal", fetchedAt: "2026-10-16T01:02:00Z" } });
+    const [market, feed] = cards(staleMixed);
+    assert(market.indexOf("24h volume") < market.indexOf("Activity period") && market.indexOf("Activity period") < market.indexOf("Chart type"), kind);
+    assert.match(market, /Activity period.*7 buys.*2 sells.*Volume.*\$123.*Price change.*\+4\.00%/s);
+    assert.equal(market.split("Summary-only refresh failed").length - 1, 1);
+    assert.match(market, summaryProvenance(kind, true));
+    assert.doesNotMatch(feed, /Activity period|buys|sells|Volume|Price change|Summary-only refresh failed|Previous snapshot|2026-10-16T01:00:00Z/);
+    assert.match(feed, /Trades · GeckoTerminal · Fetched <time dateTime="2026-10-16T01:02:00Z"/);
+    assert.doesNotMatch(market, /2026-10-16T01:02:00Z/);
+
+    const staleTrades = await renderMarket({ kind, summary: activitySummary(kind), trades: { status: "stale", source: "GeckoTerminal", fetchedAt: "2026-10-16T01:02:00Z", warning: "Trades refresh failed" }, tradesError: "Trades refresh failed" });
+    const [freshMarket, staleFeed] = cards(staleTrades);
+    assert.match(freshMarket, /Activity period.*7 buys/s);
+    assert.match(freshMarket, summaryProvenance(kind, false));
+    assert.doesNotMatch(freshMarket, /Trades refresh failed|2026-10-16T01:02:00Z/);
+    assert.doesNotMatch(staleFeed, /Activity period|buys|Volume|Price change/);
+    assert.match(staleFeed, /Trades · Previous snapshot · GeckoTerminal · Fetched <time dateTime="2026-10-16T01:02:00Z"/);
+
+    const noTrades = await renderMarket({ kind, summary: activitySummary(kind), trades: null, tradesError: "Market data unavailable" });
+    const [shownMarket, emptyFeed] = cards(noTrades);
+    assert.match(shownMarket, /Activity period.*7 buys.*Volume/s);
+    assert.match(shownMarket, summaryProvenance(kind, false));
+    assert.doesNotMatch(emptyFeed, /Activity period|buys|Volume|Price change|CoinGecko|Bankr|Fetched/);
+    assert.equal(emptyFeed.split("Market data unavailable").length - 1, 1);
+  }
+});
+
+test("X2-1 activity keeps its visibility rule without summary activity values", async () => {
+  for (const kind of ["launch", "musegod"] as const) {
+    const none = await renderMarket({ kind, summary: activitySummary(kind, { periods: { h24: { volume: null, buys: null, sells: null, change: null } } }) });
+    assert.doesNotMatch(none, /Activity period|buys|sells|Price change/);
+    const zero = await renderMarket({ kind, summary: activitySummary(kind, { periods: { h24: { volume: 0, buys: 0, sells: 0, change: 0 } } }) });
+    assert.match(cards(zero)[0], /Activity period.*0 buys.*0 sells/s);
+    assert.doesNotMatch(cards(zero)[1], /Activity period|buys/);
+  }
+});
+
+test("C1b-1 a stale empty chart or trade list keeps its empty statement beside the stale note", async () => {
+  const note = "Refresh is unavailable. Showing a stale snapshot.";
+  const html = await renderMarket({ candles: { status: "stale", warning: note, source: "Bankr", reason: "backoff" }, trades: { status: "stale", warning: note } });
+  const [market, feed] = cards(html);
+  assert.match(market, /No indexed price records for this interval\..*pausing updates\. Try again later\. Refresh is unavailable\. Showing a stale snapshot\./);
+  assert.match(feed, /No indexed trades in this snapshot\. Refresh is unavailable\. Showing a stale snapshot\./);
+  assert.equal(market.split(note).length - 1, 1); assert.equal(feed.split(note).length - 1, 1);
+  const plain = await renderMarket({ candles: { status: "stale", warning: note } });
+  assert.match(cards(plain)[0], /No indexed price records for this interval\. Try a longer interval\. Refresh is unavailable/);
+  const failed = await renderMarket({ candles: { status: "stale", warning: "Network unavailable. Showing the previous snapshot." }, historyError: "Chart refresh failed", trades: { status: "stale", warning: "Network unavailable. Showing the previous snapshot." }, tradesError: "Trades refresh failed" });
+  assert.match(cards(failed)[0], /No indexed price records for this interval\..*Chart refresh failed/);
+  assert.match(cards(failed)[1], /No indexed trades in this snapshot\. Trades refresh failed/);
+  assert.equal(failed.split("Network unavailable").length - 1, 0);
+  const filtered = await renderMarket({ filter: "sell", trades: { status: "stale", warning: "Trade refresh failed", trades: [{ id: "buy", hash: "0x123", account: null, at: emptySummary.fetchedAt, side: "buy", amount: 1, usd: 1, price: 1 }] }, tradesError: "Trade refresh failed" });
+  assert.match(filtered, /No indexed trades match this filter\. Trade refresh failed/);
+  const fresh = await renderMarket();
+  assert.doesNotMatch(fresh, /stale snapshot|Refresh to update/);
+});
+
+test("C1b-2 combined transient causes say to try again later once", () => {
+  const data = { ...emptySummary, candles: [] };
+  const retries = (message: string) => message.split("Try again later.").length - 1;
+  const both = emptyCandlesMessage({ ...data, reason: "rate_limited", causes: [{ source: "Bankr", reason: "rate_limited" }, { source: "GeckoTerminal", reason: "backoff" }] }, "1h");
+  assert.equal(retries(both), 1); assert.match(both, /rate limited.*pausing updates/);
+  for (const reason of ["rate_limited", "backoff"] as const) assert.equal(retries(emptyCandlesMessage({ ...data, reason }, "1h")), 1, reason);
+  const mixed = emptyCandlesMessage({ ...data, reason: "not_indexed", causes: [{ source: "CoinGecko", reason: "not_indexed" }, { source: "GeckoTerminal", reason: "backoff" }] }, "1h");
+  assert.equal(retries(mixed), 1); assert.match(mixed, /not indexed yet.*pausing updates/);
+  for (const reason of ["not_indexed", "upstream_http", "quota_exhausted"] as const) assert.equal(retries(emptyCandlesMessage({ ...data, reason }, "1h")), 0, reason);
+});
+
 test("D7 mounting loads each real market section once and a later trade refresh loads each again", async () => {
   const entry = pathToFileURL(`${process.cwd()}/src/components/TokenMarket.tsx`); entry.search = `hooks=${crypto.randomUUID()}`;
   const key = `__marketHooks${crypto.randomUUID().replaceAll("-", "")}`;
