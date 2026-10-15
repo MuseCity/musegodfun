@@ -1,0 +1,82 @@
+# ETH payment on WETH pairs, automatic quotes and in-field Max
+
+Status: In progress (2026-10-16). Branch `claude/weth-eth-pay-auto-quote`, based on master `ef942a6`.
+
+## Owner request (2026-10-16, translated)
+
+"WETH pairs support paying with ETH. The user should not have to click the get on-chain quote button; the quote is requested automatically after the user enters a buy amount. The amount input gets a small Max button. Same process as before."
+
+## Facts established before this plan
+
+- Ordinary coin trades build one Universal Router `execute` call (`src/lib/protocol.ts` `swapTransaction`: command `0x10` V4_SWAP with actions SWAP_EXACT_IN_SINGLE, SETTLE_ALL, TAKE_ALL) after an ERC-20 approval to Permit2 and a Permit2 approval to the router (`src/lib/wallet.tsx` `trade`). Robinhood router `0x8876789976decbfcbbbe364623c63652db8c0904` uses the newer exact-input struct with `minHopPriceX36`.
+- `ethBuyAvailable` (`src/lib/eth-buy.ts`) excludes WETH pairs because the ETH path for other pairs goes through LI.FI (`/trade/eth-quote`). A WETH-pair buyer must hold WETH today.
+- Robinhood WETH is `0x0bd7d308f8e1639fab988df18a8011f41eacad73` (`wrappedEther(4663)`). Base has no WETH pairs.
+- `/api/quote` is ingress class `workflow` (per-source concurrency 4, total 16) and is neither an "expensive" route nor challenge-gated. `/trade/eth-quote` is expensive (20/min per source) and triggers a Turnstile challenge above 16 risky requests a minute (`server/abuse.ts`).
+- Wrapping is 1:1, so an ETH payment on a WETH pair has exactly the WETH quote from `/api/quote`, which needs no wallet.
+
+## Goal
+
+A buyer of a WETH-pair coin pays with ETH in one wallet confirmation; every buyer sees an up-to-date quote without pressing a quote button; Max is one tap inside the amount field and never spends the ETH needed for gas.
+
+## Hard constraints
+
+1. Funds safety for the new ETH-on-WETH-pair path:
+   - one transaction to `contractsFor(config).router` on Robinhood (4663) only; the pool's quote currency must equal `wrappedEther(4663)`, otherwise the path is unavailable;
+   - `value` equals the quoted `amountIn` exactly; minimum output comes from the quote and slippage exactly as `swapTransaction`; deadline as today (block time + 300 s);
+   - no ERC-20 or Permit2 approval in this path;
+   - simulate with the same `to`, `data` and `value` before sending; `ensureGas` covers `value` plus gas; never send an expired quote; keep the existing account/chain `live()` guards and progress, hash and receipt handling.
+2. No server, contract, fee policy, LI.FI route, Permit2 path (pair payments), sell path or `MusegodTradePanel` change. Base behavior is unchanged.
+3. Automatic quotes must be bounded (cost and abuse limits above): debounced, superseded requests ignored, no requests while hidden, idle, busy or invalid, and a cap on automatic refreshes after the last user change.
+4. Guests keep a price signal: automatic quotes work without a wallet for pair payments and for ETH on WETH pairs.
+5. Everything from `tasks/detail-page-declutter-plan.md` that is not explicitly replaced here stays (presets, notes, fee card tiers, market honesty).
+6. Old copy, state, buttons and branches made dead by this change are removed in the same change; the superseded "Get on-chain quote" constraint in the declutter plan gets a dated note.
+
+## Items
+
+### E1 ETH payment on WETH pairs (buy side, Robinhood)
+
+- Pay-with control shows `ETH | WETH` on WETH pairs. The default is ETH for every visitor, guests included; an explicit pick wins as today.
+- Quote: the same `/api/quote` request as WETH (amount entered in ETH, 18 decimals). Balance shown is the native ETH balance.
+- Execution: a pure builder next to `swapTransaction` (for example `wrapAndSwapTransaction`) returning `{ to, data, value, minOut, currencyOut }`:
+  - Universal Router commands `WRAP_ETH` (`0x0b`; recipient `ADDRESS_THIS`, amount = amountIn) then `V4_SWAP` (`0x10`);
+  - V4 actions SWAP_EXACT_IN_SINGLE (same struct rules as `swapTransaction`), SETTLE (`0x0b`; currency WETH, amount = amountIn, payerIsUser = false), TAKE_ALL (`0x0f`; coin, minOut);
+  - `value` = amountIn.
+  Verify every command and action byte and parameter layout against the deployed Robinhood router's version, not from memory; the fork proof below is the authority.
+- Wallet: a native-pay trade function (or a branch of `trade`) that skips balance-of-ERC20 and both approvals, checks the native balance, simulates with value, sends with value, and confirms like `trade`.
+- Copy: Trading details for this path say the ETH is wrapped to WETH and swapped in one transaction with no approval. The LI.FI note and the router-approval note do not appear for this path.
+- Sell side is unchanged (receives WETH).
+
+### E2 Automatic quotes
+
+- Remove the "Get on-chain quote" button for every pay path.
+- When the amount parses to a positive value, request a quote 600 ms after the last change of amount, side, pay choice or slippage (1000 ms for the LI.FI ETH path). A newer input supersedes any pending request; superseded responses are ignored (keep the generation pattern).
+- No request while the amount is empty, invalid or zero, while a trade is in progress, while pool state is unavailable or invalid, while the document is hidden, or (LI.FI path only) without a connected wallet, as today.
+- The receive box shows an updating state while a quote is in flight and keeps showing errors as today.
+- Expiry: when the current quote expires and the page is visible, refresh automatically; at most 3 automatic refreshes after the last user change (1 for the LI.FI path). After the cap, the quote shows as expired with a small "Refresh quote" control, which is the only manual quote control left. Any user change resets the cap.
+- The primary action stays disabled without a fresh quote, as today.
+- Copy that tells users to "get a quote" is rewritten for automatic quotes.
+
+### E3 Max inside the amount field
+
+- A small "Max" button inside the pay amount field for buy and sell, shown only when a wallet balance for the input asset is known; the "Max" chip leaves the quick-amount row. Other presets are unchanged.
+- ERC-20 input (pair asset or coin): Max = full balance.
+- ETH input (WETH-pair native path and LI.FI path): Max = balance minus a gas reserve, reserve = max(0.0002 ETH, 2 × 500,000 gas × current `maxFeePerGas`, falling back to `gasPrice`). If the balance does not exceed the reserve, Max does not fill the field and says there is not enough ETH for network fees.
+- Max follows the existing unit rules (switching side or pay choice still clears a typed amount).
+
+## Out of scope
+
+- Receiving ETH when selling on WETH pairs (unwrap); separate request if wanted.
+- MUSEGOD's own trade panel; Base trading; any server or abuse-limit change.
+
+## Verification and acceptance
+
+1. TDD: pure builder tests decode the generated calldata (commands, each input, action bytes, SETTLE payer flag, value, minOut, deadline) and reject non-WETH pools, non-Robinhood routers and zero/overflow amounts. Auto-quote scheduling (debounce, supersede, caps, hidden/busy/invalid gating, LI.FI timing) is tested with fake timers through an extracted hook or pure scheduler, not by restating the implementation. Max/reserve math is tested including the floor and the insufficient case.
+2. Fork proof (authority for E1 calldata): on an anvil fork of Robinhood mainnet, a fresh funded account buys CLAWGOD (`0x7ea969d8c90C92c056949D561960Af2ACCd6E113`) with ETH using the exact transaction from the new builder, after a `/quote`-equivalent quote computed on the fork. Assert success, ETH spent = value + gas, CLAWGOD received ≥ minOut, zero WETH and ETH left in the router, no approvals made, and a revert when minOut is set above the achievable output. Save the evidence (no secrets). Use the repo's fork helpers (`scripts/robinhood-fork.ts`) and a worktree-local `.env.fork` holding only `ALCHEMY_API_KEY`, extracted in-process from the main `.env`, never printed, deleted afterwards. Keep RPC use small (one fork session, no log scans).
+3. `npm test`, `npm run build`, `git diff --check`, Han scan.
+4. Local read-only preview (same gateway rules as the declutter run; quote POST cap 12): CLAWGOD defaults to ETH for a guest; typing an amount produces exactly one quote request after the pause; the receive box fills without a button; Max is absent for guests; MV2C (COST pair) auto-quotes too; no "Get on-chain quote" anywhere; 1440px and 390px.
+5. Cross review: claude review → codex fix → claude accept, then codex review → claude fix → codex accept.
+6. Local commits only. Release needs the owner's explicit approval. No real-wallet trade is executed by any agent; after release the owner may run a tiny real ETH buy as a manual check.
+
+## Delivery record
+
+- 2026-10-16 Run 1, builder gate: added decoded-calldata tests and the native WETH builder; the isolated Robinhood fork proved an ETH buy, exact value plus gas accounting, no approvals, zero router dust and the expected high-minimum revert. Source runtime matched the deployed router. E1 wallet/UI and E2-E3 remain in progress. Evidence: `.superpowers/sdd/eth-pay-auto-quote/evidence/fork-proof.json`.

@@ -29,6 +29,7 @@ import {
   stockByAddress,
 } from "./config";
 import { launchSchema, minimumOutput, type LaunchInput } from "./validation";
+import { wrappedEther } from "./first-buy-payment";
 import { BASE_AUTOMATION_FEE_POLICY, BASE_COLLECTOR_FEE_POLICY, ENGINE_FEE_POLICY, FEE_POLICY, FEE_SHARES, MUSEGOD_BUYBACK, isEngineFeePolicy } from "./fee-policy";
 import { CURVE_POLICY, buildLaunchCurves, LAUNCH_CURVE_TICK_SPACING } from "./launch-curve";
 import {
@@ -296,13 +297,12 @@ export function assertNftFeeCalldata(input: { draft: LaunchInput; creator: Addre
     lpCreator(input.creator) || hookCreator(input.creator))
     throw new Error("The launch calldata does not pay the creator shares to this NFT fee vault.");
 }
-export function swapTransaction(
+function swapParameters(
   poolKey: V4PoolKey,
   currencyIn: Address,
   amountIn: bigint,
   amountOut: bigint,
   slippageBps: number,
-  deadline: bigint,
   contracts: ContractRegistry = CONTRACTS,
 ) {
   if (
@@ -354,6 +354,13 @@ export function swapTransaction(
       },
     ],
   );
+  return { swap, minOut, currencyOut };
+}
+export function swapTransaction(
+  poolKey: V4PoolKey, currencyIn: Address, amountIn: bigint, amountOut: bigint,
+  slippageBps: number, deadline: bigint, contracts: ContractRegistry = CONTRACTS,
+) {
+  const { swap, minOut, currencyOut } = swapParameters(poolKey, currencyIn, amountIn, amountOut, slippageBps, contracts);
   const settle = encodeAbiParameters(
     [{ type: "address" }, { type: "uint256" }],
     [currencyIn, amountIn],
@@ -377,6 +384,22 @@ export function swapTransaction(
     minOut,
     currencyOut,
   };
+}
+/** Robinhood's verified Universal Router wraps ETH into its own WETH balance, then settles the v4 debt from that balance. */
+export function wrapAndSwapTransaction(
+  poolKey: V4PoolKey, currencyIn: Address, amountIn: bigint, amountOut: bigint,
+  slippageBps: number, deadline: bigint, contracts: ContractRegistry = ROBINHOOD_CONTRACTS, chainId = 4663,
+) {
+  if (chainId !== 4663 || !sameAddress(contracts.router, ROBINHOOD_CONTRACTS.router))
+    throw new Error("Native WETH buys require the Robinhood router and network");
+  if (!sameAddress(currencyIn, wrappedEther(4663))) throw new Error("Native payments require WETH as the pool input");
+  const { swap, minOut, currencyOut } = swapParameters(poolKey, currencyIn, amountIn, amountOut, slippageBps, contracts);
+  const wrap = encodeAbiParameters(parseAbiParameters("address,uint256"), ["0x0000000000000000000000000000000000000002", amountIn]);
+  const settle = encodeAbiParameters(parseAbiParameters("address,uint256,bool"), [currencyIn, amountIn, false]);
+  const take = encodeAbiParameters(parseAbiParameters("address,uint256"), [currencyOut, minOut]);
+  const actions = encodeAbiParameters(parseAbiParameters("bytes,bytes[]"), ["0x060b0f", [swap, settle, take]]);
+  return { to: contracts.router, data: encodeFunctionData({ abi: routerAbi, functionName: "execute", args: ["0x0b10", [wrap, actions], deadline] }),
+    value: amountIn, minOut, currencyOut };
 }
 /** Auxiliary stock metadata is advisory. Only known transfer pauses and observed
  * identity mismatches stop a preview; strict execution callers require identity. */
