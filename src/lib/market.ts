@@ -1,5 +1,8 @@
 export type MarketSource = "CoinGecko" | "Blockscout" | "Bankr" | "GeckoTerminal";
+export type MarketReason = "missing_config" | "quota_exhausted" | "not_indexed" | "rate_limited" | "upstream_http" | "upstream_transport" | "invalid_identity" | "invalid_schema";
 export type SnapshotMeta = {
+  reason?: MarketReason;
+  upstreamStatus?: number;
   source?: MarketSource;
   status?: "fresh" | "stale" | "unavailable";
   nextRefreshAt?: string;

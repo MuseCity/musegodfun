@@ -590,6 +590,8 @@ app.use(
         ? {
             status: error.status,
             source: error.source,
+            reason: error.reason,
+            upstreamStatus: error.upstreamStatus,
             nextRefreshAt: error.nextRefreshAt,
           }
         : {}),

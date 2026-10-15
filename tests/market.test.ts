@@ -213,3 +213,47 @@ test("a cold batch preserves market fields, merges duplicate requests and shares
     rmSync(dir, { recursive: true });
   }
 });
+
+test("missing Demo configuration remains diagnosable in single and batch snapshots without leaking errors", async () => {
+  const { Store } = await import("../server/store");
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = mkdtempSync(join(tmpdir(), "market-reasons-")), store = new Store(dir, 8453);
+  let calls = 0;
+  try {
+    const reader = new MarketReader({ store, fetch: async () => { calls++; throw new Error("secret-url"); } });
+    await assert.rejects(reader.summary(token), (e: any) => e.reason === "missing_config" && !e.message.includes("secret-url"));
+    const batch = await reader.summaries([token]);
+    assert.equal((batch[0] as any).reason, "missing_config");
+    assert.equal((batch[0] as any).source, "CoinGecko");
+    assert.equal((batch[0] as any).status, "unavailable");
+    assert.equal(calls, 0);
+  } finally { store.close(); rmSync(dir, { recursive: true }); }
+});
+
+test("upstream HTTP causes survive stale snapshots, retry suppression and batch rows", async () => {
+  const { Store } = await import("../server/store");
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  for (const status of [401, 403, 404, 429]) {
+    const dir = mkdtempSync(join(tmpdir(), "market-http-")), store = new Store(dir, 8453);
+    let now = Date.now(), failed = false, calls = 0;
+    const reader = new MarketReader({ store, apiKey: "fixture", now: () => now, fetch: async () => {
+      calls++; return failed ? new Response("private-provider-body", { status, headers: { "retry-after": "3600" } }) : Response.json(pool);
+    } });
+    try {
+      const fresh = await reader.summary(token);
+      failed = true; now += 900_001;
+      const stale = await reader.summary(token);
+      assert.equal(stale.status, "stale"); assert.equal(stale.fetchedAt, fresh.fetchedAt);
+      assert.equal((stale as any).reason, status === 429 ? "rate_limited" : status === 404 ? "not_indexed" : "upstream_http");
+      assert.equal((stale as any).upstreamStatus, status);
+      assert(!JSON.stringify(stale).includes("private-provider-body"));
+      assert.equal((await reader.summary(token) as any).reason, (stale as any).reason);
+      assert.equal(calls, 2);
+      if (status === 429) assert(Date.parse(stale.nextRefreshAt!) >= now + 3_600_000);
+    } finally { store.close(); rmSync(dir, { recursive: true }); }
+  }
+});

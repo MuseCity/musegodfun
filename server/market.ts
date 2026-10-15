@@ -1,5 +1,5 @@
 import type { StoreBackend } from "./supabase-store";
-import { MarketUnavailable, Snapshots } from "./snapshots";
+import { MarketFailure, MarketUnavailable, Snapshots } from "./snapshots";
 import { z } from "zod";
 import { quoteAsset, sameAddress, type TokenRecord } from "../src/lib/config";
 import type {
@@ -85,7 +85,7 @@ export function parseMarketSummary(
     r.quote_token.data.id.toLowerCase() !==
       `base_${token.quoteAddress.toLowerCase()}`
   )
-    throw new Error("The market provider returned a different trading pair. Data is not displayed.");
+    throw new MarketFailure("invalid_identity", "CoinGecko");
   return {
     fetchedAt: new Date().toISOString(),
     priceUsd: a.base_token_price_usd,
@@ -123,7 +123,7 @@ export function parseCandles(raw: unknown, token: TokenRecord, now = Date.now())
     !sameAddress(data.meta.base.address, token.address) ||
     !sameAddress(data.meta.quote.address, token.quoteAddress)
   )
-    throw new Error("The candle trading pair does not match");
+    throw new MarketFailure("invalid_identity", "CoinGecko");
   return normalizeCandles(data.data.attributes.ohlcv_list, now);
 }
 export function parseBankrCandles(raw: unknown, token: TokenRecord, now = Date.now()): CandleData {
@@ -194,6 +194,7 @@ export function parseTrades(raw: unknown, token: TokenRecord): TradeData {
 export class MarketReader {
   private snapshots?: Snapshots;
   private geckoCalls: number[] = [];
+  private backoff = new Map<string, number>();
   constructor(
     private readonly options: {
       store?: StoreBackend;
@@ -212,7 +213,7 @@ export class MarketReader {
     read: () => Promise<T>,
     source?: MarketSource,
   ): Promise<T> {
-    if (!this.snapshots) throw new Error("Persistent market storage is not configured");
+    if (!this.snapshots) throw new MarketFailure("missing_config", source ?? "CoinGecko");
     return this.snapshots.get(
       key,
       source ?? (key.endsWith(":holders") ? "Blockscout" : "CoinGecko"),
@@ -230,40 +231,38 @@ export class MarketReader {
       );
   }
   private async json(url: string) {
-    const isMarket = new URL(url).hostname === "api.coingecko.com";
-    if (isMarket && !this.options.apiKey)
-      throw new Error("The CoinGecko Demo API key is not configured");
-    if (
-      isMarket &&
-      !(await this.options.store?.reserveMarketCall(
-        (this.options.now || Date.now)(),
-        this.options.daily,
-        this.options.monthly,
-      ))
-    )
-      throw new Error("The free market data quota for this period has been exhausted");
-    if (new URL(url).hostname === "api.geckoterminal.com") {
-      const now = (this.options.now || Date.now)();
-      this.geckoCalls = this.geckoCalls.filter((at) => now - at < 60_000);
-      if (this.geckoCalls.length >= 30) throw new Error("The GeckoTerminal public API request limit has been reached");
+    const host = new URL(url).hostname, now = (this.options.now || Date.now)();
+    const isMarket = host === "api.coingecko.com";
+    const source: MarketSource = isMarket ? "CoinGecko" : host === "api.geckoterminal.com" ? "GeckoTerminal"
+      : host === "api.bankr.bot" ? "Bankr" : "Blockscout";
+    const retryAt = this.backoff.get(host) ?? 0;
+    if (retryAt > now) throw new MarketFailure("rate_limited", source, 429, retryAt);
+    if (isMarket && !this.options.apiKey) throw new MarketFailure("missing_config", source);
+    if (isMarket && !(await this.options.store?.reserveMarketCall(now, this.options.daily, this.options.monthly)))
+      throw new MarketFailure("quota_exhausted", source);
+    if (source === "GeckoTerminal") {
+      this.geckoCalls = this.geckoCalls.filter(at => now - at < 60_000);
+      if (this.geckoCalls.length >= 30) throw new MarketFailure("rate_limited", source, undefined, now + 60_000);
       this.geckoCalls.push(now);
     }
-    const response = await (this.options.fetch || fetch)(url, {
-      method: "GET",
-      headers: {
-        accept: "application/json",
-        ...(isMarket ? { "x-cg-demo-api-key": this.options.apiKey! } : {}),
-      },
-      signal: AbortSignal.timeout(15_000),
-      redirect: "manual",
-    });
-    if (!response.ok)
-      throw new Error(
-        response.status === 404
-          ? "This pool is not yet indexed by the market provider."
-          : "The market provider is unavailable. Try refreshing later.",
-      );
-    return response.json();
+    let response: Response;
+    try {
+      response = await (this.options.fetch || fetch)(url, {
+        method: "GET", headers: { accept: "application/json", ...(isMarket ? { "x-cg-demo-api-key": this.options.apiKey! } : {}) },
+        signal: AbortSignal.timeout(15_000), redirect: "manual",
+      });
+    } catch { throw new MarketFailure("upstream_transport", source); }
+    if (!response.ok) {
+      let retry: number | undefined;
+      if (response.status === 429) {
+        const header = response.headers.get("retry-after");
+        retry = Math.max(now + 60_000, header && /^\d+$/.test(header) ? now + Number(header) * 1000 : Date.parse(header ?? "") || 0);
+        this.backoff.set(host, retry);
+      }
+      throw new MarketFailure(response.status === 404 ? "not_indexed" : response.status === 429 ? "rate_limited" : "upstream_http", source, response.status, retry);
+    }
+    try { return await response.json(); }
+    catch { throw new MarketFailure("invalid_schema", source); }
   }
   private pool(token: TokenRecord) {
     return `https://api.coingecko.com/api/v3/onchain/networks/base/pools/${token.poolId}`;
@@ -306,11 +305,16 @@ export class MarketReader {
             },
           );
           return { address: token.address, summary };
-        } catch {
+        } catch (error) {
+          const failure = error instanceof MarketUnavailable ? error : undefined;
           return {
             address: token.address,
             summary: null,
             status: "unavailable",
+            source: failure?.source ?? "CoinGecko",
+            reason: failure?.reason ?? "upstream_transport",
+            upstreamStatus: failure?.upstreamStatus,
+            nextRefreshAt: failure?.nextRefreshAt,
           };
         }
       }),
@@ -385,7 +389,7 @@ export class MarketReader {
         })
         .parse(rawInfo);
       if (!sameAddress(info.address_hash, token.address))
-        throw new Error("The holder data asset does not match");
+        throw new MarketFailure("invalid_identity", "Blockscout");
       const holders = z
         .object({
           items: z

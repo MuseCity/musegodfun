@@ -2,7 +2,7 @@
 
 日期：2026-10-15（Asia/Shanghai）
 
-状态：Run 1 只读取证已记录，P1 阶段门未通过；业务代码尚未实施。缺少完整正向成交样本和持有人可用来源，GeckoTerminal 备用源尚未验证，等待指挥者决定后续依赖与实施范围。
+状态：Run 2 按指挥者裁定实施中；P2 本地诊断改动已验证。完整数据恢复仍受生产 secret、登记 Base 正向样本和 holders 来源限制。
 
 ## 目标与完成条件
 
@@ -61,12 +61,12 @@
 
 涉及：`server/market.ts`、`server/snapshots.ts`、`src/lib/market.ts`、`server/app.ts`。
 
-- [ ] 在现有错误与快照元数据上补充稳定、脱敏的原因码，至少区分配置缺失、额度不足、未索引、限流、请求失败、身份/数据校验失败。保留已有 fresh / stale / unavailable 语义，不重做接口协议。
+- [x] 在现有错误与快照元数据上补充稳定、脱敏的原因码，至少区分配置缺失、额度不足、未索引、限流、请求失败、身份/数据校验失败。保留已有 fresh / stale / unavailable 语义，不重做接口协议。
 - [ ] 根据 P1 证据修复 Base 的实际根因。生产凭据或配置修改单列到发布步骤，不在代码修复时擅自修改。
 - [ ] 仅在 P1 验证可用后，为 Base summary / candles / trades 增加 GeckoTerminal 回退；按错误类型触发，不做无界重试。CoinGecko 和 GeckoTerminal 可能共享索引，回退不代表独立索引保障。
 - [ ] 保留已有真实零值与合法空结果；全空字段不得当作“行情已恢复”的正向验收证据。请求失败不能转换为成功的空数组。
 - [ ] 持有人独立处理，不因 CoinGecko 行情故障一起失效；Blockscout 失败时仅使用已验证的替代来源。
-- [ ] 批量摘要保留逐行状态和原因；HTTP 200 不代表每个代币都有有效行情。
+- [x] 批量摘要保留逐行状态和原因；HTTP 200 不代表每个代币都有有效行情。
 
 阶段门：Base 原故障得到解释；有成交样本能返回真实行情、六周期 K 线和成交，持有人有独立可验证路径。尚未解决的外部覆盖问题进入 P4，不能仅靠修改文案结项。
 
@@ -168,3 +168,11 @@
 
 - [CoinGecko Pool OHLCV：目标 token、USD/quote 计价、空周期行为](https://docs.coingecko.com/demo/reference/pool-ohlcv-contract-address)
 - [CoinGecko Pro Top Holders：Base / Robinhood 支持与 Beta、鉴权限制](https://docs.coingecko.com/reference/top-token-holders-token-address)
+
+### Run 2 / P2: local diagnostic implementation
+
+Authority: Run 2 commander's decisions supersede the Run 1 implementation hold; production configuration and deployment remain prohibited. `server/market.ts`, `snapshots.ts`, `app.ts`, and `src/lib/market.ts` preserve stable sanitized reasons and HTTP status in unavailable/stale/batch responses. No provider body or private URL is exposed. Retry suppression retains the cause; 429 honors Retry-After and snapshot TTL.
+
+Evidence under `.superpowers/sdd/market-data-reliability/evidence/`: `run2-p2-red.log` demonstrates two failing new tests before implementation; `run2-p2-test.log` passes 1466/1466 (zero skips/todos); `run2-p2-build.log` passes both TypeScript targets and Vite. `git diff --check` passes. MUSEGOD source remains unchanged.
+
+`run2-gt-worker-egress.json`: four unbound remote-dev GETs (R3 summary/hour/trades and B1 summary) all returned HTTP 429. GT identity/nonempty coverage remains unverified; no new Base fallback is implemented. Production Demo secret and holders source remain dependencies; this stage is a diagnostic improvement, not restored production data.

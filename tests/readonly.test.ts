@@ -133,7 +133,7 @@ test("snapshot coalescing, persistent quota, stale fallback, retry backoff and h
         cache.get("p", "CoinGecko", async () => {
           throw new Error("429");
         }),
-      /No valid snapshot/,
+      /Market data is temporarily unavailable/,
     );
   } finally {
     f.close();
