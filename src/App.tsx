@@ -641,7 +641,7 @@ export function App() {
               </nav>
             </div>
             <p>
-              Not investment advice. Launches use Doppler and Uniswap v4. Your meme token does not represent ownership of the underlying stock. musegod.fun is noncustodial: your wallet confirms every transaction. Not affiliated with {network.chainId === 8453 ? "Coinbase Global, Inc." : "Robinhood Markets, Inc."}
+              Not investment advice. Launches use Doppler and Uniswap v4. Your meme token does not represent ownership of the underlying asset. musegod.fun is noncustodial: your wallet confirms every transaction. Not affiliated with {network.chainId === 8453 ? "Coinbase Global, Inc." : "Robinhood Markets, Inc."}
             </p>
           </div>
         </footer>
