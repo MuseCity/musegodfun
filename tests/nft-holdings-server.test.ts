@@ -196,8 +196,11 @@ test("OpenSea lookup and page errors become a fixed unavailable message, never c
       const { fetch, urls } = fakeFetch([...(stage === "page" ? [slugReply] : []), failure, ...(stage === "slug" ? [slugReply] : []), emptyNfts]);
       const holdings = new NftHoldings({ openSeaKey: key, fetch });
       await failsUnavailable(() => holdings.tokens(owner, other));
+      assert.equal(urls.length, stage === "slug" ? 1 : 2);
       assert.deepEqual(await holdings.tokens(owner, other), { truncated: false, tokens: [] });
       assert.equal(urls.length, 3, `${stage}: failed lookup or answer retried; successful slug reused`);
+      assert.equal(new URL(urls.at(-1)!).searchParams.get("collection"), "revealed-muses");
+      if (stage === "slug") assert(urls[1]!.includes("/contract/"), "retry looks up a failed slug again");
     }
   }
 });
@@ -239,7 +242,7 @@ test("identical in-flight lists share one load, including token pages; failed sh
   assert.deepEqual(await retry, { truncated: false, tokens: [] });
 });
 
-test("six uncached loads are shared across providers; token in-flight sharing and cache hits still work", async () => {
+test("six uncached loads are shared across providers; token in-flight sharing and cache hits still work", { timeout: 5_000 }, async () => {
   const releases: (() => void)[] = [];
   let calls = 0, held = false;
   const fetch = (async (url: string | URL) => {

@@ -482,7 +482,7 @@ test("the committed hide list names both chains", () => {
 
 // ---- the NFT step's wallet lists (tasks/nft-mode-wallet-picker.md §4) ----------------------------------------
 const holder = "0x1111111111111111111111111111111111111111";
-test("wallet lists: 400 on a bad address, 503 NFT_LIST_UNAVAILABLE without an Alchemy key, never the key", async () => {
+test("wallet lists: 400 on a bad address, 503 NFT_LIST_UNAVAILABLE without a provider key, never the key", async () => {
   for (const path of ["/api/nft-collections", "/api/chains/4663/nft-tokens"]) assert.equal(ingressClass(path), "read");
   await httpFixture(async (_entry, origin) => {
     for (const path of ["/api/nft-collections?owner=nope", `/api/nft-tokens?owner=${holder}&contract=nope`])
@@ -493,6 +493,33 @@ test("wallet lists: 400 on a bad address, 503 NFT_LIST_UNAVAILABLE without an Al
       assert.deepEqual(await response.json(), { error: "Your NFTs could not be loaded. Enter the contract and token number instead.", code: "NFT_LIST_UNAVAILABLE" });
     }
   }, undefined, { chainScoped: true });
+});
+
+test("wallet lists wire distinct provider keys through the service; OpenSea uses x-api-key only", async (t) => {
+  const requests: { url: URL; headers: Headers }[] = [];
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    requests.push({ url: new URL(input instanceof Request ? input.url : input), headers: new Headers(init?.headers) });
+    return new Response("{}", { status: 503 });
+  });
+  const directory = mkdtempSync(join(tmpdir(), "nft-provider-keys-"));
+  const service = new LaunchpadService(runtimeFromEnv(4663, { NODE_ENV: "test", CHAIN_MODE: "fork", FORK_CHAIN_ID: "4663", DATA_DIR: directory,
+    PLATFORM_TREASURY: "0x2222222222222222222222222222222222222222", NFT_MODE_ENABLED: "true",
+    ALCHEMY_API_KEY: "alchemy-k", OPENSEA_API_KEY: "opensea-k" }));
+  try {
+    await assert.rejects(() => service.nftHoldings.tokens(getAddress(holder), MUSES.contract), (e: any) => e.code === "NFT_LIST_UNAVAILABLE");
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0]!.url.hostname, "api.opensea.io");
+    assert.equal(requests[0]!.headers.get("x-api-key"), "opensea-k");
+    await assert.rejects(() => service.nftHoldings.collections(getAddress(holder), () => false), (e: any) => e.code === "NFT_LIST_UNAVAILABLE");
+    assert.equal(requests.length, 2);
+    assert.equal(requests[1]!.url.hostname, "robinhood-mainnet.g.alchemy.com");
+    assert.equal(requests[1]!.url.pathname, "/nft/v3/alchemy-k/getContractsForOwner");
+    assert.equal(requests[1]!.headers.get("x-api-key"), null);
+    for (const { url, headers } of requests) {
+      assert.equal(url.href.includes("opensea-k"), false);
+      for (const [name, value] of headers) if (name !== "x-api-key") assert.equal(value.includes("opensea-k"), false);
+    }
+  } finally { service.store.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
 test("wallet lists answer the §4 shapes; launched marks verified coins only; Muses are free", async () => {

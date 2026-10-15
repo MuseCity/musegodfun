@@ -132,7 +132,7 @@ There are two new read endpoints. They sit next to `nft-status` and are served u
 
 ```json
 { "owner": "0x…", "contract": "0x…", "truncated": false,
-  "tokens": [ { "tokenId": "631", "name": "Sealed Muse", "image": "https://…", "launched": false } ] }
+  "tokens": [ { "tokenId": "631", "name": "Dimple", "image": "https://…", "launched": false } ] }
 ```
 
 - **Why OpenSea (W5):** Alchemy's cached token metadata can stay frozen before a reveal.
@@ -163,8 +163,8 @@ There are two new read endpoints. They sit next to `nft-status` and are served u
   - reaching a provider budget: 120 Alchemy calls, or 120 OpenSea calls (slug lookups and pages), per rolling minute.
   - Identical in-flight requests share one load.
 - **Caching:** in memory for 60 s, per owner for collections and per owner + contract for NFTs. Keys are lowercase addresses. A failure is not cached.
-- **Secrecy:** the Alchemy key stays on the server. Responses carry no Alchemy URL other than image URLs.
-- **Cost:** at most 3 Alchemy calls per uncached request. They go to the NFT API host (`robinhood-mainnet.g.alchemy.com/nft/v3/…`), not to the RPC proxy.
+- **Secrecy:** provider keys (`ALCHEMY_API_KEY`, `OPENSEA_API_KEY`) stay on the server; the OpenSea key is sent only in `x-api-key`. Responses carry no Alchemy URL other than image URLs.
+- **Cost:** collections: at most 3 Alchemy calls per uncached request, to the NFT API host (`robinhood-mainnet.g.alchemy.com/nft/v3/…`), not to the RPC proxy. NFTs: at most 3 OpenSea pages plus one slug lookup (cached 1 h).
 
 ## 5. Out of scope
 
@@ -192,7 +192,7 @@ There are two new read endpoints. They sit next to `nft-status` and are served u
 3. Opening a collection lists the wallet's NFTs in it. Already launched NFTs cannot be selected.
 4. Selecting an NFT runs the existing check and fee flow. Continue, and the step bar, move on only when `nftReviewBlocker` would pass; otherwise the step says why. Name and symbol are prefilled only into empty fields, never with a reserved name.
 5. Manual entry works, and it is offered when the list is empty or fails.
-6. The endpoints return the §4 shapes and codes: 400, 422 (including Base), 503 `NFT_LIST_UNAVAILABLE`. They respect the 300 caps with `truncated`, cache for 60 s, and never expose the Alchemy key.
+6. The endpoints return the §4 shapes and codes: 400, 422 (including Base), 503 `NFT_LIST_UNAVAILABLE`. They respect the 300 caps with `truncated`, cache for 60 s, and never expose a provider key.
 7. Drafts restore their step as §3.3 says. A draft link with `nft` opens on the NFT step with that NFT selected. Two tabs on one draft never move each other's step unless the saved step itself changed.
 8. Normal mode, Base, and every other page behave as before.
 9. At 375 px there is no horizontal page scroll, and every control is reachable by keyboard with an accessible name.

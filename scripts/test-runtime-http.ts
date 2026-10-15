@@ -76,6 +76,7 @@ for (const f of await readdir("dist/assets"))
   if (f.endsWith(".js")) texts.push(await readFile("dist/assets/" + f, "utf8"));
 for (const secret of [
   "ALCHEMY_API_KEY",
+  "OPENSEA_API_KEY",
   "COINGECKO_API_KEY",
   "SUPABASE_SECRET_KEY",
   "SUPABASE_DB_URL",
