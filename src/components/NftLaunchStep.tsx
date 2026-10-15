@@ -67,12 +67,19 @@ export function NftLaunchStep({ config, account, draft, connecting, onConnect, e
   // How the NFT is chosen: from the wallet's list (default), or typed. A draft that already holds an NFT (a reload, another tab, a draft
   // link) opens on its summary, so it is checked again rather than hidden behind an empty list.
   const [manual, setManual] = useState(false), [picking, setPicking] = useState(!nft);
+  const picker = useRef<HTMLDivElement>(null), contractInput = useRef<HTMLInputElement>(null), selectedName = useRef<HTMLSpanElement>(null);
+  const showPicker = () => {
+    setManual(false); setPicking(true);
+    requestAnimationFrame(() => (picker.current?.querySelector<HTMLInputElement>('input[type="search"]')
+      ?? picker.current?.querySelector<HTMLButtonElement>("button:not(:disabled)"))?.focus());
+  };
   const picked = useRef(new Map<string, { name?: string; image?: string }>());
   const choose = (pick: NftPick) => {
     const key = nftKey({ chainId: deploymentChain(config), contract: pick.contract, tokenId: pick.tokenId });
     picked.current.set(key, { name: pick.name, image: pick.image });
     edit(() => { setContract(pick.contract); setTokenId(pick.tokenId); });
     setPicking(false); setManual(false);
+    requestAnimationFrame(() => selectedName.current?.focus());
   };
   const [status, setStatus] = useState<NftStatus | null>(null), [statusFor, setStatusFor] = useState("");
   const [checkError, setCheckError] = useState(""), [attempt, setAttempt] = useState(0);
@@ -123,7 +130,7 @@ export function NftLaunchStep({ config, account, draft, connecting, onConnect, e
 
   const statusText = !account ? "Connect the wallet that holds the NFT."
     : tokenId && !parsed.success ? parsed.error.issues[0]?.message ?? "Check the contract and token number."
-    : !candidate ? "Enter the token number to check it."
+    : !candidate ? manual ? "Enter the token number to check it." : "Choose an NFT from your wallet, or enter a contract and token number."
     : checkError ? checkError
     : !current ? "Checking this NFT…"
     : !current.erc721 ? "This contract is not an ERC-721 collection."
@@ -149,7 +156,7 @@ export function NftLaunchStep({ config, account, draft, connecting, onConnect, e
       {manual ? <>
         <label className="field">
           <span className="field-label">Collection contract</span>
-          <input aria-label="Collection contract" className="mono" value={contract} spellCheck={false} autoComplete="off"
+          <input ref={contractInput} aria-label="Collection contract" className="mono" value={contract} spellCheck={false} autoComplete="off"
             onChange={(event) => edit(() => setContract(event.target.value.trim()))} />
         </label>
         {contract.toLowerCase() !== MUSES.contract.toLowerCase() &&
@@ -160,15 +167,16 @@ export function NftLaunchStep({ config, account, draft, connecting, onConnect, e
             aria-invalid={!!error} aria-describedby={error ? `nft-launch-status ${NFT_ERROR_ID}` : "nft-launch-status"}
             onChange={(event) => edit(() => setTokenId(event.target.value.trim()))} />
         </label>
-        <button type="button" className="text-button" onClick={() => { setManual(false); setPicking(true); }}>Choose from your wallet instead</button>
-      </> : picking ? <NftPicker key={`${account}|${config.chainId}|${config.deploymentChainId}`} config={config} account={account} connecting={connecting} onConnect={onConnect} onPick={choose} onManual={() => setManual(true)} /> :
+        <button type="button" className="text-button" onClick={showPicker}>Choose from your wallet instead</button>
+      </> : picking ? <div ref={picker}><NftPicker key={`${account}|${config.chainId}|${config.deploymentChainId}`} config={config} account={account} connecting={connecting} onConnect={onConnect} onPick={choose}
+        onManual={() => { setManual(true); requestAnimationFrame(() => contractInput.current?.focus()); }} /></div> :
         <div className="nft-selected">
           <Thumb size={56} src={candidate ? picked.current.get(candidateKey)?.image : undefined} />
           <div className="nft-collection-text">
-            <span className="nft-collection-name">{(candidate && picked.current.get(candidateKey)?.name) ?? `${candidate && isMuse(candidate) ? "Muse" : "NFT"} #${tokenId}`}</span>
+            <span ref={selectedName} className="nft-collection-name" tabIndex={-1}>{(candidate && picked.current.get(candidateKey)?.name) ?? `${candidate && isMuse(candidate) ? "Muse" : "NFT"} #${tokenId}`}</span>
             <span className="hint mono">{shortAddress(contract)} · #{tokenId}</span>
           </div>
-          <button type="button" className="secondary" onClick={() => setPicking(true)}>Change</button>
+          <button type="button" className="secondary" onClick={showPicker}>Change</button>
         </div>}
       <p id="nft-launch-status" className="nft-status" role="status" aria-live="polite">{statusText}</p>
       {checkError && account && candidate && <button type="button" className="text-button" onClick={() => setAttempt((value) => value + 1)}>Retry</button>}

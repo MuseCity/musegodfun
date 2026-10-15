@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Address } from "viem";
 import type { RuntimeConfig } from "../lib/config";
-import { filterCollections, type OwnedCollection, type OwnedCollections, type OwnedNfts } from "../lib/nft-holdings";
+import { filterCollections, nftTokensMatch, type OwnedCollection, type OwnedCollections, type OwnedNfts } from "../lib/nft-holdings";
 import { readNftCollections, readNftTokens } from "../lib/nft-client";
 
 export type NftPick = { contract: Address; tokenId: string; name?: string; image?: string };
@@ -22,6 +22,7 @@ export function NftPicker({ config, account, connecting, onConnect, onPick, onMa
   const [collections, setCollections] = useState<Load<OwnedCollections>>({ state: "loading" });
   const [open, setOpen] = useState<OwnedCollection | null>(null);
   const [tokens, setTokens] = useState<Load<OwnedNfts>>({ state: "loading" });
+  const search = useRef<HTMLInputElement>(null), heading = useRef<HTMLHeadingElement>(null);
   // Separate retry counters: retrying one collection's NFTs must not close that collection or reload the collection list.
   const [query, setQuery] = useState(""), [listAttempt, setListAttempt] = useState(0), [tokenAttempt, setTokenAttempt] = useState(0);
   useEffect(() => { setOpen(null); setQuery(""); }, [account, config.chainId, config.deploymentChainId]);
@@ -55,9 +56,9 @@ export function NftPicker({ config, account, connecting, onConnect, onPick, onMa
   if (collections.state === "error") return <div className="nft-picker">{failed(() => setListAttempt((n) => n + 1))}</div>;
 
   if (open) return <div className="nft-picker">
-    <button type="button" className="text-button" onClick={() => setOpen(null)}>← All collections</button>
-    <h3 className="field-label">{open.name}</h3>
-    {tokens.state === "loading" || tokens.state === "ready" && (tokens.value.owner.toLowerCase() !== account.toLowerCase() || tokens.value.contract.toLowerCase() !== open.contract.toLowerCase()) ? <p role="status">Loading your NFTs…</p>
+    <button type="button" className="text-button" onClick={() => { setOpen(null); requestAnimationFrame(() => search.current?.focus()); }}>← All collections</button>
+    <h3 ref={heading} className="field-label" tabIndex={-1}>{open.name}</h3>
+    {tokens.state === "loading" || tokens.state === "ready" && !nftTokensMatch(tokens.value, account, open.contract) ? <p role="status">Loading your NFTs…</p>
       : tokens.state === "error" ? failed(() => setTokenAttempt((n) => n + 1))
       : <>
         <ul className="nft-token-grid" role="list">
@@ -81,12 +82,12 @@ export function NftPicker({ config, account, connecting, onConnect, onPick, onMa
     {collections.value.collections.length === 0 ? <p>No NFTs found in this wallet on Robinhood Chain.</p> : <>
       <label className="field">
         <span className="field-label">Search your collections</span>
-        <input type="search" aria-label="Search your collections" value={query} autoComplete="off" spellCheck={false}
+        <input ref={search} type="search" aria-label="Search your collections" value={query} autoComplete="off" spellCheck={false}
           onChange={(event) => setQuery(event.target.value)} />
       </label>
       <ul className="nft-collection-list" role="list">
         {shown.map((collection) => <li key={collection.contract}>
-          <button type="button" className="nft-collection-row" onClick={() => setOpen(collection)}>
+          <button type="button" className="nft-collection-row" onClick={() => { setOpen(collection); requestAnimationFrame(() => heading.current?.focus()); }}>
             <Thumb src={collection.image} size={40} />
             <span className="nft-collection-text">
               <span className="nft-collection-name">{collection.name}</span>

@@ -11,6 +11,11 @@ export type OwnedNfts = { owner: Address; contract: Address; truncated: boolean;
 /** Provider pages of 100 read per answer: at most 300 collections, or 300 NFTs of one collection; more sets `truncated`. */
 export const HOLDINGS_MAX_PAGES = 3;
 
+/** An earlier wallet or collection's answer must stay hidden while the current list loads. */
+export function nftTokensMatch(value: OwnedNfts, owner: Address, contract: Address): boolean {
+  return value.owner.toLowerCase() === owner.toLowerCase() && value.contract.toLowerCase() === contract.toLowerCase();
+}
+
 const isMusesContract = (contract: string) => contract.toLowerCase() === MUSES.contract.toLowerCase();
 
 /** §3.2 order. Muses are pinned by address only, so a copycat name never rises to the top. */

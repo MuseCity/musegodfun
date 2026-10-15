@@ -27,7 +27,7 @@ const tokenLookupModes = new Set(['token_detail_pending', 'token_detail_error', 
 const timeoutModes = new Set(['approval_timeout', 'payment_timeout', 'launch_timeout', 'approval_timeout_reject']);
 const recoveryRaceModes = new Set(['payment_marker_race', 'launch_marker_race', 'payment_status_race', 'payment_submit_race', 'payment_submit_record_race']);
 // NFT mode: the mode switch, the Muse pair lock, the $10 fee card before review and prepare's NFT rejections. No launch is signed.
-const nftModes = new Set(['nft_reload_keeps_nft', 'nft_muse_free', 'nft_paid_usdg', 'nft_paid_eth', 'nft_fee_sending_reload', 'nft_not_controlled', 'nft_already_launched', 'nft_draft_link_during_reconnect', 'nft_draft_link_locked_wallet', 'nft_fee_no_vault', 'nft_fee_mode_off']);
+const nftModes = new Set(['nft_reload_keeps_nft', 'nft_muse_free', 'nft_paid_usdg', 'nft_paid_eth', 'nft_fee_sending_reload', 'nft_not_controlled', 'nft_already_launched', 'nft_draft_link_during_reconnect', 'nft_draft_link_locked_wallet', 'nft_fee_no_vault', 'nft_fee_mode_off', 'nft_wallet_picker', 'nft_wallet_switch_mid_load']);
 const feeWei = '3333333333333334';
 const muses = '0x13Ea3072b7215d4C9c2Ec4f498A08c5825129836', paidCollection = '0x9999999999999999999999999999999999999999';
 const usdg = '0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168', musegodAsset = ROBINHOOD_STOCKS.find(x => x.symbol === 'MUSEGOD');
@@ -90,7 +90,8 @@ async function casePage(mode, viewport = { width: 1440, height: 1000 }) {
     approvalCanonical: mode !== 'approval_pending', configurationReleased: mode !== 'delayed_config', releaseConfiguration: [],
     unresolvedRequests: new Map(), holdVerification: ['payment_submit_race', 'payment_submit_record_race'].includes(mode), releaseVerification: null,
     holdRegistration: false, releaseRegistration: null, priceRequests: 0, paymentQuoteRequests: [], releaseDetail: null, detailRequested: false,
-    trackRequests: 0, trackedHash: null, trackedReceipt: false, nftStatusRequests: [], feeReceipt: true, holdReconnect: false, reconnectHeld: false, reconnectResolvers: [], walletLocked: false, refusedSends: 0 };
+    trackRequests: 0, trackedHash: null, trackedReceipt: false, nftStatusRequests: [], feeReceipt: true, holdReconnect: false, reconnectHeld: false, reconnectResolvers: [], walletLocked: false, refusedSends: 0, nftCollectionRequests: [], nftTokenRequests: [],
+    holdNftCollections: mode === 'nft_wallet_switch_mid_load', nftCollectionResolvers: [] };
   // A held fee payment is not mined yet: it spends no nonce and has no receipt.
   const minedSends = () => state.sends.filter(sent => !sent.fee || state.feeReceipt);
   const chainTransaction = sent => ({ hash:sent.hash, from:creator, to:sent.to, input:sent.data, value:sent.value ?? '0x0', nonce:toHex(state.sends.indexOf(sent)),
@@ -100,7 +101,8 @@ async function casePage(mode, viewport = { width: 1440, height: 1000 }) {
   await context.addInitScript(({ creator, treasury, mode, walletSend }) => {
     const listeners = new Map();
     let selectedAccount = creator, selectedChain = '0x7a69';
-    const provider = { __emit(name, value) { for (const fn of listeners.get(name) || []) fn(value); },
+    const provider = { __emit(name, value) { if (name === 'accountsChanged') selectedAccount = value[0] || creator;
+      for (const fn of listeners.get(name) || []) fn(value); },
       on(name, fn) { const list = listeners.get(name) || []; list.push(fn); listeners.set(name,list); }, removeListener(name, fn) { listeners.set(name,(listeners.get(name)||[]).filter(x=>x!==fn)); },
       async request(request) {
         if (request.method === 'eth_accounts' || request.method === 'eth_requestAccounts') {
@@ -211,6 +213,23 @@ async function casePage(mode, viewport = { width: 1440, height: 1000 }) {
         return reply({ status: 'pending', hash: sent.hash });
       if (state.holdVerification) await new Promise(resolve => { state.releaseVerification = resolve; });
       return reply({ status: 'success', hash: sent.hash, actualOutput, pairedAsset: quote.address, account: creator, blockNumber: '16', blockHash });
+    }
+    if (path === '/api/nft-collections') {
+      const owner = url.searchParams.get('owner');
+      state.nftCollectionRequests.push(owner);
+      if (state.holdNftCollections && owner?.toLowerCase() === creator)
+        await new Promise(resolve => state.nftCollectionResolvers.push(resolve));
+      return reply({ owner, truncated: false, collections: owner?.toLowerCase() === creator ? [
+        { contract: muses, name: 'MUSEGOD Muses', held: 2, free: true, openSeaVerified: true },
+        { contract: paidCollection, name: 'Bronze Keys', held: 2, free: false, openSeaVerified: false },
+      ] : [{ contract: paidCollection, name: 'New wallet collection', held: 1, free: false, openSeaVerified: false }] });
+    }
+    if (path === '/api/nft-tokens') {
+      const owner = url.searchParams.get('owner'), contract = url.searchParams.get('contract');
+      state.nftTokenRequests.push({ owner, contract });
+      return reply({ owner, contract, truncated: false, tokens: contract?.toLowerCase() === muses.toLowerCase()
+        ? [{ tokenId: '1', name: 'Bard', launched: false }, { tokenId: '9', name: 'Launched Muse', launched: true }]
+        : [{ tokenId: '5', name: 'Bronze Key #2014', launched: false }, { tokenId: '9', name: 'Launched Key', launched: true }] });
     }
     if (path === '/api/nft-status') {
       const [chainId, contract, tokenId] = (url.searchParams.get('nft') || '').split(':');
@@ -980,7 +999,74 @@ async function nftReloadCase(page, state) {
   state.nftChecks = { reloadKeptStoredNft: true, unEditedTabKeptNft: true, reviewBlockedWhileRechecking: true, failedCheckKeptNftWithRetry: true,
     passiveTabFocusFollowsStep: true, noPaymentBeforeCheck: true, revokedNftDropped: true };
 }
+async function walletPickerCase(page, state) {
+  await page.getByRole('button', { name: 'Connect wallet', exact: true }).click();
+  const walletChoice = page.getByRole('button', { name: /Local acceptance wallet/ });
+  if (await walletChoice.count()) await walletChoice.click();
+  await page.getByRole('radio', { name: 'NFT', exact: true }).check();
+  if (state.mode === 'nft_wallet_switch_mid_load') {
+    await waitForFixture(() => state.nftCollectionResolvers.length > 0, 'the old wallet list held open');
+    await page.evaluate(() => {
+      window.__seenNftCollections = [];
+      const record = node => {
+        if (!(node instanceof Element)) return;
+        const rows = [...node.querySelectorAll('.nft-collection-row')];
+        if (node.matches('.nft-collection-row')) rows.push(node);
+        for (const row of rows) window.__seenNftCollections.push(row.textContent);
+      };
+      window.__nftCollectionObserver = new MutationObserver(records => {
+        for (const recordOfChange of records) for (const node of recordOfChange.addedNodes) record(node);
+      });
+      window.__nftCollectionObserver.observe(document.body, { childList: true, subtree: true });
+      record(document.body);
+    });
+    await page.evaluate(account => window.ethereum.__emit('accountsChanged', [account]), treasury);
+    const fresh = page.getByRole('button', { name: /New wallet collection/ });
+    await fresh.waitFor();
+    assert.equal(state.nftCollectionRequests.some(owner => owner?.toLowerCase() === treasury), true);
+    const oldResponse = page.waitForResponse(response => {
+      const url = new URL(response.url());
+      return url.pathname.endsWith('/nft-collections') && url.searchParams.get('owner')?.toLowerCase() === creator;
+    });
+    state.holdNftCollections = false;
+    state.nftCollectionResolvers.splice(0).forEach(resolve => resolve());
+    await (await oldResponse).finished();
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    assert.equal(await fresh.isVisible(), true);
+    assert.equal(await page.getByRole('button', { name: /MUSEGOD Muses|Bronze Keys/ }).count(), 0);
+    const seen = await page.evaluate(() => { window.__nftCollectionObserver.disconnect(); return window.__seenNftCollections; });
+    assert(seen.length > 0 && seen.every(name => !/MUSEGOD Muses|Bronze Keys/.test(name)), 'old wallet collections never appeared, including after its late response');
+    assert.equal(state.sends.length, 0); assert.equal(state.prepareRequests.length, 0);
+    state.nftChecks = { walletSwitchDuringLoad: true, lateOldCollectionsHidden: true };
+    return;
+  }
+  await page.getByRole('button', { name: /Bronze Keys/ }).waitFor();
+  const chooseText = 'Choose an NFT from your wallet, or enter a contract and token number.';
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await page.locator('#nft-launch-error').getByText(chooseText, { exact: true }).waitFor();
+  await page.getByRole('button', { name: /Bronze Keys/ }).click();
+  await page.getByRole('heading', { name: 'Bronze Keys', exact: true }).waitFor();
+  await page.waitForFunction(() => document.activeElement?.textContent === 'Bronze Keys');
+  assert.equal(await page.getByRole('button', { name: 'Launched Key, already launched', exact: true }).isDisabled(), true);
+  await page.getByRole('button', { name: 'Bronze Key #2014', exact: true }).click();
+  await page.locator('.nft-selected').getByText('Bronze Key #2014', { exact: true }).waitFor();
+  await page.waitForFunction(() => document.activeElement?.textContent === 'Bronze Key #2014');
+  await page.waitForFunction(() => document.querySelector('input[name="name"]')?.value === 'Bronze Key #2014');
+  assert.equal(await page.getByLabel('Token symbol', { exact: true }).inputValue(), 'BRONZEKEY');
+  assert.match(await page.locator('.nft-selected').innerText(), /#5/);
+  await page.getByRole('button', { name: 'Pay 10 USDG', exact: true }).click();
+  await page.getByText(/Launch fee paid\./).waitFor();
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await page.getByRole('heading', { name: 'Give it a name and a face', exact: true }).waitFor();
+  assert.equal(await page.getByLabel('Token name', { exact: true }).inputValue(), 'Bronze Key #2014');
+  assert.equal(await page.getByLabel('Token symbol', { exact: true }).inputValue(), 'BRONZEKEY');
+  assert.equal(state.sends.length, 1); assert.equal(state.sends[0].fee, true, 'only the mock fee was sent');
+  assert.equal(state.prepareRequests.length, 0);
+  assert(state.nftTokenRequests.some(row => row.contract.toLowerCase() === paidCollection));
+  state.nftChecks = { walletPicker: true, listedNamePrefill: true, alreadyLaunchedDisabled: true, summary: true, identityAfterFee: true };
+}
 async function nftCase(page, state) {
+  if (['nft_wallet_picker', 'nft_wallet_switch_mid_load'].includes(state.mode)) return walletPickerCase(page, state);
   if (state.mode === 'nft_reload_keeps_nft') return nftReloadCase(page, state);
   if (state.mode === 'nft_draft_link_during_reconnect') return draftLinkCase(page, state);
   if (state.mode === 'nft_draft_link_locked_wallet') return lockedWalletCase(page, state);
@@ -1181,7 +1267,7 @@ async function nftCase(page, state) {
   await page.screenshot({ path: `.cache/launch-browser-${mode}.png`, fullPage: true }); report.screenshots.push(`.cache/launch-browser-${mode}.png`);
 }
 try {
-  for (const mode of (process.env.BROWSER_CASES?.split(',') || ['success','plain','duplicate','stale_page','reject_approval','wallet_refuses_sends','expiry','account_change','network_change','simulation_failure','two_tabs','two_tabs_draft','unknown_send','approval_unknown','approval_pending','wrap_flow','wrap_price_change','delayed_config','unknown_fetch','approval_timeout','payment_timeout','launch_timeout','approval_timeout_reject','payment_marker_race','launch_marker_race','payment_status_race','payment_submit_race','payment_submit_record_race','wrap_late_launch_recovery','wrap_near_expiry','idle_review','hidden_review','idle_plain','token_detail_pending','token_detail_error','token_detail_state_unavailable','token_detail_unregistered_backup','token_detail_invalid_pool','token_detail_unverified_opening','history_track_backoff','nft_muse_free','nft_paid_usdg','nft_paid_eth','nft_fee_sending_reload','nft_not_controlled','nft_already_launched','nft_draft_link_during_reconnect','nft_draft_link_locked_wallet','nft_fee_no_vault','nft_fee_mode_off','nft_reload_keeps_nft'])) {
+  for (const mode of (process.env.BROWSER_CASES?.split(',') || ['success','plain','duplicate','stale_page','reject_approval','wallet_refuses_sends','expiry','account_change','network_change','simulation_failure','two_tabs','two_tabs_draft','unknown_send','approval_unknown','approval_pending','wrap_flow','wrap_price_change','delayed_config','unknown_fetch','approval_timeout','payment_timeout','launch_timeout','approval_timeout_reject','payment_marker_race','launch_marker_race','payment_status_race','payment_submit_race','payment_submit_record_race','wrap_late_launch_recovery','wrap_near_expiry','idle_review','hidden_review','idle_plain','token_detail_pending','token_detail_error','token_detail_state_unavailable','token_detail_unregistered_backup','token_detail_invalid_pool','token_detail_unverified_opening','history_track_backoff','nft_muse_free','nft_paid_usdg','nft_paid_eth','nft_fee_sending_reload','nft_not_controlled','nft_already_launched','nft_draft_link_during_reconnect','nft_draft_link_locked_wallet','nft_fee_no_vault','nft_fee_mode_off','nft_reload_keeps_nft','nft_wallet_picker','nft_wallet_switch_mid_load'])) {
     const {context,page,state,pageErrors}=await casePage(mode);
     const plain = plainModes.has(mode);
     if (mode === 'success') {

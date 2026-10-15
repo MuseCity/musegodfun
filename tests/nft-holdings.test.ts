@@ -1,12 +1,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { getAddress } from "viem";
-import { filterCollections, httpsImage, reservedLaunchName, sortCollections, type OwnedCollection } from "../src/lib/nft-holdings";
+import { filterCollections, httpsImage, nftTokensMatch, reservedLaunchName, sortCollections, type OwnedCollection } from "../src/lib/nft-holdings";
 import { musePrefill } from "../src/lib/nft-client";
 import { MUSES } from "../src/lib/nft-mode";
 
 const at = (n: number) => getAddress(`0x${n.toString(16).padStart(40, "0")}`);
 const row = (over: Partial<OwnedCollection>): OwnedCollection => ({ contract: at(1), name: "A", held: 1, free: false, openSeaVerified: false, ...over });
+
+test("picker token answers match both the current wallet and collection, ignoring address case", () => {
+  const answer = { owner: at(1), contract: MUSES.contract, truncated: false, tokens: [] };
+  assert.equal(nftTokensMatch(answer, at(1), MUSES.contract.toLowerCase() as typeof MUSES.contract), true);
+  assert.equal(nftTokensMatch(answer, at(2), MUSES.contract), false, "a previous wallet's NFTs stay hidden");
+  assert.equal(nftTokensMatch(answer, at(1), at(3)), false, "a previous collection's NFTs stay hidden");
+});
 
 test("collections order: Muses by address, then OpenSea-verified, then most held, then name", () => {
   const list = [

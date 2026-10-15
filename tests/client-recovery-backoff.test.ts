@@ -18,6 +18,19 @@ function receiptClient(row: Transaction, head: bigint) {
     getBlockNumber: async () => head, getBlock: async () => ({ hash: blockHash }) };
 }
 
+test("NFT_LIST_UNAVAILABLE returns immediately; retrying the picker is explicit", async (context) => {
+  let calls = 0;
+  context.mock.method(globalThis, "fetch", async () => {
+    calls++;
+    return new Response(JSON.stringify({ error: "Your NFTs could not be loaded. Enter the contract and token number instead.", code: "NFT_LIST_UNAVAILABLE" }),
+      { status: 503, headers: { "content-type": "application/json" } });
+  });
+  for (const path of ["/chains/4663/nft-collections?owner=0x1", "/chains/4663/nft-tokens?owner=0x1&contract=0x2"]) {
+    await assert.rejects(() => api(path), (error: unknown) => error instanceof ApiError && error.status === 503 && error.code === "NFT_LIST_UNAVAILABLE");
+  }
+  assert.equal(calls, 2, "one request for each explicit picker load");
+});
+
 test("api returns a long server-requested wait to the caller instead of retrying after three seconds", async (context) => {
   let calls = 0, retryAfter = "60";
   context.mock.method(globalThis, "fetch", async () => {

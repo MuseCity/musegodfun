@@ -20,6 +20,7 @@ function fakeFetch(replies: Reply[]) {
 const contract = (address: string, over: object = {}) => ({ address, name: "Name", tokenType: "ERC721", isSpam: false, numDistinctTokensOwned: "2",
   image: { thumbnailUrl: "https://img.test/t.png" }, openSeaMetadata: { collectionName: "OS Name", imageUrl: "https://os.test/logo.png", safelistRequestStatus: "not_requested" }, ...over });
 const isFree = (c: string) => c.toLowerCase() === MUSES.contract.toLowerCase();
+const at = (n: number) => getAddress(`0x${n.toString(16).padStart(40, "0")}`);
 const failsUnavailable = async (run: () => Promise<unknown>) => {
   await assert.rejects(run, (e: any) => e.code === "NFT_LIST_UNAVAILABLE" && e.message === NFT_LIST_UNAVAILABLE_MESSAGE && !/alchemy|key/i.test(e.message));
 };
@@ -89,4 +90,99 @@ test("tokens: this contract only, valid decimal ids, numeric order, https images
   const result = await new AlchemyNftHoldings({ apiKey: "k", fetch }).tokens(owner, other);
   assert.deepEqual(result, { truncated: false, tokens: [{ tokenId: "9" }, { tokenId: "10", name: "Item 10", image: "https://img.test/n.png" }] });
   assert.match(urls[0], /getNFTsForOwner\?/); assert.match(urls[0], new RegExp(`contractAddresses%5B%5D=${other}`)); assert.match(urls[0], /withMetadata=true/);
+});
+
+test("identical in-flight lists share a load; failed shared loads can be retried", async () => {
+  const releases: ((response: Response) => void)[] = [];
+  const urls: string[] = [];
+  const fetch = ((url: string | URL) => {
+    urls.push(String(url));
+    return new Promise<Response>((resolve) => releases.push(resolve));
+  }) as typeof globalThis.fetch;
+  const holdings = new AlchemyNftHoldings({ apiKey: "k", fetch, now: () => 0 });
+  const first = holdings.collections(owner, isFree), second = holdings.collections(owner.toLowerCase() as typeof owner, isFree);
+  assert.equal(urls.length, 1);
+  releases.shift()!(new Response(JSON.stringify({ contracts: [contract(other)] })));
+  assert.deepEqual(await first, await second);
+  const tokens = holdings.tokens(owner, other), same = holdings.tokens(owner, other.toLowerCase() as typeof other);
+  const failed = Promise.all([failsUnavailable(() => tokens), failsUnavailable(() => same)]);
+  assert.equal(urls.length, 2);
+  releases.shift()!(new Response("{}", { status: 503 }));
+  await failed;
+  const retry = holdings.tokens(owner, other);
+  assert.equal(urls.length, 3, "failure neither caches nor leaves an in-flight entry");
+  releases.shift()!(new Response(JSON.stringify({ ownedNfts: [] })));
+  assert.deepEqual(await retry, { truncated: false, tokens: [] });
+});
+
+test("six uncached loads are admitted across both endpoints; shared loads and cached hits still work", async () => {
+  const releases: (() => void)[] = [];
+  let calls = 0, held = false;
+  const fetch = (async () => {
+    calls++;
+    if (held) await new Promise<void>((resolve) => releases.push(resolve));
+    return new Response(JSON.stringify({ contracts: [], ownedNfts: [] }));
+  }) as typeof globalThis.fetch;
+  const holdings = new AlchemyNftHoldings({ apiKey: "k", fetch, now: () => 0 });
+  await holdings.collections(owner, isFree);
+  held = true;
+  const loads = Array.from({ length: 6 }, (_, i) => i % 2 ? holdings.tokens(at(i + 1), other) : holdings.collections(at(i + 1), isFree));
+  const shared = holdings.collections(at(1), isFree);
+  try {
+    await failsUnavailable(() => holdings.collections(at(7), isFree));
+    await holdings.collections(owner, isFree);
+    assert.equal(calls, 7, "only six new provider calls while the cache and shared request remain usable");
+  } finally { held = false; releases.splice(0).forEach((release) => release()); await Promise.all([...loads, shared]); }
+  await holdings.collections(at(7), isFree);
+  assert.equal(calls, 8, "a capacity refusal is not cached and finishing loads releases slots");
+});
+
+test("the 120-call budget rolls over per call time and is shared by collections and tokens", async () => {
+  let now = 0, calls = 0;
+  const fetch = (async () => { calls++; return new Response(JSON.stringify({ contracts: [], ownedNfts: [] })); }) as typeof globalThis.fetch;
+  const holdings = new AlchemyNftHoldings({ apiKey: "k", fetch, now: () => now });
+  for (let i = 1; i <= 60; i++) await holdings.collections(at(i), isFree);
+  now = 30_000;
+  for (let i = 1; i <= 60; i++) await holdings.tokens(at(i), other);
+  now = 59_999;
+  await holdings.tokens(at(60), other);
+  await failsUnavailable(() => holdings.collections(at(121), isFree));
+  await failsUnavailable(() => holdings.tokens(at(121), other));
+  assert.equal(calls, 120, "cache hits and denied loads spend no provider calls");
+  now = 60_000;
+  await holdings.collections(at(121), isFree);
+  for (let i = 122; i <= 180; i++) await holdings.collections(at(i), isFree);
+  await failsUnavailable(() => holdings.tokens(at(121), other));
+  assert.equal(calls, 180, "only the first sixty calls expired at the rolling-minute boundary");
+  now = 90_000;
+  await holdings.tokens(at(121), other);
+  assert.equal(calls, 181, "the earlier budget refusal was not cached");
+});
+
+test("pagination spends budget per page; a partially loaded list is never cached", async () => {
+  let now = 0;
+  const { fetch, urls } = fakeFetch([
+    ...Array.from({ length: 119 }, () => ({ body: { contracts: [] } })),
+    { body: { ownedNfts: [], pageKey: "next" } },
+    { body: { ownedNfts: [], pageKey: "next" } }, { body: { ownedNfts: [] } },
+  ]);
+  const holdings = new AlchemyNftHoldings({ apiKey: "k", fetch, now: () => now });
+  for (let i = 1; i <= 119; i++) await holdings.collections(at(i), isFree);
+  await failsUnavailable(() => holdings.tokens(owner, other));
+  assert.equal(urls.length, 120, "page two is denied before a provider call");
+  now = 60_000;
+  assert.deepEqual(await holdings.tokens(owner, other), { truncated: false, tokens: [] });
+  assert.equal(urls.length, 122, "both pages are fetched after the minute resets");
+  assert.match(urls[121]!, /pageKey=next/);
+});
+
+test("failed provider calls still consume the rolling-minute budget", async () => {
+  let now = 0, calls = 0;
+  const fetch = (async () => { calls++; return new Response("{}", { status: 503 }); }) as typeof globalThis.fetch;
+  const holdings = new AlchemyNftHoldings({ apiKey: "k", fetch, now: () => now });
+  for (let i = 0; i < 121; i++) await failsUnavailable(() => holdings.collections(owner, isFree));
+  assert.equal(calls, 120);
+  now = 60_000;
+  await failsUnavailable(() => holdings.collections(owner, isFree));
+  assert.equal(calls, 121);
 });

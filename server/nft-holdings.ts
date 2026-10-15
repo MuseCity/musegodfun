@@ -7,6 +7,7 @@ import { NftLaunchError } from "./nft-launch";
 export const NFT_LIST_UNAVAILABLE_MESSAGE = "Your NFTs could not be loaded. Enter the contract and token number instead.";
 export type HeldNft = { tokenId: string; name?: string; image?: string };
 const TTL_MS = 60_000, MAX_ENTRIES = 500, TIMEOUT_MS = 8_000;
+const MAX_LOADS = 6, MAX_CALLS_PER_MINUTE = 120;
 const unavailable = () => new NftLaunchError("NFT_LIST_UNAVAILABLE", NFT_LIST_UNAVAILABLE_MESSAGE);
 const image = z.object({ thumbnailUrl: z.string().nullish(), cachedUrl: z.string().nullish() }).partial().nullish();
 const contractsPage = z.object({
@@ -34,6 +35,8 @@ export class AlchemyNftHoldings {
   private readonly fetcher: typeof fetch;
   private readonly now: () => number;
   private readonly cache = new Map<string, { at: number; value: unknown }>();
+  private readonly inFlight = new Map<string, Promise<unknown>>();
+  private readonly calls: number[] = [];
   constructor(private readonly deps: { apiKey?: string; fetch?: typeof fetch; now?: () => number }) {
     this.fetcher = deps.fetch ?? fetch.bind(globalThis);
     this.now = deps.now ?? Date.now;
@@ -77,6 +80,11 @@ export class AlchemyNftHoldings {
     for (let page = 0; page < HOLDINGS_MAX_PAGES; page++) {
       let next: { items: T[]; pageKey?: string | null };
       try {
+        // Every page and failed call spends budget shared by both list endpoints.
+        const now = this.now();
+        while (this.calls.length && this.calls[0]! <= now - TTL_MS) this.calls.shift();
+        if (this.calls.length >= MAX_CALLS_PER_MINUTE) throw unavailable();
+        this.calls.push(now);
         const query = new URLSearchParams({ ...params, ...(pageKey ? { pageKey } : {}) });
         const response = await this.fetcher(`https://robinhood-mainnet.g.alchemy.com/nft/v3/${encodeURIComponent(key)}/${method}?${query}`,
           { headers: { accept: "application/json" }, redirect: "manual", signal: AbortSignal.timeout(TIMEOUT_MS) });
@@ -93,10 +101,19 @@ export class AlchemyNftHoldings {
   private async cached<T>(key: string, load: () => Promise<T>): Promise<T> {
     const hit = this.cache.get(key);
     if (hit && this.now() - hit.at < TTL_MS) return hit.value as T;
-    const value = await load();
-    this.cache.delete(key);
-    this.cache.set(key, { at: this.now(), value });
-    while (this.cache.size > MAX_ENTRIES) this.cache.delete(this.cache.keys().next().value!);
-    return value;
+    const pending = this.inFlight.get(key);
+    if (pending) return pending as Promise<T>;
+    if (this.inFlight.size >= MAX_LOADS) throw unavailable();
+    const loading = (async () => {
+      try {
+        const value = await load();
+        this.cache.delete(key);
+        this.cache.set(key, { at: this.now(), value });
+        while (this.cache.size > MAX_ENTRIES) this.cache.delete(this.cache.keys().next().value!);
+        return value;
+      } finally { this.inFlight.delete(key); }
+    })();
+    this.inFlight.set(key, loading);
+    return loading;
   }
 }

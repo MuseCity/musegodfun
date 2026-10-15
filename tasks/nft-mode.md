@@ -230,7 +230,7 @@ The vault is the Doppler creator-fee beneficiary of every coin bound to that NFT
 | Prepare (NFT mode) | 1–2 extra round trips (`supportsInterface` and `ownerOf` in parallel; the delegate check only when the launcher is not the owner), plus 1–2 DB reads |
 | Register (NFT mode) | 1–2 `eth_call`s (control), payment receipt reads for paid tiers, plus 2 DB reads |
 | Create live checks | debounced reads through the RPC proxy (ingress class `read`) |
-| NFT step lists | 1–3 Alchemy NFT API calls per uncached request (`getContractsForOwner`, `getNFTsForOwner`, pages of 100, at most 3), cached 60 s per owner; `nft-tokens` adds one catalog read |
+| NFT step lists | 1–3 Alchemy NFT API calls per admitted uncached load (`getContractsForOwner`, `getNFTsForOwner`, pages of 100, at most 3), cached 60 s per owner (and contract for NFTs); identical in-flight loads share one request; at most 6 concurrent loads and 120 provider calls per rolling minute per holdings instance; `NFT_LIST_UNAVAILABLE` is never automatically retried by the client; `nft-tokens` adds one catalog read |
 | Treasury endpoint | about 3–5 reads, cached briefly |
 
 Vault and treasury addresses are computed locally. Nothing re-verifies on reads.

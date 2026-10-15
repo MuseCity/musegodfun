@@ -36,7 +36,7 @@ export async function api<T>(path: string, body?: unknown): Promise<T> {
     continue;
   }
   const header = response.headers.get("retry-after"), retryAfter = header !== null && Number.isFinite(Number(header)) ? Math.max(0, Number(header)) : undefined;
-  if (!response.ok && retryable && attempt < 2 && [429, 503].includes(response.status) && result.code !== "CHALLENGE_REQUIRED" &&
+  if (!response.ok && retryable && attempt < 2 && [429, 503].includes(response.status) && result.code !== "CHALLENGE_REQUIRED" && result.code !== "NFT_LIST_UNAVAILABLE" &&
     (retryAfter ?? 1) <= AUTOMATIC_RETRY_SECONDS) {
     await new Promise((resolve) => setTimeout(resolve, Math.max(500, (retryAfter ?? 1) * 1000)));
     continue;
