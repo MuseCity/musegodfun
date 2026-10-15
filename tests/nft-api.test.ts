@@ -499,6 +499,7 @@ test("wallet lists answer the §4 shapes; launched marks verified coins only; Mu
   await httpFixture(async ({ service }, origin) => {
     await service.store.saveToken(coin(1, { nft: nftOf("1"), nftVerification: verified }));
     await service.store.saveToken(coin(2, { nft: nftOf("2"), nftVerification: rejected }));
+    await service.store.saveToken(coin(3, { nft: nftOf("3"), nftVerification: unverified }));
     const seen: string[] = [];
     service.nftHoldings = {
       collections: async (owner, isFree) => { seen.push(`c:${owner}`); return { truncated: false, collections: [

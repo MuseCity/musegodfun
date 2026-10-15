@@ -6,7 +6,7 @@ import { NftLaunchError } from "./nft-launch";
 
 export const NFT_LIST_UNAVAILABLE_MESSAGE = "Your NFTs could not be loaded. Enter the contract and token number instead.";
 export type HeldNft = { tokenId: string; name?: string; image?: string };
-const TTL_MS = 60_000, MAX_ENTRIES = 500, TIMEOUT_MS = 8_000;
+const TTL_MS = 60_000, MAX_ENTRIES = 100, TIMEOUT_MS = 8_000;
 const MAX_LOADS = 6, MAX_CALLS_PER_MINUTE = 120;
 const unavailable = () => new NftLaunchError("NFT_LIST_UNAVAILABLE", NFT_LIST_UNAVAILABLE_MESSAGE);
 const image = z.object({ thumbnailUrl: z.string().nullish(), cachedUrl: z.string().nullish() }).partial().nullish();

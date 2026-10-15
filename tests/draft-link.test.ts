@@ -183,6 +183,7 @@ test("the notice says the previous draft was saved only when it was", () => {
 
 test("only an untouched draft is pristine", () => {
   const blank = restoreDraft(null, robinhood);
+  assert.equal(isPristineDraft(blank, 0), true, "an untouched NFT-step draft is still pristine");
   assert.equal(isPristineDraft(blank, 1), true);
   assert.equal(isPristineDraft({ ...blank, name: "  " }, 1), true, "blanks do not count");
   assert.equal(isPristineDraft(blank, 2), false);

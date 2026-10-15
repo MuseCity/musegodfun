@@ -68,11 +68,11 @@ export function NftPicker({ config, account, connecting, onConnect, onPick, onMa
               onClick={() => onPick({ contract: open.contract, tokenId: token.tokenId, name: token.name, image: token.image })}>
               <Thumb src={token.image} size={120} />
               <span className="nft-token-name">{token.name ?? `#${token.tokenId}`}</span>
-              {token.launched && <span className="nft-badge">Already launched</span>}
+              {token.launched && <span className="nft-pick-badge">Already launched</span>}
             </button>
           </li>)}
         </ul>
-        {tokens.value.truncated && <p className="hint">{TRUNCATED}</p>}
+        {tokens.value.truncated && <p className="hint nft-picker-truncated">{TRUNCATED}</p>}
       </>}
     {manual}
   </div>;
@@ -83,6 +83,7 @@ export function NftPicker({ config, account, connecting, onConnect, onPick, onMa
       <label className="field">
         <span className="field-label">Search your collections</span>
         <input ref={search} type="search" aria-label="Search your collections" value={query} autoComplete="off" spellCheck={false}
+          onKeyDown={(event) => { if (event.key === "Enter") event.preventDefault(); }}
           onChange={(event) => setQuery(event.target.value)} />
       </label>
       <ul className="nft-collection-list" role="list">
@@ -94,13 +95,14 @@ export function NftPicker({ config, account, connecting, onConnect, onPick, onMa
               <span className="hint">{collection.held} held</span>
             </span>
             <span className="nft-badges">
-              <span className="nft-badge">{collection.free ? "Free" : "$10"}</span>
-              {collection.openSeaVerified && <span className="nft-badge">Verified on OpenSea</span>}
+              <span className="nft-pick-badge">{collection.free ? "Free" : "$10"}</span>
+              {collection.openSeaVerified && <span className="nft-pick-badge">Verified on OpenSea</span>}
             </span>
           </button>
         </li>)}
       </ul>
-      {collections.value.truncated && <p className="hint">{TRUNCATED}</p>}
+      {shown.length === 0 && <p>No collections match.</p>}
+      {collections.value.truncated && <p className="hint nft-picker-truncated">{TRUNCATED}</p>}
     </>}
     {manual}
   </div>;

@@ -744,7 +744,8 @@ dialog.modal[open] { display: flex; flex-direction: column; gap: 16px; }
 .nft-collection-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
 .nft-collection-name, .nft-token-name { font-weight: 700; overflow-wrap: anywhere; }
 .nft-badges { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
-.nft-badge { padding: 2px 8px; border-radius: 999px; background: var(--surface-sunken); border: 1px solid var(--line); font-size: 12px; font-weight: 600; white-space: nowrap; }
+.nft-pick-badge { padding: 2px 8px; border-radius: 999px; background: var(--surface-sunken); border: 1px solid var(--line); font-size: 14px; font-weight: 600; white-space: nowrap; }
+.nft-picker-truncated, .nft-selected .hint { font-size: 14px; }
 .nft-thumb { flex: none; border-radius: 8px; object-fit: cover; background: var(--surface-sunken); }
 .nft-thumb-empty { display: inline-block; }
 .nft-token-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; max-height: 520px; overflow-y: auto; }

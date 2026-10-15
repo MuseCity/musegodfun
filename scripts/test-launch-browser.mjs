@@ -1003,7 +1003,10 @@ async function walletPickerCase(page, state) {
   await page.getByRole('button', { name: 'Connect wallet', exact: true }).click();
   const walletChoice = page.getByRole('button', { name: /Local acceptance wallet/ });
   if (await walletChoice.count()) await walletChoice.click();
-  await page.getByRole('radio', { name: 'NFT', exact: true }).check();
+  const nftRadio = page.getByRole('radio', { name: 'NFT', exact: true });
+  await page.getByRole('radio', { name: 'Normal', exact: true }).press('ArrowRight');
+  assert.equal(await nftRadio.isChecked(), true);
+  await page.waitForFunction(() => document.activeElement?.getAttribute('aria-labelledby') === 'launch-mode-NFT');
   if (state.mode === 'nft_wallet_switch_mid_load') {
     await waitForFixture(() => state.nftCollectionResolvers.length > 0, 'the old wallet list held open');
     await page.evaluate(() => {
@@ -1021,6 +1024,9 @@ async function walletPickerCase(page, state) {
       record(document.body);
     });
     await page.evaluate(account => window.ethereum.__emit('accountsChanged', [account]), treasury);
+    // The new wallet starts its own blank draft; reopen NFT mode for its list.
+    await page.waitForFunction(() => document.querySelector('input[aria-labelledby="launch-mode-Normal"]')?.checked);
+    await nftRadio.check();
     const fresh = page.getByRole('button', { name: /New wallet collection/ });
     await fresh.waitFor();
     assert.equal(state.nftCollectionRequests.some(owner => owner?.toLowerCase() === treasury), true);
@@ -1041,6 +1047,16 @@ async function walletPickerCase(page, state) {
     return;
   }
   await page.getByRole('button', { name: /Bronze Keys/ }).waitFor();
+  const search = page.getByRole('searchbox', { name: 'Search your collections' });
+  await search.fill('nothing matches');
+  await page.getByText('No collections match.', { exact: true }).waitFor();
+  await search.press('Enter');
+  assert.equal(await page.locator('#nft-launch-error').count(), 0);
+  assert.equal(await search.evaluate(node => node === document.activeElement), true);
+  await search.fill('');
+  await page.getByRole('button', { name: /Bronze Keys/ }).click();
+  await page.getByRole('button', { name: '← All collections', exact: true }).click();
+  await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Search your collections');
   const chooseText = 'Choose an NFT from your wallet, or enter a contract and token number.';
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.locator('#nft-launch-error').getByText(chooseText, { exact: true }).waitFor();
@@ -1054,6 +1070,10 @@ async function walletPickerCase(page, state) {
   await page.waitForFunction(() => document.querySelector('input[name="name"]')?.value === 'Bronze Key #2014');
   assert.equal(await page.getByLabel('Token symbol', { exact: true }).inputValue(), 'BRONZEKEY');
   assert.match(await page.locator('.nft-selected').innerText(), /#5/);
+  await page.getByRole('button', { name: 'Change', exact: true }).click();
+  await page.getByRole('button', { name: 'Keep #5', exact: true }).click();
+  await page.locator('.nft-selected').getByText('Bronze Key #2014', { exact: true }).waitFor();
+  await page.waitForFunction(() => document.activeElement?.textContent === 'Bronze Key #2014');
   await page.getByRole('button', { name: 'Pay 10 USDG', exact: true }).click();
   await page.getByText(/Launch fee paid\./).waitFor();
   await page.getByRole('button', { name: 'Continue', exact: true }).click();

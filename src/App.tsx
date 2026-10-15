@@ -1508,8 +1508,8 @@ function CreatePage({
   // Leaving NFT mode drops the NFT but keeps a paid fee: fees are spent per creator, so it still covers a later NFT launch.
   function chooseNftMode(next: boolean) {
     setNftMode(next);
-    if (next) goToStep(0);
-    else { update("nft", undefined); goToStep(1); }
+    if (next) goToStep(0, false);
+    else { update("nft", undefined); goToStep(1, false); }
   }
   // Prepare's NFT rejections show next to the NFT step, with the server's own message.
   function showNftRejection(code: string, message: string) {
@@ -1595,7 +1595,7 @@ function CreatePage({
     });
   }
   // A launched draft reopens at NFT or Identity. Include the pre-connection copy because it renders until the wallet is restored.
-  function reopenDraftAtIdentity() {
+  function reopenLaunchedDraft() {
     if (!config) return;
     try {
       const launched = JSON.stringify({ ...draft, firstBuy, intentId });
@@ -1607,13 +1607,13 @@ function CreatePage({
       }
     } catch { /* The draft keeps its saved step if storage is unavailable. */ }
   }
-  function goToStep(next: LaunchStep) {
+  function goToStep(next: LaunchStep, focus = true) {
     setStep(next);
     requestAnimationFrame(() => {
       const form = formRef.current;
       if (form && form.getBoundingClientRect().top < 0)
         form.scrollIntoView({ block: "start", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
-      document.getElementById(stepHeadingId(next))?.focus({ preventScroll: true });
+      if (focus) document.getElementById(stepHeadingId(next))?.focus({ preventScroll: true });
     });
   }
   // Identity checks its fields after the NFT gate; the full draft is checked before review.
@@ -2028,7 +2028,7 @@ function CreatePage({
       localStorage.removeItem(markerKey);
       if (request !== generation.current) return;
       setSubmissionUnknown(false);
-      reopenDraftAtIdentity();
+      reopenLaunchedDraft();
       navigate(tokenPath(token));
     } catch (e) {
       if (request !== generation.current) return;
@@ -2148,7 +2148,7 @@ function CreatePage({
       localStorage.removeItem(markerKey);
       if (request !== generation.current) return;
       setSubmissionUnknown(false);
-      reopenDraftAtIdentity();
+      reopenLaunchedDraft();
       navigate(tokenPath(token));
     } catch (e) {
       if (request === generation.current) setError(errorMessage(e));

@@ -186,3 +186,45 @@ test("failed provider calls still consume the rolling-minute budget", async () =
   await failsUnavailable(() => holdings.collections(owner, isFree));
   assert.equal(calls, 121);
 });
+
+test("token cache keys include owner and contract, normalize case, and expire after sixty seconds", async () => {
+  let now = 0;
+  const page = (address: string, tokenId: string) => ({ body: { ownedNfts: [{ tokenId, contract: { address } }] } });
+  const { fetch, urls } = fakeFetch([page(other, "1"), page(MUSES.contract, "2"), page(other, "3"), page(other, "4")]);
+  const holdings = new AlchemyNftHoldings({ apiKey: "k", fetch, now: () => now });
+  assert.deepEqual((await holdings.tokens(owner, other)).tokens, [{ tokenId: "1" }]);
+  assert.deepEqual((await holdings.tokens(owner, MUSES.contract)).tokens, [{ tokenId: "2" }]);
+  assert.deepEqual((await holdings.tokens(at(1), other)).tokens, [{ tokenId: "3" }]);
+  now = 59_999;
+  assert.deepEqual((await holdings.tokens(owner.toLowerCase() as typeof owner, other.toLowerCase() as typeof other)).tokens, [{ tokenId: "1" }]);
+  assert.equal(urls.length, 3);
+  now = 60_000;
+  assert.deepEqual((await holdings.tokens(owner, other)).tokens, [{ tokenId: "4" }]);
+  assert.equal(urls.length, 4);
+});
+
+test("tokens stop at three hundred NFTs and report whether another provider page remains", async () => {
+  for (const more of [false, true]) {
+    const { fetch, urls } = fakeFetch(Array.from({ length: 4 }, (_, index) => ({ body: {
+      ownedNfts: Array.from({ length: 100 }, (_, token) => ({ tokenId: String(index * 100 + token), contract: { address: other } })),
+      pageKey: index < 2 || more ? `page-${index + 1}` : null,
+    } })));
+    const result = await new AlchemyNftHoldings({ apiKey: "k", fetch }).tokens(owner, other);
+    assert.equal(result.truncated, more);
+    assert.equal(result.tokens.length, 300);
+    assert.equal(result.tokens[0]!.tokenId, "0"); assert.equal(result.tokens[299]!.tokenId, "299");
+    assert.equal(urls.length, 3);
+    assert.match(urls[2]!, /pageKey=page-2/);
+  }
+});
+
+test("the holdings cache keeps only the most recent hundred successful entries", async () => {
+  let calls = 0;
+  const fetch = (async () => { calls++; return new Response(JSON.stringify({ contracts: [] })); }) as typeof globalThis.fetch;
+  const holdings = new AlchemyNftHoldings({ apiKey: "k", fetch, now: () => 0 });
+  for (let i = 1; i <= 101; i++) await holdings.collections(at(i), isFree);
+  await holdings.collections(at(2), isFree);
+  assert.equal(calls, 101, "the second entry remains cached");
+  await holdings.collections(at(1), isFree);
+  assert.equal(calls, 102, "the oldest entry was evicted before its TTL expired");
+});

@@ -59,7 +59,7 @@ function TxHash({ hash, config }: { hash: Hex; config: RuntimeConfig }) {
 export function NftLaunchStep({ config, account, draft, connecting, onConnect, error = "", feeRejected, onChange, onCheck, onFee, onPrefill, onStatus }: {
   config: RuntimeConfig; account: Address | null; draft: LaunchInput; connecting: boolean; onConnect: () => void; error?: string; feeRejected?: NftFeeRejection | null;
   onChange: (nft: NftRef | undefined, user: boolean) => void; onCheck: () => void; onFee: (fee: DraftLaunchFee | undefined) => void;
-  onPrefill?: (museName: string) => void; onStatus: (status: NftStepStatus) => void;
+  onPrefill?: (nftName: string) => void; onStatus: (status: NftStepStatus) => void;
 }) {
   const nft = draft.nft;
   const [contract, setContract] = useState<string>(nft?.contract ?? MUSES.contract);
@@ -169,7 +169,8 @@ export function NftLaunchStep({ config, account, draft, connecting, onConnect, e
         </label>
         <button type="button" className="text-button" onClick={showPicker}>Choose from your wallet instead</button>
       </> : picking ? <div ref={picker}><NftPicker key={`${account}|${config.chainId}|${config.deploymentChainId}`} config={config} account={account} connecting={connecting} onConnect={onConnect} onPick={choose}
-        onManual={() => { setManual(true); requestAnimationFrame(() => contractInput.current?.focus()); }} /></div> :
+        onManual={() => { setManual(true); requestAnimationFrame(() => contractInput.current?.focus()); }} />
+        {nft && <button type="button" className="secondary" onClick={() => { setPicking(false); requestAnimationFrame(() => selectedName.current?.focus()); }}>Keep #{nft.tokenId}</button>}</div> :
         <div className="nft-selected">
           <Thumb size={56} src={candidate ? picked.current.get(candidateKey)?.image : undefined} />
           <div className="nft-collection-text">
