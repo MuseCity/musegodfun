@@ -103,7 +103,7 @@ import { SAVED_LAUNCHES_NOTE, decodeDraftFragment, importDraftLink, isPristineDr
 import { isMuse, treasuryFor, vaultFor } from "./lib/nft-mode";
 import { listedNftCoin } from "./lib/nft-treasury";
 import { useNetwork, tokenPath, nftPath } from "./lib/network";
-import { draftAutosave, firstBuyDraft, type DraftBasis, launchDraftKey, launchDraftStep, resetLaunchedDraftStep, savedLaunchDraft, type FirstBuyDraft, type LaunchStep } from "./lib/launch-draft";
+import { draftAutosave, firstBuyDraft, type DraftBasis, launchDraftKey, launchDraftStep, launchSteps, stepHeadingId, resetLaunchedDraftStep, savedLaunchDraft, type FirstBuyDraft, type LaunchStep } from "./lib/launch-draft";
 import FirstBuy from "./components/FirstBuy";
 import FirstBuyLock from "./components/FirstBuyLock";
 import { FIRST_BUY_SLIPPAGE_BPS, firstBuyPaymentAssets, assertFirstBuyPaymentQuote, type FirstBuyPrices, type FirstBuyPaymentQuote, type FirstBuyPaymentVerification } from "./lib/first-buy-payment";
@@ -1498,20 +1498,21 @@ function CreatePage({
     if (next !== step) {
       const focused = !!formRef.current?.contains(document.activeElement);
       requestAnimationFrame(() => {
-        if (focused || document.activeElement === document.body) document.getElementById(next === 1 ? "identity-heading" : "quote-heading")?.focus({ preventScroll: true });
+        if (focused || document.activeElement === document.body) document.getElementById(stepHeadingId(next))?.focus({ preventScroll: true });
       });
     }
   }
   // Leaving NFT mode drops the NFT but keeps a paid fee: fees are spent per creator, so it still covers a later NFT launch.
   function chooseNftMode(next: boolean) {
     setNftMode(next);
-    if (!next) update("nft", undefined);
+    if (next) goToStep(0);
+    else { update("nft", undefined); goToStep(1); }
   }
   // Prepare's NFT rejections show next to the NFT step, with the server's own message.
   function showNftRejection(code: string, message: string) {
     setReview(false);
     if (code === "NFT_RESERVED_NAME") { showInvalidField("name", message); return; }
-    setStep(1);
+    setStep(0);
     if (code === "NFT_FEE_INVALID" || code === "NFT_FEE_PENDING") {
       // A transient refusal keeps the paid record and never offers repayment.
       setNftFeeRejected({ code, message });
@@ -1523,7 +1524,7 @@ function CreatePage({
       update("launchFee", undefined);
     }
     setInvalidField("nft"); setError(message);
-    requestAnimationFrame(() => document.getElementById(["NFT_NOT_CONTROLLED", "NFT_ALREADY_LAUNCHED"].includes(code) ? NFT_TOKEN_ID : NFT_ERROR_ID)?.focus());
+    requestAnimationFrame(() => (["NFT_NOT_CONTROLLED", "NFT_ALREADY_LAUNCHED"].includes(code) ? document.getElementById(NFT_TOKEN_ID) ?? document.getElementById(NFT_ERROR_ID) : document.getElementById(NFT_ERROR_ID))?.focus());
   }
   // `quiet` keeps the page's notices and errors: the NFT step's own checks and the stored fee change the draft without the user.
   function update<K extends keyof LaunchInput>(key: K, value: LaunchInput[K], quiet = false) {
@@ -1590,8 +1591,7 @@ function CreatePage({
       if (input instanceof HTMLElement) input.focus();
     });
   }
-  // A launched draft reopens on its identity, not on the pair of a token that already exists. The
-  // pre-connection copy is included because it renders until the wallet is restored.
+  // A launched draft reopens at NFT or Identity. Include the pre-connection copy because it renders until the wallet is restored.
   function reopenDraftAtIdentity() {
     if (!config) return;
     try {
@@ -1610,12 +1610,16 @@ function CreatePage({
       const form = formRef.current;
       if (form && form.getBoundingClientRect().top < 0)
         form.scrollIntoView({ block: "start", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
-      document.getElementById(next === 1 ? "identity-heading" : "quote-heading")?.focus({ preventScroll: true });
+      document.getElementById(stepHeadingId(next))?.focus({ preventScroll: true });
     });
   }
-  // Step one only checks the identity fields; the full draft is checked before review.
+  // Identity checks its fields after the NFT gate; the full draft is checked before review.
   function continueToEconomics() {
     if (uploadingImage) return;
+    if (nftReviewBlocker(nftMode, draft, nftStep.status, nftStep.fee, nftStep.checked, wallet.account)) {
+      continueFromNft();
+      return;
+    }
     setError("");
     setMessage("");
     const issue = launchIdentityIssue(draft);
@@ -1625,6 +1629,27 @@ function CreatePage({
     }
     setInvalidField("");
     goToStep(2);
+  }
+  // The NFT step is complete when the live check passed for this wallet and the fee is settled: the same rule review applies.
+  function continueFromNft(): boolean {
+    const block = nftReviewBlocker(nftMode, draft, nftStep.status, nftStep.fee, nftStep.checked, wallet.account);
+    if (block) {
+      goToStep(0);
+      setInvalidField("nft"); setError(block);
+      const target = nftCheckPassed(draft, nftStep.checked, wallet.account) ? NFT_FEE_ID : NFT_ERROR_ID;
+      requestAnimationFrame(() => document.getElementById(target)?.focus());
+      return false;
+    }
+    setInvalidField(""); setError("");
+    goToStep(1);
+    return true;
+  }
+  // The step bar: back is always open; forward passes every gate in between, as the Continue buttons do.
+  function openStep(target: LaunchStep) {
+    if (target === step) return;
+    if (target < step) { goToStep(target); return; }
+    if (step === 0 && !continueFromNft()) return;
+    if (target === 2) continueToEconomics();
   }
   function preflight() {
     if (uploadingImage || configurationPending) return;
@@ -1639,9 +1664,9 @@ function CreatePage({
     }
     const nftBlock = nftReviewBlocker(nftMode, draft, nftStep.status, nftStep.fee, nftStep.checked, wallet.account);
     if (nftBlock) {
-      setStep(1); setInvalidField("nft"); setError(nftBlock);
+      setStep(0); setInvalidField("nft"); setError(nftBlock);
       const feeDue = nftCheckPassed(draft, nftStep.checked, wallet.account);
-      requestAnimationFrame(() => document.getElementById(feeDue ? NFT_FEE_ID : NFT_TOKEN_ID)?.focus());
+      requestAnimationFrame(() => (document.getElementById(feeDue ? NFT_FEE_ID : NFT_TOKEN_ID) ?? document.getElementById(NFT_ERROR_ID))?.focus());
       return;
     }
     const result = launchSchema.safeParse(draft);
@@ -2191,9 +2216,9 @@ function CreatePage({
       <div className="page-heading">
         <span className="eyebrow">MAKE IT YOURS</span>
         <h1 className="page-title">Launch your token.</h1>
-        <p className="page-lede">Two steps on {chainName}. Give it a name and a face, choose what it trades against, then review before you sign.</p>
+        <p className="page-lede">{nftMode ? "Three" : "Two"} steps on {chainName}. {nftMode ? "Choose your NFT, give it a name and a face" : "Give it a name and a face"}, choose what it trades against, then review before you sign.</p>
       </div>
-      {linkNotice && (linkNotice.kind === "error" || step === 1) && <div className="page-notices"><Notice kind={linkNotice.kind}>{linkNotice.text}</Notice></div>}
+      {linkNotice && (linkNotice.kind === "error" || step <= 1) && <div className="page-notices"><Notice kind={linkNotice.kind}>{linkNotice.text}</Notice></div>}
       {savedLaunchIntents(config, wallet.account).some((saved) => saved.intentId !== intentId) && <details className="card disclosure saved-launches">
         <summary>Saved launches</summary>
         <ul>{savedLaunchIntents(config, wallet.account).filter((saved) => saved.intentId !== intentId).map((saved) => <li key={saved.intentId}>
@@ -2209,24 +2234,37 @@ function CreatePage({
           noValidate
           onSubmit={(event) => {
             event.preventDefault();
-            if (step === 1) continueToEconomics();
+            if (step === 0) continueFromNft();
+            else if (step === 1) continueToEconomics();
             else preflight();
           }}
         >
+          {(config.nftMode?.enabled || nftMode) && <LaunchModeSwitch nftMode={nftMode} disabled={busy} onChange={chooseNftMode} />}
           <ol className="wizard-steps" role="list" aria-label="Launch steps">
-            {(["Identity", "Economics"] as const).map((label, index) => {
-              const value: LaunchStep = index === 0 ? 1 : 2;
-              return <li key={label}>
-                <button type="button" className="wizard-step" aria-current={step === value ? "step" : undefined}
-                  data-done={step > value ? "true" : undefined}
-                  onClick={() => { if (value !== step) value === 1 ? goToStep(1) : continueToEconomics(); }}>
-                  <span className="wizard-step-index" aria-hidden="true">{step > value ? <Check size={12} strokeWidth={3} /> : value}</span>
-                  <span className="visually-hidden">Step {value} of 2{step > value ? ", completed" : ""}: </span>
-                  {label}
-                </button>
-              </li>;
-            })}
+            {launchSteps(nftMode).map(({ step: value, label }, index, all) => <li key={label}>
+              <button type="button" className="wizard-step" aria-current={step === value ? "step" : undefined}
+                data-done={step > value ? "true" : undefined} onClick={() => openStep(value)}>
+                <span className="wizard-step-index" aria-hidden="true">{step > value ? <Check size={12} strokeWidth={3} /> : index + 1}</span>
+                <span className="visually-hidden">Step {index + 1} of {all.length}{step > value ? ", completed" : ""}: </span>
+                {label}
+              </button>
+            </li>)}
           </ol>
+          {nftMode && <div className="wizard-panel" hidden={step !== 0}>
+            <section className="card nft-panel" aria-labelledby="nft-heading">
+              <div className="card-head"><div>
+                <h2 id="nft-heading" className="card-title" tabIndex={-1}>Choose your NFT</h2>
+                <p className="card-sub">The coin belongs to this NFT: its creator fees go to the NFT's treasury and follow the NFT when it is sold.</p>
+              </div></div>
+              <NftLaunchStep key={draftRevision} config={config} account={wallet.account} draft={draft}
+                connecting={wallet.connecting} onConnect={() => void wallet.connect()}
+                error={invalidField === "nft" ? error : ""} feeRejected={nftFeeRejected} onChange={(nft, user) => update("nft", nft, !user)}
+                onCheck={() => { if (invalidField === "nft") { setInvalidField(""); setError(""); } }}
+                onFee={(fee) => { update("launchFee", fee, true); setNftFeeRejected(null); if (fee && invalidField === "nft") { setInvalidField(""); setError(""); } }}
+                onStatus={setNftStep}
+                onPrefill={(name) => { for (const [field, value] of Object.entries(musePrefill(draft, name))) update(field as "name" | "symbol", value, true); }} />
+            </section>
+          </div>}
           <div className="wizard-panel" hidden={step !== 1}>
             <section
               className="card identity-panel"
@@ -2238,14 +2276,6 @@ function CreatePage({
                   <p className="card-sub">The name and symbol cannot be changed after launch.</p>
                 </div>
               </div>
-              {(config.nftMode?.enabled || nftMode) && <LaunchModeSwitch nftMode={nftMode} disabled={busy} onChange={chooseNftMode} />}
-              {nftMode && <NftLaunchStep key={draftRevision} config={config} account={wallet.account} draft={draft}
-                connecting={wallet.connecting} onConnect={() => void wallet.connect()}
-                error={invalidField === "nft" ? error : ""} feeRejected={nftFeeRejected} onChange={(nft, user) => update("nft", nft, !user)}
-                onCheck={() => { if (invalidField === "nft") { setInvalidField(""); setError(""); } }}
-                onFee={(fee) => { update("launchFee", fee, true); setNftFeeRejected(null); if (fee && invalidField === "nft") { setInvalidField(""); setError(""); } }}
-                onStatus={setNftStep}
-                onPrefill={(name) => { for (const [field, value] of Object.entries(musePrefill(draft, name))) update(field as "name" | "symbol", value, true); }} />}
               <div className="identity-fields">
                 <button
                   type="button"
@@ -2621,11 +2651,14 @@ function CreatePage({
             {(txHash || submissionUnknown) && !confirmed && <Notice>Your previous launch is being checked. Its payment and transaction are saved.</Notice>}
             {(txHash || submissionUnknown || paymentAttempt && !paymentAttempt.actualOutput) && <button type="button" className="secondary full" disabled={busy} onClick={startAnotherLaunch}>Create another token</button>}
             {submissionUnknown && !txHash && <label className="field"><span className="field-label">Transaction hash from your wallet</span><input value={recoveryHash} onChange={(event) => setRecoveryHash(event.target.value)} placeholder="0x…" aria-label="Transaction hash from your wallet" className="mono" /></label>}
-            {step === 1 ? <>
-              <button type="submit" form="launch-form" className="primary large full" disabled={uploadingImage}>
-                Continue
-                <ArrowRight size={17} />
-              </button>
+            {step === 0 ? <>
+              <button type="submit" form="launch-form" className="primary large full">Continue<ArrowRight size={17} /></button>
+              <p className="launch-caption">Next, give your coin a name and a face.</p>
+            </> : step === 1 ? <>
+              {nftMode ? <div className="wizard-actions">
+                <button type="button" className="secondary large" onClick={() => goToStep(0)}><ArrowLeft size={17} />Back</button>
+                <button type="submit" form="launch-form" className="primary large" disabled={uploadingImage}>Continue<ArrowRight size={17} /></button>
+              </div> : <button type="submit" form="launch-form" className="primary large full" disabled={uploadingImage}>Continue<ArrowRight size={17} /></button>}
               <p className="launch-caption">Next, choose what it trades against and an optional first buy.</p>
             </> : <>
               <div className="wizard-actions">
