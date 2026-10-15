@@ -26,7 +26,6 @@ export function NftPicker({ config, account, connecting, onConnect, onPick, onMa
   const search = useRef<HTMLInputElement>(null), heading = useRef<HTMLHeadingElement>(null), listStatus = useRef<HTMLParagraphElement>(null);
   // Separate retry counters: retrying one collection's NFTs must not close that collection or reload the collection list.
   const [query, setQuery] = useState(""), [listAttempt, setListAttempt] = useState(0), [tokenAttempt, setTokenAttempt] = useState(0);
-  useEffect(() => { setOpen(null); setQuery(""); }, [account, config.chainId, config.deploymentChainId]);
   useEffect(() => {
     if (!account) return;
     let active = true;

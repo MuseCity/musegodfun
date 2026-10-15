@@ -81,7 +81,7 @@ export function NftLaunchStep({ config, account, draft, connecting, onConnect, e
     if (key === candidateKey) {
       apply();
       if (!passed) setAttempt((value) => value + 1);
-    } else edit(apply);
+    } else edit(pick.contract, pick.tokenId);
     setPicking(false); setManual(false);
     requestAnimationFrame(() => selectedName.current?.focus());
   };
@@ -100,7 +100,12 @@ export function NftLaunchStep({ config, account, draft, connecting, onConnect, e
     latest.current.onChange(next, user);
   };
   const edited = useRef(false), checkEdited = useRef(false), prefilled = useRef("");
-  const edit = (apply: () => void) => { edited.current = true; apply(); };
+  const edit = (nextContract: string, nextTokenId: string) => {
+    const next = nftRefSchema.safeParse({ chainId: deploymentChain(config), contract: nextContract, tokenId: nextTokenId });
+    // Invalid input has no key; only a different NFT or a change in validity is a user edit.
+    if ((next.success ? nftKey(next.data) : "") !== candidateKey) edited.current = true;
+    setContract(nextContract); setTokenId(nextTokenId);
+  };
   const parsed = nftRefSchema.safeParse({ chainId: deploymentChain(config), contract, tokenId });
   const candidate = parsed.success ? parsed.data : null, candidateKey = candidate ? nftKey(candidate) : "";
   const choosing = !manual && picking && !nft;
@@ -168,15 +173,15 @@ export function NftLaunchStep({ config, account, draft, connecting, onConnect, e
         <label className="field">
           <span className="field-label">Collection contract</span>
           <input ref={contractInput} aria-label="Collection contract" className="mono" value={contract} spellCheck={false} autoComplete="off"
-            onChange={(event) => edit(() => setContract(event.target.value.trim()))} />
+            onChange={(event) => edit(event.target.value.trim(), tokenId)} />
         </label>
         {contract.toLowerCase() !== MUSES.contract.toLowerCase() &&
-          <button type="button" className="text-button" onClick={() => edit(() => setContract(MUSES.contract))}>Use Muses</button>}
+          <button type="button" className="text-button" onClick={() => edit(MUSES.contract, tokenId)}>Use Muses</button>}
         <label className="field">
           <span className="field-label">Token number</span>
           <input id={NFT_TOKEN_ID} name="nftTokenId" aria-label="Token number" value={tokenId} inputMode="numeric" autoComplete="off"
             aria-invalid={!!error} aria-describedby={error ? `nft-launch-status ${NFT_ERROR_ID}` : "nft-launch-status"}
-            onChange={(event) => edit(() => setTokenId(event.target.value.trim()))} />
+            onChange={(event) => edit(contract, event.target.value.trim())} />
         </label>
         <button type="button" className="text-button" onClick={showPicker}>Choose from your wallet instead</button>
       </> : picking ? <div><NftPicker key={`${account}|${config.chainId}|${config.deploymentChainId}`} config={config} account={account} connecting={connecting} onConnect={onConnect} onPick={choose}

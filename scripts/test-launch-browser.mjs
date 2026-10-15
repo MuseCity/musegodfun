@@ -946,6 +946,18 @@ async function nftReloadCase(page, state) {
   await bound(page).waitFor();
   await autosaveSettled(page);
   assert.deepEqual(await storedNft(page), muse1, 'a failed check never drops the NFT');
+  // A different letter case still names the same Muse; a failed Retry must not drop it.
+  await tokenOf(page);
+  const beforeCaseChange = state.nftStatusRequests.length;
+  await page.getByLabel('Collection contract', { exact: true }).fill(muses.toLowerCase());
+  await autosaveSettled(page);
+  assert.equal(state.nftStatusRequests.length, beforeCaseChange, 'a case-only contract change needs no new check');
+  assert.deepEqual(await storedNft(page), muse1);
+  await page.getByRole('button', { name: 'Retry', exact: true }).click();
+  await waitForFixture(() => state.nftStatusRequests.length > beforeCaseChange, 'retrying the case-only manual NFT');
+  await page.getByRole('button', { name: 'Retry', exact: true }).waitFor();
+  await autosaveSettled(page);
+  assert.deepEqual(await storedNft(page), muse1, 'a failed Retry after a case-only change keeps the NFT');
   state.failNftStatus = false;
   await page.getByRole('button', { name: 'Retry', exact: true }).click();
   await statusIs(page, free);
@@ -1181,6 +1193,21 @@ async function walletPickerCase(page, state) {
   await page.getByRole('button', { name: 'Retry', exact: true }).waitFor();
   await autosaveSettled(page);
   assert.deepEqual((await storedDraft(page))?.nft, paid5, 'a failed Retry never consumes a stale edit flag');
+  // Retyping the same manual candidate, including trimmed spaces, must also keep it through a failed Retry.
+  await returnToPicker('Change');
+  await page.getByRole('button', { name: 'Enter a contract and token number instead', exact: true }).click();
+  for (const [field, value] of [['Token number', '5'], ['Token number', '5 '], ['Collection contract', `${paidCollection} `]]) {
+    const beforeEdit = state.nftStatusRequests.length;
+    await page.getByLabel(field, { exact: true }).fill(value);
+    await autosaveSettled(page);
+    assert.equal(state.nftStatusRequests.length, beforeEdit, 'unchanged manual input needs no new check');
+    assert.deepEqual((await storedDraft(page))?.nft, paid5, 'unchanged manual input keeps the NFT');
+    await page.getByRole('button', { name: 'Retry', exact: true }).click();
+    await waitForFixture(() => state.nftStatusRequests.length > beforeEdit, 'retrying the unchanged manual NFT');
+    await page.getByRole('button', { name: 'Retry', exact: true }).waitFor();
+    await autosaveSettled(page);
+    assert.deepEqual((await storedDraft(page))?.nft, paid5, 'a failed Retry after unchanged manual input keeps the NFT');
+  }
   state.failNftStatus = false;
   await page.getByRole('button', { name: 'Retry', exact: true }).click();
   await page.getByRole('button', { name: 'Pay 10 USDG', exact: true }).waitFor();
@@ -1193,7 +1220,7 @@ async function walletPickerCase(page, state) {
   assert.equal(state.sends.length, 1); assert.equal(state.sends[0].fee, true, 'only the mock fee was sent');
   assert.equal(state.prepareRequests.length, 0);
   assert(state.nftTokenRequests.some(row => row.contract.toLowerCase() === paidCollection));
-  state.nftChecks = { walletPicker: true, listedNamePrefill: true, alreadyLaunchedDisabled: true, summary: true, sameNftKeptThroughRetry: true, identityAfterFee: true };
+  state.nftChecks = { walletPicker: true, listedNamePrefill: true, alreadyLaunchedDisabled: true, summary: true, sameNftKeptThroughRetry: true, sameManualNftKeptThroughRetry: true, identityAfterFee: true };
 }
 async function nftCase(page, state) {
   if (['nft_wallet_picker', 'nft_wallet_switch_mid_load'].includes(state.mode)) return walletPickerCase(page, state);
