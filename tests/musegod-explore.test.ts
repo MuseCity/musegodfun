@@ -122,13 +122,72 @@ test("MUSEGOD market UI waits for real provenance and preserves minute refresh w
 });
 
 
-test("homepage attribution uses per-card provenance and config loading has its own message", () => {
+test("homepage attribution uses row provenance and config loading has its own message", () => {
   for (const selected of [null, config]) {
     const markup = renderToStaticMarkup(createElement(NetworkProvider, null, createElement(Explore, {
       tokens: [launch], stocks: null, stockError: "", tokenError: "", loading: true, config: selected, refresh: () => {},
     })));
     assert.doesNotMatch(markup, /Market data from CoinGecko|shared 15-minute snapshot.*updated/);
-    assert.match(markup, selected ? /sources and update times are shown on each card/ : /Loading market data/);
+    assert.match(markup, selected ? /sources and fetch times appear with each token/ : /Loading market data/);
     if (!selected) assert.doesNotMatch(markup, /Market data is unavailable/);
+  }
+});
+
+test("Explore list and grid expose per-row states and only attribute displayed provider data", async () => {
+  const { registerHooks } = await import("node:module");
+  const { pathToFileURL } = await import("node:url");
+  const entry = pathToFileURL(`${process.cwd()}/src/App.tsx`);
+  entry.search = `fixture=${crypto.randomUUID()}`;
+  const key = `__exploreMarkets${crypto.randomUUID().replaceAll("-", "")}`;
+  const fixture: any = { rows: {}, view: "list" };
+  const originals = new Map([key, "localStorage", "__BUILD_IDENTITY__"].map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
+  Object.defineProperty(globalThis, key, { configurable: true, value: fixture });
+  Object.defineProperty(globalThis, "localStorage", { configurable: true, value: { getItem: () => fixture.view } });
+  Object.defineProperty(globalThis, "__BUILD_IDENTITY__", { configurable: true, value: {
+    schemaVersion: 1, repository: "https://github.com/test/test", commit: "a".repeat(40), source: "local", dirty: true,
+    buildId: null, runUrl: null, releaseUrl: null,
+  } });
+  const hooks = registerHooks({ resolve(specifier, context, next) {
+    if (specifier !== "./lib/token-card-market" || context.parentURL !== entry.href) return next(specifier, context);
+    return { shortCircuit: true, url: `data:text/javascript,${encodeURIComponent(`export const useTokenCardMarkets=()=>globalThis[${JSON.stringify(key)}].rows;`)}` };
+  } });
+  try {
+    const { Explore: View } = await import(entry.href);
+    const data = { fetchedAt: "2026-10-15T09:12:00.000Z", source: "CoinGecko", status: "fresh",
+      priceUsd: 1, marketCapUsd: null, fdvUsd: 100, liquidityUsd: null, periods: { h24: { change: null, volume: null, buys: null, sells: null } } };
+    for (const view of ["list", "grid"]) for (const scenario of ["fresh", "stale", "unavailable", "loading", "bankr"]) {
+      fixture.view = view;
+      fixture.rows = {
+        [launch.address.toLowerCase()]: { data: ["loading", "unavailable"].includes(scenario) ? null
+          : { ...data, status: scenario === "stale" ? "stale" : "fresh", source: scenario === "bankr" ? "Bankr" : "CoinGecko" },
+          loading: scenario === "loading", error: scenario === "unavailable" ? "Market data unavailable" : "" },
+        [MUSEGOD.token.toLowerCase()]: { data: { ...data, source: "Bankr", fetchedAt: "2026-10-15T08:00:00.000Z" }, loading: false, error: "" },
+      };
+      const markup = renderToStaticMarkup(createElement(NetworkProvider, null, createElement(View, {
+        tokens: [launch], stocks: null, stockError: "", tokenError: "", loading: false, config, refresh: () => {},
+      })));
+      const rows = view === "list" ? markup.match(/<tr\b[^>]*>[\s\S]*?<\/tr>/g) ?? []
+        : markup.match(/<a\b[^>]*class="token-card[^>]*>[\s\S]*?<\/a>/g) ?? [];
+      const row = rows.find((row: string) => row.includes(launch.name)) ?? "";
+      assert(row, `${view}/${scenario}: ordinary token row exists`);
+      const text = row.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ");
+      assert.doesNotMatch(text, /\$0|0\.00%/);
+      if (scenario === "loading") assert.match(text, /Loading market data/);
+      else if (scenario === "unavailable") assert.match(text, /Market data unavailable/);
+      else {
+        assert.match(row, /datetime="2026-10-15T09:12:00.000Z"/i);
+        assert.doesNotMatch(row, /2026-10-15T08:00:00.000Z/);
+        assert.match(text, scenario === "stale" ? /Previous snapshot/ : /Fetched/);
+        assert.match(text, scenario === "bankr" ? /Bankr \/ Pools/ : /CoinGecko/);
+        assert.match(text, /—/); // Fresh null metrics stay unknown, with provenance still visible.
+      }
+      if (["fresh", "stale"].includes(scenario)) {
+        assert.match(markup, /<a href="https:\/\/www.coingecko.com\/en\/api"[^>]*rel="noopener noreferrer"[^>]*>[^<]*CoinGecko/);
+      } else assert.doesNotMatch(markup, /www.coingecko.com\/en\/api/);
+      assert.doesNotMatch(markup, /shown on each card/);
+    }
+  } finally {
+    hooks.deregister();
+    for (const [name, original] of originals) { if (original) Object.defineProperty(globalThis, name, original); else Reflect.deleteProperty(globalThis, name); }
   }
 });

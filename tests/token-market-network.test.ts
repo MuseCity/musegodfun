@@ -40,6 +40,8 @@ test("section provenance never borrows another section's source or time", async 
   assert.match(text,/GeckoTerminal/);assert.match(text,/2026-10-08T09:00:00Z/);assert.match(text,/Previous snapshot/);assert.doesNotMatch(text,/CoinGecko/);
   const missing=renderToStaticMarkup(createElement(MarketProvenance,{label:'Candles',data:null}));
   assert.doesNotMatch(missing,/Bankr|CoinGecko|GeckoTerminal/);assert.match(missing,/Source and fetch time/);
+  const cg = renderToStaticMarkup(createElement(MarketProvenance, { label: "Summary", data: { source: "CoinGecko", fetchedAt: "2026-10-15T09:00:00Z" } }));
+  assert.match(cg, /<a href="https:\/\/www.coingecko.com\/en\/api"[^>]*rel="noopener noreferrer"[^>]*>[^<]*CoinGecko/);
 });
 
 test("read-only HTTP acceptance targets explicit identities and reports empty fixtures without skipping", async () => {
@@ -149,4 +151,33 @@ test("holders HTTP contract keeps registered-token validation and a long retry d
     } finally { await new Promise<void>(resolve => server.close(() => resolve())); entry.service.store.close(); await rm(directory, { recursive: true, force: true }); }
   }
   assert.equal(external, 0);
+});
+
+test("MUSEGOD HTTP route classifies real fetch-boundary failures without modifying its dedicated reader", async (t) => {
+  const { mkdtemp, rm } = await import("node:fs/promises"), { tmpdir } = await import("node:os"), { join } = await import("node:path");
+  const { once } = await import("node:events");
+  const { createApp } = await import("../server/app"), { runtimeFromEnv } = await import("../server/config");
+  const nativeFetch = globalThis.fetch;
+  let httpFailure = true, calls = 0;
+  t.mock.method(globalThis, "fetch", (async (input: any, init: any) => {
+    if (String(input).startsWith("http://127.0.0.1:")) return nativeFetch(input, init);
+    assert.equal(new URL(String(input)).origin, "https://api.bankr.bot"); calls++;
+    if (httpFailure) return new Response("private upstream body", { status: 503 });
+    throw new TypeError("private upstream URL");
+  }) as typeof fetch);
+  for (const failure of [true, false]) {
+    httpFailure = failure;
+    const directory = await mkdtemp(join(tmpdir(), "musegod-failure-"));
+    const entry = createApp(undefined, "loopback", runtimeFromEnv(4663, { NODE_ENV: "test", CHAIN_MODE: "robinhood", DATA_DIR: directory, ALCHEMY_API_KEY: "fixture-no-network" }));
+    const server = entry.app.listen(0, "127.0.0.1"); await once(server, "listening");
+    try {
+      const response = await nativeFetch(`http://127.0.0.1:${(server.address() as { port: number }).port}/api/musegod/market/candles?interval=1h`);
+      const body = await response.json() as any;
+      assert.equal(response.status, 503); assert.equal(body.source, "Bankr");
+      assert.equal(body.reason, failure ? "upstream_http" : "upstream_transport");
+      assert.equal(body.upstreamStatus, failure ? 503 : undefined);
+      assert.doesNotMatch(JSON.stringify(body), /private|Internal/);
+    } finally { await new Promise<void>(resolve => server.close(() => resolve())); entry.service.store.close(); await rm(directory, { recursive: true, force: true }); }
+  }
+  assert.equal(calls, 2);
 });

@@ -141,7 +141,7 @@ import assetLogos from "./lib/asset-logos.json";
 import { buildIdentity } from "./lib/build-info";
 import { useTheme } from "./lib/theme";
 import { relativeTime, usdCompact, percentChange, changeClass, dateLabel, feePercent, tokenImageSrc } from "./lib/format";
-import TokenCard, { NftBadge } from "./components/TokenCard";
+import TokenCard, { CardMarketStatus, NftBadge } from "./components/TokenCard";
 import { useTokenCardMarkets } from "./lib/token-card-market";
 
 function useResource<T>(path: string, version = 0) {
@@ -847,6 +847,7 @@ export function Explore({
     const data = marketFor(entry).data;
     return data && data.status !== "unavailable" ? data : null;
   };
+  const showsCoinGecko = filtered.some(entry => stats(entry)?.source === "CoinGecko");
   const verifiedPairs = stocks
     ? launchAssets.filter((asset) => stocks.some((s) => s.verified && s.chainId === asset.chainId && sameAddress(s.address, asset.address))).length
     : null;
@@ -983,8 +984,9 @@ export function Explore({
         <p className="market-note">
           <span>{displayConfig === null ? "Loading market data…"
             : displayConfig.mode === "fork" ? "Local fork launches have no mainnet market data. Open a token for an on-chain quote."
-              : showMarket ? "Market sources and update times are shown on each card."
+              : showMarket ? "Market sources and fetch times appear with each token."
                 : "Market data is unavailable. Open a token for its on-chain quote."}</span>
+          {showsCoinGecko && <span>Data provided by <a href="https://www.coingecko.com/en/api" target="_blank" rel="noopener noreferrer">CoinGecko</a></span>}
           <span>New launches are listed after on-chain confirmation.</span>
         </p>
         {tokenError && <Notice kind="error">Platform launches could not be loaded: {tokenError}</Notice>}
@@ -1031,9 +1033,7 @@ export function Explore({
                           <span className="token-sub">
                             ${entry.symbol} · {featured ? <>SushiSwap v3{data && <> · {usdCompact(data.marketCapUsd)} mcap · <span className={changeClass(data.periods.h24?.change)}>{percentChange(data.periods.h24?.change)}</span> 24h</>}</> : shortAddress(entry.address)}
                           </span>
-                          {data?.status === "stale" && <span className="token-card-market-state stale" role="status" title={data.warning || market.error || undefined}>
-                            Previous snapshot · <time dateTime={data.fetchedAt} title={data.fetchedAt}>{new Date(data.fetchedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</time>
-                          </span>}
+                          {showMarket && <CardMarketStatus market={market} />}
                         </div>
                       </div>
                     </td>

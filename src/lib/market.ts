@@ -4,7 +4,7 @@ export function marketSnapshotKey(token: Pick<TokenRecord, "mode" | "deploymentC
   return `market:v2:${deploymentChain(token)}:${token.mode}:${token.address.toLowerCase()}:${token.poolId.toLowerCase()}:${token.quoteAddress.toLowerCase()}:${section}`;
 }
 export type MarketSource = "CoinGecko" | "Bankr" | "GeckoTerminal" | "Storage" | "Internal" | "Unavailable";
-export type MarketReason = "missing_config" | "quota_exhausted" | "not_indexed" | "rate_limited" | "upstream_http" | "upstream_transport" | "invalid_identity" | "invalid_schema" | "source_not_provided" | "storage_unavailable" | "internal_error" | "backoff";
+export type MarketReason = "missing_config" | "quota_exhausted" | "not_indexed" | "rate_limited" | "upstream_http" | "upstream_transport" | "upstream_unclassified" | "invalid_identity" | "invalid_schema" | "source_not_provided" | "storage_unavailable" | "internal_error" | "backoff";
 export type MarketCause = { source: MarketSource; reason: MarketReason; upstreamStatus?: number };
 export type SnapshotMeta = {
   causes?: MarketCause[];

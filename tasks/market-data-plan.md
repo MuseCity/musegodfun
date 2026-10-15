@@ -2,7 +2,7 @@
 
 日期：2026-10-15（Asia/Shanghai）
 
-状态：Run 3 已按指挥者裁定完成 C1–C11 本地修复与 H1 落实；最终本地检查见交付记录。H1 将两链普通 holders 明确降级为暂不提供。生产 Demo secret、登记 Base 正向样本、Robinhood 非空/长历史 trades 与浏览器/发布验收仍未满足；不宣称生产恢复。
+状态：Run 5 已修复 Round 2 C3/B1 与 R2-1–R2-5，本地检查见交付记录；浏览器复验待本轮提交后执行。H1 将两链普通 holders 明确降级为暂不提供。生产 Demo secret、登记 Base 正向样本、Robinhood 非空/长历史 trades 与独立复审/发布验收仍未满足；不宣称生产恢复。
 
 ## 目标与完成条件
 
@@ -117,7 +117,7 @@
 
 - [x] 首页普通 Robinhood 卡片接入已实现的批量摘要路径，避免逐卡重复请求；首页与详情页同一指标复用同一快照。
 - [x] 分别展示加载中、索引未返回记录、未索引、请求不可用、旧快照。只有明确范围的链上核验支持时才说“没有链上成交”；空数组只说当前索引/周期没有记录。
-- [x] summary、candles、trades 使用各自真实 source 与 fetchedAt；holders 静态不可用。首页说明栏不再固定 CoinGecko 或借用 MUSEGOD 时间，配置未到时独立显示 loading（C3 修正 Run 2 原勾选过高的问题）。抓取时间不冒充最后成交时间，刷新失败不把旧数据时间改成现在。
+- [x] summary、candles、trades 使用各自真实 source 与 fetchedAt；holders 静态不可用。首页说明栏不再固定 CoinGecko 或借用 MUSEGOD 时间，配置未到时独立显示 loading；Run 5 补齐默认列表每行可见状态/来源/抓取时间，并按实际显示来源提供 CoinGecko API 署名链接，详情页同样署名（C3/B1 修正此前仅网格成立的勾选）。抓取时间不冒充最后成交时间，刷新失败不把旧数据时间改成现在。
 - [x] 保留共享 15 分钟快照、最多 24 小时旧快照的现有边界。新缓存身份包含链/模式、token、pool、quote、section、interval；解析语义变化隔离不再可信的旧键，不删除历史记录。
 - [x] 缓存命中不消耗外部额度；同请求合并、限制并发与回退次数、按需加载周期、持有人无请求、尊重限流退避。扩展首页后不得形成 N+1 请求或多实例绕过预算。
 - [x] 一个 section、代币或链失败不清空其他有效数据；切链、换池、请求晚到及 fork 均不得串数据。
@@ -218,7 +218,7 @@ Quota estimate (Run 3 supersedes Run 2): 当前目录 Base 1 池、RH 3 池，�
 
 按已观察来源形态（R1/R2 Bankr 有身份合法空，GT 不提供非空；R3 Bankr 缺身份、GT 失败；Base 仅 CG），四池六周期需要 `6*(Base+R3)=12` 次 CG，trades 4 次：首页已预取时合计 18 次/周期（需求 1728/天），四详情各自冷启动单摘要时合计 20 次。R1/R2 每个周期不调用 CG；R3 的 CG 必须先通过 candles 子额度。若所有 RH 的 Bankr/GT 都失败，最坏需求为 24 candles + 4 trades + 2 首页 multi = 30/周期（2880/天）；详情单摘要冷启动为 32。多实例、重启及地址组变化可能额外 miss；实际全站上界仍由持久共享预算 300/天、9000/月约束。
 
-所有链 candles 的 CG 调用先 reserve `<shared scope>:candles`（当前 `base:candles`）100/天、3000/月，再 reserve 原 `base` 共享预算。现有 text scope 与 RPC 支持子 scope，不新增迁移；Supabase 两链共用 `base:candles`，SQLite 用日期 key 后缀隔离子额度。candles 最多占共享 100/天、3000/月，因此 summary/trades 合计至少保有 200/天、6000/月的容量；这不是每项请求都能成功或单独保留给 summary 的保证。缓存命中不扣额度，同键并发合并。子额度先扣使已耗尽 candles 不消耗 summary/trades 的共享容量；若之后共享扣额失败，已扣的一次子额度会浪费。不新增退款/迁移，未发上游请求，不误称一次跨 scope 原子操作。反过来先扣共享会在子额度耗尽后持续浪费有限的共享容量，所以不采用。GT 429/Retry-After 在本实例至少熔断 15 分钟，不对每个 key 白发请求；重启/多实例不是全局 GT 熔断。
+所有链 candles 的 CG 调用先 reserve `<shared scope>:candles`（当前 `base:candles`）100/天、3000/月，再 reserve 原 `base` 共享预算。现有 text scope 与 RPC 支持子 scope，不新增迁移；Supabase 两链共用 `base:candles`，SQLite 用日期 key 后缀隔离子额度。candles 最多占共享 100/天、3000/月，因此 summary/trades 合计至少保有 200/天、6000/月的容量；这不是每项请求都能成功或单独保留给 summary 的保证。缓存命中不扣额度，同键并发合并。子额度先扣使已耗尽 candles 不消耗 summary/trades 的共享容量；若之后共享扣额失败，已扣的一次子额度会浪费。不新增退款/迁移，未发上游请求，不误称一次跨 scope 原子操作。反过来先扣共享会在子额度耗尽后持续浪费有限的共享容量，所以不采用。GT 429 或 503 + Retry-After 在本实例至少熔断 15 分钟，成功响应忽略该头，不对每个 key 白发请求；重启/多实例不是全局 GT 熔断。
 
 Local rollback: revert the Run 2 commits in reverse order on this branch; production is unchanged. Reverting code alone does not delete new/old snapshots or change future secret/configuration state. Any later rollout must capture its actual production rollback point and honor the separate release gate.
 
@@ -237,3 +237,16 @@ TDD 证据：`evidence/run3-server-red.log`（服务端新用例原先失败）�
 
 
 Run 3 最终本地验证：`evidence/run3-final-test.log` **1495/1495**，0 fail/cancelled/skipped/todo（比 Run 2 净增16）；`run3-final-build.log` 两套tsc及Vite通过，仅既有大chunk提示；`git diff --check`通过。初次全量发现共享错误分类影响MUSEGOD来源字段，已在Snapshots保留provider身份并用Internal cause分类，原MUSEGOD测试未改，51项定向回归与全量均通过。`server/musegod-market.ts`等受保护路径对起点无差异。回滚：在本分支核对后续提交后`git revert HEAD`（仅当HEAD为本轮 `fix(market): address reliability review and disable holders` 提交）；不删历史快照/额度记录、无生产配置回滚。最终本地提交信息在本轮报告记录；状态 DONE 仅指Run 3授权范围。
+
+
+### Run 5：Round 2 修复（浏览器复验前）
+
+授权：`run5-brief.md` 与仍有效的 Run 3 指挥者裁定。C3/B1：列表复用网格的 `CardMarketStatus`，逐行显示实际来源和抓取时间，loading/unavailable/Previous snapshot 直接可见；fresh 的未知指标仍为破折号。首页说明栏按实际出现的 CG 行显示带链接署名，详情各 section 同样署名，网格保留单一详情链接，不嵌套链接。官方署名依据：[attribution guide](https://brand.coingecko.com/resources/attribution-guide)、[API Deck](https://assets.coingecko.com/reports/API/CoinGecko-API-Deck.pdf)，2026-10-15 本轮核对。
+
+R2-1：写快照失败后在 Snapshots 实例内保留本次返回值至该 key 的 TTL，命中先于存储读取，summary/batch 共用；普通15分钟、MUSEGOD一分钟，不重复上游或 quota。非跨实例/重启保障。R2-2：共享 `marketFailure` 分类网络和明确程序异常，未知异常用中性 `upstream_unclassified`；应用装配处给 MUSEGOD 注入带 HTTP 状态的 `marketFetch`。`server/musegod-market.ts` 的源码、固定身份、专用键及一分钟语义均未改。R2-3：只有429或503+Retry-After打开host退避，成功响应忽略该头。R2-4：删除 holders 的 `.market-table .chip` 死样式，保留 API 客户端对 `source_not_provided` 的提示映射，前端仍不请求 holders。
+
+R2-5 已核对现有 SQL：cleanup、backup、restore 均严格按 scope，不包含 `<scope>:candles`（当前 `base:candles`）。子额度日/月行约每月31+1条、每年不超过约384条/共享quota scope，会累积；按主scope恢复不恢复子额度，新的quota scope从0计子额度，共享总额限制仍有效。本轮不改cleanup：量级小，新增迁移和生产写入语义变化不属于本轮必要修复；后续如需运维清理须另行授权。没有执行任何数据库操作。
+
+TDD：`evidence/run5-red.log` 首次75项中8项失败，覆盖缺少列表状态/署名、重复写失败扣额、MUSEGOD分钟保护/HTTP边界、网络分类和成功响应退避。修复后定向98/98通过（包含真实Express路由、SSR与实际hook回归）；全量、build、提交结果及浏览器覆盖在后续记录补齐。
+
+Run 5 浏览器前最终检查：`evidence/run5-final-test.log` 全量 **1502/1502**，0 fail/cancelled/skipped/todo；`run5-final-build.log` 两套tsc+Vite通过（仅既有大chunk提示）；`git diff --check`通过。更正SSR属性名大小写后的测试已在原 `aa0afdd` App 上重新执行，`run5-ui-baseline-red.log` 9项中2项失败，确认仍真实检测缺少逐行状态/来源/时间与错误说明栏，并恢复当前源码。受保护的MUSEGOD专用reader、alchemy-rpc、合约、supabase源码对起点均无差异。浏览器复验与本地提交摘要后补。

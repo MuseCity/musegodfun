@@ -25,6 +25,17 @@ function fixture(fetcher: typeof fetch) {
   return { reader: new MarketReader(options), options, snapshots, advance: (ms: number) => { now += ms; } };
 }
 
+test("successful Bankr responses ignore Retry-After across candle intervals", async () => {
+  let calls = 0;
+  const f = fixture(async input => {
+    assert.equal(new URL(String(input)).hostname, "api.bankr.bot"); calls++;
+    return Response.json(bankr(), { headers: { "retry-after": "120" } });
+  });
+  assert.equal((await f.reader.candles(token, "1h")).source, "Bankr");
+  assert.equal((await f.reader.candles(token, "5m")).source, "Bankr");
+  assert.equal(calls, 2);
+});
+
 test("Robinhood prefers Bankr, merges requests and persists the actual source without API keys", async () => {
   const calls: string[] = [];
   const f = fixture(async (input, init) => {

@@ -404,5 +404,32 @@ test("storage and unexpected program errors are distinct from provider transport
     apiKey: "fixture", fetch: async () => Response.json(pool) }).summary(token);
   assert.equal(fresh.priceUsd, 0.0004); assert.equal(fresh.reason, "storage_unavailable"); assert.equal(saves, 1);
   const { Snapshots } = await import("../server/snapshots");
-  await assert.rejects(new Snapshots({ snapshot: () => null } as never).get("program", "CoinGecko", async () => touch()), (e: any) => e.reason === "internal_error" && e.source === "CoinGecko" && e.causes[0].source === "Internal");
+  await assert.rejects(new Snapshots({ snapshot: () => null } as never).get("program", "CoinGecko", async () => { throw new ReferenceError("private parser bug"); }), (e: any) => e.reason === "internal_error" && e.source === "CoinGecko" && e.causes[0].source === "Internal");
+});
+
+test("failed snapshot writes retain fetched data for one TTL without repeating upstream or quota calls", async () => {
+  const { SNAPSHOT_TTL } = await import("../server/snapshots");
+  let now = Date.now(), calls = 0, quota = 0, writes = 0, reads = 0;
+  const reader = new MarketReader({ apiKey: "fixture", now: () => now,
+    store: { snapshot: () => { reads++; return null; }, saveSnapshot: () => { writes++; throw new Error("private storage"); },
+      reserveMarketCall: () => { quota++; return true; } } as never,
+    fetch: async () => { calls++; return Response.json(pool); } });
+  const first = await reader.summary(token);
+  for (let i = 0; i < 5; i++) assert.deepEqual(await reader.summary(token), first);
+  assert.deepEqual((await reader.summaries([token]))[0].summary, first);
+  assert.deepEqual({ calls, quota, writes, reads }, { calls: 1, quota: 1, writes: 1, reads: 1 });
+  assert.equal(first.reason, "storage_unavailable");
+  now += SNAPSHOT_TTL;
+  const next = await reader.summary(token);
+  assert.equal(calls, 2); assert.equal(quota, 2); assert.notEqual(next.fetchedAt, first.fetchedAt);
+});
+
+test("network failures and unclassified errors do not masquerade as internal program errors", async () => {
+  const { marketFailure } = await import("../server/snapshots");
+  for (const error of [new TypeError("private fetch details"), new DOMException("private", "AbortError"), new DOMException("private", "TimeoutError")]) {
+    const failure = marketFailure(error, "Bankr");
+    assert.equal(failure.reason, "upstream_transport"); assert.equal(failure.source, "Bankr");
+    assert.doesNotMatch(JSON.stringify(failure), /private|Internal/);
+  }
+  assert.equal(marketFailure(new Error("unclassified"), "Bankr").reason, "upstream_unclassified");
 });

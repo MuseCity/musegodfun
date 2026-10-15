@@ -12,10 +12,23 @@ export function marketFailure(error: unknown, source: MarketSource): MarketFailu
   if (error instanceof MarketFailure) return error;
   if (error instanceof Error && (error.name === "ZodError" || error.name === "SyntaxError"))
     return new MarketFailure("invalid_schema", source);
-  // Preserve the snapshot's provider identity (including the dedicated MUSEGOD path),
-  // but never call an untyped program error a provider transport failure.
-  return new MarketFailure("internal_error", source, undefined, undefined,
-    [{ source: "Internal", reason: "internal_error" }]);
+  if (error instanceof Error && ["TypeError", "AbortError", "TimeoutError"].includes(error.name))
+    return new MarketFailure("upstream_transport", source);
+  // Preserve provider identity; an unknown exception alone does not prove a program bug.
+  if (error instanceof Error && ["AssertionError", "ReferenceError", "RangeError"].includes(error.name))
+    return new MarketFailure("internal_error", source, undefined, undefined,
+      [{ source: "Internal", reason: "internal_error" }]);
+  return new MarketFailure("upstream_unclassified", source);
+}
+/** Classify at the fetch boundary before legacy readers discard HTTP status. */
+export function marketFetch(source: MarketSource, fetcher: typeof fetch = (...args) => fetch(...args)): typeof fetch {
+  return async (...args) => {
+    let response: Response;
+    try { response = await fetcher(...args); }
+    catch { throw new MarketFailure("upstream_transport", source); }
+    if (!response.ok) throw new MarketFailure("upstream_http", source, response.status);
+    return response;
+  };
 }
 export class MarketUnavailable extends Error {
   readonly status = "unavailable";
@@ -34,6 +47,7 @@ export class Snapshots {
   private inflight = new Map<string, Promise<unknown>>();
   private retryAt = new Map<string, number>();
   private failures = new Map<string, MarketFailure>();
+  private unpersisted = new Map<string, { at: number; data: unknown }>();
   constructor(
     readonly store: StoreBackend,
     readonly now = Date.now,
@@ -48,6 +62,9 @@ export class Snapshots {
     if (inflight) return inflight as Promise<T>;
     const result = (async () => {
       const now = this.now();
+      const local = this.unpersisted.get(key);
+      if (local && now - local.at < ttl) return local.data as T;
+      this.unpersisted.delete(key);
       let previous: Awaited<ReturnType<StoreBackend["snapshot"]>>;
       try { previous = await this.store.snapshot(key); }
       catch {
@@ -109,8 +126,12 @@ export class Snapshots {
         try { await this.store.saveSnapshot(key, data, at); }
         catch {
           // The provider data is valid even if persistence fails; keep its actual fetch time.
-          return { ...present(data, at, false, at + ttl), reason: "storage_unavailable" as const,
+          const result = { ...present(data, at, false, at + ttl), reason: "storage_unavailable" as const,
             warning: "Snapshot storage is unavailable.", causes: [{ source: "Storage" as const, reason: "storage_unavailable" as const }] };
+          this.unpersisted.set(key, { at, data: result });
+          this.retryAt.delete(key);
+          this.failures.delete(key);
+          return result;
         }
         this.retryAt.delete(key);
         this.failures.delete(key);

@@ -17,7 +17,7 @@ import { redact, type Runtime, type DeploymentChainId } from "./config";
 import { deploymentChain } from "../src/lib/config";
 import { FirstBuyPaymentReader } from "./lifi";
 import { EthBuyError, quoteEthBuy } from "./eth-buy";
-import { MarketUnavailable } from "./snapshots";
+import { MarketUnavailable, marketFetch } from "./snapshots";
 import { MarketReader } from "./market";
 import { MusegodReader } from "./musegod";
 import { MusegodMarketReader } from "./musegod-market";
@@ -87,7 +87,7 @@ const market = new MarketReader({
   apiKey: runtime.secrets?.coingeckoApiKey,
 });
 const musegod = new MusegodReader(service.client, service.runtime.config, () => service.assertNetwork(), undefined, service.store);
-const musegodMarket = new MusegodMarketReader(service.runtime.config, service.store);
+const musegodMarket = new MusegodMarketReader(service.runtime.config, service.store, { fetch: marketFetch("Bankr") });
 const buyback = new BuybackReader(service.runtime.config.treasury, { environment: runtime.environment });
 const robinhoodDisplayClient = runtime.config.mode === "fork" || deploymentChain(runtime.config) === 4663 ? service.client
   : createPublicClient({ chain: robinhood,transport: alchemyRpcTransport(4663,runtime.environment ?? {}) });

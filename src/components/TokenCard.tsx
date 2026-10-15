@@ -31,6 +31,20 @@ export function NftBadge({ token, withContract = false }: { token: Pick<TokenRec
   return label ? <span className={`badge nft-badge${label.includes("unverified") ? " nft-warning" : ""}`}>{label}</span> : null;
 }
 
+export function CardMarketStatus({ market }: { market: CardMarketState }) {
+  const stats = market.data?.status === "unavailable" ? null : market.data;
+  const source = stats?.source === "Bankr" ? "Bankr / Pools" : stats?.source;
+  const at = stats && Number.isFinite(Date.parse(stats.fetchedAt)) ? new Date(stats.fetchedAt) : null;
+  return <div className={`token-card-market-state${stats?.status === "stale" ? " stale" : ""}`} role="status"
+    title={stats?.warning || market.error || undefined}>
+    {stats ? <>
+      {source && <span>{source}</span>}
+      <span>{stats.status === "stale" ? "Previous snapshot" : "Fetched"}{at && <> · <time dateTime={stats.fetchedAt} title={at.toISOString()}>{at.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}</time></>}</span>
+      {market.loading && <span>Updating…</span>}
+    </> : <span>{market.loading ? "Loading market data…" : market.error || "Market data unavailable"}</span>}
+  </div>;
+}
+
 export default function TokenCard({ token, market, onNavigate }: {
   token: TokenCardToken;
   market: CardMarketState;
@@ -41,9 +55,6 @@ export default function TokenCard({ token, market, onNavigate }: {
   const stats = market.data?.status === "unavailable" ? null : market.data;
   const change = stats?.periods.h24?.change;
   const changeClass = changeKind(change);
-  const source = stats?.source === "Bankr" ? "Bankr / Pools" : stats?.source;
-  const at = stats && Number.isFinite(Date.parse(stats.fetchedAt)) ? new Date(stats.fetchedAt) : null;
-  const snapshotLabel = stats?.status === "stale" ? "Previous snapshot" : "Fetched";
   const href = tokenPath(token);
   const details = token.kind === "musegod" ? "Featured · SushiSwap v3 · 1% pool"
     : ["Doppler · Uniswap v4", token.tradingFeeBps !== undefined ? `${token.tradingFeeBps / 100}% fee` : null,
@@ -82,14 +93,7 @@ export default function TokenCard({ token, market, onNavigate }: {
       <div><dt>24h volume</dt><dd>{usd(stats?.periods.h24?.volume)}</dd></div>
       <div><dt>24h change</dt><dd className={changeClass}>{percent(change)}</dd></div>
     </dl>
-    <div className={`token-card-market-state${stats?.status === "stale" ? " stale" : ""}`} role="status"
-      title={stats?.warning || market.error || undefined}>
-      {stats ? <>
-        {source && <span>{source}</span>}
-        <span>{snapshotLabel}{at && <> · <time dateTime={stats.fetchedAt} title={at.toISOString()}>{at.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}</time></>}</span>
-        {market.loading && <span>Updating…</span>}
-      </> : <span>{market.loading ? "Loading market data…" : market.error || "Market data unavailable"}</span>}
-    </div>
+    <CardMarketStatus market={market} />
     <div className="token-card-footer">
       <div><span>Creator</span><span title={token.creator ?? undefined}>{token.creator ? shortAddress(token.creator) : "—"}</span></div>
       <span className="token-card-network">{token.mode === "fork" ? "Fork test" : token.mode === "robinhood" ? "Robinhood Chain" : "Base"}</span>

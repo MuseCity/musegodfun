@@ -101,6 +101,39 @@ test("MUSEGOD summary retains unknown supply/FDV, signed changes and valid zero 
   assert.equal(sparse.periods.m5.change, null);
 });
 
+test("MUSEGOD write failures preserve dedicated cache keys and one-minute upstream protection", async () => {
+  let now = NOW, calls = 0;
+  const keys: string[] = [];
+  const reader = new MusegodMarketReader(config, {
+    snapshot: (key: string) => { keys.push(key); return null; },
+    saveSnapshot: () => { throw new Error("storage unavailable"); },
+    reserveMarketCall: () => { throw new Error("Bankr must never reserve Demo quota"); },
+  } as unknown as StoreBackend, { now: () => now, fetch: async () => { calls++; return Response.json(candles()); } });
+  const first = await reader.candles("1h");
+  for (let i = 0; i < 5; i++) assert.deepEqual(await reader.candles("1h"), first);
+  assert.equal(calls, 1); assert.equal(keys.length, 1); assert.match(keys[0], /^bankr:robinhood:.*:candles:1h$/);
+  assert.equal(first.source, "Bankr"); assert.equal(first.nextRefreshAt, new Date(NOW + MUSEGOD_MARKET_TTL).toISOString());
+  now += MUSEGOD_MARKET_TTL;
+  assert.notEqual((await reader.candles("1h")).fetchedAt, first.fetchedAt); assert.equal(calls, 2);
+});
+
+test("MUSEGOD fetch boundary retains HTTP status and network failure diagnostics", async () => {
+  const { marketFetch } = await import("../server/snapshots");
+  for (const failure of [503, 429, new TypeError("private URL"), new DOMException("private", "AbortError")]) {
+    const { store } = memoryStore();
+    const reader = new MusegodMarketReader(config, store, { now: () => NOW, fetch: marketFetch("Bankr", async () => {
+      if (typeof failure === "number") return new Response("private body", { status: failure });
+      throw failure;
+    }) });
+    await assert.rejects(reader.candles("1h"), (e: any) => {
+      assert.equal(e.source, "Bankr");
+      assert.equal(e.reason, typeof failure === "number" ? "upstream_http" : "upstream_transport");
+      assert.equal(e.upstreamStatus, typeof failure === "number" ? failure : undefined);
+      assert.doesNotMatch(JSON.stringify(e), /private|Internal/); return true;
+    });
+  }
+});
+
 test("MUSEGOD summary fails closed for missing or mismatched token, pool, network and orientation", () => {
   for (const patch of [
     { tokenAddress: MUSEGOD.weth }, { tokenAddress: null }, { poolId: MUSEGOD.weth },

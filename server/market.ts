@@ -275,7 +275,7 @@ export class MarketReader {
     } catch { throw new MarketFailure("upstream_transport", source); }
     let retry: number | undefined;
     const header = response.headers.get("retry-after");
-    if (response.status === 429 || header !== null) {
+    if (response.status === 429 || response.status === 503 && header !== null) {
       retry = Math.max(now + (source === "GeckoTerminal" ? 15 * 60_000 : 60_000),
         header && /^\d+$/.test(header) ? now + Number(header) * 1000 : Date.parse(header ?? "") || 0);
       this.backoff.set(host, retry);

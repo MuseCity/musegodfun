@@ -33,7 +33,9 @@ export function marketEndpoint(token: MarketToken, kind: "launch" | "musegod", s
 }
 export function MarketProvenance({ label, data, kind }: { label: string; data: (SnapshotMeta & { fetchedAt: string }) | null; kind?: "launch" | "musegod" }) {
   return <span>{label} · {data?.status === "stale" ? "Previous snapshot · " : ""}{data?.source === "Bankr" ? kind === "musegod"
-    ? <a href={MUSEGOD.sourceUrl} target="_blank" rel="noreferrer">Bankr / Pools ↗</a> : "Bankr / Pools" : data?.source ?? "Source pending"} · {data
+    ? <a href={MUSEGOD.sourceUrl} target="_blank" rel="noopener noreferrer">Bankr / Pools ↗</a> : "Bankr / Pools"
+    : data?.source === "CoinGecko" ? <a href="https://www.coingecko.com/en/api" target="_blank" rel="noopener noreferrer">Data provided by CoinGecko</a>
+      : data?.source ?? "Source pending"} · {data
     ? <>Fetched <time dateTime={data.fetchedAt} title={data.fetchedAt}>{new Date(data.fetchedAt).toLocaleString("en-US")}</time></>
     : "Source and fetch time appear after data loads"}</span>;
 }
