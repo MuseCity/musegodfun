@@ -147,7 +147,7 @@ There are two new read endpoints. They sit next to `nft-status` and are served u
 - **Network:**
   - NFT mode off, including every Base request: HTTP 422 `NFT_MODE_UNAVAILABLE`, before any provider call (`assertNftModeAvailable`).
   - A network other than the deployment's: `NFT_CHAIN_UNSUPPORTED`, as `nft-status` does.
-- **Provider failure:** no `ALCHEMY_API_KEY`, a timeout (8 s per call), a non-2xx response or a malformed body all give HTTP 503 `NFT_LIST_UNAVAILABLE`, "Your NFTs could not be loaded. Enter the contract and token number instead."
+- **Provider failure:** no `ALCHEMY_API_KEY`, a timeout (8 s per call), a non-2xx response, a malformed body, or reaching the list's load cap (6 concurrent uncached loads) or provider budget (120 Alchemy calls per rolling minute) all give HTTP 503 `NFT_LIST_UNAVAILABLE`, "Your NFTs could not be loaded. Enter the contract and token number instead." Identical in-flight requests share one load.
 - **Caching:** in memory for 60 s, per owner for collections and per owner + contract for NFTs. Keys are lowercase addresses. A failure is not cached.
 - **Secrecy:** the Alchemy key stays on the server. Responses carry no Alchemy URL other than image URLs.
 - **Cost:** at most 3 Alchemy calls per uncached request. They go to the NFT API host (`robinhood-mainnet.g.alchemy.com/nft/v3/…`), not to the RPC proxy.
@@ -199,7 +199,7 @@ There are two new read endpoints. They sit next to `nft-status` and are served u
 
 | Risk | Handling |
 |---|---|
-| Alchemy compute use | 60 s cache, 3-page caps, `read` ingress limits |
+| Alchemy compute use | 60 s cache, 3-page caps, `read` ingress limits, identical in-flight requests share one load, 6 concurrent uncached loads, 120 Alchemy calls per rolling minute |
 | A new mint is not yet indexed by Alchemy | Manual entry |
 | A copycat collection named like Muses | Muses are pinned and marked free by contract address only. The existing disclaimer ("musegod.fun does not endorse NFT collections…") stays on the step. |
 | "Verified on OpenSea" read as a musegod.fun endorsement | The badge names OpenSea, and the disclaimer stays |

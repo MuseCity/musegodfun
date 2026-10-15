@@ -1047,7 +1047,22 @@ async function walletPickerCase(page, state) {
     return;
   }
   await page.getByRole('button', { name: /Bronze Keys/ }).waitFor();
+  assert.equal(await nftRadio.evaluate(node => node === document.activeElement), true, 'initial list loading does not steal focus');
   const search = page.getByRole('searchbox', { name: 'Search your collections' });
+  const returnToPicker = async name => {
+    state.holdNftCollections = true;
+    await page.getByRole('button', { name, exact: true }).click();
+    await waitForFixture(() => state.nftCollectionResolvers.length > 0, `${name}: list load held open`);
+    await page.waitForFunction(() => {
+      const focused = document.activeElement;
+      return focused?.matches('.nft-picker p[role="status"][tabindex="-1"]') && focused.textContent === 'Loading your NFTs…';
+    });
+    state.holdNftCollections = false;
+    state.nftCollectionResolvers.splice(0).forEach(resolve => resolve());
+    await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Search your collections');
+    await search.press('Tab');
+    await page.waitForFunction(() => document.activeElement?.classList.contains('nft-collection-row'));
+  };
   await search.fill('nothing matches');
   await page.getByText('No collections match.', { exact: true }).waitFor();
   await search.press('Enter');
@@ -1062,7 +1077,17 @@ async function walletPickerCase(page, state) {
   await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Collection contract');
   await page.getByLabel('Collection contract', { exact: true }).fill('invalid');
   await page.getByLabel('Token number', { exact: true }).fill('1');
-  await page.getByRole('button', { name: 'Choose from your wallet instead', exact: true }).click();
+  await returnToPicker('Choose from your wallet instead');
+  await page.waitForFunction(text => document.getElementById('nft-launch-status')?.textContent === text, chooseText);
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await page.locator('#nft-launch-error').getByText(chooseText, { exact: true }).waitFor();
+  // A valid but refused manual NFT also gives way to picker guidance when no NFT remains in the draft.
+  await page.getByRole('button', { name: 'Enter a contract and token number instead', exact: true }).click();
+  await page.getByLabel('Collection contract', { exact: true }).fill(paidCollection);
+  await page.getByLabel('Token number', { exact: true }).fill('7');
+  const refused = 'This wallet does not hold the NFT and has no delegation for it.';
+  await page.waitForFunction(text => document.getElementById('nft-launch-status')?.textContent === text, refused);
+  await returnToPicker('Choose from your wallet instead');
   await page.waitForFunction(text => document.getElementById('nft-launch-status')?.textContent === text, chooseText);
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.locator('#nft-launch-error').getByText(chooseText, { exact: true }).waitFor();
@@ -1076,7 +1101,8 @@ async function walletPickerCase(page, state) {
   await page.waitForFunction(() => document.querySelector('input[name="name"]')?.value === 'Bronze Key #2014');
   assert.equal(await page.getByLabel('Token symbol', { exact: true }).inputValue(), 'BRONZEKEY');
   assert.match(await page.locator('.nft-selected').innerText(), /#5/);
-  await page.getByRole('button', { name: 'Change', exact: true }).click();
+  await returnToPicker('Change');
+  assert.equal(await page.locator('#nft-launch-status').innerText(), 'Launching for this NFT costs $10, paid before the launch.', 'a retained draft NFT keeps its own status');
   await page.getByRole('button', { name: 'Keep #5', exact: true }).click();
   await page.locator('.nft-selected').getByText('Bronze Key #2014', { exact: true }).waitFor();
   await page.waitForFunction(() => document.activeElement?.textContent === 'Bronze Key #2014');

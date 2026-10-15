@@ -106,8 +106,8 @@ export function savedNftMode(raw: string | null): boolean {
 }
 /** Fields an NFT's name fills: only empty ones, and never a reserved name or symbol. The symbol is the name's letters, at most 10, in
  * upper case. Used for Muses (their on-chain name) and for any NFT picked from the wallet (its listed name). */
-export function musePrefill(draft: Pick<LaunchInput, "name" | "symbol">, museName: string): { name?: string; symbol?: string } {
-  const name = museName.trim().slice(0, 32), symbol = name.replace(/[^A-Za-z]/g, "").slice(0, 10).toUpperCase();
+export function musePrefill(draft: Pick<LaunchInput, "name" | "symbol">, nftName: string): { name?: string; symbol?: string } {
+  const name = nftName.trim().slice(0, 32), symbol = name.replace(/[^A-Za-z]/g, "").slice(0, 10).toUpperCase();
   return { ...(!draft.name.trim() && name && !reservedLaunchName(name, "") ? { name } : {}),
     ...(!draft.symbol.trim() && symbol && !reservedLaunchName("", symbol) ? { symbol } : {}) };
 }

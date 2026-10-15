@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Address, Hex } from "viem";
 import { deploymentChain, explorerFor, shortAddress, type RuntimeConfig } from "../lib/config";
 import { LAUNCH_FEE_STABLE, LAUNCH_FEE_USD } from "../lib/launch-fee";
@@ -67,11 +67,11 @@ export function NftLaunchStep({ config, account, draft, connecting, onConnect, e
   // How the NFT is chosen: from the wallet's list (default), or typed. A draft that already holds an NFT (a reload, another tab, a draft
   // link) opens on its summary, so it is checked again rather than hidden behind an empty list.
   const [manual, setManual] = useState(false), [picking, setPicking] = useState(!nft);
-  const picker = useRef<HTMLDivElement>(null), contractInput = useRef<HTMLInputElement>(null), selectedName = useRef<HTMLSpanElement>(null);
+  const [focusSearch, setFocusSearch] = useState(false);
+  const clearSearchFocus = useCallback(() => setFocusSearch(false), []);
+  const contractInput = useRef<HTMLInputElement>(null), selectedName = useRef<HTMLSpanElement>(null);
   const showPicker = () => {
-    setManual(false); setPicking(true);
-    requestAnimationFrame(() => (picker.current?.querySelector<HTMLInputElement>('input[type="search"]')
-      ?? picker.current?.querySelector<HTMLButtonElement>("button:not(:disabled)"))?.focus());
+    setManual(false); setPicking(true); setFocusSearch(true);
   };
   const picked = useRef(new Map<string, { name?: string; image?: string }>());
   const choose = (pick: NftPick) => {
@@ -129,7 +129,7 @@ export function NftLaunchStep({ config, account, draft, connecting, onConnect, e
   const passed = !!account && !!candidate && !checkError && !!current && current.erc721 && current.controls && !current.alreadyLaunched;
 
   const statusText = !account ? "Connect the wallet that holds the NFT."
-    : !manual && !candidate ? "Choose an NFT from your wallet, or enter a contract and token number."
+    : !manual && picking && !nft ? "Choose an NFT from your wallet, or enter a contract and token number."
     : tokenId && !parsed.success ? parsed.error.issues[0]?.message ?? "Check the contract and token number."
     : !candidate ? "Enter the token number to check it."
     : checkError ? checkError
@@ -169,7 +169,8 @@ export function NftLaunchStep({ config, account, draft, connecting, onConnect, e
             onChange={(event) => edit(() => setTokenId(event.target.value.trim()))} />
         </label>
         <button type="button" className="text-button" onClick={showPicker}>Choose from your wallet instead</button>
-      </> : picking ? <div ref={picker}><NftPicker key={`${account}|${config.chainId}|${config.deploymentChainId}`} config={config} account={account} connecting={connecting} onConnect={onConnect} onPick={choose}
+      </> : picking ? <div><NftPicker key={`${account}|${config.chainId}|${config.deploymentChainId}`} config={config} account={account} connecting={connecting} onConnect={onConnect} onPick={choose}
+        focusSearch={focusSearch} onSearchFocused={clearSearchFocus}
         onManual={() => { setManual(true); requestAnimationFrame(() => contractInput.current?.focus()); }} />
         {nft && <button type="button" className="secondary" onClick={() => { setPicking(false); requestAnimationFrame(() => selectedName.current?.focus()); }}>Keep #{nft.tokenId}</button>}</div> :
         <div className="nft-selected">

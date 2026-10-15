@@ -16,13 +16,14 @@ export function Thumb({ src, size }: { src?: string; size: number }) {
 
 /** Step one's list of what the connected wallet holds: its ERC-721 collections, then one collection's NFTs. Every answer is tied to the
  * account, collection and attempt it was asked for, so a wallet switch never shows another account's NFTs. */
-export function NftPicker({ config, account, connecting, onConnect, onPick, onManual }: {
+export function NftPicker({ config, account, connecting, onConnect, onPick, onManual, focusSearch, onSearchFocused }: {
   config: RuntimeConfig; account: Address | null; connecting: boolean; onConnect: () => void; onPick: (pick: NftPick) => void; onManual: () => void;
+  focusSearch: boolean; onSearchFocused: () => void;
 }) {
   const [collections, setCollections] = useState<Load<OwnedCollections>>({ state: "loading" });
   const [open, setOpen] = useState<OwnedCollection | null>(null);
   const [tokens, setTokens] = useState<Load<OwnedNfts>>({ state: "loading" });
-  const search = useRef<HTMLInputElement>(null), heading = useRef<HTMLHeadingElement>(null);
+  const search = useRef<HTMLInputElement>(null), heading = useRef<HTMLHeadingElement>(null), listStatus = useRef<HTMLParagraphElement>(null);
   // Separate retry counters: retrying one collection's NFTs must not close that collection or reload the collection list.
   const [query, setQuery] = useState(""), [listAttempt, setListAttempt] = useState(0), [tokenAttempt, setTokenAttempt] = useState(0);
   useEffect(() => { setOpen(null); setQuery(""); }, [account, config.chainId, config.deploymentChainId]);
@@ -42,17 +43,23 @@ export function NftPicker({ config, account, connecting, onConnect, onPick, onMa
       () => { if (active) setTokens({ state: "error" }); });
     return () => { active = false; };
   }, [account, open?.contract, config.chainId, config.deploymentChainId, tokenAttempt]);
+  // Only an explicit return to the picker requests focus; keep that request until the list settles.
+  useEffect(() => {
+    if (!focusSearch) return;
+    (search.current ?? listStatus.current)?.focus();
+    if (!account || collections.state !== "loading") onSearchFocused();
+  }, [account, collections.state, focusSearch, onSearchFocused]);
 
   const manual = <button type="button" className="text-button" onClick={onManual}>Enter a contract and token number instead</button>;
   if (!account) return <div className="nft-picker">
-    <p>Connect your wallet to see your NFTs.</p>
+    <p ref={listStatus} tabIndex={-1}>Connect your wallet to see your NFTs.</p>
     <button type="button" className="primary" disabled={connecting} onClick={onConnect}>{connecting ? "Connecting…" : "Connect wallet"}</button>
     {manual}
   </div>;
   const failed = (retry: () => void) => <div className="nft-picker-note" role="alert">
-    <p>Couldn't load your NFTs.</p><button type="button" className="secondary" onClick={retry}>Retry</button>{manual}
+    <p ref={listStatus} tabIndex={-1}>Couldn't load your NFTs.</p><button type="button" className="secondary" onClick={retry}>Retry</button>{manual}
   </div>;
-  if (collections.state === "loading") return <div className="nft-picker"><p role="status">Loading your NFTs…</p>{manual}</div>;
+  if (collections.state === "loading") return <div className="nft-picker"><p ref={listStatus} role="status" tabIndex={-1}>Loading your NFTs…</p>{manual}</div>;
   if (collections.state === "error") return <div className="nft-picker">{failed(() => setListAttempt((n) => n + 1))}</div>;
 
   if (open) return <div className="nft-picker">
@@ -79,7 +86,7 @@ export function NftPicker({ config, account, connecting, onConnect, onPick, onMa
 
   const shown = filterCollections(collections.value.collections, query);
   return <div className="nft-picker">
-    {collections.value.collections.length === 0 ? <p>No NFTs found in this wallet on Robinhood Chain.</p> : <>
+    {collections.value.collections.length === 0 ? <p ref={listStatus} tabIndex={-1}>No NFTs found in this wallet on Robinhood Chain.</p> : <>
       <label className="field">
         <span className="field-label">Search your collections</span>
         <input ref={search} type="search" aria-label="Search your collections" value={query} autoComplete="off" spellCheck={false}
