@@ -1145,6 +1145,8 @@ function CreatePage({
   // NFT mode is a choice of its own: while a new NFT's check is pending the draft has no `nft` (a restored NFT stays while it is checked
   // again), and review stays blocked until the step's check passes.
   const [nftMode, setNftMode] = useState(() => savedNftMode(initialSavedDraft())), [draftRevision, setDraftRevision] = useState(0);
+  // Step zero has no panel outside NFT mode, including after a draft is replaced.
+  useEffect(() => { if (!nftMode && step === 0) setStep(1); }, [nftMode, step]);
   // The NFT step's status and fee state decide whether review may open; a launch-fee rejection from prepare waits for the user there.
   const [nftStep, setNftStep] = useState<NftStepStatus>({ status: "", fee: "none", checked: null }), [nftFeeRejected, setNftFeeRejected] = useState<NftFeeRejection | null>(null);
   const [query, setQuery] = useState(""),
@@ -1245,6 +1247,7 @@ function CreatePage({
     draftLink.current = null;
     importedAnonymously.current = !wallet.account;
     replaceDraft(imported.raw);
+    setStep(launchDraftStep(imported.raw));
     setMessage("");
     setLinkNotice({ kind: "info", text: imported.notice });
   }, [wallet.restoring, configurationPending, busy, wallet.account, intentId]);

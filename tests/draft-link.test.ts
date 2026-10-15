@@ -6,6 +6,7 @@ import { ROBINHOOD_STOCKS } from "../src/lib/config";
 import { restoreDraft, type LaunchInput } from "../src/lib/validation";
 import { savedNftMode } from "../src/lib/nft-client";
 import { pathChain } from "../src/lib/network";
+import { launchDraftStep } from "../src/lib/launch-draft";
 
 const draft = { name: "Bard", symbol: "BARD", description: "Epic poetry, now tradable.", nft: { chainId: 4663 as const, contract: MUSES.contract, tokenId: "1" } };
 const weth = ROBINHOOD_STOCKS.find((asset) => asset.symbol === "WETH")!, musegod = ROBINHOOD_STOCKS.find((asset) => asset.symbol === "MUSEGOD")!;
@@ -197,6 +198,15 @@ test("a link without an NFT imports a normal draft", () => {
   assert.equal(restored.nft, undefined);
   assert.equal(savedNftMode(imported.raw), false);
   assert.equal(imported.notice, "Imported from a link — check every field.");
+});
+
+test("imported links open the NFT step only when their NFT survives import", () => {
+  const enabled = { ...robinhood, nftMode: nftMode(true) };
+  assert.equal(launchDraftStep(importDraftLink(draft, enabled).raw), 0);
+  assert.equal(launchDraftStep(importDraftLink({ name: "Plain" }, enabled).raw), 1);
+  const disabled = importDraftLink(draft, { ...robinhood, nftMode: nftMode(false) });
+  assert.equal(JSON.parse(disabled.raw).nft, undefined);
+  assert.equal(launchDraftStep(disabled.raw), 1);
 });
 
 test("where NFT mode is off the NFT is dropped, the other fields are imported and the notice says so", () => {
