@@ -96,3 +96,11 @@ test("the 365-day request limit is reported as a window limit, not as the start 
   view.chart().props.onLoadOlder(); await settle();
   assert.equal(calls.length, 0); assert.match(view.text(), /365 days/); assert.doesNotMatch(view.text(), /Beginning of indexed history/);
 });
+
+test("a quote-unit chart never appends provider USD history into its price axis", async t => {
+  const time = Math.floor((Date.now() / 1000 - 3600) / (199 * 3600)) * 199 * 3600;
+  let calls = 0;
+  const view = await mountChart(t, { candles: [candle(time)], fetchedAt: new Date().toISOString(), source: "On-chain · Alchemy", historySource: "Bankr", unit: "WETH", status: "fresh" },
+    async () => { calls++; return { candles: [candle(time - 3600, 3000)], fetchedAt: new Date().toISOString(), source: "Bankr" }; });
+  view.chart().props.onLoadOlder(); await settle(); assert.equal(calls, 0);
+});

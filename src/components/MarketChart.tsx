@@ -32,7 +32,7 @@ export default function MarketChart({ data, endpoint, interval, symbol, type }: 
   const candles = mergeCandles(older, data.candles);
   function loadOlder() {
     const current = pager.current;
-    if (!current || pending.current || exhausted || data.source !== "Bankr" || data.status === "stale" || !candles.length || Date.now() < retryAt.current) return;
+    if (!current || pending.current || exhausted || (data.source !== "Bankr" && !(data.source === "On-chain · Alchemy" && data.unit === "USD")) || (data.unit !== undefined && data.unit !== "USD") || data.status === "stale" || !candles.length || Date.now() < retryAt.current) return;
     const before = historyCursor(candles[0].time, interval);
     try { parseBefore(before, interval); }
     catch { setExhausted(beyondHistoryWindow(before) ? "window" : "start"); return; }
@@ -56,7 +56,7 @@ export default function MarketChart({ data, endpoint, interval, symbol, type }: 
   const note = loading ? "Loading older history…" : error || (exhausted === "window" ? "History is limited to the past 365 days" : exhausted ? "Beginning of indexed history" : "");
   const separateTime = fetchedAt && [fetchedAt.first, fetchedAt.last].some(time => Math.abs(Date.parse(time) - Date.parse(data.fetchedAt)) >= 60_000);
   return <>
-    <PriceChart candles={candles} symbol={symbol} type={type} onLoadOlder={loadOlder} />
+    <PriceChart candles={candles} symbol={symbol} unit={data.unit ?? "USD"} type={type} onLoadOlder={loadOlder} />
     {(loading || exhausted || error || separateTime) && <p className="feed-note chart-history" role="status">
       {note}
       {separateTime && <>{note ? " · " : ""}History pages · Bankr · Fetched <time dateTime={fetchedAt!.first}>{new Date(fetchedAt!.first).toLocaleTimeString("en-US")}</time>

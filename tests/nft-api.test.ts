@@ -29,7 +29,7 @@ const noHidden = { "4663": [], "8453": [] };
 
 // ---- HTTP: catalog, ?nft= filter, hide list, page route ----------------------------------------
 // NFT mode is on unless `nftMode: false`: these surfaces are dark while it is off.
-async function httpFixture(run: (entry: ReturnType<typeof createApp>, origin: string) => Promise<void>, configurePages?: (app: express.Express) => void,
+async function httpFixture(run: (entry: Pick<ReturnType<typeof createApp>, "app" | "service">, origin: string) => Promise<void>, configurePages?: (app: express.Express) => void,
   { nftMode = true, chainScoped = false } = {}) {
   const directory = mkdtempSync(join(tmpdir(), "nft-api-"));
   const runtime = runtimeFromEnv(4663, { NODE_ENV: "test", CHAIN_MODE: "fork", FORK_CHAIN_ID: "4663", DATA_DIR: directory,

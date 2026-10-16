@@ -30,11 +30,13 @@ const alpha = (color: string, hex: string) => /^#[0-9a-f]{6}$/i.test(color) ? `$
 export default function PriceChart({
   candles,
   symbol,
+  unit = "USD",
   type = "candles",
   onLoadOlder,
 }: {
   candles: Candle[];
   symbol: string;
+  unit?: string;
   type?: "candles" | "line";
   onLoadOlder?: () => void;
 }) {
@@ -151,7 +153,7 @@ export default function PriceChart({
   return (
     <div className="price-chart-wrap">
       <div className="chart-ohlc" aria-live="off">
-        <span>{symbol} / USD</span>
+        <span>{symbol} / {unit}</span>
         {bar && (
           <>
             {[
@@ -173,10 +175,10 @@ export default function PriceChart({
         onPointerDown={() => { interacted.current = true; }}
         onWheel={() => { interacted.current = true; }}
         role="img"
-        aria-label={`${symbol} USD ${type === "line" ? "line" : "candlestick"} chart and volume with ${candles.length} ${type === "line" ? "points" : "candles"}. Drag, zoom, and hover to inspect prices.`}
+        aria-label={`${symbol} ${unit} ${type === "line" ? "line" : "candlestick"} chart and volume with ${candles.length} ${type === "line" ? "points" : "candles"}. Drag, zoom, and hover to inspect prices.`}
       />
       <div className="chart-credit">
-        <span>UTC · USD price / volume</span>
+        <span>UTC · {unit} price / volume</span>
         <a href="https://www.tradingview.com/" target="_blank" rel="noreferrer">
           TradingView Lightweight Charts™ · © 2025 TradingView, Inc.
         </a>

@@ -1,3 +1,6 @@
+import { SwapService, isWebhookPath } from "../server/swap-service";
+import { SqlSwapStore } from "../server/swap-store";
+import type { SwapMessage } from "../src/lib/swap-stream";
 import { DurableObject } from "cloudflare:workers";
 import { httpServerHandler } from "cloudflare:node";
 import { createServer } from "node:http";
@@ -22,6 +25,7 @@ interface Env {
 export class LaunchpadRuntime extends DurableObject<Env> {
   private app!: ReturnType<typeof createApp>["app"];
   private service!: ReturnType<typeof createApp>["service"];
+  private swaps!: SwapService;
   private fingerprint = "";
   private readonly chainId: 4663 | 8453;
   private readonly ingress = new IngressLimiter();
@@ -44,10 +48,13 @@ export class LaunchpadRuntime extends DurableObject<Env> {
     const runtime = runtimeFromEnv(this.chainId, environment as RuntimeEnvironment);
     if (runtime.config.mode === "fork" || !runtime.supabase?.url || !runtime.supabase.secretKey)
       throw new Error("Cloudflare requires a mainnet runtime and server-side Supabase storage");
-    const { app, service } = createApp(undefined, true, runtime, { ingressManaged:true, previews:this.previews, challenge:this.challenge,
+    const { app, service, swaps } = createApp(undefined, true, runtime, { ingressManaged:true, previews:this.previews, challenge:this.challenge,
+      swapStore: new SqlSwapStore(this.ctx.storage.sql, fn => this.ctx.storage.transactionSync(fn)),
+      broadcast: message => this.broadcast(message),
       chainConfig: chainId => this.env.LAUNCHPAD.get(this.env.LAUNCHPAD.idFromName(chainId === 8453 ? "base-mainnet" : "robinhood-mainnet")).chainConfiguration(),
     });
     this.service = service;
+    this.swaps = swaps;
     this.app = app;
     this.fingerprint = fingerprint;
   }
@@ -58,6 +65,21 @@ export class LaunchpadRuntime extends DurableObject<Env> {
     return this.service.config(true);
   }
   async fetch(request: Request): Promise<Response> {
+    this.refreshRuntime();
+    const url = new URL(request.url);
+    if (url.pathname === "/api/market/stream") return this.stream(request);
+    if (isWebhookPath(url.pathname) && request.method === "POST") {
+      const admission=this.swaps.admitWebhook();
+      if(admission.status)return Response.json({accepted:false},{status:admission.status,headers:{"Retry-After":"60"}});
+      try {
+        if (await this.ctx.storage.getAlarm() === null) await this.ctx.storage.setAlarm(Date.now()+30_000);
+        if (!request.body) return Response.json({accepted:false},{status:400});
+        const read = await readBoundedBody(request.body,requestBodyLimitForPath(url.pathname),BODY_READ_DEADLINE_MS);
+        if ("status" in read) return Response.json({accepted:false},{status:read.status});
+        const result = await this.swaps.ingest(read.bytes,request.headers.get("x-alchemy-signature")??undefined);
+        return Response.json({accepted:result.status===200},{status:result.status});
+      } finally {admission.release();}
+    }
     const admission = this.ingress.admit(request.headers.get("x-forwarded-for") || "unknown", new URL(request.url).pathname);
     if (admission.status) return Response.json({error:"Service capacity is temporarily limited. Try again shortly."},{status:admission.status,headers:{"Retry-After":"60"}});
     try {
@@ -67,9 +89,32 @@ export class LaunchpadRuntime extends DurableObject<Env> {
       return await this.handleRequest(new Request(request,{headers}));
     } finally {admission.release();}
   }
+  private async stream(request: Request): Promise<Response> {
+    const url = new URL(request.url), pool = (url.searchParams.get("pool")??"").toLowerCase();
+    if (request.method !== "GET" || request.headers.get("Upgrade")?.toLowerCase() !== "websocket") return new Response("WebSocket required",{status:426});
+    if (request.headers.get("Origin") && request.headers.get("Origin") !== url.origin) return new Response("Forbidden",{status:403});
+    if (this.ctx.getWebSockets().length >= 128) return new Response("Stream capacity reached",{status:429});
+    if (!await this.swaps.pool(pool)) return new Response("Unknown pool",{status:404});
+    const ip=request.headers.get("x-forwarded-for")??"unknown";
+    if(this.ctx.getWebSockets().filter(socket=>socket.deserializeAttachment()?.ip===ip).length>=8)return new Response("Stream capacity reached",{status:429});
+    const pair = new WebSocketPair();
+    this.ctx.acceptWebSocket(pair[1],[pool]);
+    pair[1].serializeAttachment({pool,ip});
+    return new Response(null,{status:101,webSocket:pair[0]});
+  }
+  private broadcast(message: SwapMessage) {
+    const data = JSON.stringify(message);
+    for (const socket of this.ctx.getWebSockets(message.pool)) {
+      try { socket.send(data); } catch { try { socket.close(1011,"Stream unavailable"); } catch {} }
+    }
+  }
+  webSocketMessage(socket: WebSocket) { socket.close(1008,"Read-only stream"); }
+  webSocketClose(socket: WebSocket, code: number) { socket.close(code); }
+  webSocketError(socket: WebSocket) { socket.close(1011,"Stream unavailable"); }
   private async handleRequest(request: Request): Promise<Response> {
     if (await this.ctx.storage.getAlarm() === null)
       await this.ctx.storage.setAlarm(Date.now() + 30_000);
+    if (!this.swaps.store.get("notify")) this.ctx.waitUntil(this.swaps.reconcile("https://musegod.fun").catch(() => {}));
     // Drain the actual ingress stream before Node can reject a request early.
     // The adapter may otherwise continue reading it after sending the response.
     if (request.body) {
@@ -97,6 +142,7 @@ export class LaunchpadRuntime extends DurableObject<Env> {
   async alarm() {
     try {
       this.refreshRuntime();
+      try { await this.swaps.reconcile("https://musegod.fun"); } catch { console.error("Swap webhook reconciliation is unavailable"); }
       await this.service.store.cleanup();
       await this.service.reconcile(60_000);
     } catch (error) {
@@ -115,6 +161,7 @@ export default {
       let selected: ReturnType<typeof chainApiRoute>;
       try { selected = chainApiRoute(url.pathname); }
       catch { return Response.json({ error: "Unsupported deployment network" }, { status: 400, headers: securityHeaders(url.protocol === "https:") }); }
+      if (!selected && isWebhookPath(url.pathname)) return new Response("Not found",{status:404});
       const headers = new Headers(request.headers);
       // Replace caller-supplied proxy headers before Express trusts them.
       headers.delete("forwarded");
@@ -143,6 +190,7 @@ export default {
         response = new Response(page.body, { status: 404, headers: page.headers });
       }
     }
+    if (response.status === 101) return response;
     const headers = new Headers(response.headers);
     for (const [key, value] of Object.entries(securityHeaders(url.protocol === "https:"))) headers.set(key, value);
     if (url.pathname === "/api" || url.pathname.startsWith("/api/")) headers.set("Cache-Control", "no-store");

@@ -1281,9 +1281,11 @@ export class LaunchpadService {
     this.tokensPromise = request;
     try { return structuredClone(await request); } finally { if (this.tokensPromise === request) this.tokensPromise = undefined; }
   }
+  onTokensChanged?: () => void;
   private invalidateTokens() {
     this.tokensRevision = (this.tokensRevision ?? 0) + 1;
     this.tokensCache = undefined; this.tokensPromise = undefined;
+    this.onTokensChanged?.();
   }
   async token(address: Address) {
     const token = await this.store.token(address);

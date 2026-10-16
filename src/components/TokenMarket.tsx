@@ -15,9 +15,9 @@ import {
 } from "../lib/market";
 import { errorMessage } from "../lib/validation";
 import { changeClass } from "../lib/format";
-import type { LiveProjection, SupplyInfo } from "../lib/musegod-live";
+import type { LiveProjection, SupplyInfo } from "./SwapLive";
 const PriceChart = lazy(() => import("./MarketChart"));
-const MusegodLive = lazy(() => import("./MusegodLive").catch(() => ({ default: () => null })));
+const SwapLive = lazy(() => import("./SwapLive").catch(() => ({ default: () => null })));
 const usd = (n: number | null | undefined, precise = false) =>
   n == null
     ? "—"
@@ -38,7 +38,7 @@ export function MarketProvenance({ label, data, kind }: { label: string; data: (
   return <span>{label} · {data.status === "stale" ? "Previous snapshot · " : ""}{data.source === "Bankr" ? kind === "musegod"
     ? <a href={MUSEGOD.sourceUrl} target="_blank" rel="noopener noreferrer">Bankr / Pools ↗</a> : "Bankr / Pools"
     : data.source === "CoinGecko" ? <a href="https://www.coingecko.com/en/api" target="_blank" rel="noopener noreferrer">Data provided by CoinGecko</a>
-      : data.source ?? "Source unspecified"} · Fetched <time dateTime={data.fetchedAt} title={data.fetchedAt}>{new Date(data.fetchedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}</time></span>;
+      : data.source ?? "Source unspecified"} · {data.source === "On-chain · Alchemy" ? "Block" : "Fetched"} <time dateTime={data.fetchedAt} title={data.fetchedAt}>{new Date(data.fetchedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}</time>{data.coverageStart && <> · Coverage from <time dateTime={data.coverageStart}>{new Date(data.coverageStart).toLocaleString("en-US")}</time></>}{data.historySource && <> · {label === "Summary" ? "Provider statistics" : "Earlier history"}: {data.historySource}{data.historyFetchedAt && <> · Fetched {new Date(data.historyFetchedAt).toLocaleTimeString("en-US")}</>}</>}{data.unit && <> · {data.unit}</>}{data.quoteUsd && <> · USD quote: {data.quoteUsd.source} at {new Date(data.quoteUsd.at).toLocaleTimeString("en-US")}</>}</span>;
 }
 export function emptyCandlesMessage(data: CandleData | null, interval: ChartInterval) {
   if (data?.reason) {
@@ -191,13 +191,14 @@ export default function TokenMarket({
     revision,
   );
   const explorer = explorerFor(token);
-  const liveEnabled = kind === "musegod" && !!config && musegodNetwork(config) && config.mode === "robinhood" && token.mode === "robinhood" && token.address.toLowerCase() === MUSEGOD.token.toLowerCase();
+  const liveEnabled = !!config && config.mode !== "fork" && token.mode !== "fork" && config.chainId === deploymentChain(token) && (kind === "launch" ? !!token.poolId : musegodNetwork(config));
   const currentLive = liveEnabled && live?.basis.summary === summary.data && live?.basis.candles === history.data &&
     live?.basis.trades === trades.data && live?.basis.interval === interval && live?.basis.info === info ? live : null;
+  const chartData = currentLive?.candles || history.data;
   const stats = currentLive?.summary || summary.data,
     activity = stats?.periods[period],
     change = stats?.periods.h24?.change;
-  const hasValues = !!stats && [stats.priceUsd, stats.marketCapUsd, stats.fdvUsd, stats.liquidityUsd, stats.periods.h24?.volume].some(value => value != null);
+  const hasValues = !!stats && [stats.priceQuote, stats.priceUsd, stats.marketCapUsd, stats.fdvUsd, stats.liquidityUsd, stats.periods.h24?.volume].some(value => value != null);
   const hasActivity = !!stats && Object.values(stats.periods).some(value => [value.buys, value.sells, value.volume, value.change].some(n => n != null));
   const emptySummary = stats?.status === "stale"
     ? `Previous snapshot has no displayable market values. ${summary.error || stats.warning || "Refresh to update."}`
@@ -215,10 +216,10 @@ export default function TokenMarket({
         <div className="market-price-row">
           <div>
             <span className="eyebrow">{token.symbol} PRICE</span>
-            {liveEnabled && <Suspense fallback={null}><MusegodLive summary={summary.data} candles={history.data} trades={trades.data}
+            {liveEnabled && <Suspense fallback={null}><SwapLive chainId={kind === "musegod" ? 4663 : deploymentChain(token)} pool={(kind === "musegod" ? MUSEGOD.pool : token.poolId!).toLowerCase()} path={kind === "musegod" ? "/musegod/market" : `/tokens/${token.address}/market`} summary={summary.data} candles={history.data} trades={trades.data}
               interval={interval} info={info} onUpdate={setLive} /></Suspense>}
             {hasValues ? <div className="market-price">
-              <span className="mono" title={currentLive?.priceAt ? `Live price · Bankr · Trade ${currentLive.priceAt}` : undefined}>{usd(stats?.priceUsd, true)}</span>
+              <span className="mono" title={currentLive?.priceAt ? `Live price · On-chain · Alchemy · Trade ${currentLive.priceAt}` : undefined}>{stats?.priceUsd != null ? usd(stats.priceUsd, true) : stats?.priceQuote ? `${Number(stats.priceQuote).toLocaleString("en-US", {maximumSignificantDigits:6})} ${stats.quoteSymbol}` : "—"}</span>
               <span className={`change-chip ${changeKind}`}>
                 {changeKind === "positive" ? <ArrowUpRight size={14} /> : changeKind === "negative" ? <ArrowDownRight size={14} /> : null}
                 {change == null
@@ -318,16 +319,16 @@ export default function TokenMarket({
             ))}
           </div>
         </div>
-        {!!history.data?.candles.length && history.data.status === "stale" && (
+        {!!chartData?.candles.length && chartData.status === "stale" && (
           <p className="market-warning">
-            {history.error || history.data.warning || "Previous chart snapshot. Refresh to update."}
+            {history.error || chartData.warning || "Previous chart snapshot. Refresh to update."}
           </p>
         )}
-        {history.data?.candles.length ? (
+        {chartData?.candles.length ? (
           <Suspense fallback={<Message loading text="" />}>
             <PriceChart
-              key={`${marketEndpoint(token, kind, `candles?interval=${interval}`).key}:${history.data.source}`}
-              data={currentLive?.candles || history.data}
+              key={`${marketEndpoint(token, kind, `candles?interval=${interval}`).key}:${chartData.source}:${chartData.unit ?? "USD"}`}
+              data={chartData}
               endpoint={marketEndpoint(token, kind, `candles?interval=${interval}`)}
               interval={interval}
               symbol={token.symbol}
@@ -340,12 +341,13 @@ export default function TokenMarket({
             text={emptyText(history.data, history.error, emptyCandlesMessage(history.data, interval), "Previous chart snapshot. Refresh to update.")}
           />
         )}
-        {(!hasValues && !summary.loading || !history.data?.candles.length && !history.loading) && <p className="hint">Enter an amount in the trade panel for an on-chain price preview.</p>}
+        {chartData?.history?.candles.length ? <details className="feed-note"><summary>Earlier history · {chartData.history.source} · USD</summary><Suspense fallback={null}><PriceChart data={chartData.history} endpoint={marketEndpoint(token, kind, `candles?interval=${interval}`)} interval={interval} symbol={token.symbol} type={chartType} /></Suspense></details> : null}
+        {(!hasValues && !summary.loading || !chartData?.candles.length && !history.loading) && <p className="hint">Enter an amount in the trade panel for an on-chain price preview.</p>}
         {(summary.data || history.data || kind === "musegod") && <p className="feed-note">
-          <MarketProvenance label="Summary" data={summary.data} kind={kind} />
+          <MarketProvenance label="Summary" data={stats} kind={kind} />
           {summary.data && history.data ? " · " : ""}
-          <MarketProvenance label="Candles" data={history.data} kind={kind} />
-          {currentLive?.candlesAt && <> · Live candles · Bankr · Trade <time dateTime={currentLive.candlesAt}>{new Date(currentLive.candlesAt).toLocaleTimeString("en-US")}</time></>}
+          <MarketProvenance label="Candles" data={chartData} kind={kind} />
+          {currentLive?.candlesAt && <> · Live candles · On-chain · Alchemy · Trade <time dateTime={currentLive.candlesAt}>{new Date(currentLive.candlesAt).toLocaleTimeString("en-US")}</time></>}
           {kind === "musegod" && <>{summary.data || history.data ? " · " : ""}refreshes every 15 seconds while visible</>}
         </p>}
       </section>
@@ -375,15 +377,15 @@ export default function TokenMarket({
               <thead>
                 <tr>
                   <th>Type / time</th>
-                  <th className="num">Amount (USD)</th>
+                  <th className="num">Value</th>
                   <th className="num">{token.symbol}</th>
-                  <th className="num">Price (USD)</th>
+                  <th className="num">Price</th>
                   <th className="num">Transaction sender</th>
                 </tr>
               </thead>
               <tbody>
                 {items.slice(0, 30).map((t) => (
-                  <tr key={t.id}>
+                  <tr key={t.id} title={t.source ? `${t.source} · ${t.at}` : undefined}>
                     <td className="trade-type">
                       <a
                         className={`side-tag ${t.side === "buy" ? "positive" : "negative"}`}
@@ -403,9 +405,9 @@ export default function TokenMarket({
                         })}
                       </small>
                     </td>
-                    <td className="num">{usd(t.usd)}</td>
+                    <td className="num">{t.usd != null ? usd(t.usd) : t.quoteAmount ? `${Number(t.quoteAmount).toLocaleString("en-US", {maximumSignificantDigits:6})} ${t.quoteSymbol}` : "—"}</td>
                     <td className="num" title={String(t.amount)}>{count(t.amount)}</td>
-                    <td className="num">{usd(t.price, true)}</td>
+                    <td className="num">{t.price != null ? usd(t.price, true) : t.priceQuote ? `${Number(t.priceQuote).toLocaleString("en-US", {maximumSignificantDigits:6})} ${t.quoteSymbol}` : "—"}</td>
                     <td className="num">
                       {t.account ? <a
                         href={explorer ? `${explorer}/address/${t.account}` : undefined}
@@ -428,8 +430,8 @@ export default function TokenMarket({
         )}
         {items.length && (trades.error || trades.data?.status === "stale") ? <p className="market-warning" role="status">{trades.error || trades.data?.warning || "Previous trades snapshot. Refresh to update."}</p> : null}
         <p className="feed-note">
-          <MarketProvenance label="Trades" data={trades.data} kind={kind} />{trades.data ? " · " : ""}
-          {currentLive?.tradesAt && <>Live trades · Bankr · Trade <time dateTime={currentLive.tradesAt}>{new Date(currentLive.tradesAt).toLocaleTimeString("en-US")}</time> · </>}
+          <MarketProvenance label="Trades" data={currentLive?.trades || trades.data} kind={kind} />{trades.data ? " · " : ""}
+          {currentLive?.tradesAt && <>Live trades · On-chain · Alchemy · Trade <time dateTime={currentLive.tradesAt}>{new Date(currentLive.tradesAt).toLocaleTimeString("en-US")}</time> · </>}
           Latest 30 indexed trades · indexing may lag the chain.
         </p>
       </section>

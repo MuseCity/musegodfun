@@ -157,3 +157,8 @@ Limit, stop, TWAP or DCA orders; Bankr-prepared transactions; changing the defau
   - Layout: no 390px overflow.
 - Two QA FAIL rows were brief-expectation errors, not defects. MV2C (CoinGecko candles) makes no history request on drag, because `MarketChart` pages Bankr sources only, by design (L3, no CoinGecko quota). One long MUSEGOD drag fetched two pages sequentially, which is consistent with "never while one is in flight".
 - Not yet observed: a live Bankr TOKEN_SWAP in a browser, and a real-wallet acknowledged trade.
+
+
+### 2026-10-16 - L4 superseded by the Alchemy swap stream
+
+The browser-direct Bankr Socket.IO implementation is superseded by S1-S4 in `tasks/alchemy-swap-stream-plan.md`. Its modules, tests, dependency and remote CSP socket origin are removed in that change; Bankr REST and the trade price-impact safeguards remain. The historical L4 records above describe the earlier implementation and are retained as dated evidence. The replacement requires cross-review and a separately approved secret-set and release before production acceptance.

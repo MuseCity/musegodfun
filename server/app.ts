@@ -1,4 +1,7 @@
 import express from "express";
+import { SwapService, isWebhookPath, WEBHOOK_BODY_LIMIT } from "./swap-service";
+import { MemorySwapStore, type SwapStore } from "./swap-store";
+import { registeredPools, MUSE_POOL } from "./swap-stream";
 import { createHash, randomUUID } from "node:crypto";
 import { clientBucket, IngressLimiter, PreviewQueue, RiskChallenge } from "./abuse";
 import { BudgetUnavailable, recoveryBudget, withRecoveryBudget } from "./runtime-policy";
@@ -77,6 +80,7 @@ export function createApp(
   trustProxy: "loopback" | true = "loopback",
   runtime: Runtime = runtimeFromEnv(),
   shared: { ingressManaged?: boolean; previews?: PreviewQueue; challenge?: RiskChallenge;
+    swapStore?: SwapStore; broadcast?: ConstructorParameters<typeof SwapService>[2]["broadcast"];
     chainConfig?: (chainId: DeploymentChainId) => Promise<RuntimeConfig> } = {},
 ) {
 const app = express(),
@@ -105,6 +109,18 @@ const baseCollector = deploymentChain(runtime.config) === 8453 && runtime.config
 }) : null;
 const payments = new FirstBuyPaymentReader({ client: service.client, chainId: deploymentChain(runtime.config),
   rpcChainId: runtime.config.mode === "fork" && runtime.config.chainId === 31337 ? 31337 : deploymentChain(runtime.config), ...runtime.lifi, budget: service.store });
+const swaps = new SwapService(deploymentChain(runtime.config), shared.swapStore ?? new MemorySwapStore(), {
+  pools: async () => registeredPools(deploymentChain(runtime.config), await service.tokens()),
+  token: shared.swapStore ? runtime.environment?.ALCHEMY_NOTIFY_API_KEY : undefined,
+  broadcast: shared.broadcast,
+  quote: async pool => {
+    const value = await payments.prices(pool.quote), asset = value.assets.find(a => a.address.toLowerCase() === pool.quote);
+    const price = Number(asset?.priceUsd);
+    return value.chainId === pool.chainId && asset?.decimals === pool.quoteDecimals && Date.now() < value.expiresAt && price > 0 && Number.isFinite(price)
+      ? { price, source: "LI.FI", at: new Date(value.quotedAt).toISOString() } : null;
+  },
+});
+service.onTokensChanged = () => { void swaps.reconcile("https://musegod.fun").catch(() => {}); };
 app.set("trust proxy", trustProxy);
 app.disable("x-powered-by");
 app.set("json replacer", (_key: string, value: unknown) =>
@@ -115,7 +131,7 @@ app.use((req, res, next) => {
   for (const [key, value] of Object.entries(securityHeaders(req.secure, runtime.environment?.NODE_ENV === "production")))
     res.setHeader(key, value);
   if (
-    req.method === "POST" &&
+    req.method === "POST" && !isWebhookPath(req.path) &&
     req.headers.origin &&
     req.headers.origin !== `${req.protocol}://${req.headers.host}`
   ) {
@@ -124,6 +140,15 @@ app.use((req, res, next) => {
   }
   next();
 });
+// Only this exact raw-body route bypasses browser Origin and challenge middleware.
+app.post("/api/webhooks/alchemy", (req,res,next) => {
+  const admission=swaps.admitWebhook();if(admission.status){res.setHeader("Retry-After","60");res.status(admission.status).json({accepted:false});return;}
+  res.once("finish",admission.release);res.once("close",admission.release);next();
+}, express.raw({ type: () => true, limit: WEBHOOK_BODY_LIMIT, inflate: false }), (req,res,next) => {
+  void swaps.ingest(req.body instanceof Uint8Array ? req.body : new Uint8Array(), typeof req.headers["x-alchemy-signature"] === "string" ? req.headers["x-alchemy-signature"] : undefined)
+    .then(result => res.status(result.status).json({ accepted: result.status === 200 })).catch(next);
+});
+
 const ingress = new IngressLimiter(), challenges = shared.challenge ?? new RiskChallenge();
 const previews = shared.previews ?? new PreviewQueue();
 const uploadRate = new Map<string,{at:number;count:number}>();
@@ -150,6 +175,10 @@ const route =
   };
 const isHidden = (record: TokenRecord) => hiddenTokens.get(String(record.deploymentChainId ?? deploymentChain(runtime.config)))?.has(record.address.toLowerCase()) === true;
 const withHiddenFlag = (record: TokenRecord): TokenRecord => isHidden(record) ? { ...record, hidden: true } : record;
+app.post("/api/webhooks/alchemy/reconcile", (req,res,next) => {
+  if (!swaps.authorized(req.headers.authorization?.replace(/^Bearer /,""))) { res.status(401).json({error:"Unauthorized"}); return; }
+  void swaps.reconcile("https://musegod.fun").then(() => res.json({ reconciled: true })).catch(next);
+});
 app.get("/healthz", (_req, res) => res.json({ status: "ok" }));
 app.post("/api/token-images", route(async (req, res) => {
   const key = clientBucket(req.ip || "unknown"), now=Date.now();
@@ -199,15 +228,13 @@ app.get(
       res.status(400).json({ error: "At most 30 pools are allowed" });
       return;
     }
-    res.json(
-      await market.summaries(
-        await Promise.all(
-          [...new Set(addresses)].map((a) =>
-            service.token(addressSchema.parse(a)),
-          ),
-        ),
-      ),
-    );
+    const tokens = await Promise.all([...new Set(addresses)].map(a => service.token(addressSchema.parse(a))));
+    const batch = await market.summaries(tokens);
+    res.json(await Promise.all(batch.map(async row => {
+      const token = tokens.find(t => t.address.toLowerCase() === row.address.toLowerCase())!;
+      return swaps.store.coverage(token.poolId.toLowerCase()) ? { ...row, summary: await swaps.serve("summary",token.poolId.toLowerCase(),async () => row.summary) } : row;
+    })));
+
   }),
 );
 app.post(
@@ -355,9 +382,10 @@ app.get(
 app.get("/api/musegod", route(async (_req, res) => res.json(await musegod.info())));
 app.get("/api/musegod/market/:section", route(async (req, res) => {
   const section = z.enum(["summary", "candles", "trades"]).parse(req.params.section);
-  res.json(section === "candles"
-    ? await musegodMarket.candles(z.enum(CHART_INTERVALS).parse(req.query.interval || "1h"), req.query.before)
-    : await musegodMarket[section]());
+  const interval = section === "candles" ? z.enum(CHART_INTERVALS).parse(req.query.interval || "1h") : "1h";
+  res.json(await swaps.serve(section, MUSE_POOL, () => section === "candles"
+    ? musegodMarket.candles(interval, req.query.before) : musegodMarket[section](), interval,
+    req.query.before === undefined ? undefined : Number(req.query.before)));
 }));
 app.post("/api/musegod/quote", route(async (req, res) => {
   const input = z.object({ side: z.enum(["buy", "sell"]), amount: z.string().max(100),
@@ -371,14 +399,10 @@ app.get(
     const section = z
       .enum(["summary", "candles", "trades", "holders"])
       .parse(req.params.section);
-    const value =
-      section === "candles"
-        ? await market.candles(
-            token,
-            z.enum(CHART_INTERVALS).parse(req.query.interval || "1h"),
-            req.query.before,
-          )
-        : await market[section](token);
+    const interval = section === "candles" ? z.enum(CHART_INTERVALS).parse(req.query.interval || "1h") : "1h";
+    const read = () => section === "candles" ? market.candles(token, interval, req.query.before) : market[section](token);
+    const value = section === "holders" ? await read() : await swaps.serve(section, token.poolId.toLowerCase(), read, interval,
+      req.query.before === undefined ? undefined : Number(req.query.before));
     res.json(value);
   }),
 );
@@ -602,7 +626,7 @@ app.use(
     });
   },
 );
-return { app, service };
+return { app, service, swaps };
 }
 
 export function createDualChainApp(
@@ -634,10 +658,11 @@ export function createDualChainApp(
       const query = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
       req.url = selected.path + query;
       target.app(req, res, next);
+    } else if (isWebhookPath(req.path)) { res.status(404).json({error:"Not found"}); return;
     } else if (req.path === "/api" || req.path.startsWith("/api/") || ["/healthz", "/readyz"].includes(req.path)) {
       legacy.app(req, res, next);
     } else next();
   });
   configurePages?.(app);
-  return { app, services: new Map([...chains].map(([chainId, entry]) => [chainId, entry.service])) };
+  return { app, swaps: new Map([...chains].map(([id, entry]) => [id, entry.swaps])), services: new Map([...chains].map(([chainId, entry]) => [chainId, entry.service])) };
 }

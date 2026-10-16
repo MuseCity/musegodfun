@@ -1,4 +1,5 @@
 import express from "express";
+import { attachSwapSockets } from "./swap-node";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createDualChainApp, knownPage, legacyTokenPath } from "./app";
@@ -8,7 +9,7 @@ loadEnvironment();
 const vite = process.env.NODE_ENV === "production" ? null : await (await import("vite")).createServer({
   server: { middlewareMode: true }, appType: "custom",
 });
-const { app, services } = createDualChainApp((app) => {
+const { app, services, swaps } = createDualChainApp((app) => {
   app.get("/token/:address", (req, res, next) => {
     const target = legacyTokenPath(req.path);
     if (!target) { next(); return; }
@@ -44,9 +45,11 @@ const server = app.listen(port, "127.0.0.1", () =>
   ),
 );
 
+const stopStreams = attachSwapSockets(server, swaps);
 server.headersTimeout = 15000;
 server.requestTimeout = 30000;
 const upkeep = setInterval(() => {
+  for (const stream of swaps.values()) void stream.reconcile("https://musegod.fun").catch(() => {});
   for (const service of services.values()) {
     void Promise.resolve(service.store.cleanup()).catch(() => {});
     void service.reconcile().catch(() => {});
@@ -63,6 +66,7 @@ for (const service of services.values())
 for (const signal of ["SIGTERM", "SIGINT"] as const)
   process.once(signal, () => {
     clearInterval(upkeep);
+    stopStreams();
     server.close(() => {
       void Promise.all([...services.values()].map(async (service) => { await service.store.close(); })).finally(() =>
         process.exit(0),

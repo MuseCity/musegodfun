@@ -3,10 +3,15 @@ import { deploymentChain, type TokenRecord } from "./config";
 export function marketSnapshotKey(token: Pick<TokenRecord, "mode" | "deploymentChainId"> & { address: string; poolId: string; quoteAddress: string }, section: string) {
   return `market:v2:${deploymentChain(token)}:${token.mode}:${token.address.toLowerCase()}:${token.poolId.toLowerCase()}:${token.quoteAddress.toLowerCase()}:${section}`;
 }
-export type MarketSource = "CoinGecko" | "Bankr" | "GeckoTerminal" | "Storage" | "Internal" | "Unavailable";
+export type MarketSource = "On-chain · Alchemy" | "CoinGecko" | "Bankr" | "GeckoTerminal" | "Storage" | "Internal" | "Unavailable";
 export type MarketReason = "missing_config" | "quota_exhausted" | "not_indexed" | "rate_limited" | "upstream_http" | "upstream_transport" | "upstream_unclassified" | "invalid_identity" | "invalid_schema" | "source_not_provided" | "history_not_available" | "storage_unavailable" | "internal_error" | "backoff";
 export type MarketCause = { source: MarketSource; reason: MarketReason; upstreamStatus?: number };
 export type SnapshotMeta = {
+  coverageStart?: string;
+  historySource?: MarketSource;
+  historyFetchedAt?: string;
+  unit?: string;
+  quoteUsd?: { price: number; source: "LI.FI"; at: string } | null;
   causes?: MarketCause[];
   reason?: MarketReason;
   upstreamStatus?: number;
@@ -20,6 +25,8 @@ export type ChartInterval = (typeof CHART_INTERVALS)[number];
 export type MarketSummary = SnapshotMeta & {
   fetchedAt: string;
   lastTradeAt?: string | null;
+  priceQuote?: string;
+  quoteSymbol?: string;
   priceUsd: number | null;
   fdvUsd: number | null;
   marketCapUsd: number | null;
@@ -45,6 +52,7 @@ export type Candle = {
 export type CandleData = SnapshotMeta & {
   fetchedAt: string;
   candles: Candle[];
+  history?: CandleData;
   watermark?: {
     blockNumber: number;
     logIndex: number;
@@ -52,6 +60,12 @@ export type CandleData = SnapshotMeta & {
   } | null;
 };
 export type MarketTrade = {
+  source?: MarketSource;
+  logIndex?: number;
+  blockNumber?: number;
+  priceQuote?: string;
+  quoteSymbol?: string;
+  quoteAmount?: string;
   id: string;
   hash: string;
   account: string | null;

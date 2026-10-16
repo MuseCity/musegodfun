@@ -6,7 +6,7 @@ export function securityHeaders(secure: boolean, production = true): Record<stri
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
     "Cross-Origin-Opener-Policy": "same-origin-allow-popups",
     ...(production ? {
-      "Content-Security-Policy": "default-src 'self'; script-src 'self' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' https://challenges.cloudflare.com wss://api.bankr.bot; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'",
+      "Content-Security-Policy": "default-src 'self'; script-src 'self' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'",
       ...(secure ? { "Strict-Transport-Security": "max-age=31536000" } : {}),
     } : {}),
   };
@@ -14,6 +14,7 @@ export function securityHeaders(secure: boolean, production = true): Record<stri
 /** Frozen creation backups repeat encoded metadata; other request bodies keep
  * the smaller ingress bound. Both Node and Worker enforce this same limit. */
 export function requestBodyLimitForPath(path: string): number {
+  if (/^\/api\/(?:chains\/(?:8453|4663)\/)?webhooks\/alchemy$/.test(path.split("?")[0])) return 1_048_576;
   return /^\/api\/(?:chains\/(?:8453|4663)\/)?launch\/register\/?$/i.test(path.split("?")[0]) ? 262_144 : 65_536;
 }
 export type BoundedBody = { status: 408 | 413 } | { bytes: Uint8Array };

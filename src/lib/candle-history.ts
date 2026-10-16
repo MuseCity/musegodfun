@@ -35,7 +35,7 @@ export function createHistoryPager(request: (before: number, signal: AbortSignal
       try {
         const data = await request(before, controller.signal);
         if (disposed) return null;
-        if (data.source && data.source !== "Bankr" || data.status === "stale") throw new Error("Historical price data could not be refreshed.");
+        if (data.source && data.source !== "Bankr" && !(data.source === "On-chain · Alchemy" && data.unit === "USD") || data.status === "stale" || data.unit !== undefined && data.unit !== "USD") throw new Error("Historical price data could not be refreshed.");
         const candles = data.candles.filter(candle => candle.time < before);
         done = candles.length === 0;
         return { ...data, candles };

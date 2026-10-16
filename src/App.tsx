@@ -3370,7 +3370,7 @@ function TokenPage({
         icon={<TokenIcon name={token.name} image={token.image} />} onClose={() => setSharing(false)} />}
       <div className="detail-layout">
         <div className="detail-main">
-          <TokenMarket token={token} refreshKey={hash ?? ""} />
+          <TokenMarket token={token} config={config} refreshKey={hash ?? ""} />
           <NftCoinCard token={token} config={config} navigate={navigate} />
           {feeTier && <FeeCard token={token} config={config} variant={feeTier} />}
           <FirstBuyLock token={token} config={config} hideWhenEmpty />
