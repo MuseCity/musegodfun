@@ -3035,6 +3035,8 @@ function TokenPage({
     [amountCleared, setAmountCleared] = useState(false),
     // Re-reads both balances after an ETH buy, finished or not.
     [balanceTick, setBalanceTick] = useState(0),
+    // The newest quote failure, apart from `error`: quote requests neither replace an error the user has not acted on nor hide behind it.
+    [quoteError, setQuoteError] = useState(""),
     [clock, setClock] = useState(quoteNow());
   // The wallet's unsettled LI.FI ETH buy on this network, if any: no ETH quote and no ETH buy until it is settled.
   const pairAsset = resource.data ? quoteAsset(resource.data.token) : null;
@@ -3069,6 +3071,7 @@ function TokenPage({
     setEthDone(null);
     setHash(null);
     setError("");
+    setQuoteError("");
     setBusy(false);
     setProgress("");
     return () => {
@@ -3135,11 +3138,11 @@ function TokenPage({
   const automatic = useAutoQuote<Quote | EthBuyQuoteResponse>(quoteInput, {
     request: options => lifiEth ? getEthQuote(options) : getQuote(options),
     remaining: result => { const anchor = "mode" in result ? result.mode === "direct" ? result.quote : result.conversion : result; return anchor.expiresAt - quoteNow(anchor); },
-    result: result => { if ("mode" in result) setEthQuote(result); else setQuote(result); },
-    error: e => setError(current => current || errorMessage(e)),
+    result: result => { setQuoteError(""); if ("mode" in result) setEthQuote(result); else setQuote(result); },
+    error: e => setQuoteError(errorMessage(e)),
   });
   function refreshQuote() {
-    setError(""); setHash(null); setEthDone(null);
+    setError(""); setQuoteError(""); setHash(null); setEthDone(null);
     automatic.refresh();
   }
   if (!token) {
@@ -3178,8 +3181,11 @@ function TokenPage({
       const now = wallet.connection();
       return now.account === started.account && now.chainId === started.chainId;
     };
+    // Starting a trade ends any Max still awaiting fees: its late result must not rewrite the amount of a trade in flight.
+    generation.current++;
     setBusy(true);
     setError("");
+    setQuoteError("");
     setEthNote(null);
     try {
       const trade = nativeWeth ? wallet.tradeNativeWeth : wallet.trade;
@@ -3225,6 +3231,7 @@ function TokenPage({
   async function fillMax() {
     const available = inputBalance;
     if (available === null || !wallet.account || !config || busy || maxLoading) return;
+    // `generation` also moves when a trade starts, so a late result is judged against the current state, not the `busy` seen at click time.
     const request = generation.current, started = wallet.connection();
     setMaxLoading(true);
     try {
@@ -3251,8 +3258,10 @@ function TokenPage({
       return now.account === started.account && now.chainId === started.chainId;
     };
     const show = (message: string) => { if (live()) setProgress(message); };
+    generation.current++;
     setBusy(true);
     setError("");
+    setQuoteError("");
     setEthNote(null);
     setEthDone(null);
     try {
@@ -3583,7 +3592,7 @@ function TokenPage({
               type="button"
               className="primary large full"
               disabled={
-                busy ||
+                busy || maxLoading ||
                 (automatic.pending || (lifiEth ? !ethQuote || ethExpiresAt === null || clock >= ethExpiresAt || ethHeld : !quote || clock >= quote.expiresAt)) ||
                 !config?.writesEnabled ||
                 wallet.chainId !== config.chainId
@@ -3607,6 +3616,7 @@ function TokenPage({
             <p className="launch-blocked">{config.blockReason}</p>
           )}
           {error && <Notice kind="error">{error}</Notice>}
+          {quoteError && <Notice kind="error">{quoteError}</Notice>}
           {stockResource.error && (
             <Notice kind="error">
               {stockStatusFailure(stock)} {stockResource.error}

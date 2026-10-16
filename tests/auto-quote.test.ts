@@ -134,3 +134,15 @@ for (const lifi of [false, true]) test(`${lifi ? "LI.FI" : "pair/native"} confir
   f.scheduler.update({ ...active, busy: true, completed: true });
   f.scheduler.refresh(); f.tick(120_000); assert.equal(f.requests.length, before + 2);
 });
+
+test("a confirmed trade followed by an amount edit never shows the manual control during the debounce", async t => {
+  const f = fixture(t);
+  f.tick(600); f.requests[0].resolve({ expires: Date.now() + 60_000 }); await flush();
+  f.scheduler.update({ ...input, completed: true }); assert.equal(f.manual.at(-1), true);
+  // The edit renders once with the old confirmation, then once more after the panel clears it.
+  f.scheduler.update({ ...input, key: "buy:eth:0.002:100", completed: true });
+  f.scheduler.update({ ...input, key: "buy:eth:0.002:100" });
+  assert.equal(f.manual.at(-1), false);
+  f.tick(599); assert.equal(f.requests.length, 1); assert.equal(f.manual.at(-1), false);
+  f.tick(1); assert.equal(f.requests.length, 2);
+});

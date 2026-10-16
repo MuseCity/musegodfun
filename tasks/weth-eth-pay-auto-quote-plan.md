@@ -1,6 +1,6 @@
 # ETH payment on WETH pairs, automatic quotes and in-field Max
 
-Status: Run 2 review fixes implemented and verified; Claude acceptance pending (2026-10-16). Branch `claude/weth-eth-pay-auto-quote`, based on master `ef942a6`.
+Status: Run 4 Claude fixes of the codex round-2 finding and the two accept-round P3s implemented and verified; codex acceptance pending (2026-10-16). Branch `claude/weth-eth-pay-auto-quote`, based on master `ef942a6`.
 
 ## Owner request (2026-10-16, translated)
 
@@ -51,7 +51,7 @@ A buyer of a WETH-pair coin pays with ETH in one wallet confirmation; every buye
 - Remove the "Get on-chain quote" button for every pay path.
 - When the amount parses to a positive value, request a quote 600 ms after the last change of amount, side, pay choice or slippage (1000 ms for the LI.FI ETH path). A newer input supersedes any pending request; superseded responses are ignored (keep the generation pattern).
 - No request while the amount is empty, invalid or zero, while a trade is in progress, while pool state is unavailable or invalid, while the document is hidden, or (LI.FI path only) without a connected wallet, as today.
-- The receive box shows an updating state while a quote is in flight and keeps showing errors as today.
+- The receive box shows an updating state while a quote is in flight and keeps showing errors as today. The newest quote failure has its own slot beside any other error: a quote request never replaces or hides behind an error the user has not acted on, and a new quote, an input change, Refresh or starting a trade clears it.
 - Expiry: when the current quote expires and the page is visible, refresh automatically; at most 3 automatic refreshes after the last user change (1 for the LI.FI path). After the cap, the quote shows as expired with a small "Refresh quote" control, which is the only manual quote control left. Any user change resets the cap.
 - The primary action stays disabled without a fresh quote, as today.
 - Copy that tells users to "get a quote" is rewritten for automatic quotes.
@@ -61,7 +61,7 @@ A buyer of a WETH-pair coin pays with ETH in one wallet confirmation; every buye
 - A small "Max" button inside the pay amount field for buy and sell, shown only when a wallet balance for the input asset is known; the "Max" chip leaves the quick-amount row. Other presets are unchanged.
 - ERC-20 input (pair asset or coin): Max = full balance.
 - ETH input (WETH-pair native path and LI.FI path): Max = balance minus a gas reserve, reserve = max(0.0002 ETH, 2 × 500,000 gas × current `maxFeePerGas`, falling back to `gasPrice`). If the balance does not exceed the reserve, Max does not fill the field and says there is not enough ETH for network fees.
-- Max follows the existing unit rules (switching side or pay choice still clears a typed amount).
+- Max follows the existing unit rules (switching side or pay choice still clears a typed amount). Confirming is unavailable while an ETH Max awaits network fees, and starting any trade discards a Max result that arrives late, so an active trade keeps its amount, progress and busy state until its own completion.
 
 ## Out of scope
 
@@ -84,3 +84,5 @@ A buyer of a WETH-pair coin pays with ETH in one wallet confirmation; every buye
 - 2026-10-16 Run 1, E1-E3: added the guarded native wallet path, ETH default for WETH pairs, guest quotes, bounded automatic scheduling and an in-field Max with the specified gas reserve. Updated disclosures and legacy browser selectors; the earlier guest-button constraint is explicitly superseded. Local tests/build and the four light-mode desktop/mobile checks passed; evidence and the per-commit report are in `.superpowers/sdd/eth-pay-auto-quote/`. Builder/fork commit: `02ac13f`; wallet/UI commit: `feat(trade): automate quotes and reserve gas for native Max`. Cross-review and release remain pending; no mainnet transaction, push or deployment.
 
 - 2026-10-16 Run 2, C1-1 through C1-6: verified all six findings and fixed them with failing-first regression coverage. Manual Refresh can challenge while automatic LI.FI requests remain silent and stop after CHALLENGE_REQUIRED, including across input changes. E2-E3 now apply on Base as clarified above; E1 remains Robinhood-only. Extracted payment routing and quote-input derivation with explicit-WETH-pick and network/unit/busy tests. Automatic quotes preserve unacknowledged errors; expiry copy names Refresh; a confirmed trade offers one same-amount manual quote with the user-change refresh budget; market hints describe amount entry. Full tests: 1568 passed; build, diff check and Han scan passed. Chrome DevTools MCP checked CLAWGOD, MV2C and the catalog's hidden Base MUSEGOD/NVDAc token at 1440px light: one successful quote each, 3/8 quote POSTs total, no wallet or transaction. Preview stopped and port freed. Local fix commit: `fix(trade): resolve automatic quote review findings`. Report and evidence: `.superpowers/sdd/eth-pay-auto-quote/run2-report.md` and `evidence/run2/`. Run 1's Base exclusion is superseded by this run; cross-review acceptance and release remain pending.
+
+- 2026-10-16 Run 4 (claude fix), X2-1, C1b-1, C1b-2: verified all three findings and fixed them with failing-first tests (red/green logs and per-mutation results in `.superpowers/sdd/eth-pay-auto-quote/evidence/claude-fix-r2/`). X2-1: the primary button is disabled while Max awaits fees, and starting a pair/native (`execute`) or LI.FI (`executeEth`) trade bumps the panel generation, so a late Max result is dropped; a panel-level regression with deferred fee estimation shows the active trade keeps its amount, progress and busy state on both paths. C1b-1: a stateful panel harness proves an explicit WETH pick pays through Permit2 (`wallet.trade`), and a real-hook test proves automatic refreshes resume after a post-trade Refresh. C1b-2: quote failures now live in their own slot beside any other error (newest wins; cleared by a new quote, input change, Refresh or trade start), and the scheduler clears the manual flag when the debounce starts so Refresh does not show after a trade plus an amount edit. No wrap-and-swap builder, wallet, LI.FI, Permit2, sell, server, contract or `MusegodTradePanel` change. Local fix commit: `fix(trade): keep active trades safe from late Max and tidy quote errors`. Codex acceptance and release remain pending.

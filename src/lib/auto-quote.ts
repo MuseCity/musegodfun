@@ -19,7 +19,8 @@ export function createAutoQuoteScheduler<T>(callbacks: {
     cancel();
     if (disposed || !enabled() || inFlight) return;
     if (current!.completed || current!.lifi && challengeBlocked) { callbacks.manual(true); return; }
-    if (!attempted) { timer = setTimeout(() => void request(false), current!.lifi ? 1_000 : 600); return; }
+    // A cleared confirmation reaches here with the control still showing from the confirmed state.
+    if (!attempted) { callbacks.manual(false); timer = setTimeout(() => void request(false), current!.lifi ? 1_000 : 600); return; }
     if (deadline === null) return;
     const remaining = deadline - Date.now(), cap = current!.lifi ? 1 : 3;
     if (remaining <= 0 && refreshes >= cap) { callbacks.manual(true); return; }

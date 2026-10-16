@@ -76,7 +76,9 @@ for (const eth of [false, true]) test(`actual ${eth ? "LI.FI" : "pair"} automati
   await assert.rejects(f.callbacks.request({ challenge: false, retry: false }), /Quote unavailable/);
   assert.equal(f.writes.some(w => w.index === 6 && w.value === ""), false);
   f.callbacks.error(new Error("Quote unavailable"));
-  assert.equal(f.writes.filter(w => w.index === 6).at(-1)?.value, "Wallet rejection still needs attention");
+  // The failure has its own slot: the unrelated error is neither replaced nor hides it (see token-trade-session.test.ts).
+  assert.equal(f.writes.some(w => w.index === 6), false);
+  assert.equal(f.writes.at(-1)?.value, "Quote unavailable");
 });
 
 test("actual panel exposes a manual repeat after confirmation while keeping automation paused", async () => {
