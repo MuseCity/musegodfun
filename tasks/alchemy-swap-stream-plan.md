@@ -1,6 +1,6 @@
 # Own on-chain swap stream via Alchemy Custom Webhooks
 
-Status: Conductor reports hotfix `d2c8454` / build `38901468420-1` released with three active hooks and a real MUSEGOD swap received. Run 8b addresses the Run 8 review findings locally; independent acceptance and release remain pending.
+Status: Hotfix `d2c8454` live (three webhooks active, first real swap delivered); post-release fixes `d4040f9`…`fc7d1a9` cross-review accepted and releasing under the owner's release approval.
 
 ## Owner request (2026-10-16, translated)
 
@@ -252,3 +252,18 @@ Historical implementation record; lifecycle, admission, pricing, serving and pus
 ### Run 9 (claude fix) - 2026-10-16
 
 - Fixed X5-1 from Codex review round 5: a merged summary keeps the provider's own summary as `providerSnapshot`, and every summary merge (REST or push) uses that provider summary as its base, so a newer own swap without USD after an own USD headline restores the provider USD headline with its source, status and fetch time while our quote price keeps its own label and Block time. Provider statistics and attribution are retained; no-provider behavior is unchanged. Four sequential regressions in `tests/swap-run9.test.ts` (available, missing and available conversions from an own-priced REST response and from a converted push, with and without a provider, REST equal to push at every step) show the provider cases failing on `788400f` and all passing now; `npm test` 1775 pass, 0 fail; build, whitespace, Han and bundle checks clean (`.superpowers/sdd/swap-stream/claude-fix-r5.md`). Local only; Codex acceptance and release remain pending.
+
+### Post-release fixes closure (2026-10-16)
+
+- Production after `d2c8454`:
+  - Three GRAPHQL webhooks are active: RH v4 `wh_3mh7qv8pz632pe5g`, RH v3 `wh_eotsum1hbbt98vlu`, Base v4 `wh_wig0365m85e9omap`.
+  - The first real MUSEGOD swap (13:03:35 UTC, block 90099042, tx `0xdfc9dc1c8118…`) was delivered and served as "On-chain · Alchemy". It matched Bankr's record exactly.
+- Two regressions were observed:
+  - `quoteUsd` was null, because the anonymous display reader on Cloudflare egress got nothing from LI.FI while the keyed path worked. The MUSEGOD headline therefore lost its USD price and market cap.
+  - The Notify list took 1.0–1.45 s against a 2 s timeout.
+- Fixes:
+  - Run 8 `d4040f9`: keyed display reader with its own budget, 60 s failure cache, provider USD fallback, 8 s list/delete timeout, CLI single-chain catalogs.
+  - Run 8b `788400f`: provider statistics retained with attribution (C5-1); CLI skips absent chains (C5-2).
+  - Claude fix `fc7d1a9`: a provider headline snapshot carried across pushes, so push equals REST (X5-1).
+- Claude review accepted C5-1/C5-2. Codex review found X5-1, and codex accepted the fix.
+- Conductor rerun on `fc7d1a9`: `npm test` **1775/1775**, build, diff check, Han scan and bundle scan pass (no `socket.io-client`, `api.bankr.bot` or LI.FI key header strings in browser assets).
