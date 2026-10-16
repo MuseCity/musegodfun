@@ -1,6 +1,6 @@
 # Own on-chain swap stream via Alchemy Custom Webhooks
 
-Status: Run 4 reverse-review fixes (Claude) implemented locally; Codex acceptance and release pending (2026-10-16). Branch `claude/alchemy-swap-stream`, based on `1030b05` (master `6f7b475` plus its unpushed release record).
+Status: Implemented and cross-review accepted locally (2026-10-16); not released. Branch `claude/alchemy-swap-stream`, based on `1030b05`. Release needs the owner's explicit approval of the secret, push and webhook creation steps below.
 
 ## Owner request (2026-10-16, translated)
 
@@ -165,3 +165,19 @@ Historical implementation record; lifecycle, admission, pricing, serving and pus
 - Follow-up after Codex acceptance round 2: C1d-1 made proportional to slot time held, with Alchemy sender IPs exempt from the read-failure charge only, and X2b-1 counts alternate restorations toward the hard ceiling; 4 new regressions red on `7450ed1`, green after.
 - Four Run 2c tests and three merge-helper call sites were updated where they encoded the superseded read-failure policy, the 10-second Notify budget or the per-trade USD candle signature.
 - Local only: no Alchemy/Notify/RPC call, `.env` read, browser, preview server, wrangler command, push, deployment or PR. Codex acceptance and owner-approved release remain pending.
+
+### Cross-review closure (2026-10-16)
+
+- Codex implemented S1–S4 in `76ab5a3`.
+- Claude review round 1 raised C1-1…C1-13, including two P1s: full-table reads per request, and a REST burst per push that could exhaust read capacity and rate-limit quotes. Fixes went through codex `8098bdb`, `d249e65` and `cdde2eb`. Claude accepted all of them over three passes, including C1b-1…C1b-4 and C1c-1, a P1 where unverified bodies were read unbounded.
+- Codex review round 2 raised X2-1…X2-4 (P2: reincluded swaps lost across blocks; quiet pools hidden by freshness; pushes rewriting the provider's current bar; mixed USD bases) and C1d-1/C1d-2. Claude fixed them in `7450ed1` and `d7e04d0`; codex accepted them after a second pass that also covered X2b-1 (restoration counted against the storage ceiling).
+- Conductor verification:
+  - Alchemy's documented webhook sender IPs (`54.236.136.17`, `34.237.24.169`) and its retry policy (exponential backoff up to 10 minutes on Free/PAYG) were checked against https://www.alchemy.com/docs/reference/notify-api-quickstart.
+  - Rerun on `d7e04d0`: `npm test` **1701/1701**, `npm run build`, `git diff --check` and the Han scan pass. The built assets contain neither `socket.io-client` nor `api.bankr.bot`.
+- Not verified before release: live delivery, `Content-Length` on real deliveries, real create latency, signing-key adoption, and a real swap shown live. These belong to online acceptance.
+- Release steps, each needing owner approval:
+  1. Add the Worker secret `ALCHEMY_NOTIFY_API_KEY` to the currently deployed version (`6f7b475`) through `wrangler versions secret put`, piping the value from `.env` without printing it, and deploy that version. `scripts/release.ts` requires identical secret sets.
+  2. Push to master.
+  3. The chain Durable Objects create and reconcile the webhooks in the owner's Alchemy team on their next alarm.
+  4. Online acceptance.
+- Rollback: Worker `dd2582ff` (`6f7b475`). After a rollback, remove the created webhooks with the operator CLI's list output and the Alchemy dashboard.
