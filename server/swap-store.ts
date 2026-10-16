@@ -40,7 +40,9 @@ export class MemorySwapStore implements SwapStore{
   const block=this.blocks.get(d.blockNumber);if(stale(d,block,this.get<number>('floor')??-1))return empty();
   const reorg=!!block&&block.hash!==d.blockHash,removed=reorg?[...this.trades.values()].filter(t=>t.blockNumber===d.blockNumber):[];
   const plan=d.trades.map(t=>({t,action:place(d,block,reorg,this.trades.get(t.id)?.blockNumber,n=>this.blocks.get(n))}));
-  if(this.trades.size-removed.length+plan.filter(p=>p.action==='insert').length>this.limit+2000||!block&&this.blocks.size>=this.limit+2000)throw new SwapCapacityError();
+  // Removed ids that this delivery does not re-insert come back from a surviving alternate; the ceiling counts them before any write.
+  const incoming=new Set(d.trades.map(t=>t.id)),surviving=new Set([...this.alternates.values()].filter(a=>a.blockNumber!==d.blockNumber).map(a=>a.id)),restorable=removed.filter(t=>!incoming.has(t.id)&&surviving.has(t.id)).length;
+  if(this.trades.size-removed.length+plan.filter(p=>p.action==='insert').length+restorable>this.limit+2000||!block&&this.blocks.size>=this.limit+2000)throw new SwapCapacityError();
   if(reorg)this.drop(d.blockNumber);
   const trades:OnchainTrade[]=[],moved:string[]=[];
   for(const {t,action} of plan){if(action==='skip')continue;if(action==='alternate'){this.alternates.set(`${t.id}@${t.blockNumber}`,t);continue;}
@@ -109,7 +111,9 @@ export class SqlSwapStore implements SwapStore{
   const block=this.block(d.blockNumber);if(stale(d,block,this.get<number>('floor')??-1))return empty();
   const reorg=!!block&&block.hash!==d.blockHash,removed=reorg?[...this.sql.exec('SELECT id,pool FROM swap_trades WHERE block=?',d.blockNumber)] as {id:string;pool:string}[]:[];
   const plan=d.trades.map(t=>({t,action:place(d,block,reorg,[...this.sql.exec('SELECT block FROM swap_trades WHERE id=?',t.id)][0]?.block as number|undefined,n=>this.block(n))}));
-  if((this.get<number>('trade-count')??0)-removed.length+plan.filter(p=>p.action==='insert').length>this.limit+2000||!block&&(this.get<number>('block-count')??0)>=this.limit+2000)throw new SwapCapacityError();
+  // Removed ids that this delivery does not re-insert come back from a surviving alternate; the ceiling counts them before any write.
+  const incoming=new Set(d.trades.map(t=>t.id)),restorable=reorg?[...this.sql.exec('SELECT t.id FROM swap_trades t WHERE t.block=? AND EXISTS (SELECT 1 FROM swap_alternates a WHERE a.id=t.id AND a.block<>t.block)',d.blockNumber)].filter(r=>!incoming.has(r.id)).length:0;
+  if((this.get<number>('trade-count')??0)-removed.length+plan.filter(p=>p.action==='insert').length+restorable>this.limit+2000||!block&&(this.get<number>('block-count')??0)>=this.limit+2000)throw new SwapCapacityError();
   if(reorg)this.drop(d.blockNumber,removed.length);
   const trades:OnchainTrade[]=[],moved:string[]=[];
   for(const {t,action} of plan){if(action==='skip')continue;if(action==='alternate'){this.alternate(t.id,t.blockNumber,JSON.stringify(t));continue;}

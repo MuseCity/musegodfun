@@ -25,7 +25,7 @@ test('C1c-1: HMAC failure budget blocks before reading, leaves other sources ava
  const r=slow(ip),pending=instance.fetch(r.request);await flush();r.finish();assert.equal((await pending).status,429);assert.equal(r.reads,0);assert.equal((await instance.fetch(valid())).status,200);
  const now=Date.now();t.mock.method(Date,'now',()=>now+60_001);assert.equal((await instance.fetch(valid(ip))).status,200);
 });
-// Run 4 (C1d-1): failed reads now spend the source budget; see swap-run4.test.ts.
+// Run 4 (C1d-1): failed reads now spend the source budget in proportion to the slot time held; see swap-run4.test.ts.
 test('C1c-1: length, signature and authenticated schema errors never spend the HMAC failure budget',async()=>{
  const {swaps}=fixture(),instance=await worker(swaps),ip='203.0.113.4';
  for(let n=0;n<121;n++){const r=slow(ip,'1048577'),pending=instance.fetch(r.request);await flush();r.finish();assert.equal((await pending).status,413);}
@@ -35,7 +35,7 @@ test('C1c-1: length, signature and authenticated schema errors never spend the H
 });
 test('C1c-1: Worker slots release on abort, read deadline and read/storage errors',async t=>{
  const {swaps}=fixture(),instance=await worker(swaps);t.mock.timers.enable({apis:['setTimeout','Date'],now:Date.now()});
- // Separate sources per failure mode: since Run 4 (C1d-1) two failed reads exhaust a source's budget.
+ // Separate sources per failure mode: since Run 4 (C1d-1) two full 10 s holds exhaust a source's budget.
  for(const mode of ['abort','timeout'] as const){const ip=mode==='abort'?'203.0.113.5':'203.0.113.7',requests=[slow(ip),slow(ip)];let done=0;const pending=requests.map(r=>instance.fetch(r.request).then((result:Response)=>{done++;return result;}));try{await flush();if(mode==='abort')requests.forEach(r=>r.controller.abort());else t.mock.timers.tick(10_000);await flush();assert.equal(done,2,mode+' must release promptly');const results=await Promise.all(pending);assert(results.every(r=>r.status===408));assert(requests.every(r=>r.cancels===1));assert.equal((await instance.fetch(valid())).status,200);}finally{requests.forEach(r=>r.finish());await Promise.allSettled(pending);}}
  const broken=slow('203.0.113.8');broken.request.body!.getReader=()=>({read:async()=>{throw Error('synthetic read failure');},cancel:async()=>{}}) as any;await assert.rejects(instance.fetch(broken.request),/synthetic read failure/);
  const ip='203.0.113.9';instance.ctx.storage.getAlarm=async()=>{throw Error('synthetic storage failure');};await assert.rejects(instance.fetch(valid(ip)),/synthetic storage failure/);instance.ctx.storage.getAlarm=async()=>1;assert.equal((await instance.fetch(valid(ip))).status,200);
@@ -53,13 +53,11 @@ test('C1c-1: Node route bounds slow readers before raw parsing, rejects chunked/
  const directory=mkdtempSync(join(tmpdir(),'swap-run2c-')),store=fixture().store,{app,service}=createApp(undefined,'loopback',runtimeFromEnv(4663,{NODE_ENV:'test',CHAIN_MODE:'fork',FORK_CHAIN_ID:'4663',DATA_DIR:directory}),{swapStore:store}),seen:IncomingMessage[]=[];
  const server=createServer((req,res)=>{seen.push(req);app(req,res);});server.listen(0,'127.0.0.1');await once(server,'listening');const address=server.address();assert(address&&typeof address!=='string');const clients:ClientRequest[]=[],timers:(()=>void)[]=[],realTimeout=setTimeout;
  t.mock.method(globalThis,'setTimeout',((fn:any,ms:number,...args:any[])=>{if(ms===10_000){timers.push(fn);return realTimeout(fn,60_000,...args);}return realTimeout(fn,ms,...args);}) as typeof setTimeout);
- // Every request comes from loopback; since Run 4 (C1d-1) aborted or timed-out reads penalize it, so each step starts a new minute.
- let shift=0;const realNow=Date.now.bind(Date);t.mock.method(Date,'now',()=>realNow()+shift);
  function post(length:string|null='1048576',body?:string){let response!:Promise<number>;const req=httpRequest({hostname:'127.0.0.1',port:(address as any).port,path,method:'POST',headers:{'x-alchemy-signature':junk,...(length===null?{'transfer-encoding':'chunked'}:{'content-length':length})}});clients.push(req);req.on('error',()=>{});response=new Promise(r=>req.once('response',res=>{res.resume();r(res.statusCode!);}));if(body===undefined)req.flushHeaders();else req.end(body);return {req,response};}
  const turn=()=>new Promise<void>(r=>setImmediate(r));async function waitFor(n:number){for(let i=0;i<200&&seen.length<n;i++)await turn();assert.equal(seen.length,n);}
- try{const slow=[post(),post()];await waitFor(2);assert.equal(seen.filter(r=>r.listenerCount('data')>0).length,2);const overflow=post();await waitFor(3);assert.equal(seen.filter(r=>r.listenerCount('data')>0).length,2);assert.equal(await overflow.response,429);slow.forEach(r=>r.req.destroy());for(let i=0;i<20;i++)await turn();shift+=60_001;
+ try{const slow=[post(),post()];await waitFor(2);assert.equal(seen.filter(r=>r.listenerCount('data')>0).length,2);const overflow=post();await waitFor(3);assert.equal(seen.filter(r=>r.listenerCount('data')>0).length,2);assert.equal(await overflow.response,429);slow.forEach(r=>r.req.destroy());for(let i=0;i<20;i++)await turn();
  const chunked=post(null,'{');assert.equal(await chunked.response,411);const oversized=post('1048577');assert.equal(await oversized.response,413);
- const next=[post(),post()];await waitFor(7);const current=timers.slice(-2);assert.equal(current.length,2);current.forEach(fn=>fn());assert.deepEqual(await Promise.all(next.map(r=>r.response)),[408,408]);shift+=60_001;
+ const next=[post(),post()];await waitFor(7);const current=timers.slice(-2);assert.equal(current.length,2);current.forEach(fn=>fn());assert.deepEqual(await Promise.all(next.map(r=>r.response)),[408,408]);
  const {raw,sig}=signed();assert.equal((await fetch(`http://127.0.0.1:${address.port}${path}`,{method:'POST',headers:{'x-alchemy-signature':sig},body:raw})).status,200);
  }finally{clients.forEach(r=>r.destroy());server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));await service.store.close();rmSync(directory,{recursive:true,force:true});}
 });

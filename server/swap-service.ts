@@ -8,8 +8,13 @@ import { order,SwapCapacityError,type SwapStore } from "./swap-store";
 import {clientBucket} from './abuse';
 import { MarketUnavailable } from "./snapshots";
 export const WEBHOOK_BODY_LIMIT=1_048_576;
-/** A body that never completes holds one of eight pre-read slots for up to 10 s, so two failed reads exhaust a source's 120/min budget. */
-export const WEBHOOK_READ_FAILURE_COST=60;
+/** A failed pre-HMAC read costs in proportion to the pre-read slot time it held: 6 per second, so a full 10 s hold costs 60 and two
+ * exhaust a source's 120/min, while a truncation, abort or reset within 1 s costs 5 and two of them can never block a source. */
+export const webhookReadFailureCost=(heldMs:number)=>heldMs<1000?5:Math.min(60,Math.ceil(heldMs*6/1000));
+/** Alchemy's documented webhook sender IPs (https://www.alchemy.com/docs/reference/notify-api-quickstart, "Webhooks IP addresses").
+ * They skip only the read-failure charge: HMAC, the HMAC-failure budget and both pre-read slot caps still apply. If Alchemy changes
+ * these addresses, its new senders fall back to the proportional charge. */
+export const ALCHEMY_WEBHOOK_SENDERS:ReadonlySet<string>=new Set(['54.236.136.17','34.237.24.169']);
 export const SWAP_MAINTENANCE_BUDGET_MS=10_000,SWAP_BLOCK_TIMEOUT_MS=2_000;
 export const isWebhookPath=(path:string)=>/^\/api\/(?:chains\/(?:4663|8453)\/)?webhooks\/alchemy$/.test(path.split('?')[0]);
 export class SwapService {
@@ -41,9 +46,9 @@ export class SwapService {
   if(length==null)return reject(411);if(!/^\d+$/.test(length)||transferEncoding)return reject(400);
   const size=Number(length);if(!Number.isSafeInteger(size)||size>WEBHOOK_BODY_LIMIT)return reject(413);
   if(this.reading>=8||(this.readers.get(key)??0)>=2)return reject(429);
-  this.reading++;this.readers.set(key,(this.readers.get(key)??0)+1);let done=false;
+  this.reading++;this.readers.set(key,(this.readers.get(key)??0)+1);let done=false;const acquired=Date.now();
   const release=()=>{if(done)return;done=true;this.reading--;const remaining=this.readers.get(key)!-1;if(remaining)this.readers.set(key,remaining);else this.readers.delete(key);};
-  return {status:0,release,fail:()=>{if(done)return;this.spend(key,WEBHOOK_READ_FAILURE_COST);release();}};
+  return {status:0,release,fail:()=>{if(done)return;if(!ALCHEMY_WEBHOOK_SENDERS.has(key))this.spend(key,webhookReadFailureCost(Date.now()-acquired));release();}};
  }
  private publish(message:SwapMessage){this.options.broadcast?.(message);for(const listener of this.listeners)listener(message);}
  async ingest(raw:Uint8Array,signature:string|undefined,ip='unknown',release=()=>{}){
