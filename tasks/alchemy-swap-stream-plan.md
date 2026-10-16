@@ -1,6 +1,6 @@
 # Own on-chain swap stream via Alchemy Custom Webhooks
 
-Status: Hotfix `d2c8454` live (three webhooks active, first real swap delivered); post-release fixes `d4040f9`…`fc7d1a9` cross-review accepted and releasing under the owner's release approval.
+Status: Released and accepted online 2026-10-16 (master `01637b7`, build-38913175998-1, Worker `b2775475`).
 
 ## Owner request (2026-10-16, translated)
 
@@ -271,3 +271,25 @@ Historical implementation record; lifecycle, admission, pricing, serving and pus
 ### Run 10 (claude fix) - 2026-10-16
 
 - Fixed X6-1, found in production after release `a58f726`: the display price reader (`server/swap-prices.ts`) stored the global `fetch` as its default and called it as a method, which workerd rejects as "Illegal invocation", so `quoteUsd` stayed null without any LI.FI request. The default now calls `fetch` unbound, as `NotifyClient` does; the Node-only webhook CLI default is wrapped the same way. A scan of `server/` found no other stored-global method call. Budgets, caching, identity checks and key handling are unchanged. A new real-workerd regression (`tests/swap-prices-worker.test.ts`, Miniflare with production compatibility flags and an outbound LI.FI fixture) failed on `a58f726` and passes now, with and without a configured `x-lifi-api-key`; `npm test` 1776 pass, 0 fail; build, whitespace, Han and bundle checks clean. Local only; release remains owner-approved.
+
+### Release and online acceptance (2026-10-16)
+
+- Release sequence:
+  1. Worker secret `ALCHEMY_NOTIFY_API_KEY` added on version `ee7746a4` (code `6f7b475`).
+  2. `d1e7479`: webhook creation failed (aliased filters).
+  3. Hotfix `d2c8454`: three webhooks created.
+  4. `a58f726`: USD fixes. The DO kept the previous code until the same version was redeployed with `--durable-objects-code-update-mode immediate`.
+  5. `01637b7`: unbound `fetch` in the display price reader. Workerd rejected the stored global fetch with Illegal invocation.
+- Online API checks:
+  - All three webhooks are active with zero failures.
+  - The first real MUSEGOD swap (13:03:35 UTC, block 90099042, tx `0xdfc9dc1c8118…`) was delivered and matches Bankr exactly.
+  - `quoteUsd` comes from LI.FI (WETH $2,457.35).
+  - The summary shows our USD price ($0.00016007) with the provider market cap ($158.8K) attributed to Bankr; the trade row shows USD $0.08.
+- Codex read-only Chrome QA, VERDICT PASS on all 9 checks:
+  - The build identity is correct on both hostnames.
+  - The MUSEGOD headline shows USD and market cap, with separate on-chain, provider-statistics and LI.FI attributions.
+  - The real trade is listed with its on-chain label.
+  - Same-origin stream sockets open on MUSEGOD and CLAWGOD.
+  - There are no application CSP violations, and no socket.io or Bankr scripts load.
+  - There is no 390 px overflow.
+- Production rollback point for the feature: Worker `dd2582ff` (`6f7b475`). After a rollback, delete webhooks `wh_3mh7qv8pz632pe5g`, `wh_eotsum1hbbt98vlu` and `wh_wig0365m85e9omap` in the Alchemy dashboard.
