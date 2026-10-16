@@ -2,7 +2,7 @@ import test from 'node:test';import assert from 'node:assert/strict';
 import { NotifyClient, desiredWebhook, reconcileWebhook } from '../server/alchemy-webhooks';
 import { MemorySwapStore } from '../server/swap-store';
 import { registeredPools } from '../server/swap-stream';
-test('Notify uses documented create/list/delete shapes, narrow aliased filters, replacement deletes old hook and briefly retains both keys, daily verification',async()=>{
+test('Notify uses documented create/list/delete shapes, one unaliased filter per webhook, replacement deletes old hook and briefly retains both keys, daily verification',async()=>{
  const calls:{path:string;method:string;body:any}[]=[],hooks:any[]=[];
  const api=new NotifyClient('synthetic',async(input,init)=>{const path=new URL(String(input)).pathname;const body=init?.body?JSON.parse(String(init.body)):null;calls.push({path,method:init?.method??'GET',body});
  if(path.endsWith('team-webhooks'))return Response.json({data:hooks});
@@ -10,18 +10,18 @@ test('Notify uses documented create/list/delete shapes, narrow aliased filters, 
  return Response.json({});});
  const store=new MemorySwapStore(),pools=registeredPools(4663,[]),url='https://musegod.fun/api/chains/4663/webhooks/alchemy';
  await reconcileWebhook(store,api,4663,pools,url,1000);assert.equal(calls.filter(c=>c.path.endsWith('create-webhook')).length,1);
- const d=desiredWebhook(4663,pools,url);assert(d.graphql_query.skip_empty_messages);assert(d.graphql_query.query.includes('v3: logs'));assert(!d.graphql_query.query.includes('v4: logs'));
+ const d=desiredWebhook(4663,pools,url,'v3');assert(d.graphql_query.skip_empty_messages);assert(d.graphql_query.query.includes('logs(filter:'));assert(!/\w+: logs/.test(d.graphql_query.query));
  await reconcileWebhook(store,api,4663,pools,url,2000);assert.equal(calls.length,2);
- await reconcileWebhook(store,api,4663,[...pools,{...pools[0],version:4,pool:'0x'+'ab'.repeat(32)}],url,3000);
- assert.equal(store.get<any>('notify').bindings.length,2);assert.equal(calls.filter(c=>c.path.endsWith('delete-webhook')).length,1);
+ await reconcileWebhook(store,api,4663,[...pools,{...pools[0],version:3,pool:'0x'+'ab'.repeat(20)}],url,3000);
+ assert.equal(store.get<any>('notify-v3').bindings.length,2);assert.equal(calls.filter(c=>c.path.endsWith('delete-webhook')).length,1);
 });
 
 test('restart verifies the stored id with a normalised callback at most daily and redacts failures',async()=>{
- const pools=registeredPools(4663,[]),desired=desiredWebhook(4663,pools,'https://musegod.fun/api/chains/4663/webhooks/alchemy');let calls=0;
- const hook={id:'wh_existing',network:desired.network,webhook_type:'GRAPHQL',webhook_url:desired.webhook_url.split('?')[0],is_active:true,signing_key:'synthetic-secret'};
+ const pools=registeredPools(4663,[]),desired=desiredWebhook(4663,pools,'https://musegod.fun/api/chains/4663/webhooks/alchemy','v3');let calls=0;
+ const hook={id:'wh_existing',network:desired.network,webhook_type:'GRAPHQL',webhook_url:desired.webhook_url.split('&set=')[0],is_active:true,signing_key:'synthetic-secret'};
  const api=new NotifyClient('synthetic-token',async()=>{calls++;return Response.json({data:[hook]});});const store=new MemorySwapStore();
- store.set('notify',{hash:desired.hash,checkedAt:-86400000,bindings:[{id:hook.id,network:hook.network,key:hook.signing_key}]});
- await reconcileWebhook(store,api,4663,pools,'https://musegod.fun/api/chains/4663/webhooks/alchemy',1);assert.equal(calls,1);assert.equal(store.get<any>('notify').bindings[0].id,'wh_existing');
+ store.set('notify-v3',{hash:desired.hash,checkedAt:-86400000,bindings:[{id:hook.id,network:hook.network,key:hook.signing_key}]});
+ await reconcileWebhook(store,api,4663,pools,'https://musegod.fun/api/chains/4663/webhooks/alchemy',1);assert.equal(calls,1);assert.equal(store.get<any>('notify-v3').bindings[0].id,'wh_existing');
  await reconcileWebhook(store,api,4663,pools,'https://musegod.fun/api/chains/4663/webhooks/alchemy',2);assert.equal(calls,1);
  await reconcileWebhook(store,api,4663,pools,'https://musegod.fun/api/chains/4663/webhooks/alchemy',86400002);assert.equal(calls,2);
  const rejected=new NotifyClient('synthetic-token',async()=>new Response('synthetic-secret',{status:302,headers:{Location:'https://untrusted.invalid'}}));await assert.rejects(rejected.list(),/^Error: Notify request rejected \(302\)$/);

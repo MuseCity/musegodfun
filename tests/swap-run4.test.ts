@@ -4,7 +4,7 @@ import {priceTrade} from '../src/lib/swap-market';import {applySwapPush} from '.
 const pools=registeredPools(4663,[]),key='run4-synthetic-key',path='/api/webhooks/alchemy',url='https://musegod.fun/api/chains/4663/webhooks/alchemy',junk='f'.repeat(64);
 const flush=async()=>{for(let n=0;n<30;n++)await Promise.resolve();};
 const A='0x'+'a1'.repeat(32),B='0x'+'b2'.repeat(32),C='0x'+'c3'.repeat(32);
-function delivery(age=600){const body=structuredClone(fixtures.deliveries.v3);body.event.data.block.timestamp=Math.floor(Date.now()/1000)-age;return decodeDelivery(JSON.stringify(body),{id:'wh_test_v3',network:'ROBINHOOD_MAINNET'},pools);}
+function delivery(age=600){const body=structuredClone(fixtures.deliveries.v3);body.event.data.block.timestamp=Math.floor(Date.now()/1000)-age;return decodeDelivery(JSON.stringify(body),{id:'wh_test_v3',network:'ROBINHOOD_MAINNET',kind:'v3' as const},pools);}
 /** The same transaction/log delivered in block `number + offset` with its own hash, sequence and time. */
 function block(d:Delivery,offset:number,hash:string,sequence:number,trades=true):Delivery{const n=d.blockNumber+offset,time=d.timestamp+offset*2;return {...d,blockNumber:n,blockHash:hash,sequence:String(sequence),timestamp:time,trades:trades?d.trades.map(t=>({...t,blockNumber:n,blockHash:hash,at:new Date(time*1000).toISOString()})):[]};}
 type Adapter={name:string;store:SwapStore;lose(id:string):void;consistent():void;dump():unknown};
@@ -85,7 +85,7 @@ function market(hour:number){
  const service=new SwapService(4663,store,{pools:async()=>pools,quote:async()=>q,quoteCached:()=>q});
  const coverage=new Date((hour+60)*1000).toISOString();
  function trade(priceQuote='1',quoteAmount='1'):OnchainTrade{n++;const hash='0x'+n.toString(16).padStart(64,'0');return {...template,id:`4663:${hash}:0`,hash,logIndex:0,blockNumber:1000+n,blockHash:'0x'+(n+1).toString(16).padStart(64,'0'),at:new Date((hour+60+n)*1000).toISOString(),priceQuote,quoteAmount};}
- function store1(t:OnchainTrade){store.apply({webhookId:'wh_test_v3',sequence:String(t.blockNumber),blockNumber:t.blockNumber,blockHash:t.blockHash,timestamp:Date.parse(t.at)/1000,trades:[t]});}
+ function store1(t:OnchainTrade){store.apply({webhookId:'wh_test_v3',kind:'v3',sequence:String(t.blockNumber),blockNumber:t.blockNumber,blockHash:t.blockHash,timestamp:Date.parse(t.at)/1000,trades:[t]});}
  const rest=async()=>JSON.parse(JSON.stringify(await service.serve('candles',MUSE_POOL,async()=>provider,'1h'))) as CandleData;
  function push(current:CandleData|null,t:OnchainTrade){store1(t);const priced=priceTrade(t,q),message:SwapMessage={type:'trades',chainId:4663,pool:MUSE_POOL,trades:[priced],reorg:false,blockNumber:t.blockNumber,blockHash:t.blockHash,coverageStart:coverage};return applySwapPush({summary:null,trades:null,candles:current},message,'1h').candles!;}
  return {hour,store,trade,store1,rest,push,setQuote:(price:number|null)=>{q=quote(price);},setProvider:(value:CandleData|null)=>{provider=value;}};
@@ -118,7 +118,7 @@ test('X2-4: one current USD quote converts the whole own portion; provider bars 
  assert.deepEqual(sections.trades!.trades.map(r=>[r.usd,r.price]),[[3000,3000],[3000,3000]],'Recent trades share the current quote too');
 });
 // Worker harness from Run 2c: the compiled actual fetch method with synthetic streams and storage.
-function fixture(options:Partial<ConstructorParameters<typeof SwapService>[2]>={}){const store=new MemorySwapStore();store.set('notify',{bindings:[{id:'wh_test_v3',network:'ROBINHOOD_MAINNET',key}]});return {store,swaps:new SwapService(4663,store,{pools:async()=>pools,...options})};}
+function fixture(options:Partial<ConstructorParameters<typeof SwapService>[2]>={}){const store=new MemorySwapStore();store.set('notify-v3',{bindings:[{id:'wh_test_v3',network:'ROBINHOOD_MAINNET',kind:'v3' as const,key}]});return {store,swaps:new SwapService(4663,store,{pools:async()=>pools,...options})};}
 function signed(){const body=structuredClone(fixtures.deliveries.v3);body.event.data.block.timestamp=Math.floor(Date.now()/1000);const raw=Buffer.from(JSON.stringify(body));return {raw,sig:createHmac('sha256',key).update(raw).digest('hex')};}
 async function worker(swaps:any){const source=(await readFile('worker/index.ts','utf8')).split('\nexport default')[0].replace(/^import .*;\n/gm,'');const compiled=await transform(source,{loader:'ts',format:'cjs'}),module={exports:{} as any};new Function('module','exports','DurableObject','redact','isWebhookPath','readBoundedBody','requestBodyLimitForPath','BODY_READ_DEADLINE_MS',compiled.code)(module,module.exports,class{},()=> 'redacted',isWebhookPath,readBoundedBody,requestBodyLimitForPath,BODY_READ_DEADLINE_MS);const instance=Object.create(module.exports.LaunchpadRuntime.prototype);instance.refreshRuntime=()=>{};instance.swaps=swaps;instance.ctx={storage:{getAlarm:async()=>1,setAlarm:async()=>{}}};return instance;}
 function slow(ip:string,length='1048576'){let reads=0,finish!:()=>void;const controller=new AbortController(),waiting=new Promise<{done:boolean}>(r=>finish=()=>r({done:true}));const body={getReader(){reads++;return {read:()=>waiting,cancel:async()=>{finish();}};}};const headers=new Headers({'x-forwarded-for':ip,'x-alchemy-signature':junk,'content-length':length});return {request:{url:'https://musegod.fun'+path,method:'POST',headers,body,signal:controller.signal} as unknown as Request,controller,finish:()=>finish(),get reads(){return reads;}};}
@@ -177,7 +177,7 @@ test('C1d-1: the Node route charges full holds, lets fast aborts recover and exe
 function notify(reached:boolean,createDelay:number){
  const store=new MemorySwapStore(),hooks:any[]=[];let creates=0,peak=0;
  const api=new NotifyClient('synthetic',async(input,init)=>{const method=init?.method??'GET';
-  if(method==='POST'){creates++;const hook={...JSON.parse(String(init!.body)),webhook_url:url,id:'created-'+creates,is_active:true,signing_key:key};if(reached){hooks.push(hook);peak=Math.max(peak,hooks.length);}await new Promise(r=>setTimeout(r,createDelay));return Response.json({data:hook});}
+  if(method==='POST'){creates++;const hook={...JSON.parse(String(init!.body)),webhook_url:url+'?kind=v3',id:'created-'+creates,is_active:true,signing_key:key};if(reached){hooks.push(hook);peak=Math.max(peak,hooks.length);}await new Promise(r=>setTimeout(r,createDelay));return Response.json({data:hook});}
   if(method==='DELETE'){const i=hooks.findIndex(h=>h.id===new URL(String(input)).searchParams.get('webhook_id'));if(i>=0)hooks.splice(i,1);return Response.json({});}
   return Response.json({data:hooks});});
  return {store,hooks,api,get creates(){return creates;},get peak(){return peak;}};
@@ -185,21 +185,21 @@ function notify(reached:boolean,createDelay:number){
 async function run(t:{mock:any},work:Promise<unknown>,seconds:number){let settled=false;void work.then(()=>settled=true,()=>settled=true);for(let n=0;n<seconds*2&&!settled;n++){t.mock.timers.tick(500);await flush();}return work;}
 test('C1d-2: create has a 15 s deadline inside a 30 s reconcile budget while list and delete keep 2 s',async t=>{
  t.mock.timers.enable({apis:['setTimeout','Date'],now:Date.now()});
- const f=notify(true,5_000);await run(t,reconcileWebhook(f.store,f.api,4663,pools,url,1000),10);assert.equal(f.store.get<any>('notify').bindings[0].id,'created-1','a 5 s create binds without a retry');assert.equal(f.creates,1);
- const hanging=notify(false,60_000);let rejected=false;const pending=hanging.api.create(desiredWebhook(4663,pools,url)).catch(()=>{rejected=true;});t.mock.timers.tick(14_999);await flush();assert.equal(rejected,false);t.mock.timers.tick(1);await flush();assert.equal(rejected,true,'create is bounded at 15 s');await pending;
+ const f=notify(true,5_000);await run(t,reconcileWebhook(f.store,f.api,4663,pools,url,1000),10);assert.equal(f.store.get<any>('notify-v3').bindings[0].id,'created-1','a 5 s create binds without a retry');assert.equal(f.creates,1);
+ const hanging=notify(false,60_000);let rejected=false;const pending=hanging.api.create(desiredWebhook(4663,pools,url,'v3')).catch(()=>{rejected=true;});t.mock.timers.tick(14_999);await flush();assert.equal(rejected,false);t.mock.timers.tick(1);await flush();assert.equal(rejected,true,'create is bounded at 15 s');await pending;
  const list=new NotifyClient('synthetic',()=>new Promise<Response>(()=>{}));let listed=false;const listing=list.list().catch(()=>{listed=true;});t.mock.timers.tick(2_000);await flush();assert.equal(listed,true,'list keeps its 2 s deadline');await listing;
- const desired=desiredWebhook(4663,pools,url),orphans=Array.from({length:30},(_,n)=>({...desired,id:'orphan-'+n,is_active:true,signing_key:key})),calls:string[]=[];
+ const desired=desiredWebhook(4663,pools,url,'v3'),orphans=Array.from({length:30},(_,n)=>({...desired,id:'orphan-'+n,is_active:true,signing_key:key})),calls:string[]=[];
  t.mock.method(globalThis,'fetch',async(_input:unknown,init?:RequestInit)=>{calls.push(init?.method??'GET');await new Promise<void>(r=>setTimeout(r,1_500));return Response.json({data:orphans});});
  const {swaps,store}=fixture({token:'synthetic'}),started=Date.now();let done=false;const reconcile=swaps.reconcile('https://musegod.fun').catch(()=>{}).then(()=>{done=true;});
- for(let n=0;n<59;n++){t.mock.timers.tick(500);await flush();}assert.equal(done,false,'the reconcile budget is 30 s');t.mock.timers.tick(500);await flush();assert.equal(done,true);await reconcile;assert.equal(Date.now()-started,30_000);assert(!calls.includes('POST'));assert(store.get<any>('notify-attempt').failures>0);
+ for(let n=0;n<59;n++){t.mock.timers.tick(500);await flush();}assert.equal(done,false,'the reconcile budget is 30 s');t.mock.timers.tick(500);await flush();assert.equal(done,true);await reconcile;assert.equal(Date.now()-started,30_000);assert(!calls.includes('POST'));assert(store.get<any>('notify-attempt-v3').failures>0);
 });
 test('C1d-2: a timed-out creation is resolved by the orphan sweep instead of counting toward the creation stop',async t=>{
  t.mock.timers.enable({apis:['setTimeout']});
  for(const reached of [true,false]){// The timed-out request did or did not create the hook at Alchemy.
   const f=notify(reached,60_000);let now=1000;
-  for(let n=0;n<8;n++){await assert.rejects(run(t,reconcileWebhook(f.store,f.api,4663,pools,url,now),20));now=f.store.get<any>('notify-attempt').nextAt;}
-  const attempt=f.store.get<any>('notify-attempt'),status=new SwapService(4663,f.store,{pools:async()=>pools}).status();
-  if(reached){assert.equal(f.creates,8,'slow successful creations never stop creation');assert.equal(attempt.creationFailures,0);assert.equal(status.creationStopped,false);assert.equal(f.peak,1,'the sweep leaves at most one uncertain hook');}
-  else{assert.equal(f.creates,5,'unreached creations still stop after five');assert.equal(attempt.creationFailures,5);assert.equal(status.creationStopped,true);}
+  for(let n=0;n<8;n++){await assert.rejects(run(t,reconcileWebhook(f.store,f.api,4663,pools,url,now),20));now=f.store.get<any>('notify-attempt-v3').nextAt;}
+  const attempt=f.store.get<any>('notify-attempt-v3'),status=new SwapService(4663,f.store,{pools:async()=>pools}).status();
+  if(reached){assert.equal(f.creates,8,'slow successful creations never stop creation');assert.equal(attempt.creationFailures,0);assert.equal(status.kinds.v3.creationStopped,false);assert.equal(f.peak,1,'the sweep leaves at most one uncertain hook');}
+  else{assert.equal(f.creates,5,'unreached creations still stop after five');assert.equal(attempt.creationFailures,5);assert.equal(status.kinds.v3.creationStopped,true);}
  }
 });

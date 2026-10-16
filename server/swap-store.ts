@@ -13,9 +13,14 @@ export interface SwapStore {
 export class SwapCapacityError extends Error{constructor(){super("Swap storage capacity is temporarily limited");}}
 const RETENTION_SECONDS=400*86400;
 const empty=():ApplyResult=>({trades:[],reorg:false,removedPools:[]});
-const newer=(d:Delivery,b:Block)=>(d.generation??0)>b.generation||(d.generation??0)===b.generation&&BigInt(d.sequence)>BigInt(b.sequence);
+type Cursor={generation:number;sequence:string};
+// Keep at most two kind cursors in the existing sequence column; block identity/finality remain shared across filters.
+const cursors=(b:Block|undefined):Partial<Record<Delivery['kind'],Cursor>>=>b?.sequence.startsWith('{')?JSON.parse(b.sequence):{};
+const cursor=(d:Delivery,b:Block)=>b.sequence.startsWith('{')?cursors(b)[d.kind]:b;
+const newer=(d:Delivery,b:Block)=>{const c=cursor(d,b);return !c||(d.generation??0)>c.generation||(d.generation??0)===c.generation&&BigInt(d.sequence)>BigInt(c.sequence);};
+const sequence=(d:Delivery,b:Block|undefined)=>JSON.stringify({...cursors(b),[d.kind]:{generation:d.generation??0,sequence:d.sequence}});
 /** An exact retry (same generation, sequence and hash) is not stale: it idempotently restores missing rows, also after finality. */
-function stale(d:Delivery,block:Block|undefined,floor:number){return d.timestamp<Math.floor(Date.now()/1000)-RETENTION_SECONDS||d.blockNumber<=floor||!!block&&(!!block.verified&&block.hash!==d.blockHash||!newer(d,block)&&!(block.generation===(d.generation??0)&&block.sequence===d.sequence&&block.hash===d.blockHash));}
+function stale(d:Delivery,block:Block|undefined,floor:number){const c=block?cursor(d,block):undefined;return d.timestamp<Math.floor(Date.now()/1000)-RETENTION_SECONDS||d.blockNumber<=floor||!!block&&(!!block.verified&&block.hash!==d.blockHash||!newer(d,block)&&!(c?.generation===(d.generation??0)&&c.sequence===d.sequence&&block.hash===d.blockHash));}
 type Placement='insert'|'skip'|'move'|'alternate';
 /** A log id displayed in another block is a reinclusion, not a duplicate. A verified occurrence wins; otherwise a verified or newer
  * delivery is displayed and the other occurrence is kept as an alternate until its block's verification or replacement resolves it. */
@@ -48,7 +53,7 @@ export class MemorySwapStore implements SwapStore{
   for(const {t,action} of plan){if(action==='skip')continue;if(action==='alternate'){this.alternates.set(`${t.id}@${t.blockNumber}`,t);continue;}
    if(action==='move'){const old=this.trades.get(t.id)!;this.alternates.set(`${t.id}@${old.blockNumber}`,old);moved.push(old.pool);}this.put(t);trades.push(t);}
   const restored=this.promote(removed.map(t=>t.id));
-  this.blocks.set(d.blockNumber,{block:d.blockNumber,hash:d.blockHash,sequence:d.sequence,generation:d.generation??0,at:d.timestamp,verified:block?.verified??0});
+  this.blocks.set(d.blockNumber,{block:d.blockNumber,hash:d.blockHash,sequence:sequence(d,block),generation:d.generation??0,at:d.timestamp,verified:block?.verified??0});
   return {trades,reorg:reorg||moved.length>0,removedPools:[...new Set([...removed.map(t=>t.pool),...moved,...restored])]};
  }
  private put(t:OnchainTrade){this.alternates.delete(`${t.id}@${t.blockNumber}`);this.trades.set(t.id,t);if(!this.coverage(t.pool))this.set(`coverage:${t.pool}`,t.at);}
@@ -119,7 +124,7 @@ export class SqlSwapStore implements SwapStore{
   for(const {t,action} of plan){if(action==='skip')continue;if(action==='alternate'){this.alternate(t.id,t.blockNumber,JSON.stringify(t));continue;}
    if(action==='move'){const old=[...this.sql.exec('SELECT pool,block,payload FROM swap_trades WHERE id=?',t.id)][0];this.alternate(t.id,old.block,old.payload);moved.push(old.pool);}else this.count(1);this.put(t);trades.push(t);}
   const restored=this.promote(removed.map(r=>r.id));
-  this.sql.exec("INSERT OR REPLACE INTO swap_blocks (block,hash,sequence,at,generation,verified) VALUES (?,?,?,?,?,?)",d.blockNumber,d.blockHash,d.sequence,d.timestamp,d.generation??0,block?.verified??0);
+  this.sql.exec("INSERT OR REPLACE INTO swap_blocks (block,hash,sequence,at,generation,verified) VALUES (?,?,?,?,?,?)",d.blockNumber,d.blockHash,sequence(d,block),d.timestamp,d.generation??0,block?.verified??0);
   if(!block)this.set('block-count',(this.get<number>('block-count')??0)+1);
   return {trades,reorg:reorg||moved.length>0,removedPools:[...new Set([...removed.map(r=>r.pool),...moved,...restored])]};});}
  private block(n:number){return [...this.sql.exec("SELECT * FROM swap_blocks WHERE block=?",n)][0] as Block|undefined;}

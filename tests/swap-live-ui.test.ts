@@ -1,7 +1,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {renderToStaticMarkup} from 'react-dom/server';import {hookRuntime,importFresh,settle} from './hook-runtime';
 import fixtures from './fixtures/alchemy-swaps.json';import {decodeDelivery,registeredPools} from '../server/swap-stream';
 test('C1-2: client applies 100 validated pushes with zero REST, dedupes replay, updates price/trades/candle, disconnect falls back',async t=>{
- let listener:any,output:any,bridge:any,reads=0;const trade=decodeDelivery(JSON.stringify(fixtures.deliveries.v3),{id:'wh_test_v3',network:'ROBINHOOD_MAINNET'},registeredPools(4663,[])).trades[0];
+ let listener:any,output:any,bridge:any,reads=0;const trade=decodeDelivery(JSON.stringify(fixtures.deliveries.v3),{id:'wh_test_v3',network:'ROBINHOOD_MAINNET',kind:'v3' as const},registeredPools(4663,[])).trades[0];
  const initial={summary:null,candles:null,trades:null};const props:any={...initial,chainId:4663,pool:trade.pool,path:'/musegod/market',interval:'1h',info:null,onUpdate:(v:any)=>{output=v;}};
  const runtime=hookRuntime(()=>bridge(props));({default:bridge}=await importFresh('src/components/SwapLive.tsx',{
  react:{file:import.meta.resolve('react'),bindings:runtime.hooks},'../lib/api':{file:import.meta.resolve('../src/lib/api.ts'),bindings:{chainApi:async()=>{reads++;return null;}}},'../lib/swap-live':{file:import.meta.resolve('../src/lib/swap-live.ts'),bindings:{subscribeSwapStream:(_id:number,_pool:string,next:any)=>{listener=next;next.status({connected:true,receiving:false,receivedAt:null});return()=>{};}}}}));

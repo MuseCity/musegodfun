@@ -2,7 +2,7 @@ import test from 'node:test';import assert from 'node:assert/strict';
 import { createSwapConnection } from '../src/lib/swap-live';
 import fixtures from './fixtures/alchemy-swaps.json';
 import { decodeDelivery,registeredPools } from '../server/swap-stream';
-const trade=decodeDelivery(JSON.stringify(fixtures.deliveries.v3),{id:'wh_test_v3',network:'ROBINHOOD_MAINNET'},registeredPools(4663,[])).trades[0];
+const trade=decodeDelivery(JSON.stringify(fixtures.deliveries.v3),{id:'wh_test_v3',network:'ROBINHOOD_MAINNET',kind:'v3' as const},registeredPools(4663,[])).trades[0];
 test('shared same-origin socket, hidden disconnect, invalid events ignored; only changed values mark Live',async t=>{
  let visible=true,watch=()=>{},created=0;const sockets:any[]=[];const statuses:any[]=[];let changed=false;
  const live=createSwapConnection({chainId:4663,pool:trade.pool,visible:()=>visible,watchVisibility:fn=>{watch=fn;return()=>{};},createSocket:()=>{created++;const events=new Map();const socket={addEventListener:(n:string,fn:any)=>events.set(n,fn),close:()=>{},emit:(n:string,data?:string)=>events.get(n)?.({data})};sockets.push(socket);return socket;}});

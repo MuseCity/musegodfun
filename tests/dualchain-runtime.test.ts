@@ -134,13 +134,13 @@ test("HTTP requests with identical token addresses stay in their selected chain 
       const response = await fetch(origin + path);
       assert.equal(response.status, 200);
       assert.deepEqual(await response.json(), { status: "ready", chainId: 4663, writesEnabled: false,
-        swapStream: { creationStopped: false, creationFailures: 0, retryAt: null, verificationAt: null },
+        swapStream: { kinds: { v4: { creationStopped: false, creationFailures: 0, retryAt: null, verificationAt: null }, v3: { creationStopped: false, creationFailures: 0, retryAt: null, verificationAt: null } } },
         signingPaused: true, controlRevision: 0, blockReason: "Awaiting runtime activation", healthClass: "expected_pause" });
     }
     const baseReady = await fetch(`${origin}/api/chains/8453/readyz`);
     assert.equal(baseReady.status, 503);
     assert.deepEqual(await baseReady.json(), { status: "unavailable", chainId: 8453, writesEnabled: false,
-      swapStream: { creationStopped: false, creationFailures: 0, retryAt: null, verificationAt: null },
+      swapStream: { kinds: { v4: { creationStopped: false, creationFailures: 0, retryAt: null, verificationAt: null } } },
       signingPaused: true, controlRevision: 0, blockReason: "Awaiting runtime activation", healthClass: "site_unavailable" });
     assert.equal((await fetch(`${origin}/api/chains/1/config`)).status, 400);
     assert.equal((await fetch(`${origin}/api/chains/8453/first-buy/quote`, {

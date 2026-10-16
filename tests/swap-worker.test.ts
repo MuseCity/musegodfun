@@ -19,7 +19,7 @@ test('real Worker: mocked Notify lifecycle, hibernating same-origin socket, sign
  const initial=await mf.dispatchFetch('https://musegod.fun/api/config');assert.equal(initial.status,200,await initial.text());
  const sync=await mf.dispatchFetch('https://musegod.fun/api/chains/4663/webhooks/alchemy/reconcile',{method:'POST',headers:{Authorization:'Bearer synthetic-notify'}});assert.equal(sync.status,404,(await sync.text())+JSON.stringify(calls));
  for(let i=0;i<100&&!hook;i++)await new Promise(r=>setTimeout(r,10));assert(hook,JSON.stringify(calls));assert.equal(creates,1);
- const ready=await mf.dispatchFetch('https://musegod.fun/readyz'),status=await ready.json() as any;assert.equal(ready.status,200);assert.equal(status.swapStream.creationStopped,false);assert(!JSON.stringify(status).includes(key));
+ const ready=await mf.dispatchFetch('https://musegod.fun/readyz'),status=await ready.json() as any;assert.equal(ready.status,200);assert.equal(status.swapStream.kinds.v3.creationStopped,false);assert(!JSON.stringify(status).includes(key));
  const denied=await mf.dispatchFetch(`https://musegod.fun/api/chains/4663/market/stream?pool=${MUSE_POOL}`,{headers:{Upgrade:'websocket',Origin:'https://evil.invalid'}});assert.equal(denied.status,403);
  const upgrade=await mf.dispatchFetch(`https://musegod.fun/api/chains/4663/market/stream?pool=${MUSE_POOL}`,{headers:{Upgrade:'websocket',Origin:'https://musegod.fun'}});assert.equal(upgrade.status,101);const socket=upgrade.webSocket!;socket.accept();
  const next=new Promise<any>(resolve=>socket.addEventListener('message',e=>resolve(JSON.parse(e.data as string))));

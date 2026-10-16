@@ -9,20 +9,20 @@ export const v3Pool: SwapPool={chainId:4663,version:3,pool:MUSE_POOL,token:'0x03
 const raw=JSON.stringify(fixtures.deliveries.v3), sign=(s:string)=>createHmac('sha256',key).update(s).digest('hex');
 test('raw HMAC: valid, invalid, missing; identity/schema fail before any storage',()=>{
  assert(verifySignature(raw,sign(raw),key));assert(!verifySignature(raw+' ',sign(raw),key));assert(!verifySignature(raw,undefined,key));
- const bound={id:'wh_test_v3',network:'ROBINHOOD_MAINNET'};
+ const bound={id:'wh_test_v3',network:'ROBINHOOD_MAINNET',kind:'v3' as const};
  assert.equal(decodeDelivery(raw,bound,[v3Pool]).trades.length,1);
- for(const change of [{webhookId:'wrong'},{type:'ADDRESS_ACTIVITY'},{event:{...fixtures.deliveries.v3.event,network:'BASE_MAINNET'}},{event:{}}])assert.throws(()=>decodeDelivery(JSON.stringify({...fixtures.deliveries.v3,...change}),bound,[v3Pool]));
+ for(const change of [{webhookId:'wrong'},{type:'ADDRESS_ACTIVITY'},{event:{...fixtures.deliveries.v3.event,network:'BASE_MAINNET',kind:'v4' as const}},{event:{}}])assert.throws(()=>decodeDelivery(JSON.stringify({...fixtures.deliveries.v3,...change}),bound,[v3Pool]));
  assert.throws(()=>decodeDelivery(raw,bound,[]));
 });
 test('real V3 and V4 log decoding, opposite pool delta conventions, exact amounts',()=>{
- const d=decodeDelivery(raw,{id:'wh_test_v3',network:'ROBINHOOD_MAINNET'},[v3Pool]), trade=d.trades[0];
+ const d=decodeDelivery(raw,{id:'wh_test_v3',network:'ROBINHOOD_MAINNET',kind:'v3' as const},[v3Pool]), trade=d.trades[0];
  assert.equal(trade.hash,fixtures.v3[0].transactionHash);assert.equal(trade.logIndex,41);assert.equal(trade.side,'sell');assert.match(trade.priceQuote,/^\d+\.\d+$/);assert(BigInt(trade.sqrtPriceX96)>0n);
  const pool={...v3Pool,version:4 as const,pool:fixtures.v4[0].topics[1]};
- const v4=decodeDelivery(JSON.stringify(fixtures.deliveries.v4),{id:'wh_test_v4',network:'ROBINHOOD_MAINNET'},[pool]);assert(v4.trades.length>0);
+ const v4=decodeDelivery(JSON.stringify(fixtures.deliveries.v4),{id:'wh_test_v4',network:'ROBINHOOD_MAINNET',kind:'v4' as const},[pool]);assert(v4.trades.length>0);
  assert.equal(v4.trades[0].side,BigInt(v4.trades[0].amount0)>0n?'buy':'sell');
 });
 test('idempotency, newer reorg replaces entire block; stale retries cannot resurrect, bounded retention',()=>{
- const store=new MemorySwapStore(2), d=decodeDelivery(raw,{id:'wh_test_v3',network:'ROBINHOOD_MAINNET'},[v3Pool]);
+ const store=new MemorySwapStore(2), d=decodeDelivery(raw,{id:'wh_test_v3',network:'ROBINHOOD_MAINNET',kind:'v3' as const},[v3Pool]);
  assert.equal(store.apply(d).trades.length,1);assert.equal(store.apply(d).trades.length,0);
  const reorg={...d,sequence:'10000000000000000002',blockHash:'0x'+'ab'.repeat(32),trades:d.trades.map(t=>({...t,blockHash:'0x'+'ab'.repeat(32),hash:'0x'+'cd'.repeat(32),id:'4663:0x'+'cd'.repeat(32)+':41'}))};
  assert.equal(store.apply(reorg).reorg,true);assert.equal(store.rows(MUSE_POOL).length,1);store.apply(d);assert.equal(store.rows(MUSE_POOL)[0].blockHash,reorg.blockHash);
@@ -31,7 +31,7 @@ test('idempotency, newer reorg replaces entire block; stale retries cannot resur
 });
 
 test('schema rejects foreign contracts, topic0, pool, block types and conflicting network',()=>{
- const binding={id:'wh_test_v3',network:'ROBINHOOD_MAINNET'};
+ const binding={id:'wh_test_v3',network:'ROBINHOOD_MAINNET',kind:'v3' as const};
  for(const mutate of [
   (b:any)=>b.event.data.block.logs[0].account.address='0x'+'ff'.repeat(20),
   (b:any)=>b.event.data.block.logs[0].topics[0]='0x'+'ff'.repeat(32),

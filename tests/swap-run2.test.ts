@@ -1,7 +1,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {DatabaseSync} from 'node:sqlite';import {createHmac} from 'node:crypto';
 import {MemorySwapStore,SqlSwapStore} from '../server/swap-store';import {SwapService} from '../server/swap-service';import {NotifyClient,desiredWebhook,reconcileWebhook} from '../server/alchemy-webhooks';import {decodeDelivery,registeredPools,MUSE_POOL} from '../server/swap-stream';import {mergeTrades,mergeCandles,mergeSummary} from '../src/lib/swap-market';import fixtures from './fixtures/alchemy-swaps.json';
 const pools=registeredPools(4663,[]),url='https://musegod.fun/api/chains/4663/webhooks/alchemy',key='run2-test-key';
-const delivery=()=>{const body=structuredClone(fixtures.deliveries.v3);body.event.data.block.timestamp=Math.floor(Date.now()/1000)-180;return decodeDelivery(JSON.stringify(body),{id:'wh_test_v3',network:'ROBINHOOD_MAINNET'},pools);};
+const delivery=()=>{const body=structuredClone(fixtures.deliveries.v3);body.event.data.block.timestamp=Math.floor(Date.now()/1000)-180;return decodeDelivery(JSON.stringify(body),{id:'wh_test_v3',network:'ROBINHOOD_MAINNET',kind:'v3' as const},pools);};
 const hook=(desired:any,id='current')=>({...desired,id,is_active:true,signing_key:key});
 test('C1-1: large SQLite table reads latest 1/30 and candle range only; ingestion never prunes',async()=>{
  const db=new DatabaseSync(':memory:');let returned=0;const queries:string[]=[];const sql={exec(q:string,...a:any[]){queries.push(q);const rows=db.prepare(q).all(...a);if(q.startsWith('SELECT payload'))returned+=rows.length;return rows;}};const store=new SqlSwapStore(sql,fn=>fn()),d=delivery(),t=d.trades[0];
@@ -14,18 +14,18 @@ test('C1-1: large SQLite table reads latest 1/30 and candle range only; ingestio
  }finally{db.close();}
 });
 test('C1-4: failure backs off exponentially, pool changes reset, success clears failures',async()=>{
- const store=new MemorySwapStore();let calls=0,fail=true;const api=new NotifyClient('test',async(_u,init)=>{calls++;if(fail)throw Error('timeout');return Response.json({data:init?.method==='POST'?hook(desiredWebhook(4663,pools,url)):[]});});
+ const store=new MemorySwapStore();let calls=0,fail=true;const api=new NotifyClient('test',async(_u,init)=>{calls++;if(fail)throw Error('timeout');return Response.json({data:init?.method==='POST'?hook(desiredWebhook(4663,pools,url,'v3')):[]});});
  await assert.rejects(reconcileWebhook(store,api,4663,pools,url,1000));await assert.rejects(reconcileWebhook(store,api,4663,pools,url,2000));assert.equal(calls,1);
- fail=false;await reconcileWebhook(store,api,4663,pools,url,61000);assert.equal(calls,3);assert.equal(store.get<any>('notify-attempt').failures,0);
- fail=true;const changed=[...pools,{...pools[0],version:4 as const,pool:'0x'+'ab'.repeat(32)}];await assert.rejects(reconcileWebhook(store,api,4663,changed,url,62000));assert.equal(calls,4);
+ fail=false;await reconcileWebhook(store,api,4663,pools,url,61000);assert.equal(calls,3);assert.equal(store.get<any>('notify-attempt-v3').failures,0);
+ fail=true;const changed=[...pools,{...pools[0],version:3 as const,pool:'0x'+'ab'.repeat(20)}];await assert.rejects(reconcileWebhook(store,api,4663,changed,url,62000));assert.equal(calls,4);
 });
 for(const scenario of ['timeout-after-create','eviction-after-create','verify-failure'])test(`C1-5/C1-10: ${scenario} sweeps same-callback orphans and immediately deletes superseded hooks`,async()=>{
- const store=new MemorySwapStore(),desired=desiredWebhook(4663,pools,url),hooks:any[]=[hook({...desired,webhook_url:url+'?set=obsolete'},'old'),hook({...desired,webhook_url:'https://other.invalid/api/chains/4663/webhooks/alchemy'},'other')];let first=true;const removed:string[]=[];
+ const store=new MemorySwapStore(),desired=desiredWebhook(4663,pools,url,'v3'),hooks:any[]=[hook({...desired,webhook_url:url+'?set=obsolete'},'old'),hook({...desired,webhook_url:'https://other.invalid/api/chains/4663/webhooks/alchemy'},'other')];let first=true;const removed:string[]=[];
  const api=new NotifyClient('test',async(input,init)=>{const u=new URL(String(input));if(init?.method==='DELETE'){const id=u.searchParams.get('webhook_id')!;removed.push(id);hooks.splice(hooks.findIndex(h=>h.id===id),1);return Response.json({});}if(init?.method==='POST'){const created=hook(JSON.parse(String(init.body)),'new');hooks.push(created);if(first){first=false;if(scenario==='timeout-after-create')throw Error('timeout');if(scenario==='verify-failure')return Response.json({data:{...created,network:'BASE_MAINNET'}});if(scenario==='eviction-after-create')throw Error('evicted');}return Response.json({data:created});}return Response.json({data:hooks});});
- await assert.rejects(reconcileWebhook(store,api,4663,pools,url,1000));await reconcileWebhook(store,api,4663,pools,url,61000);assert(removed.includes('old'));assert(!removed.includes('other'));assert.equal(hooks.filter(h=>new URL(h.webhook_url).origin==='https://musegod.fun').length,1);assert.equal(store.get<any>('notify').bindings[0].id,'new');
+ await assert.rejects(reconcileWebhook(store,api,4663,pools,url,1000));await reconcileWebhook(store,api,4663,pools,url,61000);assert(removed.includes('old'));assert(!removed.includes('other'));assert.equal(hooks.filter(h=>new URL(h.webhook_url).origin==='https://musegod.fun').length,1);assert.equal(store.get<any>('notify-v3').bindings[0].id,'new');
 });
 test('C1-6/C1-7: reject raw invalid JSON before parse; junk never spends valid rate; delivery never fetches USD',async()=>{
- const store=new MemorySwapStore();store.set('notify',{bindings:[{id:'wh_test_v3',network:'ROBINHOOD_MAINNET',key}]});let prices=0;const service=new SwapService(4663,store,{pools:async()=>pools,quote:async()=>{prices++;return null;}});
+ const store=new MemorySwapStore();store.set('notify-v3',{bindings:[{id:'wh_test_v3',network:'ROBINHOOD_MAINNET',kind:'v3' as const,key}]});let prices=0;const service=new SwapService(4663,store,{pools:async()=>pools,quote:async()=>{prices++;return null;}});
  assert.equal((await service.ingest(Buffer.from('{'),undefined)).status,401);
  for(let n=0;n<650;n++){service.admitWebhook('203.0.113.1',undefined);await service.ingest(Buffer.from('{'),undefined);}
  const body=structuredClone(fixtures.deliveries.v3);body.event.data.block.timestamp=Math.floor(Date.now()/1000);const raw=Buffer.from(JSON.stringify(body));assert.equal((await service.ingest(raw,createHmac('sha256',key).update(raw).digest('hex'))).status,200);assert.equal(prices,0);assert.equal(store.rows(MUSE_POOL)[0].priceUsd,undefined);
@@ -64,7 +64,7 @@ test('C1-1/C1-9: SQLite pruning is bounded and finality survives adapter reload 
  }finally{db.close();}
 });
 test('C1-6: only current and immediately superseded keys authenticate; invalid raw bytes never parse',async()=>{
- const store=new MemorySwapStore();store.set('notify',{bindings:[{id:'current',network:'ROBINHOOD_MAINNET',key:'a'},{id:'previous',network:'ROBINHOOD_MAINNET',key:'b',retireAt:Date.now()+10000},{id:'ancient',network:'ROBINHOOD_MAINNET',key:'c'}]});const service=new SwapService(4663,store,{pools:async()=>pools});const raw=Buffer.from('{');
+ const store=new MemorySwapStore();store.set('notify-v3',{bindings:[{id:'current',network:'ROBINHOOD_MAINNET',kind:'v3' as const,key:'a'},{id:'previous',network:'ROBINHOOD_MAINNET',kind:'v3' as const,key:'b',retireAt:Date.now()+10000},{id:'ancient',network:'ROBINHOOD_MAINNET',kind:'v3' as const,key:'c'}]});const service=new SwapService(4663,store,{pools:async()=>pools});const raw=Buffer.from('{');
  assert.equal((await service.ingest(raw,createHmac('sha256','a').update(raw).digest('hex'))).status,400);assert.equal((await service.ingest(raw,createHmac('sha256','c').update(raw).digest('hex'))).status,401);
 });
 test('C1-8: union keeps each provider row source; provider-only result retains provider provenance',()=>{
@@ -72,8 +72,8 @@ test('C1-8: union keeps each provider row source; provider-only result retains p
 });
 test('C1-4: repeated failure delay doubles to 1h and a different pool set ignores old backoff',async()=>{
  const store=new MemorySwapStore();let now=1000,calls=0;const api=new NotifyClient('test',async()=>{calls++;throw Error('timeout');});
- for(let n=0;n<9;n++){await assert.rejects(reconcileWebhook(store,api,4663,pools,url,now));const a=store.get<any>('notify-attempt');assert.equal(a.nextAt-now,Math.min(3600000,60000*2**n));now=a.nextAt;}
- const changed=[...pools,{...pools[0],version:4 as const,pool:'0x'+'ab'.repeat(32)}];await assert.rejects(reconcileWebhook(store,api,4663,changed,url,now-1));assert.equal(calls,10);assert.equal(store.get<any>('notify-attempt').failures,1);
+ for(let n=0;n<9;n++){await assert.rejects(reconcileWebhook(store,api,4663,pools,url,now));const a=store.get<any>('notify-attempt-v3');assert.equal(a.nextAt-now,Math.min(3600000,60000*2**n));now=a.nextAt;}
+ const changed=[...pools,{...pools[0],version:3 as const,pool:'0x'+'ab'.repeat(20)}];await assert.rejects(reconcileWebhook(store,api,4663,changed,url,now-1));assert.equal(calls,10);assert.equal(store.get<any>('notify-attempt-v3').failures,1);
 });
 test('C1-1: alarm backlog has a hard ceiling and overload cannot partially commit',()=>{
  const db=new DatabaseSync(':memory:'),sql={exec(q:string,...a:any[]){return db.prepare(q).all(...a);}},sqlite=new SqlSwapStore(sql,fn=>{db.exec('BEGIN');try{const v=fn();db.exec('COMMIT');return v;}catch(e){db.exec('ROLLBACK');throw e;}},2),d=delivery();
@@ -81,7 +81,7 @@ test('C1-1: alarm backlog has a hard ceiling and overload cannot partially commi
  finally{db.close();}
 });
 test('C1-2: late delivery emits an explicit gap instead of silently corrupting incremental candle volume',async()=>{
- const store=new MemorySwapStore(),messages:any[]=[],service=new SwapService(4663,store,{pools:async()=>pools,broadcast:m=>messages.push(m)});store.set('notify',{bindings:[{id:'wh_test_v3',network:'ROBINHOOD_MAINNET',key}]});
+ const store=new MemorySwapStore(),messages:any[]=[],service=new SwapService(4663,store,{pools:async()=>pools,broadcast:m=>messages.push(m)});store.set('notify-v3',{bindings:[{id:'wh_test_v3',network:'ROBINHOOD_MAINNET',kind:'v3' as const,key}]});
  for(const offset of [2,1]){const body=structuredClone(fixtures.deliveries.v3);body.event.data.block.number+=offset;body.event.data.block.logs[0].transaction.hash='0x'+String(offset).repeat(64);body.event.data.block.timestamp=Math.floor(Date.now()/1000);const raw=Buffer.from(JSON.stringify(body));assert.equal((await service.ingest(raw,createHmac('sha256',key).update(raw).digest('hex'))).status,200);}
  assert.equal(messages[0].gap,undefined);assert.equal(messages[1].gap,true);
 });

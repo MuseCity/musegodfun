@@ -2,7 +2,7 @@ import test from 'node:test';import assert from 'node:assert/strict';
 import fixtures from './fixtures/alchemy-swaps.json';
 import { decodeDelivery,registeredPools } from '../server/swap-stream';
 import { mergeTrades,mergeCandles,mergeSummary } from '../src/lib/swap-market';
-const trade=decodeDelivery(JSON.stringify(fixtures.deliveries.v3),{id:'wh_test_v3',network:'ROBINHOOD_MAINNET'},registeredPools(4663,[])).trades[0];
+const trade=decodeDelivery(JSON.stringify(fixtures.deliveries.v3),{id:'wh_test_v3',network:'ROBINHOOD_MAINNET',kind:'v3' as const},registeredPools(4663,[])).trades[0];
 test('own trade wins exact transaction/log overlap while different logs survive; USD never inferred',()=>{
  const base={source:'Bankr' as const,fetchedAt:trade.at,trades:[{id:`robinhood:${trade.hash}:${trade.logIndex}`,hash:trade.hash,at:trade.at,account:null,side:'buy' as const,amount:1,usd:5,price:5},{id:`robinhood:${trade.hash}:99`,hash:trade.hash,at:trade.at,account:null,side:'buy' as const,amount:1,usd:1,price:1}]};
  const result=mergeTrades(base,[trade],new Date(Date.parse(trade.at)+1).toISOString());assert.equal(result.trades.length,2);assert.equal(result.trades.find(t=>t.id===trade.id)?.price,null);assert.equal(result.trades.find(t=>t.id===trade.id)?.priceQuote,trade.priceQuote);

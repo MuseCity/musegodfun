@@ -3,7 +3,7 @@ import { INTERVAL_SECONDS } from "../src/lib/candle-history";
 import { mergeCandles,mergeCandleBuckets,mergeSummary,mergeTrades,priceTrade } from "../src/lib/swap-market";
 import type { OnchainTrade,SwapMessage } from "../src/lib/swap-stream";
 import { decodeDelivery,NETWORKS,verifySignature,type SwapPool } from "./swap-stream";
-import { NotifyClient,reconcileWebhook,NOTIFY_RECONCILE_BUDGET_MS,type NotifyState,type NotifyAttempt } from "./alchemy-webhooks";
+import { NotifyClient,reconcileWebhook,webhookKinds,NOTIFY_RECONCILE_BUDGET_MS,type NotifyState,type NotifyAttempt } from "./alchemy-webhooks";
 import { order,SwapCapacityError,type SwapStore } from "./swap-store";
 import {clientBucket} from './abuse';
 import { MarketUnavailable } from "./snapshots";
@@ -22,7 +22,7 @@ export class SwapService {
  private clients=new Map<string,{at:number;count:number}>();private readers=new Map<string,number>();private reading=0;
  readonly listeners=new Set<(message:SwapMessage)=>void>();
  constructor(readonly chainId:4663|8453,readonly store:SwapStore,private options:{pools():Promise<SwapPool[]>;token?:string;quote?(pool:SwapPool):Promise<OnchainTrade['quoteUsd']>;quoteCached?(pool:SwapPool):OnchainTrade['quoteUsd'];blockHash?(block:number,signal:AbortSignal):Promise<string|null>;broadcast?(message:SwapMessage):void}){}
- status(){const a=this.store.get<NotifyAttempt>('notify-attempt');return {creationStopped:(a?.creationFailures??0)>=5,creationFailures:a?.creationFailures??0,retryAt:a?.nextAt??null,verificationAt:a?.verifyAt??null,...(a?.failures?{error:'Notify reconciliation unavailable'}:{})};}
+ status(){return {kinds:Object.fromEntries(webhookKinds(this.chainId).map(kind=>{const a=this.store.get<NotifyAttempt>('notify-attempt-'+kind);return [kind,{creationStopped:(a?.creationFailures??0)>=5,creationFailures:a?.creationFailures??0,retryAt:a?.nextAt??null,verificationAt:a?.verifyAt??null,...(a?.failures?{error:'Notify reconciliation unavailable'}:{})}];}))};}
  async pool(id:string){return (await this.options.pools()).find(p=>p.pool===id.toLowerCase());}
  async reconcile(origin:string){
   if(!this.options.token)return;if(this.reconciling)return this.reconciling;
@@ -52,9 +52,9 @@ export class SwapService {
  }
  private publish(message:SwapMessage){this.options.broadcast?.(message);for(const listener of this.listeners)listener(message);}
  async ingest(raw:Uint8Array,signature:string|undefined,ip='unknown',release=()=>{}){
-  // HMAC raw bytes against at most current + immediately superseded key, before any decoding or JSON parsing.
+  // HMAC raw bytes before parsing: at most two keys per kind (four on Robinhood, two on Base).
   const now=Date.now();let binding:NotifyState['bindings'][number]|undefined;
-  try{if(raw.byteLength>WEBHOOK_BODY_LIMIT)return {status:413};binding=this.store.get<NotifyState>('notify')?.bindings.filter(k=>k.network===NETWORKS[this.chainId]&&(!k.retireAt||k.retireAt>now)).slice(0,2).find(k=>verifySignature(raw,signature,k.key));if(!binding)return {status:this.rejectWebhook(ip)};}finally{release();}
+  try{if(raw.byteLength>WEBHOOK_BODY_LIMIT)return {status:413};binding=webhookKinds(this.chainId).flatMap(kind=>(this.store.get<NotifyState>('notify-'+kind)?.bindings??[]).slice(0,2).filter(k=>k.network===NETWORKS[this.chainId]&&(!k.retireAt||k.retireAt>now)).map(k=>({...k,kind}))).find(k=>verifySignature(raw,signature,k.key));if(!binding)return {status:this.rejectWebhook(ip)};}finally{release();}
   if(now-this.rate.at>=60_000)this.rate={at:now,count:0};if(this.rate.count>=600||this.active>=8)return {status:429};this.rate.count++;this.active++;
   try{
    let delivery,pools:SwapPool[];try{pools=await this.options.pools();delivery=decodeDelivery(new TextDecoder().decode(raw),binding,pools);delivery.generation=binding.generation??0;}catch{return {status:400};}
