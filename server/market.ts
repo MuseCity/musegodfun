@@ -207,6 +207,7 @@ export function parseTrades(raw: unknown, token: TokenRecord): TradeData {
 }
 export class MarketReader {
   private snapshots?: Snapshots;
+  private candleSources = new Map<string, MarketSource>();
   private geckoCalls: number[] = [];
   private backoff = new Map<string, number>();
   constructor(
@@ -360,26 +361,22 @@ export class MarketReader {
         "1d": ["day", 1],
       } as const
     )[interval];
+    const firstKey = marketSnapshotKey(token, `candles:${interval}`);
     if (before !== undefined) {
-      const firstKey = marketSnapshotKey(token, `candles:${interval}`);
-      const history = async (): Promise<CandleData> => {
-        // Non-Bankr sources expose only their saved first page. Paging never consumes Gecko quota.
-        const first = await this.options.store?.snapshot(firstKey);
-        const source = (first?.data as CandleData | undefined)?.source;
-        if (token.mode !== "robinhood" || source && source !== "Bankr")
-          return this.cached(firstKey, async () => { throw new MarketFailure("source_not_provided", source ?? "CoinGecko"); }, source);
-        return this.cached(marketSnapshotKey(token, `candles:${interval}:before:${before}`), async () => {
-          const data = parseBankrCandles(await this.json(
-            `https://api.bankr.bot/discover/${token.address.toLowerCase()}/ohlcv?aggregate=${aggregate}&limit=200&timeframe=${frame}&chain=robinhood&before_timestamp=${before}`,
-          ), token, (this.options.now ?? Date.now)());
-          return { ...data, candles: data.candles.filter(candle => candle.time < before) };
-        }, "Bankr", HISTORY_TTL);
-      };
-      return history();
+      // Eligibility is learned by ordinary reads. History never accesses the first-page snapshot or its retry state.
+      const source = this.candleSources.get(firstKey);
+      if (token.mode !== "robinhood" || source !== "Bankr")
+        return Promise.reject(new MarketUnavailable("History paging is not available for this source.",
+          new Date((this.options.now ?? Date.now)()).toISOString(), source ?? "Unavailable", "history_not_available"));
+      return this.cached(marketSnapshotKey(token, `candles:${interval}:before:${before}`), async () => {
+        const data = parseBankrCandles(await this.json(
+          `https://api.bankr.bot/discover/${token.address.toLowerCase()}/ohlcv?aggregate=${aggregate}&limit=200&timeframe=${frame}&chain=robinhood&before_timestamp=${before}`,
+        ), token, (this.options.now ?? Date.now)());
+        return { ...data, candles: data.candles.filter(candle => candle.time < before) };
+      }, "Bankr", HISTORY_TTL);
     }
     if (token.mode === "robinhood") {
-      const key = marketSnapshotKey(token, `candles:${interval}`);
-      return this.cached(key, async (previous?: CandleData): Promise<CandleData> => {
+      return this.cached(firstKey, async (previous?: CandleData): Promise<CandleData> => {
         const now = () => (this.options.now || Date.now)();
         const failures: MarketFailure[] = [];
         const combined = () => {
@@ -418,9 +415,12 @@ export class MarketReader {
           cg = { ...parseCandles(await this.json(`${this.pool(token)}/ohlcv/${frame}?aggregate=${aggregate}&limit=200&currency=usd&token=${token.address}`, true), token, now()), source: "CoinGecko" };
         } catch (error) { failures.push(marketFailure(error, "CoinGecko")); throw combined(); }
         return present(cg);
-      }, "Bankr");
+      }, "Bankr").then(data => {
+        if (data.source) this.candleSources.set(firstKey, data.source);
+        return data;
+      });
     }
-    return this.cached(marketSnapshotKey(token, `candles:${interval}`), async () =>
+    return this.cached(firstKey, async () =>
       parseCandles(
         await this.json(
           `${this.pool(token)}/ohlcv/${frame}?aggregate=${aggregate}&limit=200&currency=usd&token=${token.address}`, true,

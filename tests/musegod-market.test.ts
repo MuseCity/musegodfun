@@ -197,7 +197,7 @@ test("MUSEGOD trades reject wrong networks, malformed event identity, invalid am
   ]) assert.throws(() => parseMusegodTrades({ swaps: [{ ...swap(), ...patch }] }, NOW));
 });
 
-test("MUSEGOD reader shares a 60-second persistent snapshot and fixed GETs without CoinGecko quota", async () => {
+test("MUSEGOD reader shares a fifteen-second persistent snapshot and fixed GETs without CoinGecko quota", async () => {
   const f = readerFixture();
   const [first, duplicate, history, trades] = await Promise.all([
     f.reader.summary(), f.reader.summary(), f.reader.candles("5m"), f.reader.trades(),
@@ -240,7 +240,7 @@ test("all six chart intervals use only the fixed MUSEGOD URL and correct timefra
   assert.equal(f.calls.length, 6);
 });
 
-test("summary/chart/trades failures remain independent, retry after 60s and never renew stale age", async () => {
+test("summary/chart/trades failures remain independent, retry after fifteen seconds and never renew stale age", async () => {
   const f = readerFixture();
   const first = await f.reader.summary();
   f.advance(MUSEGOD_MARKET_TTL);
@@ -350,12 +350,12 @@ test("Snapshots retains its original 15-minute default when the caller omits TTL
 type SnapshotExtra = { nextRefreshAt: string };
 
 test("MUSEGOD history validates before, filters inclusive edges and caches each cursor for one hour", async () => {
-  const f = readerFixture(), before = Math.floor(TIME / 3600) * 3600;
+  const f = readerFixture(), before = Math.floor(TIME / (199 * 3600)) * 199 * 3600;
   await assert.rejects(async () => f.reader.candles("1h", before + 1)); assert.equal(f.calls.length, 0);
   await f.reader.candles("1h", before);
   assert(f.calls[0].endsWith(`&before_timestamp=${before}`));
   assert.equal(f.rows.size, 1);
   f.advance(3_599_999); await f.reader.candles("1h", before); assert.equal(f.calls.length, 1);
-  await f.reader.candles("1h", before - 3600); assert.equal(f.calls.length, 2);
+  await f.reader.candles("1h", before - 199 * 3600); assert.equal(f.calls.length, 2);
   f.advance(1); await f.reader.candles("1h", before); assert.equal(f.calls.length, 3);
 });

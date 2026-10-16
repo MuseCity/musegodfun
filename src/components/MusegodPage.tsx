@@ -69,7 +69,7 @@ export default function MusegodPage({ config, navigate }: {
       <div className="detail-layout">
         <div className="detail-main">
           <TokenMarket token={{ address: MUSEGOD.token, symbol: MUSEGOD.symbol, mode: config?.mode ?? "robinhood" }}
-            kind="musegod" refreshKey={`${hash ?? ""}:${revision}`} metric={burnMetric} info={info} />
+            kind="musegod" config={config} refreshKey={`${hash ?? ""}:${revision}`} metric={burnMetric} info={info} />
           <section className="card about-card" aria-labelledby="musegod-about">
             <h2 id="musegod-about" className="card-title">About {MUSEGOD.name}</h2>
             <p className="body-copy">{MUSEGOD.description}</p>

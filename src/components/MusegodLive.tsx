@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { projectLiveMarket, retainLiveSwaps, type LiveEvent, type LiveProjection, type LiveSwap, type SupplyInfo } from "../lib/musegod-live";
+import { liveValuesChanged, projectLiveMarket, retainLiveSwaps, type LiveEvent, type LiveProjection, type LiveSwap, type SupplyInfo } from "../lib/musegod-live";
 import type { CandleData, ChartInterval, MarketSummary, TradeData } from "../lib/market";
 import type { LiveStatus } from "../lib/musegod-live-lifecycle";
 import { bankrLive } from "../lib/musegod-live-socket";
@@ -9,15 +9,28 @@ export default function MusegodLive(props: { summary: MarketSummary | null; cand
   const current = useRef(props); current.current = props;
   const [swaps, setSwaps] = useState<LiveSwap[]>([]), [price, setPrice] = useState<Extract<LiveEvent, { type: "price" }> | null>(null);
   const [status, setStatus] = useState<LiveStatus>({ connected: false, receiving: false, receivedAt: null });
+  const pending = useRef({ swaps, price }), receiving = useRef(false);
   useEffect(() => {
-    const unsubscribe = bankrLive.subscribe({ status: setStatus, event(event) {
-      if (event.type === "swap") setSwaps(previous => retainLiveSwaps(previous, event, current.current, Date.now()));
-      if (event.type === "price") setPrice(previous => !previous || Date.parse(event.lastTradeAt) > Date.parse(previous.lastTradeAt) ? event : previous);
+    const unsubscribe = bankrLive.subscribe({ status(next) {
+      receiving.current = next.connected && next.receiving; setStatus(next);
+    }, event(event) {
+      if (event.type === "volume") return false;
+      const previous = projectLiveMarket(current.current, pending.current.swaps, pending.current.price);
+      if (event.type === "swap") {
+        pending.current.swaps = retainLiveSwaps(pending.current.swaps, event, current.current, Date.now());
+        setSwaps(pending.current.swaps);
+      }
+      if (event.type === "price" && (!pending.current.price || Date.parse(event.lastTradeAt) > Date.parse(pending.current.price.lastTradeAt))) {
+        pending.current.price = event; setPrice(event);
+      }
+      const next = projectLiveMarket(current.current, pending.current.swaps, pending.current.price);
+      return liveValuesChanged(previous, next) && liveValuesChanged(receiving.current ? previous : current.current, next);
     } });
     return () => { unsubscribe(); current.current.onUpdate(null); };
   }, []);
   useEffect(() => {
-    setSwaps(previous => retainLiveSwaps(previous, null, props, Date.now()));
+    pending.current.swaps = retainLiveSwaps(pending.current.swaps, null, props, Date.now());
+    setSwaps(pending.current.swaps);
   }, [props.candles]);
   useEffect(() => {
     props.onUpdate(status.connected && status.receiving ? projectLiveMarket(props, swaps, price) : null);

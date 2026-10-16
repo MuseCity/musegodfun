@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { parseEther, type Address, type Hex } from "viem";
 import { syntheticToken } from "./fixtures";
 import { hookRuntime, importFresh, settle } from "./hook-runtime";
+import { executeEthBuy } from "../src/lib/eth-buy";
 import { ROBINHOOD_STOCKS } from "../src/lib/config";
 
 // The real Robinhood token panel in a minimal hooks runtime with injected wallet, RPC and quote scheduler: the wallet calls,
@@ -12,7 +13,7 @@ const src = (path: string) => new URL(`../src/${path}`, import.meta.url).href;
 const account = "0x9999999999999999999999999999999999999999" as Address, txHash = `0x${"1".repeat(64)}` as Hex;
 const config = { mode: "robinhood", chainId: 4663, deploymentChainId: 4663, writesEnabled: true };
 
-async function session(t: TestContext, pair: "WETH" | "COST") {
+async function session(t: TestContext, pair: "WETH" | "COST", runEth = false) {
   const stock = ROBINHOOD_STOCKS.find(s => s.symbol === pair)!;
   const token = syntheticToken({ mode: "robinhood", deploymentChainId: 4663, quoteAddress: stock.address });
   const poolKey = { currency0: stock.address, currency1: token.address, fee: 8388608, tickSpacing: 10, hooks: token.address };
@@ -23,11 +24,13 @@ async function session(t: TestContext, pair: "WETH" | "COST") {
     return new Promise<T>((resolve, reject) => sends.push({ kind, resolve: resolve as (value: unknown) => void, reject }));
   };
   const wallet = { account, chainId: 4663, revision: 0, connect() {}, connection: () => ({ account, chainId: 4663 }),
+    lifiTrade: (_quote: unknown, _target: unknown, _config: unknown, progress: (message: string) => void) => send("lifi", progress),
     balance: async () => 5n * 10n ** 18n, balanceNative: async () => parseEther("1"),
     trade: (_quote: unknown, _config: unknown, progress: (message: string) => void) => send<Hex>("trade", progress),
     tradeNativeWeth: (_quote: unknown, _config: unknown, progress: (message: string) => void) => send<Hex>("native", progress) };
   const auto: { input: any; callbacks: any } = { input: null, callbacks: null };
   const client = { estimateFeesPerGas: () => new Promise<{ maxFeePerGas: bigint }>((resolve, reject) => fees.push({ kind: "fees", resolve, reject })),
+    getTransactionReceipt: async () => ({ logs: [] }),
     getGasPrice: async () => { throw new Error("Fee RPC unavailable"); } };
   const runtime = hookRuntime(() => TokenPage({ address: token.address, config }));
   const mocks = {
@@ -37,9 +40,10 @@ async function session(t: TestContext, pair: "WETH" | "COST") {
     "./lib/use-eth-buy-record": { file: src("lib/use-eth-buy-record.ts"), bindings: { useEthBuyRecord: () => ethBuy } },
     "./lib/use-auto-quote": { file: src("lib/use-auto-quote.ts"), bindings: { useAutoQuote(input: unknown, callbacks: unknown) {
       auto.input = input; auto.callbacks = callbacks; return { pending: false, manual: false, refresh() {} }; } } },
-    "./lib/eth-buy": { file: src("lib/eth-buy.ts"), bindings: { executeEthBuy: (_plan: unknown, _context: unknown, deps: { progress: (message: string) => void }) => send<unknown>("eth", deps.progress) } },
+    "./lib/eth-buy": { file: src("lib/eth-buy.ts"), bindings: { executeEthBuy: runEth ? executeEthBuy : (_plan: unknown, _context: unknown, deps: { progress: (message: string) => void }) => send<unknown>("eth", deps.progress) } },
+    "./lib/api": { file: src("lib/api.ts"), bindings: { api: () => send("requote"), chainApi: () => send("requote") } },
   };
-  const ethBuy = { record: null, adopted: null, sending: false, notice: null, unknown: false, checking: false, clearAdopted() {}, guard() {}, checkAgain() {}, discard() {} };
+  const ethBuy = { record: null, adopted: null, sending: false, notice: null, unknown: false, checking: false, clearAdopted() {}, guard(_quote: unknown, _target: unknown, run: any) { return run({ onHash() {}, beforeSend() {} }); }, checkAgain() {}, discard() {} };
   const prior = Object.getOwnPropertyDescriptor(globalThis, "location");
   Object.defineProperty(globalThis, "location", { configurable: true, value: { origin: "http://fixture", pathname: "/", search: "" } });
   Reflect.set(globalThis, "__BUILD_IDENTITY__", { source: "local", commit: "fixture", dirty: true });
@@ -58,7 +62,7 @@ async function session(t: TestContext, pair: "WETH" | "COST") {
   const find = (match: (node: any) => boolean) => all(match, runtime.output())[0];
   const byClass = (name: string) => find(node => node.props?.className === name);
   const s = {
-    fees, sends, auto, stock, byClass,
+    fees, sends, auto, stock, token, poolKey, byClass,
     async acknowledge() { find(node => node.type?.name === "PriceImpactAcknowledgment").props.onChange(true); await settle(); },
     input: () => find(node => node.type === "input" && node.props["aria-label"] === "Trade input amount"),
     confirm: () => byClass("primary large full"), max: () => byClass("trade-max"),
@@ -157,5 +161,28 @@ for (const route of ["native", "pair", "sell", "two-step"] as const) test(`${rou
   const response = () => route === "two-step" ? { mode: "two-step", conversion: { expiresAt: q.expiresAt, feeAmount: "0" }, swapPreview: { ...q } } : { ...q };
   await s.quote(response()); assert.equal(s.confirm().props.disabled, true);
   await s.acknowledge(); assert.equal(s.confirm().props.disabled, false);
-  await s.quote(response()); assert.equal(s.confirm().props.disabled, true);
+  const replacement = response();
+  await s.quote(replacement); assert.equal(s.confirm().props.disabled, true);
+  await s.acknowledge(); await s.type("2"); await s.quote(replacement);
+  assert.equal(s.confirm().props.disabled, true, "a changed amount cannot reuse an old acknowledgment");
+  if (route === "two-step") {
+    await s.acknowledge(); await s.quote({ ...replacement });
+    assert.equal(s.confirm().props.disabled, true, "a different plan requires acknowledgment even if it reuses the preview object");
+  }
+});
+
+for (const belowFloor of [false, true]) test(`acknowledge → convert → high-impact requote: ${belowFloor ? "minimum output still blocks" : "the accepted plan reaches the swap"}`, async t => {
+  const s = await session(t, "COST", true);
+  await s.click(s.pay("ETH")); await s.type("1");
+  const preview = { amountIn: "10000", amountOut: "8000", quotedAt: Date.now(), expiresAt: Date.now() + 60_000,
+    side: "buy", token: s.token.address, currencyIn: s.stock.address, poolKey: s.poolKey, slippageBps: 100,
+    poolPrice: { sqrtPriceX96: String(2n ** 96n), blockNumber: "123", zeroForOne: true, feeBps: 0 } };
+  await s.quote({ mode: "two-step", conversion: { expiresAt: preview.expiresAt, feeAmount: "0" }, swapPreview: preview });
+  await s.click(s.confirm()); assert.equal(s.sends.length, 0);
+  await s.acknowledge(); await s.click(s.confirm()); assert.equal(s.sends[0].kind, "lifi");
+  s.sends[0].resolve({ hash: txHash, received: 11000n }); await settle();
+  assert.equal(s.sends[1]?.kind, "requote", JSON.stringify(s.errors()));
+  s.sends[1].resolve({ ...preview, amountIn: "11000", amountOut: belowFloor ? "7919" : "8200" }); await settle();
+  assert.deepEqual(s.sends.map(row => row.kind), belowFloor ? ["lifi", "requote"] : ["lifi", "requote", "trade"]);
+  if (!belowFloor) { s.sends[2].resolve(txHash); await settle(); }
 });

@@ -8,6 +8,7 @@ import { quoteAsset, ROBINHOOD_STOCKS } from "../src/lib/config";
 import { syntheticToken } from "./fixtures";
 
 const NOW = Date.parse("2026-10-08T14:00:00Z"), TIME = NOW / 1000 - 3600;
+const CURSOR = Math.floor(TIME / (199 * 3600)) * 199 * 3600;
 const token = syntheticToken({ mode: "robinhood", deploymentChainId: 4663, quoteAddress: ROBINHOOD_STOCKS[0].address });
 const rows = [[TIME, 1, 2, 0.5, 1.5, 10]];
 const bankr = () => ({ ohlcv: rows, pool: { address: token.poolId, network: "robinhood" },
@@ -253,29 +254,60 @@ test("GT 429 and Retry-After open a host-wide breaker for at least 15 minutes", 
   }
 });
 
-test("historical pages are Bankr-only, strict-before, single-flight and cached by cursor for one hour", async () => {
+test("historical pages are Bankr-only, strict-before, single-flight and cached by cursor for one hour", async t => {
   const calls: URL[] = [];
   const f = fixture(async input => { const url = new URL(String(input)); calls.push(url);
-    return Response.json({ ...bankr(), ohlcv: [[TIME - 3600, 1, 1, 1, 1, 2], ...rows] }); });
-  const [a, b] = await Promise.all([f.reader.candles(token, "1h", TIME), f.reader.candles(token, "1h", TIME)]);
-  assert.equal(a, b); assert.deepEqual(a.candles.map(c => c.time), [TIME - 3600]);
-  assert.equal(calls[0].searchParams.get("before_timestamp"), String(TIME));
-  f.advance(3_599_999); await f.reader.candles(token, "1h", TIME); assert.equal(calls.length, 1);
-  f.advance(1); await f.reader.candles(token, "1h", TIME); assert.equal(calls.length, 2);
+    return Response.json({ ...bankr(), ohlcv: [[CURSOR - 3600, 1, 1, 1, 1, 2], [CURSOR, 1, 1, 1, 1, 2]] }); });
+  await f.reader.candles(token, "1h"); calls.length = 0;
+  const read = t.mock.method(f.options.store, "snapshot"), write = t.mock.method(f.options.store, "saveSnapshot");
+  const [a, b] = await Promise.all([f.reader.candles(token, "1h", CURSOR), f.reader.candles(token, "1h", CURSOR)]);
+  assert.equal(a, b); assert.deepEqual(a.candles.map(c => c.time), [CURSOR - 3600]);
+  assert.equal(calls[0].searchParams.get("before_timestamp"), String(CURSOR));
+  f.advance(3_599_999); await f.reader.candles(token, "1h", CURSOR); assert.equal(calls.length, 1);
+  f.advance(1); await f.reader.candles(token, "1h", CURSOR); assert.equal(calls.length, 2);
+  await assert.rejects(async () => f.reader.candles(token, "1h", CURSOR - 3600)); assert.equal(calls.length, 2);
   assert(calls.every(url => url.hostname === "api.bankr.bot"));
+  assert(read.mock.calls.every(call => call.arguments[0].endsWith(`:before:${CURSOR}`)));
+  assert(write.mock.calls.every(call => call.arguments[0].endsWith(`:before:${CURSOR}`)));
 });
 test("historical provider failures and Base history requests never fall through to Gecko quota", async () => {
-  let calls = 0;
-  const f = fixture(async () => { calls++; return new Response(null, { status: 500 }); });
-  await assert.rejects(async () => f.reader.candles(token, "1h", TIME)); assert.equal(calls, 1);
-  await assert.rejects(async () => f.reader.candles({ ...token, mode: "base", deploymentChainId: 8453 }, "1h", TIME)); assert.equal(calls, 1);
-  await assert.rejects(async () => f.reader.candles(token, "1h", TIME + 1)); assert.equal(calls, 1);
+  let calls = 0, failed = false;
+  const f = fixture(async () => { calls++; return failed ? new Response(null, { status: 500 }) : Response.json(bankr()); });
+  await f.reader.candles(token, "1h"); calls = 0; failed = true;
+  await assert.rejects(async () => f.reader.candles(token, "1h", CURSOR)); assert.equal(calls, 1);
+  await assert.rejects(async () => f.reader.candles({ ...token, mode: "base", deploymentChainId: 8453 }, "1h", CURSOR)); assert.equal(calls, 1);
+  await assert.rejects(async () => f.reader.candles(token, "1h", CURSOR + 1)); assert.equal(calls, 1);
 });
-test("a Gecko-sourced chart returns only its cached first page when before is requested", async () => {
-  const calls: URL[] = [];
-  const f = fixture(async input => { const url = new URL(String(input)); calls.push(url);
-    return Response.json(url.hostname === "api.bankr.bot" ? { ...bankr(), ohlcv: [] } : gecko()); });
-  const first = await f.reader.candles(token, "1h"); assert.equal(first.source, "GeckoTerminal");
-  const page = await f.reader.candles(token, "1h", TIME);
-  assert.equal(page.source, "GeckoTerminal"); assert.deepEqual(page.candles, first.candles); assert.equal(calls.length, 2);
+for (const source of ["GeckoTerminal", "CoinGecko"] as const) test(`expired ${source} first page survives history without reads, writes or retry poisoning`, async t => {
+  let calls = 0;
+  const f = fixture(async input => {
+    calls++;
+    const host = new URL(String(input)).hostname;
+    return host === (source === "GeckoTerminal" ? "api.geckoterminal.com" : "api.coingecko.com")
+      ? Response.json(gecko()) : new Response(null, { status: 404 });
+  });
+  f.options.store.reserveMarketCall = async () => true;
+  const reader = new MarketReader({ ...f.options, apiKey: "fixture" });
+  const first = await reader.candles(token, "1h"); assert.equal(first.source, source);
+  f.advance(SNAPSHOT_TTL + 1);
+  const saved = structuredClone([...f.snapshots]), upstream = calls;
+  const read = t.mock.method(f.options.store, "snapshot"), write = t.mock.method(f.options.store, "saveSnapshot");
+  await assert.rejects(reader.candles(token, "1h", CURSOR), { reason: "history_not_available", message: "History paging is not available for this source." });
+  assert.equal(read.mock.callCount(), 0); assert.equal(write.mock.callCount(), 0);
+  assert.equal(calls, upstream); assert.deepEqual([...f.snapshots], saved);
+  const refreshed = await reader.candles(token, "1h");
+  assert.equal(refreshed.status, "fresh"); assert.equal(refreshed.reason, undefined);
+  assert.equal(calls, upstream * 2); assert.notEqual(refreshed.fetchedAt, first.fetchedAt);
+});
+test("cold Base and unknown Robinhood history have no provider or snapshot side effects", async t => {
+  let calls = 0;
+  const f = fixture(async () => { calls++; return Response.json(gecko()); });
+  f.options.store.reserveMarketCall = async () => true;
+  const reader = new MarketReader({ ...f.options, apiKey: "fixture" });
+  const read = t.mock.method(f.options.store, "snapshot"), write = t.mock.method(f.options.store, "saveSnapshot");
+  for (const record of [token, { ...token, mode: "base" as const, deploymentChainId: 8453 as const }])
+    await assert.rejects(reader.candles(record, "1h", CURSOR), { reason: "history_not_available" });
+  assert.equal(calls, 0); assert.equal(read.mock.callCount(), 0); assert.equal(write.mock.callCount(), 0);
+  const base = await reader.candles({ ...token, mode: "base", deploymentChainId: 8453 }, "1h");
+  assert.equal(base.status, "fresh"); assert.equal(base.reason, undefined); assert.equal(calls, 1);
 });

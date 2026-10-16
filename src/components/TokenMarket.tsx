@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { ArrowDownRight, ArrowUpRight, RefreshCw } from "lucide-react";
 import { ApiError, chainApi } from "../lib/api";
 import { deploymentChain, explorerFor, shortAddress, type TokenRecord } from "../lib/config";
-import { MUSEGOD } from "../lib/musegod";
+import { MUSEGOD, musegodNetwork } from "../lib/musegod";
 import {
   CHART_INTERVALS,
   marketSnapshotKey,
@@ -46,7 +46,7 @@ export function emptyCandlesMessage(data: CandleData | null, interval: ChartInte
       missing_config: "Price data is not configured.", quota_exhausted: "The price provider has reached its data limit.",
       not_indexed: "The pool is not indexed yet.", rate_limited: "The price provider is rate limited.",
       upstream_http: "The price request failed.", upstream_transport: "The price provider could not be reached.", upstream_unclassified: "The price request failed.",
-      invalid_identity: "The pool could not be verified.", invalid_schema: "The price response could not be read.", source_not_provided: "The source does not provide price data.",
+      invalid_identity: "The pool could not be verified.", invalid_schema: "The price response could not be read.", source_not_provided: "The source does not provide price data.", history_not_available: "History paging is not available for this source.",
       storage_unavailable: "Saved price data is unavailable.", internal_error: "Price data is temporarily unavailable.", backoff: "The price provider is temporarily pausing updates.",
     };
     const causes = data.causes?.length ? data.causes : [{ source: undefined, reason: data.reason }];
@@ -134,6 +134,7 @@ export default function TokenMarket({
   kind = "launch",
   metric,
   info = null,
+  config = null,
 }: {
   token: MarketToken;
   refreshKey: string;
@@ -141,6 +142,7 @@ export default function TokenMarket({
   // Replaces the fully diluted valuation tile (MUSEGOD shows its burn share).
   metric?: { label: string; value: string; title?: string };
   info?: SupplyInfo | null;
+  config?: import("../lib/config").RuntimeConfig | null;
 }) {
   const [live, setLive] = useState<LiveProjection | null>(null);
   const [chartType, setChartType] = useState<"line" | "candles">(kind === "musegod" ? "line" : "candles");
@@ -189,7 +191,7 @@ export default function TokenMarket({
     revision,
   );
   const explorer = explorerFor(token);
-  const liveEnabled = kind === "musegod" && token.mode === "robinhood" && token.address.toLowerCase() === MUSEGOD.token.toLowerCase();
+  const liveEnabled = kind === "musegod" && !!config && musegodNetwork(config) && config.mode === "robinhood" && token.mode === "robinhood" && token.address.toLowerCase() === MUSEGOD.token.toLowerCase();
   const currentLive = liveEnabled && live?.basis.summary === summary.data && live?.basis.candles === history.data &&
     live?.basis.trades === trades.data && live?.basis.interval === interval && live?.basis.info === info ? live : null;
   const stats = currentLive?.summary || summary.data,

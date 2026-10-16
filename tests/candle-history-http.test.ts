@@ -15,7 +15,7 @@ test("actual candle routes validate before and forward it to the isolated histor
   const token = syntheticToken({ mode: "robinhood", deploymentChainId: 4663, quoteAddress: MUSEGOD.weth });
   const entry = createApp(undefined, "loopback", runtimeFromEnv(4663, { NODE_ENV: "test", CHAIN_MODE: "robinhood", DATA_DIR: scratch }));
   entry.service.token = async () => token;
-  const native = globalThis.fetch, calls: URL[] = [], before = Math.floor(Date.now() / 3_600_000) * 3600 - 3600;
+  const native = globalThis.fetch, calls: URL[] = [], before = Math.floor((Date.now() / 1000 - 3600) / (199 * 3600)) * 199 * 3600;
   t.mock.method(globalThis, "fetch", async (input: any, init: any) => {
     const url = new URL(String(input));
     if (url.hostname === "127.0.0.1") return native(input, init);
@@ -30,10 +30,12 @@ test("actual candle routes validate before and forward it to the isolated histor
   try {
     for (const path of ["/api/musegod/market/candles", `/api/tokens/${token.address}/market/candles`]) {
       const invalid = await fetch(`${origin}${path}?interval=1h&before=${before + 1}`); assert.equal(invalid.status, 400);
+      if (path.includes("/tokens/")) await fetch(`${origin}${path}?interval=1h`);
       const valid = await fetch(`${origin}${path}?interval=1h&before=${before}`); assert.equal(valid.status, 200);
       const data = await valid.json() as any; assert.deepEqual(data.candles.map((c: any) => c.time), [before - 3600]);
       assert.equal(data.source, "Bankr"); assert.equal(data.nextRefreshAt, new Date(Date.parse(data.fetchedAt) + 3_600_000).toISOString());
     }
-    assert.equal(calls.length, 2); assert(calls.every(url => url.searchParams.get("before_timestamp") === String(before)));
+    const historical = calls.filter(url => url.searchParams.has("before_timestamp"));
+    assert.equal(historical.length, 2); assert(historical.every(url => url.searchParams.get("before_timestamp") === String(before)));
   } finally { await new Promise<void>(resolve => server.close(() => resolve())); (entry.service.store as any).close(); await rm(scratch, { recursive: true, force: true }); }
 });

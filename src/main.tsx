@@ -1,3 +1,4 @@
+import "./lib/browser-validation";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import React from "react";
 import ReactDOM from "react-dom/client";

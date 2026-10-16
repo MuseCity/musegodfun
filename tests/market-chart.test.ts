@@ -4,7 +4,7 @@ import { hookRuntime, importFresh, settle } from "./hook-runtime";
 import type { CandleData } from "../src/lib/market";
 const candle = (time: number, close = 1) => ({ time, open: 1, high: Math.max(1, close), low: 1, close, volume: 2 });
 test("the chart pages once on demand, preserves history on refresh and stops when the provider is empty", async t => {
-  const time = Math.floor(Date.now() / 3_600_000) * 3600 - 3600;
+  const time = Math.floor((Date.now() / 1000 - 3600) / (199 * 3600)) * 199 * 3600;
   let data: CandleData = { candles: [candle(time), candle(time + 3600)], fetchedAt: new Date().toISOString(), source: "Bankr", status: "fresh" };
   const calls: string[] = [], replies: ((data: CandleData) => void)[] = [];
   const request = async (_chain: number, path: string) => { calls.push(path); return new Promise<CandleData>(done => replies.push(done)); };
@@ -31,4 +31,19 @@ test("the chart pages once on demand, preserves history on refresh and stops whe
   assert(JSON.stringify(runtime.output()).includes(secondTime), "history pages retain their fetch time range");
   assert.match(JSON.stringify(runtime.output()), /Beginning of indexed history/);
   assert(JSON.stringify(runtime.output()).includes(historyTime), "an empty boundary request does not replace the historical bars fetch time");
+});
+
+test("disposing the actual chart aborts its in-flight chain API fetch", async t => {
+  const time = Math.floor((Date.now() / 1000 - 3600) / (199 * 3600)) * 199 * 3600;
+  const data = { candles: [candle(time)], fetchedAt: new Date().toISOString(), source: "Bankr", status: "fresh" };
+  let signal: AbortSignal | undefined, aborted = false, View: any;
+  t.mock.method(globalThis, "fetch", async (_input: any, init: any) => {
+    signal = init.signal;
+    return new Promise<Response>((_resolve, reject) => signal!.addEventListener("abort", () => { aborted = true; reject(signal!.reason); }));
+  });
+  const runtime = hookRuntime(() => View({ data, interval: "1h", endpoint: { chainId: 4663, path: "/musegod/market/candles?interval=1h", key: "abort" }, symbol: "MUSEGOD", type: "line" }));
+  ({ default: View } = await importFresh("src/components/MarketChart.tsx", { react: { file: import.meta.resolve("react"), bindings: runtime.hooks } }));
+  runtime.render(); runtime.output().props.children[0].props.onLoadOlder(); await settle();
+  assert(signal instanceof AbortSignal); assert.equal(signal.aborted, false);
+  runtime.unmount(); await settle(); assert.equal(aborted, true); assert.equal(signal.aborted, true);
 });

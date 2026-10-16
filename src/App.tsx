@@ -3063,6 +3063,7 @@ function TokenPage({
   const lifiEth = route === "lifi";
   const impactQuote = lifiEth ? ethQuote?.mode === "two-step" ? ethQuote.swapPreview : null : quote;
   const impactAccepted = impactAcknowledged(impactQuote, acknowledged);
+  useEffect(() => { setAcknowledged(null); }, [quote, ethQuote, amount, side, slippage, wallet.account, wallet.chainId, address, payWith]);
   const enteredPair = ethPayable && !payingEth && amount ? (() => { try { return parseAmount(amount, pairAsset!.decimals); } catch { return null; } })() : null;
   // Paying with the pair asset, the wallet holds less than the amount: offer ETH, never convert the typed amount. Not next to
   // the result of a buy of that amount (`hash`), which spent the balance it would compare against.
@@ -3281,7 +3282,9 @@ function TokenPage({
           (hash) => { hooks.onHash(hash); onHash(hash); }, { beforeSend: hooks.beforeSend })),
         requote: (amountIn) => api<SwapQuote>("/quote", { address, side: "buy", amount: formatUnits(amountIn, pairDecimals), slippageBps: slippage }),
         trade: (q) => {
-          if (!impactAcknowledged(q, acknowledged)) throw new Error("Review a fresh pool quote and acknowledge its price impact before confirming.");
+          // This plan's acknowledged preview covers its requote after the runner enforces the existing output floor.
+          if (plan.mode === "two-step" && !impactAcknowledged(plan.swapPreview, acknowledged))
+            throw new Error("Review a fresh pool quote and acknowledge its price impact before confirming.");
           return wallet.trade(q, frozen, show, twoStepLabels(pairPayment.symbol, coinAsset.symbol));
         },
         logs: async (h) => (await transactionClient(frozen.chainId, frozen).getTransactionReceipt({ hash: h })).logs,

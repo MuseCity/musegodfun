@@ -13,12 +13,12 @@ function harness(t: any) {
       disconnect() { socket.closed = true; }, fire(name: string, ...args: any[]) { handlers.get(name)?.(...args); } };
     sockets.push(socket); return socket;
   }, visible: () => !hidden, watchVisibility: fn => { changes.add(fn); return () => { changes.delete(fn); }; } });
-  const off = connection.subscribe({ status: x => snapshots.push(x), event: e => events.push(e) });
+  const off = connection.subscribe({ status: x => snapshots.push(x), event: e => { events.push(e); return e.type !== "volume"; } });
   return { sockets, snapshots, events, connection, off, hide(value: boolean) { hidden = value; for (const fn of changes) fn(); }, changes };
 }
 const price = () => ({ tokenAddress: MUSEGOD.token, chain: "robinhood", lastPriceUsd: 3, marketCapUsd: 600, lastTradeAt: new Date().toISOString() });
 test("one shared socket; connection alone and unrelated/invalid events never claim Live", t => {
-  const h = harness(t), off2 = h.connection.subscribe({ status() {}, event() {} });
+  const h = harness(t), off2 = h.connection.subscribe({ status() {}, event() { return false; } });
   assert.equal(h.sockets.length, 1); h.sockets[0].fire("connect"); assert.equal(h.snapshots.at(-1).receiving, false);
   h.sockets[0].fire("DISCOVER_PRICE_UPDATE", { ...price(), chain: "base" }); assert.equal(h.events.length, 0);
   h.sockets[0].fire("DISCOVER_PRICE_UPDATE", [price(), { ...price(), tokenAddress: MUSEGOD.weth }]);
@@ -43,4 +43,19 @@ test("failed and flapping connections retry exponentially with a sixty second ca
     t.mock.timers.tick(1); assert.equal(h.sockets.length, count + 1);
   }
   h.hide(true); t.mock.timers.tick(120_000); assert.equal(h.sockets.at(-1).closed, true); h.off();
+});
+
+test("volume is connection health only; ignored or duplicate values cannot renew Live", t => {
+  const h = harness(t), socket = h.sockets[0]; socket.fire("connect");
+  const volume = { tokenAddress: MUSEGOD.token, chain: "robinhood", vol1m: 0, priceChange1m: 0, vol5m: 0, priceChange5m: 0,
+    vol1h: 0, priceChange1h: 0, vol6h: 0, priceChange6h: 0, vol24h: 0, priceChange24h: 0, txCount24h: 0 };
+  socket.fire("DISCOVER_VOLUME_UPDATE", volume);
+  assert.equal(h.events.length, 1); assert.equal(h.snapshots.at(-1).receiving, false); assert.equal(h.snapshots.at(-1).receivedAt, null);
+  socket.fire("DISCOVER_PRICE_UPDATE", price()); const receipt = h.snapshots.at(-1).receivedAt;
+  t.mock.timers.tick(29_999); socket.fire("DISCOVER_VOLUME_UPDATE", volume);
+  assert.equal(h.snapshots.at(-1).receivedAt, receipt);
+  t.mock.timers.tick(1); assert.equal(h.snapshots.at(-1).receiving, false); h.off();
+  const quiet = h.connection.subscribe({ status: x => h.snapshots.push(x), event() { return false; } });
+  h.sockets.at(-1).fire("connect"); h.sockets.at(-1).fire("DISCOVER_PRICE_UPDATE", price());
+  assert.equal(h.snapshots.at(-1).receiving, false); quiet();
 });

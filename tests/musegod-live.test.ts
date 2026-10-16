@@ -81,3 +81,10 @@ test("pending swaps and recent trades stay bounded and acknowledged events can b
   const restTrade = project().trades!;
   assert.equal(retainLiveSwaps([swap()], swap(3), { candles: acknowledged, trades: restTrade, summary: { ...summary, lastTradeAt: new Date(now).toISOString() } }, now).length, 1);
 });
+
+test("swaps without market cap derive it from verified supply or retain the dated REST value", () => {
+  assert.equal(project([swap(2, { priceUsd: 7, mcapUsd: undefined })]).summary?.marketCapUsd, 1400);
+  const result = project([swap(2, { priceUsd: 7, mcapUsd: undefined })], { info: null });
+  assert.equal(result.summary?.priceUsd, 7); assert.equal(result.summary?.marketCapUsd, 400);
+  assert.equal(result.summary?.fetchedAt, summary.fetchedAt);
+});

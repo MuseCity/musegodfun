@@ -2,7 +2,7 @@ import { parseLiveEvent, type LiveEvent } from "./musegod-live";
 
 type Socket = { on(name: string, fn: (...args: any[]) => void): unknown; removeAllListeners(): unknown; disconnect(): unknown };
 export type LiveStatus = { connected: boolean; receiving: boolean; receivedAt: number | null };
-type Listener = { status(value: LiveStatus): void; event(value: LiveEvent): void };
+type Listener = { status(value: LiveStatus): void; event(value: LiveEvent): boolean };
 /** Owns retries rather than layering timers over Socket.IO's reconnect manager. */
 export function createLiveConnection(options: { createSocket(): Socket; visible(): boolean; watchVisibility(fn: () => void): () => void }) {
   const listeners = new Set<Listener>();
@@ -40,7 +40,9 @@ export function createLiveConnection(options: { createSocket(): Socket; visible(
         const event = parseLiveEvent(name, raw);
         if (!event) continue;
         failures = 0;
-        for (const listener of listeners) listener.event(event);
+        let changed = false;
+        for (const listener of listeners) changed = listener.event(event) || changed;
+        if (event.type === "volume" || !changed) continue;
         publish({ connected: true, receiving: true, receivedAt: Date.now() });
         clearTimeout(quiet); quiet = setTimeout(() => publish({ ...status, receiving: false }), 30_000);
       }

@@ -44,6 +44,10 @@ export function verifiedSupply(info: SupplyInfo | null): number | null {
   return Number.isFinite(supply) && supply > 0 ? supply : null;
 }
 type RestMarket = { summary: MarketSummary | null; candles: CandleData | null; trades: TradeData | null };
+export function liveValuesChanged(previous: RestMarket, next: RestMarket) {
+  const values = (market: RestMarket) => [market.summary?.priceUsd, market.summary?.marketCapUsd, market.candles?.candles, market.trades?.trades];
+  return JSON.stringify(values(previous)) !== JSON.stringify(values(next));
+}
 export type LiveProjection = RestMarket & { basis: RestMarket & { interval: ChartInterval; info: SupplyInfo | null };
   priceAt: string | null; candlesAt: string | null; tradesAt: string | null };
 const order = (a: LiveSwap, b: LiveSwap) => a.blockNumber - b.blockNumber || a.logIndex - b.logIndex || a.txHash.localeCompare(b.txHash);
@@ -66,10 +70,11 @@ export function projectLiveMarket(rest: RestMarket & { interval: ChartInterval; 
   let priceAt: string | null = null, candlesAt: string | null = null, tradesAt: string | null = null;
   const supply = verifiedSupply(rest.info), rows = [...new Map(events.map(event => [event.id, event])).values()]
     .filter(event => !rest.candles?.watermark || !included(event, rest.candles.watermark)).sort(order);
+  const positions = new Map(rows.map((item, index) => [item.id, index]));
   for (const event of rows) {
     const price = swapPrice(event, supply);
     if (price !== null && summary?.source === "Bankr" && Date.parse(event.timestamp) > Date.parse(rest.summary!.lastTradeAt ?? rest.summary!.fetchedAt)) {
-      summary = { ...summary, priceUsd: price, marketCapUsd: event.mcapUsd ?? null, lastTradeAt: event.timestamp }; priceAt = event.timestamp;
+      summary = { ...summary, priceUsd: price, marketCapUsd: event.mcapUsd ?? (supply !== null && Number.isFinite(price * supply) ? price * supply : summary.marketCapUsd), lastTradeAt: event.timestamp }; priceAt = event.timestamp;
     }
     // A missing/null watermark cannot prove whether REST already contains this swap.
     if (price !== null && event.totalUsd !== null && candles?.source === "Bankr" && candles.status === "fresh" && candles.watermark && !included(event, candles.watermark)) {
@@ -90,7 +95,6 @@ export function projectLiveMarket(rest: RestMarket & { interval: ChartInterval; 
       const row: MarketTrade = { id: event.id, hash: event.txHash, account: event.traderAddress ?? null, at: event.timestamp,
         side: event.side, amount: event.tokenAmount, usd: event.totalUsd, price };
       if (!trades.trades.some(item => item.id.toLowerCase() === event.id)) {
-        const positions = new Map(rows.map((item, index) => [item.id, index]));
         trades = { ...trades, trades: [row, ...trades.trades].sort((a, b) => Date.parse(b.at) - Date.parse(a.at) ||
           (positions.get(b.id) ?? -1) - (positions.get(a.id) ?? -1)).slice(0, 30) };
         tradesAt = event.timestamp;

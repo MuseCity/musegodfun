@@ -2,7 +2,7 @@ import type { MarketReason } from "./market";
 import { observeServerTime, quoteNow } from "./quote-clock";
 
 export type ChallengeRequest = { siteKey: string; action: string; resolve: (token: string) => void; reject: (error: Error) => void };
-export type ApiOptions = { challenge?: boolean; retry?: boolean };
+export type ApiOptions = { challenge?: boolean; retry?: boolean; signal?: AbortSignal };
 export class ApiError extends Error {
   // Seconds the server asked the caller to wait before retrying, if any.
   constructor(message: string, public status: number, public code?: string, public retryAfter?: number, public reason?: MarketReason) { super(message); }
@@ -16,6 +16,7 @@ export async function api<T>(path: string, body?: unknown, options: ApiOptions =
   const retryable = body === undefined || /\/(prepare|validate|simulate|quote|verify|register|track)$/.test(path);
   for (let attempt = 0; ; attempt++) {
   const started = performance.now();
+  const timeout = AbortSignal.timeout(/\/launch\/(prepare|simulate)$/.test(path) ? 190_000 : 35_000);
   const response = await fetch(`/api${path}`, {
     ...(body === undefined
       ? {}
@@ -26,7 +27,7 @@ export async function api<T>(path: string, body?: unknown, options: ApiOptions =
         }),
     headers: { ...(body === undefined ? {} : { "content-type": "application/json" }),
       "x-request-id": requestId, ...(challengeToken ? { "x-turnstile-token": challengeToken } : {}) },
-    signal: AbortSignal.timeout(/\/launch\/(prepare|simulate)$/.test(path) ? 190_000 : 35_000),
+    signal: options.signal ? AbortSignal.any([options.signal, timeout]) : timeout,
   });
   const result = await response.json();
   observeServerTime(response.headers.get("date"), result?.serverTime, started);
