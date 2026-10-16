@@ -52,7 +52,6 @@ export type Candle = {
 export type CandleData = SnapshotMeta & {
   fetchedAt: string;
   candles: Candle[];
-  history?: CandleData;
   watermark?: {
     blockNumber: number;
     logIndex: number;

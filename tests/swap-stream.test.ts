@@ -27,7 +27,7 @@ test('idempotency, newer reorg replaces entire block; stale retries cannot resur
  const reorg={...d,sequence:'10000000000000000002',blockHash:'0x'+'ab'.repeat(32),trades:d.trades.map(t=>({...t,blockHash:'0x'+'ab'.repeat(32),hash:'0x'+'cd'.repeat(32),id:'4663:0x'+'cd'.repeat(32)+':41'}))};
  assert.equal(store.apply(reorg).reorg,true);assert.equal(store.rows(MUSE_POOL).length,1);store.apply(d);assert.equal(store.rows(MUSE_POOL)[0].blockHash,reorg.blockHash);
  for(let n=1;n<=3;n++)store.apply({...reorg,blockNumber:d.blockNumber+n,sequence:String(BigInt(reorg.sequence)+BigInt(n)),trades:reorg.trades.map(t=>({...t,id:t.id+n,blockNumber:t.blockNumber+n}))});
- assert.equal(store.rows(MUSE_POOL).length,2);
+ store.prune();assert.equal(store.rows(MUSE_POOL).length,2);
 });
 
 test('schema rejects foreign contracts, topic0, pool, block types and conflicting network',()=>{

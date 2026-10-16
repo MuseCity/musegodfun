@@ -16,7 +16,7 @@ test('real Worker: mocked Notify lifecycle, hibernating same-origin socket, sign
  }});
  const mf=new Miniflare(options());try{
  const initial=await mf.dispatchFetch('https://musegod.fun/api/config');assert.equal(initial.status,200,await initial.text());
- const sync=await mf.dispatchFetch('https://musegod.fun/api/chains/4663/webhooks/alchemy/reconcile',{method:'POST',headers:{Authorization:'Bearer synthetic-notify'}});assert.equal(sync.status,200,(await sync.text())+JSON.stringify(calls));
+ const sync=await mf.dispatchFetch('https://musegod.fun/api/chains/4663/webhooks/alchemy/reconcile',{method:'POST',headers:{Authorization:'Bearer synthetic-notify'}});assert.equal(sync.status,404,(await sync.text())+JSON.stringify(calls));
  for(let i=0;i<100&&!hook;i++)await new Promise(r=>setTimeout(r,10));assert(hook,JSON.stringify(calls));assert.equal(creates,1);
  const denied=await mf.dispatchFetch(`https://musegod.fun/api/chains/4663/market/stream?pool=${MUSE_POOL}`,{headers:{Upgrade:'websocket',Origin:'https://evil.invalid'}});assert.equal(denied.status,403);
  const upgrade=await mf.dispatchFetch(`https://musegod.fun/api/chains/4663/market/stream?pool=${MUSE_POOL}`,{headers:{Upgrade:'websocket',Origin:'https://musegod.fun'}});assert.equal(upgrade.status,101);const socket=upgrade.webSocket!;socket.accept();
@@ -27,6 +27,9 @@ test('real Worker: mocked Notify lifecycle, hibernating same-origin socket, sign
  const result=await mf.dispatchFetch('https://musegod.fun/api/chains/4663/musegod/market/trades');assert.equal(result.status,200);assert.equal((await result.json() as any).trades.length,1);
  await mf.setOptions(options("\n// Reload fixture"));
  assert.equal((await deliver()).status,200);const restored=await mf.dispatchFetch('https://musegod.fun/api/chains/4663/musegod/market/trades');assert.equal((await restored.json() as any).trades.length,1);assert.equal(creates,1);
+ const ipv6=[];for(let n=0;n<8;n++){const r=await mf.dispatchFetch(`https://musegod.fun/api/chains/4663/market/stream?pool=${MUSE_POOL}`,{headers:{Upgrade:'websocket',Origin:'https://musegod.fun','CF-Connecting-IP':`2001:db8:1:2::${n+1}`}});assert.equal(r.status,101);r.webSocket!.accept();ipv6.push(r.webSocket!);}
+ const same=await mf.dispatchFetch(`https://musegod.fun/api/chains/4663/market/stream?pool=${MUSE_POOL}`,{headers:{Upgrade:'websocket','CF-Connecting-IP':'2001:db8:1:2::abcd'}});assert.equal(same.status,429);
+ const separate=await mf.dispatchFetch(`https://musegod.fun/api/chains/4663/market/stream?pool=${MUSE_POOL}`,{headers:{Upgrade:'websocket','CF-Connecting-IP':'2001:db8:3:4::1'}});assert.equal(separate.status,101);separate.webSocket!.accept();separate.webSocket!.close();ipv6.forEach(s=>s.close());
  socket.close();
  }finally{await mf.dispose();}
 });

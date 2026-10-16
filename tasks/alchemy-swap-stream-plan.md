@@ -1,6 +1,6 @@
 # Own on-chain swap stream via Alchemy Custom Webhooks
 
-Status: Implemented locally; cross-review and release pending (2026-10-16). Branch `claude/alchemy-swap-stream`, based on `1030b05` (master `6f7b475` plus its unpushed release record).
+Status: Run 2 review fixes implemented locally; Claude acceptance, reverse review and release pending (2026-10-16). Branch `claude/alchemy-swap-stream`, based on `1030b05` (master `6f7b475` plus its unpushed release record).
 
 ## Owner request (2026-10-16, translated)
 
@@ -28,13 +28,13 @@ Every registered pool on both chains, plus MUSEGOD, gets exact on-chain trades w
 2. Authenticity: only signature-verified webhook deliveries (`X-Alchemy-Signature`, HMAC-SHA256 over the raw body with that webhook's signing key, constant-time compare) are accepted. Payloads are schema-validated, bound to the expected webhook id, network, contract addresses, topic0 and registered pool set. Anything else is rejected without storage side effects.
 3. Market honesty:
    - Our data is labelled "On-chain · Alchemy" with its own time.
-   - Coverage starts when the stream starts and is labelled with that start; older history keeps its provider source.
+   - Forward coverage is labelled "On-chain · Alchemy since <start>"; it is not a completeness claim. Provider records keep their source, including records after coverage begins.
    - No backfill is fabricated, and no zero-filling.
    - USD values only come from a verified quote-asset USD price with its own source and time; otherwise prices show in quote-asset terms or as unavailable.
-4. Reorgs and duplicates: trades are keyed by chain, transaction hash and log index, and remember their block hash. A redelivery for the same block number with a different block hash replaces that block's trades. `sequenceNumber` and retries never double-count.
+4. Reorgs and duplicates: trades are keyed by chain, transaction hash and log index, and remember their block hash. Before final verification, a redelivery for the same block number with a different block hash replaces that block's trades. After a 2-minute delay, check each distinct retained swap block once using `eth_getBlockByNumber`; remove orphaned rows even if the canonical replacement has no matching swap. Persist completion. `sequenceNumber` and retries never double-count. Deeper reorganizations after that one verification are outside this policy.
 5. Cost and load:
    - The filters are narrow, with `skip_empty_messages: true`.
-   - No polling of Alchemy for logs, and no `eth_getLogs` scans.
+   - No polling of Alchemy for logs, and no `eth_getLogs` scans. Finality checks are bounded to 10 distinct blocks per alarm; successful checks are persisted and never repeated. Expected normal RPC volume is approximately distinct blocks containing our retained swaps per day (at the evaluation pace, at most about 59/day for MUSEGOD, plus V4 activity). Existing RPC transport 429 retries can multiply failed attempts by up to four; failures remain pending for a later alarm.
    - The Notify API is called only when the registered pool set changes, plus at most one verification per chain per day.
    - Storage per chain is bounded, with documented retention.
    - The webhook route is exempt from browser challenges but has its own size and rate bounds.
@@ -48,26 +48,26 @@ Every registered pool on both chains, plus MUSEGOD, gets exact on-chain trades w
 
 - `POST /api/chains/{4663|8453}/webhooks/alchemy`, routed to that chain's DO. The raw body is preserved for HMAC. Body limit sized to Alchemy payloads (document the bound). Exempt from Turnstile challenge and the browser cross-site Origin rule, and only for this path.
 - Decode V4 and V3 Swap logs into trades: pool, block number and hash, block timestamp, transaction hash, log index, amounts, `sqrtPriceX96`, tick and direction. Derive the coin price in quote-asset terms from the swap itself, with exact decimal handling.
-- Store in the chain DO's SQLite storage through an injected adapter (the Node server and tests get an in-memory or file adapter). Idempotent upserts, reorg replacement and bounded retention (for example, the newest 50,000 trades per chain, or 400 days, whichever is smaller).
+- Store in the chain DO's SQLite storage through an injected adapter (the Node server and tests get an in-memory or file adapter). Index `(pool, block, log index)`, `(pool, time, block, log index)`, time and block lookups. Delivery writes use indexed lookups only. Summary reads 1 latest row, Recent trades reads 30, and candles stream only the requested 200-bucket time window into bounded memory. Retention targets newest 50,000 trades or 400 days; the existing alarm prunes at most 500 trades and 500 block tombstones per run using persisted counts, never per delivery. A backlog of at most 2,000 additional rows/tombstones may exist between alarm runs (hard ceiling 52,000 each); further deliveries receive retryable 503 without partial writes and an explicit gap signal prompts debounced client recovery. Finality checks begin after 2 minutes, at most 10 distinct stored swap blocks per alarm, and persist canonical hash and completion.
 
 ### S2 Webhook lifecycle via the Notify API
 
 - Verify the Notify API's real capabilities from Alchemy's docs and read-only calls: list team webhooks, create GraphQL webhooks, update or replace a GraphQL query, and read signing keys.
 - Each chain's DO owns its webhook. The GraphQL query has a V4 filter (PoolManager, Swap topic0, topic1 OR-list of the chain's registered poolIds) and, on Robinhood only, the MUSEGOD V3 filter (pool address, V3 topic0). Use one webhook per chain if a single query can hold both filters; otherwise use two.
-- Reconcile whenever the registered pool set changes: on registering a new launch, and when the stored pool-set hash differs. Reconcile at startup only if no webhook is recorded. Also run at most one daily verification. If the query cannot be updated in place, replace the webhook and refresh the cached signing key atomically, with no window where valid deliveries are rejected for longer than one retry cycle.
-- Add an operator CLI (`scripts/alchemy-webhooks.ts`). It lists webhooks and runs a dry-run diff for both chains, and can apply only with an explicit flag. It reads `ALCHEMY_NOTIFY_API_KEY` from env.
+- Reconcile in the existing chain alarm on pool-set changes or missing state; a request may schedule startup reconciliation and registration may schedule a changed-set reconcile. Successful same-set verification runs at most daily. Failures use persisted 1-minute exponential backoff capped at 1 hour; a different pool set resets it. Persist a short pre-call attempt lease so eviction retries safely. Store and verify the replacement signing key before immediately sweeping every non-current team webhook on this chain's exact callback origin/path, regardless of its set query. On the next reconcile the same sweep resolves timeout-after-create, eviction-after-create and verification failures. Keep at most the current and immediately superseded signing key; the latter expires after 5 minutes, while its remote webhook is deleted immediately.
+- Operator CLI (`scripts/alchemy-webhooks.ts`) lists sanitized webhooks and runs a dry-run diff only. Reject `--apply`; there is no production reconcile/operator HTTP endpoint. The Notify token is sent only directly to Alchemy by server-side reconciliation or read-only CLI listing, never in an incoming Worker request.
 
 ### S3 Serving our trades, price and candles
 
 - Recent trades for every registered pool (both chains) and MUSEGOD merge our trades with provider trades, deduplicated by transaction hash and log index. Ours are authoritative where they overlap.
-- Headline live price: the latest stored swap's price, when it is newer than the provider summary. Convert to USD with a verified quote-asset USD price (reuse the repo's existing cached quote-asset pricing, e.g. the first-buy price path, when it is suitable); otherwise use quote-asset terms with a clear label.
-- Candles: for buckets at or after coverage start, build from our trades (open, high, low, close and volume in the displayed unit). Earlier buckets keep their provider source. The boundary bucket is never double counted.
+- Headline live price: the latest stored swap's price, when it is newer than the provider summary. If no retained own row exists, preserve a valid provider summary. Store quote-unit prices only. At read time convert using an identity-checked current quote-asset USD cache, refreshed at most once per 5 minutes per asset, with a dedicated budget of 2 token reads per minute per chain and a 3-second timeout. This display reader never touches the payment reader, shared LI.FI quote budget or shared backoff and never runs in delivery. Broadcasts may peek its cache without I/O. Missing USD affects that response only, with quote-asset units or USD unavailable; the chart unit is never pinned by a historical missing price. Current-quote conversion is not historical USD valuation.
+- Candles: keep every provider candle as the base wherever returned. Own trades may add/update only the in-progress bucket strictly newer than the provider's last bar, and only in compatible units; otherwise keep the provider bars. If no provider returns bars, build the requested window from own trades with coverage start. No historical provider bar is replaced, no double counting or zero filling. A current USD quote is applied consistently across one requested window.
 - Provenance shows each part's source and time.
 
 ### S4 Same-origin realtime push (replaces Bankr live)
 
 - `GET /api/chains/{id}/market/stream?pool=…` upgrades to a WebSocket accepted by the chain DO with the hibernation API. New verified trades for that pool are broadcast as validated JSON. Admission accounting must not hold request slots for open sockets.
-- The client reuses the existing lifecycle rules: one connection per tab, disconnect while hidden, capped backoff, silent fallback to polling, and "Live · On-chain" only after a value-changing event. Applies to token pages on both chains and the MUSEGOD page.
+- The client applies validated pushed rows directly to Recent trades, price and the latest candle; dedupe/watermarks prevent replay volume. Normal pushes cause zero REST reads. Late/out-of-order newly stored logs and storage backpressure emit an explicit gap signal; reorgs emit their own signal. Only explicit server reorg/gap signals schedule a section refresh: 5–10 second debounce/jitter, at most once every 30 seconds per tab, surviving remounts. Preserve one connection per tab, hidden disconnect, capped backoff, polling fallback and "Live · On-chain" only after a value-changing event. Applies to both chains and MUSEGOD. Stream admission groups IPv6 by /64 (IPv4 by address), caps 8/client and 128/chain, and reserves pending upgrades synchronously before pool lookup.
 - CSP: verify whether `connect-src 'self'` covers same-origin `wss:` in the supported browsers. Add explicit same-origin `wss://` origins only if required, and remove `wss://api.bankr.bot`.
 - Remove the Bankr socket path entirely (code, tests, dependency, CSP, docs mention in prior plans via a dated note).
 
@@ -88,9 +88,23 @@ Historical backfill (needs a paid Alchemy tier); paid data providers; trade exec
 5. Cross review: claude review → codex fix → claude accept, then codex review → claude fix → codex accept.
 6. Release, with owner approval: add the Worker secret first, push, let the DOs create and reconcile the webhooks, then do online acceptance. Online acceptance means the webhooks are listed and active, a real MUSEGOD swap arrives and is shown live, and V4 pools are registered.
 
+## Dated conductor decisions
+
+### 2026-10-16 - Run 2
+
+- C1-1/C1-2: windowed indexed storage and alarm pruning; direct client push application with exceptional debounced recovery only.
+- C1-3/C1-4: remove the operator endpoint and apply CLI; retry failures with capped exponential backoff, reset on changed pool set or success.
+- C1-5/C1-10: after replacement identity verification and key persistence, immediately delete superseded and same-callback orphan hooks. Resolve uncertain creations on the next reconcile sweep.
+- C1-6/C1-11: raw-byte HMAC before payload parsing against at most two keys; unverified per-source buckets cannot spend authenticated slots/rate. Atomic socket reservations and IPv6 /64 caps.
+- C1-7/C1-12: quote-unit storage, response-time USD conversion with its own cache/budget and no delivery I/O; no persistent chart-unit decision.
+- C1-8/C1-13: own-wins Recent trades union, provider candle base with current-bucket additions only, explicit forward coverage and provider-summary fallback.
+- C1-9: once-only, persisted block-hash verification after 2 minutes, bounded per alarm. This replaces Run 1's unverified assumption that empty canonical replacements will arrive as webhooks.
+
 ## Delivery record
 
 ### Run 1 - 2026-10-16
+
+Historical implementation record; lifecycle, admission, pricing, serving and push behavior below is superseded by the Run 2 conductor decisions.
 
 - S1-S4 implemented locally on `claude/alchemy-swap-stream`; this plan is included in the first implementation commit. The exact commit and detailed results are recorded in `.superpowers/sdd/swap-stream/run1-report.md`.
 - Official research and read-only Notify evidence: `.superpowers/sdd/swap-stream/evidence/notify-api.json`. Two real `GET /api/team-webhooks` calls returned HTTP 200 with `{data: []}`; one was the operator dry run. No live Notify mutation was made. The public Custom payload puts the decimal-string sequence in `event.sequenceNumber` and does not promise a network field; the receiver binds its id to the stored Notify network and rejects explicit conflicts.
@@ -102,3 +116,11 @@ Historical backfill (needs a paid Alchemy tier); paid data providers; trade exec
 - Same-origin push uses the existing DO's hibernation API, with 128 sockets per chain and 8 per client. Open sockets bypass HTTP slot accounting. Large block broadcasts use batches of at most 200 trades. The client validates pushes and coalesces them into independent REST section reads, so one committed server merge handles reorg removals and interval changes. It disconnects while hidden, caps reconnect backoff at 60 seconds, continues polling when unavailable, and marks Live only for a visible value change. This adds a same-origin REST round trip after each coalesced push; block-to-screen latency is unverified in production.
 - Bankr's browser socket modules/tests, Socket.IO dependency and remote CSP origin are removed; Bankr REST remains. L4 in `tasks/live-market-price-impact-plan.md` has a dated supersession note.
 - Required verification, browser evidence, deviations and local commit are recorded in the run report. Cross-review and owner-approved release remain pending. No secret command, push, deployment, wallet action, quote POST or production write was performed.
+
+### Run 2 - 2026-10-16
+
+- Verified C1-1 through C1-13 against the code; accepted all findings and implemented the dated conductor decisions above. Each behavior fix has a pre-fix failing regression, retained under `.superpowers/sdd/swap-stream/evidence/run2/`.
+- Regression coverage includes a 12,000-row SQLite window/query-plan check; zero-REST push bursts; raw-byte authentication and isolated ingress; uncertain webhook creation cleanup; capped/reset backoff; independent USD caching and response-unit recovery; provider merge/source fallback; persisted finality across adapter reload; and atomic IPv6/global stream admission.
+- The Node harness verifies signed real-log fixture delivery to SQLite, an actual WebSocket and direct client projection. The Worker harness uses mocked Notify/RPC/services, rejects the removed operator endpoint, and verifies persistent trades after reload. These are local synthetic-delivery checks, not live Alchemy receipt or production acceptance.
+- Final checks and local commit are recorded in `.superpowers/sdd/swap-stream/run2-report.md`. Claude acceptance, reverse review and owner-approved release remain pending. No Notify mutation, production write, wallet action, secret command, push, deployment or PR occurred.
+- Verification deviation: before the new display-price reader was explicitly mocked, two Node harness runs each made one public LI.FI token GET. The returned USD value exposed the missing mock. No transaction or credential was sent; the mock was corrected before final verification. All final harness dependencies are synthetic. No live Alchemy RPC/Notify call was needed in Run 2.

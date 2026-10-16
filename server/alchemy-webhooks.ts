@@ -28,23 +28,28 @@ export function desiredWebhook(chainId:4663|8453,pools:SwapPool[],url:string){
  const hash=createHash("sha256").update(JSON.stringify({chainId,pools,url,query})).digest("hex");
  return {network:NETWORKS[chainId],webhook_type:"GRAPHQL",webhook_url:`${url}?set=${hash}`,name:`musegod-swaps-${chainId}-${hash.slice(0,24)}`,graphql_query:{query,skip_empty_messages:true},hash};
 }
-export function webhookDiff(hooks:NotifyHook[],desired:ReturnType<typeof desiredWebhook>){const match=hooks.find(h=>h.network===desired.network&&h.webhook_url===desired.webhook_url&&h.webhook_type==="GRAPHQL"&&h.is_active);return {action:match?"keep":"create",name:desired.name,network:desired.network,url:desired.webhook_url,existingId:match?.id??null};}
-/** The API does not document GraphQL query updates; replacement overlaps signing keys for 24 hours. */
+export function webhookDiff(hooks:NotifyHook[],desired:ReturnType<typeof desiredWebhook>){const match=hooks.find(h=>h.network===desired.network&&new URL(h.webhook_url).href===new URL(desired.webhook_url).href&&h.webhook_type==="GRAPHQL"&&h.is_active);return {action:match?"keep":"create",name:desired.name,network:desired.network,url:desired.webhook_url,existingId:match?.id??null};}
+/** Compare callback identity independently of the deterministic pool-set query. */
+function sameCallback(a:string,b:string){const x=new URL(a),y=new URL(b);return x.origin===y.origin&&x.pathname===y.pathname;}
 export async function reconcileWebhook(store:SwapStore,api:NotifyClient,chainId:4663|8453,pools:SwapPool[],url:string,now=Date.now()){
  const desired=desiredWebhook(chainId,pools,url),state=store.get<NotifyState>("notify");
- if(state?.hash===desired.hash&&now-state.checkedAt<86400_000)return;
- const attempt=store.get<{hash:string;at:number}>("notify-attempt");if(attempt?.hash===desired.hash&&now-attempt.at<86400_000)throw Error("Notify reconciliation retry is pending");
- store.set("notify-attempt",{hash:desired.hash,at:now});
- const hooks=await api.list();
- // Empty Base registry must never install an unfiltered block webhook.
- if(!pools.length){store.set("notify",{hash:desired.hash,checkedAt:now,bindings:state?.bindings??[]});return;}
- const diff=webhookDiff(hooks,desired);
- let hook=hooks.find(h=>h.id===diff.existingId);
- if(!hook){const {hash:_hash,...body}=desired;hook=await api.create(body as typeof desired);}
- if(hook.network!==desired.network||hook.webhook_url!==desired.webhook_url||hook.webhook_type!=="GRAPHQL"||!hook.is_active)throw Error("Notify identity mismatch");
- const bindings:Binding[]=[{id:hook.id,network:hook.network,key:hook.signing_key,generation:state?.bindings.find(b=>b.id===hook.id)?.generation??now},...(state?.bindings??[]).filter(b=>b.id!==hook.id).map(b=>({...b,retireAt:b.retireAt??now+86400_000}))];
- // Persist the new key before retiring any old destination; early deliveries can retry safely.
- store.set("notify",{hash:desired.hash,checkedAt:now,bindings});
- let remaining=bindings;
- for(const b of bindings.filter(b=>b.retireAt&&b.retireAt<=now)){await api.remove(b.id);remaining=remaining.filter(x=>x.id!==b.id);store.set("notify",{hash:desired.hash,checkedAt:now,bindings:remaining});}
+ const attempt=store.get<{hash:string;failures:number;nextAt:number}>("notify-attempt");
+ if(attempt?.hash===desired.hash&&now<attempt.nextAt)throw Error("Notify reconciliation retry is pending");
+ if(state?.hash===desired.hash&&now-state.checkedAt<86400_000&&!(attempt?.failures))return;
+ // Persist a short lease before remote work; eviction or timeout retries after one minute.
+ const failures=attempt?.hash===desired.hash?attempt.failures:0;
+ store.set("notify-attempt",{hash:desired.hash,failures:failures+1,nextAt:now+Math.min(3600_000,60_000*2**Math.min(failures,6))});
+ try{
+  const hooks=await api.list();let hook:NotifyHook|undefined;
+  if(pools.length){hook=hooks.find(h=>h.id===webhookDiff(hooks,desired).existingId);
+   if(!hook){const {hash:_hash,...body}=desired;hook=await api.create(body as typeof desired);}
+   if(hook.network!==desired.network||!sameCallback(hook.webhook_url,desired.webhook_url)||new URL(hook.webhook_url).searchParams.get('set')!==desired.hash||hook.webhook_type!=="GRAPHQL"||!hook.is_active)throw Error("Notify identity mismatch");
+  }
+  const previous=state?.bindings.find(b=>!b.retireAt&&b.id!==hook?.id);
+  const bindings:Binding[]=hook?[{id:hook.id,network:hook.network,key:hook.signing_key,generation:state?.bindings.find(b=>b.id===hook!.id)?.generation??now},...(previous?[{...previous,retireAt:now+5*60_000}]:[])]:[];
+  // Store and verify the new key before deleting remote destinations. Only one superseded key survives briefly.
+  store.set("notify",{hash:desired.hash,checkedAt:now,bindings});
+  for(const old of hooks)if(old.id!==hook?.id&&sameCallback(old.webhook_url,url))await api.remove(old.id);
+  store.set("notify-attempt",{hash:desired.hash,failures:0,nextAt:0});
+ }catch{throw Error("Notify reconciliation unavailable");}
 }

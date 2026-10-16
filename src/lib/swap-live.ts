@@ -28,3 +28,10 @@ export function subscribeSwapStream(chainId:number,pool:string,listener:Listener
  }
  const entry=shared;entry.subscribers++;const off=entry.connection.subscribe(listener);return()=>{off();entry.subscribers--;};
 }
+/** One tab-wide recovery gate survives stream remounts; normal pushes never enter it. */
+let lastRecoveryAt=-Infinity;
+export function createGapRefresh(work:()=>Promise<void>,options:{now?:()=>number;random?:()=>number;schedule?:(run:()=>void,ms:number)=>()=>void}={}){
+ const now=options.now??Date.now,random=options.random??Math.random,schedule=options.schedule??((run,ms)=>{const id=setTimeout(run,ms);return()=>clearTimeout(id);});
+ let cancel:(()=>void)|undefined,stopped=false;
+ return {request(){if(stopped||cancel)return;const delay=Math.max(5000+random()*5000,lastRecoveryAt+30_000-now());cancel=schedule(()=>{cancel=undefined;if(stopped)return;lastRecoveryAt=now();void work().catch(()=>{});},delay);},stop(){stopped=true;cancel?.();cancel=undefined;}};
+}

@@ -1,3 +1,4 @@
+import { SwapQuotePrices } from "./swap-prices";
 import express from "express";
 import { SwapService, isWebhookPath, WEBHOOK_BODY_LIMIT } from "./swap-service";
 import { MemorySwapStore, type SwapStore } from "./swap-store";
@@ -109,16 +110,14 @@ const baseCollector = deploymentChain(runtime.config) === 8453 && runtime.config
 }) : null;
 const payments = new FirstBuyPaymentReader({ client: service.client, chainId: deploymentChain(runtime.config),
   rpcChainId: runtime.config.mode === "fork" && runtime.config.chainId === 31337 ? 31337 : deploymentChain(runtime.config), ...runtime.lifi, budget: service.store });
+const swapPrices = new SwapQuotePrices();
 const swaps = new SwapService(deploymentChain(runtime.config), shared.swapStore ?? new MemorySwapStore(), {
   pools: async () => registeredPools(deploymentChain(runtime.config), await service.tokens()),
   token: shared.swapStore ? runtime.environment?.ALCHEMY_NOTIFY_API_KEY : undefined,
   broadcast: shared.broadcast,
-  quote: async pool => {
-    const value = await payments.prices(pool.quote), asset = value.assets.find(a => a.address.toLowerCase() === pool.quote);
-    const price = Number(asset?.priceUsd);
-    return value.chainId === pool.chainId && asset?.decimals === pool.quoteDecimals && Date.now() < value.expiresAt && price > 0 && Number.isFinite(price)
-      ? { price, source: "LI.FI", at: new Date(value.quotedAt).toISOString() } : null;
-  },
+  quote: pool => swapPrices.get(pool),
+  quoteCached: pool => swapPrices.peek(pool),
+  blockHash: async block => (await service.client.getBlock({blockNumber:BigInt(block)})).hash,
 });
 service.onTokensChanged = () => { void swaps.reconcile("https://musegod.fun").catch(() => {}); };
 app.set("trust proxy", trustProxy);
@@ -142,7 +141,7 @@ app.use((req, res, next) => {
 });
 // Only this exact raw-body route bypasses browser Origin and challenge middleware.
 app.post("/api/webhooks/alchemy", (req,res,next) => {
-  const admission=swaps.admitWebhook();if(admission.status){res.setHeader("Retry-After","60");res.status(admission.status).json({accepted:false});return;}
+  const admission=swaps.admitWebhook(req.ip || "unknown",typeof req.headers["x-alchemy-signature"] === "string" ? req.headers["x-alchemy-signature"] : undefined);if(admission.status){res.setHeader("Retry-After","60");res.status(admission.status).json({accepted:false});return;}
   res.once("finish",admission.release);res.once("close",admission.release);next();
 }, express.raw({ type: () => true, limit: WEBHOOK_BODY_LIMIT, inflate: false }), (req,res,next) => {
   void swaps.ingest(req.body instanceof Uint8Array ? req.body : new Uint8Array(), typeof req.headers["x-alchemy-signature"] === "string" ? req.headers["x-alchemy-signature"] : undefined)
@@ -175,10 +174,6 @@ const route =
   };
 const isHidden = (record: TokenRecord) => hiddenTokens.get(String(record.deploymentChainId ?? deploymentChain(runtime.config)))?.has(record.address.toLowerCase()) === true;
 const withHiddenFlag = (record: TokenRecord): TokenRecord => isHidden(record) ? { ...record, hidden: true } : record;
-app.post("/api/webhooks/alchemy/reconcile", (req,res,next) => {
-  if (!swaps.authorized(req.headers.authorization?.replace(/^Bearer /,""))) { res.status(401).json({error:"Unauthorized"}); return; }
-  void swaps.reconcile("https://musegod.fun").then(() => res.json({ reconciled: true })).catch(next);
-});
 app.get("/healthz", (_req, res) => res.json({ status: "ok" }));
 app.post("/api/token-images", route(async (req, res) => {
   const key = clientBucket(req.ip || "unknown"), now=Date.now();

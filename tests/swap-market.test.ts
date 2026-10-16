@@ -8,13 +8,13 @@ test('own trade wins exact transaction/log overlap while different logs survive;
  const result=mergeTrades(base,[trade],new Date(Date.parse(trade.at)+1).toISOString());assert.equal(result.trades.length,2);assert.equal(result.trades.find(t=>t.id===trade.id)?.price,null);assert.equal(result.trades.find(t=>t.id===trade.id)?.priceQuote,trade.priceQuote);
  const summary=mergeSummary({source:'Bankr',fetchedAt:new Date(Date.parse(trade.at)-1000).toISOString(),priceUsd:1,marketCapUsd:5,fdvUsd:5,liquidityUsd:5,periods:{}},[trade],trade.at);assert.equal(summary.priceUsd,null);assert.equal(summary.priceQuote,trade.priceQuote);
 });
-test('coverage boundary excludes provider bucket exactly once, builds real OHLCV with no zero filling',()=>{
- const bucket=Math.floor(Date.parse(trade.at)/3600000)*3600,coverage=new Date(bucket*1000+10000).toISOString();
- const t={...trade,at:new Date(bucket*1000+20000).toISOString(),priceUsd:2,usd:4};
- const provider={source:'Bankr' as const,fetchedAt:trade.at,candles:[{time:bucket-3600,open:1,high:1,low:1,close:1,volume:10},{time:bucket,open:9,high:9,low:9,close:9,volume:99}]};
+test('provider bars remain authoritative; own OHLCV covers only newer current bar or provider-unavailable pools',()=>{
+ const bucket=Math.floor(Date.now()/3600000)*3600,coverage=new Date((bucket-3600)*1000).toISOString();
+ const t={...trade,at:new Date((bucket+1)*1000).toISOString(),priceUsd:2,usd:4};
+ const provider={source:'Bankr' as const,fetchedAt:trade.at,candles:[{time:bucket-3600,open:9,high:9,low:9,close:9,volume:99}]};
  const result=mergeCandles(provider,[t,{...t,id:t.id+'2',logIndex:42,priceUsd:3,usd:6}],coverage,'1h');
- assert.equal(result.candles.length,2);assert.equal(result.candles[1].volume,10);assert.equal(result.candles[1].open,2);assert.equal(result.candles[1].close,3);assert.equal(result.historySource,'Bankr');
- const quote=mergeCandles(provider,[trade],coverage,'1h');assert.equal(quote.unit,'WETH');assert(quote.history?.candles.length===1);assert.equal(quote.candles.length,1);
+ assert.equal(result.candles.length,2);assert.equal(result.candles[0].volume,99);assert.equal(result.candles[1].volume,10);assert.equal(result.candles[1].open,2);assert.equal(result.candles[1].close,3);assert.equal(result.historySource,'Bankr');
+ const quote=mergeCandles(null,[{...t,priceUsd:null,usd:null}],coverage,'1h');assert.equal(quote.unit,'WETH');assert.equal(quote.candles.length,1);
 });
 
 test('history paging accepts mixed on-chain/provider USD bars and refuses quote-unit bars',async()=>{

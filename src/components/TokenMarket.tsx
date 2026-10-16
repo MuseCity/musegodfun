@@ -38,7 +38,7 @@ export function MarketProvenance({ label, data, kind }: { label: string; data: (
   return <span>{label} · {data.status === "stale" ? "Previous snapshot · " : ""}{data.source === "Bankr" ? kind === "musegod"
     ? <a href={MUSEGOD.sourceUrl} target="_blank" rel="noopener noreferrer">Bankr / Pools ↗</a> : "Bankr / Pools"
     : data.source === "CoinGecko" ? <a href="https://www.coingecko.com/en/api" target="_blank" rel="noopener noreferrer">Data provided by CoinGecko</a>
-      : data.source ?? "Source unspecified"} · {data.source === "On-chain · Alchemy" ? "Block" : "Fetched"} <time dateTime={data.fetchedAt} title={data.fetchedAt}>{new Date(data.fetchedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}</time>{data.coverageStart && <> · Coverage from <time dateTime={data.coverageStart}>{new Date(data.coverageStart).toLocaleString("en-US")}</time></>}{data.historySource && <> · {label === "Summary" ? "Provider statistics" : "Earlier history"}: {data.historySource}{data.historyFetchedAt && <> · Fetched {new Date(data.historyFetchedAt).toLocaleTimeString("en-US")}</>}</>}{data.unit && <> · {data.unit}</>}{data.quoteUsd && <> · USD quote: {data.quoteUsd.source} at {new Date(data.quoteUsd.at).toLocaleTimeString("en-US")}</>}</span>;
+      : data.source ?? "Source unspecified"}{data.coverageStart && <> since <time dateTime={data.coverageStart}>{new Date(data.coverageStart).toLocaleString("en-US")}</time></>} · {data.source === "On-chain · Alchemy" ? "Block" : "Fetched"} <time dateTime={data.fetchedAt} title={data.fetchedAt}>{new Date(data.fetchedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}</time>{data.historySource && <> · {label === "Summary" ? "Provider statistics" : "Provider records"}: {data.historySource}{data.historyFetchedAt && <> · Fetched {new Date(data.historyFetchedAt).toLocaleTimeString("en-US")}</>}</>}{data.unit && <> · {data.unit}</>}{data.quoteUsd && <> · USD quote: {data.quoteUsd.source} at {new Date(data.quoteUsd.at).toLocaleTimeString("en-US")}</>}</span>;
 }
 export function emptyCandlesMessage(data: CandleData | null, interval: ChartInterval) {
   if (data?.reason) {
@@ -341,7 +341,6 @@ export default function TokenMarket({
             text={emptyText(history.data, history.error, emptyCandlesMessage(history.data, interval), "Previous chart snapshot. Refresh to update.")}
           />
         )}
-        {chartData?.history?.candles.length ? <details className="feed-note"><summary>Earlier history · {chartData.history.source} · USD</summary><Suspense fallback={null}><PriceChart data={chartData.history} endpoint={marketEndpoint(token, kind, `candles?interval=${interval}`)} interval={interval} symbol={token.symbol} type={chartType} /></Suspense></details> : null}
         {(!hasValues && !summary.loading || !chartData?.candles.length && !history.loading) && <p className="hint">Enter an amount in the trade panel for an on-chain price preview.</p>}
         {(summary.data || history.data || kind === "musegod") && <p className="feed-note">
           <MarketProvenance label="Summary" data={stats} kind={kind} />

@@ -1,3 +1,4 @@
+import {StreamAdmission} from "../server/swap-limits";
 import { SwapService, isWebhookPath } from "../server/swap-service";
 import { SqlSwapStore } from "../server/swap-store";
 import type { SwapMessage } from "../src/lib/swap-stream";
@@ -27,6 +28,7 @@ export class LaunchpadRuntime extends DurableObject<Env> {
   private service!: ReturnType<typeof createApp>["service"];
   private swaps!: SwapService;
   private fingerprint = "";
+  private readonly streams = new StreamAdmission();
   private readonly chainId: 4663 | 8453;
   private readonly ingress = new IngressLimiter();
   private readonly previews = new PreviewQueue();
@@ -69,7 +71,7 @@ export class LaunchpadRuntime extends DurableObject<Env> {
     const url = new URL(request.url);
     if (url.pathname === "/api/market/stream") return this.stream(request);
     if (isWebhookPath(url.pathname) && request.method === "POST") {
-      const admission=this.swaps.admitWebhook();
+      const admission=this.swaps.admitWebhook(request.headers.get("x-forwarded-for")??"unknown",request.headers.get("x-alchemy-signature")??undefined);
       if(admission.status)return Response.json({accepted:false},{status:admission.status,headers:{"Retry-After":"60"}});
       try {
         if (await this.ctx.storage.getAlarm() === null) await this.ctx.storage.setAlarm(Date.now()+30_000);
@@ -93,15 +95,15 @@ export class LaunchpadRuntime extends DurableObject<Env> {
     const url = new URL(request.url), pool = (url.searchParams.get("pool")??"").toLowerCase();
     if (request.method !== "GET" || request.headers.get("Upgrade")?.toLowerCase() !== "websocket") return new Response("WebSocket required",{status:426});
     if (request.headers.get("Origin") && request.headers.get("Origin") !== url.origin) return new Response("Forbidden",{status:403});
-    if (this.ctx.getWebSockets().length >= 128) return new Response("Stream capacity reached",{status:429});
-    if (!await this.swaps.pool(pool)) return new Response("Unknown pool",{status:404});
-    const ip=request.headers.get("x-forwarded-for")??"unknown";
-    if(this.ctx.getWebSockets().filter(socket=>socket.deserializeAttachment()?.ip===ip).length>=8)return new Response("Stream capacity reached",{status:429});
-    const pair = new WebSocketPair();
-    this.ctx.acceptWebSocket(pair[1],[pool]);
-    pair[1].serializeAttachment({pool,ip});
-    return new Response(null,{status:101,webSocket:pair[0]});
+    const ip=request.headers.get("x-forwarded-for")??"unknown",release=this.streams.reserve(ip,this.ctx.getWebSockets().map(socket=>socket.deserializeAttachment()?.ip??"unknown"));
+    if(!release)return new Response("Stream capacity reached",{status:429});
+    try{
+      if (!await this.swaps.pool(pool)) return new Response("Unknown pool",{status:404});
+      const pair = new WebSocketPair();this.ctx.acceptWebSocket(pair[1],[pool]);pair[1].serializeAttachment({pool,ip});
+      return new Response(null,{status:101,webSocket:pair[0]});
+    }finally{release();}
   }
+
   private broadcast(message: SwapMessage) {
     const data = JSON.stringify(message);
     for (const socket of this.ctx.getWebSockets(message.pool)) {
@@ -143,6 +145,7 @@ export class LaunchpadRuntime extends DurableObject<Env> {
     try {
       this.refreshRuntime();
       try { await this.swaps.reconcile("https://musegod.fun"); } catch { console.error("Swap webhook reconciliation is unavailable"); }
+      await this.swaps.maintain();
       await this.service.store.cleanup();
       await this.service.reconcile(60_000);
     } catch (error) {
