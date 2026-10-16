@@ -16,7 +16,8 @@ import {
 import { errorMessage } from "../lib/validation";
 import { changeClass } from "../lib/format";
 import type { LiveProjection, SupplyInfo } from "./SwapLive";
-const PriceChart = lazy(() => import("./MarketChart"));
+import PriceChart from "./PriceChart";
+const MarketChart = lazy(() => import("./MarketChart"));
 const SwapLive = lazy(() => import("./SwapLive").catch(() => ({ default: () => null })));
 const usd = (n: number | null | undefined, precise = false) =>
   n == null
@@ -328,8 +329,8 @@ export default function TokenMarket({
           </p>
         )}
         {chartData?.candles.length ? (
-          <Suspense fallback={<Message loading text="" />}>
-            <PriceChart
+          <Suspense fallback={<PriceChart candles={[]} symbol={token.symbol} unit={chartData.unit ?? "USD"} type={chartType} interval={interval} emptyMessage="Loading market data…" />}>
+            <MarketChart
               key={`${marketEndpoint(token, kind, `candles?interval=${interval}`).key}:${chartData.source}:${chartData.unit ?? "USD"}`}
               data={chartData}
               endpoint={marketEndpoint(token, kind, `candles?interval=${interval}`)}
@@ -339,9 +340,13 @@ export default function TokenMarket({
             />
           </Suspense>
         ) : (
-          <Message
-            loading={history.loading && !history.data}
-            text={emptyText(history.data, history.error, emptyCandlesMessage(history.data, interval), "Previous chart snapshot. Refresh to update.")}
+          <PriceChart
+            candles={[]}
+            symbol={token.symbol}
+            unit={chartData?.unit ?? "USD"}
+            type={chartType}
+            interval={interval}
+            emptyMessage={history.loading && !history.data ? "Loading market data…" : emptyText(history.data, history.error, emptyCandlesMessage(history.data, interval), "Previous chart snapshot. Refresh to update.")}
           />
         )}
         {(!hasValues && !summary.loading || !chartData?.candles.length && !history.loading) && <p className="hint">Enter an amount in the trade panel for an on-chain price preview.</p>}

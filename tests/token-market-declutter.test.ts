@@ -256,3 +256,25 @@ test("D4 the longest interval never suggests a longer one and reason codes remai
   assert.match(emptyCandlesMessage({ ...data, reason: "rate_limited" }, "1h"), /rate limited/);
   assert.doesNotMatch(emptyCandlesMessage({ ...data, reason: "backoff" }, "1h"), /Try a longer interval/);
 });
+
+test("empty, loading, failed and stale-empty charts share the real frame and retain their status", async () => {
+  for (const kind of ["launch", "musegod"] as const) {
+    for (const [options, status] of [
+      [{}, "No indexed price records for this interval."],
+      [{ candles: null, loading: true }, "Loading market data…"],
+      [{ candles: null, historyError: "The price request failed." }, "The price request failed."],
+      [{ candles: { reason: "not_indexed" } }, "The pool is not indexed yet."],
+      [{ candles: { reason: "rate_limited" } }, "The price provider is rate limited."],
+      [{ candles: { status: "stale", reason: "backoff", warning: "Previous chart snapshot. Refresh to update." } }, "Previous chart snapshot. Refresh to update."],
+    ] as const) {
+      const [market] = cards(await renderMarket({ ...options, kind }));
+      assert.match(market, /class="price-chart-wrap"/);
+      assert.match(market, /class="price-chart[^\"]*"[^>]*role="img"[^>]*with 0/);
+      assert.match(market, /class="chart-empty-status" role="status"/);
+      assert(market.includes(status));
+      assert.match(market, /TradingView Lightweight Charts/);
+      assert.doesNotMatch(market, /class="market-empty"|<b>/);
+      if (!("loading" in options)) assert.match(market, /Enter an amount in the trade panel for an on-chain price preview/);
+    }
+  }
+});

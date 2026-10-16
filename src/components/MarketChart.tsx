@@ -56,7 +56,7 @@ export default function MarketChart({ data, endpoint, interval, symbol, type }: 
   const note = loading ? "Loading older history…" : error || (exhausted === "window" ? "History is limited to the past 365 days" : exhausted ? "Beginning of indexed history" : "");
   const separateTime = fetchedAt && [fetchedAt.first, fetchedAt.last].some(time => Math.abs(Date.parse(time) - Date.parse(data.fetchedAt)) >= 60_000);
   return <>
-    <PriceChart candles={candles} symbol={symbol} unit={data.unit ?? "USD"} type={type} onLoadOlder={loadOlder} />
+    <PriceChart candles={candles} symbol={symbol} unit={data.unit ?? "USD"} type={type} interval={interval} onLoadOlder={candles.length ? loadOlder : undefined} />
     {(loading || exhausted || error || separateTime) && <p className="feed-note chart-history" role="status">
       {note}
       {separateTime && <>{note ? " · " : ""}History pages · Bankr · Fetched <time dateTime={fetchedAt!.first}>{new Date(fetchedAt!.first).toLocaleTimeString("en-US")}</time>

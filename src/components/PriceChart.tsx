@@ -9,7 +9,7 @@ import {
   type ISeriesApi,
   type UTCTimestamp,
 } from "lightweight-charts";
-import type { Candle } from "../lib/market";
+import type { Candle, ChartInterval } from "../lib/market";
 import { useTheme } from "../lib/theme";
 
 // Chart colors follow the page tokens so both themes stay legible.
@@ -32,12 +32,16 @@ export default function PriceChart({
   symbol,
   unit = "USD",
   type = "candles",
+  interval = "1h",
+  emptyMessage,
   onLoadOlder,
 }: {
   candles: Candle[];
   symbol: string;
   unit?: string;
   type?: "candles" | "line";
+  interval?: ChartInterval;
+  emptyMessage?: string;
   onLoadOlder?: () => void;
 }) {
   const { theme } = useTheme();
@@ -112,7 +116,7 @@ export default function PriceChart({
     volume.current = v;
     fitted.current = false;
     c.timeScale().subscribeVisibleLogicalRangeChange(range => {
-      if (interacted.current && fitted.current && range && range.from < 20) loadOlder.current?.();
+      if (candlesRef.current.length && interacted.current && fitted.current && range && range.from < 20) loadOlder.current?.();
     });
     c.subscribeCrosshairMove((event) => {
       const time = event.time;
@@ -134,8 +138,11 @@ export default function PriceChart({
     const prepended = first === undefined ? 0 : candles.filter(candle => candle.time < first).length;
     previousCandles.current = candles;
     const points = candles.map((c) => ({ ...c, time: c.time as UTCTimestamp }));
-    if (type === "line") (series.current as ISeriesApi<"Line"> | null)?.setData(points.map((c) => ({ time: c.time, value: c.close })));
-    else (series.current as ISeriesApi<"Candlestick"> | null)?.setData(points);
+    const step = { "1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400 }[interval];
+    const end = Math.floor(Date.now() / 1000 / step) * step;
+    const whitespace = () => Array.from({ length: 60 }, (_, index) => ({ time: (end - (59 - index) * step) as UTCTimestamp }));
+    if (type === "line") (series.current as ISeriesApi<"Line"> | null)?.setData(points.length ? points.map((c) => ({ time: c.time, value: c.close })) : whitespace());
+    else (series.current as ISeriesApi<"Candlestick"> | null)?.setData(points.length ? points : whitespace());
     volume.current?.setData(
       candles.map((c) => ({
         time: c.time as UTCTimestamp,
@@ -144,12 +151,17 @@ export default function PriceChart({
       })),
     );
     if (range && prepended) chart.current?.timeScale().setVisibleLogicalRange({ from: range.from + prepended, to: range.to + prepended });
-    if (!fitted.current && candles.length) {
+    if (!candles.length) {
+      fitted.current = false;
+      setHover(null);
+      // fitContent anchors at the first timestamp when every point is whitespace.
+      chart.current?.timeScale().setVisibleLogicalRange({ from: 0, to: 59 });
+    } else if (!fitted.current) {
       chart.current?.timeScale().fitContent();
-      fitted.current = true;
+      fitted.current = !!candles.length;
     }
-  }, [candles, type, theme]);
-  const bar = hover ?? candles.at(-1);
+  }, [candles, type, theme, interval]);
+  const bar = candles.length ? hover ?? candles.at(-1) : undefined;
   return (
     <div className="price-chart-wrap">
       <div className="chart-ohlc" aria-live="off">
@@ -169,14 +181,17 @@ export default function PriceChart({
           </>
         )}
       </div>
-      <div
-        className="price-chart"
-        ref={container}
-        onPointerDown={() => { interacted.current = true; }}
-        onWheel={() => { interacted.current = true; }}
-        role="img"
-        aria-label={`${symbol} ${unit} ${type === "line" ? "line" : "candlestick"} chart and volume with ${candles.length} ${type === "line" ? "points" : "candles"}. Drag, zoom, and hover to inspect prices.`}
-      />
+      <div className="chart-frame">
+        <div
+          className={`price-chart${candles.length ? "" : " is-empty"}`}
+          ref={container}
+          onPointerDown={() => { interacted.current = true; }}
+          onWheel={() => { interacted.current = true; }}
+          role="img"
+          aria-label={`${symbol} ${unit} ${type === "line" ? "line" : "candlestick"} chart and volume with ${candles.length} ${type === "line" ? "points" : "candles"}. Drag, zoom, and hover to inspect prices.`}
+        />
+        {!candles.length && emptyMessage && <div className="chart-empty-status" role="status"><span>{emptyMessage}</span></div>}
+      </div>
       <div className="chart-credit">
         <span>UTC · {unit} price / volume</span>
         <a href="https://www.tradingview.com/" target="_blank" rel="noreferrer">
