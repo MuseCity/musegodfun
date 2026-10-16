@@ -11,10 +11,16 @@ export function securityHeaders(secure: boolean, production = true): Record<stri
     } : {}),
   };
 }
+/** Query strings never select a webhook kind; Base has only V4. */
+export function webhookKindForPath(path:string,chainId?:4663|8453):'v3'|'v4'|undefined{
+  const match=/^\/api\/(?:chains\/(4663|8453)\/)?webhooks\/alchemy\/(v3|v4)$/.exec(path.split('?')[0]);
+  if(!match||match[1]&&chainId&&Number(match[1])!==chainId||(chainId??Number(match[1]))===8453&&match[2]!=='v4')return;
+  return match[2] as 'v3'|'v4';
+}
 /** Frozen creation backups repeat encoded metadata; other request bodies keep
  * the smaller ingress bound. Both Node and Worker enforce this same limit. */
 export function requestBodyLimitForPath(path: string): number {
-  if (/^\/api\/(?:chains\/(?:8453|4663)\/)?webhooks\/alchemy$/.test(path.split("?")[0])) return 1_048_576;
+  if (webhookKindForPath(path)) return 1_048_576;
   return /^\/api\/(?:chains\/(?:8453|4663)\/)?launch\/register\/?$/i.test(path.split("?")[0]) ? 262_144 : 65_536;
 }
 export type BoundedBody = { status: 408 | 413 } | { bytes: Uint8Array };

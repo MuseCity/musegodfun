@@ -8,7 +8,7 @@ import { clientBucket, IngressLimiter, PreviewQueue, RiskChallenge } from "./abu
 import { BudgetUnavailable, recoveryBudget, withRecoveryBudget } from "./runtime-policy";
 import { sameAddress, listedTokens, type RuntimeConfig, type TokenRecord } from "../src/lib/config";
 import { firstBuyPaymentInput, FIRST_BUY_SLIPPAGE_BPS } from "../src/lib/first-buy-payment";
-import { securityHeaders, requestBodyLimitForPath, BODY_READ_DEADLINE_MS } from "./http-security";
+import { securityHeaders, requestBodyLimitForPath, BODY_READ_DEADLINE_MS, webhookKindForPath } from "./http-security";
 import { TokenImages } from "./token-images";
 import { z } from "zod";
 import { createPublicClient, http, parseUnits, type Address, type Hex } from "viem";
@@ -129,6 +129,7 @@ app.set("json replacer", (_key: string, value: unknown) =>
 app.use((req, res, next) => {
   for (const [key, value] of Object.entries(securityHeaders(req.secure, runtime.environment?.NODE_ENV === "production")))
     res.setHeader(key, value);
+  if(/^\/api\/webhooks\/alchemy(?:\/|$)/.test(req.path)&&!webhookKindForPath(req.path,deploymentChain(runtime.config))){res.status(404).json({error:'Not found'});return;}
   if (
     req.method === "POST" && !isWebhookPath(req.path) &&
     req.headers.origin &&
@@ -141,7 +142,8 @@ app.use((req, res, next) => {
 });
 // Only this exact raw-body route bypasses browser Origin and challenge middleware.
 const webhookRaw=express.raw({type:()=>true,limit:WEBHOOK_BODY_LIMIT,inflate:false});
-app.post("/api/webhooks/alchemy", (req,res,next) => {
+app.post(["/api/webhooks/alchemy/v3","/api/webhooks/alchemy/v4"], (req,res,next) => {
+  const kind=webhookKindForPath(req.path,deploymentChain(runtime.config))!;
   const ip=req.ip||"unknown",signature=typeof req.headers["x-alchemy-signature"]==="string"?req.headers["x-alchemy-signature"]:undefined;
   const admission=swaps.admitWebhook(ip,signature,req.headers["content-length"],req.headers["transfer-encoding"]);if(admission.status){res.setHeader("Retry-After","60");res.status(admission.status).json({accepted:false});return;}
   // Deadline, abort and raw-body errors (including length mismatches) before HMAC spend the source budget; HMAC releases first.
@@ -149,7 +151,7 @@ app.post("/api/webhooks/alchemy", (req,res,next) => {
   req.once('aborted',fail);res.once('close',release);res.once('finish',release);
   webhookRaw(req,res,error=>{
     if(res.writableEnded)return;if(error){fail();next(error);return;}
-    void swaps.ingest(req.body instanceof Uint8Array?req.body:new Uint8Array(),signature,ip,release)
+    void swaps.ingest(req.body instanceof Uint8Array?req.body:new Uint8Array(),signature,kind,ip,release)
       .then(result=>{if(!res.destroyed)res.status(result.status).json({accepted:result.status===200});}).catch(next).finally(release);
   });
 });

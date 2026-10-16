@@ -20,15 +20,15 @@ test('C1-4: failure backs off exponentially, pool changes reset, success clears 
  fail=true;const changed=[...pools,{...pools[0],version:3 as const,pool:'0x'+'ab'.repeat(20)}];await assert.rejects(reconcileWebhook(store,api,4663,changed,url,62000));assert.equal(calls,4);
 });
 for(const scenario of ['timeout-after-create','eviction-after-create','verify-failure'])test(`C1-5/C1-10: ${scenario} sweeps same-callback orphans and immediately deletes superseded hooks`,async()=>{
- const store=new MemorySwapStore(),desired=desiredWebhook(4663,pools,url,'v3'),hooks:any[]=[hook({...desired,webhook_url:url+'?set=obsolete'},'old'),hook({...desired,webhook_url:'https://other.invalid/api/chains/4663/webhooks/alchemy'},'other')];let first=true;const removed:string[]=[];
+ const store=new MemorySwapStore(),desired=desiredWebhook(4663,pools,url,'v3'),hooks:any[]=[hook({...desired,webhook_url:url+'/v3?set=obsolete'},'old'),hook({...desired,webhook_url:'https://other.invalid/api/chains/4663/webhooks/alchemy'},'other')];let first=true;const removed:string[]=[];
  const api=new NotifyClient('test',async(input,init)=>{const u=new URL(String(input));if(init?.method==='DELETE'){const id=u.searchParams.get('webhook_id')!;removed.push(id);hooks.splice(hooks.findIndex(h=>h.id===id),1);return Response.json({});}if(init?.method==='POST'){const created=hook(JSON.parse(String(init.body)),'new');hooks.push(created);if(first){first=false;if(scenario==='timeout-after-create')throw Error('timeout');if(scenario==='verify-failure')return Response.json({data:{...created,network:'BASE_MAINNET'}});if(scenario==='eviction-after-create')throw Error('evicted');}return Response.json({data:created});}return Response.json({data:hooks});});
  await assert.rejects(reconcileWebhook(store,api,4663,pools,url,1000));await reconcileWebhook(store,api,4663,pools,url,61000);assert(removed.includes('old'));assert(!removed.includes('other'));assert.equal(hooks.filter(h=>new URL(h.webhook_url).origin==='https://musegod.fun').length,1);assert.equal(store.get<any>('notify-v3').bindings[0].id,'new');
 });
 test('C1-6/C1-7: reject raw invalid JSON before parse; junk never spends valid rate; delivery never fetches USD',async()=>{
  const store=new MemorySwapStore();store.set('notify-v3',{bindings:[{id:'wh_test_v3',network:'ROBINHOOD_MAINNET',kind:'v3' as const,key}]});let prices=0;const service=new SwapService(4663,store,{pools:async()=>pools,quote:async()=>{prices++;return null;}});
- assert.equal((await service.ingest(Buffer.from('{'),undefined)).status,401);
- for(let n=0;n<650;n++){service.admitWebhook('203.0.113.1',undefined);await service.ingest(Buffer.from('{'),undefined);}
- const body=structuredClone(fixtures.deliveries.v3);body.event.data.block.timestamp=Math.floor(Date.now()/1000);const raw=Buffer.from(JSON.stringify(body));assert.equal((await service.ingest(raw,createHmac('sha256',key).update(raw).digest('hex'))).status,200);assert.equal(prices,0);assert.equal(store.rows(MUSE_POOL)[0].priceUsd,undefined);
+ assert.equal((await service.ingest(Buffer.from('{'),undefined,'v3')).status,401);
+ for(let n=0;n<650;n++){service.admitWebhook('203.0.113.1',undefined);await service.ingest(Buffer.from('{'),undefined,'v3');}
+ const body=structuredClone(fixtures.deliveries.v3);body.event.data.block.timestamp=Math.floor(Date.now()/1000);const raw=Buffer.from(JSON.stringify(body));assert.equal((await service.ingest(raw,createHmac('sha256',key).update(raw).digest('hex'),'v3')).status,200);assert.equal(prices,0);assert.equal(store.rows(MUSE_POOL)[0].priceUsd,undefined);
 });
 test('C1-8/C1-13: union retains provider rows after coverage and empty own summary preserves provider',()=>{
  const t=delivery().trades[0],base={source:'Bankr' as const,fetchedAt:t.at,trades:[{id:t.hash+':99',hash:t.hash,logIndex:99,at:t.at,account:null,side:'buy' as const,amount:1,usd:1,price:1}]};assert.equal(mergeTrades(base,[t],t.at).trades.length,2);
@@ -65,7 +65,7 @@ test('C1-1/C1-9: SQLite pruning is bounded and finality survives adapter reload 
 });
 test('C1-6: only current and immediately superseded keys authenticate; invalid raw bytes never parse',async()=>{
  const store=new MemorySwapStore();store.set('notify-v3',{bindings:[{id:'current',network:'ROBINHOOD_MAINNET',kind:'v3' as const,key:'a'},{id:'previous',network:'ROBINHOOD_MAINNET',kind:'v3' as const,key:'b',retireAt:Date.now()+10000},{id:'ancient',network:'ROBINHOOD_MAINNET',kind:'v3' as const,key:'c'}]});const service=new SwapService(4663,store,{pools:async()=>pools});const raw=Buffer.from('{');
- assert.equal((await service.ingest(raw,createHmac('sha256','a').update(raw).digest('hex'))).status,400);assert.equal((await service.ingest(raw,createHmac('sha256','c').update(raw).digest('hex'))).status,401);
+ assert.equal((await service.ingest(raw,createHmac('sha256','a').update(raw).digest('hex'),'v3')).status,400);assert.equal((await service.ingest(raw,createHmac('sha256','c').update(raw).digest('hex'),'v3')).status,401);
 });
 test('C1-8: union keeps each provider row source; provider-only result retains provider provenance',()=>{
  const t=delivery().trades[0],base={source:'Bankr' as const,fetchedAt:t.at,trades:[{id:t.hash+':99',hash:t.hash,logIndex:99,at:t.at,account:null,side:'buy' as const,amount:1,usd:1,price:1}]};assert.equal(mergeTrades(base,[t],t.at).trades.find(r=>r.logIndex===99)?.source,'Bankr');assert.equal(mergeTrades(base,[],t.at).source,'Bankr');
@@ -82,7 +82,7 @@ test('C1-1: alarm backlog has a hard ceiling and overload cannot partially commi
 });
 test('C1-2: late delivery emits an explicit gap instead of silently corrupting incremental candle volume',async()=>{
  const store=new MemorySwapStore(),messages:any[]=[],service=new SwapService(4663,store,{pools:async()=>pools,broadcast:m=>messages.push(m)});store.set('notify-v3',{bindings:[{id:'wh_test_v3',network:'ROBINHOOD_MAINNET',kind:'v3' as const,key}]});
- for(const offset of [2,1]){const body=structuredClone(fixtures.deliveries.v3);body.event.data.block.number+=offset;body.event.data.block.logs[0].transaction.hash='0x'+String(offset).repeat(64);body.event.data.block.timestamp=Math.floor(Date.now()/1000);const raw=Buffer.from(JSON.stringify(body));assert.equal((await service.ingest(raw,createHmac('sha256',key).update(raw).digest('hex'))).status,200);}
+ for(const offset of [2,1]){const body=structuredClone(fixtures.deliveries.v3);body.event.data.block.number+=offset;body.event.data.block.logs[0].transaction.hash='0x'+String(offset).repeat(64);body.event.data.block.timestamp=Math.floor(Date.now()/1000);const raw=Buffer.from(JSON.stringify(body));assert.equal((await service.ingest(raw,createHmac('sha256',key).update(raw).digest('hex'),'v3')).status,200);}
  assert.equal(messages[0].gap,undefined);assert.equal(messages[1].gap,true);
 });
 test('C1-2/C1-8: repeated own price merges retain the original provider statistics source',()=>{

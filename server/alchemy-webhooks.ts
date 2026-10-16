@@ -37,23 +37,25 @@ export function desiredWebhook(chainId:4663|8453,pools:SwapPool[],url:string,kin
  const fields="index topics data account { address } transaction { hash from { address } }";
  const filter=kind==='v4'?`addresses: ["${contractsFor({mode:chainId===4663?"robinhood":"base",deploymentChainId:chainId}).poolManager.toLowerCase()}"], topics: [["${V4_TOPIC}"], ${JSON.stringify(ids)}]`:`addresses: ${JSON.stringify(ids)}, topics: [["${V3_TOPIC}"]]`;
  const query=`{ block { hash number timestamp logs(filter: {${filter}}) { ${fields} } } }`;
- const hash=createHash("sha256").update(JSON.stringify({chainId,kind,url,query})).digest("hex");
- return {network:NETWORKS[chainId],webhook_type:"GRAPHQL",webhook_url:`${url}?kind=${kind}&set=${hash}`,name:`musegod-swaps-${chainId}-${kind}-${hash.slice(0,24)}`,graphql_query:{query,skip_empty_messages:true},hash};
+ const callback=new URL(url);callback.pathname+=`/${kind}`;callback.search='';callback.hash='';
+ const hash=createHash("sha256").update(JSON.stringify({chainId,kind,url:callback.toString(),query})).digest("hex");
+ callback.searchParams.set('set',hash);
+ return {network:NETWORKS[chainId],webhook_type:"GRAPHQL",webhook_url:callback.toString(),name:`musegod-swaps-${chainId}-${kind}-${hash.slice(0,24)}`,graphql_query:{query,skip_empty_messages:true},hash};
 }
 export function webhookDiff(hooks:NotifyHook[],desired:ReturnType<typeof desiredWebhook>,storedId?:string){const match=hooks.find(h=>h.id===storedId&&validHook(h,desired));return {action:match?"keep":!storedId&&hooks.some(h=>sameCallback(h.webhook_url,desired.webhook_url))?"verify-runtime-binding":"create",name:desired.name,network:desired.network,url:desired.webhook_url,existingId:match?.id??null};}
 /** Compare callback identity independently of the deterministic pool-set query. */
-function sameCallback(a:string,b:string){const x=new URL(a),y=new URL(b);return x.origin===y.origin&&x.pathname===y.pathname&&x.searchParams.get('kind')===y.searchParams.get('kind');}
+function sameCallback(a:string,b:string){const x=new URL(a),y=new URL(b);return x.origin===y.origin&&x.pathname===y.pathname;}
 function validHook(h:NotifyHook,d:ReturnType<typeof desiredWebhook>){return h.network===d.network&&sameCallback(h.webhook_url,d.webhook_url)&&h.webhook_type==='GRAPHQL'&&h.is_active;}
 export async function reconcileWebhook(store:SwapStore,api:NotifyClient,chainId:4663|8453,pools:SwapPool[],url:string,now=Date.now()){
  // The failed single-webhook production state has no binding. Its legacy counters never gate the new kinds.
  const active=webhookKinds(chainId).filter(kind=>pools.some(p=>p.chainId===chainId&&p.version===(kind==='v4'?4:3))||store.get<NotifyState>('notify-'+kind)||store.get<NotifyAttempt>('notify-attempt-'+kind));
- const results=await Promise.allSettled(active.map(kind=>reconcileKind(store,api,chainId,pools,url,kind,kind===active[0],now)));
+ const results=await Promise.allSettled(active.map(kind=>reconcileKind(store,api,chainId,pools,url,kind,now)));
  if(results.some(r=>r.status==='rejected'))throw Error('Notify reconciliation unavailable');
 }
-async function reconcileKind(store:SwapStore,api:NotifyClient,chainId:4663|8453,pools:SwapPool[],url:string,kind:WebhookKind,sweepLegacy:boolean,now:number){
+async function reconcileKind(store:SwapStore,api:NotifyClient,chainId:4663|8453,pools:SwapPool[],url:string,kind:WebhookKind,now:number){
  const desired=desiredWebhook(chainId,pools,url,kind),stateKey='notify-'+kind,attemptKey='notify-attempt-'+kind,state=store.get<NotifyState>(stateKey);
  const attempt=store.get<NotifyAttempt>(attemptKey),hasPools=pools.some(p=>p.chainId===chainId&&p.version===(kind==='v4'?4:3));
- const ownCallback=(callback:string)=>sameCallback(callback,desired.webhook_url)||(sweepLegacy&&sameCallback(callback,url));
+ const bound=(id:string,otherOnly=false)=>webhookKinds(chainId).some(k=>(!otherOnly||k!==kind)&&store.get<NotifyState>('notify-'+k)?.bindings.some(b=>b.id===id));
  if(attempt?.hash===desired.hash&&now<attempt.nextAt)throw Error("Notify reconciliation retry is pending");
  if(state?.hash===desired.hash&&now-state.checkedAt<86400_000&&!(attempt?.failures))return;
  const same=attempt?.hash===desired.hash,failures=same?attempt.failures:0;
@@ -70,8 +72,8 @@ async function reconcileKind(store:SwapStore,api:NotifyClient,chainId:4663|8453,
    hook=hooks.find(h=>h.id===webhookDiff(hooks,desired,storedId).existingId);
    if(!hook){
     // Never create while an uncertain orphan still exists. Other origins/chains and bound hooks are untouched.
-    for(const old of hooks)if(ownCallback(old.webhook_url)&&!state?.bindings.some(b=>b.id===old.id)){await api.remove(old.id);removed.add(old.id);}
-    if(next.createdId&&!hooks.some(h=>h.id===next.createdId))await api.remove(next.createdId);
+    for(const old of hooks)if(sameCallback(old.webhook_url,desired.webhook_url)&&!bound(old.id)){await api.remove(old.id);removed.add(old.id);}
+    if(next.createdId&&!hooks.some(h=>h.id===next.createdId)&&!bound(next.createdId))await api.remove(next.createdId);
     // An uncertain creation that reached Alchemy was just swept as an orphan and does not count; one that never arrived does.
     if(next.uncertain&&!removed.size)next.creationFailures=(next.creationFailures??0)+1;
     delete next.uncertain;delete next.createdId;store.set(attemptKey,next);
@@ -88,10 +90,12 @@ async function reconcileKind(store:SwapStore,api:NotifyClient,chainId:4663|8453,
   // Store and verify the new key before deleting remote destinations. Only one superseded key survives briefly.
   store.set(stateKey,{hash:desired.hash,checkedAt:now,bindings});
   createdId=undefined;
-  for(const old of hooks)if(old.id!==hook?.id&&!removed.has(old.id)&&ownCallback(old.webhook_url))await api.remove(old.id);
+  // Retire this kind's superseded destination explicitly; orphan sweeps never touch any stored binding.
+  for(const old of state?.bindings??[])if(old.id!==hook?.id&&!removed.has(old.id)&&hooks.some(h=>h.id===old.id)&&!bound(old.id,true)){await api.remove(old.id);removed.add(old.id);}
+  for(const old of hooks)if(!removed.has(old.id)&&sameCallback(old.webhook_url,desired.webhook_url)&&!bound(old.id))await api.remove(old.id);
   store.set(attemptKey,{hash:desired.hash,failures:0,creationFailures:0,nextAt:0});
  }catch{
-  if(createdId)try{await api.remove(createdId);delete next.createdId;}catch{}
+  if(createdId&&!bound(createdId))try{await api.remove(createdId);delete next.createdId;}catch{}
   if((next.creationFailures??0)>=5){next.nextAt=now+3600_000;next.verifyAt??=now+86400_000;}
   store.set(attemptKey,next);throw Error("Notify reconciliation unavailable");
  }

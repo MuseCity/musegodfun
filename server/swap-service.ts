@@ -2,7 +2,8 @@ import type { CandleData,ChartInterval,MarketSummary,TradeData } from "../src/li
 import { INTERVAL_SECONDS } from "../src/lib/candle-history";
 import { mergeCandles,mergeCandleBuckets,mergeSummary,mergeTrades,priceTrade } from "../src/lib/swap-market";
 import type { OnchainTrade,SwapMessage } from "../src/lib/swap-stream";
-import { decodeDelivery,NETWORKS,verifySignature,type SwapPool } from "./swap-stream";
+import { decodeDelivery,NETWORKS,verifySignature,type SwapPool,type WebhookKind } from "./swap-stream";
+import {webhookKindForPath} from './http-security';
 import { NotifyClient,reconcileWebhook,webhookKinds,NOTIFY_RECONCILE_BUDGET_MS,type NotifyState,type NotifyAttempt } from "./alchemy-webhooks";
 import { order,SwapCapacityError,type SwapStore } from "./swap-store";
 import {clientBucket} from './abuse';
@@ -16,7 +17,7 @@ export const webhookReadFailureCost=(heldMs:number)=>heldMs<1000?5:Math.min(60,M
  * these addresses, its new senders fall back to the proportional charge. */
 export const ALCHEMY_WEBHOOK_SENDERS:ReadonlySet<string>=new Set(['54.236.136.17','34.237.24.169']);
 export const SWAP_MAINTENANCE_BUDGET_MS=10_000,SWAP_BLOCK_TIMEOUT_MS=2_000;
-export const isWebhookPath=(path:string)=>/^\/api\/(?:chains\/(?:4663|8453)\/)?webhooks\/alchemy$/.test(path.split('?')[0]);
+export const isWebhookPath=(path:string,chainId?:4663|8453)=>!!webhookKindForPath(path,chainId);
 export class SwapService {
  private pending=Promise.resolve();private reconciling?:Promise<void>;private rate={at:0,count:0};private active=0;
  private clients=new Map<string,{at:number;count:number}>();private readers=new Map<string,number>();private reading=0;
@@ -51,10 +52,10 @@ export class SwapService {
   return {status:0,release,fail:()=>{if(done)return;if(!ALCHEMY_WEBHOOK_SENDERS.has(key))this.spend(key,webhookReadFailureCost(Date.now()-acquired));release();}};
  }
  private publish(message:SwapMessage){this.options.broadcast?.(message);for(const listener of this.listeners)listener(message);}
- async ingest(raw:Uint8Array,signature:string|undefined,ip='unknown',release=()=>{}){
-  // HMAC raw bytes before parsing: at most two keys per kind (four on Robinhood, two on Base).
+ async ingest(raw:Uint8Array,signature:string|undefined,kind:WebhookKind,ip='unknown',release=()=>{}){
+  // The callback path selects one kind before raw HMAC: at most its current and immediately superseded key.
   const now=Date.now();let binding:NotifyState['bindings'][number]|undefined;
-  try{if(raw.byteLength>WEBHOOK_BODY_LIMIT)return {status:413};binding=webhookKinds(this.chainId).flatMap(kind=>(this.store.get<NotifyState>('notify-'+kind)?.bindings??[]).slice(0,2).filter(k=>k.network===NETWORKS[this.chainId]&&(!k.retireAt||k.retireAt>now)).map(k=>({...k,kind}))).find(k=>verifySignature(raw,signature,k.key));if(!binding)return {status:this.rejectWebhook(ip)};}finally{release();}
+  try{if(raw.byteLength>WEBHOOK_BODY_LIMIT)return {status:413};if(!webhookKinds(this.chainId).includes(kind))return {status:404};binding=(this.store.get<NotifyState>('notify-'+kind)?.bindings??[]).slice(0,2).filter(k=>k.kind===kind&&k.network===NETWORKS[this.chainId]&&(!k.retireAt||k.retireAt>now)).find(k=>verifySignature(raw,signature,k.key));if(!binding)return {status:this.rejectWebhook(ip)};}finally{release();}
   if(now-this.rate.at>=60_000)this.rate={at:now,count:0};if(this.rate.count>=600||this.active>=8)return {status:429};this.rate.count++;this.active++;
   try{
    let delivery,pools:SwapPool[];try{pools=await this.options.pools();delivery=decodeDelivery(new TextDecoder().decode(raw),binding,pools);delivery.generation=binding.generation??0;}catch{return {status:400};}

@@ -18,7 +18,7 @@ test('Notify uses documented create/list/delete shapes, one unaliased filter per
 
 test('restart verifies the stored id with a normalised callback at most daily and redacts failures',async()=>{
  const pools=registeredPools(4663,[]),desired=desiredWebhook(4663,pools,'https://musegod.fun/api/chains/4663/webhooks/alchemy','v3');let calls=0;
- const hook={id:'wh_existing',network:desired.network,webhook_type:'GRAPHQL',webhook_url:desired.webhook_url.split('&set=')[0],is_active:true,signing_key:'synthetic-secret'};
+ const hook={id:'wh_existing',network:desired.network,webhook_type:'GRAPHQL',webhook_url:desired.webhook_url.split('?')[0],is_active:true,signing_key:'synthetic-secret'};
  const api=new NotifyClient('synthetic-token',async()=>{calls++;return Response.json({data:[hook]});});const store=new MemorySwapStore();
  store.set('notify-v3',{hash:desired.hash,checkedAt:-86400000,bindings:[{id:hook.id,network:hook.network,key:hook.signing_key}]});
  await reconcileWebhook(store,api,4663,pools,'https://musegod.fun/api/chains/4663/webhooks/alchemy',1);assert.equal(calls,1);assert.equal(store.get<any>('notify-v3').bindings[0].id,'wh_existing');

@@ -7,7 +7,7 @@ import { httpServerHandler } from "cloudflare:node";
 import { createServer } from "node:http";
 import { createApp, knownPage, chainApiRoute, legacyTokenPath } from "../server/app";
 import { redact, runtimeFromEnv } from "../server/config";
-import { securityHeaders, requestBodyLimitForPath, readBoundedBody, BODY_READ_DEADLINE_MS } from "../server/http-security";
+import { securityHeaders, requestBodyLimitForPath, readBoundedBody, BODY_READ_DEADLINE_MS, webhookKindForPath } from "../server/http-security";
 import { IngressLimiter, PreviewQueue, RiskChallenge } from "../server/abuse";
 import type { RuntimeEnvironment } from "../server/config";
 
@@ -70,7 +70,9 @@ export class LaunchpadRuntime extends DurableObject<Env> {
     this.refreshRuntime();
     const url = new URL(request.url);
     if (url.pathname === "/api/market/stream") return this.stream(request);
-    if (isWebhookPath(url.pathname) && request.method === "POST") {
+    const kind=webhookKindForPath(url.pathname,this.chainId);
+    if(/^\/api\/(?:chains\/[^/]+\/)?webhooks\/alchemy(?:\/|$)/.test(url.pathname)&&!kind)return new Response('Not found',{status:404});
+    if (kind && request.method === "POST") {
       const ip=request.headers.get("x-forwarded-for")??"unknown",signature=request.headers.get("x-alchemy-signature")??undefined;
       const admission=this.swaps.admitWebhook(ip,signature,request.headers.get("content-length"),request.headers.get("transfer-encoding"));
       if(admission.status)return Response.json({accepted:false},{status:admission.status,headers:{"Retry-After":"60"}});
@@ -81,7 +83,7 @@ export class LaunchpadRuntime extends DurableObject<Env> {
         try { read = await readBoundedBody(request.body,length,BODY_READ_DEADLINE_MS,request.signal); } catch (error) { admission.fail(); throw error; }
         // A timed-out, aborted, short or overlong body held a pre-read slot without reaching HMAC: it spends the source budget.
         if ("status" in read || read.bytes.byteLength!==length) { admission.fail(); return Response.json({accepted:false},{status:"status" in read?read.status:400}); }
-        const result = await this.swaps.ingest(read.bytes,signature,ip,admission.release);
+        const result = await this.swaps.ingest(read.bytes,signature,kind,ip,admission.release);
         return Response.json({accepted:result.status===200},{status:result.status});
       }finally{admission.release();}
     }
@@ -119,7 +121,6 @@ export class LaunchpadRuntime extends DurableObject<Env> {
   private async handleRequest(request: Request): Promise<Response> {
     if (await this.ctx.storage.getAlarm() === null)
       await this.ctx.storage.setAlarm(Date.now() + 30_000);
-    if (!this.swaps.store.get("notify")) this.ctx.waitUntil(this.swaps.reconcile("https://musegod.fun").catch(() => {}));
     // Drain the actual ingress stream before Node can reject a request early.
     // The adapter may otherwise continue reading it after sending the response.
     if (request.body) {

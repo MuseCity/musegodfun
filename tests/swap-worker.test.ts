@@ -16,15 +16,15 @@ test('real Worker: mocked Notify lifecycle, hibernating same-origin socket, sign
  throw Error('Unexpected upstream '+u.hostname);
  }});
  const mf=new Miniflare(options());try{
- const initial=await mf.dispatchFetch('https://musegod.fun/api/config');assert.equal(initial.status,200,await initial.text());
+ const initial=await mf.dispatchFetch('https://musegod.fun/api/config');assert.equal(initial.status,200,await initial.text());assert.equal(creates,0,'ordinary requests only schedule the alarm');
  const sync=await mf.dispatchFetch('https://musegod.fun/api/chains/4663/webhooks/alchemy/reconcile',{method:'POST',headers:{Authorization:'Bearer synthetic-notify'}});assert.equal(sync.status,404,(await sync.text())+JSON.stringify(calls));
- for(let i=0;i<100&&!hook;i++)await new Promise(r=>setTimeout(r,10));assert(hook,JSON.stringify(calls));assert.equal(creates,1);
+ for(let i=0;i<3500&&!hook;i++)await new Promise(r=>setTimeout(r,10));assert(hook,JSON.stringify(calls));assert.equal(creates,1);
  const ready=await mf.dispatchFetch('https://musegod.fun/readyz'),status=await ready.json() as any;assert.equal(ready.status,200);assert.equal(status.swapStream.kinds.v3.creationStopped,false);assert(!JSON.stringify(status).includes(key));
  const denied=await mf.dispatchFetch(`https://musegod.fun/api/chains/4663/market/stream?pool=${MUSE_POOL}`,{headers:{Upgrade:'websocket',Origin:'https://evil.invalid'}});assert.equal(denied.status,403);
  const upgrade=await mf.dispatchFetch(`https://musegod.fun/api/chains/4663/market/stream?pool=${MUSE_POOL}`,{headers:{Upgrade:'websocket',Origin:'https://musegod.fun'}});assert.equal(upgrade.status,101);const socket=upgrade.webSocket!;socket.accept();
  const next=new Promise<any>(resolve=>socket.addEventListener('message',e=>resolve(JSON.parse(e.data as string))));
  const body=structuredClone(fixtures.deliveries.v3);body.event.data.block.timestamp=Math.floor(Date.now()/1000);const raw=JSON.stringify(body),signature=createHmac('sha256',key).update(raw).digest('hex');
- const deliver=()=>mf.dispatchFetch('https://musegod.fun/api/chains/4663/webhooks/alchemy',{method:'POST',headers:{'Content-Type':'application/json','Content-Length':String(Buffer.byteLength(raw)),'X-Alchemy-Signature':signature,Origin:'https://alchemy.com'},body:raw});
+ const deliver=()=>mf.dispatchFetch('https://musegod.fun/api/chains/4663/webhooks/alchemy/v3',{method:'POST',headers:{'Content-Type':'application/json','Content-Length':String(Buffer.byteLength(raw)),'X-Alchemy-Signature':signature,Origin:'https://alchemy.com'},body:raw});
  assert.equal((await deliver()).status,200);assert.equal((await next).trades[0].hash,fixtures.v3[0].transactionHash);
  for(let n=0;n<125;n++)assert.equal((await deliver()).status,200,'verified Worker deliveries bypass the 120/min source bucket');
  const result=await mf.dispatchFetch('https://musegod.fun/api/chains/4663/musegod/market/trades');assert.equal(result.status,200);assert.equal((await result.json() as any).trades.length,1);
