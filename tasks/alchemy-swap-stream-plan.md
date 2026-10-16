@@ -267,3 +267,7 @@ Historical implementation record; lifecycle, admission, pricing, serving and pus
   - Claude fix `fc7d1a9`: a provider headline snapshot carried across pushes, so push equals REST (X5-1).
 - Claude review accepted C5-1/C5-2. Codex review found X5-1, and codex accepted the fix.
 - Conductor rerun on `fc7d1a9`: `npm test` **1775/1775**, build, diff check, Han scan and bundle scan pass (no `socket.io-client`, `api.bankr.bot` or LI.FI key header strings in browser assets).
+
+### Run 10 (claude fix) - 2026-10-16
+
+- Fixed X6-1, found in production after release `a58f726`: the display price reader (`server/swap-prices.ts`) stored the global `fetch` as its default and called it as a method, which workerd rejects as "Illegal invocation", so `quoteUsd` stayed null without any LI.FI request. The default now calls `fetch` unbound, as `NotifyClient` does; the Node-only webhook CLI default is wrapped the same way. A scan of `server/` found no other stored-global method call. Budgets, caching, identity checks and key handling are unchanged. A new real-workerd regression (`tests/swap-prices-worker.test.ts`, Miniflare with production compatibility flags and an outbound LI.FI fixture) failed on `a58f726` and passes now, with and without a configured `x-lifi-api-key`; `npm test` 1776 pass, 0 fail; build, whitespace, Han and bundle checks clean. Local only; release remains owner-approved.

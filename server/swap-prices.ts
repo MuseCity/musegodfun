@@ -2,7 +2,8 @@ import type {SwapPool} from './swap-stream';import type {OnchainTrade} from '../
 /** Display-only token reads: no payment reader, shared LI.FI reservation, or shared backoff. */
 export class SwapQuotePrices{
  private cache=new Map<string,{at:number;ttl:number;value:Promise<OnchainTrade['quoteUsd']>;price:OnchainTrade['quoteUsd']}>();private budgets=new Map<number,{at:number;count:number}>();
- constructor(private fetcher:typeof fetch=fetch,private now=Date.now,private apiKey?:string){}
+ // workerd rejects the global fetch called as a method ("Illegal invocation"), so the default calls it unbound.
+ constructor(private fetcher:typeof fetch=(input,init)=>fetch(input,init),private now=Date.now,private apiKey?:string){}
  private key(p:SwapPool){return `${p.chainId}:${p.quote}:${p.quoteDecimals}`;}
  peek(p:SwapPool){const c=this.cache.get(this.key(p));return c&&this.now()-c.at<c.ttl?c.price:null;}
  async get(p:SwapPool):Promise<OnchainTrade['quoteUsd']>{

@@ -5,7 +5,7 @@ import { registeredPools } from "../server/swap-stream";
 import { deploymentChain,type TokenRecord } from "../src/lib/config";
 import { z } from "zod";
 /** Explicit local catalog input prevents an operator dry run from loading the application's .env or database. */
-export async function runWebhookCli(args:string[],environment:Record<string,string|undefined>=process.env,fetcher:typeof fetch=fetch){
+export async function runWebhookCli(args:string[],environment:Record<string,string|undefined>=process.env,fetcher:typeof fetch=(input,init)=>fetch(input,init)){
  if(args.includes('--apply'))throw Error('Webhook operator is read-only; reconciliation belongs to the chain alarm');
  const value=(flag:string)=>{const i=args.indexOf(flag);return i<0?undefined:args[i+1];};
  const token=environment.ALCHEMY_NOTIFY_API_KEY;if(!token)throw Error("ALCHEMY_NOTIFY_API_KEY is required");
