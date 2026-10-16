@@ -15,7 +15,9 @@ import {
 } from "../lib/market";
 import { errorMessage } from "../lib/validation";
 import { changeClass } from "../lib/format";
+import type { LiveProjection, SupplyInfo } from "../lib/musegod-live";
 const PriceChart = lazy(() => import("./MarketChart"));
+const MusegodLive = lazy(() => import("./MusegodLive").catch(() => ({ default: () => null })));
 const usd = (n: number | null | undefined, precise = false) =>
   n == null
     ? "—"
@@ -131,13 +133,16 @@ export default function TokenMarket({
   refreshKey,
   kind = "launch",
   metric,
+  info = null,
 }: {
   token: MarketToken;
   refreshKey: string;
   kind?: "launch" | "musegod";
   // Replaces the fully diluted valuation tile (MUSEGOD shows its burn share).
   metric?: { label: string; value: string; title?: string };
+  info?: SupplyInfo | null;
 }) {
+  const [live, setLive] = useState<LiveProjection | null>(null);
   const [chartType, setChartType] = useState<"line" | "candles">(kind === "musegod" ? "line" : "candles");
   const [interval, setIntervalValue] = useState<ChartInterval>("1h"),
     [revision, setRevision] = useState(0);
@@ -184,7 +189,10 @@ export default function TokenMarket({
     revision,
   );
   const explorer = explorerFor(token);
-  const stats = summary.data,
+  const liveEnabled = kind === "musegod" && token.mode === "robinhood" && token.address.toLowerCase() === MUSEGOD.token.toLowerCase();
+  const currentLive = liveEnabled && live?.basis.summary === summary.data && live?.basis.candles === history.data &&
+    live?.basis.trades === trades.data && live?.basis.interval === interval && live?.basis.info === info ? live : null;
+  const stats = currentLive?.summary || summary.data,
     activity = stats?.periods[period],
     change = stats?.periods.h24?.change;
   const hasValues = !!stats && [stats.priceUsd, stats.marketCapUsd, stats.fdvUsd, stats.liquidityUsd, stats.periods.h24?.volume].some(value => value != null);
@@ -194,7 +202,7 @@ export default function TokenMarket({
     : summary.error || (summary.loading ? "Loading market data…" : "The source has no price for this pool yet.");
 
   const items =
-    trades.data?.trades.filter((t) => filter === "all" || t.side === filter) ??
+    (currentLive?.trades || trades.data)?.trades.filter((t) => filter === "all" || t.side === filter) ??
     [];
   const buys = activity?.buys ?? null, sells = activity?.sells ?? null;
   const flowTotal = (buys ?? 0) + (sells ?? 0);
@@ -205,8 +213,10 @@ export default function TokenMarket({
         <div className="market-price-row">
           <div>
             <span className="eyebrow">{token.symbol} PRICE</span>
+            {liveEnabled && <Suspense fallback={null}><MusegodLive summary={summary.data} candles={history.data} trades={trades.data}
+              interval={interval} info={info} onUpdate={setLive} /></Suspense>}
             {hasValues ? <div className="market-price">
-              <span className="mono">{usd(stats?.priceUsd, true)}</span>
+              <span className="mono" title={currentLive?.priceAt ? `Live price · Bankr · Trade ${currentLive.priceAt}` : undefined}>{usd(stats?.priceUsd, true)}</span>
               <span className={`change-chip ${changeKind}`}>
                 {changeKind === "positive" ? <ArrowUpRight size={14} /> : changeKind === "negative" ? <ArrowDownRight size={14} /> : null}
                 {change == null
@@ -315,7 +325,7 @@ export default function TokenMarket({
           <Suspense fallback={<Message loading text="" />}>
             <PriceChart
               key={`${marketEndpoint(token, kind, `candles?interval=${interval}`).key}:${history.data.source}`}
-              data={history.data}
+              data={currentLive?.candles || history.data}
               endpoint={marketEndpoint(token, kind, `candles?interval=${interval}`)}
               interval={interval}
               symbol={token.symbol}
@@ -333,6 +343,7 @@ export default function TokenMarket({
           <MarketProvenance label="Summary" data={summary.data} kind={kind} />
           {summary.data && history.data ? " · " : ""}
           <MarketProvenance label="Candles" data={history.data} kind={kind} />
+          {currentLive?.candlesAt && <> · Live candles · Bankr · Trade <time dateTime={currentLive.candlesAt}>{new Date(currentLive.candlesAt).toLocaleTimeString("en-US")}</time></>}
           {kind === "musegod" && <>{summary.data || history.data ? " · " : ""}refreshes every 15 seconds while visible</>}
         </p>}
       </section>
@@ -416,6 +427,7 @@ export default function TokenMarket({
         {items.length && (trades.error || trades.data?.status === "stale") ? <p className="market-warning" role="status">{trades.error || trades.data?.warning || "Previous trades snapshot. Refresh to update."}</p> : null}
         <p className="feed-note">
           <MarketProvenance label="Trades" data={trades.data} kind={kind} />{trades.data ? " · " : ""}
+          {currentLive?.tradesAt && <>Live trades · Bankr · Trade <time dateTime={currentLive.tradesAt}>{new Date(currentLive.tradesAt).toLocaleTimeString("en-US")}</time> · </>}
           Latest 30 indexed trades · indexing may lag the chain.
         </p>
       </section>

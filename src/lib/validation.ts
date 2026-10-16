@@ -4,6 +4,9 @@ import { DEAD, launchAssetsFor, stockByAddress, type RuntimeConfig } from "./con
 import { DEFAULT_TRADING_FEE_BPS, TRADING_FEE_BPS, tradingFeeBpsFor } from "./trading-fee";
 import { isMuse, type NftRef } from "./nft-mode";
 
+// Browser schemas share strict CSP: even a caught code-generation probe reports a violation.
+if ("window" in globalThis) z.config({ jitless: true });
+
 export function assertSigningEnabled(config: RuntimeConfig) {
   if (!config.writesEnabled || config.signingPaused === true)
     throw new Error(config.blockReason || "Transactions are not enabled");
