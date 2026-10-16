@@ -38,6 +38,7 @@ import { assertLaunchFeePayable, isLaunchFeeTx, type LaunchFeeQuote } from "./nf
 import { isNftTreasuryTx } from "./nft-treasury";
 import type { NftRef } from "./nft-mode";
 import { permit2Abi, swapTransaction } from "./protocol";
+import { executeWethEthTrade } from "./weth-eth-trade";
 import type { V4PoolKey } from "@whetstone-research/doppler-sdk/evm";
 import {
   WalletConnection,
@@ -241,6 +242,7 @@ type WalletState = {
     progress: (message: string) => void,
     steps?: TradeSteps,
   ) => Promise<Hash>;
+  tradeNativeWeth: (quote: Quote, config: RuntimeConfig, progress: (message: string) => void) => Promise<Hash>;
   /** One verified LI.FI transaction paid in ETH on Robinhood: a coin buy, or the first step of a two-step buy. `beforeSend`, required, runs
    * right before the wallet receives it (and before viem's resend of it), after every check that could still refuse it: it writes the
    * caller's anti-duplicate record (use-eth-buy-record.ts), so ETH is never sent without one. */
@@ -900,6 +902,23 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     progress(`${steps.waiting} · ${hash}`);
     return confirmed(hash, config, expected, "swap");
   }
+  async function tradeNativeWeth(quote: Quote, config: RuntimeConfig, progress: (message: string) => void) {
+    if (!account) throw new Error("Connect your wallet first");
+    const expected = account, client = transactionClient(config.chainId, config);
+    // The transport checks freshness again immediately before either wallet send method.
+    const fresh = async () => {
+      if (quoteNow(quote) >= quote.expiresAt) throw new Error("The quote has expired. Wait for a fresh quote.");
+    };
+    const guardedWallet = () => signer(config, expected, fresh);
+    return executeWethEthTrade(quote, config, {
+      now: () => quoteNow(quote), guard: guardedWallet,
+      balance: () => client.getBalance({ address: expected }), blockTimestamp: async () => (await client.getBlock()).timestamp,
+      simulate: (tx) => client.call({ account: expected, to: tx.to, data: tx.data, value: tx.value }).catch((error: unknown) => { throw simulationError(error); }),
+      fundedGas: (tx) => fundedGas(client, tx.to, tx.data, tx.value, config, expected),
+      send: async (tx, gas) => (await guardedWallet()).sendTransaction({ to: tx.to, data: tx.data, value: tx.value, gas }),
+      confirmed: (hash) => confirmed(hash, config, expected, "swap"), progress,
+    });
+  }
   async function balance(token: Address, config?: RuntimeConfig) {
     if (!account) throw new Error("No wallet connected");
     const current = config ?? await chainApi<RuntimeConfig>(network.chainId, "/config");
@@ -1150,6 +1169,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         send: (...args) => exclusive(() => send(...args)),
         launch: (...args) => exclusive(() => launch(...args)),
         trade: (...args) => exclusive(() => trade(...args)),
+        tradeNativeWeth: (...args) => exclusive(() => tradeNativeWeth(...args)),
         buyback: (...args) => exclusive(() => buyback(...args)),
         engineAction: (...args) => exclusive(() => engineAction(...args)),
         payFirstBuy: (...args) => exclusive(() => payFirstBuy(...args)),

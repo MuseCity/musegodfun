@@ -23,6 +23,8 @@ An ordinary buyer can read the price state, check what they are buying and trade
 
 1. Presentation only. No change to server routes, market data semantics, contracts, fee policy, quote/trade/approval logic, wallet signing or the MUSEGOD trade panel (`MusegodTradePanel`).
 2. Must stay clearly visible: chain, token contract copy, verified quote asset, total fee, estimated receive, slippage, minimum received, quote expiry, real errors, stale-data warnings, block reasons, NFT/hidden/unverified-valuation notices, ETH-buy recovery states, and the "Get on-chain quote" button for visitors without a wallet (it is the only price signal when the summary is empty, and read-only mode promises quote previews).
+   - 2026-10-16: The guest "Get on-chain quote" button constraint is superseded by E2 of `tasks/weth-eth-pay-auto-quote-plan.md`: pair payments and native ETH payments on WETH pairs quote automatically for guests. The price signal, quote expiry, minimum output and real errors remain visible.
+
 3. Market data honesty (`tasks/market-data-plan.md`): request failure, stale snapshot, source not covering the pool and an empty index stay distinguishable. Never imply there are no on-chain trades. Never fill zeros. Linked CoinGecko attribution stays wherever CoinGecko data is shown. A section never borrows another section's source or time.
 4. The token-page fee card must stay reachable for every connected wallet (redesign review P1 fix, `tasks/todo.md`): the on-chain beneficiary can differ from the catalog record, for example after a transfer, and My rewards lists only catalog matches.
 5. Rewards page (`Rewards`, `FeeCard` default variant) is unchanged.

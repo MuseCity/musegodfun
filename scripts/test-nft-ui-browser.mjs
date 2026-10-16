@@ -446,7 +446,7 @@ try {
     await live.locator('.nft-warning', { hasText: 'Amount cleared. Enter it in MUSEGOD.' }).waitFor();
     await trade.getByLabel('Trade input amount').fill('0.25');
     await payWith.getByRole('button', { name: 'ETH', exact: true }).click();
-    assert.equal(await trade.getByRole('button', { name: 'Get quote', exact: true }).count(), 1);
+    assert.equal(await trade.getByRole('button', { name: /Get (on-chain )?quote/ }).count(), 0);
     // No separate MUSEGOD panel, link or status line anywhere on a token page.
     assert.equal(await page.getByRole('heading', { name: /Get MUSEGOD/ }).count(), 0);
     assert.equal(await page.locator('#get-musegod, .trade-status, .trade-column, .musegod-acquire').count(), 0);
@@ -515,18 +515,19 @@ try {
     const anonPay = anonTrade.getByRole('group', { name: 'Pay with' });
     await anonPay.getByRole('button', { name: 'MUSEGOD', exact: true, pressed: true }).waitFor();
     await anonTrade.getByLabel('Trade input amount').fill('1');
-    await anonTrade.getByRole('button', { name: 'Get on-chain quote' }).click();
     await anonTrade.locator('.trade-box.receive strong', { hasText: '2' }).waitFor();
     await anonPay.getByRole('button', { name: 'ETH', exact: true }).click();
-    await anonTrade.locator('.trade-live .nft-warning', { hasText: 'Connect a wallet to pay with ETH.' }).waitFor();
-    assert.equal(await anonTrade.getByRole('button', { name: 'Get quote', exact: true }).isDisabled(), true);
+    await anonTrade.locator('.trade-live .nft-warning', { hasText: 'Connect a wallet for an automatic ETH route quote.' }).waitFor();
+    assert.equal(await anonTrade.getByRole('button', { name: /Get (on-chain )?quote/ }).count(), 0);
     await finish(anonymous);
-    // A WETH-paired coin has no selector.
+    // WETH pairs default to native ETH and quote automatically.
     const plain = await open(`/token/robinhood/${plainCoin.address}`);
     await plain.page.getByRole('heading', { name: 'Trade PLAIN' }).waitFor();
     await plain.page.locator('#trade').getByLabel('Trade input amount').fill('5');
-    assert.equal(await plain.page.getByRole('group', { name: 'Pay with' }).count(), 0);
-    assert.equal(await plain.page.getByRole('button', { name: 'Get on-chain quote' }).count(), 1);
+    assert.equal(await plain.page.getByRole('group', { name: 'Pay with' }).count(), 1);
+    await plain.page.getByRole('group', { name: 'Pay with' }).getByRole('button', { name: 'ETH', exact: true, pressed: true }).waitFor();
+    assert.equal(await plain.page.getByRole('button', { name: /Get (on-chain )?quote/ }).count(), 0);
+    await plain.page.locator('#trade .quote-summary').waitFor();
     await finish(plain);
   });
   // Records every progress text of the coin's trade panel, so the order of the steps can be checked afterwards.
@@ -541,7 +542,8 @@ try {
     const trade = page.locator('#trade');
     await trade.getByRole('group', { name: 'Pay with' }).getByRole('button', { name: 'ETH', exact: true }).click();
     await trade.getByLabel('Trade input amount').fill(amount);
-    await trade.getByRole('button', { name: 'Get quote', exact: true }).click();
+    await trade.locator('.quote-summary').waitFor();
+    await trade.locator('.receive[aria-busy="false"]').waitFor();
     return trade;
   }
   await check('eth_buy_direct', async () => {
@@ -613,7 +615,8 @@ try {
     await page.locator('#nft-card').getByText('Unlocked').waitFor();
     await payWith.getByRole('button', { name: 'MUSEGOD', exact: true, pressed: true }).waitFor();
     await trade.getByLabel('Trade input amount').fill('1');
-    await trade.getByRole('button', { name: 'Get on-chain quote' }).click();
+    await trade.locator('.quote-summary').waitFor();
+    await trade.locator('.receive[aria-busy="false"]').waitFor();
     await trade.getByRole('button', { name: 'Confirm Buy' }).click();
     await trade.getByText('Transaction confirmed').waitFor();
     assert.deepEqual(state.sends.map(sent => sent.to.toLowerCase()), [ROBINHOOD_CONTRACTS.permit2, ROBINHOOD_CONTRACTS.router].map(a => a.toLowerCase()));
@@ -640,7 +643,7 @@ try {
     assert.equal(state.sends.length, 1, 'only the conversion went through');
     assert.equal(state.rejected.length, 1);
     assert.equal(state.rejected[0].to.toLowerCase(), ROBINHOOD_CONTRACTS.permit2.toLowerCase());
-    assert.equal(await trade.getByRole('button', { name: 'Get on-chain quote' }).count(), 1);
+    assert.equal(await trade.getByRole('button', { name: /Get (on-chain )?quote/ }).count(), 0);
     // The balances are read again: the MUSEGOD now held covers the prefilled amount, so no "hold less" hint.
     await trade.getByText(`Balance: ${Number(formatUnits(10n ** 18n + received, 18)).toLocaleString('en-US', { maximumFractionDigits: 8 })}`, { exact: true }).waitFor();
     assert.equal(await trade.getByText(/You hold less than/).count(), 0);
@@ -682,7 +685,7 @@ try {
     assert.deepEqual(saved.tx, { to: quote.transaction.to, data: quote.transaction.data.toLowerCase(), value: quote.transaction.value });
     assert.equal(saved.quoteId, quote.id);
     assert.equal(await trade.getByRole('button', { name: 'Buy with ETH' }).isDisabled(), true, 'no second buy of the same quote');
-    assert.equal(await trade.getByRole('button', { name: 'Get quote', exact: true }).isDisabled(), true, 'no new ETH quote');
+    assert.equal(await trade.getByRole('button', { name: /Get (on-chain )?quote/ }).count(), 0, 'no manual quote request');
     assert.equal(await trade.getByRole('button', { name: 'No payment was sent', exact: true }).count(), 1);
     assert.equal(await live().locator('button').count(), 0, 'its buttons sit outside the live region');
     // A reload keeps the record and the refusal.
@@ -692,7 +695,7 @@ try {
     await trade.getByRole('group', { name: 'Pay with' }).getByRole('button', { name: 'ETH', exact: true }).click();
     await trade.getByLabel('Trade input amount').fill('0.001');
     await live().getByText(/^We can't confirm this ETH buy yet\./).waitFor();
-    assert.equal(await trade.getByRole('button', { name: 'Get quote', exact: true }).isDisabled(), true);
+    assert.equal(await trade.getByRole('button', { name: /Get (on-chain )?quote/ }).count(), 0);
     assert.deepEqual(state.ethQuotes.length, 1, 'no quote was requested again');
     // The lost broadcast is mined: the exact transaction at the saved nonce is adopted and shown, once.
     state.mineLost();
@@ -701,7 +704,8 @@ try {
     assert.equal(await savedRecord(page), null, 'settled');
     assert.equal(await trade.getByRole('link', { name: 'View ETH buy transaction' }).getAttribute('href'), `https://robinhoodchain.blockscout.com/tx/${state.sends[0].hash}`);
     assert.equal(state.attempts, 1, 'the wallet was asked once');
-    assert.equal(await trade.getByRole('button', { name: 'Get quote', exact: true }).isEnabled(), true, 'buying with ETH opens again');
+    await trade.locator('.quote-summary').waitFor();
+    assert.equal(await trade.getByRole('button', { name: 'Buy with ETH' }).isEnabled(), true, 'buying with ETH opens again');
     await finish(run);
     // The wallet never broadcast it: only the user's explicit choice clears the record, and the next buy goes through once.
     const unsent = await open(tokenPath, { failSend: { attempt: 0, code: -32000, broadcast: false } });
@@ -712,7 +716,8 @@ try {
     await trade.getByRole('button', { name: 'No payment was sent', exact: true }).click();
     await trade.getByRole('button', { name: 'No payment was sent', exact: true }).waitFor({ state: 'detached' });
     assert.equal(await savedRecord(unsent.page), null);
-    await trade.getByRole('button', { name: 'Get quote', exact: true }).click();
+    await trade.locator('.quote-summary').waitFor();
+    await trade.locator('.receive[aria-busy="false"]').waitFor();
     await trade.getByRole('button', { name: 'Buy with ETH' }).click();
     await trade.getByRole('status').filter({ hasText: 'Received 4,990 BARD.' }).waitFor();
     assert.equal(unsent.state.sends.length, 1, 'one transaction, after the user cleared the unsent one');
@@ -727,7 +732,7 @@ try {
     await trade.locator('.notice.error', { hasText: /User rejected the request|You cancelled the wallet request/ }).waitFor();
     assert.equal(await savedRecord(rejected.page), null);
     assert.equal(await trade.getByRole('button', { name: 'No payment was sent', exact: true }).count(), 0);
-    assert.equal(await trade.getByRole('button', { name: 'Get quote', exact: true }).isEnabled(), true);
+    assert.equal(await trade.getByRole('button', { name: 'Buy with ETH' }).isEnabled(), true);
     await finish(rejected);
   });
   await check('eth_buy_result_stays_on_its_page', async () => {
@@ -748,7 +753,7 @@ try {
     assert.equal(await plainTrade.getByText(/Received|Waiting for on-chain|Bought/).count(), 0);
     assert.equal(await plainTrade.getByRole('link', { name: /View .*transaction/ }).count(), 0);
     await plainTrade.getByLabel('Trade input amount').fill('1');
-    assert.equal(await plainTrade.getByRole('button', { name: 'Get on-chain quote' }).isEnabled(), true, 'the new page is not busy');
+    assert.equal(await plainTrade.getByLabel('Trade input amount').isEnabled(), true, 'the new page is not busy');
     await finish(run);
   });
   await check('eth_buy_wallet_events_mid_buy', async () => {

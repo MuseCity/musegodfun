@@ -352,6 +352,8 @@ test("eth-quote is in the first-buy quote's ingress class, rate-limited and chal
 });
 
 test("Pay with: the empty-field default, a typed amount that never changes unit, and the shortfall hint", () => {
+  for (const connected of [true, false]) for (const balance of [null, 0n, 1n])
+    assert.equal(defaultPayWith(connected, balance, true), "eth", "WETH pairs default to ETH for every visitor");
   assert.equal(defaultPayWith(false, null), "pair", "no wallet: the read-only pair quote works");
   assert.equal(defaultPayWith(true, null), "pair", "balance not known yet: a typed amount keeps the pair unit, a short balance shows the hint");
   assert.equal(defaultPayWith(true, 0n), "eth", "no pair asset");
@@ -371,10 +373,9 @@ test("Pay with: the empty-field default, a typed amount that never changes unit,
   assert.equal(pairShortfall(null, 5n), false, "no hint while the balance is unknown");
   assert.equal(pairShortfall(1n, null), false, "no hint for an empty or invalid amount");
   const robinhood = { mode: "robinhood", chainId: 4663, deploymentChainId: 4663 } as RuntimeConfig;
-  assert.equal(ethBuyAvailable(robinhood, musegod.address), true);
-  assert.equal(ethBuyAvailable(robinhood, weth.address), false, "WETH-paired coins keep the plain panel");
-  assert.equal(ethBuyAvailable({ mode: "base", chainId: 8453, deploymentChainId: 8453 } as RuntimeConfig, musegod.address), false, "Base is unchanged");
-  assert.equal(ethBuyAvailable(null, musegod.address), false);
+  assert.equal(ethBuyAvailable(robinhood), true);
+  assert.equal(ethBuyAvailable({ mode: "base", chainId: 8453, deploymentChainId: 8453 } as RuntimeConfig), false, "Base is unchanged");
+  assert.equal(ethBuyAvailable(null), false);
 });
 
 function transfer(token: Address, from: Address, to: Address, value: bigint) {

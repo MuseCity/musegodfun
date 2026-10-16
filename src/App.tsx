@@ -106,7 +106,7 @@ import { useNetwork, tokenPath, nftPath } from "./lib/network";
 import { draftAutosave, firstBuyDraft, launchDraftPayload, savedNftPrefill, type DraftBasis, launchDraftKey, launchDraftStep, launchSteps, stepHeadingId, resetLaunchedDraftStep, savedLaunchDraft, type FirstBuyDraft, type LaunchStep } from "./lib/launch-draft";
 import FirstBuy from "./components/FirstBuy";
 import FirstBuyLock from "./components/FirstBuyLock";
-import { FIRST_BUY_SLIPPAGE_BPS, firstBuyPaymentAssets, assertFirstBuyPaymentQuote, type FirstBuyPrices, type FirstBuyPaymentQuote, type FirstBuyPaymentVerification } from "./lib/first-buy-payment";
+import { FIRST_BUY_SLIPPAGE_BPS, wrappedEther, firstBuyPaymentAssets, assertFirstBuyPaymentQuote, type FirstBuyPrices, type FirstBuyPaymentQuote, type FirstBuyPaymentVerification } from "./lib/first-buy-payment";
 import { resolveFirstBuyPayment, sameFirstBuyPayment, paymentMatchesLaunch, registeredLaunchConsumesPayment,
   type FirstBuyPaymentAttempt } from "./lib/first-buy-recovery";
 import {
@@ -117,6 +117,8 @@ import { createNftImagePrefill } from "./lib/nft-image-prefill";
 import { TOKEN_IMAGE_ACCEPT } from "./lib/token-image";
 import { prepareTokenImage, prepareTokenImageFromUrl } from "./lib/image-upload";
 import { transactionClient, useWallet, type Quote } from "./lib/wallet";
+import { useAutoQuote } from "./lib/use-auto-quote";
+import { maxTradeAmount } from "./lib/trade-amount";
 import { ETH_BUY_ROUTE, EthBuyIncomplete, amountWords, assertEthBuyResponse, defaultPayWith, ethBuyAvailable, ethBuyDisclosure, executeEthBuy,
   pairShortfall, resolvePayWith, twoStepLabels, twoStepMinimum, type EthBuyQuoteResponse, type LifiTradeTarget, type PayWith, type SwapQuote } from "./lib/eth-buy";
 import { ETH_BUY_MAYBE_SENT, ETH_BUY_UNRESOLVED, ETH_BUY_WAITING, type EthBuyTarget } from "./lib/eth-buy-record";
@@ -3016,9 +3018,10 @@ function TokenPage({
     [balance, setBalance] = useState<bigint | null>(null),
     [copied, setCopied] = useState(false),
     [sharing, setSharing] = useState(false),
-    // Pay with ETH (Robinhood, pair asset other than WETH): the user's explicit pick, the ETH balance, the quote and the outcome.
+    // Pay with ETH (Robinhood): the user's explicit pick, the ETH balance, the quote and the outcome.
     [payChoice, setPayChoice] = useState<PayWith | null>(null),
     [ethBalance, setEthBalance] = useState<bigint | null>(null),
+    [maxLoading, setMaxLoading] = useState(false),
     [ethQuote, setEthQuote] = useState<EthBuyQuoteResponse | null>(null),
     // A finished ETH buy, and an unfinished one (what the wallet holds now, or a conversion still pending).
     [ethDone, setEthDone] = useState<{ received: bigint | null; hash: Hex; conversionHash: Hex | null } | null>(null),
@@ -3036,10 +3039,12 @@ function TokenPage({
   const pairAsset = resource.data ? quoteAsset(resource.data.token) : null;
   const ethBuy = useEthBuyRecord(config, wallet.account, pairAsset?.symbol), ethHeld = !!ethBuy.record;
   useEffect(() => { if (ethBuy.adopted) setBalanceTick((n) => n + 1); }, [ethBuy.adopted]);
-  const ethPayable = side === "buy" && !!pairAsset && ethBuyAvailable(config, pairAsset.address);
+  const automaticQuotes = !!config && deploymentChain(config) === 4663;
+  const ethPayable = side === "buy" && !!pairAsset && ethBuyAvailable(config);
   // Only the pair-asset balance decides the default, and only on the buy side of a pair-asset coin.
   const pairBalance = ethPayable && balanceFor && sameAddress(balanceFor, pairAsset!.address) ? balance : null;
-  const fallbackPay = defaultPayWith(!!wallet.account, pairBalance);
+  const wethPair = !!pairAsset && sameAddress(pairAsset.address, wrappedEther(4663));
+  const fallbackPay = defaultPayWith(!!wallet.account, pairBalance, wethPair);
   // A non-empty amount freezes the default at once, even before the pair balance loads: only the user changes the unit
   // (and that clears the field). Sell, or an empty field, resets it.
   if (ethPayable && amount && frozenPay === null) setFrozenPay(fallbackPay);
@@ -3047,6 +3052,9 @@ function TokenPage({
   if (amount && amountCleared) setAmountCleared(false);
   const payWith: PayWith = ethPayable ? resolvePayWith({ choice: payChoice, frozen: frozenPay, amount, fallback: fallbackPay }) : "pair";
   const payingEth = payWith === "eth";
+  const nativeWeth = payingEth && ethPayable && wethPair;
+  const lifiPayable = ethPayable && !wethPair;
+  const lifiEth = payingEth && lifiPayable;
   const enteredPair = ethPayable && !payingEth && amount ? (() => { try { return parseAmount(amount, pairAsset!.decimals); } catch { return null; } })() : null;
   // Paying with the pair asset, the wallet holds less than the amount: offer ETH, never convert the typed amount. Not next to
   // the result of a buy of that amount (`hash`), which spent the balance it would compare against.
@@ -3119,6 +3127,20 @@ function TokenPage({
     return () => clearTimeout(timer);
   }, [stateUnavailable, stateInvalid, lastError, resource.data]);
   const token = resource.data?.token;
+  const validAmount = (() => {
+    try { const value = parseAmount(amount, side === "buy" && !payingEth ? pairAsset?.decimals ?? 18 : 18); return value > 0n && value < 2n ** 128n; }
+    catch { return false; }
+  })();
+  const automatic = useAutoQuote<Quote | EthBuyQuoteResponse>({
+    key: JSON.stringify([address, side, payWith, amount, slippage, wallet.account, wallet.chainId, config?.chainId, config?.deploymentChainId, resource.data?.state?.poolKey]),
+    lifi: lifiEth, valid: automaticQuotes && validAmount, pool: !!config && !!resource.data?.state && !stateInvalid,
+    busy: busy || !!hash || !!ethDone || lifiEth && ethHeld, connected: !!wallet.account,
+  }, {
+    request: () => lifiEth ? getEthQuote() : getQuote(),
+    remaining: result => { const anchor = "mode" in result ? result.mode === "direct" ? result.quote : result.conversion : result; return anchor.expiresAt - quoteNow(anchor); },
+    result: result => { if ("mode" in result) setEthQuote(result); else setQuote(result); },
+    error: e => setError(errorMessage(e)),
+  });
   if (!token) {
     const lookupError = resource.error || lastError;
     if (!lookupError) return <Loading />;
@@ -3141,31 +3163,23 @@ function TokenPage({
     outputDecimals = side === "buy" ? 18 : stock.decimals,
     inputSymbol = side === "buy" ? payingEth ? "ETH" : stock.symbol : token.symbol,
     outputSymbol = side === "buy" ? token.symbol : stock.symbol;
+  const inputBalance = !automaticQuotes ? balance : payingEth ? ethBalance : balanceFor && balanceAsset && sameAddress(balanceFor, balanceAsset) ? balance : null;
   async function getQuote() {
-    const request = ++generation.current;
-    setBusy(true);
     setError("");
-    setEthNote(null);
-    setQuote(null);
-    setHash(null);
-    try {
-      const next = await api<Quote>("/quote", {
-        address,
-        side,
-        amount,
-        slippageBps: slippage,
-      });
-      if (request === generation.current) setQuote(next);
-    } catch (e) {
-      if (request === generation.current) setError(errorMessage(e));
-    } finally {
-      if (request === generation.current) setBusy(false);
-    }
+    return api<Quote>("/quote", { address, side, amount, slippageBps: slippage }, automaticQuotes ? { challenge: false, retry: false } : undefined);
+  }
+  // Base retains its existing manual quote behavior; E1-E3 are scoped to Robinhood.
+  async function getManualQuote() {
+    const request = ++generation.current;
+    setBusy(true); setQuote(null); setHash(null); setEthNote(null);
+    try { const next = await getQuote(); if (request === generation.current) setQuote(next); }
+    catch (e) { if (request === generation.current) setError(errorMessage(e)); }
+    finally { if (request === generation.current) setBusy(false); }
   }
   async function execute() {
     if (!quote || !config) return;
-    // Buying with the pair asset is an explicit pick too: spending it must not flip the panel to ETH and hide the result.
-    if (ethPayable) setPayChoice("pair");
+    // Freeze the selected payment unit so spending its balance cannot change the unit or hide the result.
+    if (ethPayable) setPayChoice(nativeWeth ? "eth" : "pair");
     // A result belongs to the account and network it started with (another coin's page is another component). The wallet's
     // own state is read, so an account change is seen at once, not after the next render.
     const started = wallet.connection(), live = () => {
@@ -3176,7 +3190,8 @@ function TokenPage({
     setError("");
     setEthNote(null);
     try {
-      const tx = await wallet.trade(quote, config, (message) => { if (live()) setProgress(message); });
+      const trade = nativeWeth ? wallet.tradeNativeWeth : wallet.trade;
+      const tx = await trade(quote, config, (message) => { if (live()) setProgress(message); });
       if (!live()) return;
       setHash(tx);
       setQuote(null);
@@ -3208,30 +3223,34 @@ function TokenPage({
     setSide(next);
   }
   async function getEthQuote() {
-    if (!wallet.account) return;
-    if (ethHeld) { setError(ETH_BUY_UNRESOLVED); return; }
-    ethBuy.clearAdopted();
-    const request = ++generation.current, account = wallet.account;
-    setBusy(true);
+    if (!wallet.account) throw new Error("Connect a wallet to quote an ETH route.");
+    if (ethHeld) throw new Error(ETH_BUY_UNRESOLVED);
     setError("");
-    setEthNote(null);
-    setEthQuote(null);
-    setEthDone(null);
-    setHash(null);
+    const amountIn = parseAmount(amount, 18), account = wallet.account;
+    const next = await api<EthBuyQuoteResponse>("/trade/eth-quote", { token: address, amountIn: amount, account, slippageBps: slippage }, { challenge: false, retry: false });
+    assertEthBuyResponse(next, { coin: coinAsset, pair: pairPayment, account, amountIn, slippageBps: slippage });
+    return next;
+  }
+  async function fillMax() {
+    const available = inputBalance;
+    if (available === null || !wallet.account || !config || busy || maxLoading) return;
+    const request = generation.current, started = wallet.connection();
+    setMaxLoading(true);
     try {
-      const amountIn = parseAmount(amount, 18);
-      const next = await api<EthBuyQuoteResponse>("/trade/eth-quote", { token: address, amountIn: amount, account, slippageBps: slippage });
-      assertEthBuyResponse(next, { coin: coinAsset, pair: pairPayment, account, amountIn, slippageBps: slippage });
-      if (request === generation.current) setEthQuote(next);
-    } catch (e) {
-      if (request === generation.current) setError(errorMessage(e));
-    } finally {
-      if (request === generation.current) setBusy(false);
-    }
+      const client = transactionClient(config.chainId, config);
+      const fees = payingEth ? await client.estimateFeesPerGas().catch(async () => ({ gasPrice: await client.getGasPrice() })) : undefined;
+      const value = maxTradeAmount(available, payingEth, fees);
+      const current = wallet.connection();
+      if (request !== generation.current || current.account !== started.account || current.chainId !== started.chainId) return;
+      if (value === null) { setError("Not enough ETH for network fees. Keep the gas reserve in your wallet."); return; }
+      setError(""); setAmount(formatUnits(value, inputDecimals));
+    } catch (e) { if (request === generation.current) setError(errorMessage(e)); }
+    finally { setMaxLoading(false); }
   }
   async function executeEth() {
     if (!ethQuote || !config || !wallet.account) return;
     const plan = ethQuote, account = wallet.account, frozen = config, pairDecimals = stock.decimals;
+    ethBuy.clearAdopted();
     // Buying with ETH is an explicit pick: a balance change during the buy must not switch the panel.
     setPayChoice("eth");
     // A result belongs to the account and network it started with (another coin's page is another component). The wallet's
@@ -3408,21 +3427,25 @@ function TokenPage({
               <span>You pay <b>{inputSymbol}</b></span>
               <span className="balance">
                 Balance:{" "}
-                <b>{(payingEth ? ethBalance : balance) === null ? (
+                <b>{inputBalance === null ? (
                   "—"
                 ) : (
-                  <NumberText value={(payingEth ? ethBalance : balance)!} decimals={inputDecimals} />
+                  <NumberText value={inputBalance!} decimals={inputDecimals} />
                 )}</b>
               </span>
             </span>
-            <input
-              aria-label="Trade input amount"
-              disabled={busy}
-              inputMode="decimal"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder="0.00"
-            />
+            <span className="trade-amount-field">
+              <input
+                aria-label="Trade input amount"
+                disabled={busy}
+                inputMode="decimal"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="0.00"
+              />
+              {automaticQuotes && wallet.account && inputBalance !== null && <button type="button" className="trade-max"
+                disabled={busy || maxLoading} onClick={() => void fillMax()}>{maxLoading ? "…" : "Max"}</button>}
+            </span>
             {side === "buy" && !payingEth && balance !== null && (
               <StockShares
                 value={balance}
@@ -3467,27 +3490,18 @@ function TokenPage({
                     {percent}%
                   </button>
                 ))}
-            {/* All the ETH would leave nothing for network fees. */}
-            {!payingEth && <button
-              type="button"
-              disabled={busy || balance === null}
-              onClick={() =>
-                balance !== null &&
-                setAmount(formatUnits(balance, inputDecimals))
-              }
-            >
-              Max
-            </button>}
+            {config && !automaticQuotes && <button type="button" disabled={busy || balance === null}
+              onClick={() => balance !== null && setAmount(formatUnits(balance, inputDecimals))}>Max</button>}
           </div>
           <div className="trade-arrow" aria-hidden="true">
             <ArrowDown size={16} />
           </div>
-          <div className="trade-box receive">
+          <div className="trade-box receive" aria-busy={automatic.pending}>
             <span className="trade-box-head">
               <span>You receive (estimated) <b>{outputSymbol}</b></span>
             </span>
             <strong>
-              {payingEth ? ethQuote ? (
+              {automatic.pending ? "Updating…" : lifiEth ? ethQuote ? (
                 <NumberText value={ethQuote.mode === "direct" ? ethQuote.quote.expectedOut : ethQuote.swapPreview.amountOut} decimals={18} />
               ) : "—" : quote ? (
                 <NumberText value={quote.amountOut} decimals={outputDecimals} />
@@ -3504,7 +3518,7 @@ function TokenPage({
             )}
           </div>
           <SlippageControl value={slippage} disabled={busy} onChange={setSlippage} />
-          {payingEth && ethQuote && ethExpiresAt !== null && (
+          {lifiEth && ethQuote && ethExpiresAt !== null && (
             <>
               <dl className="rows boxed quote-summary">
                 <div>
@@ -3530,7 +3544,7 @@ function TokenPage({
               </dl>
             </>
           )}
-          {!payingEth && quote && (
+          {!lifiEth && quote && (
             <dl className="rows boxed quote-summary">
               <div>
                 <dt>Minimum received</dt>
@@ -3552,7 +3566,7 @@ function TokenPage({
           )}
           {/* One polite live region, always present, for the disclosure, hints, progress and results: its text changes, the node does not. */}
           <div className="trade-live" role="status">
-            {payingEth && !wallet.account && <p className="nft-warning">Connect a wallet to pay with ETH.</p>}
+            {lifiEth && !wallet.account && <p className="nft-warning">Connect a wallet for an automatic ETH route quote.</p>}
             {/* Announced once when the shortfall appears; the visible hint and its button sit under the amount, outside this region. */}
             {shortfall && <p className="visually-hidden">You hold less than the amount entered in {stock.symbol}. Pay with ETH?</p>}
             {!amount && amountCleared && <p className="nft-warning">Amount cleared. Enter it in {inputSymbol}.</p>}
@@ -3563,39 +3577,33 @@ function TokenPage({
               {ethDone.received !== null ? <>Received <NumberText value={ethDone.received} decimals={18} /> {token.symbol}.</>
                 : <>Bought {token.symbol}. Check your wallet balance for the amount.</>}
             </p>}
-            {ethPayable && ethBuy.record && !ethBuy.sending && <p className="nft-warning">
+            {lifiPayable && ethBuy.record && !ethBuy.sending && <p className="nft-warning">
               {ethBuy.unknown || (ethBuy.record.state === "pending" ? ETH_BUY_WAITING : ETH_BUY_MAYBE_SENT)}</p>}
-            {ethPayable && ethBuy.notice && <p className="nft-warning">{ethBuy.notice}</p>}
-            {ethPayable && ethBuy.adopted && <EthBuyAdoptedText adopted={ethBuy.adopted} />}
+            {lifiPayable && ethBuy.notice && <p className="nft-warning">{ethBuy.notice}</p>}
+            {lifiPayable && ethBuy.adopted && <EthBuyAdoptedText adopted={ethBuy.adopted} />}
           </div>
-          {ethPayable && ethBuy.record && !ethBuy.sending && <div className="button-row">
+          {lifiPayable && ethBuy.record && !ethBuy.sending && <div className="button-row">
             <button type="button" className="secondary" disabled={ethBuy.checking} onClick={ethBuy.checkAgain}>{ethBuy.checking ? "Checking…" : "Check again"}</button>
             {ethBuy.unknown && <button type="button" className="secondary" onClick={ethBuy.discard}>No payment was sent</button>}
           </div>}
-          <button
-            type="button"
-            className="secondary full trade-quote"
-            disabled={busy || !amount || stateUnavailable || (payingEth && (!wallet.account || ethHeld))}
-            onClick={() => void (payingEth ? getEthQuote() : getQuote())}
-          >
-            {busy ? (
-              <LoaderCircle className="spin" size={16} />
-            ) : (
-              <RefreshCw size={16} />
-            )}
-            {payingEth ? "Get quote" : "Get on-chain quote"}
-          </button>
+          {config && !automaticQuotes && <button type="button" className="secondary full trade-quote"
+            disabled={busy || !amount || stateUnavailable} onClick={() => void getManualQuote()}>
+            {busy ? <LoaderCircle className="spin" size={16} /> : <RefreshCw size={16} />} Get on-chain quote
+          </button>}
+          {automatic.manual && <button type="button" className="text-button quote-refresh"
+            disabled={busy || automatic.pending || !validAmount || stateUnavailable || stateInvalid || lifiEth && (!wallet.account || ethHeld)}
+            onClick={automatic.refresh}><RefreshCw size={14} /> Refresh quote</button>}
           {wallet.account ? (
             <button
               type="button"
               className="primary large full"
               disabled={
                 busy ||
-                (payingEth ? !ethQuote || ethExpiresAt === null || clock >= ethExpiresAt || ethHeld : !quote || clock >= quote.expiresAt) ||
+                (automatic.pending || (lifiEth ? !ethQuote || ethExpiresAt === null || clock >= ethExpiresAt || ethHeld : !quote || clock >= quote.expiresAt)) ||
                 !config?.writesEnabled ||
                 wallet.chainId !== config.chainId
               }
-              onClick={() => void (payingEth ? executeEth() : execute())}
+              onClick={() => void (lifiEth ? executeEth() : execute())}
             >
               {payingEth ? "Buy with ETH" : `Confirm ${side === "buy" ? "Buy" : "Sell"}`}
               <ArrowUpRight size={16} />
@@ -3619,7 +3627,7 @@ function TokenPage({
               {stockStatusFailure(stock)} {stockResource.error}
             </Notice>
           )}
-          {config && ethPayable && (ethBuy.record?.state === "pending" || ethBuy.adopted) && <div className="trade-links">
+          {config && lifiPayable && (ethBuy.record?.state === "pending" || ethBuy.adopted) && <div className="trade-links">
             <TxLink hash={ethBuy.record?.state === "pending" ? ethBuy.record.txHash : ethBuy.adopted!.hash} config={config} label="View ETH buy transaction" />
           </div>}
           {config && (ethDone || ethNote) ? <div className="trade-links">
@@ -3628,7 +3636,7 @@ function TokenPage({
             {ethDone && <TxLink hash={ethDone.hash} config={config}
               label={ethDone.conversionHash ? `View ${stock.symbol} → ${token.symbol} transaction` : "View transaction"} />}
           </div> : hash && config && <TxLink hash={hash} config={config} />}
-          <TokenTradeNotes stock={stock} symbol={token.symbol} payingEth={payingEth}
+          <TokenTradeNotes stock={stock} symbol={token.symbol} payingEth={payingEth} nativeWeth={nativeWeth}
             config={config} doppler={dopplerUrl(token) ?? undefined} fork={token.mode === "fork"} />
         </section>
       </div>

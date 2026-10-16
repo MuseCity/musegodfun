@@ -2,7 +2,7 @@ import type { MarketReason } from "./market";
 import { observeServerTime, quoteNow } from "./quote-clock";
 
 export type ChallengeRequest = { siteKey: string; action: string; resolve: (token: string) => void; reject: (error: Error) => void };
-export type ApiOptions = { challenge?: boolean };
+export type ApiOptions = { challenge?: boolean; retry?: boolean };
 export class ApiError extends Error {
   // Seconds the server asked the caller to wait before retrying, if any.
   constructor(message: string, public status: number, public code?: string, public retryAfter?: number, public reason?: MarketReason) { super(message); }
@@ -38,7 +38,7 @@ export async function api<T>(path: string, body?: unknown, options: ApiOptions =
     continue;
   }
   const header = response.headers.get("retry-after"), retryAfter = header !== null && Number.isFinite(Number(header)) ? Math.max(0, Number(header)) : undefined;
-  if (!response.ok && retryable && attempt < 2 && [429, 503].includes(response.status) && result.code !== "CHALLENGE_REQUIRED" && result.code !== "NFT_LIST_UNAVAILABLE" &&
+  if (!response.ok && options.retry !== false && retryable && attempt < 2 && [429, 503].includes(response.status) && result.code !== "CHALLENGE_REQUIRED" && result.code !== "NFT_LIST_UNAVAILABLE" &&
     (retryAfter ?? 1) <= AUTOMATIC_RETRY_SECONDS) {
     await new Promise((resolve) => setTimeout(resolve, Math.max(500, (retryAfter ?? 1) * 1000)));
     continue;

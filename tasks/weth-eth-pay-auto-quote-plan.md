@@ -1,6 +1,6 @@
 # ETH payment on WETH pairs, automatic quotes and in-field Max
 
-Status: In progress (2026-10-16). Branch `claude/weth-eth-pay-auto-quote`, based on master `ef942a6`.
+Status: Run 1 implemented; cross-review pending (2026-10-16). Branch `claude/weth-eth-pay-auto-quote`, based on master `ef942a6`.
 
 ## Owner request (2026-10-16, translated)
 
@@ -80,3 +80,5 @@ A buyer of a WETH-pair coin pays with ETH in one wallet confirmation; every buye
 ## Delivery record
 
 - 2026-10-16 Run 1, builder gate: added decoded-calldata tests and the native WETH builder; the isolated Robinhood fork proved an ETH buy, exact value plus gas accounting, no approvals, zero router dust and the expected high-minimum revert. Source runtime matched the deployed router. E1 wallet/UI and E2-E3 remain in progress. Evidence: `.superpowers/sdd/eth-pay-auto-quote/evidence/fork-proof.json`.
+
+- 2026-10-16 Run 1, E1-E3: added the guarded native wallet path, ETH default for WETH pairs, guest quotes, bounded automatic scheduling and an in-field Max with the specified gas reserve. Updated disclosures and legacy browser selectors; the earlier guest-button constraint is explicitly superseded. Local tests/build and the four light-mode desktop/mobile checks passed; evidence and the per-commit report are in `.superpowers/sdd/eth-pay-auto-quote/`. Builder/fork commit: `02ac13f`; wallet/UI commit: `feat(trade): automate quotes and reserve gas for native Max`. Cross-review and release remain pending; no mainnet transaction, push or deployment.

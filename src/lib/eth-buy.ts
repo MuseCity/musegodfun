@@ -2,7 +2,7 @@ import { decodeEventLog, erc20Abi, formatUnits, isAddress, zeroAddress, type Add
 import type { V4PoolKey } from "@whetstone-research/doppler-sdk/evm";
 import { quoteNow } from "./quote-clock";
 import { deploymentChain, sameAddress, type RuntimeConfig } from "./config";
-import { ETH_BUY_CHAIN, assertEthBuyQuote, assertFirstBuyPaymentQuote, wrappedEther,
+import { ETH_BUY_CHAIN, assertEthBuyQuote, assertFirstBuyPaymentQuote,
   type FirstBuyPaymentAsset, type FirstBuyPaymentQuote, type FirstBuySwapData } from "./first-buy-payment";
 import { minimumOutput } from "./validation";
 
@@ -17,15 +17,13 @@ export type ReceiptLog = { address: Address; topics: readonly Hex[]; data: Hex }
 /** What a LI.FI trade may deliver: exactly the page's coin, or exactly its pair asset (the first of two steps). */
 export type LifiTradeTarget = { kind: "coin"; coin: FirstBuyPaymentAsset } | { kind: "conversion"; pair: FirstBuyPaymentAsset };
 
-/** The "Pay with" control exists on Robinhood, for coins whose pair asset is not WETH. */
-export function ethBuyAvailable(config: Pick<RuntimeConfig, "mode" | "deploymentChainId"> | null, pairAddress: string) {
-  return !!config && deploymentChain(config) === ETH_BUY_CHAIN && !sameAddress(pairAddress, wrappedEther(ETH_BUY_CHAIN));
+/** Robinhood coin buys offer native ETH, including a direct wrap-and-swap for WETH pools. */
+export function ethBuyAvailable(config: Pick<RuntimeConfig, "mode" | "deploymentChainId"> | null) {
+  return !!config && deploymentChain(config) === ETH_BUY_CHAIN;
 }
-/** The default while the amount field is empty: ETH only when a connected wallet is known to hold none of the pair asset;
- * otherwise the pair asset (no wallet: its read-only quote needs no account; balance not read yet: a typed amount then keeps
- * the pair unit, and a short balance shows the "Pay with ETH?" hint instead of changing the unit). */
-export function defaultPayWith(connected: boolean, pairBalance: bigint | null): PayWith {
-  return connected && pairBalance === 0n ? "eth" : "pair";
+/** WETH pairs always default to ETH. Other pairs retain their balance-aware, unit-preserving default. */
+export function defaultPayWith(connected: boolean, pairBalance: bigint | null, wethPair = false): PayWith {
+  return wethPair || connected && pairBalance === 0n ? "eth" : "pair";
 }
 /** A typed amount never changes unit: the user's pick wins; otherwise the default follows the wallet only while the field is
  * empty, and the first character freezes it (`frozen`, the default when typing began), whatever the balance does later. */

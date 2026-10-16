@@ -651,6 +651,10 @@ dialog.modal[open] { display: flex; flex-direction: column; gap: 16px; }
 .trade-box-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 8px; font-size: 12px; line-height: 16px; color: var(--ink-muted); }
 .trade-box-head b { color: var(--ink); font-family: var(--font-mono); font-weight: 600; }
 .trade-box input { width: 100%; min-width: 0; height: 40px; padding: 0; border: 0; background: transparent; font-family: var(--font-mono); font-size: 26px; line-height: 36px; font-weight: 500; outline: none; }
+.trade-amount-field { display: flex; align-items: center; gap: 8px; }
+.trade-max { flex: 0 0 auto; border: 1px solid var(--line-strong); border-radius: 7px; padding: 3px 8px; background: var(--surface-raised); color: var(--ink-muted); font-size: 11px; font-weight: 600; }
+.trade-max:hover:not(:disabled) { color: var(--ink); border-color: var(--sky); }
+.quote-refresh { display: inline-flex; align-items: center; justify-content: center; gap: 5px; align-self: flex-end; font-size: 12px; }
 .trade-box strong { font-family: var(--font-mono); font-size: 26px; line-height: 40px; font-weight: 500; overflow-wrap: anywhere; }
 .quick-amounts { display: flex; flex-wrap: wrap; gap: 6px; }
 .quick-amounts button { height: 32px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--surface-raised);

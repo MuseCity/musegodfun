@@ -57,7 +57,7 @@ test("C1-2 loading config does not claim transactions are disabled or invite con
     const html = renderToStaticMarkup(createElement(TokenTradeNotes, { stock: asset("WETH"), symbol: "COIN", payingEth: false, config }));
     if (config?.writesEnabled === false) assert.match(html, /Transactions are disabled; quotes are previews/);
     else assert.doesNotMatch(html, /Transactions are disabled/);
-    if (config?.writesEnabled === true) assert.match(html, /Get a quote here and confirm the trade in your wallet/);
+    if (config?.writesEnabled === true) assert.match(html, /Enter an amount for an automatic quote, then confirm the trade in your wallet/);
     else assert.doesNotMatch(html, /confirm the trade|confirm.*wallet/i);
   }
 });
@@ -131,4 +131,18 @@ test("D3 compact fee UI keeps both claims and allocation but omits catalog ident
     const rewards = renderToStaticMarkup(createElement(NetworkProvider, { children: createElement(FeeCard, { token, config }) }));
     assert.match(rewards, /fee-identity/); assert.match(rewards, /Synthetic Meme/); assert.match(rewards, / pair/); assert.match(rewards, /no second 80\/20 split/);
   } finally { hooks.deregister(); Reflect.deleteProperty(globalThis, key); Reflect.deleteProperty(globalThis, "__BUILD_IDENTITY__"); }
+});
+
+test("native WETH notes describe one transaction with no approval or LI.FI fee", () => {
+  const html = renderToStaticMarkup(createElement(TokenTradeNotes, { stock: asset("WETH"), symbol: "CLAWGOD", payingEth: true, nativeWeth: true, config: { writesEnabled: true } }));
+  assert.match(html, /ETH is wrapped to WETH and swapped in one transaction with no approval/);
+  assert.doesNotMatch(html, /LI.FI|Router approval|Get a quote/);
+});
+
+test("Base trade notes retain their manual quote instructions", () => {
+  for (const writesEnabled of [true, false]) {
+    const html = renderToStaticMarkup(createElement(TokenTradeNotes, { stock: STOCKS[0], symbol: "COIN", payingEth: false, config: { writesEnabled } }));
+    assert.doesNotMatch(html, /automatic/);
+    assert.match(html, writesEnabled ? /Get a quote here and confirm the trade in your wallet/ : /Get a quote here for a price preview/);
+  }
 });
