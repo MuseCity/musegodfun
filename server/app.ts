@@ -144,10 +144,11 @@ const webhookRaw=express.raw({type:()=>true,limit:WEBHOOK_BODY_LIMIT,inflate:fal
 app.post("/api/webhooks/alchemy", (req,res,next) => {
   const ip=req.ip||"unknown",signature=typeof req.headers["x-alchemy-signature"]==="string"?req.headers["x-alchemy-signature"]:undefined;
   const admission=swaps.admitWebhook(ip,signature,req.headers["content-length"],req.headers["transfer-encoding"]);if(admission.status){res.setHeader("Retry-After","60");res.status(admission.status).json({accepted:false});return;}
-  const release=()=>{clearTimeout(timer);admission.release();},timer=setTimeout(()=>{release();res.once('finish',()=>req.destroy());res.setHeader('Connection','close');res.status(408).json({accepted:false});},BODY_READ_DEADLINE_MS);
-  req.once('aborted',release);res.once('close',release);res.once('finish',release);
+  // Deadline, abort and raw-body errors (including length mismatches) before HMAC spend the source budget; HMAC releases first.
+  const release=()=>{clearTimeout(timer);admission.release();},fail=()=>{clearTimeout(timer);admission.fail();},timer=setTimeout(()=>{fail();res.once('finish',()=>req.destroy());res.setHeader('Connection','close');res.status(408).json({accepted:false});},BODY_READ_DEADLINE_MS);
+  req.once('aborted',fail);res.once('close',release);res.once('finish',release);
   webhookRaw(req,res,error=>{
-    if(res.writableEnded)return;if(error){release();next(error);return;}
+    if(res.writableEnded)return;if(error){fail();next(error);return;}
     void swaps.ingest(req.body instanceof Uint8Array?req.body:new Uint8Array(),signature,ip,release)
       .then(result=>{if(!res.destroyed)res.status(result.status).json({accepted:result.status===200});}).catch(next).finally(release);
   });

@@ -7,22 +7,26 @@ const hookSchema=z.object({id:z.string(),network:z.string(),webhook_type:z.strin
 export type NotifyHook=z.infer<typeof hookSchema>;
 export type Binding={id:string;network:string;key:string;retireAt?:number;generation?:number};
 export type NotifyState={hash:string;checkedAt:number;bindings:Binding[]};
-export type NotifyAttempt={hash:string;failures:number;nextAt:number;creationFailures?:number;createdId?:string;verifyAt?:number};
-const NOTIFY_REQUEST_TIMEOUT_MS=2_000;
+/** `uncertain` marks a creation whose outcome is unknown (timeout, transport failure or eviction); the next orphan sweep resolves it. */
+export type NotifyAttempt={hash:string;failures:number;nextAt:number;creationFailures?:number;createdId?:string;verifyAt?:number;uncertain?:boolean};
+/** List/delete keep a 2 s deadline; creation is slower at Alchemy and gets 15 s, all within a 30 s reconcile budget. */
+export const NOTIFY_REQUEST_TIMEOUT_MS=2_000,NOTIFY_CREATE_TIMEOUT_MS=15_000,NOTIFY_RECONCILE_BUDGET_MS=30_000;
+/** A deadline, cancellation or transport failure: the request may still have reached Alchemy. */
+export class NotifyUnavailable extends Error{constructor(){super('Notify request unavailable');}}
 export class NotifyClient{
  constructor(private token:string,private fetcher:typeof fetch=(input,init)=>fetch(input,init),private signal?:AbortSignal){}
- private async request(path:string,method="GET",body?:unknown){
+ private async request(path:string,method="GET",body?:unknown,timeout=NOTIFY_REQUEST_TIMEOUT_MS){
   const controller=new AbortController();let fail!:()=>void;
-  const expired=new Promise<never>((_,reject)=>{fail=()=>{controller.abort();reject(Error('Notify request unavailable'));};});
-  const timer=setTimeout(fail,NOTIFY_REQUEST_TIMEOUT_MS);this.signal?.addEventListener('abort',fail,{once:true});if(this.signal?.aborted)fail();
+  const expired=new Promise<never>((_,reject)=>{fail=()=>{controller.abort();reject(new NotifyUnavailable());};});
+  const timer=setTimeout(fail,timeout);this.signal?.addEventListener('abort',fail,{once:true});if(this.signal?.aborted)fail();
   try{return await Promise.race([(async()=>{
-   controller.signal.throwIfAborted();let response:Response;try{response=await this.fetcher(`https://dashboard.alchemy.com/api/${path}`,{method,headers:{"X-Alchemy-Token":this.token,"Content-Type":"application/json"},...(body?{body:JSON.stringify(body)}:{}),signal:controller.signal,redirect:"manual"});}catch{throw Error("Notify request unavailable");}
+   controller.signal.throwIfAborted();let response:Response;try{response=await this.fetcher(`https://dashboard.alchemy.com/api/${path}`,{method,headers:{"X-Alchemy-Token":this.token,"Content-Type":"application/json"},...(body?{body:JSON.stringify(body)}:{}),signal:controller.signal,redirect:"manual"});}catch{throw new NotifyUnavailable();}
    controller.signal.throwIfAborted();if(!response.ok)throw Error(`Notify request rejected (${response.status})`);
    try{const data=await response.json() as any;controller.signal.throwIfAborted();return data;}catch{throw Error("Notify response invalid");}
   })(),expired]);}finally{clearTimeout(timer);this.signal?.removeEventListener('abort',fail);controller.abort();}
  }
  async list():Promise<NotifyHook[]>{const body=await this.request("team-webhooks");return z.array(hookSchema).parse(body.data);}
- async create(body:ReturnType<typeof desiredWebhook>,created?:(id:string)=>void):Promise<NotifyHook>{const data=(await this.request("create-webhook","POST",body)).data;created?.(z.object({id:z.string().min(1)}).parse(data).id);return hookSchema.parse(data);}
+ async create(body:ReturnType<typeof desiredWebhook>,created?:(id:string)=>void):Promise<NotifyHook>{const data=(await this.request("create-webhook","POST",body,NOTIFY_CREATE_TIMEOUT_MS)).data;created?.(z.object({id:z.string().min(1)}).parse(data).id);return hookSchema.parse(data);}
  async remove(id:string){await this.request(`delete-webhook?webhook_id=${encodeURIComponent(id)}`,"DELETE");}
 }
 export function desiredWebhook(chainId:4663|8453,pools:SwapPool[],url:string){
@@ -45,10 +49,10 @@ export async function reconcileWebhook(store:SwapStore,api:NotifyClient,chainId:
  if(attempt?.hash===desired.hash&&now<attempt.nextAt)throw Error("Notify reconciliation retry is pending");
  if(state?.hash===desired.hash&&now-state.checkedAt<86400_000&&!(attempt?.failures))return;
  const same=attempt?.hash===desired.hash,failures=same?attempt.failures:0;
- const next:NotifyAttempt={hash:desired.hash,failures:failures+1,nextAt:now+Math.min(3600_000,60_000*2**Math.min(failures,6)),creationFailures:same?attempt.creationFailures??0:0,...(same&&attempt.createdId?{createdId:attempt.createdId}:{}),...(same&&attempt.verifyAt?{verifyAt:attempt.verifyAt}:{})};
+ const next:NotifyAttempt={hash:desired.hash,failures:failures+1,nextAt:now+Math.min(3600_000,60_000*2**Math.min(failures,6)),creationFailures:same?attempt.creationFailures??0:0,...(same&&attempt.createdId?{createdId:attempt.createdId}:{}),...(same&&attempt.verifyAt?{verifyAt:attempt.verifyAt}:{}),...(same&&attempt.uncertain?{uncertain:true}:{})};
  const stopped=(next.creationFailures??0)>=5;
  if(stopped&&now<(next.verifyAt??0)){next.nextAt=now+3600_000;store.set('notify-attempt',next);throw Error('Notify creation stopped; daily verification is pending');}
- // Persist the lease and creation count before remote work, including uncertain/evicted creations.
+ // Persist the lease before remote work; a pending uncertain creation is carried until the sweep below resolves it.
  if(stopped)next.verifyAt=now+86400_000;
  store.set("notify-attempt",next);
  let createdId:string|undefined;
@@ -60,10 +64,14 @@ export async function reconcileWebhook(store:SwapStore,api:NotifyClient,chainId:
     // Never create while an uncertain orphan still exists. Other origins/chains and bound hooks are untouched.
     for(const old of hooks)if(sameCallback(old.webhook_url,url)&&!state?.bindings.some(b=>b.id===old.id)){await api.remove(old.id);removed.add(old.id);}
     if(next.createdId&&!hooks.some(h=>h.id===next.createdId))await api.remove(next.createdId);
-    delete next.createdId;store.set('notify-attempt',next);
-    if(stopped)throw Error('Notify creation stopped');
-    next.creationFailures=(next.creationFailures??0)+1;store.set('notify-attempt',next);
-    const {hash:_hash,...body}=desired;hook=await api.create(body as typeof desired,id=>{createdId=id;next.createdId=id;store.set('notify-attempt',next);});
+    // An uncertain creation that reached Alchemy was just swept as an orphan and does not count; one that never arrived does.
+    if(next.uncertain&&!removed.size)next.creationFailures=(next.creationFailures??0)+1;
+    delete next.uncertain;delete next.createdId;store.set('notify-attempt',next);
+    if((next.creationFailures??0)>=5)throw Error('Notify creation stopped');
+    // Persisted before the call, so an eviction is resolved like a timeout. A received response settles the attempt as a failure until it binds.
+    next.uncertain=true;store.set('notify-attempt',next);
+    const settle=()=>{delete next.uncertain;next.creationFailures=(next.creationFailures??0)+1;store.set('notify-attempt',next);};
+    const {hash:_hash,...body}=desired;try{hook=await api.create(body as typeof desired,id=>{createdId=id;next.createdId=id;store.set('notify-attempt',next);});}catch(error){if(!(error instanceof NotifyUnavailable))settle();throw error;}settle();
    }
    if(hook.id!==(createdId??storedId)||!validHook(hook,desired))throw Error("Notify identity mismatch");
   }

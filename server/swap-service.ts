@@ -3,11 +3,13 @@ import { INTERVAL_SECONDS } from "../src/lib/candle-history";
 import { mergeCandles,mergeCandleBuckets,mergeSummary,mergeTrades,priceTrade } from "../src/lib/swap-market";
 import type { OnchainTrade,SwapMessage } from "../src/lib/swap-stream";
 import { decodeDelivery,NETWORKS,verifySignature,type SwapPool } from "./swap-stream";
-import { NotifyClient,reconcileWebhook,type NotifyState,type NotifyAttempt } from "./alchemy-webhooks";
+import { NotifyClient,reconcileWebhook,NOTIFY_RECONCILE_BUDGET_MS,type NotifyState,type NotifyAttempt } from "./alchemy-webhooks";
 import { order,SwapCapacityError,type SwapStore } from "./swap-store";
 import {clientBucket} from './abuse';
 import { MarketUnavailable } from "./snapshots";
 export const WEBHOOK_BODY_LIMIT=1_048_576;
+/** A body that never completes holds one of eight pre-read slots for up to 10 s, so two failed reads exhaust a source's 120/min budget. */
+export const WEBHOOK_READ_FAILURE_COST=60;
 export const SWAP_MAINTENANCE_BUDGET_MS=10_000,SWAP_BLOCK_TIMEOUT_MS=2_000;
 export const isWebhookPath=(path:string)=>/^\/api\/(?:chains\/(?:4663|8453)\/)?webhooks\/alchemy$/.test(path.split('?')[0]);
 export class SwapService {
@@ -20,25 +22,28 @@ export class SwapService {
  async reconcile(origin:string){
   if(!this.options.token)return;if(this.reconciling)return this.reconciling;
   const controller=new AbortController();let timer:ReturnType<typeof setTimeout>|undefined;
-  const expired=new Promise<never>((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Error('Notify reconciliation timed out'));},SWAP_MAINTENANCE_BUDGET_MS);});
+  const expired=new Promise<never>((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Error('Notify reconciliation timed out'));},NOTIFY_RECONCILE_BUDGET_MS);});
   this.reconciling=Promise.race([(async()=>{const pools=await this.options.pools();controller.signal.throwIfAborted();await reconcileWebhook(this.store,new NotifyClient(this.options.token!,undefined,controller.signal),this.chainId,pools,`${origin}/api/chains/${this.chainId}/webhooks/alchemy`);})(),expired]);
   try{await this.reconciling;}finally{clearTimeout(timer);controller.abort();this.reconciling=undefined;}
  }
- /** Only failed HMAC verification spends a source bucket; body/transport/schema errors do not. */
- private rejectWebhook(ip:string){
-  const now=Date.now(),key=clientBucket(ip),old=this.clients.get(key),row=old&&now-old.at<60_000?old:{at:now,count:0};
+ /** Failed HMAC verification and failed pre-HMAC reads spend a source bucket; signature/length rejections and authenticated schema errors do not. */
+ private spend(key:string,cost:number){
+  const now=Date.now(),old=this.clients.get(key),row=old&&now-old.at<60_000?old:{at:now,count:0};
   this.clients.delete(key);this.clients.set(key,row);if(this.clients.size>10_000)this.clients.delete(this.clients.keys().next().value!);
-  return ++row.count>120?429:401;
+  return row.count+=cost;
  }
+ private rejectWebhook(ip:string){return this.spend(clientBucket(ip),1)>120?429:401;}
+ /** `fail` marks a read that timed out, aborted, errored or differed from its declared length; it is a no-op once released at HMAC. */
  admitWebhook(ip='unknown',signature?:string,length?:string|null,transferEncoding?:string|null){
-  const key=clientBucket(ip),row=this.clients.get(key),reject=(status:number)=>({status,release:()=>{}});
+  const key=clientBucket(ip),row=this.clients.get(key),reject=(status:number)=>({status,release:()=>{},fail:()=>{}});
   if(row&&Date.now()-row.at<60_000&&row.count>=120)return reject(429);
   if(!signature||!/^[\da-f]{64}$/i.test(signature))return reject(401);
   if(length==null)return reject(411);if(!/^\d+$/.test(length)||transferEncoding)return reject(400);
   const size=Number(length);if(!Number.isSafeInteger(size)||size>WEBHOOK_BODY_LIMIT)return reject(413);
   if(this.reading>=8||(this.readers.get(key)??0)>=2)return reject(429);
   this.reading++;this.readers.set(key,(this.readers.get(key)??0)+1);let done=false;
-  return {status:0,release:()=>{if(done)return;done=true;this.reading--;const remaining=this.readers.get(key)!-1;if(remaining)this.readers.set(key,remaining);else this.readers.delete(key);}};
+  const release=()=>{if(done)return;done=true;this.reading--;const remaining=this.readers.get(key)!-1;if(remaining)this.readers.set(key,remaining);else this.readers.delete(key);};
+  return {status:0,release,fail:()=>{if(done)return;this.spend(key,WEBHOOK_READ_FAILURE_COST);release();}};
  }
  private publish(message:SwapMessage){this.options.broadcast?.(message);for(const listener of this.listeners)listener(message);}
  async ingest(raw:Uint8Array,signature:string|undefined,ip='unknown',release=()=>{}){
@@ -79,7 +84,6 @@ export class SwapService {
   const providerBars=(base?.candles??[]).filter((c:CandleData['candles'][number])=>c.time<to);
   if(!providerBars.length)return mergeCandleBuckets(base,this.store.buckets(pool,from,to,seconds),coverage,q);
   const current=Math.floor(Date.now()/1000/seconds)*seconds,lastProvider=Math.max(...providerBars.map((c:CandleData['candles'][number])=>c.time));
-  const raw=current>lastProvider&&current<to?this.store.window(pool,Math.max(from,current),Math.min(to,current+seconds)):[];function* priced(){for(const t of raw)yield priceTrade(t,q);}
-  return mergeCandles(base as CandleData|null,priced(),coverage,interval,before);
+  return mergeCandles(base as CandleData|null,current>lastProvider&&current<to?this.store.window(pool,Math.max(from,current),Math.min(to,current+seconds)):[],coverage,interval,q,before);
  }
 }

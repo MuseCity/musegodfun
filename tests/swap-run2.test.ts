@@ -36,8 +36,8 @@ test('C1-8/C1-13: union retains provider rows after coverage and empty own summa
 });
 test('C1-8/C1-12: provider candles remain authoritative and quote-only old rows cannot change window unit',()=>{
  const t=delivery().trades[0],bucket=Math.floor(Date.parse(t.at)/3600000)*3600,bar={time:bucket,open:7,high:7,low:7,close:7,volume:99},base={source:'Bankr' as const,fetchedAt:t.at,candles:[bar]};
- assert.deepEqual(mergeCandles(base,[{...t,priceUsd:2,usd:1}],t.at,'1h').candles,[bar]);
- const recent={...t,blockNumber:t.blockNumber+1,at:new Date((bucket+3601)*1000).toISOString(),priceUsd:2,usd:1};const result=mergeCandles(base,[t,recent],t.at,'1h');assert.equal(result.unit,'USD');assert.equal(result.candles[0].volume,99);
+ assert.deepEqual(mergeCandles(base,[t],t.at,'1h',null).candles,[bar]);
+ const recent={...t,blockNumber:t.blockNumber+1,at:new Date((bucket+3601)*1000).toISOString()};const result=mergeCandles(base,[t,recent],t.at,'1h',{price:2,source:'LI.FI',at:new Date().toISOString()});assert.equal(result.unit,'USD');assert.equal(result.candles[0].volume,99);
 });
 test('C1-9: finality verifies each stored swap block once, removes empty canonical replacement; caps alarm RPC',async()=>{
  const store=new MemorySwapStore(),d=delivery();for(let n=0;n<12;n++)store.apply({...d,blockNumber:n+1,trades:[{...d.trades[0],id:'row'+n,blockNumber:n+1}]});let rpc=0;const messages:any[]=[];

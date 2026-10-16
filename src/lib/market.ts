@@ -8,6 +8,8 @@ export type MarketReason = "missing_config" | "quota_exhausted" | "not_indexed" 
 export type MarketCause = { source: MarketSource; reason: MarketReason; upstreamStatus?: number };
 export type SnapshotMeta = {
   coverageStart?: string;
+  /** Block time of the last on-chain trade; fetchedAt stays the time this snapshot was served. */
+  lastTradeAt?: string | null;
   historySource?: MarketSource;
   historyFetchedAt?: string;
   unit?: string;
@@ -24,7 +26,6 @@ export const CHART_INTERVALS = ["1m", "5m", "15m", "1h", "4h", "1d"] as const;
 export type ChartInterval = (typeof CHART_INTERVALS)[number];
 export type MarketSummary = SnapshotMeta & {
   fetchedAt: string;
-  lastTradeAt?: string | null;
   priceQuote?: string;
   quoteSymbol?: string;
   priceUsd: number | null;
@@ -52,12 +53,11 @@ export type Candle = {
 export type CandleData = SnapshotMeta & {
   fetchedAt: string;
   candles: Candle[];
-  watermark?: {
-    blockNumber: number;
-    logIndex: number;
-    txHash: string;
-  } | null;
+  watermark?: Watermark | null;
+  /** Own on-chain push state: quote-asset OHLCV for buckets after the provider's last returned bar (all buckets when it is null). */
+  own?: { providerLastBar: number | null; quoteSymbol: string | null; candles: Candle[]; watermark: Watermark | null };
 };
+export type Watermark = { blockNumber: number; logIndex: number; txHash: string };
 export type MarketTrade = {
   source?: MarketSource;
   logIndex?: number;

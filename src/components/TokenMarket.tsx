@@ -35,10 +35,12 @@ export function marketEndpoint(token: MarketToken, kind: "launch" | "musegod", s
 }
 export function MarketProvenance({ label, data, kind }: { label: string; data: (SnapshotMeta & { fetchedAt: string }) | null; kind?: "launch" | "musegod" }) {
   if (!data) return null;
+  // On-chain data shows its last trade's block time; fetchedAt remains the snapshot's freshness.
+  const block = data.source === "On-chain · Alchemy" ? data.lastTradeAt : null, at = block ?? data.fetchedAt;
   return <span>{label} · {data.status === "stale" ? "Previous snapshot · " : ""}{data.source === "Bankr" ? kind === "musegod"
     ? <a href={MUSEGOD.sourceUrl} target="_blank" rel="noopener noreferrer">Bankr / Pools ↗</a> : "Bankr / Pools"
     : data.source === "CoinGecko" ? <a href="https://www.coingecko.com/en/api" target="_blank" rel="noopener noreferrer">Data provided by CoinGecko</a>
-      : data.source ?? "Source unspecified"}{data.coverageStart && <> since <time dateTime={data.coverageStart}>{new Date(data.coverageStart).toLocaleString("en-US")}</time></>} · {data.source === "On-chain · Alchemy" ? "Block" : "Fetched"} <time dateTime={data.fetchedAt} title={data.fetchedAt}>{new Date(data.fetchedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}</time>{data.historySource && <> · {label === "Summary" ? "Provider statistics" : "Provider records"}: {data.historySource}{data.historyFetchedAt && <> · Fetched {new Date(data.historyFetchedAt).toLocaleTimeString("en-US")}</>}</>}{data.unit && <> · {data.unit}</>}{data.quoteUsd && <> · USD quote: {data.quoteUsd.source} at {new Date(data.quoteUsd.at).toLocaleTimeString("en-US")}</>}</span>;
+      : data.source ?? "Source unspecified"}{data.coverageStart && <> since <time dateTime={data.coverageStart}>{new Date(data.coverageStart).toLocaleString("en-US")}</time></>} · {block ? "Block" : "Fetched"} <time dateTime={at} title={at}>{new Date(at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}</time>{data.historySource && <> · {label === "Summary" ? "Provider statistics" : "Provider records"}: {data.historySource}{data.historyFetchedAt && <> · Fetched {new Date(data.historyFetchedAt).toLocaleTimeString("en-US")}</>}</>}{data.unit && <> · {data.unit}</>}{data.quoteUsd && <> · USD quote: {data.quoteUsd.source} at {new Date(data.quoteUsd.at).toLocaleTimeString("en-US")}</>}</span>;
 }
 export function emptyCandlesMessage(data: CandleData | null, interval: ChartInterval) {
   if (data?.reason) {

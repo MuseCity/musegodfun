@@ -1,23 +1,21 @@
 import {INTERVAL_SECONDS} from './candle-history';
-import {mergeSummary,mergeTrades} from './swap-market';
+import {composeCandles,mergeSummary,mergeTrades,type OwnCandles} from './swap-market';
 import type {CandleData,ChartInterval,MarketSummary,TradeData} from './market';import type {SwapMessage} from './swap-stream';
 export type SwapSections={summary:MarketSummary|null;candles:CandleData|null;trades:TradeData|null};
-/** Apply each log once, retaining a candle watermark instead of a growing trade history. */
+/** Apply each log once. Own candles accumulate in quote units after the provider's last returned bar, independent of any provider
+ * watermark, and the whole own portion is shown with the push's current quote, exactly as the REST merge would serve it. */
 export function applySwapPush(current:SwapSections,message:SwapMessage,interval:ChartInterval):SwapSections{
  const rows=[...message.trades].sort((a,b)=>a.blockNumber-b.blockNumber||a.logIndex-b.logIndex),last=rows.at(-1);if(!last)return current;
  const summary=mergeSummary(current.summary,rows,message.coverageStart),trades=mergeTrades(current.trades,rows,message.coverageStart),old=current.candles;
- const provider=old&&old.source!=='On-chain · Alchemy'||!!old?.historySource;
- const watermark=old?.watermark,seconds=INTERVAL_SECONDS[interval],fresh=rows.filter(t=>!watermark||t.blockNumber>watermark.blockNumber||t.blockNumber===watermark.blockNumber&&t.logIndex>watermark.logIndex);
+ // A response served before coverage began carries provider bars only.
+ const own:OwnCandles=old?.own??{providerLastBar:old?.candles.length?old.candles.reduce((n,c)=>Math.max(n,c.time),-Infinity):null,quoteSymbol:null,candles:[],watermark:null};
+ const w=own.watermark,fresh=rows.filter(t=>!w||t.blockNumber>w.blockNumber||t.blockNumber===w.blockNumber&&t.logIndex>w.logIndex);
  if(!fresh.length)return {...current,summary,trades};
- const usd=last.priceUsd!=null&&last.usd!=null,unit=usd?'USD':last.quoteSymbol;
- let candles=(old?.candles??[]).map(c=>({...c}));
- if(old?.unit&&old.unit!==unit){if(provider)return {...current,summary,trades};const ratio=(usd?last.quoteUsd?.price??1:1)/(old.unit==='USD'?old.quoteUsd?.price??1:1);candles=candles.map(c=>({...c,open:c.open*ratio,high:c.high*ratio,low:c.low*ratio,close:c.close*ratio,volume:c.volume*ratio}));}
- const providerEnd=provider?Math.max(-1,...(old?.candles??[]).filter(c=>!watermark||c.time<Math.floor(Date.parse(old!.fetchedAt)/1000/seconds)*seconds).map(c=>c.time)):-1;
- let applied=false;
- for(const t of fresh){const time=Math.floor(Date.parse(t.at)/1000/seconds)*seconds;if(provider&&(time<=providerEnd||time!==Math.floor(Date.now()/1000/seconds)*seconds||!usd))continue;
-  const price=usd?t.priceUsd:Number(t.priceQuote),volume=usd?t.usd:Number(t.quoteAmount);if(price==null||volume==null||!(price>0)||!Number.isFinite(price)||!Number.isFinite(volume))continue;
-  const bar=candles.find(c=>c.time===time);if(bar){bar.high=Math.max(bar.high,price);bar.low=Math.min(bar.low,price);bar.close=price;bar.volume+=volume;}else candles.push({time,open:price,high:price,low:price,close:price,volume});applied=true;
+ const seconds=INTERVAL_SECONDS[interval],bucket=Math.floor(Date.now()/1000/seconds)*seconds,candles=own.candles.map(c=>({...c}));
+ for(const t of fresh){const time=Math.floor(Date.parse(t.at)/1000/seconds)*seconds,price=Number(t.priceQuote),volume=Number(t.quoteAmount);
+  if(own.providerLastBar!==null&&(time<=own.providerLastBar||time!==bucket)||!(price>0)||!Number.isFinite(price)||!Number.isFinite(volume))continue;
+  const bar=candles.find(c=>c.time===time);if(bar){bar.high=Math.max(bar.high,price);bar.low=Math.min(bar.low,price);bar.close=price;bar.volume+=volume;}else candles.push({time,open:price,high:price,low:price,close:price,volume});
  }
- const result:CandleData|null=applied?{source:'On-chain · Alchemy',status:'fresh',fetchedAt:last.at,coverageStart:message.coverageStart,unit,quoteUsd:last.quoteUsd??null,candles:candles.sort((a,b)=>a.time-b.time).slice(-200),watermark:{blockNumber:last.blockNumber,logIndex:last.logIndex,txHash:last.hash},...(provider?{historySource:old?.historySource??old?.source,historyFetchedAt:old?.historyFetchedAt??old?.fetchedAt}:{})}:old;
- return {summary,trades,candles:result};
+ const next:OwnCandles={...own,quoteSymbol:own.quoteSymbol??last.quoteSymbol,candles:candles.sort((a,b)=>a.time-b.time).slice(-200),watermark:{blockNumber:last.blockNumber,logIndex:last.logIndex,txHash:last.hash}};
+ return {summary,trades,candles:composeCandles(old,next,message.coverageStart,last.quoteUsd??null,last)};
 }

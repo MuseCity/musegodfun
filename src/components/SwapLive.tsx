@@ -13,7 +13,7 @@ export default function SwapLive(props:Rest&{chainId:4663|8453;pool:string;path:
  const [status,setStatus]=useState<LiveStatus>({connected:false,receiving:false,receivedAt:null});
  useEffect(()=>{
   let active=true;const abort=new AbortController();
-  function publish(next:Rest){const c=current.current,projection:LiveProjection={...next,basis:c,priceAt:next.summary?.source==='On-chain · Alchemy'?next.summary.lastTradeAt??null:null,candlesAt:next.candles?.source==='On-chain · Alchemy'?next.candles.fetchedAt:null,tradesAt:next.trades?.source==='On-chain · Alchemy'?next.trades.fetchedAt:null};displayed.current=projection;c.onUpdate(projection);}
+  function publish(next:Rest){const c=current.current,projection:LiveProjection={...next,basis:c,priceAt:next.summary?.source==='On-chain · Alchemy'?next.summary.lastTradeAt??null:null,candlesAt:next.candles?.source==='On-chain · Alchemy'?next.candles.lastTradeAt??null:null,tradesAt:next.trades?.source==='On-chain · Alchemy'?next.trades.lastTradeAt??null:null};displayed.current=projection;c.onUpdate(projection);}
   const recovery=createGapRefresh(async()=>{
    const p=current.current;const [summary,candles,trades]=await Promise.all([chainApi<Rest['summary']>(p.chainId,`${p.path}/summary`,undefined,{retry:false,signal:abort.signal}),chainApi<Rest['candles']>(p.chainId,`${p.path}/candles?interval=${p.interval}`,undefined,{retry:false,signal:abort.signal}),chainApi<Rest['trades']>(p.chainId,`${p.path}/trades`,undefined,{retry:false,signal:abort.signal})]);
    if(active&&p.interval===current.current.interval)publish({summary,candles,trades});

@@ -77,9 +77,10 @@ export class LaunchpadRuntime extends DurableObject<Env> {
       try{
         if (await this.ctx.storage.getAlarm() === null) await this.ctx.storage.setAlarm(Date.now()+30_000);
         if (!request.body) return Response.json({accepted:false},{status:400});
-        const length=Number(request.headers.get("content-length")),read = await readBoundedBody(request.body,length,BODY_READ_DEADLINE_MS,request.signal);
-        if ("status" in read) return Response.json({accepted:false},{status:read.status});
-        if(read.bytes.byteLength!==length)return Response.json({accepted:false},{status:400});
+        const length=Number(request.headers.get("content-length"));let read: Awaited<ReturnType<typeof readBoundedBody>>;
+        try { read = await readBoundedBody(request.body,length,BODY_READ_DEADLINE_MS,request.signal); } catch (error) { admission.fail(); throw error; }
+        // A timed-out, aborted, short or overlong body held a pre-read slot without reaching HMAC: it spends the source budget.
+        if ("status" in read || read.bytes.byteLength!==length) { admission.fail(); return Response.json({accepted:false},{status:"status" in read?read.status:400}); }
         const result = await this.swaps.ingest(read.bytes,signature,ip,admission.release);
         return Response.json({accepted:result.status===200},{status:result.status});
       }finally{admission.release();}
