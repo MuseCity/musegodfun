@@ -11,13 +11,20 @@ export interface SwapStore {
  get<T>(key:string):T|undefined;set(key:string,value:unknown):void;coverage(pool:string):string|undefined;
 }
 export class SwapCapacityError extends Error{constructor(){super("Swap storage capacity is temporarily limited");}}
+/** Stored cursor state outside the current format; the delivery is rejected as retryable before any write. */
+export class SwapStateError extends Error{override name='SwapStateError';constructor(){super("Swap cursor state is invalid");}}
 const RETENTION_SECONDS=400*86400;
 const empty=():ApplyResult=>({trades:[],reorg:false,removedPools:[]});
 type Cursor={generation:number;sequence:string;hash:string};
-// Each webhook kind keeps its own cursor (generation, sequence and the block hash it delivered) in the existing sequence column; a legacy
-// plain sequence is one cursor shared by all kinds. Kinds never compare sequences, and a kind replaces only its own rows at a height.
-const cursors=(b:Block|undefined):Partial<Record<Delivery['kind'],Partial<Cursor>>>=>b?.sequence.startsWith('{')?JSON.parse(b.sequence):{};
-const cursor=(d:Delivery,b:Block):Cursor|undefined=>{if(!b.sequence.startsWith('{'))return b;const c=cursors(b)[d.kind];return c&&{generation:c.generation!,sequence:c.sequence!,hash:c.hash??b.hash};};
+/** The only cursor format: per kind, its webhook generation, sequence and delivered block hash, in the existing sequence column. Production
+ * stored no swaps before it, so any other value is corrupt state and is never guessed from the block record. */
+function cursors(b:Block|undefined):Partial<Record<Delivery['kind'],Cursor>>{
+ if(!b)return {};let value:any;try{value=JSON.parse(b.sequence);}catch{throw new SwapStateError();}
+ if(!value||typeof value!=='object'||Array.isArray(value)||Object.entries<any>(value).some(([kind,c])=>kind!=='v3'&&kind!=='v4'||!Number.isSafeInteger(c?.generation)||!/^\d{1,40}$/.test(c?.sequence)||!/^0x[\da-f]{64}$/.test(c?.hash)))throw new SwapStateError();
+ return value;
+}
+// Kinds never compare sequences, and a kind replaces only its own rows at a height.
+const cursor=(d:Delivery,b:Block)=>cursors(b)[d.kind];
 const newer=(d:Delivery,c:Cursor)=>(d.generation??0)>c.generation||(d.generation??0)===c.generation&&BigInt(d.sequence)>BigInt(c.sequence);
 const sequence=(d:Delivery,b:Block|undefined)=>JSON.stringify({...cursors(b),[d.kind]:{generation:d.generation??0,sequence:d.sequence,hash:d.blockHash}});
 /** Swap logs of a V4 pool carry its 32-byte pool id; V3 rows carry the 20-byte pool address. */

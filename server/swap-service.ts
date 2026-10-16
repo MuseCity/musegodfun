@@ -5,7 +5,7 @@ import type { OnchainTrade,SwapMessage } from "../src/lib/swap-stream";
 import { decodeDelivery,NETWORKS,verifySignature,type SwapPool,type WebhookKind } from "./swap-stream";
 import {webhookKindForPath} from './http-security';
 import { NotifyClient,reconcileWebhook,webhookKinds,NOTIFY_RECONCILE_BUDGET_MS,type NotifyState,type NotifyAttempt } from "./alchemy-webhooks";
-import { order,SwapCapacityError,type SwapStore } from "./swap-store";
+import { order,SwapCapacityError,SwapStateError,type SwapStore } from "./swap-store";
 import {clientBucket} from './abuse';
 import { MarketUnavailable } from "./snapshots";
 export const WEBHOOK_BODY_LIMIT=1_048_576;
@@ -63,7 +63,7 @@ export class SwapService {
     const descriptor=pools.find(p=>p.pool===pool),q=descriptor?this.options.quoteCached?.(descriptor):null,rows=result.trades.filter(t=>t.pool===pool).sort(order).map(t=>priceTrade(t,q)),last=previous.get(pool),gap=!!last&&rows.some(t=>order(t,last)<=0);
     for(let offset=0;offset<Math.max(1,rows.length);offset+=200)this.publish({type:'trades',chainId:this.chainId,pool,trades:rows.slice(offset,offset+200),reorg:result.reorg,...(gap?{gap:true}:{}),blockNumber:delivery.blockNumber,blockHash:delivery.blockHash,coverageStart:this.store.coverage(pool)??new Date(delivery.timestamp*1000).toISOString()});
    }};
-   const done=this.pending.then(commit);this.pending=done.catch(()=>{});try{await done;}catch(error){if(!(error instanceof SwapCapacityError))throw error;
+   const done=this.pending.then(commit);this.pending=done.catch(()=>{});try{await done;}catch(error){if(!(error instanceof SwapCapacityError||error instanceof SwapStateError))throw error;if(error instanceof SwapStateError)console.error('Swap cursor state is invalid; delivery deferred');
     for(const pool of new Set(delivery.trades.map(t=>t.pool)))this.publish({type:'trades',chainId:this.chainId,pool,trades:[],reorg:false,gap:true,blockNumber:delivery.blockNumber,blockHash:delivery.blockHash,coverageStart:this.store.coverage(pool)??new Date(delivery.timestamp*1000).toISOString()});
     return {status:503};
    }return {status:200};
