@@ -50,12 +50,12 @@ test('C1b-3: 1d requests over 40k rows read only the current provider bucket or 
  db.prepare('DELETE FROM swap_trades WHERE block>=?').run(39801);read=0;const after=await service.serve('candles',MUSE_POOL,async()=>null,'1d');assert.equal(after.candles.length,199);assert(read<=199);
  }finally{db.close();}
 });
-test('C1b-4: a saturated unverified source still passes 600 authenticated deliveries and eight processing slots',async()=>{
+test('C1b-4: verified deliveries reach 600/min and eight processing slots while a failed source is isolated',async()=>{
  const store=new MemorySwapStore();store.set('notify',{bindings:[{id:'wh_test_v3',network:'ROBINHOOD_MAINNET',key}]});let release!:()=>void;const gate=new Promise<void>(r=>release=r),service=new SwapService(4663,store,{pools:async()=>{await gate;return pools;}});const body=structuredClone(fixtures.deliveries.v3);body.event.data.block.timestamp=Math.floor(Date.now()/1000);const raw=Buffer.from(JSON.stringify(body)),sig=createHmac('sha256',key).update(raw).digest('hex'),ip='203.0.113.10';
- for(let n=0;n<121;n++)service.admitWebhook(ip,undefined);const accepted=[];for(let n=0;n<8;n++){const admission=service.admitWebhook(ip,sig);assert.equal(admission.status,0);accepted.push(service.ingest(raw,sig,ip));}
+ for(let n=0;n<120;n++)await service.ingest(Buffer.from('{'),'f'.repeat(64),'192.0.2.1');assert.equal(service.admitWebhook('192.0.2.1',sig,String(raw.length)).status,429);const accepted=[];for(let n=0;n<8;n++){const admission=service.admitWebhook(ip,sig,String(raw.length));assert.equal(admission.status,0);accepted.push(service.ingest(raw,sig,ip,admission.release));}
  assert.equal((await service.ingest(raw,sig,ip)).status,429);release();assert((await Promise.all(accepted)).every(r=>r.status===200));
- for(let n=8;n<600;n++){assert.equal(service.admitWebhook(ip,sig).status,0);assert.equal((await service.ingest(raw,sig,ip)).status,200);}assert.equal((await service.ingest(raw,sig,ip)).status,429);
+ for(let n=8;n<600;n++){const admission=service.admitWebhook(ip,sig,String(raw.length));assert.equal(admission.status,0);assert.equal((await service.ingest(raw,sig,ip,admission.release)).status,200);}assert.equal((await service.ingest(raw,sig,ip)).status,429);
 });
 test('C1b-4: syntactically valid failed HMACs spend only their source bucket',async()=>{
- const service=new SwapService(4663,new MemorySwapStore(),{pools:async()=>pools});for(let n=0;n<121;n++){const admission=service.admitWebhook('192.0.2.1','f'.repeat(64));assert.equal(admission.status,0);const r=await service.ingest(Buffer.from('{'),'f'.repeat(64),'192.0.2.1');assert.equal(r.status,n<120?401:429);}assert.equal(service.admitWebhook('192.0.2.2',undefined).status,401);
+ const service=new SwapService(4663,new MemorySwapStore(),{pools:async()=>pools});for(let n=0;n<120;n++){const admission=service.admitWebhook('192.0.2.1','f'.repeat(64),'1');assert.equal(admission.status,0);const r=await service.ingest(Buffer.from('{'),'f'.repeat(64),'192.0.2.1',admission.release);assert.equal(r.status,401);}assert.equal(service.admitWebhook('192.0.2.1','f'.repeat(64),'1').status,429);assert.equal(service.admitWebhook('192.0.2.2',undefined).status,401);
 });

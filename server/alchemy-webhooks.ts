@@ -8,12 +8,18 @@ export type NotifyHook=z.infer<typeof hookSchema>;
 export type Binding={id:string;network:string;key:string;retireAt?:number;generation?:number};
 export type NotifyState={hash:string;checkedAt:number;bindings:Binding[]};
 export type NotifyAttempt={hash:string;failures:number;nextAt:number;creationFailures?:number;createdId?:string;verifyAt?:number};
+const NOTIFY_REQUEST_TIMEOUT_MS=2_000;
 export class NotifyClient{
- constructor(private token:string,private fetcher:typeof fetch=(input,init)=>fetch(input,init)){}
+ constructor(private token:string,private fetcher:typeof fetch=(input,init)=>fetch(input,init),private signal?:AbortSignal){}
  private async request(path:string,method="GET",body?:unknown){
-  let response:Response;try{response=await this.fetcher(`https://dashboard.alchemy.com/api/${path}`,{method,headers:{"X-Alchemy-Token":this.token,"Content-Type":"application/json"},...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(15_000),redirect:"manual"});}catch{throw Error("Notify request unavailable");}
-  if(!response.ok)throw Error(`Notify request rejected (${response.status})`);
-  try{return await response.json() as any;}catch{throw Error("Notify response invalid");}
+  const controller=new AbortController();let fail!:()=>void;
+  const expired=new Promise<never>((_,reject)=>{fail=()=>{controller.abort();reject(Error('Notify request unavailable'));};});
+  const timer=setTimeout(fail,NOTIFY_REQUEST_TIMEOUT_MS);this.signal?.addEventListener('abort',fail,{once:true});if(this.signal?.aborted)fail();
+  try{return await Promise.race([(async()=>{
+   controller.signal.throwIfAborted();let response:Response;try{response=await this.fetcher(`https://dashboard.alchemy.com/api/${path}`,{method,headers:{"X-Alchemy-Token":this.token,"Content-Type":"application/json"},...(body?{body:JSON.stringify(body)}:{}),signal:controller.signal,redirect:"manual"});}catch{throw Error("Notify request unavailable");}
+   controller.signal.throwIfAborted();if(!response.ok)throw Error(`Notify request rejected (${response.status})`);
+   try{const data=await response.json() as any;controller.signal.throwIfAborted();return data;}catch{throw Error("Notify response invalid");}
+  })(),expired]);}finally{clearTimeout(timer);this.signal?.removeEventListener('abort',fail);controller.abort();}
  }
  async list():Promise<NotifyHook[]>{const body=await this.request("team-webhooks");return z.array(hookSchema).parse(body.data);}
  async create(body:ReturnType<typeof desiredWebhook>,created?:(id:string)=>void):Promise<NotifyHook>{const data=(await this.request("create-webhook","POST",body)).data;created?.(z.object({id:z.string().min(1)}).parse(data).id);return hookSchema.parse(data);}

@@ -8,7 +8,7 @@ import { clientBucket, IngressLimiter, PreviewQueue, RiskChallenge } from "./abu
 import { BudgetUnavailable, recoveryBudget, withRecoveryBudget } from "./runtime-policy";
 import { sameAddress, listedTokens, type RuntimeConfig, type TokenRecord } from "../src/lib/config";
 import { firstBuyPaymentInput, FIRST_BUY_SLIPPAGE_BPS } from "../src/lib/first-buy-payment";
-import { securityHeaders, requestBodyLimitForPath } from "./http-security";
+import { securityHeaders, requestBodyLimitForPath, BODY_READ_DEADLINE_MS } from "./http-security";
 import { TokenImages } from "./token-images";
 import { z } from "zod";
 import { createPublicClient, http, parseUnits, type Address, type Hex } from "viem";
@@ -140,12 +140,17 @@ app.use((req, res, next) => {
   next();
 });
 // Only this exact raw-body route bypasses browser Origin and challenge middleware.
+const webhookRaw=express.raw({type:()=>true,limit:WEBHOOK_BODY_LIMIT,inflate:false});
 app.post("/api/webhooks/alchemy", (req,res,next) => {
-  const admission=swaps.admitWebhook(req.ip || "unknown",typeof req.headers["x-alchemy-signature"] === "string" ? req.headers["x-alchemy-signature"] : undefined);if(admission.status){res.setHeader("Retry-After","60");res.status(admission.status).json({accepted:false});return;}
-  next();
-}, express.raw({ type: () => true, limit: WEBHOOK_BODY_LIMIT, inflate: false }), (req,res,next) => {
-  void swaps.ingest(req.body instanceof Uint8Array ? req.body : new Uint8Array(), typeof req.headers["x-alchemy-signature"] === "string" ? req.headers["x-alchemy-signature"] : undefined,req.ip || "unknown")
-    .then(result => res.status(result.status).json({ accepted: result.status === 200 })).catch(next);
+  const ip=req.ip||"unknown",signature=typeof req.headers["x-alchemy-signature"]==="string"?req.headers["x-alchemy-signature"]:undefined;
+  const admission=swaps.admitWebhook(ip,signature,req.headers["content-length"],req.headers["transfer-encoding"]);if(admission.status){res.setHeader("Retry-After","60");res.status(admission.status).json({accepted:false});return;}
+  const release=()=>{clearTimeout(timer);admission.release();},timer=setTimeout(()=>{release();res.once('finish',()=>req.destroy());res.setHeader('Connection','close');res.status(408).json({accepted:false});},BODY_READ_DEADLINE_MS);
+  req.once('aborted',release);res.once('close',release);res.once('finish',release);
+  webhookRaw(req,res,error=>{
+    if(res.writableEnded)return;if(error){release();next(error);return;}
+    void swaps.ingest(req.body instanceof Uint8Array?req.body:new Uint8Array(),signature,ip,release)
+      .then(result=>{if(!res.destroyed)res.status(result.status).json({accepted:result.status===200});}).catch(next).finally(release);
+  });
 });
 
 const ingress = new IngressLimiter(), challenges = shared.challenge ?? new RiskChallenge();

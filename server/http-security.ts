@@ -25,24 +25,31 @@ export const BODY_READ_DEADLINE_MS = 10_000;
 /** Reads an ingress body under its size bound and deadline. A trickled body
  * is 408 and an oversized one 413, whether the runtime resolves or rejects a
  * read pending at cancellation (workerd rejects it). */
-export async function readBoundedBody(body: { getReader(): BodyReader }, maximum: number, deadlineMs: number): Promise<BoundedBody> {
+export async function readBoundedBody(body: { getReader(): BodyReader }, maximum: number, deadlineMs: number, signal?: AbortSignal): Promise<BoundedBody> {
   const reader = body.getReader(), chunks: Uint8Array[] = [];
-  let size = 0, timedOut = false;
-  const timer = setTimeout(() => { timedOut = true; reader.cancel().catch(() => {}); }, deadlineMs);
-  try {
+  let size = 0, stopped = false, cancelled = false, interrupt!: (value: {status:408}) => void;
+  const interrupted = new Promise<{status:408}>(resolve => { interrupt = resolve; });
+  const cancel = () => { if (!cancelled) { cancelled = true; void reader.cancel().catch(() => {}); } };
+  const stop = () => { stopped = true; interrupt({status:408}); cancel(); };
+  const timer = setTimeout(stop, deadlineMs);
+  signal?.addEventListener('abort',stop,{once:true});
+  const read = async (): Promise<BoundedBody> => {
     while (true) {
-      let next: { done: boolean; value?: Uint8Array };
-      try { next = await reader.read(); }
-      catch (error) { if (timedOut) return { status: 408 }; throw error; }
-      if (timedOut) return { status: 408 };
+      const next = await reader.read();
+      if (stopped) return {status:408};
       if (next.done || !next.value) break;
       size += next.value.byteLength;
-      if (size > maximum) { await reader.cancel().catch(() => {}); return { status: 413 }; }
+      if (size > maximum) { cancel(); return { status: 413 }; }
       chunks.push(next.value);
     }
-  } finally { clearTimeout(timer); }
-  const bytes = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
-  return { bytes };
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+    return {bytes};
+  };
+  try {
+    if (signal?.aborted) { stop(); return {status:408}; }
+    return await Promise.race([read(),interrupted]);
+  } catch (error) { cancel(); if (stopped) return {status:408}; throw error; }
+  finally { clearTimeout(timer); signal?.removeEventListener('abort',stop); }
 }

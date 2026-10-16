@@ -12,31 +12,39 @@ export const SWAP_MAINTENANCE_BUDGET_MS=10_000,SWAP_BLOCK_TIMEOUT_MS=2_000;
 export const isWebhookPath=(path:string)=>/^\/api\/(?:chains\/(?:4663|8453)\/)?webhooks\/alchemy$/.test(path.split('?')[0]);
 export class SwapService {
  private pending=Promise.resolve();private reconciling?:Promise<void>;private rate={at:0,count:0};private active=0;
- private clients=new Map<string,{at:number;count:number}>();
+ private clients=new Map<string,{at:number;count:number}>();private readers=new Map<string,number>();private reading=0;
  readonly listeners=new Set<(message:SwapMessage)=>void>();
  constructor(readonly chainId:4663|8453,readonly store:SwapStore,private options:{pools():Promise<SwapPool[]>;token?:string;quote?(pool:SwapPool):Promise<OnchainTrade['quoteUsd']>;quoteCached?(pool:SwapPool):OnchainTrade['quoteUsd'];blockHash?(block:number,signal:AbortSignal):Promise<string|null>;broadcast?(message:SwapMessage):void}){}
  status(){const a=this.store.get<NotifyAttempt>('notify-attempt');return {creationStopped:(a?.creationFailures??0)>=5,creationFailures:a?.creationFailures??0,retryAt:a?.nextAt??null,verificationAt:a?.verifyAt??null,...(a?.failures?{error:'Notify reconciliation unavailable'}:{})};}
  async pool(id:string){return (await this.options.pools()).find(p=>p.pool===id.toLowerCase());}
  async reconcile(origin:string){
   if(!this.options.token)return;if(this.reconciling)return this.reconciling;
-  this.reconciling=(async()=>reconcileWebhook(this.store,new NotifyClient(this.options.token!),this.chainId,await this.options.pools(),`${origin}/api/chains/${this.chainId}/webhooks/alchemy`))();
-  try{await this.reconciling;}finally{this.reconciling=undefined;}
+  const controller=new AbortController();let timer:ReturnType<typeof setTimeout>|undefined;
+  const expired=new Promise<never>((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Error('Notify reconciliation timed out'));},SWAP_MAINTENANCE_BUDGET_MS);});
+  this.reconciling=Promise.race([(async()=>{const pools=await this.options.pools();controller.signal.throwIfAborted();await reconcileWebhook(this.store,new NotifyClient(this.options.token!,undefined,controller.signal),this.chainId,pools,`${origin}/api/chains/${this.chainId}/webhooks/alchemy`);})(),expired]);
+  try{await this.reconciling;}finally{clearTimeout(timer);controller.abort();this.reconciling=undefined;}
  }
- /** Only rejected, unverified requests spend a source bucket. HMAC is synchronous, before any processing await. */
- rejectWebhook(ip:string,status:number){
+ /** Only failed HMAC verification spends a source bucket; body/transport/schema errors do not. */
+ private rejectWebhook(ip:string){
   const now=Date.now(),key=clientBucket(ip),old=this.clients.get(key),row=old&&now-old.at<60_000?old:{at:now,count:0};
   this.clients.delete(key);this.clients.set(key,row);if(this.clients.size>10_000)this.clients.delete(this.clients.keys().next().value!);
-  return ++row.count>120?429:status;
+  return ++row.count>120?429:401;
  }
- admitWebhook(ip='unknown',signature?:string){
-  return {status:signature&&/^[\da-f]{64}$/i.test(signature)?0:this.rejectWebhook(ip,401)};
+ admitWebhook(ip='unknown',signature?:string,length?:string|null,transferEncoding?:string|null){
+  const key=clientBucket(ip),row=this.clients.get(key),reject=(status:number)=>({status,release:()=>{}});
+  if(row&&Date.now()-row.at<60_000&&row.count>=120)return reject(429);
+  if(!signature||!/^[\da-f]{64}$/i.test(signature))return reject(401);
+  if(length==null)return reject(411);if(!/^\d+$/.test(length)||transferEncoding)return reject(400);
+  const size=Number(length);if(!Number.isSafeInteger(size)||size>WEBHOOK_BODY_LIMIT)return reject(413);
+  if(this.reading>=8||(this.readers.get(key)??0)>=2)return reject(429);
+  this.reading++;this.readers.set(key,(this.readers.get(key)??0)+1);let done=false;
+  return {status:0,release:()=>{if(done)return;done=true;this.reading--;const remaining=this.readers.get(key)!-1;if(remaining)this.readers.set(key,remaining);else this.readers.delete(key);}};
  }
  private publish(message:SwapMessage){this.options.broadcast?.(message);for(const listener of this.listeners)listener(message);}
- async ingest(raw:Uint8Array,signature:string|undefined,ip='unknown'){
-  if(raw.byteLength>WEBHOOK_BODY_LIMIT)return {status:this.rejectWebhook(ip,413)};
+ async ingest(raw:Uint8Array,signature:string|undefined,ip='unknown',release=()=>{}){
   // HMAC raw bytes against at most current + immediately superseded key, before any decoding or JSON parsing.
-  const now=Date.now(),binding=this.store.get<NotifyState>('notify')?.bindings.filter(k=>k.network===NETWORKS[this.chainId]&&(!k.retireAt||k.retireAt>now)).slice(0,2).find(k=>verifySignature(raw,signature,k.key));
-  if(!binding)return {status:this.rejectWebhook(ip,401)};
+  const now=Date.now();let binding:NotifyState['bindings'][number]|undefined;
+  try{if(raw.byteLength>WEBHOOK_BODY_LIMIT)return {status:413};binding=this.store.get<NotifyState>('notify')?.bindings.filter(k=>k.network===NETWORKS[this.chainId]&&(!k.retireAt||k.retireAt>now)).slice(0,2).find(k=>verifySignature(raw,signature,k.key));if(!binding)return {status:this.rejectWebhook(ip)};}finally{release();}
   if(now-this.rate.at>=60_000)this.rate={at:now,count:0};if(this.rate.count>=600||this.active>=8)return {status:429};this.rate.count++;this.active++;
   try{
    let delivery,pools:SwapPool[];try{pools=await this.options.pools();delivery=decodeDelivery(new TextDecoder().decode(raw),binding,pools);delivery.generation=binding.generation??0;}catch{return {status:400};}
