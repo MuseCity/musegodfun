@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {DatabaseSync} from 'node:sqlite';import {createHmac} from 'node:crypto';
-import {MemorySwapStore,SqlSwapStore} from '../server/swap-store';import {SwapService} from '../server/swap-service';import {NotifyClient,desiredWebhook,reconcileWebhook} from '../server/alchemy-webhooks';import {decodeDelivery,registeredPools,MUSE_POOL} from '../server/swap-stream';import {mergeTrades,mergeCandles,mergeSummary} from '../src/lib/swap-market';import fixtures from './fixtures/alchemy-swaps.json';
+import {MemorySwapStore,SqlSwapStore} from '../server/swap-store';import {SwapService} from '../server/swap-service';import {NotifyClient,desiredWebhook,reconcileWebhook} from '../server/alchemy-webhooks';import {decodeDelivery,registeredPools,MUSE_POOL} from '../server/swap-stream';import {mergeTrades,mergeCandles,mergeSummary,priceTrade} from '../src/lib/swap-market';import fixtures from './fixtures/alchemy-swaps.json';
 const pools=registeredPools(4663,[]),url='https://musegod.fun/api/chains/4663/webhooks/alchemy',key='run2-test-key';
 const delivery=()=>{const body=structuredClone(fixtures.deliveries.v3);body.event.data.block.timestamp=Math.floor(Date.now()/1000)-180;return decodeDelivery(JSON.stringify(body),{id:'wh_test_v3',network:'ROBINHOOD_MAINNET',kind:'v3' as const},pools);};
 const hook=(desired:any,id='current')=>({...desired,id,is_active:true,signing_key:key});
@@ -86,5 +86,5 @@ test('C1-2: late delivery emits an explicit gap instead of silently corrupting i
  assert.equal(messages[0].gap,undefined);assert.equal(messages[1].gap,true);
 });
 test('C1-2/C1-8: repeated own price merges retain the original provider statistics source',()=>{
- const t=delivery().trades[0],base={source:'Bankr' as const,fetchedAt:t.at,priceUsd:7,fdvUsd:null,marketCapUsd:null,liquidityUsd:null,periods:{}};const first=mergeSummary(base,[t],t.at);assert.equal(mergeSummary(first,[{...t,logIndex:t.logIndex+1}],t.at).historySource,'Bankr');
+ for(const q of [null,{price:2460,source:'LI.FI' as const,at:new Date().toISOString()}]){const t=priceTrade(delivery().trades[0],q),base={source:'Bankr' as const,fetchedAt:t.at,priceUsd:7,fdvUsd:null,marketCapUsd:null,liquidityUsd:null,periods:{}};const first=mergeSummary(base,[t],t.at),next=mergeSummary(first,[{...t,logIndex:t.logIndex+1}],t.at);assert.equal(next.source,q?'On-chain · Alchemy':'Bankr');if(q)assert.equal(next.historySource,'Bankr');else assert.equal(next.priceUsd,7);}
 });

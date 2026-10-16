@@ -9,8 +9,8 @@ export type Binding={id:string;network:string;kind:WebhookKind;key:string;retire
 export type NotifyState={hash:string;checkedAt:number;bindings:Binding[]};
 /** `uncertain` marks a creation whose outcome is unknown (timeout, transport failure or eviction); the next orphan sweep resolves it. */
 export type NotifyAttempt={hash:string;failures:number;nextAt:number;creationFailures?:number;createdId?:string;verifyAt?:number;uncertain?:boolean};
-/** List/delete keep a 2 s deadline; creation is slower at Alchemy and gets 15 s, all within a 30 s reconcile budget. */
-export const NOTIFY_REQUEST_TIMEOUT_MS=2_000,NOTIFY_CREATE_TIMEOUT_MS=15_000,NOTIFY_RECONCILE_BUDGET_MS=30_000;
+/** List/delete get 8 s; creation gets 15 s, all within the existing 30 s reconcile budget. */
+export const NOTIFY_REQUEST_TIMEOUT_MS=8_000,NOTIFY_CREATE_TIMEOUT_MS=15_000,NOTIFY_RECONCILE_BUDGET_MS=30_000;
 /** A deadline, cancellation or transport failure: the request may still have reached Alchemy. */
 export class NotifyUnavailable extends Error{constructor(){super('Notify request unavailable');}}
 export class NotifyClient{

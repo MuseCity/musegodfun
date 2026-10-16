@@ -6,7 +6,7 @@ const trade=decodeDelivery(JSON.stringify(fixtures.deliveries.v3),{id:'wh_test_v
 test('own trade wins exact transaction/log overlap while different logs survive; USD never inferred',()=>{
  const base={source:'Bankr' as const,fetchedAt:trade.at,trades:[{id:`robinhood:${trade.hash}:${trade.logIndex}`,hash:trade.hash,at:trade.at,account:null,side:'buy' as const,amount:1,usd:5,price:5},{id:`robinhood:${trade.hash}:99`,hash:trade.hash,at:trade.at,account:null,side:'buy' as const,amount:1,usd:1,price:1}]};
  const result=mergeTrades(base,[trade],new Date(Date.parse(trade.at)+1).toISOString());assert.equal(result.trades.length,2);assert.equal(result.trades.find(t=>t.id===trade.id)?.price,null);assert.equal(result.trades.find(t=>t.id===trade.id)?.priceQuote,trade.priceQuote);
- const summary=mergeSummary({source:'Bankr',fetchedAt:new Date(Date.parse(trade.at)-1000).toISOString(),priceUsd:1,marketCapUsd:5,fdvUsd:5,liquidityUsd:5,periods:{}},[trade],trade.at);assert.equal(summary.priceUsd,null);assert.equal(summary.priceQuote,trade.priceQuote);
+ const summary=mergeSummary({source:'Bankr',fetchedAt:new Date(Date.parse(trade.at)-1000).toISOString(),priceUsd:1,marketCapUsd:5,fdvUsd:5,liquidityUsd:5,periods:{}},[trade],trade.at);assert.equal(summary.priceUsd,1);assert.equal(summary.priceQuote,trade.priceQuote);assert.equal(summary.quotePriceAt,trade.at);
 });
 test('provider bars remain authoritative; own OHLCV covers only newer current bar or provider-unavailable pools',()=>{
  const bucket=Math.floor(Date.now()/3600000)*3600,coverage=new Date((bucket-3600)*1000).toISOString();

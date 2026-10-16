@@ -183,11 +183,11 @@ function notify(reached:boolean,createDelay:number){
  return {store,hooks,api,get creates(){return creates;},get peak(){return peak;}};
 }
 async function run(t:{mock:any},work:Promise<unknown>,seconds:number){let settled=false;void work.then(()=>settled=true,()=>settled=true);for(let n=0;n<seconds*2&&!settled;n++){t.mock.timers.tick(500);await flush();}return work;}
-test('C1d-2: create has a 15 s deadline inside a 30 s reconcile budget while list and delete keep 2 s',async t=>{
+test('C1d-2/Run 8: create has a 15 s deadline inside a 30 s reconcile budget while list and delete get 8 s',async t=>{
  t.mock.timers.enable({apis:['setTimeout','Date'],now:Date.now()});
  const f=notify(true,5_000);await run(t,reconcileWebhook(f.store,f.api,4663,pools,url,1000),10);assert.equal(f.store.get<any>('notify-v3').bindings[0].id,'created-1','a 5 s create binds without a retry');assert.equal(f.creates,1);
  const hanging=notify(false,60_000);let rejected=false;const pending=hanging.api.create(desiredWebhook(4663,pools,url,'v3')).catch(()=>{rejected=true;});t.mock.timers.tick(14_999);await flush();assert.equal(rejected,false);t.mock.timers.tick(1);await flush();assert.equal(rejected,true,'create is bounded at 15 s');await pending;
- const list=new NotifyClient('synthetic',()=>new Promise<Response>(()=>{}));let listed=false;const listing=list.list().catch(()=>{listed=true;});t.mock.timers.tick(2_000);await flush();assert.equal(listed,true,'list keeps its 2 s deadline');await listing;
+ const list=new NotifyClient('synthetic',()=>new Promise<Response>(()=>{}));let listed=false;const listing=list.list().catch(()=>{listed=true;});t.mock.timers.tick(8_000);await flush();assert.equal(listed,true,'list gets its 8 s deadline');await listing;
  const desired=desiredWebhook(4663,pools,url,'v3'),orphans=Array.from({length:30},(_,n)=>({...desired,id:'orphan-'+n,is_active:true,signing_key:key})),calls:string[]=[];
  t.mock.method(globalThis,'fetch',async(_input:unknown,init?:RequestInit)=>{calls.push(init?.method??'GET');await new Promise<void>(r=>setTimeout(r,1_500));return Response.json({data:orphans});});
  const {swaps,store}=fixture({token:'synthetic'}),started=Date.now();let done=false;const reconcile=swaps.reconcile('https://musegod.fun').catch(()=>{}).then(()=>{done=true;});

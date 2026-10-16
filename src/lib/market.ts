@@ -28,6 +28,8 @@ export type MarketSummary = SnapshotMeta & {
   fetchedAt: string;
   priceQuote?: string;
   quoteSymbol?: string;
+  /** A secondary on-chain quote price; source/fetchedAt and USD values still belong to the provider. */
+  quotePriceAt?: string;
   priceUsd: number | null;
   fdvUsd: number | null;
   marketCapUsd: number | null;

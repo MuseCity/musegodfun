@@ -229,6 +229,7 @@ export default function TokenMarket({
                   : `${change >= 0 ? "+" : ""}${change.toFixed(2)}%`} · 24h
               </span>
             </div> : <p className="hint" role="status">{emptySummary}</p>}
+            {stats?.quotePriceAt && <p className="feed-note">Latest swap · On-chain · Alchemy · {Number(stats.priceQuote).toLocaleString("en-US", {maximumSignificantDigits:6})} {stats.quoteSymbol} · Block <time dateTime={stats.quotePriceAt}>{new Date(stats.quotePriceAt).toLocaleTimeString("en-US")}</time></p>}
           </div>
           <button
             type="button"

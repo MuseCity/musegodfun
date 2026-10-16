@@ -110,7 +110,7 @@ const baseCollector = deploymentChain(runtime.config) === 8453 && runtime.config
 }) : null;
 const payments = new FirstBuyPaymentReader({ client: service.client, chainId: deploymentChain(runtime.config),
   rpcChainId: runtime.config.mode === "fork" && runtime.config.chainId === 31337 ? 31337 : deploymentChain(runtime.config), ...runtime.lifi, budget: service.store });
-const swapPrices = new SwapQuotePrices();
+const swapPrices = new SwapQuotePrices(undefined,undefined,runtime.lifi.apiKey);
 const swaps = new SwapService(deploymentChain(runtime.config), shared.swapStore ?? new MemorySwapStore(), {
   pools: async () => registeredPools(deploymentChain(runtime.config), await service.tokens()),
   token: shared.swapStore ? runtime.environment?.ALCHEMY_NOTIFY_API_KEY : undefined,

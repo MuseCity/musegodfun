@@ -24,8 +24,11 @@ export function mergeTrades(base:TradeData|null,rows:OnchainTrade[],coverageStar
 }
 export function mergeSummary(base:MarketSummary|null,rows:OnchainTrade[],coverageStart:string):MarketSummary{
  const t=latest(rows);if(!t)return base??{...meta(null,undefined,coverageStart),priceUsd:null,fdvUsd:null,marketCapUsd:null,liquidityUsd:null,periods:{}};
- if(base?.lastTradeAt&&Date.parse(base.lastTradeAt)>Date.parse(t.at))return base;
- return {...base,...meta(base,t,coverageStart),priceUsd:t.priceUsd??null,priceQuote:t.priceQuote,quoteSymbol:t.quoteSymbol,quoteUsd:t.quoteUsd??null,marketCapUsd:null,fdvUsd:null,liquidityUsd:base?.liquidityUsd??null,periods:base?.periods??{}};
+ if(base&&[base.lastTradeAt,base.quotePriceAt].some(at=>at&&Date.parse(at)>Date.parse(t.at)))return base;
+ if(t.priceUsd==null&&base?.priceUsd!=null&&base.priceUsd>0&&Number.isFinite(base.priceUsd)&&base.source!==source){
+  return {...base,priceQuote:t.priceQuote,quoteSymbol:t.quoteSymbol,quotePriceAt:t.at};
+ }
+ return {...base,...meta(base,t,coverageStart),priceUsd:t.priceUsd??null,priceQuote:t.priceQuote,quoteSymbol:t.quoteSymbol,quotePriceAt:undefined,quoteUsd:t.quoteUsd??null,marketCapUsd:null,fdvUsd:null,liquidityUsd:base?.liquidityUsd??null,periods:base?.periods??{}};
 }
 const scale=(c:Candle,f:number)=>({time:c.time,open:c.open*f,high:c.high*f,low:c.low*f,close:c.close*f,volume:c.volume*f});
 /** Provider bars stay the base. Own quote-asset bars after the provider's last returned bar are shown with one current USD quote,
