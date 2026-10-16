@@ -1,6 +1,6 @@
 # Price impact, faster MUSEGOD market, chart history paging and live Bankr swaps
 
-Status: In progress (2026-10-16). Branch `claude/live-market-price-impact`, based on `35d59ec` (master `8df204f` plus its unpushed release record).
+Status: L1–L4 implemented and cross-review accepted locally (2026-10-16); not released. Branch `claude/live-market-price-impact`, based on `35d59ec`. Pushing to master is a production release and needs the owner's explicit approval.
 
 ## Owner request (2026-10-16, translated)
 
@@ -135,3 +135,13 @@ Limit, stop, TWAP or DCA orders; Bankr-prepared transactions; changing the defau
 - Verification: `npm test` 1651/1651 (13 new), `npm run build`, `git diff --check` and the Han scan pass; the Bankr socket strings occur only in the lazy `MusegodLive` chunk. New tests fail on the pre-fix tree (scratch `git archive` copy, `evidence/run4/red-prefix-tree.log`). No Bankr contact, fork, preview server, `.env`, wrangler or push. Browser streaming remains unobserved.
 - Follow-up (Codex acceptance X2b-1): per-event headline eligibility let an older same-second swap outside a full 30-row trade list overwrite a newer acknowledged one. The headline now has one boundary, the highest swap (block, log index) that REST acknowledges; only swaps after it contribute, while candle and trade contributions stay independently pending. Regressions: reducer and the real bridge, in order, reversed and with replays.
 - Local rollback: revert the Run 4 commit after checking later changes.
+
+### Cross-review closure (2026-10-16)
+
+- Codex implemented L1–L3 in `cc638c5` and L4 in `6345266`. The Run 1 L4 gate (browser handshake failed with 1006) was diagnosed by the conductor as intermittent Bankr availability, not an origin restriction; raw upgrades returned 101 with `Origin: https://musegod.fun` and 502 minutes later, and real-browser attempts from example.com closed 1006 while curl succeeded at nearby times. No real TOKEN_SWAP payload has been observed; Node observed a namespace acknowledgment and a real MUSEGOD discovery-volume event.
+- Claude review round 1: C1-1 (P1: a `?before=` request could freeze the first-page snapshot of non-Bankr charts with a false reason), C1-2 and C1-3 (P2), C1-4…C1-8 (P3). Codex fixed all eight in `1f7ea63`; claude accepted them and raised C1b-1…C1b-4 (P3).
+- Codex review round 2: X2-1 and X2-2 (P2, live/REST reconciliation). Claude fixed them with C1b-1…C1b-4 in `40e1a6c`; codex accepted those six and reopened with X2b-1 (P2 regression: an older unlisted same-second swap could overwrite a newer acknowledged headline). Claude fixed X2b-1 in `761de8a`; codex accepted it in a second pass.
+- Both directions end ACCEPT with no open findings (`.superpowers/sdd/live-market/review-state.md`).
+- Conductor rerun on `761de8a`: `npm test` **1654/1654**, `npm run build`, `git diff --check` and the Han scan pass. Bankr socket strings appear only in the lazy `MusegodLive` chunk. CSP `connect-src` adds only `wss://api.bankr.bot`. `socket.io-client` is pinned at 4.8.1. Trade-path files changed only by an optional `poolPrice` type field; builders, execution and approvals are unchanged.
+- Not verified before release: L1 against production quotes (the production API gains the new fields only on release), and a live Bankr TOKEN_SWAP in a browser. Both belong to post-release online acceptance; L4 falls back to 15 s polling whenever Bankr is unavailable.
+- Local rollback: revert `761de8a`, `40e1a6c`, `1f7ea63`, `6345266`, `cc638c5` (newest first). After a release, the production rollback point is Worker `8509ce86` (`8df204f`).
