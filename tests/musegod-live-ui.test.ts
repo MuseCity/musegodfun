@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
 import { hookRuntime, importFresh, settle } from "./hook-runtime";
 import { MUSEGOD } from "../src/lib/musegod";
 import { parseLiveEvent } from "../src/lib/musegod-live";
+import { parseMusegodTrades } from "../server/musegod-market";
 import { securityHeaders } from "../server/http-security";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -100,9 +101,9 @@ test("the market mounts live only for a loaded Robinhood mainnet config", async 
 });
 
 const hash = (n: number) => `0x${n.toString(16).padStart(64, "0")}`;
-function liveSwap(n: number, timestamp: string, priceUsd: number) {
+function liveSwap(n: number, timestamp: string, priceUsd: number, totalUsd = 6) {
   const event = parseLiveEvent("TOKEN_SWAP", { tokenAddress: MUSEGOD.token, chain: "robinhood", txHash: hash(n), blockNumber: 100, logIndex: n,
-    timestamp, side: "buy", tokenAmount: 2, totalUsd: 6, priceUsd });
+    timestamp, side: "buy", tokenAmount: 2, totalUsd, priceUsd });
   assert(event?.type === "swap"); return event;
 }
 const liveSnapshot = (lastTradeAt: string, lastPriceUsd: number) => ({ type: "price" as const, tokenAddress: MUSEGOD.token, chain: "robinhood" as const,
@@ -165,4 +166,26 @@ test("when Live expires the newest known value stays until REST catches up; equa
   assert.equal(live.output().summary.priceUsd, 6); assert.equal(live.output().priceAt, null);
   await live.status({ connected: false, receiving: false, receivedAt: null });
   assert.equal(live.output(), null); assert.equal(live.markup(), "");
+});
+
+for (const [name, order] of [["in order", false], ["reversed", true]] as const) test(`the bridge keeps the newest acknowledged same-second headline when REST lists only the latest 30 swaps (${name}, with replays)`, async t => {
+  const second = new Date(Date.now() - 2000).toISOString(), restAt = new Date(Date.now() - 20_000).toISOString(), meta = { source: "Bankr", status: "fresh", fetchedAt: restAt };
+  const priceOf = (log: number) => log === 2 ? 3 : log === 32 ? 4 : 3.5, bucket = Math.floor(Date.parse(second) / 3_600_000) * 3600;
+  const crowd = Array.from({ length: 31 }, (_, n) => liveSwap(n + 2, second, priceOf(n + 2), 2 * priceOf(n + 2)));
+  const live = await mountLive(t, { info: null, interval: "1h", summary: { ...meta, lastTradeAt: second, priceUsd: 2, marketCapUsd: 400, periods: {} },
+    candles: { ...meta, watermark: { blockNumber: 100, logIndex: 1, txHash: hash(1) }, candles: [{ time: bucket, open: 2, high: 2, low: 2, close: 2, volume: 10 }] },
+    trades: { ...meta, trades: [] } });
+  const arrivals = order ? [...crowd].reverse() : crowd;
+  for (const event of arrivals) live.event(event);
+  await live.status(receiving());
+  assert.equal(live.output().summary.priceUsd, 4); assert.equal(live.output().candles.candles[0].close, 4);
+  const trades = { ...parseMusegodTrades({ swaps: crowd.map(({ txHash, blockNumber, logIndex, timestamp, side, tokenAmount, totalUsd }) =>
+    ({ txHash, blockNumber, logIndex, timestamp, side, tokenAmount, totalUsd, chain: "robinhood" })) }), source: "Bankr", status: "fresh" };
+  assert.equal(trades.trades.length, 30);
+  await live.update({ summary: { ...meta, fetchedAt: second, lastTradeAt: second, priceUsd: 4, marketCapUsd: 800, periods: {} }, trades });
+  assert.equal(live.output().summary.priceUsd, 4, "REST already shows the newest swap; an older unlisted swap must not replace it");
+  assert.equal(live.output().priceAt, null); assert.equal(live.output().candles.candles[0].close, 4); assert.equal(live.output().trades.trades[0].price, 4);
+  assert.match(live.markup(), /Live · Bankr/);
+  assert.equal(live.event(crowd[0]), false, "a replay of the older swap changes nothing"); assert.equal(live.event(crowd.at(-1)), false);
+  await settle(); assert.equal(live.output().summary.priceUsd, 4);
 });

@@ -65,24 +65,29 @@ function swapPrice(event: LiveSwap, supply: number | null) {
   return price !== null && Number.isFinite(price) && price > 0 ? price : null;
 }
 /** Summary, candles and trades are fetched and cached independently, so each REST section is reconciled on its own evidence and a swap
- * stays pending while any section lacks it. Candles prove inclusion by chain position; trades by id (or by having moved past a full list);
- * the summary only carries a trade time: a later time supersedes the swap, and within the same second REST wins only once candles or
- * trades also show the swap, because an equal timestamp cannot order two trades. A section that is not loaded still lacks everything. */
-function sections({ summary, candles, trades }: RestMarket) {
+ * stays pending while any section lacks it. Candles prove inclusion by chain position; trades by id (or by having moved past a full list).
+ * The summary only carries a trade time: a later time supersedes a swap, and within the same second REST wins only once candles or trades
+ * also contain it, because an equal timestamp cannot order two trades. Chain positions are known, so the headline has one boundary, the
+ * highest swap REST acknowledges: only swaps after it contribute, and an older swap outside a full trade list cannot overwrite a newer
+ * acknowledged one. A section that is not loaded still lacks everything. */
+function sections({ summary, candles, trades }: RestMarket, events: LiveSwap[]) {
   const listed = new Set(trades?.trades.map(row => row.id.toLowerCase())), oldest = Math.min(...(trades?.trades ?? []).map(row => Date.parse(row.at)));
   const restTime = Date.parse(summary?.lastTradeAt ?? summary?.fetchedAt ?? "");
+  const facts = (event: LiveSwap) => ({ time: Date.parse(event.timestamp), inCandles: !!candles?.watermark && included(event, candles.watermark), inTrades: listed.has(event.id) });
+  const seen = (event: LiveSwap) => { const { time, inCandles, inTrades } = facts(event); return restTime > time || restTime === time && (inCandles || inTrades); };
+  const boundary = summary?.source === "Bankr" ? events.filter(seen).reduce<LiveSwap | undefined>((top, event) => !top || order(event, top) > 0 ? event : top, undefined) : undefined;
   return (event: LiveSwap) => {
-    const time = Date.parse(event.timestamp), inCandles = !!candles?.watermark && included(event, candles.watermark), inTrades = listed.has(event.id);
+    const { time, inCandles, inTrades } = facts(event);
     return {
       candle: !inCandles,
       trade: !trades || trades.source === "Bankr" && !inTrades && !(trades.trades.length >= 30 && time < oldest),
-      headline: !summary || summary.source === "Bankr" && !(restTime > time || restTime === time && (inCandles || inTrades)),
+      headline: !summary || summary.source === "Bankr" && (!boundary || order(event, boundary) > 0),
     };
   };
 }
 /** Retain events some REST section still lacks, including across interval changes. A full buffer pauses admission instead of losing dedupe history. */
 export function retainLiveSwaps(events: LiveSwap[], next: LiveSwap | null, rest: RestMarket, now: number) {
-  const lacking = sections(rest), pending = (event: LiveSwap) => Date.parse(event.timestamp) >= now - 86_400_000 && Object.values(lacking(event)).some(Boolean);
+  const lacking = sections(rest, next ? [...events, next] : events), pending = (event: LiveSwap) => Date.parse(event.timestamp) >= now - 86_400_000 && Object.values(lacking(event)).some(Boolean);
   const rows = events.filter(pending);
   return next && pending(next) && rows.length < 500 && !rows.some(row => row.id === next.id) ? [...rows, next] : rows;
 }
@@ -90,7 +95,7 @@ export function retainLiveSwaps(events: LiveSwap[], next: LiveSwap | null, rest:
 export function projectLiveMarket(rest: RestMarket & { interval: ChartInterval; info: SupplyInfo | null }, events: LiveSwap[], discovery: Extract<LiveEvent, { type: "price" }> | null = null): LiveProjection {
   let { summary, candles, trades } = rest;
   let priceAt: string | null = null, candlesAt: string | null = null, tradesAt: string | null = null;
-  const supply = verifiedSupply(rest.info), lacking = sections(rest), rows = [...new Map(events.map(event => [event.id, event])).values()].sort(order);
+  const supply = verifiedSupply(rest.info), rows = [...new Map(events.map(event => [event.id, event])).values()].sort(order), lacking = sections(rest, rows);
   const positions = new Map(rows.map((item, index) => [item.id, index]));
   for (const event of rows) {
     const price = swapPrice(event, supply), need = lacking(event);
@@ -117,7 +122,7 @@ export function projectLiveMarket(rest: RestMarket & { interval: ChartInterval; 
         side: event.side, amount: event.tokenAmount, usd: event.totalUsd, price };
       trades = { ...trades, trades: [row, ...trades.trades].sort((a, b) => Date.parse(b.at) - Date.parse(a.at) ||
         (positions.get(b.id) ?? -1) - (positions.get(a.id) ?? -1)).slice(0, 30) };
-      tradesAt = event.timestamp;
+      if (trades.trades.some(item => item.id === row.id)) tradesAt = event.timestamp;
     }
   }
   // Position-less: a swap or REST summary from the same second outranks a discovery price.

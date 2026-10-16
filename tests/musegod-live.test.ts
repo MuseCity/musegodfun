@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { MUSEGOD } from "../src/lib/musegod";
 import { newerPrice, parseLiveEvent, projectLiveMarket, retainLiveSwaps, verifiedSupply } from "../src/lib/musegod-live";
 import type { CandleData, MarketSummary, TradeData } from "../src/lib/market";
+import { parseMusegodTrades } from "../server/musegod-market";
 
 const now = Date.parse("2026-10-16T04:12:30Z"), time = Math.floor(now / 1000 / 3600) * 3600;
 const hash = (n: number) => `0x${n.toString(16).padStart(64, "0")}`;
@@ -151,4 +152,27 @@ test("equal-second discovery prices follow stream order, while replays and older
   assert(!newerPrice(discovery(stamp, 3), discovery(stamp, 3)));
   assert(!newerPrice(discovery(stamp, 3), discovery(new Date(now - 2000).toISOString(), 4)));
   assert(newerPrice(discovery(stamp, 3), discovery(new Date(now).toISOString(), 3)));
+});
+
+test("one same-second headline boundary: an older swap outside REST's full trade list cannot overwrite a newer acknowledged one", () => {
+  const priceOf = (log: number) => log === 2 ? 3 : log === 32 ? 4 : 3.5;
+  const crowd = Array.from({ length: 31 }, (_, n) => tied(n + 2, priceOf(n + 2), { totalUsd: 2 * priceOf(n + 2) }));
+  const listing = (events: typeof crowd) => ({ ...parseMusegodTrades({ swaps: events.map(({ txHash, blockNumber, logIndex, timestamp, side, tokenAmount, totalUsd }) =>
+    ({ txHash, blockNumber, logIndex, timestamp, side, tokenAmount, totalUsd, chain: "robinhood" })) }, now), source: "Bankr", status: "fresh" }) as TradeData;
+  const rest = { summary: { ...summary, priceUsd: 4, marketCapUsd: 800, lastTradeAt: stamp }, trades: listing(crowd) }, volume = 10 + crowd.reduce((sum, row) => sum + row.totalUsd!, 0);
+  assert.equal(rest.trades.trades.length, 30); assert(!rest.trades.trades.some(row => row.id === crowd[0].id), "log 2 is outside the latest-30 list");
+  assert.equal(project(crowd).summary?.priceUsd, 4, "before the refresh the live headline is the newest swap");
+  for (const events of [crowd, [...crowd].reverse(), [...crowd, ...crowd], [...crowd].reverse().concat(crowd)]) {
+    const result = project(events, rest);
+    assert.equal(result.summary?.priceUsd, 4); assert.equal(result.priceAt, null, "REST already holds the newest swap");
+    assert.equal(result.candles?.candles[0].close, 4); assert.equal(result.candles?.candles[0].volume, volume);
+    assert.equal(result.trades?.trades.length, 30); assert.equal(result.trades?.trades[0].price, 4); assert.equal(result.tradesAt, null);
+  }
+  assert.equal(retainLiveSwaps(crowd, null, { candles, ...rest }, now).length, 31, "candles still lack every swap");
+  // A swap after the acknowledged boundary still shows: the list that lacks log 32 lets only log 32 through.
+  const stale = { summary: { ...rest.summary, priceUsd: 3.5 }, trades: listing(crowd.slice(1, -1)) };
+  for (const events of [crowd, [...crowd].reverse()]) {
+    const result = project(events, stale);
+    assert.equal(result.summary?.priceUsd, 4); assert.equal(result.priceAt, stamp);
+  }
 });
