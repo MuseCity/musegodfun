@@ -1,6 +1,6 @@
 # ETH payment on WETH pairs, automatic quotes and in-field Max
 
-Status: Implemented and cross-review accepted locally (2026-10-16); not released. Branch `claude/weth-eth-pay-auto-quote`, based on master `ef942a6`. Pushing to master is a production release and needs the owner's explicit approval.
+Status: E1–E3 implemented and cross-review accepted; E4 (MUSEGOD panel) implemented locally, awaiting both review directions (2026-10-16). Branch `claude/weth-eth-pay-auto-quote`, based on master `ef942a6`. The owner approved releasing E1–E4 together once both review directions accept E4.
 
 ## Owner request (2026-10-16, translated)
 
@@ -25,7 +25,7 @@ A buyer of a WETH-pair coin pays with ETH in one wallet confirmation; every buye
    - `value` equals the quoted `amountIn` exactly; minimum output comes from the quote and slippage exactly as `swapTransaction`; deadline as today (block time + 300 s);
    - no ERC-20 or Permit2 approval in this path;
    - simulate with the same `to`, `data` and `value` before sending; `ensureGas` covers `value` plus gas; never send an expired quote; keep the existing account/chain `live()` guards and progress, hash and receipt handling.
-2. No server, contract, fee policy, LI.FI route, Permit2 path (pair payments), sell path or `MusegodTradePanel` change. E1 is Robinhood-only; Base trade execution is unchanged. E2 and E3 are token-page UI behavior and apply on both chains (conductor clarification 2026-10-16: the earlier wording "Base behavior is unchanged" conflicted with E2 "for every pay path" and must not leave Base on the manual quote button).
+2. No server, contract, fee policy, LI.FI route, Permit2 path (pair payments), sell path or MUSEGOD execution change (E4 changes only the MUSEGOD panel's quoting and Max UI). E1 is Robinhood-only; Base trade execution is unchanged. E2 and E3 are token-page UI behavior and apply on both chains (conductor clarification 2026-10-16: the earlier wording "Base behavior is unchanged" conflicted with E2 "for every pay path" and must not leave Base on the manual quote button).
 3. Automatic quotes must be bounded (cost and abuse limits above): debounced, superseded requests ignored, no requests while hidden, idle, busy or invalid, and a cap on automatic refreshes after the last user change.
 4. Guests keep a price signal: automatic quotes work without a wallet for pair payments and for ETH on WETH pairs.
 5. Everything from `tasks/detail-page-declutter-plan.md` that is not explicitly replaced here stays (presets, notes, fee card tiers, market honesty).
@@ -63,10 +63,20 @@ A buyer of a WETH-pair coin pays with ETH in one wallet confirmation; every buye
 - ETH input (WETH-pair native path and LI.FI path): Max = balance minus a gas reserve, reserve = max(0.0002 ETH, 2 × 500,000 gas × current `maxFeePerGas`, falling back to `gasPrice`). If the balance does not exceed the reserve, Max does not fill the field and says there is not enough ETH for network fees.
 - Max follows the existing unit rules (switching side or pay choice still clears a typed amount). Confirming is unavailable while an ETH Max awaits network fees, and starting any trade discards a Max result that arrives late, so an active trade keeps its amount, progress and busy state until its own completion.
 
+### E4 MUSEGOD trade panel (added 2026-10-16)
+
+Owner request (translated): "Switch the MUSEGOD panel to automatic quotes too, and release it together."
+
+- `src/components/MusegodTradePanel.tsx` loses its "Get on-chain quote" button and uses the same automatic quote scheduler as token pages (`src/lib/auto-quote.ts`, `src/lib/use-auto-quote.ts`): 600 ms debounce, superseded responses ignored, no requests while hidden, idle, busy, invalid, off the MUSEGOD network (`musegodNetwork`) or while trading is disabled by `info`; at most 3 automatic refreshes after the last user change, then the small "Refresh quote" control. `/api/musegod/quote` is ingress class `workflow` (not expensive, not challenge-gated); automatic calls must not trigger implicit retries.
+- In-field Max like E3: buy pays native ETH (Max = balance minus the same gas reserve, insufficient case handled); sell pays MUSEGOD (Max = full balance). The quick row keeps 25/50/75% for sell and drops its Max chip. Confirm is disabled while Max awaits fees, and starting a trade discards a late Max result (the X2-1 lesson).
+- After a confirmed trade the panel behaves like token pages (one re-quote for the same amount via Refresh semantics, then normal caps).
+- Unchanged: MUSEGOD quote verification (block, block hash, router code hash), the SushiSwap execution path and approvals, wallet code, server.
+- Copy that refers to a manual quote is updated; `scripts/test-nft-ui-browser.mjs` drops its MUSEGOD manual-button assertion in favor of automatic quote readiness.
+
 ## Out of scope
 
 - Receiving ETH when selling on WETH pairs (unwrap); separate request if wanted.
-- MUSEGOD's own trade panel; Base trade execution (E1 is Robinhood-only); any server or abuse-limit change.
+- MUSEGOD's trade execution (E4 changes only its quoting and Max UI); Base trade execution (E1 is Robinhood-only); any server or abuse-limit change.
 
 ## Verification and acceptance
 
@@ -96,3 +106,11 @@ A buyer of a WETH-pair coin pays with ETH in one wallet confirmation; every buye
 - Since the fork proof commit `02ac13f`, `src/lib/protocol.ts` (the wrap-and-swap builder) and `scripts/test-weth-eth-buy-fork.ts` are unchanged, so the fork proof covers the shipped calldata. The wallet wiring added later is covered by injected-dependency tests.
 - Not verified: a real-wallet transaction (no agent signs). After release the owner may run a tiny ETH buy on CLAWGOD as the manual check.
 - Local rollback: revert `ccf2752`, `01efd8b`, `dbd22b1`, `02ac13f` (newest first). After a release, the production rollback point is Worker `8172b151` (`ef942a6`).
+
+### Run 6: E4 implementation (2026-10-16)
+
+- Reused the existing automatic quote hook/scheduler, API no-retry option and Max math in the MUSEGOD panel. Added 600 ms guest quotes, network/info/visibility/input/trade gates, superseded-response rejection, three automatic expiry refreshes and explicit Refresh. Quote failures have their own newest-error slot; automatic requests preserve unrelated errors. Confirmation pauses automation until Refresh; an amount edit hides Refresh throughout the next debounce.
+- Buy Max reserves native ETH for gas; sell Max fills the full MUSEGOD balance inside the amount field. Sell presets remain 25/50/75%. Fee loading disables confirmation, and the existing trade-start generation discards late Max results. Wallet revision updates refresh balances without clearing an active trade or confirmed receipt; account/network/input changes still reset the panel. Updated the legacy NFT browser fixture to wait for an automatic MUSEGOD quote.
+- TDD: all 11 new actual-panel tests failed before implementation, then passed with the real hook, scheduler, API and quote validation plus injected wallet/fees/HTTP/visibility. Full suite: 1589/1589; build, fixture syntax check, diff check and changed-file Han scan pass. Existing large-bundle build warning remains.
+- Chrome DevTools MCP checked the Robinhood MUSEGOD page as a guest at 1440px and 390px in light mode. Each settled buy input produced exactly one HTTP 200 quote (605 ms and 602 ms after the final input), filling receive/minimum/expiry. No manual quote button, guest Max or horizontal overflow; sell shows only 25/50/75%. Gateway totals: 2/4 MUSEGOD quote POSTs, zero other quote POSTs, six allowed read-only RPC POSTs, zero forbidden requests. Preview stopped, PID file removed and port 4178 rebound successfully; dependency symlink removed at handoff.
+- Local implementation commit: `feat(trade): automate MUSEGOD quotes and add in-field Max`; includes the previously uncommitted E4 plan text. Report and evidence: `.superpowers/sdd/eth-pay-auto-quote/run6-report.md` and `evidence/run6/`. No server, wallet, execution, SushiSwap calldata or verification change; no new fork run, wallet connection, signing, mainnet transaction, push or deployment. E4 cross-review and release remain pending. Local rollback: revert this Run 6 implementation commit to restore parent `0e41028`.

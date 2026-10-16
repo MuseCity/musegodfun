@@ -12,6 +12,7 @@ import { MUSES, TOKENBOUND_V3_IMPLEMENTATION, treasuryFor, vaultFor } from '../s
 import { FIRST_BUY_PAYMENT_CONTRACTS, firstBuyFeeAbi, firstBuyPaymentAbi } from '../src/lib/first-buy-payment.ts';
 import { amountWords } from '../src/lib/eth-buy.ts';
 import { permit2Abi } from '../src/lib/protocol.ts';
+import { MUSEGOD } from '../src/lib/musegod.ts';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const origin = process.env.BROWSER_ORIGIN || 'http://127.0.0.1:5191';
 assert(['127.0.0.1', 'localhost'].includes(new URL(origin).hostname), 'The NFT UI check must target a local server');
@@ -100,7 +101,7 @@ async function open(path, { account = holder, owner = holder, locked = false, fa
   // page sends initialize, and the server's view keeps saying so (its cache).
   // `pendingCoins`: bound pools with nonzero pending fees. `vaultHeld`: MUSEGOD already sitting in the fee vault.
   const state = { sends: [], attempts: 0, refusedSends: 0, rejected: [], treasuryReads: 0, statusAccounts: [], multicalls: [], external: [], stubbed: [], pageErrors: [], statusFailures, lockFailures,
-    ethQuotes: [], ethQuoteResponses: [], v4Quotes: [], swapSpends: [], held: null, releaseSend: () => {}, lost: [] };
+    ethQuotes: [], ethQuoteResponses: [], v4Quotes: [], musegodQuotes: [], swapSpends: [], held: null, releaseSend: () => {}, lost: [] };
   // The broadcast the wallet never reported is mined: it takes the next nonce, like any other send.
   state.mineLost = () => { state.sends.push(...state.lost.splice(0)); };
   const holding = new Promise(resolve => { state.releaseSend = resolve; });
@@ -272,6 +273,14 @@ async function open(path, { account = holder, owner = holder, locked = false, fa
     if (path === '/api/musegod') return reply({ name: 'MUSEGOD', symbol: 'MUSEGOD', address: getAddress(musegod), image: '', description: 'MUSEGOD fixture for the trade panel smoke.',
       quoteAddress: getAddress(weth), poolAddress: '0x071eE139277688d64B139Af1e44f79a9acf12e53', decimals: 18, totalSupply: (10n ** 27n).toString(),
       tradeEnabled: true, tradeBlockReason: null });
+    if (path === '/api/musegod/quote') {
+      state.musegodQuotes.push(payload);
+      const now = Date.now(), amountOut = 10n ** 19n;
+      return reply({ protocol: 'sushi-v3', chainId: 4663, deploymentChainId: 4663, token: MUSEGOD.token, poolAddress: MUSEGOD.pool,
+        side: payload.side, amountIn: parseUnits(payload.amount, 18).toString(), amountOut: amountOut.toString(),
+        minAmountOut: (amountOut * BigInt(10_000 - payload.slippageBps) / 10_000n).toString(), slippageBps: payload.slippageBps,
+        quotedAt: now, expiresAt: now + 60_000, serverTime: now, blockNumber: '16', blockHash });
+    }
     if (path === '/api/trade/eth-quote') {
       state.ethQuotes.push(payload);
       const row = catalog.find(entry => entry.address.toLowerCase() === payload.token.toLowerCase()), amountIn = parseUnits(payload.amountIn, 18);
@@ -780,7 +789,7 @@ try {
     }
   });
   await check('musegod_page_trade_panel', async () => {
-    // The MUSEGOD page keeps its own ETH ↔ MUSEGOD panel, with its original control names and no Pay with control.
+    // The MUSEGOD page uses automatic ETH ↔ MUSEGOD quotes and in-field Max, without a Pay with control.
     const run = await open(`/token/robinhood/${getAddress(musegod)}`), { page } = run, trade = page.locator('#trade');
     await page.getByRole('heading', { name: 'Trade MUSEGOD', level: 2 }).waitFor();
     assert.equal(await trade.getByText('ETH ↔ MUSEGOD').count(), 1);
@@ -789,7 +798,15 @@ try {
     assert.equal(await page.getByRole('group', { name: 'Pay with' }).count(), 0);
     await trade.getByText('100 ETH').waitFor();
     await trade.getByLabel('Trade input amount').fill('0.01');
-    assert.equal(await trade.getByRole('button', { name: 'Get on-chain quote' }).isEnabled(), true);
+    await trade.locator('.quote-summary').waitFor();
+    await trade.getByRole('button', { name: 'Confirm Buy' }).waitFor();
+    assert.equal(await trade.getByRole('button', { name: 'Confirm Buy' }).isEnabled(), true);
+    assert.equal(await trade.getByRole('button', { name: 'Get on-chain quote' }).count(), 0);
+    assert.equal(run.state.musegodQuotes.length, 1, 'one automatic MUSEGOD quote after settled input');
+    assert.equal(await trade.locator('.trade-amount-field .trade-max').count(), 1);
+    await trade.getByRole('button', { name: 'Sell', exact: true }).click();
+    assert.equal(await trade.getByLabel('Trade input amount').inputValue(), '');
+    assert.deepEqual(await trade.locator('.quick-amounts button').allTextContents(), ['25%', '50%', '75%']);
     await finish(run);
   });
   await check('delegate_view', async () => {
