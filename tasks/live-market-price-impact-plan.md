@@ -1,6 +1,6 @@
 # Price impact, faster MUSEGOD market, chart history paging and live Bankr swaps
 
-Status: L1–L4 implemented and cross-review accepted locally (2026-10-16); not released. Branch `claude/live-market-price-impact`, based on `35d59ec`. Pushing to master is a production release and needs the owner's explicit approval.
+Status: Released 2026-10-16 (`6f7b475`, build-38857510812-1); online acceptance passed for all specified behavior; live Bankr swaps unavailable at check time (fallback verified).
 
 ## Owner request (2026-10-16, translated)
 
@@ -145,3 +145,15 @@ Limit, stop, TWAP or DCA orders; Bankr-prepared transactions; changing the defau
 - Conductor rerun on `761de8a`: `npm test` **1654/1654**, `npm run build`, `git diff --check` and the Han scan pass. Bankr socket strings appear only in the lazy `MusegodLive` chunk. CSP `connect-src` adds only `wss://api.bankr.bot`. `socket.io-client` is pinned at 4.8.1. Trade-path files changed only by an optional `poolPrice` type field; builders, execution and approvals are unchanged.
 - Not verified before release: L1 against production quotes (the production API gains the new fields only on release), and a live Bankr TOKEN_SWAP in a browser. Both belong to post-release online acceptance; L4 falls back to 15 s polling whenever Bankr is unavailable.
 - Local rollback: revert `761de8a`, `40e1a6c`, `1f7ea63`, `6345266`, `cc638c5` (newest first). After a release, the production rollback point is Worker `8509ce86` (`8df204f`).
+
+### Release and online acceptance (2026-10-16)
+
+- Owner approved the release (translated: "release first, then do the zero-cost verification"). Pushed `8df204f..6f7b475` to master. CI run 38857510812 passed; build `build-38857510812-1`, Worker version `dd2582ff-4b42-436f-9e91-6d90f7770e90`. Production rollback point: Worker `8509ce86` (`8df204f`).
+- Codex read-only Chrome QA, guest only, 5 of 12 allowed quote POSTs:
+  - L1: CLAWGOD 0.0001 ETH showed 0.00% impact; 1 ETH showed 41.37% with warning styling and the acknowledgment checkbox; the quote JSON carries `poolPrice` (`sqrtPriceX96`, `blockNumber`, `zeroForOne`, `feeBps`). MV2C showed 0.26% and the Base NVDAc pair 0.06%; the MUSEGOD panel showed 0.00% for 0.0001 ETH.
+  - L2: MUSEGOD summary, candles and trades repeat about every 15 s.
+  - L3: three MUSEGOD history pages merged from 199 to 519 points with unique, increasing timestamps.
+  - L4: the Bankr handshake from `https://musegod.fun` returned 502 (close 1006). The page silently kept polling with no Live label. The socket chunk loads on MUSEGOD only, with no application CSP violations.
+  - Layout: no 390px overflow.
+- Two QA FAIL rows were brief-expectation errors, not defects. MV2C (CoinGecko candles) makes no history request on drag, because `MarketChart` pages Bankr sources only, by design (L3, no CoinGecko quota). One long MUSEGOD drag fetched two pages sequentially, which is consistent with "never while one is in flight".
+- Not yet observed: a live Bankr TOKEN_SWAP in a browser, and a real-wallet acknowledged trade.
