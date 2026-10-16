@@ -30,6 +30,9 @@ export type MarketSummary = SnapshotMeta & {
   quoteSymbol?: string;
   /** A secondary on-chain quote price; source/fetchedAt and USD values still belong to the provider. */
   quotePriceAt?: string;
+  /** The provider's own summary (headline, status, fetch time and statistics) kept beside an on-chain merge, so later live merges fall
+   * back to the provider USD headline exactly as a REST merge with that provider summary would. */
+  providerSnapshot?: MarketSummary;
   priceUsd: number | null;
   fdvUsd: number | null;
   marketCapUsd: number | null;
