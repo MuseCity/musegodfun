@@ -13,20 +13,28 @@ export interface SwapStore {
 export class SwapCapacityError extends Error{constructor(){super("Swap storage capacity is temporarily limited");}}
 const RETENTION_SECONDS=400*86400;
 const empty=():ApplyResult=>({trades:[],reorg:false,removedPools:[]});
-type Cursor={generation:number;sequence:string};
-// Keep at most two kind cursors in the existing sequence column; block identity/finality remain shared across filters.
-const cursors=(b:Block|undefined):Partial<Record<Delivery['kind'],Cursor>>=>b?.sequence.startsWith('{')?JSON.parse(b.sequence):{};
-const cursor=(d:Delivery,b:Block)=>b.sequence.startsWith('{')?cursors(b)[d.kind]:b;
-const newer=(d:Delivery,b:Block)=>{const c=cursor(d,b);return !c||(d.generation??0)>c.generation||(d.generation??0)===c.generation&&BigInt(d.sequence)>BigInt(c.sequence);};
-const sequence=(d:Delivery,b:Block|undefined)=>JSON.stringify({...cursors(b),[d.kind]:{generation:d.generation??0,sequence:d.sequence}});
-/** An exact retry (same generation, sequence and hash) is not stale: it idempotently restores missing rows, also after finality. */
-function stale(d:Delivery,block:Block|undefined,floor:number){const c=block?cursor(d,block):undefined;return d.timestamp<Math.floor(Date.now()/1000)-RETENTION_SECONDS||d.blockNumber<=floor||!!block&&(!!block.verified&&block.hash!==d.blockHash||!newer(d,block)&&!(c?.generation===(d.generation??0)&&c.sequence===d.sequence&&block.hash===d.blockHash));}
+type Cursor={generation:number;sequence:string;hash:string};
+// Each webhook kind keeps its own cursor (generation, sequence and the block hash it delivered) in the existing sequence column; a legacy
+// plain sequence is one cursor shared by all kinds. Kinds never compare sequences, and a kind replaces only its own rows at a height.
+const cursors=(b:Block|undefined):Partial<Record<Delivery['kind'],Partial<Cursor>>>=>b?.sequence.startsWith('{')?JSON.parse(b.sequence):{};
+const cursor=(d:Delivery,b:Block):Cursor|undefined=>{if(!b.sequence.startsWith('{'))return b;const c=cursors(b)[d.kind];return c&&{generation:c.generation!,sequence:c.sequence!,hash:c.hash??b.hash};};
+const newer=(d:Delivery,c:Cursor)=>(d.generation??0)>c.generation||(d.generation??0)===c.generation&&BigInt(d.sequence)>BigInt(c.sequence);
+const sequence=(d:Delivery,b:Block|undefined)=>JSON.stringify({...cursors(b),[d.kind]:{generation:d.generation??0,sequence:d.sequence,hash:d.blockHash}});
+/** Swap logs of a V4 pool carry its 32-byte pool id; V3 rows carry the 20-byte pool address. */
+const kindOf=(t:{pool:string}):Delivery['kind']=>t.pool.length===66?'v4':'v3';
+const KIND_SQL="CASE WHEN length(pool)=66 THEN 'v4' ELSE 'v3' END";
+/** A kind without a cursor at this height has no rows there yet and never displaces another kind. An exact retry (same generation,
+ * sequence and hash) is not stale: it idempotently restores missing rows, also after finality. */
+function stale(d:Delivery,block:Block|undefined,floor:number){
+ if(d.timestamp<Math.floor(Date.now()/1000)-RETENTION_SECONDS||d.blockNumber<=floor)return true;if(!block)return false;if(block.verified&&block.hash!==d.blockHash)return true;
+ const c=cursor(d,block);return !!c&&!newer(d,c)&&!(c.generation===(d.generation??0)&&c.sequence===d.sequence&&c.hash===d.blockHash);
+}
 type Placement='insert'|'skip'|'move'|'alternate';
 /** A log id displayed in another block is a reinclusion, not a duplicate. A verified occurrence wins; otherwise a verified or newer
  * delivery is displayed and the other occurrence is kept as an alternate until its block's verification or replacement resolves it. */
 function place(d:Delivery,own:Block|undefined,reorg:boolean,at:number|undefined,other:(block:number)=>Block|undefined):Placement{
  if(at===undefined)return 'insert';if(at===d.blockNumber)return reorg?'insert':'skip';
- const b=other(at);return b?.verified?'skip':own?.verified||!b||newer(d,b)?'move':'alternate';
+ const b=other(at),c=b&&cursor(d,b);return b?.verified?'skip':own?.verified||!c||newer(d,c)?'move':'alternate';
 }
 export function order(a:OnchainTrade,b:OnchainTrade){return a.blockNumber-b.blockNumber||a.logIndex-b.logIndex;}
 export class MemorySwapStore implements SwapStore{
@@ -43,12 +51,12 @@ export class MemorySwapStore implements SwapStore{
  }
  apply(d:Delivery):ApplyResult{
   const block=this.blocks.get(d.blockNumber);if(stale(d,block,this.get<number>('floor')??-1))return empty();
-  const reorg=!!block&&block.hash!==d.blockHash,removed=reorg?[...this.trades.values()].filter(t=>t.blockNumber===d.blockNumber):[];
+  const c=block&&cursor(d,block),reorg=!!c&&c.hash!==d.blockHash,removed=reorg?[...this.trades.values()].filter(t=>t.blockNumber===d.blockNumber&&kindOf(t)===d.kind):[];
   const plan=d.trades.map(t=>({t,action:place(d,block,reorg,this.trades.get(t.id)?.blockNumber,n=>this.blocks.get(n))}));
   // Removed ids that this delivery does not re-insert come back from a surviving alternate; the ceiling counts them before any write.
   const incoming=new Set(d.trades.map(t=>t.id)),surviving=new Set([...this.alternates.values()].filter(a=>a.blockNumber!==d.blockNumber).map(a=>a.id)),restorable=removed.filter(t=>!incoming.has(t.id)&&surviving.has(t.id)).length;
   if(this.trades.size-removed.length+plan.filter(p=>p.action==='insert').length+restorable>this.limit+2000||!block&&this.blocks.size>=this.limit+2000)throw new SwapCapacityError();
-  if(reorg)this.drop(d.blockNumber);
+  if(reorg)this.drop(d.blockNumber,d.kind);
   const trades:OnchainTrade[]=[],moved:string[]=[];
   for(const {t,action} of plan){if(action==='skip')continue;if(action==='alternate'){this.alternates.set(`${t.id}@${t.blockNumber}`,t);continue;}
    if(action==='move'){const old=this.trades.get(t.id)!;this.alternates.set(`${t.id}@${old.blockNumber}`,old);moved.push(old.pool);}this.put(t);trades.push(t);}
@@ -57,8 +65,8 @@ export class MemorySwapStore implements SwapStore{
   return {trades,reorg:reorg||moved.length>0,removedPools:[...new Set([...removed.map(t=>t.pool),...moved,...restored])]};
  }
  private put(t:OnchainTrade){this.alternates.delete(`${t.id}@${t.blockNumber}`);this.trades.set(t.id,t);if(!this.coverage(t.pool))this.set(`coverage:${t.pool}`,t.at);}
- /** Removes a block's displayed rows and alternates. */
- private drop(n:number){for(const [id,t] of this.trades)if(t.blockNumber===n)this.trades.delete(id);for(const [k,t] of this.alternates)if(t.blockNumber===n)this.alternates.delete(k);}
+ /** Removes one kind's displayed rows and alternates at a height. */
+ private drop(n:number,kind:Delivery['kind']){for(const [id,t] of this.trades)if(t.blockNumber===n&&kindOf(t)===kind)this.trades.delete(id);for(const [k,t] of this.alternates)if(t.blockNumber===n&&kindOf(t)===kind)this.alternates.delete(k);}
  /** Restores each removed id from its best surviving occurrence: verified first, then the highest block. */
  private promote(ids:string[]){const pools:string[]=[];for(const id of ids){if(this.trades.has(id))continue;
   const best=[...this.alternates.values()].filter(t=>t.id===id).sort((a,b)=>(this.blocks.get(b.blockNumber)?.verified??0)-(this.blocks.get(a.blockNumber)?.verified??0)||b.blockNumber-a.blockNumber)[0];
@@ -70,10 +78,12 @@ export class MemorySwapStore implements SwapStore{
   for(const b of blocks.filter((b,i)=>b.at<cutoff||i<blocks.length-this.limit).slice(0,batch)){this.blocks.delete(b.block);for(const [k,a] of this.alternates)if(a.blockNumber===b.block)this.alternates.delete(k);this.set('floor',Math.max(this.get<number>('floor')??-1,b.block));}
  }
  pendingBlocks(before:number,limit:number){const held=(n:number)=>[...this.trades.values(),...this.alternates.values()].some(t=>t.blockNumber===n);return [...this.blocks.values()].filter(b=>!b.verified&&b.at<=before&&held(b.block)).sort((a,b)=>a.block-b.block).slice(0,limit);}
- /** An orphaned block loses its rows (each restored from a surviving occurrence); a canonical block's alternates become the displayed occurrences. */
- verifyBlock(n:number,expected:string,canonical:string){const b=this.blocks.get(n);if(!b||b.verified||b.hash!==expected)return [];const pools:string[]=[];
-  if(expected!==canonical){const removed=[...this.trades.values()].filter(t=>t.blockNumber===n);this.drop(n);pools.push(...removed.map(t=>t.pool),...this.promote(removed.map(t=>t.id)));}
-  else for(const t of [...this.alternates.values()].filter(t=>t.blockNumber===n)){pools.push(t.pool);this.put(t);}
+ /** Every row and alternate at the height whose own block hash is not canonical is an orphan, whatever its kind; each removed id is
+  * restored from a surviving occurrence, and canonical alternates become the displayed occurrences. */
+ verifyBlock(n:number,expected:string,canonical:string){const b=this.blocks.get(n);if(!b||b.verified||b.hash!==expected)return [];
+  const removed=[...this.trades.values()].filter(t=>t.blockNumber===n&&t.blockHash!==canonical),pools=removed.map(t=>t.pool);
+  for(const t of removed)this.trades.delete(t.id);for(const [k,t] of this.alternates)if(t.blockNumber===n&&t.blockHash!==canonical)this.alternates.delete(k);
+  pools.push(...this.promote(removed.map(t=>t.id)));for(const t of [...this.alternates.values()].filter(t=>t.blockNumber===n)){pools.push(t.pool);this.put(t);}
   b.hash=canonical;b.verified=1;return [...new Set(pools)];}
 }
 /** Structural types keep this adapter testable with Node's native SQLite. */
@@ -114,12 +124,12 @@ export class SqlSwapStore implements SwapStore{
  }
  apply(d:Delivery):ApplyResult{return this.transaction(()=>{
   const block=this.block(d.blockNumber);if(stale(d,block,this.get<number>('floor')??-1))return empty();
-  const reorg=!!block&&block.hash!==d.blockHash,removed=reorg?[...this.sql.exec('SELECT id,pool FROM swap_trades WHERE block=?',d.blockNumber)] as {id:string;pool:string}[]:[];
+  const c=block&&cursor(d,block),reorg=!!c&&c.hash!==d.blockHash,removed=reorg?[...this.sql.exec(`SELECT id,pool FROM swap_trades WHERE block=? AND ${KIND_SQL}=?`,d.blockNumber,d.kind)] as {id:string;pool:string}[]:[];
   const plan=d.trades.map(t=>({t,action:place(d,block,reorg,[...this.sql.exec('SELECT block FROM swap_trades WHERE id=?',t.id)][0]?.block as number|undefined,n=>this.block(n))}));
   // Removed ids that this delivery does not re-insert come back from a surviving alternate; the ceiling counts them before any write.
-  const incoming=new Set(d.trades.map(t=>t.id)),restorable=reorg?[...this.sql.exec('SELECT t.id FROM swap_trades t WHERE t.block=? AND EXISTS (SELECT 1 FROM swap_alternates a WHERE a.id=t.id AND a.block<>t.block)',d.blockNumber)].filter(r=>!incoming.has(r.id)).length:0;
+  const incoming=new Set(d.trades.map(t=>t.id)),restorable=reorg?[...this.sql.exec(`SELECT t.id FROM swap_trades t WHERE t.block=? AND ${KIND_SQL}=? AND EXISTS (SELECT 1 FROM swap_alternates a WHERE a.id=t.id AND a.block<>t.block)`,d.blockNumber,d.kind)].filter(r=>!incoming.has(r.id)).length:0;
   if((this.get<number>('trade-count')??0)-removed.length+plan.filter(p=>p.action==='insert').length+restorable>this.limit+2000||!block&&(this.get<number>('block-count')??0)>=this.limit+2000)throw new SwapCapacityError();
-  if(reorg)this.drop(d.blockNumber,removed.length);
+  if(reorg)this.drop(d.blockNumber,d.kind,removed.length);
   const trades:OnchainTrade[]=[],moved:string[]=[];
   for(const {t,action} of plan){if(action==='skip')continue;if(action==='alternate'){this.alternate(t.id,t.blockNumber,JSON.stringify(t));continue;}
    if(action==='move'){const old=[...this.sql.exec('SELECT pool,block,payload FROM swap_trades WHERE id=?',t.id)][0];this.alternate(t.id,old.block,old.payload);moved.push(old.pool);}else this.count(1);this.put(t);trades.push(t);}
@@ -132,7 +142,8 @@ export class SqlSwapStore implements SwapStore{
  private alternate(id:string,block:number,payload:string){this.sql.exec('INSERT OR REPLACE INTO swap_alternates (id,block,payload) VALUES (?,?,?)',id,block,payload);}
  private put(t:OnchainTrade){this.sql.exec('DELETE FROM swap_alternates WHERE id=? AND block=?',t.id,t.blockNumber);
   this.sql.exec("INSERT OR REPLACE INTO swap_trades (id,pool,block,hash,at,payload,log_index) VALUES (?,?,?,?,?,?,?)",t.id,t.pool,t.blockNumber,t.blockHash,Date.parse(t.at)/1000,JSON.stringify(t),t.logIndex);if(!this.coverage(t.pool))this.set(`coverage:${t.pool}`,t.at);}
- private drop(n:number,removed:number){this.sql.exec('DELETE FROM swap_trades WHERE block=?',n);this.sql.exec('DELETE FROM swap_alternates WHERE block=?',n);this.count(-removed);}
+ /** Removes one kind's displayed rows and alternates at a height. */
+ private drop(n:number,kind:Delivery['kind'],removed:number){this.sql.exec(`DELETE FROM swap_trades WHERE block=? AND ${KIND_SQL}=?`,n,kind);this.sql.exec(`DELETE FROM swap_alternates WHERE block=? AND ${KIND_SQL.replace('pool',"json_extract(payload,'$.pool')")}=?`,n,kind);this.count(-removed);}
  private promote(ids:string[]){const pools:string[]=[];for(const id of ids){if([...this.sql.exec('SELECT 1 FROM swap_trades WHERE id=?',id)].length)continue;
   const r=[...this.sql.exec('SELECT a.payload FROM swap_alternates a LEFT JOIN swap_blocks b ON b.block=a.block WHERE a.id=? ORDER BY COALESCE(b.verified,0) DESC,a.block DESC LIMIT 1',id)][0];
   if(r){const t=JSON.parse(r.payload) as OnchainTrade;this.put(t);this.count(1);pools.push(t.pool);}}return pools;}
@@ -151,8 +162,11 @@ export class SqlSwapStore implements SwapStore{
  });}
  pendingBlocks(before:number,limit:number){return [...this.sql.exec('SELECT block,hash FROM swap_blocks WHERE verified=0 AND at<=? AND (EXISTS (SELECT 1 FROM swap_trades WHERE swap_trades.block=swap_blocks.block) OR EXISTS (SELECT 1 FROM swap_alternates WHERE swap_alternates.block=swap_blocks.block)) ORDER BY at,block LIMIT ?',before,limit)] as {block:number;hash:string}[];}
  verifyBlock(n:number,expected:string,canonical:string):string[]{return this.transaction(()=>{
-  const b=[...this.sql.exec('SELECT hash,verified FROM swap_blocks WHERE block=?',n)][0];if(!b||b.verified||b.hash!==expected)return [];const pools:string[]=[];
-  if(expected!==canonical){const removed=[...this.sql.exec('SELECT id,pool FROM swap_trades WHERE block=?',n)] as {id:string;pool:string}[];this.drop(n,removed.length);pools.push(...removed.map(r=>r.pool),...this.promote(removed.map(r=>r.id)));}
-  else for(const r of [...this.sql.exec('SELECT payload FROM swap_alternates WHERE block=?',n)]){const t=JSON.parse(r.payload) as OnchainTrade;if(![...this.sql.exec('SELECT 1 FROM swap_trades WHERE id=?',t.id)].length)this.count(1);this.put(t);pools.push(t.pool);}
+  const b=[...this.sql.exec('SELECT hash,verified FROM swap_blocks WHERE block=?',n)][0];if(!b||b.verified||b.hash!==expected)return [];
+  // Every row and alternate whose own block hash is not canonical is an orphan, whatever its kind.
+  const removed=[...this.sql.exec('SELECT id,pool FROM swap_trades WHERE block=? AND hash<>?',n,canonical)] as {id:string;pool:string}[],pools=removed.map(r=>r.pool);
+  this.sql.exec('DELETE FROM swap_trades WHERE block=? AND hash<>?',n,canonical);this.sql.exec("DELETE FROM swap_alternates WHERE block=? AND json_extract(payload,'$.blockHash')<>?",n,canonical);this.count(-removed.length);
+  pools.push(...this.promote(removed.map(r=>r.id)));
+  for(const r of [...this.sql.exec('SELECT payload FROM swap_alternates WHERE block=?',n)]){const t=JSON.parse(r.payload) as OnchainTrade;if(![...this.sql.exec('SELECT 1 FROM swap_trades WHERE id=?',t.id)].length)this.count(1);this.put(t);pools.push(t.pool);}
   this.sql.exec('UPDATE swap_blocks SET hash=?,verified=1 WHERE block=?',canonical,n);return [...new Set(pools)];});}
 }
