@@ -10,6 +10,16 @@ export class ApiError extends Error {
 // Short capacity waits are absorbed here; a longer server-requested wait is
 // returned to the caller (with retryAfter) instead of being cut short.
 const AUTOMATIC_RETRY_SECONDS = 3;
+/** AbortSignal.any needs Safari 17.4+; older browsers combine the signals by hand. */
+function anySignal(signals: AbortSignal[]): AbortSignal {
+  if (typeof AbortSignal.any === "function") return AbortSignal.any(signals);
+  const combined = new AbortController();
+  for (const signal of signals) {
+    if (signal.aborted) { combined.abort(signal.reason); break; }
+    signal.addEventListener("abort", () => combined.abort(signal.reason), { once: true, signal: combined.signal });
+  }
+  return combined.signal;
+}
 export async function api<T>(path: string, body?: unknown, options: ApiOptions = {}): Promise<T> {
   let challengeToken: string | undefined;
   const requestId = crypto.randomUUID();
@@ -27,7 +37,7 @@ export async function api<T>(path: string, body?: unknown, options: ApiOptions =
         }),
     headers: { ...(body === undefined ? {} : { "content-type": "application/json" }),
       "x-request-id": requestId, ...(challengeToken ? { "x-turnstile-token": challengeToken } : {}) },
-    signal: options.signal ? AbortSignal.any([options.signal, timeout]) : timeout,
+    signal: options.signal ? anySignal([options.signal, timeout]) : timeout,
   });
   const result = await response.json();
   observeServerTime(response.headers.get("date"), result?.serverTime, started);

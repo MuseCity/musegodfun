@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { readFileSync } from "node:fs";
 import { hookRuntime, importFresh, settle } from "./hook-runtime";
 import { MUSEGOD } from "../src/lib/musegod";
+import { parseLiveEvent } from "../src/lib/musegod-live";
 import { securityHeaders } from "../server/http-security";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -96,4 +97,72 @@ test("the market mounts live only for a loaded Robinhood mainnet config", async 
     }
     config = { mode: "robinhood", chainId: 4663 }; runtime.render(); await settle(); assert.equal(containsLive(runtime.output()), true);
   } finally { runtime.unmount(); if (priorWindow) Object.defineProperty(globalThis, "window", priorWindow); else Reflect.deleteProperty(globalThis, "window"); if (prior) Object.defineProperty(globalThis, "document", prior); else Reflect.deleteProperty(globalThis, "document"); }
+});
+
+const hash = (n: number) => `0x${n.toString(16).padStart(64, "0")}`;
+function liveSwap(n: number, timestamp: string, priceUsd: number) {
+  const event = parseLiveEvent("TOKEN_SWAP", { tokenAddress: MUSEGOD.token, chain: "robinhood", txHash: hash(n), blockNumber: 100, logIndex: n,
+    timestamp, side: "buy", tokenAmount: 2, totalUsd: 6, priceUsd });
+  assert(event?.type === "swap"); return event;
+}
+const liveSnapshot = (lastTradeAt: string, lastPriceUsd: number) => ({ type: "price" as const, tokenAddress: MUSEGOD.token, chain: "robinhood" as const,
+  lastPriceUsd, marketCapUsd: lastPriceUsd * 200, lastTradeAt });
+/** The real bridge with a stubbed shared connection; `update` renders new REST props. */
+async function mountLive(t: { after(fn: () => void): void }, initial: Record<string, unknown>) {
+  let listener: any = null, output: any = null, props: any = { ...initial, onUpdate(value: any) { output = value; } }, bridge: any;
+  const connection = { subscribe(next: any) { listener = next; next.status({ connected: true, receiving: false, receivedAt: null }); return () => { listener = null; }; } };
+  const runtime = hookRuntime(() => bridge(props));
+  ({ default: bridge } = await importFresh("src/components/MusegodLive.tsx", {
+    react: { file: import.meta.resolve("react"), bindings: runtime.hooks },
+    "../lib/musegod-live-socket": { file: import.meta.resolve("../src/lib/musegod-live-lifecycle.ts"), bindings: { bankrLive: connection } },
+  }));
+  t.after(() => runtime.unmount()); runtime.render(); await settle();
+  return {
+    event: (value: unknown) => listener.event(value) as boolean, output: () => output, markup: () => renderToStaticMarkup(runtime.output()),
+    status: async (value: unknown) => { listener.status(value); await settle(); },
+    update: async (changes: Record<string, unknown>) => { props = { ...props, ...changes }; runtime.render(); await settle(); },
+  };
+}
+const receiving = () => ({ connected: true, receiving: true, receivedAt: Date.now() });
+
+test("candles advancing before summary and trades keep the live headline and trade, count volume once and dedupe on acknowledgment", async t => {
+  const restAt = new Date(Date.now() - 20_000).toISOString(), swapAt = new Date(Date.now() - 1000).toISOString(), bucket = Math.floor(Date.parse(swapAt) / 3_600_000) * 3600;
+  const meta = { source: "Bankr", status: "fresh", fetchedAt: restAt };
+  const live = await mountLive(t, { info: null, interval: "1h", summary: { ...meta, lastTradeAt: restAt, priceUsd: 2, marketCapUsd: 400, periods: {} },
+    candles: { ...meta, watermark: { blockNumber: 100, logIndex: 1, txHash: hash(1) }, candles: [{ time: bucket, open: 2, high: 2, low: 2, close: 2, volume: 10 }] },
+    trades: { ...meta, trades: [] } });
+  const swap = liveSwap(2, swapAt, 3);
+  assert.equal(live.event(swap), true); await live.status(receiving());
+  assert.equal(live.output().summary.priceUsd, 3); assert.equal(live.output().trades.trades.length, 1); assert.equal(live.output().candles.candles[0].volume, 16);
+  const advanced = { ...meta, fetchedAt: swapAt, watermark: { blockNumber: 100, logIndex: 2, txHash: hash(2) }, candles: [{ time: bucket, open: 2, high: 3, low: 2, close: 3, volume: 16 }] };
+  await live.update({ candles: advanced });
+  assert.equal(live.output().summary.priceUsd, 3, "the headline is not reverted by a candle-only refresh");
+  assert.equal(live.output().priceAt, swapAt); assert.equal(live.output().trades.trades.length, 1); assert.equal(live.output().trades.trades[0].id, swap.id);
+  assert.strictEqual(live.output().candles, advanced); assert.equal(live.output().candles.candles[0].volume, 16, "the swap is not added to candles that contain it");
+  const summary = { ...meta, fetchedAt: swapAt, lastTradeAt: swapAt, priceUsd: 3, marketCapUsd: 600, periods: {} };
+  const trades = { ...meta, fetchedAt: swapAt, trades: [{ id: swap.id, hash: swap.txHash, account: null, at: swapAt, side: "buy", amount: 2, usd: 6, price: 3 }] };
+  await live.update({ trades });
+  assert.strictEqual(live.output().trades, trades, "the swap now listed by REST is not shown twice"); assert.equal(live.output().summary.priceUsd, 3); assert.equal(live.output().priceAt, swapAt);
+  await live.update({ summary });
+  assert.equal(live.output(), null, "every section has caught up, so REST is shown as is");
+  await live.update({ summary: { ...summary, priceUsd: 2.5, lastTradeAt: new Date(Date.parse(swapAt) + 5000).toISOString() } });
+  assert.equal(live.output(), null, "an acknowledged swap is released and cannot return");
+});
+test("when Live expires the newest known value stays until REST catches up; equal-second discovery prices follow stream order", async t => {
+  const restAt = new Date(Date.now() - 20_000).toISOString(), at = new Date(Date.now() - 2000).toISOString(), meta = { source: "Bankr", status: "fresh", fetchedAt: restAt };
+  const summary = { ...meta, lastTradeAt: restAt, priceUsd: 2, marketCapUsd: 400, periods: {} };
+  const live = await mountLive(t, { info: null, interval: "1h", summary, candles: null, trades: { ...meta, trades: [] } });
+  assert.equal(live.event(liveSnapshot(at, 4)), true); await live.status(receiving());
+  assert.equal(live.output().summary.priceUsd, 4); assert.match(live.markup(), /Live · Bankr/);
+  assert.equal(live.event(liveSnapshot(at, 5)), true, "a different price in the same second follows stream order"); await settle();
+  assert.equal(live.output().summary.priceUsd, 5);
+  assert.equal(live.event(liveSnapshot(at, 5)), false, "an identical replay changes nothing");
+  assert.equal(live.event(liveSnapshot(new Date(Date.parse(at) - 1000).toISOString(), 6)), false, "an older price is ignored");
+  await live.status({ connected: true, receiving: false, receivedAt: Date.now() });
+  assert.equal(live.markup(), "", "the Live label expires"); assert.equal(live.output().summary.priceUsd, 5, "the newest known value is kept");
+  const caught = { ...summary, fetchedAt: at, lastTradeAt: new Date(Date.parse(at) + 1000).toISOString(), priceUsd: 6 };
+  await live.update({ summary: caught });
+  assert.equal(live.output().summary.priceUsd, 6); assert.equal(live.output().priceAt, null);
+  await live.status({ connected: false, receiving: false, receivedAt: null });
+  assert.equal(live.output(), null); assert.equal(live.markup(), "");
 });

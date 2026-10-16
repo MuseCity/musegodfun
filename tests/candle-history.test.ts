@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseBefore, historyCursor, INTERVAL_SECONDS, HISTORY_PAGE_SIZE, mergeCandles, createHistoryPager } from "../src/lib/candle-history";
+import { parseBefore, beyondHistoryWindow, historyCursor, INTERVAL_SECONDS, HISTORY_PAGE_SIZE, mergeCandles, createHistoryPager } from "../src/lib/candle-history";
 const now = Date.parse("2026-10-16T03:00:00Z"), before = Math.floor((now / 1000 - 3600) / (199 * 3600)) * 199 * 3600;
 const candle = (time: number, close = 1) => ({ time, open: 1, high: Math.max(1, close), low: 1, close, volume: 2 });
 test("before accepts page-grid-aligned unix seconds only within the past 365 days", () => {
@@ -11,6 +11,11 @@ test("before accepts page-grid-aligned unix seconds only within the past 365 day
     const grid = INTERVAL_SECONDS[interval] * HISTORY_PAGE_SIZE, aligned = Math.floor((now / 1000 - 86400) / grid) * grid;
     assert.equal(parseBefore(aligned, interval, now), aligned);
   }
+});
+test("the 365-day window boundary is shared by validation and the chart's window-limit message", () => {
+  const edge = Math.ceil(now / 1000 - 365 * 86400);
+  assert.equal(beyondHistoryWindow(edge, now), false); assert.equal(beyondHistoryWindow(edge - 1, now), true);
+  assert.equal(beyondHistoryWindow(before, now), false);
 });
 test("merge is ordered, unique, gap preserving and favors the latest snapshot on overlap", () => {
   const first = [candle(120, 2), candle(240)], older = [candle(60), candle(120)];

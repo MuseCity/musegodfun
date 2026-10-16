@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ApiError, chainApi } from "../lib/api";
-import { createHistoryPager, historyCursor, mergeCandles, parseBefore } from "../lib/candle-history";
+import { beyondHistoryWindow, createHistoryPager, historyCursor, mergeCandles, parseBefore } from "../lib/candle-history";
 import type { Candle, CandleData, ChartInterval } from "../lib/market";
 import PriceChart from "./PriceChart";
 
@@ -9,10 +9,17 @@ export default function MarketChart({ data, endpoint, interval, symbol, type }: 
   symbol: string; type: "candles" | "line";
 }) {
   const [older, setOlder] = useState<Candle[]>([]), [fetchedAt, setFetchedAt] = useState<{ first: string; last: string } | null>(null);
-  const [loading, setLoading] = useState(false), [exhausted, setExhausted] = useState(false), [error, setError] = useState("");
+  const [loading, setLoading] = useState(false), [exhausted, setExhausted] = useState<"" | "start" | "window">(""), [error, setError] = useState("");
   const pager = useRef<ReturnType<typeof createHistoryPager> | null>(null), retryAt = useRef(0), pending = useRef(false);
   useEffect(() => {
-    const current = createHistoryPager((before, signal) => chainApi<CandleData>(endpoint.chainId, `${endpoint.path}&before=${before}`, undefined, { retry: false, signal }));
+    const page = (before: number, signal: AbortSignal) => chainApi<CandleData>(endpoint.chainId, `${endpoint.path}&before=${before}`, undefined, { retry: false, signal });
+    // The server learns a chart's source only from ordinary reads, in memory. This chart's own Bankr first page proves it can page, so after a
+    // restart one first-page read teaches the server again and the request is repeated once instead of showing a false "not available".
+    const current = createHistoryPager((before, signal) => page(before, signal).catch(async (error: unknown) => {
+      if (!(error instanceof ApiError) || error.reason !== "history_not_available") throw error;
+      await chainApi<CandleData>(endpoint.chainId, endpoint.path, undefined, { retry: false, signal });
+      return page(before, signal);
+    }));
     pager.current = current;
     return () => { pager.current = null; current.dispose(); };
   }, [endpoint.key]);
@@ -28,12 +35,12 @@ export default function MarketChart({ data, endpoint, interval, symbol, type }: 
     if (!current || pending.current || exhausted || data.source !== "Bankr" || data.status === "stale" || !candles.length || Date.now() < retryAt.current) return;
     const before = historyCursor(candles[0].time, interval);
     try { parseBefore(before, interval); }
-    catch { setExhausted(true); return; }
+    catch { setExhausted(beyondHistoryWindow(before) ? "window" : "start"); return; }
     pending.current = true; setLoading(true); setError("");
     void current.load(before).then(page => {
       if (!page || pager.current !== current) return;
       const olderBars = page.candles.filter(candle => candle.time < candles[0].time);
-      setOlder(previous => mergeCandles(olderBars, previous)); setExhausted(current.exhausted() || !olderBars.length);
+      setOlder(previous => mergeCandles(olderBars, previous)); setExhausted(current.exhausted() || !olderBars.length ? "start" : "");
       if (olderBars.length) setFetchedAt(previous => {
         const times = [...(previous ? [previous.first, previous.last] : []), page.fetchedAt].sort((a, b) => Date.parse(a) - Date.parse(b));
         return { first: times[0], last: times.at(-1)! };
@@ -41,17 +48,18 @@ export default function MarketChart({ data, endpoint, interval, symbol, type }: 
     }).catch((error: unknown) => {
       if (pager.current !== current) return;
       if (error instanceof ApiError && error.reason === "history_not_available") {
-        setExhausted(true); setError(error.message); return;
+        setExhausted("start"); setError(error.message); return;
       }
       retryAt.current = Date.now() + 30_000; setError("Historical price data is unavailable. Scroll again to retry.");
     }).finally(() => { if (pager.current === current) { pending.current = false; setLoading(false); } });
   }
+  const note = loading ? "Loading older history…" : error || (exhausted === "window" ? "History is limited to the past 365 days" : exhausted ? "Beginning of indexed history" : "");
   const separateTime = fetchedAt && [fetchedAt.first, fetchedAt.last].some(time => Math.abs(Date.parse(time) - Date.parse(data.fetchedAt)) >= 60_000);
   return <>
     <PriceChart candles={candles} symbol={symbol} type={type} onLoadOlder={loadOlder} />
     {(loading || exhausted || error || separateTime) && <p className="feed-note chart-history" role="status">
-      {loading ? "Loading older history…" : exhausted ? error || "Beginning of indexed history" : error}
-      {separateTime && <>{loading || exhausted || error ? " · " : ""}History pages · Bankr · Fetched <time dateTime={fetchedAt!.first}>{new Date(fetchedAt!.first).toLocaleTimeString("en-US")}</time>
+      {note}
+      {separateTime && <>{note ? " · " : ""}History pages · Bankr · Fetched <time dateTime={fetchedAt!.first}>{new Date(fetchedAt!.first).toLocaleTimeString("en-US")}</time>
         {fetchedAt!.last !== fetchedAt!.first && <>–<time dateTime={fetchedAt!.last}>{new Date(fetchedAt!.last).toLocaleTimeString("en-US")}</time></>}</>}
     </p>}
   </>;

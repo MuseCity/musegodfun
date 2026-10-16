@@ -270,6 +270,16 @@ test("historical pages are Bankr-only, strict-before, single-flight and cached b
   assert(read.mock.calls.every(call => call.arguments[0].endsWith(`:before:${CURSOR}`)));
   assert(write.mock.calls.every(call => call.arguments[0].endsWith(`:before:${CURSOR}`)));
 });
+test("after a reader restart one ordinary first-page read, served from the persisted snapshot, re-enables Bankr history without a provider call", async () => {
+  const calls: URL[] = [];
+  const f = fixture(async input => { const url = new URL(String(input)); calls.push(url);
+    return Response.json({ ...bankr(), ohlcv: [[CURSOR - 3600, 1, 1, 1, 1, 2], [CURSOR, 1, 1, 1, 1, 2]] }); });
+  await f.reader.candles(token, "1h"); calls.length = 0;
+  const restarted = new MarketReader(f.options);
+  await assert.rejects(restarted.candles(token, "1h", CURSOR), { reason: "history_not_available" }); assert.equal(calls.length, 0);
+  assert.equal((await restarted.candles(token, "1h")).source, "Bankr"); assert.equal(calls.length, 0);
+  assert.deepEqual((await restarted.candles(token, "1h", CURSOR)).candles.map(c => c.time), [CURSOR - 3600]); assert.equal(calls.length, 1);
+});
 test("historical provider failures and Base history requests never fall through to Gecko quota", async () => {
   let calls = 0, failed = false;
   const f = fixture(async () => { calls++; return failed ? new Response(null, { status: 500 }) : Response.json(bankr()); });

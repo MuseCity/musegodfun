@@ -9,11 +9,14 @@ export function historyCursor(oldest: number, interval: ChartInterval) {
   return Math.ceil(oldest / grid) * grid;
 }
 export const HISTORY_TTL = 3_600_000;
+const HISTORY_WINDOW_SECONDS = 365 * 86400;
+/** The request window is a limit of this endpoint, not the start of the provider's index. */
+export const beyondHistoryWindow = (before: number, now = Date.now()) => before < Math.ceil(now / 1000 - HISTORY_WINDOW_SECONDS);
 export function parseBefore(value: unknown, interval: ChartInterval, now = Date.now()): number | undefined {
   if (value === undefined) return undefined;
   return z.union([z.number().int().safe(), z.string().regex(/^\d{1,10}$/).transform(Number)])
     .refine(time => Number.isSafeInteger(time) && time % (INTERVAL_SECONDS[interval] * HISTORY_PAGE_SIZE) === 0 &&
-      time <= Math.floor(now / 1000) && time >= Math.ceil(now / 1000 - 365 * 86400),
+      time <= Math.floor(now / 1000) && !beyondHistoryWindow(time, now),
     "before must be page-grid-aligned unix seconds within the past 365 days.").parse(value);
 }
 /** Latest provider bars win overlaps. No gap filling or interval changes. */

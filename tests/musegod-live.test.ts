@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { MUSEGOD } from "../src/lib/musegod";
-import { parseLiveEvent, projectLiveMarket, retainLiveSwaps, verifiedSupply } from "../src/lib/musegod-live";
+import { newerPrice, parseLiveEvent, projectLiveMarket, retainLiveSwaps, verifiedSupply } from "../src/lib/musegod-live";
 import type { CandleData, MarketSummary, TradeData } from "../src/lib/market";
 
 const now = Date.parse("2026-10-16T04:12:30Z"), time = Math.floor(now / 1000 / 3600) * 3600;
@@ -63,8 +63,9 @@ test("REST watermark replaces included events without counting their volume agai
   const next = { ...candles, watermark: { blockNumber: 100, logIndex: 2, txHash: hash(2) }, candles: [{ ...candles.candles[0], close: 3, high: 3, volume: 16 }] };
   assert.equal(project([swap()], { candles: next }).candles?.candles[0].volume, 16);
   assert.equal(project([swap(1)]).candles?.candles[0].volume, 10);
-  assert.equal(project([swap(1)]).summary?.priceUsd, 2);
-  assert.equal(project([swap(1)]).trades?.trades.length, 0);
+  // The candles contain swap 1, but summary and trades are separate REST sections that still predate it.
+  assert.equal(project([swap(1)]).summary?.priceUsd, 3);
+  assert.equal(project([swap(1)]).trades?.trades.length, 1);
   for (const watermark of [undefined, null]) assert.strictEqual(project(undefined, { candles: { ...candles, watermark } }).candles?.candles, candles.candles);
   assert.strictEqual(project(undefined, { candles: { ...candles, status: "stale" } }).candles?.candles, candles.candles);
   const row = project().trades!.trades[0];
@@ -87,4 +88,67 @@ test("swaps without market cap derive it from verified supply or retain the date
   const result = project([swap(2, { priceUsd: 7, mcapUsd: undefined })], { info: null });
   assert.equal(result.summary?.priceUsd, 7); assert.equal(result.summary?.marketCapUsd, 400);
   assert.equal(result.summary?.fetchedAt, summary.fetchedAt);
+});
+
+const stamp = new Date(now - 500).toISOString(), tied = (n: number, priceUsd: number, extra = {}) => swap(n, { timestamp: stamp, priceUsd, ...extra });
+const ahead = (logIndex: number, close: number, volume: number): CandleData => ({ ...candles, watermark: { blockNumber: 100, logIndex, txHash: hash(logIndex) },
+  candles: [{ ...candles.candles[0], close, high: Math.max(2, close), volume }] });
+const discovery = (lastTradeAt: string, lastPriceUsd: number) => ({ type: "price" as const, tokenAddress: MUSEGOD.token, chain: "robinhood" as const,
+  lastPriceUsd, marketCapUsd: lastPriceUsd * 200, lastTradeAt });
+
+test("the candle watermark releases only candle volume: summary and trades reconcile on their own evidence", () => {
+  const rest = ahead(2, 3, 16), caught = { ...summary, priceUsd: 3, lastTradeAt: new Date(now).toISOString() };
+  const early = project([swap()], { candles: rest });
+  assert.equal(early.candles?.candles[0].volume, 16); assert.equal(early.candles?.candles[0].close, 3);
+  assert.equal(early.summary?.priceUsd, 3); assert.equal(early.trades?.trades.length, 1);
+  assert.equal(retainLiveSwaps([swap()], null, { candles: rest, summary, trades }, now).length, 1);
+  const bySummary = project([swap()], { candles: rest, summary: caught });
+  assert.strictEqual(bySummary.summary, caught); assert.equal(bySummary.priceAt, null); assert.equal(bySummary.trades?.trades.length, 1);
+  assert.equal(retainLiveSwaps([swap()], null, { candles: rest, summary: caught, trades }, now).length, 1);
+  const listed = { ...trades, trades: [early.trades!.trades[0]] };
+  const byTrades = project([swap()], { candles: rest, trades: listed });
+  assert.equal(byTrades.summary?.priceUsd, 3); assert.equal(byTrades.trades?.trades.length, 1);
+  assert.equal(retainLiveSwaps([swap()], null, { candles: rest, summary, trades: listed }, now).length, 1);
+  const done = project([swap()], { candles: rest, summary: caught, trades: listed });
+  assert.strictEqual(done.trades, listed); assert.equal(done.priceAt, null); assert.equal(done.tradesAt, null);
+  assert.equal(retainLiveSwaps([swap()], null, { candles: rest, summary: caught, trades: listed }, now).length, 0);
+});
+test("sections that are not loaded keep swaps pending, and a full trade list that moved past a swap releases it", () => {
+  assert.equal(retainLiveSwaps([], swap(), { candles: null, summary: null, trades: null }, now).length, 1);
+  const old = swap(2, { timestamp: new Date(now - 60_000).toISOString() }), rest = { candles: ahead(2, 3, 16), summary: { ...summary, lastTradeAt: new Date(now).toISOString() } };
+  const rows = (count: number) => ({ ...trades, trades: Array.from({ length: count }, (_, n) => ({ id: `robinhood:${hash(100 + n)}:${n}`, hash: hash(100 + n),
+    account: null, at: new Date(now - 30_000 + n * 1000).toISOString(), side: "buy" as const, amount: 1, usd: 1, price: 1 })) });
+  assert.equal(retainLiveSwaps([old], null, { ...rest, trades: rows(30) }, now).length, 0);
+  assert.equal(retainLiveSwaps([old], null, { ...rest, trades: rows(29) }, now).length, 1);
+});
+
+test("equal-second swaps order by chain position in any arrival order and across replays", () => {
+  const a = tied(2, 3), b = tied(3, 4), c = tied(4, 5, { blockNumber: 101, logIndex: 1 }), tiedSummary = { ...summary, lastTradeAt: stamp };
+  for (const [events, price, unique] of [[[a], 3, 1], [[a, b], 4, 2], [[b, a], 4, 2], [[a, b, a, b], 4, 2], [[b, a, b], 4, 2]] as const) {
+    const result = project([...events], { summary: tiedSummary });
+    assert.equal(result.summary?.priceUsd, price); assert.equal(result.priceAt, stamp);
+    assert.equal(result.candles?.candles[0].close, price); assert.equal(result.candles?.candles[0].volume, 10 + 6 * unique);
+    assert.equal(result.trades?.trades.length, unique); assert.equal(result.trades?.trades[0].id, price === 3 ? a.id : b.id);
+  }
+  assert.equal(project([b, c, a], { summary: tiedSummary }).summary?.priceUsd, 5);
+});
+test("at equal seconds REST wins a swap only once another section contains it; a discovery price never outranks a swap or REST", () => {
+  const a = tied(2, 3), tiedSummary = { ...summary, priceUsd: 9, lastTradeAt: stamp };
+  assert.equal(project([a], { summary: tiedSummary }).summary?.priceUsd, 3);
+  const inCandles = project([a], { summary: tiedSummary, candles: ahead(2, 3, 16) });
+  assert.equal(inCandles.summary?.priceUsd, 9); assert.equal(inCandles.priceAt, null);
+  const listed = project([a], { summary: tiedSummary, trades: { ...trades, trades: [project([a]).trades!.trades[0]] } });
+  assert.equal(listed.summary?.priceUsd, 9); assert.equal(listed.priceAt, null);
+  assert.equal(project([a], { summary: { ...tiedSummary, lastTradeAt: new Date(now).toISOString() } }).summary?.priceUsd, 9);
+  const rest = { candles, summary: tiedSummary, trades, interval: "1h" as const, info };
+  assert.equal(projectLiveMarket(rest, [a], discovery(stamp, 7)).summary?.priceUsd, 3);
+  assert.equal(projectLiveMarket(rest, [], discovery(stamp, 7)).summary?.priceUsd, 9);
+  assert.equal(projectLiveMarket(rest, [a], discovery(new Date(now).toISOString(), 7)).summary?.priceUsd, 7);
+});
+test("equal-second discovery prices follow stream order, while replays and older prices change nothing", () => {
+  assert(newerPrice(null, discovery(stamp, 3)));
+  assert(newerPrice(discovery(stamp, 3), discovery(stamp, 4)));
+  assert(!newerPrice(discovery(stamp, 3), discovery(stamp, 3)));
+  assert(!newerPrice(discovery(stamp, 3), discovery(new Date(now - 2000).toISOString(), 4)));
+  assert(newerPrice(discovery(stamp, 3), discovery(new Date(now).toISOString(), 3)));
 });

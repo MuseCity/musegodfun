@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { hookRuntime, importFresh, settle } from "./hook-runtime";
 import type { CandleData } from "../src/lib/market";
+import { ApiError } from "../src/lib/api";
 const candle = (time: number, close = 1) => ({ time, open: 1, high: Math.max(1, close), low: 1, close, volume: 2 });
 test("the chart pages once on demand, preserves history on refresh and stops when the provider is empty", async t => {
   const time = Math.floor((Date.now() / 1000 - 3600) / (199 * 3600)) * 199 * 3600;
@@ -46,4 +47,52 @@ test("disposing the actual chart aborts its in-flight chain API fetch", async t 
   runtime.render(); runtime.output().props.children[0].props.onLoadOlder(); await settle();
   assert(signal instanceof AbortSignal); assert.equal(signal.aborted, false);
   runtime.unmount(); await settle(); assert.equal(aborted, true); assert.equal(signal.aborted, true);
+});
+
+const unavailable = () => new ApiError("History paging is not available for this source.", 503, undefined, undefined, "history_not_available");
+async function mountChart(t: { after(fn: () => void): void }, data: CandleData, request: (chain: number, path: string) => Promise<CandleData>, interval = "1h") {
+  let View: any;
+  const runtime = hookRuntime(() => View({ data, interval, endpoint: { chainId: 4663, path: "/tokens/0xabc/market/candles?interval=" + interval, key: "fixture" }, symbol: "TOKEN", type: "line" }));
+  ({ default: View } = await importFresh("src/components/MarketChart.tsx", {
+    react: { file: import.meta.resolve("react"), bindings: runtime.hooks },
+    "../lib/api": { file: new URL("../src/lib/api.ts", import.meta.url).href, bindings: { chainApi: request } },
+  }));
+  t.after(() => runtime.unmount()); runtime.render();
+  return { chart: () => runtime.output().props.children[0], text: () => JSON.stringify(runtime.output()) };
+}
+
+test("a Bankr chart whose server lost its source memory re-teaches it with one first-page read, then pages", async t => {
+  const time = Math.floor((Date.now() / 1000 - 3600) / (199 * 3600)) * 199 * 3600;
+  const data: CandleData = { candles: [candle(time), candle(time + 3600)], fetchedAt: new Date().toISOString(), source: "Bankr", status: "fresh" };
+  const calls: string[] = []; let primed = false;
+  const view = await mountChart(t, data, async (_chain, path) => {
+    calls.push(path.includes("&before=") ? "history" : "first");
+    if (!path.includes("&before=")) { primed = true; return data; }
+    if (!primed) throw unavailable();
+    return { ...data, candles: [candle(time - 3600), candle(time)] };
+  });
+  view.chart().props.onLoadOlder(); await settle();
+  assert.deepEqual(calls, ["history", "first", "history"]);
+  assert.deepEqual(view.chart().props.candles.map((c: any) => c.time), [time - 3600, time, time + 3600]);
+  assert.doesNotMatch(view.text(), /not available/); assert.doesNotMatch(view.text(), /Beginning of indexed history/);
+});
+test("history that stays unavailable after the source was re-taught is final", async t => {
+  const time = Math.floor((Date.now() / 1000 - 3600) / (199 * 3600)) * 199 * 3600;
+  const data: CandleData = { candles: [candle(time)], fetchedAt: new Date().toISOString(), source: "Bankr", status: "fresh" };
+  const calls: string[] = [];
+  const view = await mountChart(t, data, async (_chain, path) => {
+    calls.push(path.includes("&before=") ? "history" : "first");
+    if (path.includes("&before=")) throw unavailable();
+    return data;
+  });
+  view.chart().props.onLoadOlder(); await settle();
+  assert.deepEqual(calls, ["history", "first", "history"]); assert.match(view.text(), /History paging is not available for this source\./);
+  view.chart().props.onLoadOlder(); await settle(); assert.equal(calls.length, 3);
+});
+test("the 365-day request limit is reported as a window limit, not as the start of the index", async t => {
+  const old = Math.floor((Date.now() / 1000 - 380 * 86400) / 3600) * 3600, calls: string[] = [];
+  const view = await mountChart(t, { candles: [candle(old), candle(old + 3600)], fetchedAt: new Date().toISOString(), source: "Bankr", status: "fresh" },
+    async (_chain, path) => { calls.push(path); throw new Error("unexpected request"); });
+  view.chart().props.onLoadOlder(); await settle();
+  assert.equal(calls.length, 0); assert.match(view.text(), /365 days/); assert.doesNotMatch(view.text(), /Beginning of indexed history/);
 });
