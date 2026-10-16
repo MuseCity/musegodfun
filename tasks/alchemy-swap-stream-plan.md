@@ -1,6 +1,6 @@
 # Own on-chain swap stream via Alchemy Custom Webhooks
 
-Status: Initial implementation released as `d1e7479` / build `38888842595-1` (conductor, 2026-10-16); Notify creation failed and no webhook was bound. Run 6 production hotfix and Run 6b review fixes are implemented locally; release and online acceptance remain pending. Branch `claude/alchemy-swap-stream`, based on `1030b05`.
+Status: Released 2026-10-16 as `d1e7479` (webhook creation failed in production); production hotfix implemented and cross-review accepted (`e4dd05e`…`2f8a105`), releasing under the owner's release approval.
 
 ## Owner request (2026-10-16, translated)
 
@@ -212,3 +212,13 @@ Historical implementation record; lifecycle, admission, pricing, serving and pus
 
 - Fixed X4-1 from Codex review round 4 in `server/swap-store.ts`: reorg replacement is scoped to the delivering kind; finality removes rows of any kind whose own hash is not canonical. X2-1 alternates and X2b-1 capacity (now kind-scoped) remain intact. Five new regressions in `tests/swap-run7b.test.ts` failed on `e0e3d82` and pass now; `npm test` 1736 pass, 0 fail; build, whitespace, Han and bundle checks clean (`.superpowers/sdd/swap-stream/claude-fix-r4.md`). Local only; Codex acceptance and release remain pending.
 - X4-2 (Codex accept pass): removed the never-deployed plain-sequence and hashless cursor fallbacks; a cursor outside the current format is rejected as retryable without mutation. Three new regressions (two red on `e38ad77`, one format guard); `npm test` 1739 pass, 0 fail; details in `claude-fix-r4.md`.
+
+### Hotfix cross-review closure (2026-10-16)
+
+- Production fact after `d1e7479`: both chains reported Notify creation failures. Conductor probes proved that Alchemy GraphQL webhooks return 503 for multiple aliased `logs` selections in one query. The fix creates one webhook per filter (RH v4, RH v3, Base v4).
+- Codex implemented `e4dd05e`.
+- Claude review found C3-1 (P2: kind identity in the query string), C3-2 and C3-3. Codex fixed them in `e0e3d82` (kind in the callback path) and claude accepted them.
+- Codex review found X4-1 (P2: a delayed sibling-kind orphan could erase a canonical row). Claude fixed it in `e38ad77` (reorg replacement scoped to the delivering kind).
+- The codex accept pass found X4-2 (P2: hashless cursors from the never-deployed `e0e3d82`). Claude fixed it in `2f8a105` by removing legacy cursor formats; production swap storage was empty because no webhook had ever existed. Codex accepted it, including a local simulation in which the first production alarm creates exactly three hooks from the stored notify-attempt state.
+- Conductor rerun on `2f8a105`: `npm test` **1739/1739**, build, diff check, Han scan and bundle scan pass. The operator dry-run against the real team (read-only) shows zero existing webhooks and three planned creates with kind paths.
+- Known operator-tool nit (not production): the CLI dry-run throws when the supplied catalog lacks one chain's tokens. Pass a catalog that covers both chains.
