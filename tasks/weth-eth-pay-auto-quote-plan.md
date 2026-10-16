@@ -1,6 +1,6 @@
 # ETH payment on WETH pairs, automatic quotes and in-field Max
 
-Status: E1–E3 implemented and cross-review accepted; E4 (MUSEGOD panel) implemented locally, awaiting both review directions (2026-10-16). Branch `claude/weth-eth-pay-auto-quote`, based on master `ef942a6`. The owner approved releasing E1–E4 together once both review directions accept E4.
+Status: E1–E4 implemented and cross-review accepted (2026-10-16); released with owner approval (see "Release and online acceptance"). Branch `claude/weth-eth-pay-auto-quote`, based on master `ef942a6`.
 
 ## Owner request (2026-10-16, translated)
 
@@ -120,3 +120,10 @@ Owner request (translated): "Switch the MUSEGOD panel to automatic quotes too, a
 - Verified and fixed C3-1, C3-2 and C3-3; none rejected. Automatic MUSEGOD previews and Refresh require loaded verification info rather than `tradeEnabled`, retaining the network, busy, visibility and valid-input gates. Confirmation and execution still require `tradeEnabled`. Included the conductor's existing C3-1 plan amendment above.
 - Two failing-first actual-panel regressions cover paused writes and pending router verification: no request before info loads, one request after 600 ms, receive/minimum previews, three bounded expiry refreshes, enabled manual Refresh and no trade execution. The original implementation failed at the missing preview; fixing only automatic dispatch exposed the separately disabled Refresh control. Removed the unreferenced `.trade-quote` rule. Reworded exactly eight authorized client errors to name Refresh, updated the ETH-buy error fixture and strengthened existing MUSEGOD error assertions; all other bytes in those five client libraries are unchanged.
 - Verification: targeted tests 45/45, full suite 1591/1591, typechecks/build, diff check and changed-file Han scan pass. Existing large-bundle build warning remains. Report: `.superpowers/sdd/eth-pay-auto-quote/run7-report.md`; red/green and scope evidence: `evidence/run7/`. No visible layout change, so no browser run; no fork rerun because execution and calldata are unchanged. No server, contract, launch-flow message or runtime-permission change; no real wallet, signing, mainnet transaction, push or deployment. Local fix commit: `fix(trade): keep paused MUSEGOD quote previews available`. E4 reviewer acceptance, reverse review and release remain pending. Local rollback: revert this Run 7 commit to restore parent `e993cfa`.
+
+### E4 cross-review closure (2026-10-16)
+
+- Codex implemented E4 in `e993cfa`. Claude review round 3 found C3-1 (P2: automatic MUSEGOD quotes were gated on `tradeEnabled`, hiding previews while writes are paused; caused by the plan wording, corrected by conductor decision), C3-2 and C3-3 (P3). Codex fixed them in `28ace9d`; claude accepted all three, with every one of 8 targeted mutations failing the tests.
+- Codex review round 4 of E4: VERDICT ACCEPT with no findings, so no claude fix or codex acceptance step was needed.
+- C3-3 changed only message strings. `ethBuyInvalid` is shared with `server/lifi.ts`, so the server's ETH-quote verification error now also says "Refresh the quote"; server code is unchanged.
+- Conductor rerun on `28ace9d`: `npm test` **1591/1591**, `npm run build`, `git diff --check` and the Han scan pass. The builder and the fork script are still unchanged since the fork proof commit `02ac13f`; MUSEGOD execution diffs are message strings only.
