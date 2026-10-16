@@ -127,3 +127,10 @@ Owner request (translated): "Switch the MUSEGOD panel to automatic quotes too, a
 - Codex review round 4 of E4: VERDICT ACCEPT with no findings, so no claude fix or codex acceptance step was needed.
 - C3-3 changed only message strings. `ethBuyInvalid` is shared with `server/lifi.ts`, so the server's ETH-quote verification error now also says "Refresh the quote"; server code is unchanged.
 - Conductor rerun on `28ace9d`: `npm test` **1591/1591**, `npm run build`, `git diff --check` and the Han scan pass. The builder and the fork script are still unchanged since the fork proof commit `02ac13f`; MUSEGOD execution diffs are message strings only.
+
+### Release and online acceptance (2026-10-16)
+
+- Owner approved releasing E1–E4 together (translated: "switch the MUSEGOD panel to automatic quotes too, and release it together"). Pushed `ef942a6..8df204f` to master. CI run 38843120700 passed; build `build-38843120700-1`, Worker version `8509ce86-e650-47c2-8a03-bef4235f08f0`, deployment verified by `scripts/verify-deployment.ts`. Production rollback point: Worker `8172b151` (`ef942a6`).
+- Conductor spot check on https://musegod.fun (CLAWGOD, guest): `build-info.json` reports `build-38843120700-1` / `8df204f`; ETH preselected with a WETH option; no "Get on-chain quote"; no guest Max; presets 0.001/0.005/0.01 ETH. The in-app browser pane was hidden (`visibilityState: hidden`), and typing produced zero quote requests, as E2 requires for hidden documents.
+- Codex read-only Chrome QA (gpt-6.1-sol xhigh), per page type: Robinhood WETH pair (CLAWGOD, both domains, 1440px and 390px), Robinhood stock pair (MV2C), Base token (hidden Musegod NVDAc pair) and the MUSEGOD page (1440px and 390px). All 24 checks passed, including one automatic quote about 0.6 s after typing on every page type, the ETH wrap note, WETH switching, sell rows without a Max chip, guests without Max, and no 390px overflow. 10 of 12 allowed quote POSTs were used, all HTTP 200. No wallet, signing or transaction.
+- Not verified by agents: a real-wallet ETH buy. The owner may run a tiny ETH buy on CLAWGOD as the final manual check.
