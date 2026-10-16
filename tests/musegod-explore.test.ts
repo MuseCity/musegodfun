@@ -124,11 +124,11 @@ test("Explore counts Muse and NFT coins, leaving out rejected and hidden ones ev
   assert.doesNotMatch(markup, /Muse #3|NFT #2/);
 });
 
-test("MUSEGOD market UI waits for real provenance and preserves minute refresh while both feeds omit holders", () => {
+test("MUSEGOD market UI waits for real provenance and preserves fifteen-second refresh while both feeds omit holders", () => {
   const token = { address: MUSEGOD.token, symbol: "MUSEGOD", mode: "robinhood" as const };
   const featured = renderToStaticMarkup(createElement(TokenMarket, { token, kind: "musegod", refreshKey: "" }));
   assert.doesNotMatch(featured, /Source pending|Source and fetch time/);
-  assert.match(featured, /refreshes every minute while visible/);
+  assert.match(featured, /refreshes every 15 seconds while visible/);
   assert.doesNotMatch(featured, /Holders/);
   assert.doesNotMatch(featured, /CoinGecko/);
   const native = renderToStaticMarkup(createElement(TokenMarket, { token: launch, refreshKey: "" }));

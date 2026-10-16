@@ -1,3 +1,4 @@
+import { HISTORY_TTL, parseBefore } from "../src/lib/candle-history";
 import { marketSnapshotKey } from "../src/lib/market";
 import type { StoreBackend } from "./supabase-store";
 import { MarketFailure, marketFailure, MarketUnavailable, Snapshots } from "./snapshots";
@@ -225,12 +226,14 @@ export class MarketReader {
     key: string,
     read: (previous?: T) => Promise<T>,
     source?: MarketSource,
+    ttl?: number,
   ): Promise<T> {
     if (!this.snapshots) throw new MarketFailure("missing_config", source ?? "CoinGecko");
     return this.snapshots.get(
       key,
       source ?? "CoinGecko",
       read,
+      ttl,
     );
   }
   private assertLive(token: TokenRecord) {
@@ -344,8 +347,9 @@ export class MarketReader {
       }),
     );
   }
-  candles(token: TokenRecord, interval: ChartInterval) {
+  candles(token: TokenRecord, interval: ChartInterval, beforeValue?: unknown) {
     this.assertLive(token);
+    const before = parseBefore(beforeValue, interval, (this.options.now ?? Date.now)());
     const [frame, aggregate] = (
       {
         "1m": ["minute", 1],
@@ -356,6 +360,23 @@ export class MarketReader {
         "1d": ["day", 1],
       } as const
     )[interval];
+    if (before !== undefined) {
+      const firstKey = marketSnapshotKey(token, `candles:${interval}`);
+      const history = async (): Promise<CandleData> => {
+        // Non-Bankr sources expose only their saved first page. Paging never consumes Gecko quota.
+        const first = await this.options.store?.snapshot(firstKey);
+        const source = (first?.data as CandleData | undefined)?.source;
+        if (token.mode !== "robinhood" || source && source !== "Bankr")
+          return this.cached(firstKey, async () => { throw new MarketFailure("source_not_provided", source ?? "CoinGecko"); }, source);
+        return this.cached(marketSnapshotKey(token, `candles:${interval}:before:${before}`), async () => {
+          const data = parseBankrCandles(await this.json(
+            `https://api.bankr.bot/discover/${token.address.toLowerCase()}/ohlcv?aggregate=${aggregate}&limit=200&timeframe=${frame}&chain=robinhood&before_timestamp=${before}`,
+          ), token, (this.options.now ?? Date.now)());
+          return { ...data, candles: data.candles.filter(candle => candle.time < before) };
+        }, "Bankr", HISTORY_TTL);
+      };
+      return history();
+    }
     if (token.mode === "robinhood") {
       const key = marketSnapshotKey(token, `candles:${interval}`);
       return this.cached(key, async (previous?: CandleData): Promise<CandleData> => {

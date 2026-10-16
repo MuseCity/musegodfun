@@ -31,10 +31,12 @@ export default function PriceChart({
   candles,
   symbol,
   type = "candles",
+  onLoadOlder,
 }: {
   candles: Candle[];
   symbol: string;
   type?: "candles" | "line";
+  onLoadOlder?: () => void;
 }) {
   const { theme } = useTheme();
   const container = useRef<HTMLDivElement>(null);
@@ -42,6 +44,9 @@ export default function PriceChart({
   const series = useRef<ISeriesApi<"Candlestick"> | ISeriesApi<"Line"> | null>(null);
   const volume = useRef<ISeriesApi<"Histogram"> | null>(null);
   const fitted = useRef(false);
+  const interacted = useRef(false), loadOlder = useRef(onLoadOlder);
+  loadOlder.current = onLoadOlder;
+  const previousCandles = useRef<Candle[]>([]);
   const candlesRef = useRef(candles);
   candlesRef.current = candles;
   const [hover, setHover] = useState<{
@@ -104,6 +109,9 @@ export default function PriceChart({
     series.current = s;
     volume.current = v;
     fitted.current = false;
+    c.timeScale().subscribeVisibleLogicalRangeChange(range => {
+      if (interacted.current && fitted.current && range && range.from < 20) loadOlder.current?.();
+    });
     c.subscribeCrosshairMove((event) => {
       const time = event.time;
       const candle = time === undefined ? undefined : candlesRef.current.find((entry) => entry.time === time);
@@ -119,6 +127,10 @@ export default function PriceChart({
   }, [type, theme]);
   useEffect(() => {
     const colors = palette();
+    const range = chart.current?.timeScale().getVisibleLogicalRange();
+    const first = previousCandles.current[0]?.time;
+    const prepended = first === undefined ? 0 : candles.filter(candle => candle.time < first).length;
+    previousCandles.current = candles;
     const points = candles.map((c) => ({ ...c, time: c.time as UTCTimestamp }));
     if (type === "line") (series.current as ISeriesApi<"Line"> | null)?.setData(points.map((c) => ({ time: c.time, value: c.close })));
     else (series.current as ISeriesApi<"Candlestick"> | null)?.setData(points);
@@ -129,6 +141,7 @@ export default function PriceChart({
         color: alpha(c.close >= c.open ? colors.up : colors.down, "59"),
       })),
     );
+    if (range && prepended) chart.current?.timeScale().setVisibleLogicalRange({ from: range.from + prepended, to: range.to + prepended });
     if (!fitted.current && candles.length) {
       chart.current?.timeScale().fitContent();
       fitted.current = true;
@@ -157,6 +170,8 @@ export default function PriceChart({
       <div
         className="price-chart"
         ref={container}
+        onPointerDown={() => { interacted.current = true; }}
+        onWheel={() => { interacted.current = true; }}
         role="img"
         aria-label={`${symbol} USD ${type === "line" ? "line" : "candlestick"} chart and volume with ${candles.length} ${type === "line" ? "points" : "candles"}. Drag, zoom, and hover to inspect prices.`}
       />

@@ -101,7 +101,7 @@ test("MUSEGOD summary retains unknown supply/FDV, signed changes and valid zero 
   assert.equal(sparse.periods.m5.change, null);
 });
 
-test("MUSEGOD write failures preserve dedicated cache keys and one-minute upstream protection", async () => {
+test("MUSEGOD write failures preserve dedicated cache keys and fifteen-second upstream protection", async () => {
   let now = NOW, calls = 0;
   const keys: string[] = [];
   const reader = new MusegodMarketReader(config, {
@@ -348,3 +348,14 @@ test("Snapshots retains its original 15-minute default when the caller omits TTL
   assert.equal(calls, 2);
 });
 type SnapshotExtra = { nextRefreshAt: string };
+
+test("MUSEGOD history validates before, filters inclusive edges and caches each cursor for one hour", async () => {
+  const f = readerFixture(), before = Math.floor(TIME / 3600) * 3600;
+  await assert.rejects(async () => f.reader.candles("1h", before + 1)); assert.equal(f.calls.length, 0);
+  await f.reader.candles("1h", before);
+  assert(f.calls[0].endsWith(`&before_timestamp=${before}`));
+  assert.equal(f.rows.size, 1);
+  f.advance(3_599_999); await f.reader.candles("1h", before); assert.equal(f.calls.length, 1);
+  await f.reader.candles("1h", before - 3600); assert.equal(f.calls.length, 2);
+  f.advance(1); await f.reader.candles("1h", before); assert.equal(f.calls.length, 3);
+});

@@ -1,3 +1,5 @@
+import { PriceImpactRow, PriceImpactAcknowledgment } from "./components/PriceImpact";
+import { impactAcknowledged, type ImpactQuote } from "./lib/price-impact";
 import { useTokenCatalog } from "./lib/token-catalog";
 import { PaymentPriceChanged } from "./lib/first-buy-wallet";
 import TurnstileGate from "./components/TurnstileGate";
@@ -3038,6 +3040,7 @@ function TokenPage({
     // The newest quote failure, apart from `error`: quote requests neither replace an error the user has not acted on nor hide behind it.
     [quoteError, setQuoteError] = useState(""),
     [clock, setClock] = useState(quoteNow());
+  const [acknowledged, setAcknowledged] = useState<ImpactQuote | null>(null);
   // The wallet's unsettled LI.FI ETH buy on this network, if any: no ETH quote and no ETH buy until it is settled.
   const pairAsset = resource.data ? quoteAsset(resource.data.token) : null;
   const ethBuy = useEthBuyRecord(config, wallet.account, pairAsset?.symbol), ethHeld = !!ethBuy.record;
@@ -3058,6 +3061,8 @@ function TokenPage({
   const nativeWeth = route === "native";
   const lifiPayable = ethPayable && !wethPair;
   const lifiEth = route === "lifi";
+  const impactQuote = lifiEth ? ethQuote?.mode === "two-step" ? ethQuote.swapPreview : null : quote;
+  const impactAccepted = impactAcknowledged(impactQuote, acknowledged);
   const enteredPair = ethPayable && !payingEth && amount ? (() => { try { return parseAmount(amount, pairAsset!.decimals); } catch { return null; } })() : null;
   // Paying with the pair asset, the wallet holds less than the amount: offer ETH, never convert the typed amount. Not next to
   // the result of a buy of that amount (`hash`), which spent the balance it would compare against.
@@ -3172,7 +3177,7 @@ function TokenPage({
     return api<Quote>("/quote", { address, side, amount, slippageBps: slippage }, options);
   }
   async function execute() {
-    if (!quote || !config) return;
+    if (!quote || !config || !impactAccepted) return;
     // Freeze the selected payment unit so spending its balance cannot change the unit or hide the result.
     if (ethPayable) setPayChoice(nativeWeth ? "eth" : "pair");
     // A result belongs to the account and network it started with (another coin's page is another component). The wallet's
@@ -3246,7 +3251,7 @@ function TokenPage({
     finally { setMaxLoading(false); }
   }
   async function executeEth() {
-    if (!ethQuote || !config || !wallet.account) return;
+    if (!ethQuote || !config || !wallet.account || !impactAccepted) return;
     const plan = ethQuote, account = wallet.account, frozen = config, pairDecimals = stock.decimals;
     ethBuy.clearAdopted();
     // Buying with ETH is an explicit pick: a balance change during the buy must not switch the panel.
@@ -3275,7 +3280,10 @@ function TokenPage({
           `Confirm in your wallet: ETH → ${target.kind === "coin" ? coinAsset.symbol : pairPayment.symbol}`,
           (hash) => { hooks.onHash(hash); onHash(hash); }, { beforeSend: hooks.beforeSend })),
         requote: (amountIn) => api<SwapQuote>("/quote", { address, side: "buy", amount: formatUnits(amountIn, pairDecimals), slippageBps: slippage }),
-        trade: (q) => wallet.trade(q, frozen, show, twoStepLabels(pairPayment.symbol, coinAsset.symbol)),
+        trade: (q) => {
+          if (!impactAcknowledged(q, acknowledged)) throw new Error("Review a fresh pool quote and acknowledge its price impact before confirming.");
+          return wallet.trade(q, frozen, show, twoStepLabels(pairPayment.symbol, coinAsset.symbol));
+        },
         logs: async (h) => (await transactionClient(frozen.chainId, frozen).getTransactionReceipt({ hash: h })).logs,
         progress: show,
       });
@@ -3519,6 +3527,7 @@ function TokenPage({
           {lifiEth && ethQuote && ethExpiresAt !== null && (
             <>
               <dl className="rows boxed quote-summary">
+                <PriceImpactRow quote={impactQuote} />
                 <div>
                   <dt>Route</dt>
                   <dd>{ethQuote.mode === "direct" ? ETH_BUY_ROUTE.direct : ETH_BUY_ROUTE.twoStep}</dd>
@@ -3544,6 +3553,7 @@ function TokenPage({
           )}
           {!lifiEth && quote && (
             <dl className="rows boxed quote-summary">
+                <PriceImpactRow quote={impactQuote} />
               <div>
                 <dt>Minimum received</dt>
                 <dd>
@@ -3562,6 +3572,7 @@ function TokenPage({
               </div>
             </dl>
           )}
+          <PriceImpactAcknowledgment quote={impactQuote} checked={acknowledged === impactQuote} onChange={checked => setAcknowledged(checked ? impactQuote : null)} disabled={busy} />
           {/* One polite live region, always present, for the disclosure, hints, progress and results: its text changes, the node does not. */}
           <div className="trade-live" role="status">
             {lifiEth && !wallet.account && <p className="nft-warning">Connect a wallet for an automatic ETH route quote.</p>}
@@ -3592,7 +3603,7 @@ function TokenPage({
               type="button"
               className="primary large full"
               disabled={
-                busy || maxLoading ||
+                !impactAccepted || busy || maxLoading ||
                 (automatic.pending || (lifiEth ? !ethQuote || ethExpiresAt === null || clock >= ethExpiresAt || ethHeld : !quote || clock >= quote.expiresAt)) ||
                 !config?.writesEnabled ||
                 wallet.chainId !== config.chainId

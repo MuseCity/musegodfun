@@ -252,3 +252,30 @@ test("GT 429 and Retry-After open a host-wide breaker for at least 15 minutes", 
     await reader.candles(token, "4h"); assert.equal(gt, 2);
   }
 });
+
+test("historical pages are Bankr-only, strict-before, single-flight and cached by cursor for one hour", async () => {
+  const calls: URL[] = [];
+  const f = fixture(async input => { const url = new URL(String(input)); calls.push(url);
+    return Response.json({ ...bankr(), ohlcv: [[TIME - 3600, 1, 1, 1, 1, 2], ...rows] }); });
+  const [a, b] = await Promise.all([f.reader.candles(token, "1h", TIME), f.reader.candles(token, "1h", TIME)]);
+  assert.equal(a, b); assert.deepEqual(a.candles.map(c => c.time), [TIME - 3600]);
+  assert.equal(calls[0].searchParams.get("before_timestamp"), String(TIME));
+  f.advance(3_599_999); await f.reader.candles(token, "1h", TIME); assert.equal(calls.length, 1);
+  f.advance(1); await f.reader.candles(token, "1h", TIME); assert.equal(calls.length, 2);
+  assert(calls.every(url => url.hostname === "api.bankr.bot"));
+});
+test("historical provider failures and Base history requests never fall through to Gecko quota", async () => {
+  let calls = 0;
+  const f = fixture(async () => { calls++; return new Response(null, { status: 500 }); });
+  await assert.rejects(async () => f.reader.candles(token, "1h", TIME)); assert.equal(calls, 1);
+  await assert.rejects(async () => f.reader.candles({ ...token, mode: "base", deploymentChainId: 8453 }, "1h", TIME)); assert.equal(calls, 1);
+  await assert.rejects(async () => f.reader.candles(token, "1h", TIME + 1)); assert.equal(calls, 1);
+});
+test("a Gecko-sourced chart returns only its cached first page when before is requested", async () => {
+  const calls: URL[] = [];
+  const f = fixture(async input => { const url = new URL(String(input)); calls.push(url);
+    return Response.json(url.hostname === "api.bankr.bot" ? { ...bankr(), ohlcv: [] } : gecko()); });
+  const first = await f.reader.candles(token, "1h"); assert.equal(first.source, "GeckoTerminal");
+  const page = await f.reader.candles(token, "1h", TIME);
+  assert.equal(page.source, "GeckoTerminal"); assert.deepEqual(page.candles, first.candles); assert.equal(calls.length, 2);
+});

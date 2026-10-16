@@ -1,5 +1,7 @@
 import {
   DopplerSDK,
+  getAddresses,
+  v4QuoterAbi,
   airlockAbi,
   bundlerAbi,
   computePoolId,
@@ -9,6 +11,8 @@ import {
   createPublicClient,
   decodeEventLog,
   encodeFunctionData,
+  encodeAbiParameters,
+  parseAbi,
   erc20Abi,
   http,
   keccak256,
@@ -38,7 +42,7 @@ import {
 import { assertStock, buildLaunch, readStockStatus as readLaunchAssetStatus } from "../src/lib/protocol";
 import { firstBuyLockStatusFromPosition } from "./first-buy-lock-status";
 import { ENGINE_FEE_POLICY, FEE_POLICY, isEngineFeePolicy, launchFeePolicy } from "../src/lib/fee-policy";
-import { tradingFeeBpsFor } from "../src/lib/trading-fee";
+import { LP_FEE_PPM, TRADING_FEE_BPS, tradingFeeBpsFor } from "../src/lib/trading-fee";
 import { assertOpeningValuation, assertHistoricalOpeningValuation, openingCapInQuote, LIFI_OPENING_MAX_DIVERGENCE_BPS, type LifiOpeningValuation, type OpeningValuation } from "../src/lib/opening-valuation";
 import { assertRecoveredOpeningValuation, readOpeningValuation, RecoveryEvidenceError } from "./opening-price";
 import {
@@ -1296,18 +1300,32 @@ export class LaunchpadService {
     await this.assertNetwork();
     const { token, state } = await this.state(address);
     const stock = quoteAsset(token);
-    await assertStock(this.client, stock.address);
+    const blockNumber = await this.client.getBlockNumber({ cacheTime: 0 });
+    await assertStock(this.client, stock.address, blockNumber);
     const currencyIn = side === "buy" ? stock.address : address,
-      amountIn = parseAmount(value, side === "buy" ? stock.decimals : 18);
-    const quote = await this.sdk.quoter.quoteExactInputV4({
-      poolKey: state.poolKey,
-      zeroForOne: sameAddress(currencyIn, state.poolKey.currency0),
-      exactAmount: amountIn,
-      hookData: "0x",
-    });
+      amountIn = parseAmount(value, side === "buy" ? stock.decimals : 18),
+      zeroForOne = sameAddress(currencyIn, state.poolKey.currency0);
+    // V4's pools mapping occupies slot 6; extsload reads exactly this pool's packed slot0.
+    const slot = keccak256(encodeAbiParameters([{ type: "bytes32" }, { type: "uint256" }], [computePoolId(state.poolKey), 6n]));
+    const [packed, { result }] = await Promise.all([
+      this.client.readContract({ address: this.contracts.poolManager,
+        abi: parseAbi(["function extsload(bytes32 slot) view returns (bytes32)"]), functionName: "extsload", args: [slot], blockNumber }),
+      this.client.simulateContract({ address: getAddresses(deploymentChain(this.runtime.config)).uniswapV4Quoter,
+        abi: v4QuoterAbi, functionName: "quoteExactInputSingle", args: [{ poolKey: state.poolKey,
+          zeroForOne, exactAmount: amountIn, hookData: "0x" }], blockNumber }),
+    ]);
+    const slot0 = BigInt(packed), sqrtPriceX96 = slot0 & ((1n << 160n) - 1n);
+    if (sqrtPriceX96 <= 0n) throw new Error("The pool price is unavailable.");
+    const lpFee = Number((slot0 >> 208n) & 0xffffffn), protocolFee = Number((slot0 >> 184n) & 0xffffffn);
+    const verifiedFee = token.tradingFeeBps !== undefined && lpFee === LP_FEE_PPM && protocolFee === 0 &&
+      TRADING_FEE_BPS.some(fee => fee === token.tradingFeeBps);
+    const poolPrice = { sqrtPriceX96: String(sqrtPriceX96), blockNumber: String(blockNumber), zeroForOne,
+      feeBps: verifiedFee ? token.tradingFeeBps! + LP_FEE_PPM / 100 : null };
+    const quote = { amountOut: result[0] };
     if (quote.amountOut <= 0n)
       throw new Error("Insufficient pool liquidity for a valid quote.");
     return {
+      poolPrice,
       token: address,
       side,
       amountIn: String(amountIn),

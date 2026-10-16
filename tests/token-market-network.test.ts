@@ -115,7 +115,7 @@ test("refreshing populated summaries hide initial loading banners and empty char
     assert.doesNotMatch(markup, /Loading market data/);
     assert.match(markup, /No indexed price records for this interval/);
     assert.doesNotMatch(markup, /No indexed trades for this interval/);
-    assert(markup.includes(MUSEGOD.sourceUrl)); assert.match(markup, /refreshes every minute while visible/);
+    assert(markup.includes(MUSEGOD.sourceUrl)); assert.match(markup, /refreshes every 15 seconds while visible/);
   } finally { hooks.deregister(); Reflect.deleteProperty(globalThis, key); }
 });
 

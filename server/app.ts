@@ -356,7 +356,7 @@ app.get("/api/musegod", route(async (_req, res) => res.json(await musegod.info()
 app.get("/api/musegod/market/:section", route(async (req, res) => {
   const section = z.enum(["summary", "candles", "trades"]).parse(req.params.section);
   res.json(section === "candles"
-    ? await musegodMarket.candles(z.enum(CHART_INTERVALS).parse(req.query.interval || "1h"))
+    ? await musegodMarket.candles(z.enum(CHART_INTERVALS).parse(req.query.interval || "1h"), req.query.before)
     : await musegodMarket[section]());
 }));
 app.post("/api/musegod/quote", route(async (req, res) => {
@@ -376,6 +376,7 @@ app.get(
         ? await market.candles(
             token,
             z.enum(CHART_INTERVALS).parse(req.query.interval || "1h"),
+            req.query.before,
           )
         : await market[section](token);
     res.json(value);

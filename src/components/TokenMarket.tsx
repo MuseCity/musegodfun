@@ -15,7 +15,7 @@ import {
 } from "../lib/market";
 import { errorMessage } from "../lib/validation";
 import { changeClass } from "../lib/format";
-const PriceChart = lazy(() => import("./PriceChart"));
+const PriceChart = lazy(() => import("./MarketChart"));
 const usd = (n: number | null | undefined, precise = false) =>
   n == null
     ? "—"
@@ -159,7 +159,7 @@ export default function TokenMarket({
     };
     const timer = setInterval(() => {
       if (document.visibilityState === "visible") setRevision((n) => n + 1);
-    }, kind === "musegod" ? 60_000 : 15 * 60_000);
+    }, kind === "musegod" ? 15_000 : 15 * 60_000);
     if (kind === "musegod") {
       document.addEventListener("visibilitychange", refreshVisible);
       window.addEventListener("focus", refreshVisible);
@@ -314,8 +314,10 @@ export default function TokenMarket({
         {history.data?.candles.length ? (
           <Suspense fallback={<Message loading text="" />}>
             <PriceChart
-              key={marketEndpoint(token, kind, `candles?interval=${interval}`).key}
-              candles={history.data.candles}
+              key={`${marketEndpoint(token, kind, `candles?interval=${interval}`).key}:${history.data.source}`}
+              data={history.data}
+              endpoint={marketEndpoint(token, kind, `candles?interval=${interval}`)}
+              interval={interval}
               symbol={token.symbol}
               type={chartType}
             />
@@ -331,7 +333,7 @@ export default function TokenMarket({
           <MarketProvenance label="Summary" data={summary.data} kind={kind} />
           {summary.data && history.data ? " · " : ""}
           <MarketProvenance label="Candles" data={history.data} kind={kind} />
-          {kind === "musegod" && <>{summary.data || history.data ? " · " : ""}refreshes every minute while visible</>}
+          {kind === "musegod" && <>{summary.data || history.data ? " · " : ""}refreshes every 15 seconds while visible</>}
         </p>}
       </section>
       <section className="card market-feed" aria-label="Recent trades">

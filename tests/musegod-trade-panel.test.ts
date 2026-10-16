@@ -220,3 +220,17 @@ test("MUSEGOD confirmed trade edits keep Refresh hidden during the next debounce
   await s.type("0.02"); assert.equal(s.button("Refresh quote"), undefined); await s.tick(599); assert.equal(s.button("Refresh quote"), undefined);
   assert.equal(s.requests.length, 1); await s.tick(1); assert.equal(s.requests.length, 2);
 });
+
+test("price impact acknowledgment gates the actual MUSEGOD button and resets for a replacement quote", async t => {
+  const s = await session(t, { connected: true, deferQuotes: true });
+  await s.type("1"); await s.tick(700);
+  const poolPrice = { sqrtPriceX96: String(2n ** 94n), blockNumber: "123", zeroForOne: false, feeBps: 100 };
+  await s.answer(0, { poolPrice });
+  assert.equal(s.confirm().props.disabled, true);
+  const acknowledgment = () => s.all(n => n.type?.name === "PriceImpactAcknowledgment")[0];
+  assert(acknowledgment(), "high-impact acknowledgment is rendered");
+  acknowledgment().props.onChange(true); await settle();
+  assert.equal(s.confirm().props.disabled, false);
+  await s.type("2"); await s.tick(700); await s.answer(1, { poolPrice });
+  assert.equal(s.confirm().props.disabled, true);
+});

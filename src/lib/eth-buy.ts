@@ -7,7 +7,7 @@ import { ETH_BUY_CHAIN, assertEthBuyQuote, assertFirstBuyPaymentQuote,
 import { minimumOutput } from "./validation";
 
 /** The existing v4 buy quote (`/quote`), the same shape as the wallet's `Quote`. */
-export type SwapQuote = { token: Address; side: "buy" | "sell"; amountIn: string; amountOut: string; currencyIn: Address;
+export type SwapQuote = { poolPrice?: import("./price-impact").PoolPrice; token: Address; side: "buy" | "sell"; amountIn: string; amountOut: string; currencyIn: Address;
   poolKey: V4PoolKey; slippageBps: number; quotedAt: number; expiresAt: number };
 export type EthBuyQuoteResponse =
   | { mode: "direct"; quote: FirstBuyPaymentQuote; serverTime?: number }

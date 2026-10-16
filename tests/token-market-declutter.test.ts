@@ -44,7 +44,7 @@ test("D4/D5 empty market sections show honest statuses without empty controls or
     assert.equal((html.match(/class="feed-note"/g) ?? []).length, 2);
     assert.match(html, /Summary.*CoinGecko.*Candles.*CoinGecko/s);
     assert.match(html, /Latest 30 indexed trades.*indexing may lag the chain/);
-    if (kind === "musegod") assert.match(html, /refreshes every minute while visible/);
+    if (kind === "musegod") assert.match(html, /refreshes every 15 seconds while visible/);
   }
 });
 
@@ -95,7 +95,7 @@ test("C1-1 stale empty chart and trades retain their own warnings exactly once",
 test("C1-3 loading or failed MUSEGOD sections never leave a leading provenance separator", async () => {
   for (const loading of [true, false]) {
     const html = await renderMarket({ summary: null, candles: null, trades: null, loading, kind: "musegod" });
-    assert.match(html, /<p class="feed-note">refreshes every minute while visible<\/p>/);
+    assert.match(html, /<p class="feed-note">refreshes every 15 seconds while visible<\/p>/);
     assert.doesNotMatch(html, /<p class="feed-note"> ·/);
   }
 });

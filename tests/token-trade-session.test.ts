@@ -59,6 +59,7 @@ async function session(t: TestContext, pair: "WETH" | "COST") {
   const byClass = (name: string) => find(node => node.props?.className === name);
   const s = {
     fees, sends, auto, stock, byClass,
+    async acknowledge() { find(node => node.type?.name === "PriceImpactAcknowledgment").props.onChange(true); await settle(); },
     input: () => find(node => node.type === "input" && node.props["aria-label"] === "Trade input amount"),
     confirm: () => byClass("primary large full"), max: () => byClass("trade-max"),
     progress: () => byClass("trade-progress")?.props.children as string | undefined,
@@ -144,4 +145,17 @@ test("the newest quote failure shows beside, never instead of, an error the user
   // Changing the input starts over.
   await s.type("0.002");
   assert.deepEqual(s.errors(), []);
+});
+
+for (const route of ["native", "pair", "sell", "two-step"] as const) test(`${route}: high-impact acknowledgment gates confirmation and resets on every new quote`, async t => {
+  const s = await session(t, route === "two-step" ? "COST" : "WETH");
+  if (route === "two-step") await s.click(s.pay("ETH"));
+  if (route === "pair") await s.click(s.pay("WETH"));
+  if (route === "sell") await s.click(s.pay("Sell"));
+  await s.type("1");
+  const q = { ...swap(), amountIn: "10000", amountOut: "8000", poolPrice: { sqrtPriceX96: String(2n ** 96n), blockNumber: "123", zeroForOne: true, feeBps: 0 } };
+  const response = () => route === "two-step" ? { mode: "two-step", conversion: { expiresAt: q.expiresAt, feeAmount: "0" }, swapPreview: { ...q } } : { ...q };
+  await s.quote(response()); assert.equal(s.confirm().props.disabled, true);
+  await s.acknowledge(); assert.equal(s.confirm().props.disabled, false);
+  await s.quote(response()); assert.equal(s.confirm().props.disabled, true);
 });

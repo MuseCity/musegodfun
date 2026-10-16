@@ -75,6 +75,7 @@ declare global {
   }
 }
 export type Quote = {
+  poolPrice?: import("./price-impact").PoolPrice;
   token: Address;
   side: "buy" | "sell";
   amountIn: string;

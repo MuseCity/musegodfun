@@ -1043,3 +1043,7 @@ dialog.modal.launch-review { width: min(640px, calc(100vw - 32px)); }
   .review-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .nft-identity { flex-direction: column; }
 }
+
+.price-impact-warning { color: var(--down); }
+.price-impact-ack { display: flex; align-items: flex-start; gap: 9px; margin: 12px 0; font-size: 13px; color: var(--down); }
+.price-impact-ack input { width: 16px; height: 16px; flex-shrink: 0; margin: 2px 0 0; }

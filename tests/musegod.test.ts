@@ -99,6 +99,7 @@ test("quotes use correct directions, integer amounts and one canonical block, in
   // Quote previews only require the pinned token, pool and official Quoter.
   for (const side of ["buy", "sell"] as const) {
     const q = await f.reader.quote(side, "0.001", 100);
+    assert.deepEqual(q.poolPrice, { sqrtPriceX96: "1", blockNumber: "10", zeroForOne: side === "sell", feeBps: 100 });
     assert.equal(q.amountIn, "1000000000000000"); assert.equal(q.minAmountOut, "1980");
     assert.equal(q.expiresAt - q.quotedAt, 60_000);
     assert(f.reads.every((read) => read.blockNumber === 10n));

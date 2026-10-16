@@ -1,3 +1,5 @@
+import { PriceImpactRow, PriceImpactAcknowledgment } from "./PriceImpact";
+import { impactAcknowledged } from "../lib/price-impact";
 import { quoteNow } from "../lib/quote-clock";
 import { useEffect, useRef, useState } from "react";
 import { ArrowDown, ArrowUpRight, CircleAlert, Info, LoaderCircle, RefreshCw, TriangleAlert, Wallet } from "lucide-react";
@@ -59,6 +61,7 @@ export default function MusegodTradePanel({ config, musegod, onHash }: {
   const [balance, setBalance] = useState<bigint | null>(null), [balanceError, setBalanceError] = useState("");
   const [quoteError, setQuoteError] = useState(""), [maxLoading, setMaxLoading] = useState(false);
   const [clock, setClock] = useState(quoteNow);
+  const [acknowledged, setAcknowledged] = useState<MusegodQuote | null>(null);
   const latestOnHash = useRef(onHash);
   latestOnHash.current = onHash;
   useEffect(() => { latestOnHash.current?.(hash); }, [hash]);
@@ -132,7 +135,7 @@ export default function MusegodTradePanel({ config, musegod, onHash }: {
     finally { setMaxLoading(false); }
   }
   async function execute() {
-    if (!quote || !config || !info?.tradeEnabled) return;
+    if (!quote || !config || !info?.tradeEnabled || !impactAcknowledged(quote, acknowledged)) return;
     const request = ++generation.current;
     setBusy(true);
     setError("");
@@ -197,13 +200,15 @@ export default function MusegodTradePanel({ config, musegod, onHash }: {
         <strong className="musegod-amount" title={exactAmount(quote?.amountOut ?? null)}>{automatic.pending ? <><LoaderCircle className="spin" size={16} /> Updating quote…</> : amountText(quote?.amountOut ?? null)}</strong></div>
       <SlippageControl value={slippage} disabled={busy} onChange={setSlippage} />
       {quote && <dl className="rows boxed quote-summary">
+        <PriceImpactRow quote={quote} />
         <div><dt>Minimum received</dt><dd className="musegod-amount" title={exactAmount(quote.minAmountOut)}>{amountText(quote.minAmountOut)} {outputSymbol}</dd></div>
         <div><dt>Quote expires in</dt><dd>{Math.max(0, Math.ceil((quote.expiresAt - clock) / 1000))} seconds</dd></div>
       </dl>}
+      <PriceImpactAcknowledgment quote={quote} checked={acknowledged === quote} onChange={checked => setAcknowledged(checked ? quote : null)} disabled={busy} />
       {automatic.manual && validAmount && <button type="button" className="text-button quote-refresh"
         disabled={busy || automatic.pending || !config || !musegodNetwork(config) || info === null} onClick={refreshQuote}><RefreshCw size={13} /> Refresh quote</button>}
       {wallet.account ? <button type="button" className="primary large full"
-        disabled={busy || maxLoading || automatic.pending || !quote || clock >= quote.expiresAt || !config?.writesEnabled || !info?.tradeEnabled || wallet.chainId !== config?.chainId}
+        disabled={!impactAcknowledged(quote, acknowledged) || busy || maxLoading || automatic.pending || !quote || clock >= quote.expiresAt || !config?.writesEnabled || !info?.tradeEnabled || wallet.chainId !== config?.chainId}
         onClick={() => void execute()}>Confirm {side === "buy" ? "Buy" : "Sell"} <ArrowUpRight size={16} /></button>
         : <button type="button" className="primary large full" disabled={wallet.connecting} onClick={() => void wallet.connect()}><Wallet size={16} /> Connect wallet to trade</button>}
       {balanceError && <div className="notice error" role="alert"><CircleAlert size={17} aria-hidden="true" /><span>Could not load balance: {balanceError}</span></div>}

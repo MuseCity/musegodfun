@@ -1,3 +1,4 @@
+import { HISTORY_TTL, parseBefore } from "../src/lib/candle-history";
 import { z } from "zod";
 import { sameAddress, type RuntimeConfig } from "../src/lib/config";
 import { MUSEGOD } from "../src/lib/musegod";
@@ -11,7 +12,7 @@ import type {
 import type { StoreBackend } from "./supabase-store";
 import { MarketUnavailable, Snapshots } from "./snapshots";
 
-export const MUSEGOD_MARKET_TTL = 60_000;
+export const MUSEGOD_MARKET_TTL = 15_000;
 const TOKEN = MUSEGOD.token.toLowerCase();
 const POOL = MUSEGOD.pool.toLowerCase();
 const API_ROOT = "https://api.bankr.bot";
@@ -202,8 +203,8 @@ export class MusegodMarketReader {
     if (!response.ok) throw new Error("The Bankr market provider is unavailable.");
     return response.json();
   }
-  private cached<T extends { fetchedAt: string }>(section: string, read: () => Promise<T>) {
-    return this.snapshots.get(`${KEY}:${section}`, "Bankr", read, MUSEGOD_MARKET_TTL);
+  private cached<T extends { fetchedAt: string }>(section: string, read: () => Promise<T>, ttl = MUSEGOD_MARKET_TTL) {
+    return this.snapshots.get(`${KEY}:${section}`, "Bankr", read, ttl);
   }
   private async discovery(): Promise<DiscoveryData> {
     const data = await this.cached("discover", async () =>
@@ -223,14 +224,17 @@ export class MusegodMarketReader {
       return summary(discovery, stats, this.now());
     });
   }
-  candles(interval: ChartInterval): Promise<CandleData> {
+  candles(interval: ChartInterval, beforeValue?: unknown): Promise<CandleData> {
     this.assertMainnet();
     if (!Object.hasOwn(intervals, interval)) throw new Error("Invalid chart interval.");
+    const before = parseBefore(beforeValue, interval, this.now());
     const [frame, aggregate] = intervals[interval];
-    return this.cached(`candles:${interval}`, async () => parseMusegodCandles(
-      await this.json(`/discover/${TOKEN}/ohlcv?aggregate=${aggregate}&limit=200&timeframe=${frame}&chain=robinhood`),
-      this.now(),
-    ));
+    return this.cached(`candles:${interval}${before === undefined ? "" : `:before:${before}`}`, async () => {
+      const data = parseMusegodCandles(await this.json(
+        `/discover/${TOKEN}/ohlcv?aggregate=${aggregate}&limit=200&timeframe=${frame}&chain=robinhood${before === undefined ? "" : `&before_timestamp=${before}`}`,
+      ), this.now());
+      return before === undefined ? data : { ...data, candles: data.candles.filter(candle => candle.time < before) };
+    }, before === undefined ? MUSEGOD_MARKET_TTL : HISTORY_TTL);
   }
   trades(): Promise<TradeData> {
     this.assertMainnet();

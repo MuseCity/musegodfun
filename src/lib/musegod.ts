@@ -28,6 +28,7 @@ export const MUSEGOD_ROUTER_VERIFICATION = Object.freeze({
 } as { verified: boolean; runtimeHash: Hash; reason: string });
 export const MUSEGOD_QUOTE_TTL = 60_000;
 export type MusegodQuote = {
+  poolPrice?: import("./price-impact").PoolPrice;
   protocol: "sushi-v3";
   chainId: number;
   deploymentChainId: 4663;

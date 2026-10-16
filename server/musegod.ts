@@ -51,7 +51,7 @@ export class MusegodReader {
       this.client.readContract({address:MUSEGOD.pool,abi:musegodPoolAbi,functionName:"slot0",blockNumber}),
     ]);
     if(totalSupply<=0n||liquidity<=0n||slot0[0]<=0n||slot0[6]!==true)throw new Error("The MUSEGOD pool supply, liquidity or unlocked state is unavailable.");
-    return { block, totalSupply };
+    return { block, totalSupply, sqrtPriceX96: slot0[0] };
   }
   private async routerIdentity(blockNumber: bigint) {
     await contractIdentityOnce(this.client,{namespace:"musegod_router",store:this.identityStore,
@@ -99,7 +99,7 @@ export class MusegodReader {
     const amountIn = parseAmount(amount, 18);
     if (amountIn >= 2n ** 256n) throw new Error("The input amount is too large.");
     const startedAt = this.now();
-    const { block } = await this.identity();
+    const { block, sqrtPriceX96 } = await this.identity();
     const { result } = await this.client.simulateContract({ address: MUSEGOD.quoter, abi: musegodQuoterAbi,
       functionName: "quoteExactInputSingle", args: [{
         tokenIn: side === "buy" ? MUSEGOD.weth : MUSEGOD.token,
@@ -111,7 +111,8 @@ export class MusegodReader {
     const minAmountOut = minimumOutput(amountOut, slippageBps);
     await this.canonical(block);
     if (this.now() >= startedAt + MUSEGOD_QUOTE_TTL) throw new Error("The quote took too long. Request a new quote.");
-    return { protocol: "sushi-v3", chainId: this.config.chainId, deploymentChainId: 4663,
+    return { poolPrice: { sqrtPriceX96: String(sqrtPriceX96), blockNumber: String(block.number), zeroForOne: side === "sell", feeBps: MUSEGOD.fee / 100 },
+      protocol: "sushi-v3", chainId: this.config.chainId, deploymentChainId: 4663,
       token: MUSEGOD.token, poolAddress: MUSEGOD.pool, side, amountIn: amountIn.toString(), amountOut: amountOut.toString(),
       minAmountOut: minAmountOut.toString(), slippageBps, quotedAt: startedAt, expiresAt: startedAt + MUSEGOD_QUOTE_TTL,
       blockNumber: block.number!.toString(), blockHash: block.hash! };
