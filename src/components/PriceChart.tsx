@@ -10,18 +10,19 @@ import {
   type UTCTimestamp,
 } from "lightweight-charts";
 import type { Candle, ChartInterval } from "../lib/market";
-import { useTheme } from "../lib/theme";
 
-// Chart colors follow the page tokens so both themes stay legible.
-function palette() {
-  const css = getComputedStyle(document.documentElement);
+// Price charts keep their own dark palette in both site themes.
+function palette(element: HTMLElement) {
+  const css = getComputedStyle(element);
   const token = (name: string, fallback: string) => css.getPropertyValue(name).trim() || fallback;
   return {
-    background: token("--surface-raised", "#ffffff"),
-    text: token("--ink-faint", "#706757"),
-    line: token("--line", "#e6ddca"),
-    up: token("--up", "#00777a"),
-    down: token("--down", "#b73510"),
+    background: token("--chart-background", "#0b0e11"),
+    text: token("--chart-text", "#a9b4c2"),
+    line: token("--chart-grid", "#202833"),
+    up: token("--chart-up", "#26a69a"),
+    down: token("--chart-down", "#ef5350"),
+    crosshair: token("--chart-crosshair", "#7b8ba2"),
+    label: token("--chart-label", "#263445"),
     font: token("--font-mono", "IBM Plex Mono, monospace"),
   };
 }
@@ -44,7 +45,6 @@ export default function PriceChart({
   emptyMessage?: string;
   onLoadOlder?: () => void;
 }) {
-  const { theme } = useTheme();
   const container = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
   const series = useRef<ISeriesApi<"Candlestick"> | ISeriesApi<"Line"> | null>(null);
@@ -63,7 +63,7 @@ export default function PriceChart({
   } | null>(null);
   useEffect(() => {
     if (!container.current) return;
-    const colors = palette();
+    const colors = palette(container.current);
     const c = createChart(container.current, {
       autoSize: true,
       layout: {
@@ -74,8 +74,12 @@ export default function PriceChart({
         attributionLogo: true,
       },
       grid: {
-        vertLines: { visible: false },
+        vertLines: { visible: false, color: colors.line },
         horzLines: { color: colors.line },
+      },
+      crosshair: {
+        vertLine: { color: colors.crosshair, labelBackgroundColor: colors.label },
+        horzLine: { color: colors.crosshair, labelBackgroundColor: colors.label },
       },
       rightPriceScale: {
         borderVisible: false,
@@ -95,16 +99,18 @@ export default function PriceChart({
     });
     const priceFormat = { type: "price" as const, precision: 10, minMove: 0.0000000001 };
     const s = type === "line"
-      ? c.addSeries(LineSeries, { color: colors.up, lineWidth: 2, priceFormat })
+      ? c.addSeries(LineSeries, { color: colors.up, lineWidth: 2, priceLineColor: colors.up, priceFormat })
       : c.addSeries(CandlestickSeries, {
         upColor: colors.up,
         downColor: colors.down,
         wickUpColor: colors.up,
         wickDownColor: colors.down,
+        priceLineColor: colors.crosshair,
         borderVisible: false,
         priceFormat,
       });
     const v = c.addSeries(HistogramSeries, {
+      color: alpha(colors.up, "59"),
       priceFormat: { type: "volume" },
       priceScaleId: "volume",
       lastValueVisible: false,
@@ -130,9 +136,10 @@ export default function PriceChart({
       volume.current = null;
       fitted.current = false;
     };
-  }, [type, theme]);
+  }, [type]);
   useEffect(() => {
-    const colors = palette();
+    if (!container.current) return;
+    const colors = palette(container.current);
     const range = chart.current?.timeScale().getVisibleLogicalRange();
     const first = previousCandles.current[0]?.time;
     const prepended = first === undefined ? 0 : candles.filter(candle => candle.time < first).length;
@@ -160,7 +167,7 @@ export default function PriceChart({
       chart.current?.timeScale().fitContent();
       fitted.current = !!candles.length;
     }
-  }, [candles, type, theme, interval]);
+  }, [candles, type, interval]);
   const bar = candles.length ? hover ?? candles.at(-1) : undefined;
   return (
     <div className="price-chart-wrap">
