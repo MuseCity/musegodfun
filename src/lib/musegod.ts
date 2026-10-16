@@ -95,8 +95,8 @@ export function assertMusegodQuote(quote: MusegodQuote, config: RuntimeConfig, n
     !Number.isSafeInteger(quote.quotedAt) || !Number.isSafeInteger(quote.expiresAt) ||
     quote.quotedAt > now + 5000 || quote.expiresAt <= quote.quotedAt || quote.expiresAt - quote.quotedAt > MUSEGOD_QUOTE_TTL ||
     !/^\d{1,20}$/.test(quote.blockNumber) || !/^0x[0-9a-fA-F]{64}$/.test(quote.blockHash))
-    throw new Error("The MUSEGOD quote parameters do not match the verified pool. Request a new quote.");
-  if (now >= quote.expiresAt) throw new Error("The quote has expired. Request a new quote. Existing approvals can still be reused.");
+    throw new Error("The MUSEGOD quote parameters do not match the verified pool. Refresh the quote.");
+  if (now >= quote.expiresAt) throw new Error("The quote has expired. Refresh the quote. Existing approvals can still be reused.");
 }
 
 // Pure calldata construction; the wallet independently enforces the source gate.

@@ -208,7 +208,7 @@ test("LI.FI 'no route' turns into the two-step plan: a strict ETH → pair conve
 test("any refused direct quote falls back to the two-step plan; only provider capacity stops the quote", async () => {
   for (const failure of [new LifiNoRouteError(), new Error("LI.FI pricing or routing is unavailable. Try again later."),
     new Error("The payment provider token identity did not match the verified asset."),
-    new Error("The payment route is not allowed by the verified LI.FI router."), new Error("The ETH buy quote could not be verified. Request a new quote.")]) {
+    new Error("The payment route is not allowed by the verified LI.FI router."), new Error("The ETH buy quote could not be verified. Refresh the quote.")]) {
     const { deps, calls, conversion } = serverDeps();
     deps.payments!.coinQuote = async () => { calls.push("coin"); throw failure; };
     const response = await quoteEthBuy(request, deps);

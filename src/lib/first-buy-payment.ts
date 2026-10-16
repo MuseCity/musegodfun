@@ -187,7 +187,7 @@ function assertLifiSwap(q: FirstBuyPaymentQuote, fromToken: FirstBuyPaymentAsset
 export const ETH_BUY_CHAIN = 4663 as const;
 export type EthBuyCoinInput = { address: string; symbol: string; decimals?: number };
 export type EthBuyQuoteInput = { account: string; amount: string; coin: EthBuyCoinInput; slippageBps: number };
-function ethBuyInvalid(): never { throw new Error("The ETH buy quote could not be verified. Request a new quote."); }
+function ethBuyInvalid(): never { throw new Error("The ETH buy quote could not be verified. Refresh the quote."); }
 const nativeEther = (chainId: FirstBuyPaymentChain): FirstBuyPaymentAsset => ({ chainId, address: zeroAddress, symbol: "ETH", decimals: 18 });
 /** The only output an ETH buy accepts: a coin the caller found in the platform catalog (server) or loaded as this page's coin
  * (wallet). It is an 18-decimal ERC-20 that is none of the fixed first-buy assets, ETH or a LI.FI contract, so this path never

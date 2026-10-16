@@ -25,7 +25,7 @@ export async function executeMusegodTrade(quote: MusegodQuote, config: RuntimeCo
       client.getBlock({ blockNumber: BigInt(quote.blockNumber) }), client.getCode({ address: MUSEGOD.router }),
     ]);
     if (block.hash !== quote.blockHash || !code || keccak256(code) !== deps.routerCodeHash)
-      throw new Error("The quote block or SushiSwap router changed. Request a new quote.");
+      throw new Error("The quote block or SushiSwap router changed. Refresh the quote.");
   };
   deps.assertEnabled();
   const wallet = await deps.signer(validate);
@@ -84,5 +84,5 @@ function simulationFailure(error: unknown) {
       return new Error("Chain data needed to simulate this trade is unavailable. Nothing was submitted. Refresh the quote and try again.");
     current = detail.cause;
   }
-  return new Error(`Trade simulation failed. Nothing was submitted. Check your balances and minimum received, then request a new quote. ${errorMessage(error)}`);
+  return new Error(`Trade simulation failed. Nothing was submitted. Check your balances and minimum received, then refresh the quote. ${errorMessage(error)}`);
 }

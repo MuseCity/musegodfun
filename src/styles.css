@@ -664,7 +664,6 @@ dialog.modal[open] { display: flex; flex-direction: column; gap: 16px; }
   border: 1px solid var(--line); background: var(--surface-raised); color: var(--ink-muted); }
 .slippage-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--ink-muted); }
 .quote-summary { margin: 0; }
-.trade-quote { min-height: 44px; }
 .trade-note, .launch-blocked { font-size: 12px; line-height: 16px; color: var(--ink-muted); }
 .launch-blocked { color: var(--warning); }
 .musegod-transaction { font-size: 13px; }

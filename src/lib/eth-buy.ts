@@ -95,7 +95,7 @@ export class EthBuyIncomplete extends Error {
   }
 }
 
-function invalidResponse(): never { throw new Error("The ETH buy quote does not match this coin, wallet or amount. Request a new quote."); }
+function invalidResponse(): never { throw new Error("The ETH buy quote does not match this coin, wallet or amount. Refresh the quote."); }
 const isEth = (asset: FirstBuyPaymentAsset) => sameAddress(asset?.address ?? "", zeroAddress) && asset.symbol === "ETH" && asset.decimals === 18;
 /** The conversion of a two-step buy: a first-buy-strict LI.FI quote from ETH into exactly this pair asset. */
 function assertConversion(q: FirstBuyPaymentQuote, pair: FirstBuyPaymentAsset, now?: number): FirstBuySwapData[] {
@@ -132,7 +132,7 @@ export function assertEthBuyResponse(value: unknown, expected: { coin: FirstBuyP
 export function assertLifiTradeQuote(q: FirstBuyPaymentQuote, target: LifiTradeTarget, account: Address, now?: number): FirstBuySwapData[] {
   const swaps = target.kind === "coin" ? assertEthBuyQuote(q, target.coin, now) : assertConversion(q, target.pair, now);
   if (!sameAddress(q.account, account) || !isEth(q.fromToken) || q.approval !== null || q.transaction.value !== q.amountIn)
-    throw new Error("The ETH buy quote belongs to another wallet. Request a new quote.");
+    throw new Error("The ETH buy quote belongs to another wallet. Refresh the quote.");
   return swaps;
 }
 

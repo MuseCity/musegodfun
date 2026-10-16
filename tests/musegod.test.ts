@@ -53,8 +53,10 @@ test("invalid and expired quotes cannot construct calldata; no source gate overr
     { minAmountOut: "1900" }, { slippageBps: 501 }, { side: "unknown" }, { chainId: 8453 },
     { expiresAt: q.quotedAt + 60_001 }, { blockHash: "0x1234" }, { blockNumber: "-1" },
   ]) assert.throws(() => assertMusegodQuote({ ...q, ...change } as MusegodQuote, config));
-  assert.throws(() => assertMusegodQuote(q, config, q.expiresAt), /expired/);
-  assert.throws(() => assertMusegodQuote(q, { ...config, mode: "base", chainId: 8453 }), /parameters/);
+  assert.throws(() => assertMusegodQuote(q, config, q.expiresAt),
+    { message: "The quote has expired. Refresh the quote. Existing approvals can still be reused." });
+  assert.throws(() => assertMusegodQuote(q, { ...config, mode: "base", chainId: 8453 }),
+    { message: "The MUSEGOD quote parameters do not match the verified pool. Refresh the quote." });
   if (!MUSEGOD_ROUTER_VERIFICATION.verified) assert.throws(() => assertMusegodTradingEnabled(config), /verification is pending/);
   assert(Object.isFrozen(MUSEGOD_ROUTER_VERIFICATION));
 });
@@ -158,7 +160,8 @@ test("native buy never approves an ERC20, and enough gas must exist before eithe
   const buy = tradeFixture(); buy.q.side = "buy"; await executeMusegodTrade(buy.q, config, buy.deps);
   assert.equal(buy.requests.length, 1); assert.equal(buy.requests[0].value, 1000n);
   for (const change of ["noGas", "noTokens", "disable", "reorg"] as const) {
-    const f = tradeFixture(); f[change](); await assert.rejects(() => executeMusegodTrade(f.q, config, f.deps));
+    const f = tradeFixture(); f[change](); await assert.rejects(() => executeMusegodTrade(f.q, config, f.deps),
+      change === "reorg" ? { message: "The quote block or SushiSwap router changed. Refresh the quote." } : Error);
     assert.equal(f.requests.length, 0);
   }
 });

@@ -1,7 +1,7 @@
 import test, { type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { parseEther, type Hash } from "viem";
-import { MUSEGOD, type MusegodInfo, type MusegodQuote } from "../src/lib/musegod";
+import { MUSEGOD, MUSEGOD_ROUTER_VERIFICATION, type MusegodInfo, type MusegodQuote } from "../src/lib/musegod";
 import type { RuntimeConfig } from "../src/lib/config";
 import { resetQuoteClock } from "../src/lib/quote-clock";
 import { hookRuntime, importFresh, settle } from "./hook-runtime";
@@ -104,8 +104,30 @@ test("MUSEGOD automatic dispatch gates invalid amounts, network, info and hidden
   await s.visible(true); await s.set({ config: null }); await s.tick(2_000); assert.equal(s.requests.length, 0);
   await s.set({ config: { ...config, mode: "base", chainId: 8453, deploymentChainId: 8453 } }); await s.tick(2_000); assert.equal(s.requests.length, 0);
   await s.info(null); await s.set({ config }); await s.tick(2_000); assert.equal(s.requests.length, 0);
-  await s.info({ ...info, tradeEnabled: false }); await s.tick(2_000); assert.equal(s.requests.length, 0);
   await s.info(info); await s.tick(600); assert.equal(s.requests.length, 1);
+});
+
+for (const [name, writesEnabled, reason] of [
+  ["writes are paused", false, "Transactions are currently disabled."],
+  ["router verification is pending", true, MUSEGOD_ROUTER_VERIFICATION.reason],
+] as const) test(`MUSEGOD previews and Refresh work while ${name}, but confirmation stays blocked`, async t => {
+  const s = await session(t, { connected: true });
+  await s.set({ config: { ...config, writesEnabled, blockReason: writesEnabled ? null : reason } });
+  await s.info(null); await s.type("0.01"); await s.tick(2_000); assert.equal(s.requests.length, 0);
+  await s.info({ ...info, tradeEnabled: false, tradeBlockReason: reason });
+  await s.tick(599); assert.equal(s.requests.length, 0);
+  await s.tick(1); assert.equal(s.requests.length, 1);
+  assert.match(text(s.byClass("trade-box receive")), /10/);
+  assert.match(text(s.byClass("rows boxed quote-summary")), /9.9 MUSEGOD/);
+  assert.equal(s.confirm().props.disabled, true);
+  await s.click(s.confirm()); assert.equal(s.sends.length, 0);
+  for (let n = 0; n < 3; n++) { await s.tick(10_000); assert.equal(s.requests.length, n + 2); }
+  await s.tick(10_000); assert.equal(s.requests.length, 4);
+  const refresh = s.button("Refresh quote"); assert.ok(refresh); assert.equal(refresh.props.disabled, false);
+  await s.click(refresh); assert.equal(s.requests.length, 5);
+  assert.match(text(s.byClass("trade-box receive")), /10/);
+  assert.equal(s.confirm().props.disabled, true);
+  await s.click(s.confirm()); assert.equal(s.sends.length, 0);
 });
 
 test("MUSEGOD input, side and slippage supersede quotes, and hidden responses are discarded", async t => {

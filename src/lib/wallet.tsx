@@ -790,7 +790,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     const contracts = contractsFor(config);
     const fresh = () => {
       if (quoteNow(quote) >= quote.expiresAt)
-        throw new Error("The quote has expired. Request a new quote. Existing approvals can still be reused.");
+        throw new Error("The quote has expired. Refresh the quote. Existing approvals can still be reused.");
     };
     fresh();
     const amount = BigInt(quote.amountIn),

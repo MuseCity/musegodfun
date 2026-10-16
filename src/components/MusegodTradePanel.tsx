@@ -94,7 +94,7 @@ export default function MusegodTradePanel({ config, musegod, onHash }: {
   const validAmount = (() => { try { return parseAmount(amount, 18) > 0n; } catch { return false; } })();
   const automatic = useAutoQuote<MusegodQuote>({
     key: JSON.stringify([amount, side, slippage, wallet.account, wallet.chainId, config?.chainId, config?.mode, config?.deploymentChainId]),
-    lifi: false, valid: validAmount, pool: !!config && musegodNetwork(config) && !!info?.tradeEnabled,
+    lifi: false, valid: validAmount, pool: !!config && musegodNetwork(config) && info !== null,
     busy, completed: !!hash || confirmed, connected: !!wallet.account,
   }, {
     request: getQuote, remaining: next => next.expiresAt - quoteNow(next),
@@ -201,7 +201,7 @@ export default function MusegodTradePanel({ config, musegod, onHash }: {
         <div><dt>Quote expires in</dt><dd>{Math.max(0, Math.ceil((quote.expiresAt - clock) / 1000))} seconds</dd></div>
       </dl>}
       {automatic.manual && validAmount && <button type="button" className="text-button quote-refresh"
-        disabled={busy || automatic.pending || !config || !musegodNetwork(config) || !info?.tradeEnabled} onClick={refreshQuote}><RefreshCw size={13} /> Refresh quote</button>}
+        disabled={busy || automatic.pending || !config || !musegodNetwork(config) || info === null} onClick={refreshQuote}><RefreshCw size={13} /> Refresh quote</button>}
       {wallet.account ? <button type="button" className="primary large full"
         disabled={busy || maxLoading || automatic.pending || !quote || clock >= quote.expiresAt || !config?.writesEnabled || !info?.tradeEnabled || wallet.chainId !== config?.chainId}
         onClick={() => void execute()}>Confirm {side === "buy" ? "Buy" : "Sell"} <ArrowUpRight size={16} /></button>
