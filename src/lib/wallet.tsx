@@ -907,7 +907,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     const expected = account, client = transactionClient(config.chainId, config);
     // The transport checks freshness again immediately before either wallet send method.
     const fresh = async () => {
-      if (quoteNow(quote) >= quote.expiresAt) throw new Error("The quote has expired. Wait for a fresh quote.");
+      if (quoteNow(quote) >= quote.expiresAt) throw new Error("The quote has expired. Refresh the quote and try again.");
     };
     const guardedWallet = () => signer(config, expected, fresh);
     return executeWethEthTrade(quote, config, {

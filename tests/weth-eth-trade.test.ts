@@ -51,3 +51,9 @@ test("native WETH wallet flow rechecks expiry and live account after funding and
   const f = fixture(); f.deps.simulate = async () => { throw new Error("Simulation reverted"); };
   await assert.rejects(executeWethEthTrade(quote, config, f.deps), /Simulation reverted/); assert(!f.calls.includes("send"));
 });
+
+
+test("expired native quotes direct the user to Refresh even after the automatic cap", async () => {
+  const f = fixture(); f.expire();
+  await assert.rejects(executeWethEthTrade(quote, config, f.deps), /The quote has expired\. Refresh the quote and try again\./);
+});

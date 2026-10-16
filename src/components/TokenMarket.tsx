@@ -326,7 +326,7 @@ export default function TokenMarket({
             text={emptyText(history.data, history.error, emptyCandlesMessage(history.data, interval), "Previous chart snapshot. Refresh to update.")}
           />
         )}
-        {(!hasValues && !summary.loading || !history.data?.candles.length && !history.loading) && <p className="hint">Use the on-chain quote for a price preview.</p>}
+        {(!hasValues && !summary.loading || !history.data?.candles.length && !history.loading) && <p className="hint">Enter an amount in the trade panel for an on-chain price preview.</p>}
         {(summary.data || history.data || kind === "musegod") && <p className="feed-note">
           <MarketProvenance label="Summary" data={summary.data} kind={kind} />
           {summary.data && history.data ? " · " : ""}

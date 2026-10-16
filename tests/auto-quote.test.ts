@@ -2,8 +2,8 @@ import test, { type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { createAutoQuoteScheduler } from "../src/lib/auto-quote";
 
-const input = { key: "buy:eth:0.001:100", lifi: false, valid: true, pool: true, visible: true, busy: false, connected: false };
-const flush = async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); };
+const input = { key: "buy:eth:0.001:100", lifi: false, valid: true, pool: true, visible: true, busy: false, completed: false, connected: false };
+const flush = async () => { for (let i = 0; i < 40; i++) await Promise.resolve(); };
 function fixture(t: TestContext, lifi = false) {
   t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1_000 });
   const requests: { resolve: (q: { expires: number }) => void; reject: (error: Error) => void }[] = [];
@@ -87,4 +87,50 @@ test("automatic quote calls do not multiply POSTs through the shared API retry l
     await assert.rejects(api("/quote", { amount: "1" }, { challenge: false, retry: false }), /Quote capacity unavailable/);
     assert.equal(requests, 1);
   } finally { globalThis.fetch = original; }
+});
+
+
+test("LI.FI challenge refusal pauses automatic requests across input and visibility changes; manual refresh can solve it", async t => {
+  const { api } = await import("../src/lib/api");
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1_000 });
+  const prior = Object.getOwnPropertyDescriptor(globalThis, "window");
+  let events = 0, posts = 0, manual = false;
+  Object.defineProperty(globalThis, "window", { configurable: true, value: { dispatchEvent(event: CustomEvent) {
+    events++; assert.equal(event.type, "musegod:challenge"); event.detail.resolve("fixture-token"); return true;
+  } } });
+  t.after(() => { if (prior) Object.defineProperty(globalThis, "window", prior); else Reflect.deleteProperty(globalThis, "window"); });
+  t.mock.method(globalThis, "fetch", async (_path: unknown, init?: RequestInit) => {
+    posts++;
+    return new Headers(init?.headers).has("x-turnstile-token") || posts > 3
+      ? Response.json({ expires: Date.now() + 10_000 })
+      : Response.json({ code: "CHALLENGE_REQUIRED", error: "Security check required", siteKey: "fixture" }, { status: 403 });
+  });
+  const scheduler = createAutoQuoteScheduler<{ expires: number }>({ request: options => api("/trade/eth-quote", { amount: "1" }, options),
+    remaining: q => q.expires - Date.now(), result: () => {}, error: () => {}, pending: () => {}, manual: value => { manual = value; } });
+  t.after(() => scheduler.dispose());
+  const active = { ...input, lifi: true, connected: true };
+  scheduler.update(active); t.mock.timers.tick(1_000); await flush();
+  assert.equal(posts, 1); assert.equal(events, 0); assert.equal(manual, true);
+  scheduler.update({ ...active, key: "changed" }); t.mock.timers.tick(120_000); await flush();
+  scheduler.update({ ...active, visible: false }); scheduler.update(active); t.mock.timers.tick(120_000); await flush();
+  assert.equal(posts, 1); assert.equal(manual, true);
+  scheduler.refresh(); await flush();
+  assert.equal(events, 1); assert.equal(posts, 3); assert.equal(manual, false);
+  t.mock.timers.tick(10_000); await flush(); assert.equal(posts, 4); assert.equal(events, 1);
+});
+
+for (const lifi of [false, true]) test(`${lifi ? "LI.FI" : "pair/native"} confirmed trades pause automation and allow one same-amount manual quote with a fresh budget`, async t => {
+  const f = fixture(t, lifi), delay = lifi ? 1_000 : 600, cap = lifi ? 1 : 3;
+  const active = { ...input, lifi, connected: lifi };
+  f.tick(delay);
+  for (let i = 0; i <= cap; i++) { f.requests[i].resolve({ expires: Date.now() + 10_000 }); await flush(); f.tick(10_000); }
+  const before = f.requests.length;
+  f.scheduler.update({ ...active, completed: true }); f.tick(120_000);
+  assert.equal(f.requests.length, before); assert.equal(f.manual.at(-1), true);
+  f.scheduler.refresh(); assert.equal(f.requests.length, before + 1);
+  f.scheduler.update(active); f.tick(delay); assert.equal(f.requests.length, before + 1);
+  f.requests[before].resolve({ expires: Date.now() + 10_000 }); await flush();
+  f.tick(10_000); assert.equal(f.requests.length, before + 2);
+  f.scheduler.update({ ...active, busy: true, completed: true });
+  f.scheduler.refresh(); f.tick(120_000); assert.equal(f.requests.length, before + 2);
 });

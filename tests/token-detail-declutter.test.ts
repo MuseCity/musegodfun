@@ -139,10 +139,10 @@ test("native WETH notes describe one transaction with no approval or LI.FI fee",
   assert.doesNotMatch(html, /LI.FI|Router approval|Get a quote/);
 });
 
-test("Base trade notes retain their manual quote instructions", () => {
+test("Base trade notes explain automatic quotes", () => {
   for (const writesEnabled of [true, false]) {
     const html = renderToStaticMarkup(createElement(TokenTradeNotes, { stock: STOCKS[0], symbol: "COIN", payingEth: false, config: { writesEnabled } }));
-    assert.doesNotMatch(html, /automatic/);
-    assert.match(html, writesEnabled ? /Get a quote here and confirm the trade in your wallet/ : /Get a quote here for a price preview/);
+    assert.doesNotMatch(html, /Get a quote here/);
+    assert.match(html, writesEnabled ? /Enter an amount for an automatic quote, then confirm the trade in your wallet/ : /Enter an amount for an automatic price preview/);
   }
 });

@@ -1,6 +1,6 @@
 # ETH payment on WETH pairs, automatic quotes and in-field Max
 
-Status: Run 1 implemented; cross-review pending (2026-10-16). Branch `claude/weth-eth-pay-auto-quote`, based on master `ef942a6`.
+Status: Run 2 review fixes implemented and verified; Claude acceptance pending (2026-10-16). Branch `claude/weth-eth-pay-auto-quote`, based on master `ef942a6`.
 
 ## Owner request (2026-10-16, translated)
 
@@ -25,7 +25,7 @@ A buyer of a WETH-pair coin pays with ETH in one wallet confirmation; every buye
    - `value` equals the quoted `amountIn` exactly; minimum output comes from the quote and slippage exactly as `swapTransaction`; deadline as today (block time + 300 s);
    - no ERC-20 or Permit2 approval in this path;
    - simulate with the same `to`, `data` and `value` before sending; `ensureGas` covers `value` plus gas; never send an expired quote; keep the existing account/chain `live()` guards and progress, hash and receipt handling.
-2. No server, contract, fee policy, LI.FI route, Permit2 path (pair payments), sell path or `MusegodTradePanel` change. Base behavior is unchanged.
+2. No server, contract, fee policy, LI.FI route, Permit2 path (pair payments), sell path or `MusegodTradePanel` change. E1 is Robinhood-only; Base trade execution is unchanged. E2 and E3 are token-page UI behavior and apply on both chains (conductor clarification 2026-10-16: the earlier wording "Base behavior is unchanged" conflicted with E2 "for every pay path" and must not leave Base on the manual quote button).
 3. Automatic quotes must be bounded (cost and abuse limits above): debounced, superseded requests ignored, no requests while hidden, idle, busy or invalid, and a cap on automatic refreshes after the last user change.
 4. Guests keep a price signal: automatic quotes work without a wallet for pair payments and for ETH on WETH pairs.
 5. Everything from `tasks/detail-page-declutter-plan.md` that is not explicitly replaced here stays (presets, notes, fee card tiers, market honesty).
@@ -66,7 +66,7 @@ A buyer of a WETH-pair coin pays with ETH in one wallet confirmation; every buye
 ## Out of scope
 
 - Receiving ETH when selling on WETH pairs (unwrap); separate request if wanted.
-- MUSEGOD's own trade panel; Base trading; any server or abuse-limit change.
+- MUSEGOD's own trade panel; Base trade execution (E1 is Robinhood-only); any server or abuse-limit change.
 
 ## Verification and acceptance
 
@@ -82,3 +82,5 @@ A buyer of a WETH-pair coin pays with ETH in one wallet confirmation; every buye
 - 2026-10-16 Run 1, builder gate: added decoded-calldata tests and the native WETH builder; the isolated Robinhood fork proved an ETH buy, exact value plus gas accounting, no approvals, zero router dust and the expected high-minimum revert. Source runtime matched the deployed router. E1 wallet/UI and E2-E3 remain in progress. Evidence: `.superpowers/sdd/eth-pay-auto-quote/evidence/fork-proof.json`.
 
 - 2026-10-16 Run 1, E1-E3: added the guarded native wallet path, ETH default for WETH pairs, guest quotes, bounded automatic scheduling and an in-field Max with the specified gas reserve. Updated disclosures and legacy browser selectors; the earlier guest-button constraint is explicitly superseded. Local tests/build and the four light-mode desktop/mobile checks passed; evidence and the per-commit report are in `.superpowers/sdd/eth-pay-auto-quote/`. Builder/fork commit: `02ac13f`; wallet/UI commit: `feat(trade): automate quotes and reserve gas for native Max`. Cross-review and release remain pending; no mainnet transaction, push or deployment.
+
+- 2026-10-16 Run 2, C1-1 through C1-6: verified all six findings and fixed them with failing-first regression coverage. Manual Refresh can challenge while automatic LI.FI requests remain silent and stop after CHALLENGE_REQUIRED, including across input changes. E2-E3 now apply on Base as clarified above; E1 remains Robinhood-only. Extracted payment routing and quote-input derivation with explicit-WETH-pick and network/unit/busy tests. Automatic quotes preserve unacknowledged errors; expiry copy names Refresh; a confirmed trade offers one same-amount manual quote with the user-change refresh budget; market hints describe amount entry. Full tests: 1568 passed; build, diff check and Han scan passed. Chrome DevTools MCP checked CLAWGOD, MV2C and the catalog's hidden Base MUSEGOD/NVDAc token at 1440px light: one successful quote each, 3/8 quote POSTs total, no wallet or transaction. Preview stopped and port freed. Local fix commit: `fix(trade): resolve automatic quote review findings`. Report and evidence: `.superpowers/sdd/eth-pay-auto-quote/run2-report.md` and `evidence/run2/`. Run 1's Base exclusion is superseded by this run; cross-review acceptance and release remain pending.

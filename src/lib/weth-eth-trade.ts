@@ -13,7 +13,7 @@ export async function executeWethEthTrade(quote: SwapQuote, config: RuntimeConfi
   if (config.chainId !== 4663 || deploymentChain(config) !== 4663) throw new Error("Native WETH buys require the Robinhood network");
   if (quote.side !== "buy") throw new Error("Native WETH payments are available for buys only");
   const fresh = () => {
-    if (!Number.isFinite(quote.expiresAt) || deps.now() >= quote.expiresAt) throw new Error("The quote has expired. Wait for a fresh quote.");
+    if (!Number.isFinite(quote.expiresAt) || deps.now() >= quote.expiresAt) throw new Error("The quote has expired. Refresh the quote and try again.");
   };
   fresh(); await deps.guard();
   const amount = BigInt(quote.amountIn);

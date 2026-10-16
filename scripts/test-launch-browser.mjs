@@ -427,6 +427,8 @@ async function quietReview(page, state) {
   state.quietBackground = true;
 }
 async function tokenLookup(page, state) {
+  const tradeQuotes = [];
+  page.on('request', request => { if (request.method() === 'POST' && /\/(quote|eth-quote)$/.test(new URL(request.url()).pathname)) tradeQuotes.push(request.url()); });
   if (state.mode === 'token_detail_unregistered_backup')
     await page.evaluate(({ token, creator }) => localStorage.setItem('musegod.transactions.v1', JSON.stringify([{ hash:'0x'+'ab'.repeat(32),
       chainId:31337, deploymentChainId:4663, account:creator, action:'launch', status:'success', at:Date.now(), tokenAddress:token, intentId:'browser-sent-intent' }])), { token, creator });
@@ -444,13 +446,14 @@ async function tokenLookup(page, state) {
     await page.getByText(/does not match this listing/).waitFor();
     assert.equal(await page.getByText(/Retrying automatically/).count(),0,'An integrity failure is not presented as a transient outage');
     await page.getByLabel('Trade input amount',{exact:true}).fill('1');
-    assert.equal(await page.getByRole('button',{name:'Get on-chain quote',exact:true}).isEnabled(),false);
+    await page.waitForTimeout(1200);
+    assert.equal(tradeQuotes.length, 0, 'Invalid pools never request an automatic quote');
   } else if (state.mode === 'token_detail_state_unavailable') {
     await page.getByRole('heading',{name:state.plan.draft.name,exact:true}).waitFor();
     await page.getByText(/On-chain pool state is unavailable/).waitFor();
     await page.getByLabel('Trade input amount',{exact:true}).fill('1');
-    assert.equal(await page.getByRole('button',{name:'Get on-chain quote',exact:true}).isEnabled(),false,
-      'Quotes stay paused until live pool state is verified');
+    await page.waitForTimeout(1200);
+    assert.equal(tradeQuotes.length, 0, 'Quotes stay paused until live pool state is verified');
   } else if (state.mode === 'token_detail_error') {
     await page.getByText('Token detail RPC temporarily unavailable',{exact:true}).waitFor();
   } else {

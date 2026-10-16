@@ -37,7 +37,7 @@ async function renderMarket({ summary = emptySummary, error = "", candles = {}, 
 test("D4/D5 empty market sections show honest statuses without empty controls or holders", async () => {
   for (const kind of ["launch", "musegod"] as const) {
     const html = await renderMarket({ kind, metric: { label: "Burn share", value: "12%" } });
-    assert.match(html, /no price for this pool yet.*on-chain quote/i);
+    assert.match(html, /no price for this pool yet.*on-chain price preview/i);
     assert.doesNotMatch(html, /Market cap|Fully diluted valuation|24h volume|change-chip|Activity period|Trade filter|Holders|Holder data|Source pending|Source and fetch/);
     assert.match(html, /Burn share.*12%/);
     assert.match(html, /Recent trades/);
@@ -121,7 +121,7 @@ test("C1-7 empty market cards give one quote pointer and buyer-readable provider
     for (const summary of [emptySummary, { ...emptySummary, priceUsd: 1 }]) {
       const html = await renderMarket({ summary, candles: { source: "Bankr", reason, ...(reason ? { causes: [{ source: "GeckoTerminal", reason }] } : {}) } });
       const market = html.split('<section class="card market-feed"')[0];
-      assert.equal(market.split("Use the on-chain quote for a price preview.").length - 1, 1);
+      assert.equal(market.split("Enter an amount in the trade panel for an on-chain price preview.").length - 1, 1);
       assert.doesNotMatch(market, /Source checks|temporarily in backoff|GeckoTerminal:/);
       if (reason === "not_indexed") assert.match(market, /pool is not indexed yet/);
       if (reason === "rate_limited") assert.match(market, /provider is rate limited/);
