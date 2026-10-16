@@ -27,7 +27,7 @@ for(const scenario of ['timeout-after-create','eviction-after-create','verify-fa
 test('C1-6/C1-7: reject raw invalid JSON before parse; junk never spends valid rate; delivery never fetches USD',async()=>{
  const store=new MemorySwapStore();store.set('notify',{bindings:[{id:'wh_test_v3',network:'ROBINHOOD_MAINNET',key}]});let prices=0;const service=new SwapService(4663,store,{pools:async()=>pools,quote:async()=>{prices++;return null;}});
  assert.equal((await service.ingest(Buffer.from('{'),undefined)).status,401);
- for(let n=0;n<650;n++){const lease=service.admitWebhook('203.0.113.1',undefined);lease.release();await service.ingest(Buffer.from('{'),undefined);}
+ for(let n=0;n<650;n++){service.admitWebhook('203.0.113.1',undefined);await service.ingest(Buffer.from('{'),undefined);}
  const body=structuredClone(fixtures.deliveries.v3);body.event.data.block.timestamp=Math.floor(Date.now()/1000);const raw=Buffer.from(JSON.stringify(body));assert.equal((await service.ingest(raw,createHmac('sha256',key).update(raw).digest('hex'))).status,200);assert.equal(prices,0);assert.equal(store.rows(MUSE_POOL)[0].priceUsd,undefined);
 });
 test('C1-8/C1-13: union retains provider rows after coverage and empty own summary preserves provider',()=>{

@@ -1,6 +1,6 @@
 import { SwapQuotePrices } from "./swap-prices";
 import express from "express";
-import { SwapService, isWebhookPath, WEBHOOK_BODY_LIMIT } from "./swap-service";
+import { SwapService, isWebhookPath, WEBHOOK_BODY_LIMIT, SWAP_BLOCK_TIMEOUT_MS } from "./swap-service";
 import { MemorySwapStore, type SwapStore } from "./swap-store";
 import { registeredPools, MUSE_POOL } from "./swap-stream";
 import { createHash, randomUUID } from "node:crypto";
@@ -11,7 +11,7 @@ import { firstBuyPaymentInput, FIRST_BUY_SLIPPAGE_BPS } from "../src/lib/first-b
 import { securityHeaders, requestBodyLimitForPath } from "./http-security";
 import { TokenImages } from "./token-images";
 import { z } from "zod";
-import { createPublicClient, parseUnits, type Address, type Hex } from "viem";
+import { createPublicClient, http, parseUnits, type Address, type Hex } from "viem";
 import { robinhood } from "viem/chains";
 import { alchemyRpcTransport } from "./alchemy-rpc";
 import baseCollectorDeployment from "../contracts/artifacts/base-collector-deployment.json";
@@ -117,7 +117,7 @@ const swaps = new SwapService(deploymentChain(runtime.config), shared.swapStore 
   broadcast: shared.broadcast,
   quote: pool => swapPrices.get(pool),
   quoteCached: pool => swapPrices.peek(pool),
-  blockHash: async block => (await service.client.getBlock({blockNumber:BigInt(block)})).hash,
+  blockHash: async (block,signal) => (await createPublicClient({transport:http(runtime.rpcUrl,{retryCount:0,timeout:SWAP_BLOCK_TIMEOUT_MS,fetchOptions:{signal}})}).getBlock({blockNumber:BigInt(block)})).hash,
 });
 service.onTokensChanged = () => { void swaps.reconcile("https://musegod.fun").catch(() => {}); };
 app.set("trust proxy", trustProxy);
@@ -142,9 +142,9 @@ app.use((req, res, next) => {
 // Only this exact raw-body route bypasses browser Origin and challenge middleware.
 app.post("/api/webhooks/alchemy", (req,res,next) => {
   const admission=swaps.admitWebhook(req.ip || "unknown",typeof req.headers["x-alchemy-signature"] === "string" ? req.headers["x-alchemy-signature"] : undefined);if(admission.status){res.setHeader("Retry-After","60");res.status(admission.status).json({accepted:false});return;}
-  res.once("finish",admission.release);res.once("close",admission.release);next();
+  next();
 }, express.raw({ type: () => true, limit: WEBHOOK_BODY_LIMIT, inflate: false }), (req,res,next) => {
-  void swaps.ingest(req.body instanceof Uint8Array ? req.body : new Uint8Array(), typeof req.headers["x-alchemy-signature"] === "string" ? req.headers["x-alchemy-signature"] : undefined)
+  void swaps.ingest(req.body instanceof Uint8Array ? req.body : new Uint8Array(), typeof req.headers["x-alchemy-signature"] === "string" ? req.headers["x-alchemy-signature"] : undefined,req.ip || "unknown")
     .then(result => res.status(result.status).json({ accepted: result.status === 200 })).catch(next);
 });
 
@@ -206,6 +206,7 @@ app.get(
       signingPaused: current.signingPaused,
       controlRevision: current.controlRevision,
       blockReason: current.blockReason,
+      swapStream: swaps.status(),
       healthClass: !ready ? "site_unavailable" : current.signingPaused || !service.runtime.config.writesEnabled ? "expected_pause"
         : current.blockReason || service.runtime.config.feeEngine && !current.feeEngine ? "signing_dependency_unavailable" : "operational",
     });

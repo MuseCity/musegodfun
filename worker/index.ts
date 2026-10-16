@@ -73,14 +73,13 @@ export class LaunchpadRuntime extends DurableObject<Env> {
     if (isWebhookPath(url.pathname) && request.method === "POST") {
       const admission=this.swaps.admitWebhook(request.headers.get("x-forwarded-for")??"unknown",request.headers.get("x-alchemy-signature")??undefined);
       if(admission.status)return Response.json({accepted:false},{status:admission.status,headers:{"Retry-After":"60"}});
-      try {
-        if (await this.ctx.storage.getAlarm() === null) await this.ctx.storage.setAlarm(Date.now()+30_000);
-        if (!request.body) return Response.json({accepted:false},{status:400});
-        const read = await readBoundedBody(request.body,requestBodyLimitForPath(url.pathname),BODY_READ_DEADLINE_MS);
-        if ("status" in read) return Response.json({accepted:false},{status:read.status});
-        const result = await this.swaps.ingest(read.bytes,request.headers.get("x-alchemy-signature")??undefined);
-        return Response.json({accepted:result.status===200},{status:result.status});
-      } finally {admission.release();}
+      if (await this.ctx.storage.getAlarm() === null) await this.ctx.storage.setAlarm(Date.now()+30_000);
+      const ip=request.headers.get("x-forwarded-for")??"unknown";
+      if (!request.body) return Response.json({accepted:false},{status:this.swaps.rejectWebhook(ip,400)});
+      const read = await readBoundedBody(request.body,requestBodyLimitForPath(url.pathname),BODY_READ_DEADLINE_MS);
+      if ("status" in read) return Response.json({accepted:false},{status:this.swaps.rejectWebhook(ip,read.status)});
+      const result = await this.swaps.ingest(read.bytes,request.headers.get("x-alchemy-signature")??undefined,ip);
+      return Response.json({accepted:result.status===200},{status:result.status});
     }
     const admission = this.ingress.admit(request.headers.get("x-forwarded-for") || "unknown", new URL(request.url).pathname);
     if (admission.status) return Response.json({error:"Service capacity is temporarily limited. Try again shortly."},{status:admission.status,headers:{"Retry-After":"60"}});
@@ -145,13 +144,13 @@ export class LaunchpadRuntime extends DurableObject<Env> {
     try {
       this.refreshRuntime();
       try { await this.swaps.reconcile("https://musegod.fun"); } catch { console.error("Swap webhook reconciliation is unavailable"); }
-      await this.swaps.maintain();
       await this.service.store.cleanup();
       await this.service.reconcile(60_000);
     } catch (error) {
       console.error(`Launchpad maintenance failed: ${redact(error, this.service.runtime.environment)}`);
     } finally {
-      await this.ctx.storage.setAlarm(Date.now() + 30_000);
+      try { await this.swaps?.maintain(); } catch { console.error("Swap maintenance is unavailable"); }
+      finally { await this.ctx.storage.setAlarm(Date.now() + 30_000); }
     }
   }
 }

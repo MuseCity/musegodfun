@@ -1,9 +1,11 @@
 import type { Delivery } from "./swap-stream";
 import type { OnchainTrade } from "../src/lib/swap-stream";
+import type { SwapCandleBucket } from "../src/lib/swap-market";
 export type ApplyResult={trades:OnchainTrade[];reorg:boolean;removedPools:string[]};
 type Block={block:number;hash:string;sequence:string;generation:number;at:number;verified:number};
 export interface SwapStore {
  rows(pool:string,limit?:number):OnchainTrade[];window(pool:string,from:number,to:number):Iterable<OnchainTrade>;
+ buckets(pool:string,from:number,to:number,seconds:number):SwapCandleBucket[];
  apply(delivery:Delivery):ApplyResult;prune(now?:number,batch?:number):void;
  pendingBlocks(before:number,limit:number):{block:number;hash:string}[];verifyBlock(block:number,expected:string,canonical:string):string[];
  get<T>(key:string):T|undefined;set(key:string,value:unknown):void;coverage(pool:string):string|undefined;
@@ -20,6 +22,11 @@ export class MemorySwapStore implements SwapStore{
  coverage(pool:string){return this.get<string>(`coverage:${pool}`);}
  rows(pool:string,limit=50_000){return [...this.trades.values()].filter(t=>t.pool===pool).sort(order).slice(-limit);}
  *window(pool:string,from:number,to:number){for(const t of this.rows(pool))if(Date.parse(t.at)/1000>=from&&Date.parse(t.at)/1000<to)yield t;}
+ buckets(pool:string,from:number,to:number,seconds:number){
+  const buckets=new Map<number,SwapCandleBucket>();for(const t of this.window(pool,from,to)){const time=Math.floor(Date.parse(t.at)/1000/seconds)*seconds,price=Number(t.priceQuote),volume=Number(t.quoteAmount);if(!(price>0)||!Number.isFinite(price)||!Number.isFinite(volume))continue;
+   const b=buckets.get(time);if(b){b.bar.high=Math.max(b.bar.high,price);b.bar.low=Math.min(b.bar.low,price);b.bar.volume+=volume;b.bar.close=price;b.last=t;}else buckets.set(time,{bar:{time,open:price,high:price,low:price,close:price,volume},last:t});
+  }return [...buckets.values()].sort((a,b)=>a.bar.time-b.bar.time).slice(-200);
+ }
  apply(d:Delivery):ApplyResult{
   const block=this.blocks.get(d.blockNumber);if(stale(d,block,this.get<number>('floor')??-1))return empty();
   const reorg=!!block&&block.hash!==d.blockHash,removedPools:string[]=[];
@@ -63,6 +70,17 @@ export class SqlSwapStore implements SwapStore{
  coverage(pool:string){return this.get<string>(`coverage:${pool}`);}
  rows(pool:string,limit=50_000):OnchainTrade[]{return [...this.sql.exec("SELECT payload FROM swap_trades WHERE pool=? ORDER BY block DESC,log_index DESC LIMIT ?",pool,limit)].map(r=>JSON.parse(r.payload)).reverse();}
  *window(pool:string,from:number,to:number):Iterable<OnchainTrade>{for(const r of this.sql.exec("SELECT payload FROM swap_trades WHERE pool=? AND at>=? AND at<? ORDER BY at,block,log_index",pool,from,to))yield JSON.parse(r.payload);}
+ buckets(pool:string,from:number,to:number,seconds:number):SwapCandleBucket[]{
+  const rows=this.sql.exec(`WITH prices AS (
+   SELECT CAST(at/? AS INTEGER)*? AS bucket,block,log_index,payload,CAST(json_extract(payload,'$.priceQuote') AS REAL) AS price,CAST(json_extract(payload,'$.quoteAmount') AS REAL) AS volume
+   FROM swap_trades WHERE pool=? AND at>=? AND at<?
+  ), ranked AS (
+   SELECT *,ROW_NUMBER() OVER (PARTITION BY bucket ORDER BY block,log_index) AS first,ROW_NUMBER() OVER (PARTITION BY bucket ORDER BY block DESC,log_index DESC) AS last
+   FROM prices WHERE price>0 AND price<=1.7976931348623157e308 AND volume>=0 AND volume<=1.7976931348623157e308
+  ) SELECT bucket AS time,MAX(CASE WHEN first=1 THEN price END) AS open,MAX(price) AS high,MIN(price) AS low,MAX(CASE WHEN last=1 THEN price END) AS close,SUM(volume) AS volume,MAX(CASE WHEN last=1 THEN payload END) AS payload
+  FROM ranked GROUP BY bucket ORDER BY bucket DESC LIMIT 200`,seconds,seconds,pool,from,to);
+  return [...rows].map(r=>({bar:{time:r.time,open:r.open,high:r.high,low:r.low,close:r.close,volume:r.volume},last:JSON.parse(r.payload)})).reverse();
+ }
  apply(d:Delivery):ApplyResult{return this.transaction(()=>{
   const block=[...this.sql.exec("SELECT * FROM swap_blocks WHERE block=?",d.blockNumber)][0] as Block|undefined;if(stale(d,block,this.get<number>('floor')??-1))return empty();
   const reorg=!!block&&block.hash!==d.blockHash,removedPools=reorg?[...this.sql.exec("SELECT DISTINCT pool FROM swap_trades WHERE block=?",d.blockNumber)].map(r=>r.pool as string):[];

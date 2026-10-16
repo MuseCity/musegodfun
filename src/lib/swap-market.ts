@@ -22,6 +22,13 @@ export function mergeSummary(base:MarketSummary|null,rows:OnchainTrade[],coverag
  if(base?.lastTradeAt&&Date.parse(base.lastTradeAt)>Date.parse(t.at))return base;
  return {...base,...meta(base,t,coverageStart),lastTradeAt:t.at,priceUsd:t.priceUsd??null,priceQuote:t.priceQuote,quoteSymbol:t.quoteSymbol,quoteUsd:t.quoteUsd??null,marketCapUsd:null,fdvUsd:null,liquidityUsd:base?.liquidityUsd??null,periods:base?.periods??{}};
 }
+export type SwapCandleBucket={bar:CandleData['candles'][number];last:OnchainTrade};
+/** SQL returns one quote-unit aggregate and one metadata payload per bucket. */
+export function mergeCandleBuckets(base:CandleData|null,buckets:SwapCandleBucket[],coverageStart:string,q:OnchainTrade['quoteUsd']):CandleData{
+ const last=latest(buckets.map(b=>b.last));if(!last&&base)return {...base,unit:base.unit??'USD'};
+ const priced=last?priceTrade(last,q):undefined,factor=priced?.quoteUsd?.price??1;
+ return {...meta(base,priced,coverageStart),unit:priced?.quoteUsd?'USD':last?.quoteSymbol,quoteUsd:priced?.quoteUsd??null,candles:buckets.map(({bar})=>({time:bar.time,open:bar.open*factor,high:bar.high*factor,low:bar.low*factor,close:bar.close*factor,volume:bar.volume*factor})),watermark:last?{blockNumber:last.blockNumber,logIndex:last.logIndex,txHash:last.hash}:null};
+}
 /** Streaming accumulation holds at most 200 buckets, independent of trades per bucket. */
 export function mergeCandles(base:CandleData|null,rows:Iterable<OnchainTrade>,coverageStart:string,interval:ChartInterval,before?:number):CandleData{
  const seconds=INTERVAL_SECONDS[interval],to=before??Date.now()/1000+1,from=Math.max(Date.parse(coverageStart)/1000,(Math.ceil(to/seconds)-200)*seconds);

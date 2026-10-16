@@ -7,6 +7,7 @@ const hookSchema=z.object({id:z.string(),network:z.string(),webhook_type:z.strin
 export type NotifyHook=z.infer<typeof hookSchema>;
 export type Binding={id:string;network:string;key:string;retireAt?:number;generation?:number};
 export type NotifyState={hash:string;checkedAt:number;bindings:Binding[]};
+export type NotifyAttempt={hash:string;failures:number;nextAt:number;creationFailures?:number;createdId?:string;verifyAt?:number};
 export class NotifyClient{
  constructor(private token:string,private fetcher:typeof fetch=(input,init)=>fetch(input,init)){}
  private async request(path:string,method="GET",body?:unknown){
@@ -15,7 +16,7 @@ export class NotifyClient{
   try{return await response.json() as any;}catch{throw Error("Notify response invalid");}
  }
  async list():Promise<NotifyHook[]>{const body=await this.request("team-webhooks");return z.array(hookSchema).parse(body.data);}
- async create(body:ReturnType<typeof desiredWebhook>):Promise<NotifyHook>{return hookSchema.parse((await this.request("create-webhook","POST",body)).data);}
+ async create(body:ReturnType<typeof desiredWebhook>,created?:(id:string)=>void):Promise<NotifyHook>{const data=(await this.request("create-webhook","POST",body)).data;created?.(z.object({id:z.string().min(1)}).parse(data).id);return hookSchema.parse(data);}
  async remove(id:string){await this.request(`delete-webhook?webhook_id=${encodeURIComponent(id)}`,"DELETE");}
 }
 export function desiredWebhook(chainId:4663|8453,pools:SwapPool[],url:string){
@@ -28,28 +29,48 @@ export function desiredWebhook(chainId:4663|8453,pools:SwapPool[],url:string){
  const hash=createHash("sha256").update(JSON.stringify({chainId,pools,url,query})).digest("hex");
  return {network:NETWORKS[chainId],webhook_type:"GRAPHQL",webhook_url:`${url}?set=${hash}`,name:`musegod-swaps-${chainId}-${hash.slice(0,24)}`,graphql_query:{query,skip_empty_messages:true},hash};
 }
-export function webhookDiff(hooks:NotifyHook[],desired:ReturnType<typeof desiredWebhook>){const match=hooks.find(h=>h.network===desired.network&&new URL(h.webhook_url).href===new URL(desired.webhook_url).href&&h.webhook_type==="GRAPHQL"&&h.is_active);return {action:match?"keep":"create",name:desired.name,network:desired.network,url:desired.webhook_url,existingId:match?.id??null};}
+export function webhookDiff(hooks:NotifyHook[],desired:ReturnType<typeof desiredWebhook>,storedId?:string){const match=hooks.find(h=>h.id===storedId&&validHook(h,desired));return {action:match?"keep":!storedId&&hooks.some(h=>sameCallback(h.webhook_url,desired.webhook_url))?"verify-runtime-binding":"create",name:desired.name,network:desired.network,url:desired.webhook_url,existingId:match?.id??null};}
 /** Compare callback identity independently of the deterministic pool-set query. */
 function sameCallback(a:string,b:string){const x=new URL(a),y=new URL(b);return x.origin===y.origin&&x.pathname===y.pathname;}
+function validHook(h:NotifyHook,d:ReturnType<typeof desiredWebhook>){return h.network===d.network&&sameCallback(h.webhook_url,d.webhook_url)&&h.webhook_type==='GRAPHQL'&&h.is_active;}
 export async function reconcileWebhook(store:SwapStore,api:NotifyClient,chainId:4663|8453,pools:SwapPool[],url:string,now=Date.now()){
  const desired=desiredWebhook(chainId,pools,url),state=store.get<NotifyState>("notify");
- const attempt=store.get<{hash:string;failures:number;nextAt:number}>("notify-attempt");
+ const attempt=store.get<NotifyAttempt>("notify-attempt");
  if(attempt?.hash===desired.hash&&now<attempt.nextAt)throw Error("Notify reconciliation retry is pending");
  if(state?.hash===desired.hash&&now-state.checkedAt<86400_000&&!(attempt?.failures))return;
- // Persist a short lease before remote work; eviction or timeout retries after one minute.
- const failures=attempt?.hash===desired.hash?attempt.failures:0;
- store.set("notify-attempt",{hash:desired.hash,failures:failures+1,nextAt:now+Math.min(3600_000,60_000*2**Math.min(failures,6))});
+ const same=attempt?.hash===desired.hash,failures=same?attempt.failures:0;
+ const next:NotifyAttempt={hash:desired.hash,failures:failures+1,nextAt:now+Math.min(3600_000,60_000*2**Math.min(failures,6)),creationFailures:same?attempt.creationFailures??0:0,...(same&&attempt.createdId?{createdId:attempt.createdId}:{}),...(same&&attempt.verifyAt?{verifyAt:attempt.verifyAt}:{})};
+ const stopped=(next.creationFailures??0)>=5;
+ if(stopped&&now<(next.verifyAt??0)){next.nextAt=now+3600_000;store.set('notify-attempt',next);throw Error('Notify creation stopped; daily verification is pending');}
+ // Persist the lease and creation count before remote work, including uncertain/evicted creations.
+ if(stopped)next.verifyAt=now+86400_000;
+ store.set("notify-attempt",next);
+ let createdId:string|undefined;
  try{
-  const hooks=await api.list();let hook:NotifyHook|undefined;
-  if(pools.length){hook=hooks.find(h=>h.id===webhookDiff(hooks,desired).existingId);
-   if(!hook){const {hash:_hash,...body}=desired;hook=await api.create(body as typeof desired);}
-   if(hook.network!==desired.network||!sameCallback(hook.webhook_url,desired.webhook_url)||new URL(hook.webhook_url).searchParams.get('set')!==desired.hash||hook.webhook_type!=="GRAPHQL"||!hook.is_active)throw Error("Notify identity mismatch");
+  const hooks=await api.list(),removed=new Set<string>();let hook:NotifyHook|undefined;
+  if(pools.length){const storedId=next.createdId??(state?.hash===desired.hash?state.bindings.find(b=>!b.retireAt)?.id:undefined);
+   hook=hooks.find(h=>h.id===webhookDiff(hooks,desired,storedId).existingId);
+   if(!hook){
+    // Never create while an uncertain orphan still exists. Other origins/chains and bound hooks are untouched.
+    for(const old of hooks)if(sameCallback(old.webhook_url,url)&&!state?.bindings.some(b=>b.id===old.id)){await api.remove(old.id);removed.add(old.id);}
+    if(next.createdId&&!hooks.some(h=>h.id===next.createdId))await api.remove(next.createdId);
+    delete next.createdId;store.set('notify-attempt',next);
+    if(stopped)throw Error('Notify creation stopped');
+    next.creationFailures=(next.creationFailures??0)+1;store.set('notify-attempt',next);
+    const {hash:_hash,...body}=desired;hook=await api.create(body as typeof desired,id=>{createdId=id;next.createdId=id;store.set('notify-attempt',next);});
+   }
+   if(hook.id!==(createdId??storedId)||!validHook(hook,desired))throw Error("Notify identity mismatch");
   }
   const previous=state?.bindings.find(b=>!b.retireAt&&b.id!==hook?.id);
   const bindings:Binding[]=hook?[{id:hook.id,network:hook.network,key:hook.signing_key,generation:state?.bindings.find(b=>b.id===hook!.id)?.generation??now},...(previous?[{...previous,retireAt:now+5*60_000}]:[])]:[];
   // Store and verify the new key before deleting remote destinations. Only one superseded key survives briefly.
   store.set("notify",{hash:desired.hash,checkedAt:now,bindings});
-  for(const old of hooks)if(old.id!==hook?.id&&sameCallback(old.webhook_url,url))await api.remove(old.id);
-  store.set("notify-attempt",{hash:desired.hash,failures:0,nextAt:0});
- }catch{throw Error("Notify reconciliation unavailable");}
+  createdId=undefined;
+  for(const old of hooks)if(old.id!==hook?.id&&!removed.has(old.id)&&sameCallback(old.webhook_url,url))await api.remove(old.id);
+  store.set("notify-attempt",{hash:desired.hash,failures:0,creationFailures:0,nextAt:0});
+ }catch{
+  if(createdId)try{await api.remove(createdId);delete next.createdId;}catch{}
+  if((next.creationFailures??0)>=5){next.nextAt=now+3600_000;next.verifyAt??=now+86400_000;}
+  store.set('notify-attempt',next);throw Error("Notify reconciliation unavailable");
+ }
 }

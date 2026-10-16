@@ -16,10 +16,11 @@ test('Notify uses documented create/list/delete shapes, narrow aliased filters, 
  assert.equal(store.get<any>('notify').bindings.length,2);assert.equal(calls.filter(c=>c.path.endsWith('delete-webhook')).length,1);
 });
 
-test('restart adopts matching URL without relying on an undocumented name, verifies at most daily and redacts failures',async()=>{
+test('restart verifies the stored id with a normalised callback at most daily and redacts failures',async()=>{
  const pools=registeredPools(4663,[]),desired=desiredWebhook(4663,pools,'https://musegod.fun/api/chains/4663/webhooks/alchemy');let calls=0;
- const hook={id:'wh_existing',network:desired.network,webhook_type:'GRAPHQL',webhook_url:desired.webhook_url,is_active:true,signing_key:'synthetic-secret'};
+ const hook={id:'wh_existing',network:desired.network,webhook_type:'GRAPHQL',webhook_url:desired.webhook_url.split('?')[0],is_active:true,signing_key:'synthetic-secret'};
  const api=new NotifyClient('synthetic-token',async()=>{calls++;return Response.json({data:[hook]});});const store=new MemorySwapStore();
+ store.set('notify',{hash:desired.hash,checkedAt:-86400000,bindings:[{id:hook.id,network:hook.network,key:hook.signing_key}]});
  await reconcileWebhook(store,api,4663,pools,'https://musegod.fun/api/chains/4663/webhooks/alchemy',1);assert.equal(calls,1);assert.equal(store.get<any>('notify').bindings[0].id,'wh_existing');
  await reconcileWebhook(store,api,4663,pools,'https://musegod.fun/api/chains/4663/webhooks/alchemy',2);assert.equal(calls,1);
  await reconcileWebhook(store,api,4663,pools,'https://musegod.fun/api/chains/4663/webhooks/alchemy',86400002);assert.equal(calls,2);
