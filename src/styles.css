@@ -539,8 +539,9 @@ dialog.modal[open] { display: flex; flex-direction: column; gap: 16px; }
 .market-price > .mono { font-size: min(36px, calc(100cqi / var(--price-characters) / 0.6)); line-height: 40px; font-weight: 500; letter-spacing: -0.02em; white-space: nowrap; }
 .market-price-detail { display: flex; align-items: center; gap: 10px; white-space: nowrap; }
 .market-price-unit { font-size: 12px; line-height: 24px; color: var(--ink-muted); }
-.market-price-row .eyebrow { height: 16px; white-space: nowrap; }
-.market-snapshot { font-size: 10px; letter-spacing: 0; text-transform: none; }
+.market-price-row .eyebrow { height: 16px; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.market-price-row .eyebrow > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.market-snapshot { flex-shrink: 0; font-size: 11px; line-height: 16px; letter-spacing: 0; text-transform: none; padding: 0 4px; border-radius: 4px; background: var(--warning-tint); color: var(--warning); }
 .market-price .change-chip { height: 24px; font-size: 12px; padding: 0 10px 0 6px; }
 .market-price .change-chip.neutral { padding: 0; }
 .market-warning { padding: 8px 12px; border-radius: 10px; background: var(--warning-tint); color: var(--warning); font-size: 12px; line-height: 16px; }
@@ -642,10 +643,9 @@ dialog.modal[open] { display: flex; flex-direction: column; gap: 16px; }
 
 /* Trade panel */
 .trade-panel { position: sticky; top: 24px; gap: 12px; }
-/* Loading and success occupy one line; complete errors may wrap. */
+/* Loading and success occupy one line; complete notices may grow. */
 .musegod-verification { min-height: 16px; flex-shrink: 0; font-size: 12px; line-height: 16px; color: var(--ink-muted); overflow-wrap: anywhere; }
-.musegod-verification [role="alert"] { color: var(--warning); }
-.verification-error { display: block; color: var(--down); }
+.musegod-verification .notice + .notice { margin-top: 8px; }
 /* "Pay with: ETH | <pair>" on a pair-asset coin's buy side, sized for low vision like the money warnings. */
 .pay-with { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; font-size: 14px; line-height: 20px; font-weight: 600; }
 .pay-with .segmented button { min-height: 36px; padding: 0 16px; font-size: 14px; line-height: 20px; }
@@ -675,8 +675,8 @@ dialog.modal[open] { display: flex; flex-direction: column; gap: 16px; }
 .trade-amount-field { display: flex; align-items: center; gap: 8px; }
 .trade-max { flex: 0 0 auto; border: 1px solid var(--line-strong); border-radius: 7px; padding: 3px 8px; background: var(--surface-raised); color: var(--ink-muted); font-size: 11px; font-weight: 600; }
 .trade-max:hover:not(:disabled) { color: var(--ink); border-color: var(--sky); }
-.trade-share-slot { height: 16px; line-height: 16px; white-space: nowrap; overflow: hidden; }
-.trade-share-slot .share-equivalent { line-height: 16px; overflow: hidden; text-overflow: ellipsis; }
+.trade-share-slot { height: 16px; line-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.trade-share-slot .share-equivalent { display: inline; line-height: 16px; }
 .trade-share-slot[aria-hidden="true"] { visibility: hidden; }
 .quote-refresh { display: inline-flex; align-items: center; justify-content: center; gap: 5px; align-self: flex-end; font-size: 12px; }
 .trade-box strong { font-family: var(--font-mono); font-size: 26px; line-height: 40px; font-weight: 500; overflow-wrap: anywhere; }
@@ -1054,7 +1054,8 @@ dialog.modal.launch-review { width: min(640px, calc(100vw - 32px)); }
   .hero-stats dt { font-size: 11px; line-height: 14px; }
   .token-header-title h1 { font-size: 34px; line-height: 38px; }
   .token-icon.xl { width: 64px; height: 64px; font-size: 30px; }
-  .market-price > .mono { font-size: min(clamp(18px, 6vw, 28px), calc(100cqi / var(--price-characters) / 0.6)); line-height: 34px; }
+  .market-price > .mono { font-size: min(28px, calc(100cqi / var(--price-characters) / 0.6)); line-height: 34px; }
+  .quick-amounts button { padding: 0 8px; }
   .history-hash { flex-direction: column; }
   .burn-hero { padding: 22px 20px; border-radius: 22px; }
   .burn-number .int { font-size: 48px; line-height: 56px; }

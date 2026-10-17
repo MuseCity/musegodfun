@@ -386,7 +386,8 @@ for (const kind of ["launch", "musegod"] as const) {
     assert.match(html, /class="market-price-detail"[^]*market-price-unit[^]*change-chip/);
     const css = readFileSync("src/styles.css", "utf8");
     assert.match(css, /\.market-price > \.mono\s*\{[^}]*white-space:\s*nowrap/);
-    assert.match(css, /\.market-price > \.mono\s*\{[^}]*font-size:\s*min\(clamp\(/);
+    assert.match(css, /\.market-price > \.mono\s*\{[^}]*font-size:\s*min\(28px, calc\(/);
+    assert.doesNotMatch(css, /font-size:\s*min\(clamp\(18px, 6vw/);
   });
   test(`Run 2 ${kind} summary loading/empty statuses are not repeated below the chart`, async () => {
     for (const loading of [true, false]) {
@@ -401,6 +402,7 @@ for (const kind of ["launch", "musegod"] as const) {
     const market = cards(await renderMarket({ kind, summary: activitySummary(kind, { status: "stale", warning: "Provider unavailable" }) }))[0];
     const row = market.slice(0, market.indexOf('class="chart-toolbar"'));
     assert.match(row, /Previous snapshot/); assert.doesNotMatch(row, /Provider unavailable/);
+    assert.match(row, /class="market-snapshot" role="img" aria-label="Previous snapshot" title="Previous snapshot">Prev\.<\/small>/);
     assert.match(readFileSync("src/styles.css", "utf8"), /\.market-price-row \.eyebrow\s*\{[^}]*height:\s*16px/);
     assert.match(market.slice(market.indexOf('class="chart-frame"')), /Provider unavailable/);
   });

@@ -4,6 +4,7 @@ import { hookRuntime, importFresh, settle } from "./hook-runtime";
 import { syntheticToken } from "./fixtures";
 import { ROBINHOOD_STOCKS, STOCKS, type RuntimeConfig } from "../src/lib/config";
 import { readFileSync } from "node:fs";
+import { renderToStaticMarkup } from "react-dom/server";
 
 const src = (path: string) => new URL(`../src/${path}`, import.meta.url).href;
 type Options = { chain?: 4663 | 8453; fork?: boolean; pair?: string; connected?: boolean; balance?: bigint; listed?: boolean };
@@ -37,7 +38,7 @@ async function panel(t: TestContext, { chain = 4663, fork = false, pair = "COST"
   runtime.render(); await settle();
   return { byClass, button, text: () => text(runtime.output()), token, stock, input: () => input, reads: () => ({ nativeReads, feeReads }),
     async load(overrides: Partial<RuntimeConfig> = {}) { config = { mode: token.mode, chainId: fork ? 31337 : chain, deploymentChainId: chain, writesEnabled: true, blockReason: null, treasury: null, ...overrides }; runtime.render(); await settle(); },
-    async verify() { status = [{ address: stock.address, verified: true }]; runtime.render(); await settle(); },
+    async verify() { status = [{ address: stock.address, verified: true, multiplierWad: "1000000000000000000" }]; runtime.render(); await settle(); },
     async disconnect() { wallet.account = null; runtime.render(); await settle(); },
     async click(text: string) { button(text).props.onClick(); await settle(); },
     async type(value: string) { find(n => n.type === "input" && n.props["aria-label"] === "Trade input amount").props.onChange({ target: { value } }); await settle(); },
@@ -108,12 +109,16 @@ for (const tokenChain of [4663, 8453] as const) for (const configChain of [4663,
   assert.equal(!!p.byClass("pay-with"), configChain === 4663);
   await p.click("Sell"); assert.equal(p.byClass("pay-with"), undefined);
 });
-test("the 16px share line cannot put a scrollbar over its text and exposes the full value", () => {
-  const css = readFileSync("src/styles.css", "utf8"), app = readFileSync("src/App.tsx", "utf8");
+test("the rendered 16px share line exposes the exact full value and ellipsizes its block container", async t => {
+  const p = await panel(t, { connected: true, balance: 123456789012345678901234567890123456789n });
+  await p.load(); await p.verify();
+  const slot = p.byClass("trade-share-slot"); assert.equal(slot.props["aria-hidden"], false);
+  const html = renderToStaticMarkup(slot);
+  assert.match(html, /class="share-equivalent" title="Approximately 123456789012345678901\.234567890123456789 COST shares"/);
+  const css = readFileSync("src/styles.css", "utf8");
   const rule = css.match(/\.trade-share-slot\s*\{([^}]+)\}/)?.[1] ?? "";
-  assert.match(rule, /overflow:\s*hidden/); assert.doesNotMatch(rule, /overflow-x:\s*auto/);
-  assert.match(css, /\.trade-share-slot \.share-equivalent\s*\{[^}]*text-overflow:\s*ellipsis/);
-  assert.match(app, /className="share-equivalent" title=\{`Approximately \$\{formatUnits/);
+  for (const property of [/white-space:\s*nowrap/, /overflow:\s*hidden/, /text-overflow:\s*ellipsis/]) assert.match(rule, property);
+  assert.doesNotMatch(rule, /overflow-x:\s*auto/);
 });
 test("a Base share-equivalent line has a slot before the wallet balance arrives", async t => {
   const p = await panel(t, { chain: 8453 });

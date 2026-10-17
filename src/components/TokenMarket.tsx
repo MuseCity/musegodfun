@@ -214,7 +214,7 @@ export default function TokenMarket({
   const hasActivity = !!stats && Object.values(stats.periods).some(value => [value.buys, value.sells, value.volume, value.change].some(n => n != null));
   const emptySummary = stats?.status === "stale"
     ? `Previous snapshot has no displayable market values. ${summary.error || stats.warning || "Refresh to update."}`
-    : summary.error || (summary.loading ? "Loading market data…" : "The source has no price for this pool yet.");
+    : summary.error;
 
   const items =
     (currentLive?.trades || trades.data)?.trades.filter((t) => filter === "all" || t.side === filter) ??
@@ -227,7 +227,7 @@ export default function TokenMarket({
       <section className="card market-panel" aria-label={`${token.symbol} market`}>
         <div className="market-price-row">
           <div>
-            <span className="eyebrow">{token.symbol} PRICE{stats?.status === "stale" && <small className="market-snapshot"> · Previous snapshot</small>}</span>
+            <span className="eyebrow"><span>{token.symbol} PRICE</span>{stats?.status === "stale" && <small className="market-snapshot" role="img" aria-label="Previous snapshot" title="Previous snapshot">Prev.</small>}</span>
             {hasValues ? <div className="market-price">
               <span className="mono" style={{ "--price-characters": priceText.length } as CSSProperties} title={currentLive?.priceAt ? `Live price · On-chain · Alchemy · Trade ${currentLive.priceAt}` : undefined}>{priceText}</span>
               <span className="market-price-detail">

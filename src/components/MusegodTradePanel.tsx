@@ -2,7 +2,7 @@ import { PriceImpactRow, PriceImpactAcknowledgment } from "./PriceImpact";
 import { impactAcknowledged } from "../lib/price-impact";
 import { quoteNow } from "../lib/quote-clock";
 import { useEffect, useRef, useState } from "react";
-import { ArrowDown, ArrowUpRight, CircleAlert, Info, LoaderCircle, RefreshCw, Wallet } from "lucide-react";
+import { ArrowDown, ArrowUpRight, CircleAlert, Info, LoaderCircle, RefreshCw, TriangleAlert, Wallet } from "lucide-react";
 import SlippageControl from "./SlippageControl";
 import { formatUnits, type Hash } from "viem";
 import { api } from "../lib/api";
@@ -181,9 +181,12 @@ export default function MusegodTradePanel({ config, musegod, onHash }: {
         <button type="button" aria-pressed={side === "sell"} className={side === "sell" ? "active sell" : ""} disabled={busy} onClick={() => chooseSide("sell")}>Sell</button>
       </div>
       <div className="musegod-verification">
-        <div role="status">{!infoError && !info?.tradeBlockReason && !config?.blockReason && (blockReason || (info?.tradeEnabled ? "✓ Token and pool verified" : null))}</div>
-        <div role="alert">{(infoError || info?.tradeBlockReason || config?.blockReason) && <>
-          {blockReason}{infoError && <span className="verification-error">{infoError}</span>}
+        <div role="status" className={info?.tradeBlockReason || config?.blockReason ? "notice warning" : undefined}>
+          {info?.tradeBlockReason || config?.blockReason ? <><TriangleAlert size={17} aria-hidden="true" /><span>{blockReason}</span></>
+            : !infoError && (blockReason || (info?.tradeEnabled ? "✓ Token and pool verified" : null))}
+        </div>
+        <div role="alert" className={infoError ? "notice error" : undefined}>{infoError && <>
+          <CircleAlert size={17} aria-hidden="true" /><span>Token verification is unavailable. Refresh to retry. {infoError}</span>
         </>}</div>
       </div>
       <label className="trade-box pay">

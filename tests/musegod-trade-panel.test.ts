@@ -1,6 +1,7 @@
 import test, { type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { renderToStaticMarkup } from "react-dom/server";
 import { parseEther, type Hash } from "viem";
 import { MUSEGOD, MUSEGOD_ROUTER_VERIFICATION, type MusegodInfo, type MusegodQuote } from "../src/lib/musegod";
 import type { RuntimeConfig } from "../src/lib/config";
@@ -98,10 +99,19 @@ test("MUSEGOD verification uses one line for loading/success, complete errors an
   await s.info(info); assert.equal(text(slot()), "✓ Token and pool verified"); assert.equal(slot().props.children[0].props.role, "status");
   await s.set({ config }); await s.info(null); assert.equal(text(slot()), "Loading token verification…");
   await s.info({ ...info, tradeEnabled: false, tradeBlockReason: MUSEGOD_ROUTER_VERIFICATION.reason });
-  assert.equal(text(slot()), MUSEGOD_ROUTER_VERIFICATION.reason); assert.equal(slot().props.children[1].props.role, "alert");
+  const warning = () => { const [status, alert] = slot().props.children;
+    assert.equal(status.props.className, "notice warning"); assert.equal(text(alert), "");
+    assert.match(renderToStaticMarkup(status), /<svg[^>]*aria-hidden="true"/, "warning icon is decorative"); };
+  assert.equal(text(slot()), MUSEGOD_ROUTER_VERIFICATION.reason); warning();
+  await s.info(info); await s.set({ config: { ...config, blockReason: "Read-only configuration" } });
+  assert.equal(text(slot()), "Read-only configuration"); warning();
+  await s.set({ config });
   await s.set({ musegod: { info: null, infoError: "Verification service unavailable", revision: 0, refresh() {} } });
   assert.match(text(slot()), /Token verification is unavailable.*Verification service unavailable/);
   assert.equal(slot().props.children[1].props.role, "alert"); assert.doesNotMatch(text(slot()), /verified/);
+  const alert = slot().props.children[1]; assert.equal(alert.props.className, "notice error");
+  assert.equal(text(slot().props.children[0]), "");
+  assert.match(renderToStaticMarkup(alert), /<svg[^>]*aria-hidden="true"/, "error icon is decorative");
   const detail = "Verification endpoint unavailable. ".repeat(15);
   await s.set({ musegod: { info: null, infoError: detail, revision: 0, refresh() {} } });
   assert.ok(text(slot()).includes(detail));
