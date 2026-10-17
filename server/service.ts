@@ -1156,14 +1156,17 @@ export class LaunchpadService {
   }
   private reconciling = false;
   private reconcileCursor?: Hex;
-  async reconcile(maxDurationMs = 60_000) {
-    if (this.reconciling) return;
+  /** Resolves to the queue size it found and the rows it reached before the deadline; both are zero for an idle pass. */
+  async reconcile(maxDurationMs = 60_000): Promise<{ pending: number; processed: number }> {
+    const summary = { pending: 0, processed: 0 };
+    if (this.reconciling) return summary;
     this.reconciling = true;
     const deadline = Date.now() + maxDurationMs;
     try {
       // Ordinary maintenance recovers launches only; empty queues need no RPC.
       const pending = await this.store.pendingLaunches();
-      if (pending.length === 0) return;
+      summary.pending = pending.length;
+      if (pending.length === 0) return summary;
       await this.assertNetwork();
       const rows = pending;
       const finalized = await this.client.getBlock({ blockTag: "finalized" }).catch(() => null);
@@ -1173,6 +1176,7 @@ export class LaunchpadService {
         // Finish each row before yielding the remaining queue to the
         // next maintenance event. RPC timeouts retain the same receipt status.
         if (Date.now() >= deadline) break;
+        summary.processed++;
         let sender: Address | undefined;
         try {
           const token = await this.store.tokenByTxHash(row.hash);
@@ -1223,6 +1227,7 @@ export class LaunchpadService {
           this.reconcileCursor = row.hash;
         }
       }
+      return summary;
     } finally {
       this.reconciling = false;
     }

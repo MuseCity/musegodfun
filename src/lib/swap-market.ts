@@ -1,14 +1,17 @@
 import { INTERVAL_SECONDS } from "./candle-history";
-import type { Candle,CandleData,ChartInterval,MarketSummary,MarketTrade,TradeData } from "./market";
+import type { Candle,CandleData,ChartInterval,MarketSummary,MarketTrade,TradeData,Watermark } from "./market";
 import type { OnchainTrade } from "./swap-stream";
 const source="On-chain · Alchemy" as const;
 type Quote=OnchainTrade['quoteUsd'];
 export type OwnCandles=NonNullable<CandleData['own']>;
 const order=(a:OnchainTrade,b:OnchainTrade)=>a.blockNumber-b.blockNumber||a.logIndex-b.logIndex;
 const latest=(rows:OnchainTrade[])=>rows.reduce<OnchainTrade|undefined>((last,t)=>!last||order(t,last)>0?t:last,undefined);
-const mark=(t:OnchainTrade)=>({blockNumber:t.blockNumber,logIndex:t.logIndex,txHash:t.hash});
-/** fetchedAt is when this response was served; the last own trade's block time is lastTradeAt. */
-const meta=(base:{source?:TradeData['source'];fetchedAt:string;historySource?:TradeData['source'];historyFetchedAt?:string}|null,last:OnchainTrade|undefined,coverageStart:string)=>({source,status:"fresh" as const,fetchedAt:new Date().toISOString(),lastTradeAt:last?.at??null,coverageStart,...(base?{historySource:base.source===source?base.historySource:base.source,historyFetchedAt:base.source===source?base.historyFetchedAt:base.fetchedAt}:{})});
+const mark=(t:OnchainTrade):Watermark=>({blockNumber:t.blockNumber,logIndex:t.logIndex,txHash:t.hash});
+/** Whether a row lies after a section's watermark (block, then log index); rows at or below it are already applied. */
+export const afterWatermark=(t:{blockNumber:number;logIndex:number},w:Watermark|null|undefined)=>!w||t.blockNumber>w.blockNumber||t.blockNumber===w.blockNumber&&t.logIndex>w.logIndex;
+const advance=(w:Watermark|null|undefined,last:OnchainTrade|undefined)=>last&&afterWatermark(last,w)?mark(last):w??null;
+/** fetchedAt is when this response was served; the last own trade's block time is lastTradeAt; the watermark never moves backwards. */
+const meta=(base:{source?:TradeData['source'];fetchedAt:string;historySource?:TradeData['source'];historyFetchedAt?:string;watermark?:Watermark|null}|null,last:OnchainTrade|undefined,coverageStart:string)=>({source,status:"fresh" as const,fetchedAt:new Date().toISOString(),lastTradeAt:last?.at??null,coverageStart,watermark:advance(base?.watermark,last),...(base?{historySource:base.source===source?base.historySource:base.source,historyFetchedAt:base.source===source?base.historyFetchedAt:base.fetchedAt}:{})});
 /** The server's identity-checked quote-asset USD price, valid for 5 minutes; pushed trades carry it only when it passed. */
 export const currentQuote=(q:Quote|undefined)=>q&&q.price>0&&Number.isFinite(q.price)&&Date.now()-Date.parse(q.at)<300_000&&Date.parse(q.at)<=Date.now()+60_000?q:null;
 const convert=(priceQuote:string,quoteAmount:string,q:Quote)=>{const price=q?Number(priceQuote)*q.price:null,usd=q?Number(quoteAmount)*q.price:null;return {price:price!==null&&price>0&&Number.isFinite(price)?price:null,usd:usd!==null&&Number.isFinite(usd)?usd:null};};
@@ -29,7 +32,7 @@ export function mergeSummary(current:MarketSummary|null,rows:OnchainTrade[],cove
  if(current&&[current.lastTradeAt,current.quotePriceAt].some(at=>at&&Date.parse(at)>Date.parse(t.at)))return current;
  const base=current?.providerSnapshot??(current?.source===source?null:current);
  if(t.priceUsd==null&&base?.priceUsd!=null&&base.priceUsd>0&&Number.isFinite(base.priceUsd)){
-  return {...base,priceQuote:t.priceQuote,quoteSymbol:t.quoteSymbol,quotePriceAt:t.at,providerSnapshot:base};
+  return {...base,priceQuote:t.priceQuote,quoteSymbol:t.quoteSymbol,quotePriceAt:t.at,providerSnapshot:base,watermark:advance(current?.watermark,t)};
  }
  return {...base,...meta(base,t,coverageStart),priceUsd:t.priceUsd??null,priceQuote:t.priceQuote,quoteSymbol:t.quoteSymbol,quotePriceAt:undefined,quoteUsd:t.quoteUsd??null,marketCapUsd:base?.marketCapUsd??null,fdvUsd:base?.fdvUsd??null,liquidityUsd:base?.liquidityUsd??null,periods:base?.periods??{},providerSnapshot:base??undefined};
 }

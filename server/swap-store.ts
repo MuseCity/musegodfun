@@ -6,7 +6,7 @@ type Block={block:number;hash:string;sequence:string;generation:number;at:number
 export interface SwapStore {
  rows(pool:string,limit?:number):OnchainTrade[];window(pool:string,from:number,to:number):Iterable<OnchainTrade>;
  buckets(pool:string,from:number,to:number,seconds:number):SwapCandleBucket[];
- apply(delivery:Delivery):ApplyResult;prune(now?:number,batch?:number):void;
+ apply(delivery:Delivery):ApplyResult;/** Returns the number of trade rows removed. */prune(now?:number,batch?:number):number;
  pendingBlocks(before:number,limit:number):{block:number;hash:string}[];verifyBlock(block:number,expected:string,canonical:string):string[];
  get<T>(key:string):T|undefined;set(key:string,value:unknown):void;coverage(pool:string):string|undefined;
 }
@@ -80,9 +80,11 @@ export class MemorySwapStore implements SwapStore{
   if(best){this.put(best);pools.push(best.pool);}}return pools;}
  prune(now=Date.now(),batch=500){
   const all=[...this.trades.values()].sort(order),cutoff=Math.floor(now/1000)-RETENTION_SECONDS;
-  for(const t of all.filter((t,i)=>i<all.length-this.limit||Date.parse(t.at)/1000<cutoff).slice(0,batch)){this.trades.delete(t.id);for(const [k,a] of this.alternates)if(a.id===t.id)this.alternates.delete(k);this.set(`coverage:${t.pool}`,new Date(Math.max(Date.parse(this.coverage(t.pool)??t.at),Date.parse(t.at)+1000,cutoff*1000)).toISOString());}
+  const removed=all.filter((t,i)=>i<all.length-this.limit||Date.parse(t.at)/1000<cutoff).slice(0,batch);
+  for(const t of removed){this.trades.delete(t.id);for(const [k,a] of this.alternates)if(a.id===t.id)this.alternates.delete(k);this.set(`coverage:${t.pool}`,new Date(Math.max(Date.parse(this.coverage(t.pool)??t.at),Date.parse(t.at)+1000,cutoff*1000)).toISOString());}
   const blocks=[...this.blocks.values()].sort((a,b)=>a.block-b.block);
   for(const b of blocks.filter((b,i)=>b.at<cutoff||i<blocks.length-this.limit).slice(0,batch)){this.blocks.delete(b.block);for(const [k,a] of this.alternates)if(a.blockNumber===b.block)this.alternates.delete(k);this.set('floor',Math.max(this.get<number>('floor')??-1,b.block));}
+  return removed.length;
  }
  pendingBlocks(before:number,limit:number){const held=(n:number)=>[...this.trades.values(),...this.alternates.values()].some(t=>t.blockNumber===n);return [...this.blocks.values()].filter(b=>!b.verified&&b.at<=before&&held(b.block)).sort((a,b)=>a.block-b.block).slice(0,limit);}
  /** Every row and alternate at the height whose own block hash is not canonical is an orphan, whatever its kind; each removed id is
@@ -154,7 +156,7 @@ export class SqlSwapStore implements SwapStore{
  private promote(ids:string[]){const pools:string[]=[];for(const id of ids){if([...this.sql.exec('SELECT 1 FROM swap_trades WHERE id=?',id)].length)continue;
   const r=[...this.sql.exec('SELECT a.payload FROM swap_alternates a LEFT JOIN swap_blocks b ON b.block=a.block WHERE a.id=? ORDER BY COALESCE(b.verified,0) DESC,a.block DESC LIMIT 1',id)][0];
   if(r){const t=JSON.parse(r.payload) as OnchainTrade;this.put(t);this.count(1);pools.push(t.pool);}}return pools;}
- prune(now=Date.now(),batch=500){this.transaction(()=>{
+ prune(now=Date.now(),batch=500){return this.transaction(()=>{
   const cutoff=Math.floor(now/1000)-RETENTION_SECONDS;
   const count=this.get<number>('trade-count')??0;
   const removed=[...this.sql.exec('SELECT id,pool,at FROM swap_trades WHERE at<? ORDER BY at LIMIT ?',cutoff,batch)];
@@ -166,6 +168,7 @@ export class SqlSwapStore implements SwapStore{
   if(blockCount>this.limit)for(const r of this.sql.exec('SELECT block FROM swap_blocks ORDER BY block LIMIT ?',Math.min(batch,blockCount-this.limit)))if(!blocks.some(x=>x.block===r.block)&&blocks.length<batch)blocks.push(r);
   this.set('block-count',blockCount-blocks.length);
   for(const r of blocks){this.sql.exec('DELETE FROM swap_blocks WHERE block=?',r.block);this.sql.exec('DELETE FROM swap_alternates WHERE block=?',r.block);this.set('floor',Math.max(this.get<number>('floor')??-1,r.block));}
+  return removed.length;
  });}
  pendingBlocks(before:number,limit:number){return [...this.sql.exec('SELECT block,hash FROM swap_blocks WHERE verified=0 AND at<=? AND (EXISTS (SELECT 1 FROM swap_trades WHERE swap_trades.block=swap_blocks.block) OR EXISTS (SELECT 1 FROM swap_alternates WHERE swap_alternates.block=swap_blocks.block)) ORDER BY at,block LIMIT ?',before,limit)] as {block:number;hash:string}[];}
  verifyBlock(n:number,expected:string,canonical:string):string[]{return this.transaction(()=>{

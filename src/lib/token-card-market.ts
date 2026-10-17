@@ -10,6 +10,8 @@ export type CardMarketState = {
   loading: boolean;
   error: string;
   reason?: MarketReason;
+  /** When a request that returned no snapshot was made; a snapshot's own time is its `fetchedAt`. */
+  checkedAt?: string;
 };
 type CardMarkets = Record<string, CardMarketState>;
 type MarketStore = { scope: string | null; rows: CardMarkets; identities: Record<string, string> };
@@ -26,6 +28,7 @@ const MUSEGOD_ADDRESS = MUSEGOD.token.toLowerCase();
 const unavailable = (error = "Market data unavailable"): CardMarketState => ({
   data: null, loading: false, error,
 });
+const checked = (error?: string): CardMarketState => ({ ...unavailable(error), checkedAt: new Date().toISOString() });
 const waiting = (): CardMarketState => ({ data: null, loading: true, error: "" });
 const validSnapshot = (data: MarketSummary | null, now: number) =>
   data !== null && data.status !== "unavailable" &&
@@ -72,7 +75,7 @@ export async function loadCardMarkets(
       rows[MUSEGOD_ADDRESS] = { data, loading: false, error: "" };
     } catch (error) {
       if (!isActive()) return rows;
-      rows[MUSEGOD_ADDRESS] = unavailable(errorMessage(error));
+      rows[MUSEGOD_ADDRESS] = checked(errorMessage(error));
     }
   }
   const uniqueAddresses = [...new Set(addresses.map((address) => address.toLowerCase()))].sort();
@@ -88,11 +91,11 @@ export async function loadCardMarkets(
       const received = new Map(result.map((row) => [row.address.toLowerCase(), row]));
       for (const address of batch) {
         const row = received.get(address), data = row?.summary;
-        rows[address] = data ? { data, loading: false, error: "" } : { ...unavailable(marketStatusMessage(row?.reason)), reason: row?.reason };
+        rows[address] = data ? { data, loading: false, error: "" } : { ...checked(marketStatusMessage(row?.reason)), reason: row?.reason };
       }
     } catch (error) {
       if (!isActive()) return rows;
-      for (const address of batch) rows[address] = unavailable(errorMessage(error));
+      for (const address of batch) rows[address] = checked(errorMessage(error));
     }
   }
   return rows;

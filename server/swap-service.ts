@@ -4,7 +4,7 @@ import { mergeCandles,mergeCandleBuckets,mergeSummary,mergeTrades,priceTrade } f
 import type { OnchainTrade,SwapMessage } from "../src/lib/swap-stream";
 import { decodeDelivery,NETWORKS,verifySignature,type SwapPool,type WebhookKind } from "./swap-stream";
 import {webhookKindForPath} from './http-security';
-import { NotifyClient,reconcileWebhook,webhookKinds,NOTIFY_RECONCILE_BUDGET_MS,type NotifyState,type NotifyAttempt } from "./alchemy-webhooks";
+import { NotifyClient,reconcileWebhook,webhookKinds,NOTIFY_RECONCILE_BUDGET_MS,type NotifyState,type NotifyAttempt,type ReconcileOutcome } from "./alchemy-webhooks";
 import { order,SwapCapacityError,SwapStateError,type SwapStore } from "./swap-store";
 import {clientBucket} from './abuse';
 import { MarketUnavailable } from "./snapshots";
@@ -17,20 +17,23 @@ export const webhookReadFailureCost=(heldMs:number)=>heldMs<1000?5:Math.min(60,M
  * these addresses, its new senders fall back to the proportional charge. */
 export const ALCHEMY_WEBHOOK_SENDERS:ReadonlySet<string>=new Set(['54.236.136.17','34.237.24.169']);
 export const SWAP_MAINTENANCE_BUDGET_MS=10_000,SWAP_BLOCK_TIMEOUT_MS=2_000;
+/** One maintenance pass: rows pruned, pending blocks examined, blocks whose canonical hash was read, and pools told about a reorg. */
+export type SwapMaintenance={pruned:number;blocks:number;verified:number;reorgs:number};
 export const isWebhookPath=(path:string,chainId?:4663|8453)=>!!webhookKindForPath(path,chainId);
 export class SwapService {
- private pending=Promise.resolve();private reconciling?:Promise<void>;private rate={at:0,count:0};private active=0;
+ private pending=Promise.resolve();private reconciling?:Promise<Partial<Record<WebhookKind,ReconcileOutcome>>>;private rate={at:0,count:0};private active=0;
  private clients=new Map<string,{at:number;count:number}>();private readers=new Map<string,number>();private reading=0;
  readonly listeners=new Set<(message:SwapMessage)=>void>();
  constructor(readonly chainId:4663|8453,readonly store:SwapStore,private options:{pools():Promise<SwapPool[]>;token?:string;quote?(pool:SwapPool):Promise<OnchainTrade['quoteUsd']>;quoteCached?(pool:SwapPool):OnchainTrade['quoteUsd'];blockHash?(block:number,signal:AbortSignal):Promise<string|null>;broadcast?(message:SwapMessage):void}){}
  status(){return {kinds:Object.fromEntries(webhookKinds(this.chainId).map(kind=>{const a=this.store.get<NotifyAttempt>('notify-attempt-'+kind);return [kind,{creationStopped:(a?.creationFailures??0)>=5,creationFailures:a?.creationFailures??0,retryAt:a?.nextAt??null,verificationAt:a?.verifyAt??null,...(a?.failures?{error:'Notify reconciliation unavailable'}:{})}];}))};}
  async pool(id:string){return (await this.options.pools()).find(p=>p.pool===id.toLowerCase());}
- async reconcile(origin:string){
+ /** Resolves to each active kind's outcome, or undefined when this runtime has no Notify token. */
+ async reconcile(origin:string):Promise<Partial<Record<WebhookKind,ReconcileOutcome>>|undefined>{
   if(!this.options.token)return;if(this.reconciling)return this.reconciling;
   const controller=new AbortController();let timer:ReturnType<typeof setTimeout>|undefined;
   const expired=new Promise<never>((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Error('Notify reconciliation timed out'));},NOTIFY_RECONCILE_BUDGET_MS);});
-  this.reconciling=Promise.race([(async()=>{const pools=await this.options.pools();controller.signal.throwIfAborted();await reconcileWebhook(this.store,new NotifyClient(this.options.token!,undefined,controller.signal),this.chainId,pools,`${origin}/api/chains/${this.chainId}/webhooks/alchemy`);})(),expired]);
-  try{await this.reconciling;}finally{clearTimeout(timer);controller.abort();this.reconciling=undefined;}
+  this.reconciling=Promise.race([(async()=>{const pools=await this.options.pools();controller.signal.throwIfAborted();return reconcileWebhook(this.store,new NotifyClient(this.options.token!,undefined,controller.signal),this.chainId,pools,`${origin}/api/chains/${this.chainId}/webhooks/alchemy`);})(),expired]);
+  try{return await this.reconciling;}finally{clearTimeout(timer);controller.abort();this.reconciling=undefined;}
  }
  /** Failed HMAC verification and failed pre-HMAC reads spend a source bucket; signature/length rejections and authenticated schema errors do not. */
  private spend(key:string,cost:number){
@@ -69,16 +72,19 @@ export class SwapService {
    }return {status:200};
   }finally{this.active--;}
  }
- async maintain(now=Date.now()){
+ async maintain(now=Date.now()):Promise<SwapMaintenance>{
   const deadline=Date.now()+SWAP_MAINTENANCE_BUDGET_MS;
-  this.store.prune(now,500);
-  if(!this.options.blockHash)return;
+  const result:SwapMaintenance={pruned:this.store.prune(now,500),blocks:0,verified:0,reorgs:0};
+  if(!this.options.blockHash)return result;
   for(const b of this.store.pendingBlocks(Math.floor(now/1000)-120,10)){
    const remaining=deadline-Date.now();if(remaining<=0)break;
+   result.blocks++;
    const controller=new AbortController();let timer:ReturnType<typeof setTimeout>|undefined;
    let hash:string|null;try{hash=await Promise.race([this.options.blockHash(b.block,controller.signal),new Promise<null>(resolve=>{timer=setTimeout(()=>{controller.abort();resolve(null);},Math.min(remaining,SWAP_BLOCK_TIMEOUT_MS));})]);}catch{continue;}finally{clearTimeout(timer);controller.abort();}if(!hash||!/^0x[\da-f]{64}$/i.test(hash))continue;
-   hash=hash.toLowerCase();for(const pool of this.store.verifyBlock(b.block,b.hash,hash))this.publish({type:'trades',chainId:this.chainId,pool,trades:[],reorg:true,blockNumber:b.block,blockHash:hash,coverageStart:this.store.coverage(pool)??new Date(now).toISOString()});
+   hash=hash.toLowerCase();result.verified++;const pools=this.store.verifyBlock(b.block,b.hash,hash);result.reorgs+=pools.length;
+   for(const pool of pools)this.publish({type:'trades',chainId:this.chainId,pool,trades:[],reorg:true,blockNumber:b.block,blockHash:hash,coverageStart:this.store.coverage(pool)??new Date(now).toISOString()});
   }
+  return result;
  }
  async serve(section:'summary'|'trades'|'candles',pool:string,provider:()=>Promise<any>,interval:ChartInterval='1h',before?:number):Promise<any>{
   let base:any=null;try{base=await provider();}catch(e){if(!(e instanceof MarketUnavailable)||!this.store.coverage(pool))throw e;}

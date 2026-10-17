@@ -807,6 +807,9 @@ export function Explore({
     [order, setOrder] = useState("new"),
     [quick, setQuick] = useState<QuickFilter>("all"),
     [view, setView] = useState<"list" | "grid">(savedView);
+  const allChip = useRef<HTMLButtonElement>(null);
+  // One action restores the full list; focus moves to the chip that now describes it.
+  const clearFilters = () => { setSearch(""); setFilter("all"); setQuick("all"); allChip.current?.focus(); };
   const now = Date.now();
   const listed = directory.current.tokens;
   const newCount = listed.filter((token) => now - token.createdAt < DAY).length;
@@ -956,7 +959,7 @@ export function Explore({
           </button>
         </div>
         <div className="quick-filters" role="group" aria-label="Quick filters">
-          <button type="button" className="filter-chip" aria-pressed={activeQuick === "all"} onClick={() => setQuick("all")}>All launches</button>
+          <button type="button" className="filter-chip" aria-pressed={activeQuick === "all"} onClick={() => setQuick("all")} ref={allChip}>All launches</button>
           <button type="button" className="filter-chip" aria-pressed={activeQuick === "new"} onClick={() => setQuick("new")}>New in 24h <span className="count">{newCount}</span></button>
           <button type="button" className="filter-chip" aria-pressed={activeQuick === "locked"} onClick={() => setQuick("locked")}><LockKeyhole size={13} />Locked first buy <span className="count">{lockedCount}</span></button>
           {account && <button type="button" className="filter-chip" aria-pressed={activeQuick === "mine"} onClick={() => setQuick("mine")}>Launched by me <span className="count">{mineCount}</span></button>}
@@ -1050,10 +1053,13 @@ export function Explore({
                 ? "Try another search, quote asset or quick filter."
                 : "No confirmed launches have been registered yet. Choose an asset and create a pair for your idea."}
             </p>
-            <Link href="/create" className="secondary">
-              Create your meme
-              <ArrowUpRight size={16} />
-            </Link>
+            <div className="empty-actions">
+              {filtersActive && <button type="button" className="primary" onClick={clearFilters}>Show all launches</button>}
+              <Link href="/create" className="secondary">
+                Create your meme
+                <ArrowUpRight size={16} />
+              </Link>
+            </div>
           </div>
         ) : null}
         {hasMore && <div className="load-more"><button type="button" className="secondary" disabled={loading} onClick={loadMore}>{loading ? "Loading more tokens…" : "Load more tokens"}</button></div>}

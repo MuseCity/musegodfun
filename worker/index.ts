@@ -23,10 +23,47 @@ interface Env {
   FIRST_BUY_GUARD_ADDRESS?: string;
 }
 
+/** Per-run maintenance cost: wall-clock per phase with its outcome and work counts, so the Durable Object's billed duration can be
+ * attributed to launch, webhook or finality upkeep. Totals cover this isolate's lifetime; every run is also logged as one
+ * `launchpad_maintenance` line. This file stays import-free for these helpers because tests compile it with a fixed scope. */
+export type MaintenancePhase = "cleanup" | "launches" | "webhooks" | "finality";
+export const MAINTENANCE_PHASES: readonly MaintenancePhase[] = ["cleanup", "launches", "webhooks", "finality"];
+export type MaintenancePhaseResult = { ms: number; ok: boolean; work: Record<string, number> };
+export type MaintenanceRun = { at: string; ms: number; idle: boolean; phases: Partial<Record<MaintenancePhase, MaintenancePhaseResult>> };
+export class MaintenanceMetrics {
+  readonly since = new Date().toISOString();
+  runs = 0; idle = 0; ms = 0; last: MaintenanceRun | null = null;
+  readonly phases = Object.fromEntries(MAINTENANCE_PHASES.map(name => [name, { runs: 0, errors: 0, ms: 0, work: {} as Record<string, number> }])) as
+    Record<MaintenancePhase, { runs: number; errors: number; ms: number; work: Record<string, number> }>;
+  /** Idle: every phase ran and succeeded and none found work (no pending launch, no remote Notify call, nothing pruned or verified). */
+  static idle(phases: MaintenanceRun["phases"]) {
+    return MAINTENANCE_PHASES.every(name => { const phase = phases[name]; return !!phase && phase.ok && Object.values(phase.work).every(n => n === 0); });
+  }
+  record(startedAt: number, phases: MaintenanceRun["phases"], now = Date.now()): MaintenanceRun {
+    const run: MaintenanceRun = { at: new Date(startedAt).toISOString(), ms: Math.max(0, now - startedAt), idle: MaintenanceMetrics.idle(phases), phases };
+    this.runs++; this.ms += run.ms; if (run.idle) this.idle++; this.last = run;
+    for (const name of MAINTENANCE_PHASES) {
+      const phase = phases[name]; if (!phase) continue;
+      const total = this.phases[name]; total.runs++; total.ms += phase.ms; if (!phase.ok) total.errors++;
+      for (const [key, n] of Object.entries(phase.work)) total.work[key] = (total.work[key] ?? 0) + n;
+    }
+    return run;
+  }
+  report() {
+    const phases = Object.fromEntries(MAINTENANCE_PHASES.map(name => [name, { ...this.phases[name], work: { ...this.phases[name].work } }])) as typeof this.phases;
+    return { since: this.since, runs: this.runs, idle: this.idle, ms: this.ms, phases, last: this.last };
+  }
+}
+/** Reads named numeric counters from a phase result; stubs or older runtimes that return nothing count as zero work. */
+const workCounts = (value: unknown, keys: string[]) => Object.fromEntries(keys.map(key =>
+  [key, typeof value === "object" && value !== null && typeof (value as Record<string, unknown>)[key] === "number" ? (value as Record<string, number>)[key] : 0]));
+
 export class LaunchpadRuntime extends DurableObject<Env> {
   private app!: ReturnType<typeof createApp>["app"];
   private service!: ReturnType<typeof createApp>["service"];
   private swaps!: SwapService;
+  private metrics?: MaintenanceMetrics;
+  private get maintenance() { return this.metrics ??= new MaintenanceMetrics(); }
   private fingerprint = "";
   private readonly streams = new StreamAdmission();
   private readonly chainId: 4663 | 8453;
@@ -54,6 +91,7 @@ export class LaunchpadRuntime extends DurableObject<Env> {
       swapStore: new SqlSwapStore(this.ctx.storage.sql, fn => this.ctx.storage.transactionSync(fn)),
       broadcast: message => this.broadcast(message),
       chainConfig: chainId => this.env.LAUNCHPAD.get(this.env.LAUNCHPAD.idFromName(chainId === 8453 ? "base-mainnet" : "robinhood-mainnet")).chainConfiguration(),
+      maintenance: () => this.maintenance.report(),
     });
     this.service = service;
     this.swaps = swaps;
@@ -146,16 +184,28 @@ export class LaunchpadRuntime extends DurableObject<Env> {
     }
   }
   async alarm() {
+    const startedAt = Date.now(), phases: MaintenanceRun["phases"] = {};
+    const measure = async <T>(name: MaintenancePhase, run: () => Promise<T> | T, work: (result: T) => Record<string, number> = () => ({})) => {
+      const at = Date.now();
+      try { const result = await run(); phases[name] = { ms: Date.now() - at, ok: true, work: work(result) }; return result; }
+      catch (error) { phases[name] = { ms: Date.now() - at, ok: false, work: {} }; throw error; }
+    };
     try {
       this.refreshRuntime();
-      await this.service.store.cleanup();
-      await this.service.reconcile(60_000);
+      await measure("cleanup", () => this.service.store.cleanup());
+      await measure("launches", () => this.service.reconcile(60_000), result => workCounts(result, ["pending", "processed"]));
     } catch (error) {
       console.error(`Launchpad maintenance failed: ${redact(error, this.service.runtime.environment)}`);
     } finally {
-      try { await this.swaps?.reconcile("https://musegod.fun"); } catch { console.error("Swap webhook reconciliation is unavailable"); }
-      try { await this.swaps?.maintain(); } catch { console.error("Swap maintenance is unavailable"); }
-      finally { await this.ctx.storage.setAlarm(Date.now() + 30_000); }
+      try { await measure("webhooks", () => this.swaps?.reconcile("https://musegod.fun"), result => ({ remote: Object.values(result ?? {}).filter(outcome => outcome === "checked").length })); }
+      catch { console.error("Swap webhook reconciliation is unavailable"); }
+      try { await measure("finality", () => this.swaps?.maintain(), result => workCounts(result, ["pruned", "blocks", "verified", "reorgs"])); }
+      catch { console.error("Swap maintenance is unavailable"); }
+      finally {
+        const run = this.maintenance.record(startedAt, phases);
+        console.log(JSON.stringify({ event: "launchpad_maintenance", chainId: this.chainId, ...run }));
+        await this.ctx.storage.setAlarm(Date.now() + 30_000);
+      }
     }
   }
 }

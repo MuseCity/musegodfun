@@ -376,6 +376,7 @@ dialog.modal[open] { display: flex; flex-direction: column; gap: 16px; }
 .empty-state.dashed h3 { font-family: var(--font-sans); font-size: 15px; line-height: 22px; font-weight: 650; }
 .empty-state p { max-width: 420px; color: var(--ink-muted); font-size: 13px; line-height: 18px; }
 .empty-state .primary, .empty-state .secondary { margin-top: 6px; }
+.empty-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
 
 /* ── Explore ────────────────────────────────────────────────────────────── */
 .explore-hero { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 20px 32px; align-items: center; }

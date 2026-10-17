@@ -46,18 +46,21 @@ export function webhookDiff(hooks:NotifyHook[],desired:ReturnType<typeof desired
 /** Compare callback identity independently of the deterministic pool-set query. */
 function sameCallback(a:string,b:string){const x=new URL(a),y=new URL(b);return x.origin===y.origin&&x.pathname===y.pathname;}
 function validHook(h:NotifyHook,d:ReturnType<typeof desiredWebhook>){return h.network===d.network&&sameCallback(h.webhook_url,d.webhook_url)&&h.webhook_type==='GRAPHQL'&&h.is_active;}
-export async function reconcileWebhook(store:SwapStore,api:NotifyClient,chainId:4663|8453,pools:SwapPool[],url:string,now=Date.now()){
+/** `fresh`: the stored binding was verified within a day, so no Notify request was made; `checked`: remote work ran and the binding is current. */
+export type ReconcileOutcome='fresh'|'checked';
+export async function reconcileWebhook(store:SwapStore,api:NotifyClient,chainId:4663|8453,pools:SwapPool[],url:string,now=Date.now()):Promise<Partial<Record<WebhookKind,ReconcileOutcome>>>{
  // The failed single-webhook production state has no binding. Its legacy counters never gate the new kinds.
  const active=webhookKinds(chainId).filter(kind=>pools.some(p=>p.chainId===chainId&&p.version===(kind==='v4'?4:3))||store.get<NotifyState>('notify-'+kind)||store.get<NotifyAttempt>('notify-attempt-'+kind));
  const results=await Promise.allSettled(active.map(kind=>reconcileKind(store,api,chainId,pools,url,kind,now)));
  if(results.some(r=>r.status==='rejected'))throw Error('Notify reconciliation unavailable');
+ return Object.fromEntries(active.map((kind,index)=>[kind,(results[index] as PromiseFulfilledResult<ReconcileOutcome>).value]));
 }
-async function reconcileKind(store:SwapStore,api:NotifyClient,chainId:4663|8453,pools:SwapPool[],url:string,kind:WebhookKind,now:number){
+async function reconcileKind(store:SwapStore,api:NotifyClient,chainId:4663|8453,pools:SwapPool[],url:string,kind:WebhookKind,now:number):Promise<ReconcileOutcome>{
  const desired=desiredWebhook(chainId,pools,url,kind),stateKey='notify-'+kind,attemptKey='notify-attempt-'+kind,state=store.get<NotifyState>(stateKey);
  const attempt=store.get<NotifyAttempt>(attemptKey),hasPools=pools.some(p=>p.chainId===chainId&&p.version===(kind==='v4'?4:3));
  const bound=(id:string,otherOnly=false)=>webhookKinds(chainId).some(k=>(!otherOnly||k!==kind)&&store.get<NotifyState>('notify-'+k)?.bindings.some(b=>b.id===id));
  if(attempt?.hash===desired.hash&&now<attempt.nextAt)throw Error("Notify reconciliation retry is pending");
- if(state?.hash===desired.hash&&now-state.checkedAt<86400_000&&!(attempt?.failures))return;
+ if(state?.hash===desired.hash&&now-state.checkedAt<86400_000&&!(attempt?.failures))return 'fresh';
  const same=attempt?.hash===desired.hash,failures=same?attempt.failures:0;
  const next:NotifyAttempt={hash:desired.hash,failures:failures+1,nextAt:now+Math.min(3600_000,60_000*2**Math.min(failures,6)),creationFailures:same?attempt.creationFailures??0:0,...(same&&attempt.createdId?{createdId:attempt.createdId}:{}),...(same&&attempt.verifyAt?{verifyAt:attempt.verifyAt}:{}),...(same&&attempt.uncertain?{uncertain:true}:{})};
  const stopped=(next.creationFailures??0)>=5;
@@ -94,6 +97,7 @@ async function reconcileKind(store:SwapStore,api:NotifyClient,chainId:4663|8453,
   for(const old of state?.bindings??[])if(old.id!==hook?.id&&!removed.has(old.id)&&hooks.some(h=>h.id===old.id)&&!bound(old.id,true)){await api.remove(old.id);removed.add(old.id);}
   for(const old of hooks)if(!removed.has(old.id)&&sameCallback(old.webhook_url,desired.webhook_url)&&!bound(old.id))await api.remove(old.id);
   store.set(attemptKey,{hash:desired.hash,failures:0,creationFailures:0,nextAt:0});
+  return 'checked';
  }catch{
   if(createdId&&!bound(createdId))try{await api.remove(createdId);delete next.createdId;}catch{}
   if((next.creationFailures??0)>=5){next.nextAt=now+3600_000;next.verifyAt??=now+86400_000;}

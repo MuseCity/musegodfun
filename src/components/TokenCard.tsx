@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Sparkles } from "lucide-react";
 import { shortAddress, type Stock, type TokenRecord } from "../lib/config";
 import type { CardMarketState } from "../lib/token-card-market";
+import { summaryHasValues } from "../lib/market";
 import assetLogos from "../lib/asset-logos.json";
 import { tokenPath } from "../lib/network";
 import { changeClass as changeKind, percentChange as percent, relativeTime, tokenImageSrc, usdCompact as usd } from "../lib/format";
@@ -31,17 +32,29 @@ export function NftBadge({ token, withContract = false }: { token: Pick<TokenRec
   return label ? <span className={`badge nft-badge${label.includes("unverified") ? " nft-warning" : ""}`}>{label}</span> : null;
 }
 
+/** "Fetched" is reserved for a snapshot that holds a value. A request that returned none, or no snapshot at all, shows when it
+ * was checked, so a recent request time is never read as recent market data. */
 export function CardMarketStatus({ market }: { market: CardMarketState }) {
   const stats = market.data?.status === "unavailable" ? null : market.data;
   const source = stats?.source === "Bankr" ? "Bankr / Pools" : stats?.source;
-  const at = stats && Number.isFinite(Date.parse(stats.fetchedAt)) ? new Date(stats.fetchedAt) : null;
-  return <div className={`token-card-market-state${stats?.status === "stale" ? " stale" : ""}`} role="status"
+  const stale = stats?.status === "stale", values = summaryHasValues(stats);
+  const clock = (iso: string | undefined) => {
+    if (!iso || !Number.isFinite(Date.parse(iso))) return null;
+    const at = new Date(iso);
+    return <time dateTime={iso} title={at.toISOString()}>{at.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}</time>;
+  };
+  const fetched = stats && clock(stats.fetchedAt), checked = !stats && !market.loading ? clock(market.checkedAt) : null;
+  return <div className={`token-card-market-state${stale ? " stale" : ""}`} role="status"
     title={stats?.warning || market.error || undefined}>
     {stats ? <>
       {source && <span>{source}</span>}
-      <span>{stats.status === "stale" ? "Previous snapshot" : "Fetched"}{at && <> · <time dateTime={stats.fetchedAt} title={at.toISOString()}>{at.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}</time></>}</span>
+      {!values && <span>No market price yet</span>}
+      <span>{values ? stale ? "Previous snapshot" : "Fetched" : stale ? "Previous check" : "Checked"}{fetched && <> · {fetched}</>}</span>
       {market.loading && <span>Updating…</span>}
-    </> : <span>{market.loading ? "Loading market data…" : market.error || "Market data unavailable"}</span>}
+    </> : <>
+      <span>{market.loading ? "Loading market data…" : market.error || "Market data unavailable"}</span>
+      {checked && <span>Checked · {checked}</span>}
+    </>}
   </div>;
 }
 

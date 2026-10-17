@@ -21,6 +21,8 @@ export type SnapshotMeta = {
   status?: "fresh" | "stale" | "unavailable";
   nextRefreshAt?: string;
   warning?: string;
+  /** The newest own on-chain trade this section has applied; pushes at or below it are already reflected. */
+  watermark?: Watermark | null;
 };
 export const CHART_INTERVALS = ["1m", "5m", "15m", "1h", "4h", "1d"] as const;
 export type ChartInterval = (typeof CHART_INTERVALS)[number];
@@ -58,7 +60,6 @@ export type Candle = {
 export type CandleData = SnapshotMeta & {
   fetchedAt: string;
   candles: Candle[];
-  watermark?: Watermark | null;
   /** Own on-chain push state: quote-asset OHLCV for buckets after the provider's last returned bar (all buckets when it is null). */
   own?: { providerLastBar: number | null; quoteSymbol: string | null; candles: Candle[]; watermark: Watermark | null };
 };
@@ -83,6 +84,15 @@ export type TradeData = SnapshotMeta & {
   fetchedAt: string;
   trades: MarketTrade[];
 };
+/** Whether a summary holds a displayable market value. A real zero counts; a 24h change alone does not. */
+export function summaryHasValues(summary: MarketSummary | null | undefined) {
+  return !!summary && [summary.priceQuote, summary.priceUsd, summary.marketCapUsd, summary.fdvUsd, summary.liquidityUsd, summary.periods.h24?.volume].some(value => value != null);
+}
+/** The provider is pausing updates (its own backoff, a rate limit or an exhausted quota); the data will usually return later. */
+export function marketPaused(reason?: MarketReason) {
+  return reason === "backoff" || reason === "rate_limited" || reason === "quota_exhausted";
+}
 export function marketStatusMessage(reason?: MarketReason) {
-  return reason === "source_not_provided" ? "Holder data unavailable" : reason === "not_indexed" ? "Market records are not indexed for this pool yet." : "Market data unavailable";
+  return reason === "source_not_provided" ? "Holder data unavailable" : reason === "not_indexed" ? "Market records are not indexed for this pool yet."
+    : marketPaused(reason) ? "Provider updates paused. Try again later." : "Market data unavailable";
 }

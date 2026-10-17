@@ -7,6 +7,7 @@ import {
   CHART_INTERVALS,
   marketSnapshotKey,
   marketStatusMessage,
+  summaryHasValues,
   type SnapshotMeta,
   type Candle,
   type CandleData,
@@ -210,7 +211,7 @@ export default function TokenMarket({
     activity = stats?.periods[period],
     change = stats?.periods.h24?.change;
   const priceText = stats?.priceUsd != null ? usd(stats.priceUsd, true) : stats?.priceQuote ? Number(stats.priceQuote).toLocaleString("en-US", {maximumSignificantDigits:6}) : "—";
-  const hasValues = !!stats && [stats.priceQuote, stats.priceUsd, stats.marketCapUsd, stats.fdvUsd, stats.liquidityUsd, stats.periods.h24?.volume].some(value => value != null);
+  const hasValues = summaryHasValues(stats);
   const hasActivity = !!stats && Object.values(stats.periods).some(value => [value.buys, value.sells, value.volume, value.change].some(n => n != null));
   const emptySummary = stats?.status === "stale"
     ? `Previous snapshot has no displayable market values. ${summary.error || stats.warning || "Refresh to update."}`

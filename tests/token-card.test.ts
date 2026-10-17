@@ -170,3 +170,42 @@ test("an NFT coin's badge is a plain span, so the card keeps one link and no but
   assert.doesNotMatch(rejected, /class="badge/);
   assert.doesNotMatch(card(), /class="badge/);
 });
+
+test("a snapshot without values says it was checked, not fetched, and a real zero stays a fetched value", () => {
+  const empty = summary({ priceUsd: null, fdvUsd: null, marketCapUsd: null, liquidityUsd: null, periods: { h24: { change: null, volume: null, buys: null, sells: null } } });
+  const fresh = card(token(), { data: empty });
+  const freshText = metricText(fresh);
+  assert.match(freshText, /CoinGecko/);
+  assert.match(freshText, /No market price yet/);
+  assert.match(freshText, /Checked/);
+  assert.doesNotMatch(freshText, /Fetched|Previous snapshot/);
+  assert.match(fresh, /<time\b[^>]*datetime=/i, "the check time stays machine readable");
+  assert.match(freshText, /Market cap — 24h volume — 24h change —/);
+  const stale = card(token(), { data: { ...empty, status: "stale", warning: "Request failed" }, error: "Request failed" });
+  const staleText = metricText(stale);
+  assert.match(staleText, /No market price yet/);
+  assert.match(staleText, /Previous check/);
+  assert.doesNotMatch(staleText, /Fetched|Previous snapshot/);
+  assert.match(stale, /token-card-market-state stale/);
+  const zero = card(token(), { data: summary({ priceUsd: 0.000004, fdvUsd: 4981, marketCapUsd: null, liquidityUsd: 4861, periods: { h24: { change: 0, volume: 0, buys: 0, sells: 0 } } }) });
+  const zeroText = metricText(zero);
+  assert.match(zeroText, /Fetched/);
+  assert.match(zeroText, /24h volume \$0 24h change 0\.00%/);
+  assert.doesNotMatch(zeroText, /No market price yet|Checked/);
+});
+
+test("an unavailable row shows the shared reason text with its own check time", () => {
+  const checkedAt = "2026-10-17T06:38:44.734Z";
+  const paused = card(token(), { data: null, error: "Provider updates paused. Try again later.", reason: "backoff", checkedAt });
+  const pausedText = metricText(paused);
+  assert.match(pausedText, /Provider updates paused\. Try again later\./);
+  assert.match(pausedText, /Checked/);
+  assert.match(paused, new RegExp(`datetime="${checkedAt}"`, "i"));
+  assert.doesNotMatch(pausedText, /Fetched|No market price yet/);
+  const plain = card(token(), { data: null, error: "Market data unavailable" });
+  assert.match(metricText(plain), /Market data unavailable/);
+  assert.doesNotMatch(metricText(plain), /Checked/);
+  const loading = card(token(), { data: null, loading: true, checkedAt });
+  assert.match(metricText(loading), /Loading market data/);
+  assert.doesNotMatch(metricText(loading), /Checked/);
+});

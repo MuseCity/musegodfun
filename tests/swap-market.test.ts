@@ -23,3 +23,18 @@ test('history paging accepts mixed on-chain/provider USD bars and refuses quote-
  const page=await createHistoryPager(async()=>base).load(2);assert.equal(page?.candles.length,1);
  await assert.rejects(createHistoryPager(async()=>({...base,unit:'WETH'})).load(2));
 });
+
+test('C1 own-trade watermarks guard every section: rows at or below a section watermark are not re-applied',async()=>{
+ const {applySwapPush}=await import('../src/lib/swap-projection');
+ const {decodeDelivery,registeredPools}=await import('../server/swap-stream');const fixtures=(await import('./fixtures/alchemy-swaps.json')).default;
+ const trade=decodeDelivery(JSON.stringify(fixtures.deliveries.v3),{id:'wh_test_v3',network:'ROBINHOOD_MAINNET',kind:'v3' as const},registeredPools(4663,[])).trades[0];
+ const message=(t:any)=>({type:'trades' as const,chainId:4663 as const,pool:t.pool,trades:[t],blockNumber:t.blockNumber,blockHash:t.blockHash,reorg:false,coverageStart:trade.at});
+ const priced={...trade,priceUsd:Number(trade.priceQuote)*2460,usd:Number(trade.quoteAmount)*2460,quoteUsd:{price:2460,source:'LI.FI' as const,at:new Date().toISOString()}};
+ const first=applySwapPush({summary:null,candles:null,trades:null},message(priced),'1h');
+ for(const section of [first.summary,first.trades,first.candles])assert.deepEqual(section?.watermark,{blockNumber:trade.blockNumber,logIndex:trade.logIndex,txHash:trade.hash});
+ const replayed=applySwapPush(first,message({...trade,priceUsd:null,usd:null,quoteUsd:null}),'1h');
+ assert.equal(replayed.summary,first.summary);assert.equal(replayed.trades,first.trades);assert.equal(replayed.candles,first.candles);
+ const older={...trade,id:`4663:0x${'1'.repeat(64)}:0`,hash:`0x${'1'.repeat(64)}`,logIndex:trade.logIndex-1,priceQuote:'0.5'};
+ const stale=applySwapPush(first,message(older),'1h');
+ assert.equal(stale.summary!.priceQuote,trade.priceQuote);assert.equal(stale.trades!.trades.length,1);
+});

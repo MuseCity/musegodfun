@@ -233,3 +233,41 @@ test("live card hook separates one-minute featured refresh from 15-minute batche
     assert.equal(render()[launch.address.toLowerCase()].data, null, "only the changed identity resets immediately");
   } finally { for (const slot of slots) slot?.cleanup?.(); }
 });
+
+test("summary value detection counts zero and quote-only prices, and paused reasons share one message", async () => {
+  const { summaryHasValues, marketPaused, marketStatusMessage } = await import("../src/lib/market");
+  const empty: MarketSummary = { fetchedAt: new Date().toISOString(), source: "CoinGecko", status: "fresh", priceUsd: null, fdvUsd: null, marketCapUsd: null, liquidityUsd: null,
+    periods: { h24: { change: null, volume: null, buys: null, sells: null } } };
+  assert.equal(summaryHasValues(null), false);
+  assert.equal(summaryHasValues(empty), false);
+  assert.equal(summaryHasValues({ ...empty, periods: { h24: { change: 0, volume: 0, buys: 0, sells: 0 } } }), true, "a real zero volume is a value");
+  assert.equal(summaryHasValues({ ...empty, priceQuote: "0.5", quoteSymbol: "WETH" }), true, "a quote-unit price is a value");
+  assert.equal(summaryHasValues({ ...empty, periods: { h24: { change: -1, volume: null, buys: null, sells: null } } }), false, "a change alone is no price");
+  for (const reason of ["backoff", "rate_limited", "quota_exhausted"] as const) {
+    assert.equal(marketPaused(reason), true);
+    assert.equal(marketStatusMessage(reason), "Provider updates paused. Try again later.");
+  }
+  for (const reason of ["missing_config", "upstream_http", "internal_error", undefined] as const) {
+    assert.equal(marketPaused(reason), false);
+    assert.equal(marketStatusMessage(reason), "Market data unavailable");
+  }
+  assert.equal(marketStatusMessage("not_indexed"), "Market records are not indexed for this pool yet.");
+  assert.equal(marketStatusMessage("source_not_provided"), "Holder data unavailable");
+});
+
+test("rows without a snapshot record when they were checked, and a retained snapshot keeps that time", async () => {
+  const token = syntheticToken({ mode: "robinhood", deploymentChainId: 4663 });
+  const before = Date.now();
+  const rows = await loadCardMarkets(4663, [token.address], false, async <T>() => [{ address: token.address, summary: null, status: "unavailable", reason: "backoff", source: "CoinGecko" }] as T);
+  const row = rows[token.address.toLowerCase()];
+  assert.equal(row.error, "Provider updates paused. Try again later.");
+  assert(row.checkedAt && Date.parse(row.checkedAt) >= before && Date.parse(row.checkedAt) <= Date.now(), "an unavailable row carries the client check time");
+  const failed = await loadCardMarkets(4663, [token.address], false, async () => { throw new Error("Provider unavailable"); });
+  assert(failed[token.address.toLowerCase()].checkedAt, "a failed request still records its check time");
+  const previous: CardMarketState = { data: { fetchedAt: new Date(before - 60_000).toISOString(), source: "CoinGecko", status: "fresh", priceUsd: 1, fdvUsd: null, marketCapUsd: null, liquidityUsd: null, periods: {} }, loading: false, error: "" };
+  const retained = retainCardMarket(previous, row);
+  assert.equal(retained.data?.status, "stale");
+  assert.equal(retained.checkedAt, row.checkedAt);
+  const musegod = await loadCardMarkets(4663, [], true, async () => { throw new Error("Provider unavailable"); });
+  assert(musegod[MUSEGOD.token.toLowerCase()].checkedAt);
+});

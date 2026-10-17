@@ -82,7 +82,9 @@ export function createApp(
   runtime: Runtime = runtimeFromEnv(),
   shared: { ingressManaged?: boolean; previews?: PreviewQueue; challenge?: RiskChallenge;
     swapStore?: SwapStore; broadcast?: ConstructorParameters<typeof SwapService>[2]["broadcast"];
-    chainConfig?: (chainId: DeploymentChainId) => Promise<RuntimeConfig> } = {},
+    chainConfig?: (chainId: DeploymentChainId) => Promise<RuntimeConfig>;
+    /** The hosting runtime's maintenance cost record (Durable Object alarms); readiness reports it when present. */
+    maintenance?: () => unknown } = {},
 ) {
 const app = express(),
   service = new LaunchpadService(runtime);
@@ -215,6 +217,7 @@ app.get(
       controlRevision: current.controlRevision,
       blockReason: current.blockReason,
       swapStream: swaps.status(),
+      ...(shared.maintenance ? { maintenance: shared.maintenance() } : {}),
       healthClass: !ready ? "site_unavailable" : current.signingPaused || !service.runtime.config.writesEnabled ? "expected_pause"
         : current.blockReason || service.runtime.config.feeEngine && !current.feeEngine ? "signing_dependency_unavailable" : "operational",
     });
