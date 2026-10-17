@@ -3027,7 +3027,7 @@ function TokenPage({
     [balance, setBalance] = useState<bigint | null>(null),
     [copied, setCopied] = useState(false),
     [sharing, setSharing] = useState(false),
-    // Pay with ETH (Robinhood): the user's explicit pick, the ETH balance, the quote and the outcome.
+    // Pay with ETH: the user's explicit pick, the ETH balance, the quote and the outcome.
     [payChoice, setPayChoice] = useState<PayWith | null>(null),
     [ethBalance, setEthBalance] = useState<bigint | null>(null),
     [maxLoading, setMaxLoading] = useState(false),
@@ -3056,7 +3056,7 @@ function TokenPage({
   const payWithRow = config ? ethPayable : side === "buy" && !!pairAsset && ethBuyAvailable(resource.data?.token ?? null);
   // Only the pair-asset balance decides the default, and only on the buy side of a pair-asset coin.
   const pairBalance = ethPayable && balanceFor && sameAddress(balanceFor, pairAsset!.address) ? balance : null;
-  const wethPair = !!pairAsset && sameAddress(pairAsset.address, wrappedEther(4663));
+  const wethPair = !!pairAsset && sameAddress(pairAsset.address, wrappedEther(deploymentChain(config ?? resource.data?.token)));
   const fallbackPay = defaultPayWith(!!wallet.account, pairBalance, wethPair);
   // A non-empty amount freezes the default at once, even before the pair balance loads: only the user changes the unit
   // (and that clears the field). Sell, or an empty field, resets it.
@@ -3216,8 +3216,8 @@ function TokenPage({
       if (live()) setBusy(false);
     }
   }
-  const coinAsset = { chainId: 4663 as const, address: token.address, symbol: token.symbol, decimals: 18 };
-  const pairPayment = { chainId: 4663 as const, address: stock.address, symbol: stock.symbol, decimals: stock.decimals };
+  const coinAsset = { chainId: deploymentChain(config ?? token), address: token.address, symbol: token.symbol, decimals: 18 };
+  const pairPayment = { chainId: coinAsset.chainId, address: stock.address, symbol: stock.symbol, decimals: stock.decimals };
   // A unit change never reinterprets a typed number: it empties the field and says so.
   function clearForNewUnit() {
     if (!amount) return;

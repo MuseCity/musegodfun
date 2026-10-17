@@ -79,7 +79,7 @@ test("native WETH buys reject foreign inputs, pools, routers, networks and uint1
   for (const amount of [-1n, 0n, 2n ** 128n, 2n ** 256n]) assert.throws(() => build(amount), /uint128/);
   assert.throws(() => wrapAndSwapTransaction({ ...pool, currency0 }, weth, 1n, 100n, 100, 999n), /pool/);
   assert.throws(() => wrapAndSwapTransaction(pool, currency1, 1n, 100n, 100, 999n), /WETH/);
-  assert.throws(() => wrapAndSwapTransaction(pool, weth, 1n, 100n, 100, 999n, CONTRACTS), /Robinhood/);
-  assert.throws(() => wrapAndSwapTransaction(pool, weth, 1n, 100n, 100, 999n, ROBINHOOD_CONTRACTS, 8453), /Robinhood/);
+  assert.throws(() => wrapAndSwapTransaction(pool, weth, 1n, 100n, 100, 999n, CONTRACTS), /router/i);
+  assert.throws(() => wrapAndSwapTransaction(pool, weth, 1n, 100n, 100, 999n, ROBINHOOD_CONTRACTS, 8453), /router/i);
   assert.throws(() => wrapAndSwapTransaction(pool, weth, 1n, 2n ** 129n, 1, 999n));
 });

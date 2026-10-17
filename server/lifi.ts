@@ -218,7 +218,7 @@ export class FirstBuyPaymentReader {
     }
     return this.route(normalized, input.slippageBps, quotedAt, (quote) => assertFirstBuyPaymentQuote(quote, this.now()), true);
   }
-  /** ETH → a listed coin in one same-chain transaction (Robinhood only). It runs every check of `quote` (diamond, facet and
+  /** ETH → a listed coin in one same-chain transaction. It runs every check of `quote` (diamond, facet and
    * whitelist identity, same-chain steps, LIFI Fixed Fee only, exact sender and recipient) with the coin as the only output. */
   async coinQuote(input: EthBuyQuoteInput): Promise<FirstBuyPaymentQuote> {
     const quotedAt = this.now();

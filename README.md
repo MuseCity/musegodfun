@@ -2,7 +2,7 @@
 
 A non-custodial meme launchpad built with Doppler and Uniswap v4. The current source supports **Base (8453)** and **Robinhood Chain (4663)**.
 
-- **Launch, trade, claim fees.** User transactions need confirmation in the selected wallet. Automatic Base fee conversion and cross-chain delivery use a separately authorized Splits native Automation account; public fee claims and final Robinhood settlement use the existing keeper flow.
+- **Launch, trade, claim fees.** User transactions need confirmation in the selected wallet. Listed-coin buys support native ETH on Base (8453) and Robinhood Chain (4663), using wrap-and-swap for WETH pairs or LI.FI direct/two-step routes for other pairs; local forks never offer ETH buys. Automatic Base fee conversion and cross-chain delivery use a separately authorized Splits native Automation account; public fee claims and final Robinhood settlement use the existing keeper flow.
 - **New Create pairs:** 35 exact Coinbase B20 addresses on Base and 115 assets on Robinhood, selected from the recorded LI.FI/Jumper qualification. ST0x and Backed are excluded. The identity registries contain 35 Base assets and 198 Robinhood assets for existing tokens and transaction recovery.
 - **$5,000 initial valuation target.** Both chains use the existing 97/3 curve and LI.FI buy/sell quote references. Price snapshots expire after 60 seconds; the optional first buy moves price above the initial boundary.
 - **Optional first buy and lock.** Pay with the paired asset, chain-specific stablecoins or native ETH, then optionally lock the purchase for 30/90/365 days.

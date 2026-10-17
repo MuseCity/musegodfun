@@ -2,7 +2,8 @@ import test, { type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { hookRuntime, importFresh, settle } from "./hook-runtime";
 import { syntheticToken } from "./fixtures";
-import { ROBINHOOD_STOCKS, STOCKS, type RuntimeConfig } from "../src/lib/config";
+import { ROBINHOOD_STOCKS, STOCKS, quoteAsset, type RuntimeConfig } from "../src/lib/config";
+import { firstBuyPairedAsset, wrappedEther } from "../src/lib/first-buy-payment";
 import { buyPresets } from "../src/lib/token-detail";
 import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -10,7 +11,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 const src = (path: string) => new URL(`../src/${path}`, import.meta.url).href;
 type Options = { chain?: 4663 | 8453; fork?: boolean; pair?: string; connected?: boolean; balance?: bigint | Promise<bigint>; listed?: boolean };
 async function panel(t: TestContext, { chain = 4663, fork = false, pair = "COST", connected = false, balance = 1n, listed = true }: Options = {}) {
-  const stock = (chain === 4663 ? ROBINHOOD_STOCKS : STOCKS).find(s => chain === 8453 || s.symbol === pair)!;
+  const stock = chain === 4663 ? ROBINHOOD_STOCKS.find(s => s.symbol === pair)!
+    : pair === "WETH" ? { ...STOCKS[0], ...firstBuyPairedAsset(8453, wrappedEther(8453)), ticker: "WETH" } : STOCKS[0];
   const token = syntheticToken({ mode: fork ? "fork" : chain === 4663 ? "robinhood" : "base", deploymentChainId: chain, quoteAddress: stock.address });
   const detail = listed ? { token, state: { poolKey: {} } } : null;
   let config: RuntimeConfig | null = null, status: unknown[] = [], nativeReads = 0, feeReads = 0;
@@ -22,6 +24,7 @@ async function panel(t: TestContext, { chain = 4663, fork = false, pair = "COST"
   Object.defineProperty(globalThis, "location", { configurable: true, value: { origin: "http://fixture", pathname: "/", search: "" } });
   Reflect.set(globalThis, "__BUILD_IDENTITY__", { source: "local", commit: "fixture", dirty: true });
   const { TokenPage } = await importFresh("src/App.tsx", {
+    "./lib/config": { file: src("lib/config.ts"), bindings: { quoteAsset: chain === 8453 && pair === "WETH" ? () => stock : quoteAsset } },
     react: { file: import.meta.resolve("react"), bindings: runtime.hooks },
     "./lib/resource": { file: src("lib/resource.ts"), bindings: { useResource: (path: string) => ({ loading: false, error: "", data: path === "/stocks" ? status : detail }) } },
     "./lib/wallet": { file: src("lib/wallet.tsx"), bindings: { useWallet: () => wallet, transactionClient: () => { feeReads++; throw new Error("Unexpected fee read"); } } },
@@ -46,8 +49,8 @@ async function panel(t: TestContext, { chain = 4663, fork = false, pair = "COST"
   };
 }
 
-for (const fork of [false, true]) test(`Robinhood ${fork ? "fork" : "mainnet"}: pay row is reserved, busy and disabled until config`, async t => {
-  const p = await panel(t, { fork, connected: true });
+test("Robinhood mainnet: pay row is reserved, busy and disabled until config", async t => {
+  const p = await panel(t, { connected: true });
   assert(p.byClass("pay-with"), "the row exists on the first token render");
   assert.equal(p.byClass("pay-with").props["aria-busy"], true);
   assert.equal(p.button("ETH").props["aria-pressed"], false); assert.equal(p.button("COST").props["aria-pressed"], false);
@@ -62,20 +65,40 @@ for (const fork of [false, true]) test(`Robinhood ${fork ? "fork" : "mainnet"}: 
   assert.deepEqual(p.reads(), { nativeReads: 1, feeReads: 0 });
   await p.click("Sell"); assert.equal(p.byClass("pay-with"), undefined);
 });
+test("Robinhood forks keep ETH payments unavailable", async t => {
+  const p = await panel(t, { fork: true, connected: true });
+  assert.equal(p.byClass("pay-with"), undefined);
+  await p.load(); assert.equal(p.byClass("pay-with"), undefined);
+});
 
-test("Base and Base forks never reserve an ETH payment row", async t => {
-  for (const fork of [false, true]) {
-    const p = await panel(t, { chain: 8453, fork });
-    assert.equal(p.byClass("pay-with"), undefined); await p.load(); assert.equal(p.byClass("pay-with"), undefined);
-  }
+test("Base reserves the ETH payment row until config makes it interactive", async t => {
+  const p = await panel(t, { chain: 8453, connected: true });
+  assert(p.byClass("pay-with")); assert.equal(p.byClass("pay-with").props["aria-busy"], true);
+  assert.equal(p.button("ETH").props.disabled, true); assert.equal(p.button(p.stock.symbol).props.disabled, true);
+  await p.load();
+  assert.equal(p.byClass("pay-with").props["aria-busy"], false);
+  assert.equal(p.button("ETH").props.disabled, false); assert.equal(p.button(p.stock.symbol).props.disabled, false);
+  await p.click("ETH"); await p.type("0.001");
+  assert.equal(p.input().pool, true); assert.equal(p.input().lifi, true);
+  await p.click("Sell"); assert.equal(p.byClass("pay-with"), undefined);
+});
+test("Base forks never reserve an ETH payment row", async t => {
+  const p = await panel(t, { chain: 8453, fork: true });
+  assert.equal(p.byClass("pay-with"), undefined); await p.load(); assert.equal(p.byClass("pay-with"), undefined);
+});
+test("Base WETH pairs default to ETH and use the native route", async t => {
+  const p = await panel(t, { chain: 8453, pair: "WETH" });
+  await p.load();
+  assert.equal(p.button("ETH").props["aria-pressed"], true);
+  await p.type("0.001"); assert.equal(p.input().lifi, false);
 });
 test("without a loaded token and pair, no provisional ETH row is offered", async t => {
   const p = await panel(t, { listed: false }); assert.equal(p.byClass("pay-with"), undefined);
   await p.load(); assert.equal(p.byClass("pay-with"), undefined);
 });
-test("a contradictory config hides the provisional Robinhood row", async t => {
+test("a Base config keeps the provisional row available", async t => {
   const p = await panel(t); assert(p.byClass("pay-with"));
-  await p.load({ mode: "base", chainId: 8453, deploymentChainId: 8453 }); assert.equal(p.byClass("pay-with"), undefined);
+  await p.load({ mode: "base", chainId: 8453, deploymentChainId: 8453 }); assert(p.byClass("pay-with"));
 });
 for (const [pair, connected, balance, expected] of [
   ["WETH", false, 0n, "eth"], ["WETH", true, 1n, "eth"], ["COST", false, 0n, "pair"], ["COST", true, 0n, "eth"], ["COST", true, 1n, "pair"],
@@ -107,7 +130,7 @@ for (const [pair, connected, balance] of [["WETH", false, 0n], ["WETH", true, 0n
 for (const tokenChain of [4663, 8453] as const) for (const configChain of [4663, 8453] as const) for (const fork of [false, true]) test(`post-config row uses config availability: token=${tokenChain}, config=${configChain}, fork=${fork}`, async t => {
   const p = await panel(t, { chain: tokenChain, fork });
   await p.load({ mode: fork ? "fork" : configChain === 4663 ? "robinhood" : "base", chainId: fork ? 31337 : configChain, deploymentChainId: configChain });
-  assert.equal(!!p.byClass("pay-with"), configChain === 4663);
+  assert.equal(!!p.byClass("pay-with"), !fork);
   await p.click("Sell"); assert.equal(p.byClass("pay-with"), undefined);
 });
 test("the rendered 16px share line exposes the exact full value and ellipsizes its block container", async t => {

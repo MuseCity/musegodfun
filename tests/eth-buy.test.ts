@@ -16,9 +16,10 @@ import { FIRST_BUY_PAYMENT_CONTRACTS, assertEthBuyQuote, assertFirstBuyPaymentQu
 import { EthBuyIncomplete, assertEthBuyResponse, defaultPayWith, ethBuyAvailable, ethBuyDisclosure, executeEthBuy, executeLifiTrade, pairShortfall,
   pendingOutcome, receivedFromLogs, resolvePayWith, twoStepLabels, twoStepMinimum, type EthBuyQuoteResponse, type SwapQuote } from "../src/lib/eth-buy";
 import { BudgetUnavailable } from "../server/runtime-policy";
-import { ROBINHOOD_STOCKS, type RuntimeConfig } from "../src/lib/config";
+import { ROBINHOOD_STOCKS, STOCKS, type RuntimeConfig } from "../src/lib/config";
 import { resetQuoteClock } from "../src/lib/quote-clock";
 import { syntheticToken } from "./fixtures";
+import { importFresh } from "./hook-runtime";
 
 // Synthetic LI.FI responses and receipts only: no request leaves the process.
 const account = "0x1111111111111111111111111111111111111111" as Address;
@@ -32,6 +33,8 @@ const musegod = firstBuyPairedAsset(4663, "0x0379E228F6887c6F18bf394042ECAF81B30
 const weth = ROBINHOOD_STOCKS.find((asset) => asset.symbol === "WETH")!;
 const eth = { chainId: 4663, address: zeroAddress, symbol: "ETH", decimals: 18 } as const;
 const registry = FIRST_BUY_PAYMENT_CONTRACTS[4663];
+const baseCoin = { ...coin, chainId: 8453 } as const;
+const basePair = firstBuyPairedAsset(8453, STOCKS[0].address);
 const transactionId = `0x${"c".repeat(64)}` as Hex, blockHash = `0x${"b".repeat(64)}` as Hex;
 const at = 1_780_000_000_000;
 const runtimeCode = JSON.parse(readFileSync(new URL("./fixtures/lifi-4663-runtime.json", import.meta.url), "utf8")).onchainBytecode as Hex;
@@ -39,6 +42,7 @@ const transferAbi = parseAbi(["event Transfer(address indexed from,address index
 
 /** A LI.FI V3 native swap of `amountIn` ETH into `target`, with the standard LIFI fixed fee step. */
 function lifiQuote(target: FirstBuyPaymentAsset, now = at, amountIn = 10n ** 15n, expectedOut = 5_000n * 10n ** 18n) {
+  const registry = FIRST_BUY_PAYMENT_CONTRACTS[target.chainId];
   const feeAmount = amountIn * 25n / 10_000n, minimumOut = expectedOut * 99n / 100n;
   const swaps: FirstBuySwapData[] = [
     { callTo: registry.feeForwarder, approveTo: registry.feeForwarder, sendingAssetId: zeroAddress, receivingAssetId: zeroAddress,
@@ -49,7 +53,7 @@ function lifiQuote(target: FirstBuyPaymentAsset, now = at, amountIn = 10n ** 15n
   const encode = (steps = swaps, recipient = account, min = minimumOut) => encodeFunctionData({ abi: firstBuyPaymentAbi,
     functionName: "swapTokensMultipleV3NativeToERC20", args: [transactionId, "musegodfun", zeroAddress, recipient, min, steps] });
   const q: FirstBuyPaymentQuote = { protocol: "lifi", id: "synthetic-eth-buy", transactionId, integrator: "musegodfun", tool: "bitget",
-    chainId: 4663, account, fromToken: { ...eth }, toToken: { ...target }, amountIn: amountIn.toString(), expectedOut: expectedOut.toString(),
+    chainId: target.chainId, account, fromToken: { ...eth, chainId: target.chainId }, toToken: { ...target }, amountIn: amountIn.toString(), expectedOut: expectedOut.toString(),
     minimumOut: minimumOut.toString(), slippageBps: 100, quotedAt: now, expiresAt: now + 60_000, router: registry.diamond, facet: registry.facet,
     facetRuntimeHash: registry.runtimeHash, blockNumber: "10", blockHash, transaction: { to: registry.diamond, data: encode(), value: amountIn.toString() },
     approval: null, feeAmount: feeAmount.toString(), feeUsd: null, gasFeeUsd: null, amountInUsd: null };
@@ -58,13 +62,13 @@ function lifiQuote(target: FirstBuyPaymentAsset, now = at, amountIn = 10n ** 15n
 /** The raw LI.FI `/quote` body for a quote, so each test can corrupt one field. */
 function rawQuote(q: FirstBuyPaymentQuote): any {
   return { id: q.id, tool: q.tool, integrator: q.integrator,
-    action: { fromToken: { ...q.fromToken, priceUSD: "3000" }, toToken: { ...q.toToken, priceUSD: "0.0001" }, fromChainId: 4663, toChainId: 4663,
+    action: { fromToken: { ...q.fromToken, priceUSD: "3000" }, toToken: { ...q.toToken, priceUSD: "0.0001" }, fromChainId: q.chainId, toChainId: q.chainId,
       fromAddress: account, toAddress: account, fromAmount: q.amountIn, slippage: 0.01 },
     estimate: { fromAmount: q.amountIn, toAmount: q.expectedOut, toAmountMin: q.minimumOut, approvalAddress: q.router,
       feeCosts: [{ name: "LIFI Fixed Fee", included: true, token: q.fromToken, amount: q.feeAmount, feeSplit: { lifiFee: q.feeAmount, integratorFee: "0" } }],
       gasCosts: [] },
-    transactionRequest: { to: q.router, from: account, chainId: 4663, value: `0x${BigInt(q.transaction.value).toString(16)}`, data: q.transaction.data },
-    includedSteps: ["protocol", "swap"].map((type) => ({ type, action: { fromChainId: 4663, toChainId: 4663 } })) };
+    transactionRequest: { to: q.router, from: account, chainId: q.chainId, value: `0x${BigInt(q.transaction.value).toString(16)}`, data: q.transaction.data },
+    includedSteps: ["protocol", "swap"].map((type) => ({ type, action: { fromChainId: q.chainId, toChainId: q.chainId } })) };
 }
 const noRouteBody = { code: 1002, message: "No available quotes for the requested transfer" };
 function readerFixture(rpcChainId: 4663 | 31337 = 4663) {
@@ -150,9 +154,19 @@ test("every strictness check rejects a malformed ETH-buy quote", async () => {
   await firstBuy(firstBuyRaw);
   await assert.rejects(firstBuy({ ...firstBuyRaw, action: { ...firstBuyRaw.action, toToken: { ...firstBuyRaw.action.toToken, symbol: "MUSE" } } }),
     /token identity did not match/);
-  // ETH buys run on Robinhood Chain only.
+  // A Robinhood response cannot satisfy a Base reader.
   const base = new FirstBuyPaymentReader({ client: f.client, chainId: 8453, now: () => at, fetch: async () => Response.json(f.raw) });
-  await assert.rejects(base.coinQuote(f.input), /ETH buy quote could not be verified/);
+  await assert.rejects(base.coinQuote(f.input));
+});
+
+test("Base ETH buys accept a listed coin and reserve Base payment assets and contracts", () => {
+  assert.deepEqual(ethBuyCoin(8453, baseCoin), baseCoin);
+  assert.equal(assertEthBuyQuote(lifiQuote(baseCoin).q, baseCoin, at).length, 2);
+  const registry = FIRST_BUY_PAYMENT_CONTRACTS[8453];
+  for (const address of [zeroAddress, firstBuyPairedAsset(8453, "0x4200000000000000000000000000000000000006").address,
+    ...STOCKS.map(asset => asset.address), "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
+    registry.diamond, registry.facet, registry.feeForwarder])
+    assert.throws(() => ethBuyCoin(8453, { address, symbol: "RESERVED" }), /ETH buy quote could not be verified/, address);
 });
 
 test("LI.FI 'no route' for the coin surfaces as LifiNoRouteError, never as a verified quote", async () => {
@@ -161,22 +175,23 @@ test("LI.FI 'no route' for the coin surfaces as LifiNoRouteError, never as a ver
 });
 
 const pairedCoin = syntheticToken({ address: coin.address, symbol: coin.symbol, quoteAddress: musegod.address, mode: "robinhood", deploymentChainId: 4663 });
-function swapPreview(amountIn: bigint, amountOut = amountIn * 2n, now = at): SwapQuote {
-  return { token: coin.address, side: "buy", amountIn: amountIn.toString(), amountOut: amountOut.toString(), currencyIn: musegod.address,
-    poolKey: { currency0: musegod.address, currency1: coin.address, fee: 8388608, tickSpacing: 10, hooks: "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544" },
+function swapPreview(amountIn: bigint, amountOut = amountIn * 2n, now = at, pair = musegod): SwapQuote {
+  return { token: coin.address, side: "buy", amountIn: amountIn.toString(), amountOut: amountOut.toString(), currencyIn: pair.address,
+    poolKey: { currency0: pair.address, currency1: coin.address, fee: 8388608, tickSpacing: 10, hooks: "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544" },
     slippageBps: 100, quotedAt: now, expiresAt: now + 60_000 };
 }
 function serverDeps(overrides: Partial<Parameters<typeof quoteEthBuy>[1]> = {}) {
   const calls: string[] = [], logs: string[] = [];
-  const direct = lifiQuote(coin).q, conversion = lifiQuote(musegod, at, 10n ** 15n, 25n * 10n ** 18n).q;
+  const chainId = overrides.chainId ?? 4663, pair = chainId === 8453 ? basePair : musegod;
+  const direct = lifiQuote({ ...coin, chainId }).q, conversion = lifiQuote(pair, at, 10n ** 15n, 25n * 10n ** 18n).q;
   const deps: Parameters<typeof quoteEthBuy>[1] = {
     chainId: 4663,
     payments: {
       coinQuote: async (input) => { calls.push(`coin:${input.coin.address}:${input.amount}`); return direct; },
       quote: async (input) => { calls.push(`convert:${input.fromToken}:${input.toToken}:${input.amount}`); return conversion; },
     },
-    token: async (address) => { calls.push(`token:${address}`); return pairedCoin; },
-    swapQuote: async (token, amount, slippageBps) => { calls.push(`swap:${token}:${amount}:${slippageBps}`); return swapPreview(BigInt(conversion.minimumOut)); },
+    token: async (address) => { calls.push(`token:${address}`); return { ...pairedCoin, mode: chainId === 8453 ? "base" : "robinhood", deploymentChainId: chainId, quoteAddress: pair.address }; },
+    swapQuote: async (token, amount, slippageBps) => { calls.push(`swap:${token}:${amount}:${slippageBps}`); return swapPreview(BigInt(conversion.minimumOut), undefined, at, pair); },
     now: () => at,
     log: (line) => logs.push(line),
     ...overrides,
@@ -244,22 +259,56 @@ test("a refused direct quote leaves one structured, redacted operator line; a di
   assert.deepEqual(ok.logs, []);
 });
 
-test("unlisted, WETH-paired, Base and unconfigured requests are refused before any LI.FI request", async () => {
+test("Base quotes return direct and two-step ETH plans on the Base B20 pair", async () => {
+  const { deps, calls, direct, conversion } = serverDeps({ chainId: 8453 });
+  const response = await quoteEthBuy(request, deps);
+  assert.equal(response.mode, "direct");
+  assert.deepEqual(response.mode === "direct" && response.quote, direct);
+  assert.equal(direct.chainId, 8453);
+  assert.equal(direct.fromToken.chainId, 8453);
+  assert.equal(direct.fromToken.address, zeroAddress);
+  assert.equal(direct.toToken.address, baseCoin.address);
+  deps.payments!.coinQuote = async () => { throw new LifiNoRouteError(); };
+  const plan = await quoteEthBuy(request, deps);
+  assert.equal(plan.mode, "two-step");
+  if (plan.mode !== "two-step") return;
+  assert.deepEqual(plan.conversion, conversion);
+  assert.equal(conversion.chainId, 8453);
+  assert.equal(conversion.fromToken.chainId, 8453);
+  assert.equal(conversion.fromToken.address, zeroAddress);
+  assert.deepEqual(conversion.toToken, basePair);
+  assert.equal(plan.swapPreview.currencyIn, basePair.address);
+  assert.equal(plan.swapPreview.amountIn, conversion.minimumOut);
+  assert(calls.includes(`convert:${zeroAddress}:${basePair.address}:0.001`));
+});
+
+test("fork runtimes refuse ETH buys on both chains before any LI.FI request", async () => {
+  for (const chainId of [4663, 8453] as const) {
+    const fork = serverDeps({ chainId, mode: "fork" });
+    await assert.rejects(quoteEthBuy(request, fork.deps), { name: "EthBuyError", code: "ETH_BUY_UNAVAILABLE",
+      message: `Buying a coin with ETH is unavailable on ${chainId === 4663 ? "Robinhood Chain" : "Base"} local fork.` });
+    assert(!fork.calls.some((call) => /^(coin|convert|swap|token)/.test(call)), fork.calls.join());
+  }
+});
+
+test("unlisted, WETH-paired and unconfigured requests are refused before any LI.FI request", async () => {
   const unlisted = serverDeps({ token: async () => { throw new Error("Platform token not found"); } });
   await assert.rejects(quoteEthBuy(request, unlisted.deps), /Platform token not found/);
   const wethPaired = serverDeps({ token: async () => ({ ...pairedCoin, quoteAddress: weth.address }) });
   await assert.rejects(quoteEthBuy(request, wethPaired.deps), (error: unknown) => error instanceof EthBuyError && error.code === "ETH_BUY_NOT_NEEDED");
-  const base = serverDeps({ chainId: 8453 });
-  await assert.rejects(quoteEthBuy(request, base.deps), (error: unknown) => error instanceof EthBuyError && error.code === "ETH_BUY_UNAVAILABLE");
-  const unconfigured = serverDeps({ payments: null });
-  await assert.rejects(quoteEthBuy(request, unconfigured.deps), (error: unknown) => error instanceof EthBuyError && error.code === "ETH_BUY_UNAVAILABLE");
-  for (const { calls } of [unlisted, wethPaired, base, unconfigured]) assert(!calls.some((call) => /^(coin|convert|swap)/.test(call)), calls.join());
+  const base = serverDeps({ chainId: 8453, token: async () => ({ ...pairedCoin, mode: "base", deploymentChainId: 8453,
+    quoteAddress: "0x4200000000000000000000000000000000000006" }) });
+  await assert.rejects(quoteEthBuy(request, base.deps), (error: unknown) => error instanceof EthBuyError && error.code === "ETH_BUY_NOT_NEEDED");
+  const unconfigured = ([4663, 8453] as const).map(chainId => serverDeps({ chainId, payments: null }));
+  for (const { deps } of unconfigured) await assert.rejects(quoteEthBuy(request, deps), { name: "EthBuyError", code: "ETH_BUY_UNAVAILABLE",
+    message: `Buying a coin with ETH is unavailable on ${deps.chainId === 4663 ? "Robinhood Chain" : "Base"}.` });
+  for (const { calls } of [unlisted, wethPaired, base, ...unconfigured]) assert(!calls.some((call) => /^(coin|convert|swap)/.test(call)), calls.join());
   for (const body of [{ ...request, slippageBps: 150 }, { ...request, amountIn: 1 }, { ...request, token: "0x123" }, { ...request, extra: true }])
     await assert.rejects(quoteEthBuy(body, serverDeps().deps), { name: "ZodError" });
 });
 
 async function httpFixture(chain: 4663 | 8453, run: (entry: ReturnType<typeof createApp>, post: (body: unknown) => Promise<Response>) => Promise<void>,
-  lifi: (url: URL) => Response) {
+  lifi: (url: URL) => Response, mode: "mainnet" | "fork" = "mainnet") {
   const realFetch = globalThis.fetch;
   const directory = mkdtempSync(join(tmpdir(), "eth-buy-http-"));
   // The reader binds the global fetch when the app is created; LI.FI is answered here and nothing leaves the process.
@@ -269,42 +318,69 @@ async function httpFixture(chain: 4663 | 8453, run: (entry: ReturnType<typeof cr
     if (url.hostname !== "127.0.0.1") throw new Error(`Unexpected request ${url.href}`);
     return realFetch(input, init);
   }) as typeof fetch;
-  const runtime = runtimeFromEnv(chain, { NODE_ENV: "test", CHAIN_MODE: "fork", FORK_CHAIN_ID: String(chain), DATA_DIR: directory,
-    PLATFORM_TREASURY: "0x2222222222222222222222222222222222222222" });
+  // Quotes are served by mainnet runtimes; a fork runtime is used only to prove it refuses.
+  const runtime = runtimeFromEnv(chain, { NODE_ENV: "test", DATA_DIR: directory, PLATFORM_TREASURY: "0x2222222222222222222222222222222222222222",
+    ...(mode === "fork" ? { CHAIN_MODE: "fork", FORK_CHAIN_ID: String(chain) } : { CHAIN_MODE: chain === 8453 ? "base" : "robinhood", ALCHEMY_API_KEY: "fixture-no-network" }) });
   const entry = createApp(undefined, "loopback", runtime);
   globalThis.fetch = realFetch;
-  Object.assign(entry.service.client, { getChainId: async () => 31337, getBlock: async () => ({ number: 10n, hash: blockHash }),
-    getCode: async () => runtimeCode, readContract: async ({ functionName }: { functionName: string }) => functionName === "facetAddress" ? registry.facet : true });
+  const registry = FIRST_BUY_PAYMENT_CONTRACTS[chain];
+  const whitelistReads: string[] = [];
+  Object.assign(entry.service.client, { getChainId: async () => mode === "fork" ? 31337 : chain, getBlock: async () => ({ number: 10n, hash: blockHash }),
+    getCode: async () => JSON.parse(readFileSync(new URL(`./fixtures/lifi-${chain}-runtime.json`, import.meta.url), "utf8")).onchainBytecode,
+    readContract: async ({ address, functionName }: { address: Address; functionName: string }) => {
+      assert.equal(address, registry.diamond);
+      whitelistReads.push(functionName);
+      return functionName === "facetAddress" ? registry.facet : true;
+    } });
   const server = entry.app.listen(0, "127.0.0.1"); await once(server, "listening");
   const address = server.address(); assert(address && typeof address !== "string");
   const post = (body: unknown) => realFetch(`http://127.0.0.1:${address.port}/api/trade/eth-quote`,
     { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-  try { await run(entry, post); }
+  try {
+    await run(entry, post);
+    if (chain === 8453 && mode === "mainnet") for (const name of ["isAddressWhitelisted", "isFunctionSelectorWhitelisted"])
+      assert(whitelistReads.includes(name), `Base diamond checked ${name}`);
+  }
   finally { await new Promise<void>((resolve) => server.close(() => resolve())); entry.service.store.close(); rmSync(directory, { recursive: true, force: true }); }
 }
 
-test("POST /api/trade/eth-quote: direct, two-step and 4xx refusals over HTTP with mocked LI.FI", async (t) => {
+for (const chain of [4663, 8453] as const) test(`POST /api/trade/eth-quote on a ${chain} fork runtime answers 422 ETH_BUY_UNAVAILABLE without touching LI.FI`, async () => {
+  await httpFixture(chain, async (_entry, post) => {
+    const refused = await post(request);
+    assert.equal(refused.status, 422);
+    const body = await refused.json();
+    assert.equal(body.code, "ETH_BUY_UNAVAILABLE");
+    assert.equal(body.error, `Buying a coin with ETH is unavailable on ${chain === 4663 ? "Robinhood Chain" : "Base"} local fork.`);
+  }, (url) => { throw new Error(`LI.FI must not be called on a fork: ${url.href}`); }, "fork");
+});
+
+for (const chain of [4663, 8453] as const) test(`POST /api/trade/eth-quote on ${chain}: direct, two-step and 4xx refusals over HTTP with mocked LI.FI`, async (t) => {
+  const pair = chain === 8453 ? basePair : musegod, target = { ...coin, chainId: chain };
+  const wethAddress = chain === 8453 ? "0x4200000000000000000000000000000000000006" : weth.address;
   const warnings: string[] = [];
   t.mock.method(console, "warn", (line: string) => { warnings.push(line); });
-  const direct = lifiQuote(coin, Date.now()), conversion = lifiQuote(musegod, Date.now(), 2n * 10n ** 16n, 25n * 10n ** 18n);
+  const direct = lifiQuote(target, Date.now()), conversion = lifiQuote(pair, Date.now(), 2n * 10n ** 16n, 25n * 10n ** 18n);
   const lifiCalls: string[] = [];
-  await httpFixture(4663, async ({ service }, post) => {
+  await httpFixture(chain, async ({ service }, post) => {
     service.token = async (address) => {
-      if (address.toLowerCase() === coin.address.toLowerCase()) return pairedCoin;
-      if (address.toLowerCase() === otherCoin.address.toLowerCase()) return { ...pairedCoin, address: otherCoin.address, quoteAddress: weth.address };
+      if (address.toLowerCase() === coin.address.toLowerCase()) return { ...pairedCoin, mode: chain === 8453 ? "base" : "robinhood", deploymentChainId: chain, quoteAddress: pair.address };
+      if (address.toLowerCase() === otherCoin.address.toLowerCase()) return { ...pairedCoin, address: otherCoin.address, quoteAddress: wethAddress, mode: chain === 8453 ? "base" : "robinhood", deploymentChainId: chain };
       throw new Error("Platform token not found");
     };
-    service.quote = async (address, side, amount, slippageBps) => swapPreview(BigInt(conversion.q.minimumOut), undefined, Date.now()) as never;
+    service.quote = async (address, side, amount, slippageBps) => swapPreview(BigInt(conversion.q.minimumOut), undefined, Date.now(), pair) as never;
     const ok = await post(request);
     assert.equal(ok.status, 200, await ok.clone().text());
     const body = await ok.json() as EthBuyQuoteResponse;
     assert.equal(body.mode, "direct");
+    assert.equal(body.mode === "direct" && body.quote.chainId, chain);
     assert.equal(body.mode === "direct" && body.quote.toToken.address, coin.address);
     const routeless = await post({ ...request, amountIn: "0.02" });
     assert.equal(routeless.status, 200, await routeless.clone().text());
     const plan = await routeless.json() as EthBuyQuoteResponse;
     assert.equal(plan.mode, "two-step");
-    assert.equal(plan.mode === "two-step" && plan.conversion.toToken.address, musegod.address);
+    assert.equal(plan.mode === "two-step" && plan.conversion.chainId, chain);
+    assert.equal(plan.mode === "two-step" && plan.conversion.fromToken.address, zeroAddress);
+    assert.equal(plan.mode === "two-step" && plan.conversion.toToken.address, pair.address);
     // A thin pool's mixed tool errors (not a clean "no route") still fall back.
     const thin = await post({ ...request, amountIn: "0.03" });
     assert.equal(thin.status, 200, await thin.clone().text());
@@ -322,18 +398,13 @@ test("POST /api/trade/eth-quote: direct, two-step and 4xx refusals over HTTP wit
       return amount === "1000000000000000" ? Response.json(rawQuote(direct.q))
         : amount === "20000000000000000" ? Response.json(noRouteBody, { status: 404 })
         : Response.json({ ...noRouteBody, errors: { failed: [{ errorType: "NO_QUOTE", code: "INSUFFICIENT_LIQUIDITY" }, { errorType: "UNKNOWN_ERROR", code: "TOOL_TIMEOUT" }] } }, { status: 404 });
-    return Response.json(rawQuote(amount === "30000000000000000" ? lifiQuote(musegod, Date.now(), 3n * 10n ** 16n, 25n * 10n ** 18n).q : conversion.q));
+    return Response.json(rawQuote(amount === "30000000000000000" ? lifiQuote(pair, Date.now(), 3n * 10n ** 16n, 25n * 10n ** 18n).q : conversion.q));
   });
-  assert.deepEqual(lifiCalls, [`${coin.address}:1000000000000000`, `${coin.address}:20000000000000000`, `${musegod.address}:20000000000000000`,
-    `${coin.address}:30000000000000000`, `${musegod.address}:30000000000000000`],
+  assert.deepEqual(lifiCalls, [`${coin.address}:1000000000000000`, `${coin.address}:20000000000000000`, `${pair.address}:20000000000000000`,
+    `${coin.address}:30000000000000000`, `${pair.address}:30000000000000000`],
     "direct; no route then the conversion; mixed errors then the conversion; the unlisted, WETH-paired and malformed requests never reach LI.FI");
   assert.deepEqual(warnings.map((line) => JSON.parse(line).event), ["eth_buy_direct_refused", "eth_buy_direct_refused"], "one line per fallback");
   assert(!warnings.some((line) => /https?:/.test(line)));
-  await httpFixture(8453, async (_entry, post) => {
-    const refused = await post(request);
-    assert.equal(refused.status, 422);
-    assert.equal((await refused.json()).code, "ETH_BUY_UNAVAILABLE");
-  }, () => { throw new Error("Base never asks LI.FI for an ETH buy"); });
 });
 
 test("eth-quote is in the first-buy quote's ingress class, rate-limited and challenged like it", () => {
@@ -374,7 +445,9 @@ test("Pay with: the empty-field default, a typed amount that never changes unit,
   assert.equal(pairShortfall(1n, null), false, "no hint for an empty or invalid amount");
   const robinhood = { mode: "robinhood", chainId: 4663, deploymentChainId: 4663 } as RuntimeConfig;
   assert.equal(ethBuyAvailable(robinhood), true);
-  assert.equal(ethBuyAvailable({ mode: "base", chainId: 8453, deploymentChainId: 8453 } as RuntimeConfig), false, "Base is unchanged");
+  assert.equal(ethBuyAvailable({ mode: "base", chainId: 8453, deploymentChainId: 8453 } as RuntimeConfig), true);
+  assert.equal(ethBuyAvailable({ ...robinhood, mode: "fork" }), false);
+  assert.equal(ethBuyAvailable({ ...robinhood, mode: "fork", deploymentChainId: 8453 }), false);
   assert.equal(ethBuyAvailable(null), false);
 });
 
@@ -603,4 +676,50 @@ test("the client accepts only a quote response for this coin, pair, wallet, amou
     ["unknown mode", { mode: "bridge", quote: direct.quote }, {}],
   ] as [string, unknown, Partial<typeof expected>][])
     assert.throws(() => assertEthBuyResponse(value, { ...expected, ...overrides }), Error, name);
+});
+
+for (const chainId of [4663, 8453] as const) test(`the client binds direct and conversion quotes to page chain ${chainId}`, async () => {
+  const now = Date.now(), pageCoin = { ...coin, chainId }, pair = firstBuyPairedAsset(chainId, chainId === 4663 ? musegod.address : basePair.address);
+  const expected = { coin: pageCoin, pair, account, amountIn: 10n ** 15n, slippageBps: 100 };
+  const direct: EthBuyQuoteResponse = { mode: "direct", quote: lifiQuote(pageCoin, now).q };
+  const conversion = lifiQuote(pair, now).q;
+  const plan: EthBuyQuoteResponse = { mode: "two-step", conversion, swapPreview: swapPreview(BigInt(conversion.minimumOut), undefined, now, pair) };
+  assert.deepEqual(assertEthBuyResponse(direct, expected), direct);
+  assert.deepEqual(assertEthBuyResponse(plan, expected), plan);
+  const foreignChain = chainId === 4663 ? 8453 as const : 4663 as const;
+  // Keep every address identical: the page's expected chain must independently reject the foreign quote.
+  const foreignExpected = { ...expected, coin: { ...pageCoin, chainId: foreignChain }, pair: { ...pair, chainId: foreignChain } };
+  for (const response of [direct, plan]) assert.throws(() => assertEthBuyResponse(response, foreignExpected));
+  assert.throws(() => assertEthBuyQuote(direct.quote, foreignExpected.coin, now));
+  for (const [q, target] of [[direct.quote, { kind: "coin", coin: foreignExpected.coin }],
+    [conversion, { kind: "conversion", pair: foreignExpected.pair }]] as const) {
+    const f = tradeDeps();
+    await assert.rejects(executeLifiTrade(q, target, account, f.deps, "Confirm"));
+    assert.deepEqual(f.calls, [], "the wrong page chain is rejected before RPC or wallet work");
+  }
+});
+
+for (const chainId of [4663, 8453] as const) test(`the wallet adapter accepts ${chainId} LI.FI buys and binds the target to its deployment`, async () => {
+  const config = { mode: chainId === 4663 ? "robinhood" : "base", chainId, deploymentChainId: chainId } as RuntimeConfig;
+  const target = { kind: "coin", coin: { ...coin, chainId } } as const, q = lifiQuote(target.coin, Date.now()).q;
+  let executions = 0;
+  const { WalletProvider } = await importFresh("src/lib/wallet.tsx", {
+    react: { file: import.meta.resolve("react"), bindings: {
+      useEffect() {}, useRef: (value: unknown) => ({ current: value }),
+      useState: (value: any) => [value && typeof value === "object" && "account" in value ? { ...value, account, chainId } : value, () => {}],
+    } },
+    "./network": { file: new URL("../src/lib/network.tsx", import.meta.url).href, bindings: { useNetwork: () => ({ chainId }) } },
+    "./eth-buy": { file: new URL("../src/lib/eth-buy.ts", import.meta.url).href, bindings: {
+      executeLifiTrade: async (quote: FirstBuyPaymentQuote, actual: unknown, wallet: Address) => {
+        executions++; assert.deepEqual(quote, q); assert.deepEqual(actual, target); assert.equal(wallet, account);
+        return { hash: "0x01", received: 1n };
+      },
+    } },
+  });
+  const adapter = WalletProvider({ children: null }).props.value;
+  assert.deepEqual(await adapter.lifiTrade(q, target, config, () => {}, "Confirm", undefined, { beforeSend: async () => {} }),
+    { hash: "0x01", received: 1n });
+  const otherChain = chainId === 4663 ? 8453 : 4663;
+  await assert.rejects(adapter.lifiTrade(q, { kind: "coin", coin: { ...target.coin, chainId: otherChain } }, config, () => {}, "Confirm", undefined, { beforeSend: async () => {} }));
+  assert.equal(executions, 1, "a foreign target never reaches the executor");
 });

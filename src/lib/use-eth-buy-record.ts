@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import type { Address, Hash, Hex } from "viem";
-import { deploymentChain, type RuntimeConfig } from "./config";
+import { networkName, type RuntimeConfig } from "./config";
 import { ETH_BUY_LOCK, ETH_BUY_TAKEN, ETH_BUY_UNRESOLVED, ethBuyStorageKey, parseEthBuyRecord, resolveEthBuy, type EthBuyRecord, type EthBuyResolution,
   type EthBuyTarget } from "./eth-buy-record";
-import { ETH_BUY_CHAIN, type FirstBuyPaymentQuote } from "./first-buy-payment";
-import { receivedFromLogs } from "./eth-buy";
+import type { FirstBuyPaymentQuote } from "./first-buy-payment";
+import { ethBuyAvailable, receivedFromLogs } from "./eth-buy";
 import { LOCK_ERROR, withLaunchIntentLock } from "./launch-intent";
 import { attemptAfterSendError, discardable, recordAtBroadcast, type NonceMemo, type SendPollStatus } from "./send-record";
 import { transactions } from "./transactions";
@@ -36,7 +36,8 @@ export type EthBuySendHooks = { beforeSend: () => Promise<void>; onHash: (hash: 
 /** The wallet's ETH-buy record on this network (shared by every coin page and tab of the wallet), the guard every LI.FI ETH transaction is
  * sent under, and the chain checks that settle one whose outcome the wallet never reported. */
 export function useEthBuyRecord(config: RuntimeConfig | null, account: Address | null, pairSymbol?: string) {
-  const key = config && account && deploymentChain(config) === ETH_BUY_CHAIN ? ethBuyStorageKey(config, account) : "";
+  // No key on a fork or an unsupported chain: nothing is recorded, polled or guarded there.
+  const key = config && account && ethBuyAvailable(config) ? ethBuyStorageKey(config, account) : "";
   const [record, setRecord] = useState<EthBuyRecord | null>(null), [revision, setRevision] = useState(0);
   const [unknown, setUnknown] = useState(""), [notice, setNotice] = useState(""), [checking, setChecking] = useState(false), [sending, setSending] = useState(false);
   const [adopted, setAdopted] = useState<EthBuyAdopted | null>(null);
@@ -116,7 +117,7 @@ export function useEthBuyRecord(config: RuntimeConfig | null, account: Address |
    * decides the buy and removes the record. A rejection or unprocessed refusal before any hash removes it too; anything else keeps it for
    * the chain checks. */
   async function guard<T>(quote: FirstBuyPaymentQuote, target: EthBuyTarget, send: (hooks: EthBuySendHooks) => Promise<T>): Promise<T> {
-    if (!key || !account || !config) throw new Error("Buying a coin with ETH is available on Robinhood Chain only.");
+    if (!key || !account || !config) throw new Error(`Buying a coin with ETH is unavailable on ${config ? networkName(config) : "this network"}.`);
     const forKey = key, from = account, client = transactionClient(config.chainId, config);
     let attemptAt = 0;
     setSending(true); setNotice(""); setUnknown(""); setAdopted(null);

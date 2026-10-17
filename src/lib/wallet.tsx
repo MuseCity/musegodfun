@@ -59,7 +59,7 @@ import { api, chainApi } from "./api";
 import { useNetwork } from "./network";
 import { assertFirstBuyPaymentQuote, firstBuyDiamondAbi, firstBuyPaymentRefreshInput, type FirstBuyPaymentQuote, type FirstBuyPaymentVerification,
   type FirstBuySwapData } from "./first-buy-payment";
-import { assertLifiTradeQuote, executeLifiTrade, type LifiTradeTarget } from "./eth-buy";
+import { assertLifiTradeQuote, ethBuyAvailable, executeLifiTrade, type LifiTradeTarget } from "./eth-buy";
 import { assertFirstBuyLaunchConfig, executeFirstBuyPayment } from "./first-buy-wallet";
 import { bundlerAbi } from "./first-buy-lock";
 import type { FirstBuyLockStatus } from "./launch-plan";
@@ -1012,7 +1012,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     confirmMessage: string, onHash: ((hash: Hash) => void) | undefined, { beforeSend }: { beforeSend: BeforeSend }) {
     if (!account) throw new Error("Connect your wallet first");
     config = Object.freeze({ ...config });
-    if (deploymentChain(config) !== 4663) throw new Error("Buying a coin with ETH is available on Robinhood Chain only.");
+    if (!ethBuyAvailable(config)) throw new Error(`Buying a coin with ETH is unavailable on ${networkName(config)}.`);
+    if (quote.chainId !== deploymentChain(config) || (target.kind === "coin" ? target.coin : target.pair).chainId !== deploymentChain(config))
+      throw new Error(`The ETH buy quote does not match ${networkName(config)}. Refresh the quote.`);
     const expected = account, client = transactionClient(config.chainId, config);
     const verify = (frozen: FirstBuyPaymentQuote, swaps: FirstBuySwapData[]) => verifyLifiRouter(client, frozen, swaps);
     return executeLifiTrade(quote, target, expected, {

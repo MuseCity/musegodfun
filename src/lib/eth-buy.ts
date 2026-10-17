@@ -2,7 +2,7 @@ import { decodeEventLog, erc20Abi, formatUnits, isAddress, zeroAddress, type Add
 import type { V4PoolKey } from "@whetstone-research/doppler-sdk/evm";
 import { quoteNow } from "./quote-clock";
 import { deploymentChain, sameAddress, type RuntimeConfig } from "./config";
-import { ETH_BUY_CHAIN, assertEthBuyQuote, assertFirstBuyPaymentQuote,
+import { isEthBuyChain, assertEthBuyQuote, assertFirstBuyPaymentQuote,
   type FirstBuyPaymentAsset, type FirstBuyPaymentQuote, type FirstBuySwapData } from "./first-buy-payment";
 import { minimumOutput } from "./validation";
 
@@ -17,9 +17,9 @@ export type ReceiptLog = { address: Address; topics: readonly Hex[]; data: Hex }
 /** What a LI.FI trade may deliver: exactly the page's coin, or exactly its pair asset (the first of two steps). */
 export type LifiTradeTarget = { kind: "coin"; coin: FirstBuyPaymentAsset } | { kind: "conversion"; pair: FirstBuyPaymentAsset };
 
-/** Robinhood coin buys offer native ETH, including a direct wrap-and-swap for WETH pools. */
+/** Supported coin buys offer native ETH, including a direct wrap-and-swap for WETH pools. */
 export function ethBuyAvailable(config: Pick<RuntimeConfig, "mode" | "deploymentChainId"> | null) {
-  return !!config && deploymentChain(config) === ETH_BUY_CHAIN;
+  return !!config && config.mode !== "fork" && isEthBuyChain(deploymentChain(config));
 }
 /** WETH pairs always default to ETH. Other pairs retain their balance-aware, unit-preserving default. */
 export function defaultPayWith(connected: boolean, pairBalance: bigint | null, wethPair = false): PayWith {
@@ -100,7 +100,7 @@ const isEth = (asset: FirstBuyPaymentAsset) => sameAddress(asset?.address ?? "",
 /** The conversion of a two-step buy: a first-buy-strict LI.FI quote from ETH into exactly this pair asset. */
 function assertConversion(q: FirstBuyPaymentQuote, pair: FirstBuyPaymentAsset, now?: number): FirstBuySwapData[] {
   const swaps = assertFirstBuyPaymentQuote(q, now);
-  if (q.protocol !== "lifi" || q.chainId !== ETH_BUY_CHAIN || !isEth(q.fromToken) || !sameAddress(q.toToken.address, pair.address) ||
+  if (q.protocol !== "lifi" || !isEthBuyChain(pair.chainId) || q.chainId !== pair.chainId || !isEth(q.fromToken) || !sameAddress(q.toToken.address, pair.address) ||
     q.toToken.decimals !== pair.decimals) invalidResponse();
   return swaps;
 }
@@ -120,6 +120,7 @@ export function assertEthBuyResponse(value: unknown, expected: { coin: FirstBuyP
   amountIn: bigint; slippageBps: number }): EthBuyQuoteResponse {
   const response = value as EthBuyQuoteResponse;
   const quote = response?.mode === "direct" ? response.quote : response?.mode === "two-step" ? response.conversion : invalidResponse();
+  if (expected.coin.chainId !== expected.pair.chainId) invalidResponse();
   if (response.mode === "direct") assertEthBuyQuote(quote, expected.coin);
   else {
     assertConversion(quote, expected.pair);

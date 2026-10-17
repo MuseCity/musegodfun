@@ -29,7 +29,7 @@ import {
   stockByAddress,
 } from "./config";
 import { launchSchema, minimumOutput, type LaunchInput } from "./validation";
-import { wrappedEther } from "./first-buy-payment";
+import { isEthBuyChain, wrappedEther } from "./first-buy-payment";
 import { BASE_AUTOMATION_FEE_POLICY, BASE_COLLECTOR_FEE_POLICY, ENGINE_FEE_POLICY, FEE_POLICY, FEE_SHARES, MUSEGOD_BUYBACK, isEngineFeePolicy } from "./fee-policy";
 import { CURVE_POLICY, buildLaunchCurves, LAUNCH_CURVE_TICK_SPACING } from "./launch-curve";
 import {
@@ -385,14 +385,15 @@ export function swapTransaction(
     currencyOut,
   };
 }
-/** Robinhood's verified Universal Router wraps ETH into its own WETH balance, then settles the v4 debt from that balance. */
+/** The verified Universal Router wraps ETH into its own WETH balance, then settles the v4 debt from that balance. */
 export function wrapAndSwapTransaction(
   poolKey: V4PoolKey, currencyIn: Address, amountIn: bigint, amountOut: bigint,
   slippageBps: number, deadline: bigint, contracts: ContractRegistry = ROBINHOOD_CONTRACTS, chainId = 4663,
 ) {
-  if (chainId !== 4663 || !sameAddress(contracts.router, ROBINHOOD_CONTRACTS.router))
-    throw new Error("Native WETH buys require the Robinhood router and network");
-  if (!sameAddress(currencyIn, wrappedEther(4663))) throw new Error("Native payments require WETH as the pool input");
+  if (!isEthBuyChain(chainId) || !sameAddress(contracts.router,
+    contractsFor({ mode: chainId === 4663 ? "robinhood" : "base", deploymentChainId: chainId }).router))
+    throw new Error("Native WETH buys require the trading router for the deployment network");
+  if (!sameAddress(currencyIn, wrappedEther(chainId))) throw new Error("Native payments require WETH as the pool input");
   const { swap, minOut, currencyOut } = swapParameters(poolKey, currencyIn, amountIn, amountOut, slippageBps, contracts);
   const wrap = encodeAbiParameters(parseAbiParameters("address,uint256"), ["0x0000000000000000000000000000000000000002", amountIn]);
   const settle = encodeAbiParameters(parseAbiParameters("address,uint256,bool"), [currencyIn, amountIn, false]);

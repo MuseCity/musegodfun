@@ -70,9 +70,13 @@ for (const chainId of [4663, 8453] as const) test(`actual ${chainId} token panel
   }
 });
 
-for (const eth of [false, true]) test(`actual ${eth ? "LI.FI" : "pair"} automatic requests preserve unrelated errors even when a new quote fails`, async t => {
-  const f = await panel(4663, true, eth);
-  t.mock.method(globalThis, "fetch", async () => Response.json({ error: "Quote unavailable" }, { status: 503 }));
+for (const chainId of [4663, 8453] as const) for (const eth of [false, true]) test(`actual ${chainId} ${eth ? "LI.FI" : "pair"} automatic requests preserve unrelated errors even when a new quote fails`, async t => {
+  const f = await panel(chainId, true, eth);
+  assert.equal(f.input.lifi, eth);
+  t.mock.method(globalThis, "fetch", async (url: string | URL | Request) => {
+    assert.equal(url, `/api/chains/${chainId}${eth ? "/trade/eth-quote" : "/quote"}`);
+    return Response.json({ error: "Quote unavailable" }, { status: 503 });
+  });
   await assert.rejects(f.callbacks.request({ challenge: false, retry: false }), /Quote unavailable/);
   assert.equal(f.writes.some(w => w.index === 6 && w.value === ""), false);
   f.callbacks.error(new Error("Quote unavailable"));

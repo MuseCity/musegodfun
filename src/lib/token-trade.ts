@@ -1,17 +1,17 @@
 import type { V4PoolKey } from "@whetstone-research/doppler-sdk/evm";
-import { sameAddress, type RuntimeConfig } from "./config";
+import { deploymentChain, sameAddress, type RuntimeConfig } from "./config";
 import { ethBuyAvailable, type PayWith } from "./eth-buy";
 import { wrappedEther } from "./first-buy-payment";
 import { parseAmount } from "./validation";
 import type { AutoQuoteInput } from "./auto-quote";
 
 export type TradeRoute = "native" | "lifi" | "permit2";
-/** Only an ETH pick on a Robinhood buy can carry native value; explicit pair picks always use Permit2. */
+/** Only an ETH pick on a supported buy can carry native value; explicit pair picks always use Permit2. */
 export function tradeRoute({ side, payWith, pairAddress, config }: {
   side: "buy" | "sell"; payWith: PayWith; pairAddress: string | null; config: RuntimeConfig | null;
 }): TradeRoute {
-  if (side !== "buy" || payWith !== "eth" || !pairAddress || !ethBuyAvailable(config)) return "permit2";
-  return sameAddress(pairAddress, wrappedEther(4663)) ? "native" : "lifi";
+  if (side !== "buy" || payWith !== "eth" || !pairAddress || !config || !ethBuyAvailable(config)) return "permit2";
+  return sameAddress(pairAddress, wrappedEther(deploymentChain(config))) ? "native" : "lifi";
 }
 /** Quote identity includes the selected unit, wallet, network and pool, even when the quoted amounts happen to match. */
 export function tradeAutoQuoteInput(input: {

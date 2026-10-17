@@ -8,6 +8,8 @@ import { attemptAfterSendError, discardable } from "../src/lib/send-record";
 import { launchFeeStorageKey } from "../src/lib/nft-client";
 import { LOCK_ERROR } from "../src/lib/launch-intent";
 import { ethBuyLockError } from "../src/lib/use-eth-buy-record";
+import { hookRuntime, importFresh, settle } from "./hook-runtime";
+import type { RuntimeConfig } from "../src/lib/config";
 
 test("ETH buy lock refusals name the paired asset and never tell a token-page user to keep a draft", () => {
   const missing = ethBuyLockError(new Error(LOCK_ERROR), "MUSEGOD");
@@ -31,6 +33,45 @@ const sending: EthBuyRecord = { state: "sending", from: account, nonce: 3, block
   tx: { to: diamond, data, value: "1000000000000000" },
   target: { kind: "coin", token: getAddress("0x5555555555555555555555555555555555555555"), symbol: "BARD", decimals: 18, coin: "BARD" } };
 const pendingOf = (txHash: Hex, over: object = {}): EthBuyRecord => ({ ...sending, state: "pending", txHash, ...over });
+
+test("the ETH buy hook restores Base and Robinhood records in separate chain keys", async t => {
+  let current: RuntimeConfig | null = { ...config } as RuntimeConfig;
+  let currentAccount: Address | null = account;
+  const base = { ...current, mode: "base", chainId: 8453, deploymentChainId: 8453 } as RuntimeConfig;
+  const baseRecord = { ...sending, quoteId: "base-quote" };
+  const fork = { ...current, mode: "fork", chainId: 31337 } as RuntimeConfig;
+  const records = new Map([[ethBuyStorageKey(current, account), JSON.stringify(sending)], [ethBuyStorageKey(base, account), JSON.stringify(baseRecord)],
+    [ethBuyStorageKey(fork, account), JSON.stringify({ ...sending, quoteId: "fork-quote" })]]);
+  const prior = ["localStorage", "window"].map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)] as const);
+  Object.defineProperty(globalThis, "localStorage", { configurable: true, value: { getItem: (key: string) => records.get(key) ?? null } });
+  Object.defineProperty(globalThis, "window", { configurable: true, value: { addEventListener() {}, removeEventListener() {} } });
+  const runtime = hookRuntime(() => useEthBuyRecord(current, currentAccount));
+  const { useEthBuyRecord } = await importFresh("src/lib/use-eth-buy-record.ts", {
+    react: { file: import.meta.resolve("react"), bindings: runtime.hooks },
+    "./use-send-poll": { file: new URL("../src/lib/use-send-poll.ts", import.meta.url).href,
+      bindings: { useSendPoll: () => ({ now: () => false }) } },
+  });
+  t.after(() => {
+    runtime.unmount();
+    for (const [name, descriptor] of prior) if (descriptor) Object.defineProperty(globalThis, name, descriptor); else Reflect.deleteProperty(globalThis, name);
+  });
+  runtime.render(); await settle(); assert.deepEqual(runtime.output().record, sending);
+  current = base; runtime.render(); await settle(); assert.deepEqual(runtime.output().record, baseRecord);
+  // A fork has no ETH-buy key: a record stored under its key is never read, polled or guarded.
+  for (const [runtimeConfig, wallet, message] of [
+    [fork, account, "Buying a coin with ETH is unavailable on Robinhood Chain local fork."],
+    [{ ...base, mode: "fork", chainId: 31337 }, account, "Buying a coin with ETH is unavailable on Base local fork."],
+    [{ ...config } as RuntimeConfig, null, "Buying a coin with ETH is unavailable on Robinhood Chain."],
+    [base, null, "Buying a coin with ETH is unavailable on Base."],
+    [null, account, "Buying a coin with ETH is unavailable on this network."],
+  ] as const) {
+    current = runtimeConfig; currentAccount = wallet;
+    runtime.render(); await settle(); assert.equal(runtime.output().record, null);
+    await assert.rejects(runtime.output().guard({} as never, {} as never, async () => "sent"), { message });
+  }
+  current = { ...config } as RuntimeConfig; currentAccount = account;
+  runtime.render(); await settle(); assert.deepEqual(runtime.output().record, sending);
+});
 
 type FakeTx = { hash: Hex; from: Address; to: Address; input: Hex; value: bigint; nonce: number; block: bigint };
 const buyTx = (n: number, block: bigint, over: Partial<FakeTx> = {}): FakeTx => ({ hash: `0x${n.toString(16).padStart(64, "0")}`, from: account, to: diamond,

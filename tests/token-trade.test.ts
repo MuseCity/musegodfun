@@ -11,7 +11,9 @@ for (const [side, payWith, pairAddress, network, expected] of [
   ["buy", "eth", weth, config, "native"], ["buy", "pair", weth, config, "permit2"],
   ["buy", "eth", weth.toUpperCase(), config, "native"], ["buy", "eth", pair, config, "lifi"],
   ["buy", "pair", pair, config, "permit2"], ["sell", "eth", weth, config, "permit2"],
-  ["sell", "pair", pair, config, "permit2"], ["buy", "eth", weth, base, "permit2"],
+  ["sell", "pair", pair, config, "permit2"], ["buy", "eth", wrappedEther(8453), base, "native"],
+  ["buy", "eth", wrappedEther(8453).toUpperCase(), base, "native"], ["buy", "eth", STOCKS[0].address, base, "lifi"],
+  ["sell", "eth", wrappedEther(8453), base, "permit2"], ["buy", "pair", wrappedEther(8453), base, "permit2"],
   ["buy", "pair", STOCKS[0].address, base, "permit2"], ["buy", "eth", weth, null, "permit2"],
   ["buy", "eth", null, config, "permit2"],
 ] as const) test(`payment route: ${side}/${payWith}/${pairAddress}/${network?.chainId} -> ${expected}`, () => {

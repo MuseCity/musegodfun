@@ -1,7 +1,7 @@
 import { formatUnits, zeroAddress, type Address } from "viem";
 import { z } from "zod";
-import { quoteAsset, sameAddress, type TokenRecord } from "../src/lib/config";
-import { ETH_BUY_CHAIN, FIRST_BUY_SLIPPAGE_BPS, wrappedEther } from "../src/lib/first-buy-payment";
+import { networkName, quoteAsset, sameAddress, type TokenRecord } from "../src/lib/config";
+import { isEthBuyChain, FIRST_BUY_SLIPPAGE_BPS, wrappedEther } from "../src/lib/first-buy-payment";
 import type { EthBuyQuoteResponse, SwapQuote } from "../src/lib/eth-buy";
 import { addressSchema, minimumOutput } from "../src/lib/validation";
 import { BudgetUnavailable } from "./runtime-policy";
@@ -19,6 +19,8 @@ export const ethBuyRequestSchema = z.object({
 }).strict();
 export type EthBuyDependencies = {
   chainId: 8453 | 4663;
+  /** The runtime's mode; a local fork never quotes ETH buys, whatever chain it forks. */
+  mode?: "base" | "robinhood" | "fork";
   /** Null when the runtime has no LI.FI configuration. */
   payments: Pick<FirstBuyPaymentReader, "quote" | "coinQuote"> | null;
   /** A listed platform coin of this chain; throws for anything else. */
@@ -35,11 +37,13 @@ export type EthBuyDependencies = {
  * guaranteed minimum. A refused direct quote is discarded, never returned; only provider capacity stops the fallback. */
 export async function quoteEthBuy(raw: unknown, deps: EthBuyDependencies): Promise<EthBuyQuoteResponse> {
   const input = ethBuyRequestSchema.parse(raw), now = deps.now ?? Date.now;
-  if (deps.chainId !== ETH_BUY_CHAIN || !deps.payments)
-    throw new EthBuyError("ETH_BUY_UNAVAILABLE", "Buying a coin with ETH is available on Robinhood Chain only.");
-  const record = await deps.token(input.token), pair = quoteAsset(record);
-  if (sameAddress(pair.address, wrappedEther(ETH_BUY_CHAIN)))
+  if (deps.mode === "fork" || !isEthBuyChain(deps.chainId) || !deps.payments)
+    throw new EthBuyError("ETH_BUY_UNAVAILABLE", `Buying a coin with ETH is unavailable on ${networkName({
+      mode: deps.mode ?? (deps.chainId === 4663 ? "robinhood" : "base"), deploymentChainId: deps.chainId })}.`);
+  const record = await deps.token(input.token);
+  if (sameAddress(record.quoteAddress, wrappedEther(deps.chainId)))
     throw new EthBuyError("ETH_BUY_NOT_NEEDED", "This coin is paired with WETH, so it needs no ETH conversion.");
+  const pair = quoteAsset(record);
   try {
     const quote = await deps.payments.coinQuote({ account: input.account, amount: input.amountIn,
       coin: { address: record.address, symbol: record.symbol, decimals: 18 }, slippageBps: input.slippageBps });
