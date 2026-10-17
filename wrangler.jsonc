@@ -37,7 +37,7 @@
   "vars": {
     "CHAIN_MODE": "robinhood",
     "LIFI_INTEGRATOR": "musegodfun",
-    "FOMO_INVITE_HANDLE": "",
+    "FOMO_INVITE_HANDLE": "daboluo",
     "RUNTIME_SECURITY_PROTOCOL": "1",
     "SUPABASE_DATA_SCOPE": "robinhood",
     "PLATFORM_TREASURY": "0xc4F87C3715374445C4657aa14c47CBB339b59d1A",

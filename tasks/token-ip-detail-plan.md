@@ -1,6 +1,6 @@
 # Token detail as an IP page — spec and plan
 
-Status: implementation on `claude/token-ip-detail` (2026-10-17). Design source: the owner-approved canvas "Token IP Detail Redesign" (claude.ai artifact XrbcWR3NPjMLCFTMgmQrha, version 16), built on the musegod.fun design system.
+Status: released 2026-10-18 as `0934171` (`build-39050292574-1`). Design source: the owner-approved canvas "Token IP Detail Redesign" (claude.ai artifact XrbcWR3NPjMLCFTMgmQrha, version 16), built on the musegod.fun design system.
 
 ## 1. Goal
 
@@ -75,13 +75,13 @@ Claude implements; codex (gpt-6.1-sol, xhigh) reviews; findings are fixed and re
 
 ## 8. Release notes for the owner
 
-- Apply migration `20261017120000_profile_snapshots.sql` before releasing.
-- Set `FOMO_INVITE_HANDLE` in `wrangler.jsonc` vars (public) to show the Fomo button.
-- Pushing to `master` releases production; this branch stays local until the owner approves.
+- Done: migration `20261017120000_profile_snapshots.sql` was applied to production before the release.
+- Done: `FOMO_INVITE_HANDLE` is `daboluo` (the owner's invite link `https://fomo.family/r/daboluo`) in `wrangler.jsonc` vars, set in a follow-up release. Production reads this var, not `.env`.
+- Pushing to `master` releases production.
 
 ## 9. Status, 2026-10-17
 
-Implemented and reviewed; uncommitted on `claude/token-ip-detail`.
+Implemented, reviewed and released (`0934171`); the Fomo handle followed in a separate release.
 
 | Acceptance item | State | Evidence |
 |---|---|---|
