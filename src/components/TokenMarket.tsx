@@ -227,8 +227,6 @@ export default function TokenMarket({
         <div className="market-price-row">
           <div>
             <span className="eyebrow">{token.symbol} PRICE</span>
-            {liveEnabled && <Suspense fallback={null}><SwapLive chainId={kind === "musegod" ? 4663 : deploymentChain(token)} pool={(kind === "musegod" ? MUSEGOD.pool : token.poolId!).toLowerCase()} path={kind === "musegod" ? "/musegod/market" : `/tokens/${token.address}/market`} summary={summary.data} candles={history.data} trades={trades.data}
-              interval={interval} info={info} onUpdate={setLive} /></Suspense>}
             {hasValues ? <div className="market-price">
               <span className="mono" title={currentLive?.priceAt ? `Live price · On-chain · Alchemy · Trade ${currentLive.priceAt}` : undefined}>{stats?.priceUsd != null ? usd(stats.priceUsd, true) : stats?.priceQuote ? `${Number(stats.priceQuote).toLocaleString("en-US", {maximumSignificantDigits:6})} ${stats.quoteSymbol}` : "—"}</span>
               <span className={`change-chip ${changeKind}`}>
@@ -237,8 +235,7 @@ export default function TokenMarket({
                   ? "—"
                   : `${change >= 0 ? "+" : ""}${change.toFixed(2)}%`} · 24h
               </span>
-            </div> : <p className="hint" role="status">{emptySummary}</p>}
-            {stats?.quotePriceAt && <p className="feed-note">Latest swap · On-chain · Alchemy · {Number(stats.priceQuote).toLocaleString("en-US", {maximumSignificantDigits:6})} {stats.quoteSymbol} · Block <time dateTime={stats.quotePriceAt}>{new Date(stats.quotePriceAt).toLocaleTimeString("en-US")}</time></p>}
+            </div> : <p className="hint" role="status">{summary.loading ? "Loading market data…" : summary.error || stats?.status === "stale" || stats?.status === "unavailable" ? "Market data temporarily unavailable" : "No market price yet"}</p>}
           </div>
           <button
             type="button"
@@ -250,6 +247,51 @@ export default function TokenMarket({
             <RefreshCw size={18} />
           </button>
         </div>
+        <div className="chart-toolbar">
+          <div className="segmented" role="group" aria-label="Chart type">
+            <button type="button" aria-pressed={chartType === "line"} onClick={() => setChartType("line")}>Line</button>
+            <button type="button" aria-pressed={chartType === "candles"} onClick={() => setChartType("candles")}>Candles</button>
+          </div>
+          <div className="segmented mono" role="group" aria-label="Chart interval">
+            {CHART_INTERVALS.map((value) => (
+              <button
+                type="button"
+                key={value}
+                aria-pressed={interval === value}
+                onClick={() => setIntervalValue(value)}
+              >
+                {value}
+              </button>
+            ))}
+          </div>
+        </div>
+        <Suspense fallback={<PriceChartFrame symbol={token.symbol} unit={chartData?.candles.length ? chartData.unit ?? "USD" : chartData?.unit} type={chartType} status={chartStatus} />}>
+          {chartData?.candles.length ? (
+            <MarketChart
+              key={`${marketEndpoint(token, kind, `candles?interval=${interval}`).key}:${chartData.source}:${chartData.unit ?? "USD"}`}
+              data={chartData}
+              endpoint={marketEndpoint(token, kind, `candles?interval=${interval}`)}
+              interval={interval}
+              symbol={token.symbol}
+              type={chartType}
+            />
+          ) : (
+            <PriceChart
+              candles={chartData?.candles ?? EMPTY_CANDLES}
+              symbol={token.symbol}
+              unit={chartData?.unit}
+              type={chartType}
+              interval={interval}
+              status={chartStatus}
+            />
+          )}
+        </Suspense>
+        {!!chartData?.candles.length && chartData.status === "stale" && (
+          <p className="market-warning" role="status">
+            {history.error || chartData.warning || "Previous chart snapshot. Refresh to update."}
+          </p>
+        )}
+        {(!hasValues && !summary.loading || !chartData?.candles.length && !history.loading) && <p className="hint">Enter an amount in the trade panel for an on-chain price preview.</p>}
         {(hasValues || metric) && <dl className="stat-grid market-metrics">
           {hasValues && <div>
             <dt>Market cap</dt>
@@ -271,6 +313,7 @@ export default function TokenMarket({
             <dd>{usd(stats?.periods.h24?.volume)}</dd>
           </div></>}
         </dl>}
+        {!hasValues && <p className={summary.error || stats?.status === "stale" ? "market-warning" : "hint"} role="status">{emptySummary}</p>}
         {hasValues && (summary.error || stats?.status === "stale") && (
           <p className="market-warning" role="status">
             {summary.error || stats?.warning || "Previous snapshot. Refresh to update."}
@@ -313,57 +356,15 @@ export default function TokenMarket({
             </span>
           </p>
         </>}
-        <div className="chart-toolbar">
-          <div className="segmented" role="group" aria-label="Chart type">
-            <button type="button" aria-pressed={chartType === "line"} onClick={() => setChartType("line")}>Line</button>
-            <button type="button" aria-pressed={chartType === "candles"} onClick={() => setChartType("candles")}>Candles</button>
-          </div>
-          <div className="segmented mono" role="group" aria-label="Chart interval">
-            {CHART_INTERVALS.map((value) => (
-              <button
-                type="button"
-                key={value}
-                aria-pressed={interval === value}
-                onClick={() => setIntervalValue(value)}
-              >
-                {value}
-              </button>
-            ))}
-          </div>
-        </div>
-        {!!chartData?.candles.length && chartData.status === "stale" && (
-          <p className="market-warning">
-            {history.error || chartData.warning || "Previous chart snapshot. Refresh to update."}
-          </p>
-        )}
-        <Suspense fallback={<PriceChartFrame symbol={token.symbol} unit={chartData?.candles.length ? chartData.unit ?? "USD" : chartData?.unit} type={chartType} status={chartStatus} />}>
-          {chartData?.candles.length ? (
-            <MarketChart
-              key={`${marketEndpoint(token, kind, `candles?interval=${interval}`).key}:${chartData.source}:${chartData.unit ?? "USD"}`}
-              data={chartData}
-              endpoint={marketEndpoint(token, kind, `candles?interval=${interval}`)}
-              interval={interval}
-              symbol={token.symbol}
-              type={chartType}
-            />
-          ) : (
-            <PriceChart
-              candles={chartData?.candles ?? EMPTY_CANDLES}
-              symbol={token.symbol}
-              unit={chartData?.unit}
-              type={chartType}
-              interval={interval}
-              status={chartStatus}
-            />
-          )}
-        </Suspense>
-        {(!hasValues && !summary.loading || !chartData?.candles.length && !history.loading) && <p className="hint">Enter an amount in the trade panel for an on-chain price preview.</p>}
-        {(summary.data || history.data || kind === "musegod") && <p className="feed-note">
+        {stats?.quotePriceAt && <p className="feed-note">Latest swap · On-chain · Alchemy · {Number(stats.priceQuote).toLocaleString("en-US", {maximumSignificantDigits:6})} {stats.quoteSymbol} · Block <time dateTime={stats.quotePriceAt}>{new Date(stats.quotePriceAt).toLocaleTimeString("en-US")}</time></p>}
+        {(liveEnabled || summary.data || history.data || kind === "musegod") && <p className="feed-note">
           <MarketProvenance label="Summary" data={stats} kind={kind} />
           {summary.data && history.data ? " · " : ""}
           <MarketProvenance label="Candles" data={chartData} kind={kind} />
           {currentLive?.candlesAt && <> · Live candles · On-chain · Alchemy · Trade <time dateTime={currentLive.candlesAt}>{new Date(currentLive.candlesAt).toLocaleTimeString("en-US")}</time></>}
           {kind === "musegod" && <>{summary.data || history.data ? " · " : ""}refreshes every 15 seconds while visible</>}
+          {liveEnabled && <Suspense fallback={null}>{" "}<SwapLive chainId={kind === "musegod" ? 4663 : deploymentChain(token)} pool={(kind === "musegod" ? MUSEGOD.pool : token.poolId!).toLowerCase()} path={kind === "musegod" ? "/musegod/market" : `/tokens/${token.address}/market`} summary={summary.data} candles={history.data} trades={trades.data}
+            interval={interval} info={info} onUpdate={setLive} /></Suspense>}
         </p>}
       </section>
       <section className="card market-feed" aria-label="Recent trades">

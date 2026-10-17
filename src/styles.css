@@ -532,8 +532,8 @@ dialog.modal[open] { display: flex; flex-direction: column; gap: 16px; }
 .callout a { font-weight: 650; color: var(--ink); display: inline-flex; align-items: center; gap: 4px; }
 
 /* Market */
-.market-price-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.market-price-row > div { display: flex; flex-direction: column; gap: 4px; }
+.market-price-row { height: 90px; flex-shrink: 0; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.market-price-row > div { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .market-price { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; }
 .market-price > .mono { font-size: 36px; line-height: 40px; font-weight: 500; letter-spacing: -0.02em; }
 .market-price .change-chip { height: 24px; font-size: 12px; padding: 0 10px 0 6px; }
