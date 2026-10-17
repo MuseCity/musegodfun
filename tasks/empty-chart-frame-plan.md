@@ -13,13 +13,13 @@ Status: In progress (2026-10-17). Branch `claude/empty-chart-frame`, based on `1
 
 ## Goal
 
-Every token page and the MUSEGOD page show a real chart frame at all times; when there are no candles the frame is empty but looks like a professional chart, and the honest status is shown inside it.
+Every token page and the MUSEGOD page show a real chart frame at all times; when there are no candles the frame shows a faint symbol/unit watermark, with an honest short status directly below it.
 
 ## Constraints
 
-1. Honesty: never draw bars, lines, prices or volumes that do not exist. The empty frame may use whitespace data points (time only, no values) to lay out the time axis for the selected interval; the price axis stays without values. The existing status texts keep their distinctions (loading, no indexed records, provider rate limit/backoff, not indexed, request failure, stale snapshot) and the on-chain quote hint stays.
-2. Same frame as the populated chart: same component family, 260 px height, grid, axes, theme (light/dark) and the TradingView attribution; no layout jump between loading, empty and populated states.
-3. The status text is a centered overlay inside the frame (muted, small, `role="status"`), readable at 390 px and in both themes; it never covers the attribution.
+1. Honesty: never draw bars, lines, prices or volumes that do not exist. The empty frame may use whitespace data points (time only, no values) to lay out the time axis for the selected interval; the price axis stays without values. Precise status distinctions remain in the status tooltip and chart description, as specified by the owner decision below; the on-chain quote hint stays.
+2. Same frame as the populated chart: same component family, 260 px height, grid, axes, dark palette in both site themes and the TradingView attribution; no chart-frame layout jump between loading, empty and populated states.
+3. No status sentence inside the frame. Empty/loading frames use a faint non-interactive symbol/unit watermark; one muted `role="status"` line below the panel follows the owner's three copy classes, readable at 390 px and in both themes.
 4. No chart data requests change: no extra API calls, no history paging in the empty state, no change to market reads, provenance lines, live stream handling or trading.
 5. Remove the now-dead `.market-empty` chart usage and CSS if nothing else uses it (Recent trades' empty state is out of scope unless it shares the component; keep its behavior).
 
@@ -28,15 +28,29 @@ Every token page and the MUSEGOD page show a real chart frame at all times; when
 "A black background for the blank TradingView frame looks more professional." Asked whether to darken only the empty frame or all charts, the owner chose: **all price charts use a black background, populated and empty, in both the light and dark site themes.** The rest of the site keeps following the theme.
 
 - Scope: the token-page and MUSEGOD price charts (`PriceChart` via `MarketChart`, line and candle modes, volume histogram) and their empty frame. The launch-curve chart and other cards are unchanged.
-- The frame is a near-black panel (TradingView-style dark, for example `#0b0e11`–`#131722`) with rounded corners matching the card. It has subtle grid lines, light-muted axis text, readable up/down candle and volume colors, crosshair and price-line colors, and the OHLC legend inside the frame. The empty-state overlay text is light-muted, and the TradingView attribution and link stay legible.
-- Contrast: axis text and overlay text meet WCAG AA against the panel background, in both site themes.
+- The frame is a near-black panel (TradingView-style dark, for example `#0b0e11`–`#131722`) with rounded corners matching the card. It has subtle grid lines, light-muted axis text, readable up/down candle and volume colors, crosshair and price-line colors, and the OHLC legend inside the frame. The TradingView attribution and link stay legible; the later owner decision replaces the status overlay with a faint decorative watermark.
+- Contrast: axis text, legend and credit meet WCAG AA against the panel background, in both site themes. The decorative watermark is intentionally faint.
 - Constraint 2 is updated accordingly: empty and populated frames stay visually identical apart from data, now in the dark palette regardless of site theme.
+
+## Owner decision: no status sentence inside the chart (2026-10-17, translated)
+
+The owner asked whether the sentence "No indexed price records for this interval. The price provider is rate limited. Try again later." should be removed. Conductor recommendation, adopted:
+
+- Inside the frame (empty and loading states, including the library-free fallback): no status sentence. Show a faint, non-interactive watermark with the chart's symbol and unit label instead (e.g. `CLAWGOD / USD`, or just the symbol when the unit is unknown). The watermark is not data. Populated charts get no watermark.
+- The status moves to one short muted line directly under the chart, in buyer language and three classes:
+  - loading: "Loading market data…";
+  - an empty response without an error or reason: "No price history yet". Never "No trades", because an empty index does not prove there were no on-chain trades;
+  - any failure, rate limit, backoff, not indexed or unusable response: "Chart data temporarily unavailable".
+  The stale-snapshot warning above the chart is unchanged.
+- The precise existing reason text (from `emptyCandlesMessage` / `emptyText`) stays available as the status line's `title` tooltip and in the chart's accessible description, so the earlier distinctions remain inspectable without cluttering the view. This is a deliberate owner-approved simplification of the visible copy under `tasks/market-data-plan.md`'s distinct-state rule; no state is hidden or misreported.
+- The on-chain quote hint stays.
+- C1b-1 is folded in: during loading, the accessible label and the visible status both say loading, and a populated chart's loading frame shows the same unit label it will show when loaded.
 
 ## Acceptance
 
-1. Tests (SSR or component harness): empty, loading, error and stale-empty states render the chart frame with the correct overlay text and no series values; populated state unchanged; no paging trigger in the empty state.
+1. Tests (SSR or component harness): empty, loading, error and stale-empty states render the chart frame with the correct short status below it, precise tooltip and accessible description, a symbol/unit watermark and no series values. Populated charts have no watermark; loading labels agree with their status and retain the known final unit. Populated data behavior and the no-empty-paging guard are unchanged.
 2. `npm test`, `npm run build`, `git diff --check`, Han scan.
-3. Local read-only preview: CLAWGOD (no candles), MV2C (candles) and MUSEGOD at 1440 px and 390 px, light and dark; screenshots show the empty frame with axes, grid, attribution and overlay; no console errors; no extra network requests compared with the current page.
+3. Local read-only preview: the original matrix covers CLAWGOD (no candles), MV2C (candles) and MUSEGOD at 1440 px and 390 px, light and dark. Run 3 re-checks CLAWGOD at 1440/390 px light and MV2C at 1440 px light, including the watermark, status below the chart and loading fallback. No console errors or added chart data requests.
 4. Cross review: claude review → codex fix → claude accept, then codex review → claude fix → codex accept.
 5. Local commits only; release needs the owner's explicit approval.
 
@@ -77,3 +91,15 @@ Every token page and the MUSEGOD page show a real chart frame at all times; when
 - A preview-only 20-second delay of the PriceChart JS response exposes the library-free CLAWGOD fallback: 0 canvases, identical panel/plot rectangles, status and accessible label before and after the chunk loads. Initial two-edge locking collapsed the whitespace range; retained diagnostic captures explain why only the left edge is fixed. The full-width overlay removes the remaining inset grid stub.
 - Evidence and report: `.superpowers/sdd/empty-chart/evidence/run2/summary.json`, its assertion script, red/green/full/build logs, browser JSON/PNG, network audit, source hashes and cleanup; `.superpowers/sdd/empty-chart/run2-report.md`. Reused the no-env plain-Vite GET-only preview harness, with browser socket/POST guards. No direct provider calls, transmitted POST, source permission changes or release. Real stream execution remains unverified. Preview PID 10371 exited; TCP/process checks confirm port 4189 is free.
 - Local commit only. Roll back by reverting this Run 2 commit to the `e57c690` Run 1b baseline. Next handoff: Claude read-only review and acceptance of these fixes, followed by the existing reverse review sequence. No implementer self-acceptance.
+
+### Run 3 - 2026-10-17 - Codex owner copy decision and C1b-1
+
+- Implemented the owner's no-status-sentence decision, including its previously uncommitted plan section. Empty and loading frames have one faint, non-interactive symbol/unit watermark and no in-frame status sentence; populated charts have no watermark. The shared library-free PriceChartFrame supplies identical watermark markup/styles to both the lazy fallback and live chart. Removed the overlay markup, props and dead CSS.
+- One muted status line below the panel uses exactly the three buyer-facing copy classes. All reason codes, client errors, unusable responses and stale-empty failures map to temporary unavailability; a successful reason-free empty response says "No price history yet". The original precise reason remains byte-for-byte in the line's title and the chart's aria-description. Existing populated stale warnings, quote hints, real data paths, stable candles references and paging guards are unchanged.
+- C1b-1 is fixed: loading names agree with visible loading copy; the populated fallback retains its final USD or known quote unit. Lightweight Charts' text watermark API targets a library pane with computed bounds and no word wrapping; one shared CSS watermark instead gives the library-free and live frames identical placement, font and responsive wrapping without importing the library into the entry.
+- TDD: three new regressions fail on the pre-change implementation (`evidence/run3/red.log`). All 32 targeted tests and all 1787 full-suite tests pass, including the static-import graph and stable-reference lifecycle checks. Production build/typechecks pass; entry 1127.13 kB / 330.67 kB gzip, lazy PriceChart 171.33 kB / 55.66 kB gzip. Main entry still excludes PriceChart and lightweight-charts. Diff check and changed-tracked-file Han scan are clean; the existing large-chunk warning remains.
+- Browser: CLAWGOD at 1440/390 px light and MV2C at 1440 px light, using real production API GET responses. Three normal initial endpoint/count multisets equal archived Run 1b (9 GETs each, 3 market reads), with no history paging, blocked request, console error or horizontal overflow. CLAWGOD has no price/volume/OHLC values; MV2C retains two candles and four OHLC values. Plot height remains 260 px; panels remain 340 px desktop / 376 px mobile. PNGs were inspected.
+- Two 20-second static-chunk delays expose empty and populated fallbacks. CLAWGOD's watermark geometry, style, status, tooltip and accessible label match before/after chart load; MV2C shows "MV2C / USD" with matching visible/accessible loading copy, then removes the watermark. The delayed captures include one existing FirstBuyLock 20-second poll beyond the initial 9 reads; chart reads stay at 3. Empty pointer/wheel/range interaction adds no read or data value.
+- Evidence: `.superpowers/sdd/empty-chart/evidence/run3/summary.json`, assertion script, red/green/full/build logs, screenshots, captures, source hashes, network audit and cleanup. Report: `.superpowers/sdd/empty-chart/run3-report.md`; C1b-1 disposition: `.superpowers/sdd/empty-chart/review-state.md`.
+- Reused the no-env plain-Vite GET-only production API harness and browser socket/POST guards. No direct provider call, transmitted POST or source permission change. Real stream delivery remains unverified. Preview PID 35248 exited after SIGTERM (143); process/TCP checks confirm port 4189 is free. Temporary browser tabs are closed.
+- Local commit only; no push, deployment or independent acceptance. Roll back by reverting this Run 3 commit to the accepted `a42e664` Run 2 baseline. Next handoff: Claude read-only review of Run 3, then the existing cross-review sequence.

@@ -22,7 +22,7 @@ test("empty and populated candle, line and volume charts keep the same dark opti
     theme = initialTheme; candles = populated ? [{ time: 1800000000, open: 2, high: 4, low: 1, close: 3, volume: 5 },
       { time: 1800003600, open: 3, high: 4, low: 1, close: 2, volume: 6 }] : [];
     const created: any[] = [];
-    const runtime = hookRuntime(() => { refIndex = 0; return View({ candles, type, symbol: "TEST", emptyMessage: "No indexed records." }); });
+    const runtime = hookRuntime(() => { refIndex = 0; return View({ candles, type, symbol: "TEST", status: { text: "No price history yet", reason: "No indexed records." } }); });
     ({ default: View } = await importFresh("src/components/PriceChart.tsx", {
       react: { file: import.meta.resolve("react"), bindings: { ...runtime.hooks,
         useRef(initial: any) { return runtime.hooks.useRef(refIndex++ === 0 ? {} : initial); } } },
@@ -55,7 +55,7 @@ test("empty and populated candle, line and volume charts keep the same dark opti
   assert.equal(frames[0].options.crosshair.vertLine.color, chartTokens["--chart-crosshair"]);
 });
 
-test("chart axis, overlay, legend and credit text meet AA against their fixed dark panel", () => {
+test("chart axis, legend and credit text meet AA against their fixed dark panel", () => {
   const luminance = (hex: string) => {
     const channels = hex.slice(1).match(/../g)!.map(value => parseInt(value, 16) / 255).map(value => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
     return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
@@ -66,8 +66,7 @@ test("chart axis, overlay, legend and credit text meet AA against their fixed da
     const text = luminance(chartTokens[token]), ratio = (Math.max(text, background) + 0.05) / (Math.min(text, background) + 0.05);
     assert(ratio >= 4.5, `${token} contrast ${ratio.toFixed(2)}:1 must meet AA for small text`);
   }
-  assert.match(css, /\.chart-empty-status\s*\{[^}]*color: var\(--chart-text\)/);
-  assert.match(css, /\.chart-empty-status > span\s*\{[^}]*background: var\(--chart-background\)/);
+  assert.doesNotMatch(css, /chart-empty-status/);
   assert.match(css, /\.chart-ohlc\s*\{[^}]*color: var\(--chart-text\)/);
   assert.match(css, /\.chart-credit a\s*\{[^}]*color: var\(--chart-link\)/);
 });
@@ -86,7 +85,7 @@ test("the chart uses time-only whitespace for each empty interval, never pages, 
   Reflect.set(globalThis, "document", { documentElement: {} });
   t.after(() => { Reflect.set(globalThis, "document", previousDocument); Reflect.set(globalThis, "getComputedStyle", previousStyle); });
   let refIndex = 0;
-  const runtime = hookRuntime(() => { refIndex = 0; return View({ candles, interval, type, symbol: "TEST", emptyMessage: "No indexed records.", onLoadOlder: () => pages++ }); });
+  const runtime = hookRuntime(() => { refIndex = 0; return View({ candles, interval, type, symbol: "TEST", status: { text: "No price history yet", reason: "No indexed records." }, onLoadOlder: () => pages++ }); });
   ({ default: View } = await importFresh("src/components/PriceChart.tsx", {
     react: { file: import.meta.resolve("react"), bindings: { ...runtime.hooks,
       useRef(initial: any) { return runtime.hooks.useRef(refIndex++ === 0 ? {} : initial); } } },

@@ -10,7 +10,7 @@ import {
   type UTCTimestamp,
 } from "lightweight-charts";
 import type { Candle, ChartInterval } from "../lib/market";
-import PriceChartFrame from "./PriceChartFrame";
+import PriceChartFrame, { type ChartStatus } from "./PriceChartFrame";
 
 // Price charts keep their own dark palette in both site themes.
 function palette(element: HTMLElement) {
@@ -35,7 +35,7 @@ export default function PriceChart({
   unit,
   type = "candles",
   interval = "1h",
-  emptyMessage,
+  status,
   onLoadOlder,
 }: {
   candles: Candle[];
@@ -43,7 +43,7 @@ export default function PriceChart({
   unit?: string;
   type?: "candles" | "line";
   interval?: ChartInterval;
-  emptyMessage?: string;
+  status?: ChartStatus;
   onLoadOlder?: () => void;
 }) {
   const container = useRef<HTMLDivElement>(null);
@@ -172,5 +172,5 @@ export default function PriceChart({
   }, [candles, type, interval]);
   const bar = candles.length ? hover ?? candles.at(-1) : undefined;
   return <PriceChartFrame ref={container} symbol={symbol} unit={unit} type={type} count={candles.length} bar={bar}
-    emptyMessage={emptyMessage} onInteract={() => { interacted.current = true; }} />;
+    status={status} onInteract={() => { interacted.current = true; }} />;
 }

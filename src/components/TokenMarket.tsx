@@ -17,7 +17,7 @@ import {
 import { errorMessage } from "../lib/validation";
 import { changeClass } from "../lib/format";
 import type { LiveProjection, SupplyInfo } from "./SwapLive";
-import PriceChartFrame from "./PriceChartFrame";
+import PriceChartFrame, { type ChartStatus } from "./PriceChartFrame";
 const PriceChart = lazy(() => import("./PriceChart"));
 const EMPTY_CANDLES: Candle[] = [];
 const MarketChart = lazy(() => import("./MarketChart"));
@@ -203,6 +203,9 @@ export default function TokenMarket({
   const chartData = currentLive?.candles || history.data;
   const chartMessage = chartData?.candles.length || history.loading && !history.data ? "Loading market data…"
     : emptyText(history.data, history.error, emptyCandlesMessage(history.data, interval), "Previous chart snapshot. Refresh to update.");
+  const chartStatus: ChartStatus = { text: chartData?.candles.length || history.loading && !history.data ? "Loading market data…"
+    : !chartData || history.error || chartData.reason || chartData.status === "stale" || chartData.status === "unavailable"
+      ? "Chart data temporarily unavailable" : "No price history yet", reason: chartMessage };
   const stats = currentLive?.summary || summary.data,
     activity = stats?.periods[period],
     change = stats?.periods.h24?.change;
@@ -333,7 +336,7 @@ export default function TokenMarket({
             {history.error || chartData.warning || "Previous chart snapshot. Refresh to update."}
           </p>
         )}
-        <Suspense fallback={<PriceChartFrame symbol={token.symbol} unit={chartData?.unit} type={chartType} emptyMessage={chartMessage} />}>
+        <Suspense fallback={<PriceChartFrame symbol={token.symbol} unit={chartData?.candles.length ? chartData.unit ?? "USD" : chartData?.unit} type={chartType} status={chartStatus} />}>
           {chartData?.candles.length ? (
             <MarketChart
               key={`${marketEndpoint(token, kind, `candles?interval=${interval}`).key}:${chartData.source}:${chartData.unit ?? "USD"}`}
@@ -350,7 +353,7 @@ export default function TokenMarket({
               unit={chartData?.unit}
               type={chartType}
               interval={interval}
-              emptyMessage={chartMessage}
+              status={chartStatus}
             />
           )}
         </Suspense>

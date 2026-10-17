@@ -66,27 +66,27 @@ test("D4 empty candles with fallback failure do not mislabel the primary source 
   assert.doesNotMatch(html, /Try a longer interval|Bankr.*unavailable|Source checks|GeckoTerminal:/);
 });
 
-test("C1-1 missing sections show each error once without relabeling not-indexed, expiry or fork states", async () => {
+test("C1-1 missing sections retain errors in each section and the chart's tooltip and description", async () => {
   for (const error of ["Market data unavailable", "Market records are not indexed for this pool yet.", "The market snapshot is more than 24 hours old. Refresh to update.", "The local fork does not show mainnet market data. Use the on-chain quote panel on the right."]) {
     for (const kind of ["launch", "musegod"] as const) {
       const html = await renderMarket({ summary: null, error, candles: null, historyError: error, trades: null, tradesError: error, kind });
       assert.doesNotMatch(html, /Request failed:/);
       const [market, feed] = html.split('<section class="card market-feed"');
-      assert.equal(market.split(error).length - 1, 2, error);
+      assert.equal(market.split(error).length - 1, 3, error);
       assert.equal(feed.split(error).length - 1, 1, error);
       assert.doesNotMatch(html, /CoinGecko|Fetched/);
     }
   }
 });
 
-test("C1-1 stale empty chart and trades retain their own warnings exactly once", async () => {
+test("C1-1 stale empty sections retain their own warnings, with the chart reason in both accessible channels", async () => {
   const html = await renderMarket({
     summary: { ...emptySummary, status: "stale", warning: "Summary refresh failed" },
     candles: { status: "stale", source: "Bankr", fetchedAt: "2026-10-15T10:01:00Z", warning: "Chart refresh failed" },
     trades: { status: "stale", source: "GeckoTerminal", fetchedAt: "2026-10-15T10:02:00Z", warning: "Trades refresh failed" },
     historyError: "Chart refresh failed", tradesError: "Trades refresh failed",
   });
-  for (const warning of ["Summary refresh failed", "Chart refresh failed", "Trades refresh failed"]) assert.equal(html.split(warning).length - 1, 1, warning);
+  for (const warning of ["Summary refresh failed", "Chart refresh failed", "Trades refresh failed"]) assert.equal(html.split(warning).length - 1, warning === "Chart refresh failed" ? 2 : 1, warning);
   assert.match(html, /Summary.*Previous snapshot.*CoinGecko/);
   assert.match(html, /Candles.*Previous snapshot.*Bankr.*2026-10-15T10:01:00Z/);
   assert.match(html, /Trades.*Previous snapshot.*GeckoTerminal.*2026-10-15T10:02:00Z/);
@@ -183,7 +183,7 @@ test("C1b-1 a stale empty chart or trade list keeps its empty statement beside t
   const [market, feed] = cards(html);
   assert.match(market, /No indexed price records for this interval\..*pausing updates\. Try again later\. Refresh is unavailable\. Showing a stale snapshot\./);
   assert.match(feed, /No indexed trades in this snapshot\. Refresh is unavailable\. Showing a stale snapshot\./);
-  assert.equal(market.split(note).length - 1, 1); assert.equal(feed.split(note).length - 1, 1);
+  assert.equal(market.split(note).length - 1, 2); assert.equal(feed.split(note).length - 1, 1);
   const plain = await renderMarket({ candles: { status: "stale", warning: note } });
   assert.match(cards(plain)[0], /No indexed price records for this interval\. Try a longer interval\. Refresh is unavailable/);
   const failed = await renderMarket({ candles: { status: "stale", warning: "Network unavailable. Showing the previous snapshot." }, historyError: "Chart refresh failed", trades: { status: "stale", warning: "Network unavailable. Showing the previous snapshot." }, tradesError: "Trades refresh failed" });
@@ -270,7 +270,7 @@ test("empty, loading, failed and stale-empty charts share the real frame and ret
       const [market] = cards(await renderMarket({ ...options, kind }));
       assert.match(market, /class="price-chart-wrap"/);
       assert.match(market, /class="price-chart[^\"]*"[^>]*role="img"[^>]*with 0/);
-      assert.match(market, /class="chart-empty-status" role="status"/);
+      assert.match(market, /class="chart-status" role="status" title=/);
       assert(market.includes(status));
       assert.match(market, /TradingView Lightweight Charts/);
       assert.doesNotMatch(market, /class="market-empty"|<b>/);
@@ -284,8 +284,44 @@ test("chart frames omit an unknown unit and empty labels never invite price insp
     const [market] = cards(await renderMarket(options));
     const frame = market.slice(market.indexOf('class="price-chart-wrap"'), market.indexOf('class="chart-credit"'));
     assert.doesNotMatch(frame, /USD|hover to inspect prices/);
-    assert.match(frame, /with 0 (?:candles|points)\. No price records\./);
+    assert.match(frame, /with 0 (?:candles|points)\. (?:Loading market data…|No price history yet|Chart data temporarily unavailable)/);
   }
   const [known] = cards(await renderMarket({ candles: { unit: "WETH" } }));
   assert.match(known, /WETH price \/ volume/);
+});
+
+test("chart status maps loading, empty, every reason and client failures to buyer copy with precise descriptions", async () => {
+  const reasons = ["missing_config", "quota_exhausted", "not_indexed", "rate_limited", "upstream_http", "upstream_transport", "upstream_unclassified", "invalid_identity", "invalid_schema", "source_not_provided", "history_not_available", "storage_unavailable", "internal_error", "backoff"] as const;
+  for (const kind of ["launch", "musegod"] as const) {
+    for (const [options, text, reason] of [
+      [{ candles: null, loading: true }, "Loading market data…", "Loading market data…"],
+      [{}, "No price history yet", emptyCandlesMessage({ ...emptySummary, candles: [] }, "1h")],
+      ...reasons.map(reason => [{ candles: { reason } }, "Chart data temporarily unavailable", emptyCandlesMessage({ ...emptySummary, candles: [], reason }, "1h")] as const),
+      [{ candles: null, historyError: "Client price request failed." }, "Chart data temporarily unavailable", "Client price request failed."],
+      [{ candles: null }, "Chart data temporarily unavailable", emptyCandlesMessage(null, "1h")],
+      [{ candles: { status: "unavailable" } }, "Chart data temporarily unavailable", emptyCandlesMessage(null, "1h")],
+      [{ candles: { status: "stale", warning: "Chart refresh failed." } }, "Chart data temporarily unavailable", `${emptyCandlesMessage(null, "1h")} Chart refresh failed.`],
+    ] as const) {
+      const [market] = cards(await renderMarket({ ...options, kind }));
+      assert.match(market, new RegExp(`<p class="chart-status" role="status" title="[^"]*">${text}</p>`));
+      assert(market.includes(`title="${reason}"`), `tooltip must retain ${reason}`);
+      assert(market.includes(`aria-description="${reason}"`), "chart description retains the precise reason");
+      const frame = market.split('<div class="chart-frame">')[1].split('<div class="chart-credit">')[0];
+      assert.doesNotMatch(frame.replace(/<[^>]*>/g, ""), /Loading|No price|unavailable|indexed|request|provider/);
+      assert.match(frame, /class="chart-watermark" aria-hidden="true"/);
+      if (text.startsWith("Loading")) assert.match(frame, /aria-label="[^"]*Loading market data…/);
+      assert.doesNotMatch(market, /chart-empty-status|No trades/);
+    }
+  }
+});
+
+test("loading chart chunks show the final populated unit and loading label, including known quote units", async () => {
+  const candle = { time: 1800000000, open: 1, high: 2, low: 1, close: 2, volume: 3 };
+  for (const unit of [undefined, "WETH"]) {
+    const [market] = cards(await renderMarket({ candles: { candles: [candle], unit } }));
+    assert.match(market, new RegExp(`class="chart-ohlc"[^>]*><span>${token.symbol} / ${unit ?? "USD"}</span>`));
+    assert.match(market, /aria-label="[^"]*Loading market data…/);
+    assert.doesNotMatch(market, /No price records/);
+    assert.match(market, />Loading market data…<\/p>/);
+  }
 });
