@@ -544,6 +544,8 @@ dialog.modal[open] { display: flex; flex-direction: column; gap: 16px; }
   display: flex; flex-direction: column; gap: 6px; padding: 8px 0; border-radius: 14px; overflow: hidden; background: var(--chart-background); }
 .chart-ohlc { display: flex; flex-wrap: wrap; align-content: flex-start; min-height: 36px; margin: 0 8px; gap: 4px 10px; font-family: var(--font-mono); font-size: 11px; line-height: 16px; color: var(--chart-text); }
 .chart-ohlc b { font-weight: 500; color: var(--chart-strong); }
+/* On phones the filled legend can wrap to three rows (3 x 16px + 2 x 4px); every state reserves them so the plot never moves. */
+@media (max-width: 480px) { .chart-ohlc { min-height: 56px; } }
 .price-chart { height: 260px; width: 100%; }
 .chart-frame { position: relative; height: 260px; }
 .price-chart.is-empty::after { content: ""; position: absolute; inset: 0 56px 28px 0; z-index: 2; pointer-events: none;
