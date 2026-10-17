@@ -338,7 +338,7 @@ function StockShares({
   if (!status?.verified || !status.multiplierWad)
     return <span className="share-equivalent">Share equivalent unavailable</span>;
   return (
-    <span className="share-equivalent">
+    <span className="share-equivalent" title={`Approximately ${formatUnits(shareEquivalent(BigInt(value), BigInt(status.multiplierWad)), stock.decimals)} ${stock.ticker} shares`}>
       Approximately{" "}
       <NumberText
         value={shareEquivalent(BigInt(value), BigInt(status.multiplierWad))}
@@ -3046,17 +3046,16 @@ function TokenPage({
   const ethBuy = useEthBuyRecord(config, wallet.account, pairAsset?.symbol), ethHeld = !!ethBuy.record;
   useEffect(() => { if (ethBuy.adopted) setBalanceTick((n) => n + 1); }, [ethBuy.adopted]);
   const ethPayable = side === "buy" && !!pairAsset && ethBuyAvailable(config);
-  // Token metadata reserves the row; config still gates every payment state and action.
-  // A contradictory config hides it rather than offering an unavailable payment method.
-  const payWithRow = side === "buy" && !!pairAsset && ethBuyAvailable(resource.data?.token ?? null) && (!config || ethBuyAvailable(config));
+  // Token metadata reserves the row; loaded config alone controls availability.
+  const payWithRow = config ? ethPayable : side === "buy" && !!pairAsset && ethBuyAvailable(resource.data?.token ?? null);
   // Only the pair-asset balance decides the default, and only on the buy side of a pair-asset coin.
   const pairBalance = ethPayable && balanceFor && sameAddress(balanceFor, pairAsset!.address) ? balance : null;
   const wethPair = !!pairAsset && sameAddress(pairAsset.address, wrappedEther(4663));
   const fallbackPay = defaultPayWith(!!wallet.account, pairBalance, wethPair);
   // A non-empty amount freezes the default at once, even before the pair balance loads: only the user changes the unit
   // (and that clears the field). Sell, or an empty field, resets it.
-  if (ethPayable && amount && frozenPay === null) setFrozenPay(fallbackPay);
-  if ((!ethPayable || !amount) && frozenPay !== null) setFrozenPay(null);
+  if (payWithRow && amount && frozenPay === null) setFrozenPay(config ? fallbackPay : "pair");
+  if ((!payWithRow || !amount) && frozenPay !== null) setFrozenPay(null);
   if (amount && amountCleared) setAmountCleared(false);
   const payWith: PayWith = ethPayable ? resolvePayWith({ choice: payChoice, frozen: frozenPay, amount, fallback: fallbackPay }) : "pair";
   const payingEth = payWith === "eth";
@@ -3357,7 +3356,7 @@ function TokenPage({
             </span>
             {token.tradingFeeBps !== undefined && <span className="chip sm sunken mono">{feePercent(token.tradingFeeBps)} + 0.05% LP fee</span>}
             {!stateInvalid && <span className="chip sm sunken"><LockKeyhole size={12} />Liquidity locked</span>}
-            {!stateInvalid && <span className="chip sm up quote-verification" aria-hidden={!stockStatus?.verified}><Check size={12} />Verified quote asset</span>}
+            {!stateInvalid && <span className="chip sm up quote-verification" aria-hidden={!stockStatus?.verified}>{stockStatus?.verified && <><Check size={12} />Verified quote asset</>}</span>}
             <NftBadge token={token} withContract />
           </div>
         </div>
@@ -3420,7 +3419,7 @@ function TokenPage({
               <span id="pay-with-label">Pay with</span>
               <div className="segmented" role="group" aria-labelledby="pay-with-label">
                 {(["eth", "pair"] as const).map((option) => (
-                  <button type="button" key={option} aria-pressed={payWith === option} disabled={busy || !config} onClick={() => choosePay(option)}>
+                  <button type="button" key={option} aria-pressed={!!config && payWith === option} disabled={busy || !config} onClick={() => choosePay(option)}>
                     {option === "eth" ? "ETH" : stock.symbol}
                   </button>
                 ))}

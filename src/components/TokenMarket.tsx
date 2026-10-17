@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, type CSSProperties } from "react";
 import { ArrowDownRight, ArrowUpRight, RefreshCw } from "lucide-react";
 import { ApiError, chainApi } from "../lib/api";
 import { deploymentChain, explorerFor, shortAddress, type TokenRecord } from "../lib/config";
@@ -209,6 +209,7 @@ export default function TokenMarket({
   const stats = currentLive?.summary || summary.data,
     activity = stats?.periods[period],
     change = stats?.periods.h24?.change;
+  const priceText = stats?.priceUsd != null ? usd(stats.priceUsd, true) : stats?.priceQuote ? Number(stats.priceQuote).toLocaleString("en-US", {maximumSignificantDigits:6}) : "—";
   const hasValues = !!stats && [stats.priceQuote, stats.priceUsd, stats.marketCapUsd, stats.fdvUsd, stats.liquidityUsd, stats.periods.h24?.volume].some(value => value != null);
   const hasActivity = !!stats && Object.values(stats.periods).some(value => [value.buys, value.sells, value.volume, value.change].some(n => n != null));
   const emptySummary = stats?.status === "stale"
@@ -226,16 +227,19 @@ export default function TokenMarket({
       <section className="card market-panel" aria-label={`${token.symbol} market`}>
         <div className="market-price-row">
           <div>
-            <span className="eyebrow">{token.symbol} PRICE</span>
+            <span className="eyebrow">{token.symbol} PRICE{stats?.status === "stale" && <small className="market-snapshot"> · Previous snapshot</small>}</span>
             {hasValues ? <div className="market-price">
-              <span className="mono" title={currentLive?.priceAt ? `Live price · On-chain · Alchemy · Trade ${currentLive.priceAt}` : undefined}>{stats?.priceUsd != null ? usd(stats.priceUsd, true) : stats?.priceQuote ? `${Number(stats.priceQuote).toLocaleString("en-US", {maximumSignificantDigits:6})} ${stats.quoteSymbol}` : "—"}</span>
-              <span className={`change-chip ${changeKind}`}>
-                {changeKind === "positive" ? <ArrowUpRight size={14} /> : changeKind === "negative" ? <ArrowDownRight size={14} /> : null}
-                {change == null
-                  ? "—"
-                  : `${change >= 0 ? "+" : ""}${change.toFixed(2)}%`} · 24h
+              <span className="mono" style={{ "--price-characters": priceText.length } as CSSProperties} title={currentLive?.priceAt ? `Live price · On-chain · Alchemy · Trade ${currentLive.priceAt}` : undefined}>{priceText}</span>
+              <span className="market-price-detail">
+                {stats?.priceUsd == null && stats?.priceQuote && <small className="market-price-unit">{stats.quoteSymbol}</small>}
+                <span className={`change-chip ${changeKind}`}>
+                  {changeKind === "positive" ? <ArrowUpRight size={14} /> : changeKind === "negative" ? <ArrowDownRight size={14} /> : null}
+                  {change == null
+                    ? "—"
+                    : `${change >= 0 ? "+" : ""}${change.toFixed(2)}%`} · 24h
+                </span>
               </span>
-            </div> : <p className="hint" role="status">{summary.loading ? "Loading market data…" : summary.error || stats?.status === "stale" || stats?.status === "unavailable" ? "Market data temporarily unavailable" : "No market price yet"}</p>}
+            </div> : <p className="hint" role="status">{summary.loading ? "Loading price…" : summary.error || stats?.status === "stale" || stats?.status === "unavailable" ? "Market data temporarily unavailable" : "No market price yet"}</p>}
           </div>
           <button
             type="button"
@@ -313,7 +317,7 @@ export default function TokenMarket({
             <dd>{usd(stats?.periods.h24?.volume)}</dd>
           </div></>}
         </dl>}
-        {!hasValues && <p className={summary.error || stats?.status === "stale" ? "market-warning" : "hint"} role="status">{emptySummary}</p>}
+        {!hasValues && (summary.error || stats?.status === "stale") && <p className="market-warning" role="status">{emptySummary}</p>}
         {hasValues && (summary.error || stats?.status === "stale") && (
           <p className="market-warning" role="status">
             {summary.error || stats?.warning || "Previous snapshot. Refresh to update."}

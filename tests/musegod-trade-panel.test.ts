@@ -75,7 +75,7 @@ async function session(t: TestContext, options: { connected?: boolean; native?: 
   const s = { requests, fees, sends, wallet, client, balanceReads, quote, button, byClass, all: findAll,
     input: () => findAll(node => node.type === "input" && node.props["aria-label"] === "Trade input amount")[0],
     confirm: () => byClass("primary large full"), max: () => byClass("trade-max"),
-    errors: () => findAll(node => node.props?.role === "alert").map(text),
+    errors: () => findAll(node => node.props?.role === "alert").map(text).filter(Boolean),
     async tick(ms: number) { t.mock.timers.tick(ms); await settle(); },
     async type(value: string) { s.input().props.onChange({ target: { value } }); await settle(); },
     async click(node: any) { assert.ok(node, "expected a rendered control"); node.props.onClick(); await settle(); },
@@ -88,40 +88,28 @@ async function session(t: TestContext, options: { connected?: boolean; native?: 
   return s;
 }
 
-test("MUSEGOD reserves the same verification slot from first render through loading, verified, blocked and error states", async t => {
+test("MUSEGOD verification uses one line for loading/success, complete errors and the correct announcement role", async t => {
   const s = await session(t, { loading: true });
-  const slot = () => {
-    const node = s.byClass("musegod-verification");
-    assert.ok(node, "verification footprint exists even without config or token info");
-    const children = node.props.children;
-    assert.equal(children.length, 2);
-    assert.deepEqual(children.map((child: any) => child.type), ["div", "div"]);
-    assert.equal(children[0].props.role, "status");
-    return node;
-  };
-  assert.equal(text(slot()), "Loading token verification…");
-  await s.info(info); assert.equal(text(slot()), "");
-  assert.equal(slot().props.tabIndex, undefined);
-  await s.set({ config }); await s.info(null);
-  assert.equal(text(slot()), "Loading token verification…");
+  const slot = () => { const node = s.byClass("musegod-verification"); assert.ok(node);
+    assert.equal(node.props.tabIndex, undefined); assert.equal(node.props["aria-label"], undefined);
+    assert.equal(node.props.role, undefined);
+    assert.deepEqual(node.props.children.map((child: any) => child.props.role), ["status", "alert"]); return node; };
+  assert.equal(text(slot()), "Loading token verification…"); assert.equal(slot().props.children[0].props.role, "status");
+  await s.info(info); assert.equal(text(slot()), "✓ Token and pool verified"); assert.equal(slot().props.children[0].props.role, "status");
+  await s.set({ config }); await s.info(null); assert.equal(text(slot()), "Loading token verification…");
   await s.info({ ...info, tradeEnabled: false, tradeBlockReason: MUSEGOD_ROUTER_VERIFICATION.reason });
-  assert.equal(text(slot()), MUSEGOD_ROUTER_VERIFICATION.reason);
+  assert.equal(text(slot()), MUSEGOD_ROUTER_VERIFICATION.reason); assert.equal(slot().props.children[1].props.role, "alert");
   await s.set({ musegod: { info: null, infoError: "Verification service unavailable", revision: 0, refresh() {} } });
-  assert.equal(text(slot()), "Token verification is unavailable. Refresh to retry.Verification service unavailable");
-  assert.deepEqual(s.errors(), ["Verification service unavailable"]);
-  assert.equal(slot().props.children[1].props.role, "alert");
-  assert.equal(slot().props.tabIndex, 0, "feedback can be reached with the keyboard if it overflows");
+  assert.match(text(slot()), /Token verification is unavailable.*Verification service unavailable/);
+  assert.equal(slot().props.children[1].props.role, "alert"); assert.doesNotMatch(text(slot()), /verified/);
   const detail = "Verification endpoint unavailable. ".repeat(15);
   await s.set({ musegod: { info: null, infoError: detail, revision: 0, refresh() {} } });
-  assert.equal(text(slot().props.children[1]), detail, "full error stays in the alert without truncation or delayed rendering");
-  await s.info(info); await s.set({ musegod: { info, infoError: "", revision: 0, refresh() {} } });
-  assert.equal(text(slot()), "", "empty reservation never claims verification");
-  const css = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
-  const rule = css.match(/\.musegod-verification\s*\{([^}]+)\}/)?.[1] ?? "";
-  assert.match(rule, /(?:^|;)\s*height:\s*\d+px\s*;/);
-  assert.match(rule, /flex-shrink:\s*0\s*;/);
-  assert.match(rule, /overflow:\s*auto\s*;/, "long feedback remains scrollable inside the stable footprint");
-  assert.doesNotMatch(rule, /hidden|clip|line-clamp|visibility/);
+  assert.ok(text(slot()).includes(detail));
+  await s.set({ musegod: { info, infoError: "", revision: 0, refresh() {} } });
+  assert.equal(text(slot()), "✓ Token and pool verified");
+  await s.info({ ...info, tradeEnabled: false, tradeBlockReason: null }); assert.doesNotMatch(text(slot()), /verified/);
+  const css = readFileSync("src/styles.css", "utf8"), rule = css.match(/\.musegod-verification\s*\{([^}]+)\}/)?.[1] ?? "";
+  assert.match(rule, /min-height:\s*16px/); assert.doesNotMatch(rule, /(?:^|;)\s*height:|overflow:\s*(auto|hidden)|line-clamp/);
 });
 
 test("MUSEGOD guest typing debounces to one verified automatic quote and updates receive/minimum/expiry", async t => {

@@ -39,7 +39,8 @@ async function renderMarket({ summary = emptySummary, error = "", candles = {}, 
 test("D4/D5 empty market sections show honest statuses without empty controls or holders", async () => {
   for (const kind of ["launch", "musegod"] as const) {
     const html = await renderMarket({ kind, metric: { label: "Burn share", value: "12%" } });
-    assert.match(html, /on-chain price preview.*no price for this pool yet/i);
+    assert.match(html, /No market price yet.*on-chain price preview/i);
+    assert.doesNotMatch(html, /The source has no price for this pool yet/);
     assert.doesNotMatch(html, /Market cap|Fully diluted valuation|24h volume|change-chip|Activity period|Trade filter|Holders|Holder data|Source pending|Source and fetch/);
     assert.match(html, /Burn share.*12%/);
     assert.match(html, /Recent trades/);
@@ -174,7 +175,7 @@ test("Run 1b the price row reserves the same nonshrinking height for all respons
       const html = await renderMarket({ ...state, kind });
       const row = html.slice(html.indexOf('class="market-price-row"'), html.indexOf('class="chart-toolbar"'));
       assert.match(row, /PRICE/); assert.match(row, /Refresh market data/);
-      assert.doesNotMatch(row, /style=|market-warning|market-metrics|trade-flow|feed-note/);
+      assert.doesNotMatch(row, /market-warning|market-metrics|trade-flow|feed-note/);
       assert.match(row, state.summary?.priceUsd ? /class="market-price"/ : /role="status"/);
     }
   }
@@ -376,3 +377,31 @@ test("loading chart chunks show the final populated unit and loading label, incl
     assert.match(market, />Loading market data…<\/p>/);
   }
 });
+
+for (const kind of ["launch", "musegod"] as const) {
+  test(`Run 2 ${kind} quote prices separate every digit from the small unit and change line`, async () => {
+    const html = cards(await renderMarket({ kind, summary: activitySummary(kind, { priceUsd: null, priceQuote: "0.00000000555556", quoteSymbol: "COST" }) }))[0];
+    assert.match(html, /<span class="mono"[^>]*>0\.00000000555556<\/span>/);
+    assert.match(html, /<small class="market-price-unit">COST<\/small>/);
+    assert.match(html, /class="market-price-detail"[^]*market-price-unit[^]*change-chip/);
+    const css = readFileSync("src/styles.css", "utf8");
+    assert.match(css, /\.market-price > \.mono\s*\{[^}]*white-space:\s*nowrap/);
+    assert.match(css, /\.market-price > \.mono\s*\{[^}]*font-size:\s*min\(clamp\(/);
+  });
+  test(`Run 2 ${kind} summary loading/empty statuses are not repeated below the chart`, async () => {
+    for (const loading of [true, false]) {
+      const market = cards(await renderMarket({ kind, summary: loading ? null : emptySummary, loading }))[0];
+      const statuses = [...market.matchAll(/<p[^>]*role="status"[^>]*>([^<]*)<\/p>/g)].map(m => m[1]);
+      assert.equal(new Set(statuses).size, statuses.length, statuses.join(", "));
+      assert.doesNotMatch(market.slice(market.indexOf('class="chart-toolbar"')), /The source has no price for this pool yet/);
+      assert.equal((market.match(/class="hint" role="status"/g) ?? []).length, 1);
+    }
+  });
+  test(`Run 2 ${kind} stale price has a compact adjacent marker and the full warning below`, async () => {
+    const market = cards(await renderMarket({ kind, summary: activitySummary(kind, { status: "stale", warning: "Provider unavailable" }) }))[0];
+    const row = market.slice(0, market.indexOf('class="chart-toolbar"'));
+    assert.match(row, /Previous snapshot/); assert.doesNotMatch(row, /Provider unavailable/);
+    assert.match(readFileSync("src/styles.css", "utf8"), /\.market-price-row \.eyebrow\s*\{[^}]*height:\s*16px/);
+    assert.match(market.slice(market.indexOf('class="chart-frame"')), /Provider unavailable/);
+  });
+}

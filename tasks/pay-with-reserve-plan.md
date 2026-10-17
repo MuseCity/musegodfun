@@ -1,6 +1,6 @@
 # Stable trade panel: no late "Pay with" row on token pages
 
-Status: Runs 1, 1b and 1c implemented locally; the authorized MUSEGOD verification reservation passes the affected browser matrix. Independent cross-review and release acceptance remain pending (2026-10-17). Branch `claude/pay-with-reserve`, based on master `7bdf276`.
+Status: Run 2 fixes C1-1 through C1-10 locally; the final build passes all 18 browser cases and the 360/390 px quote-price fixtures. Independent cross-review and release acceptance remain pending (2026-10-17). Branch `claude/pay-with-reserve`, based on master `7bdf276`.
 
 ## Owner request (2026-10-17, translated)
 
@@ -18,9 +18,9 @@ The trade panel's layout is final at its first render: no row appears or disappe
 
 ## Constraints
 
-1. Payment behavior is unchanged once config is known: same availability rule, same defaults (`defaultPayWith`, frozen choice, WETH-pair ETH default), same routes, quotes, approvals and execution. No ETH option is ever offered where it is unavailable once config is known.
-2. Decide the row's presence from data available at first render (the token's deployment chain/mode and the pair asset), equivalent to `ethBuyAvailable` for every supported config. If config later contradicts it (an anomalous mismatch), hide the row; document that this is the only remaining shift case.
-3. While config is still loading, the row is visible but its buttons are disabled and marked busy, and nothing config-dependent (quotes, Max fee reads, execution) runs earlier than today.
+1. Payment behavior is unchanged once config is known: same availability rule, same empty-field defaults (`defaultPayWith`, WETH-pair ETH default), same routes, quotes, approvals and execution. Per the Run 2 conductor decision, a pair-unit amount typed before config must retain that unit after config arrives. No ETH option is ever offered where it is unavailable once config is known.
+2. Decide the row's presence from data available at first render (the token's deployment chain/mode and the pair asset), equivalent to `ethBuyAvailable` for every supported config. Once config exists, use exactly `ethPayable` as the single availability source. Contradictory token/config metadata can insert or remove the provisional row; that anomalous mismatch is the remaining config-driven shift case.
+3. While config is still loading, the row is visible but its buttons are disabled, no option is pressed, and the row is marked busy, and nothing config-dependent (quotes, Max fee reads, execution) runs earlier than today.
 4. Audit every other element above the market card in the narrow layout whose presence depends on asynchronous data (config, balances, wallet, stock status) and stabilize any that can shift the chart; list what you checked. Do not change copy beyond what stabilization requires.
 5. No server, contract, wallet, quote-logic or dependency changes. English only.
 
@@ -41,9 +41,16 @@ The owner chose to move the metrics below the chart, so the chart position never
 - Unchanged: the declutter honesty rules (no `—` tile grid for empty summaries; activity hidden when there are no values; attribution; no cross-section borrowing), live updates, paging and the dark chart palette.
 - The acceptance is updated. On every tested page and viewport, the chart frame top is identical from the first rendered token frame through summary, candles, trades and config arrival.
 
+## Run 2 conductor decisions (2026-10-17)
+
+- Keep the 90 px price row for quote-unit prices. Show the complete existing formatted number on one line, a separate small unit beside the change chip, responsive number sizing, and an adjacent compact Previous snapshot marker. Remove redundant loading/empty summary announcements below the chart while retaining error/stale details there.
+- Before config, the provisional selector makes no pressed claim. Freeze a typed amount in its displayed pair unit; with an empty input, preserve all existing defaults. After config, row presence is exactly `ethPayable`.
+- Replace the 114 px MUSEGOD reservation with one 16 px line for loading or actual verification success. Full blocked/error messages may grow. Keep persistent status/alert containers with no empty labelled groups or added tab stops.
+- Keep the unverified badge reservation empty and aria-hidden. Keep the 16 px share line free of scrollbars, with the complete value in its title. Remove the baseline-passing helper-only projection test; rendered lifecycle/mode tests cover the row.
+
 ## Acceptance
 
-1. TDD: failing-first tests showing the row renders (disabled) before config on a Robinhood pair page, stays absent on sell and on chains or pairs without ETH payment, becomes interactive once config loads, and that payment state and defaults after config are identical to before.
+1. TDD: failing-first tests showing the row renders (disabled) before config on a Robinhood pair page, stays absent on sell and on chains or pairs without ETH payment, becomes interactive once config loads, and that empty-field defaults after config are unchanged, and amounts typed before config retain the pair unit.
 2. Failing-first rendered-order and fixed-height tests for both `TokenMarket` kinds across loading, empty, failure, partial, populated and stale states; `npm test`, `npm run build`, `git diff --check`, Han scan.
 3. Local read-only preview in two modes: chain config delayed by about 3 s; chain config plus launch/MUSEGOD market summaries delayed by about 3 s. Check CLAWGOD, MV2C and MUSEGOD at 390 px light/dark and 1440 px light against `d9574ea`. The chart frame top must remain identical from the first token/market frame through config, summary, candles and trades arrival; the frame stays 260 px and the price row stays constant. Preserve unmodified GET responses and record any other page-level movement separately.
 4. Cross review: claude review → codex fix → claude accept, then codex review → claude fix → codex accept.
@@ -81,3 +88,14 @@ The owner chose to move the metrics below the chart, so the chart position never
 - A separate synthetic DOM/CSS fixture verifies 714 px panel / 114 px slot geometry across all feedback states. A 510-character error remains intact, starts in view and scrolls to its end with the native End key; this is layout/access evidence, not a production verification failure or screen-reader test.
 - Evidence and the local commit identity are recorded in `.superpowers/sdd/pay-with/run1c-report.md`, `review-state.md` and `evidence/run1c/`. All 44 relevant browser responses returned HTTP 200. Production forwarding remained GET only; 18 existing burn-reader RPC POST attempts were rejected locally with 403. Burn totals and real WebSocket pushes (426) remain unvalidated. No response fixtures were substituted in the production-data matrix.
 - Both preview processes stopped via SIGTERM; independent PID/lsof checks confirm ports 4190/4191 are free. No environment files, direct providers, wallet connection, signing, funds, push or deployment. Run 1c implementation status: **DONE**; claude read-only review/acceptance, the reverse review round and owner release approval remain pending.
+
+### Run 2 - 2026-10-17
+
+- Fixed all ten Claude review rows C1-1 through C1-10 under the conductor decisions above. Post-config row presence uses the original `ethPayable` expression directly. Provisional buttons have no pressed option; typing freezes the displayed pair unit before config. Empty-field defaults, config-gated reads and quote scheduling remain intact.
+- Quote prices retain the existing formatted digits on a nonwrapping line. CSS sizes the number from the available inline width and character count; the small quote unit and change chip share their own line. The price row stays 90 px. A 16 px eyebrow contains the compact stale marker; full stale/error details remain below the chart. Distinct price/chart loading messages and removal of the redundant empty-summary line prevent duplicate status announcements.
+- MUSEGOD loading and successful verification each use one 16 px line. Success copy requires actual verified info (`tradeEnabled`); full blocked/error feedback wraps naturally. Persistent status and alert containers have no group labels or tab stops. The 114 px blank reservation and internal scrolling are removed. Quote verification placeholders contain no hidden claim; share lines use ellipsis and the complete exact value in a title instead of horizontal scrolling.
+- TDD: the first focused run failed 16/69 before fixes. A follow-up 3/44 red run covered the stale eyebrow's extra pixel and persistent announcement containers. Final focused tests pass 69/69; full `npm test` passes 1825/1825, build with both typechecks passes, the chart library remains only in the lazy PriceChart chunk, diff checks and the changed-tracked-file Han scan pass.
+- Final browser matrix: 18/18 cases, two 3000 ms delay modes (config only; config plus summaries), MV2C/CLAWGOD/MUSEGOD at 390 px light/dark and 1440 px light. All 84 relevant responses complete with HTTP 200; each case has exactly one visible chart top, 260 px chart frames and 90 px price rows. MUSEGOD verification transitions retain 16 px height; its trade panel is 616 px mobile / 624 px desktop. All matrix production responses are unmodified GET bodies.
+- Separate labelled synthetic fixtures at 360/390 px cover the long COST example, six-character units, smaller and larger prices, stale markers, and full long errors. Every tested price fits the reservation; loading/success are 16 px, and long errors expand to 208 px without a scrollbar. These fixtures do not claim live price or real verification-error evidence.
+- Evidence, source/build hashes, 36 matrix screenshots, raw response-boundary series and the local commit identity are in `.superpowers/sdd/pay-with/run2-report.md` and `evidence/run2/`. Exploratory window-resize recordings are excluded: Chrome imposed a 500 px minimum; the final matrix uses verified exact viewport emulation. Hidden Suspense nodes are retained separately from visible chart geometry.
+- Both preview PIDs are absent and ports 4190/4191 independently verified free. The 18 existing burn-reader POST attempts were refused locally; no non-GET request was forwarded. Stream requests return the inherited 426; burn totals and pushed trades remain unvalidated. No environment files, direct providers, wallet connection, signing, funds, push or deployment. Run 2 implementation is complete; independent Claude acceptance, the reverse review round and owner release approval remain pending.

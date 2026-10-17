@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { hookRuntime, importFresh, settle } from "./hook-runtime";
 import { syntheticToken } from "./fixtures";
 import { ROBINHOOD_STOCKS, STOCKS, type RuntimeConfig } from "../src/lib/config";
-import { ethBuyAvailable } from "../src/lib/eth-buy";
+import { readFileSync } from "node:fs";
 
 const src = (path: string) => new URL(`../src/${path}`, import.meta.url).href;
 type Options = { chain?: 4663 | 8453; fork?: boolean; pair?: string; connected?: boolean; balance?: bigint; listed?: boolean };
@@ -30,11 +30,12 @@ async function panel(t: TestContext, { chain = 4663, fork = false, pair = "COST"
   const all = (node: any, match: (n: any) => boolean): any[] => !node || typeof node !== "object" ? [] : [
     ...(!Array.isArray(node) && match(node) ? [node] : []), ...(Array.isArray(node) ? node : [node.props?.children]).flatMap(child => all(child, match)),
   ];
+  const text = (node: any): string => node == null || typeof node === "boolean" ? "" : typeof node !== "object" ? String(node) : (Array.isArray(node) ? node : [node.props?.children]).map(text).join("");
   const find = (match: (n: any) => boolean) => all(runtime.output(), match)[0];
   const byClass = (name: string) => find(n => n.props?.className === name);
   const button = (text: string) => find(n => n.type === "button" && n.props.children === text);
   runtime.render(); await settle();
-  return { byClass, button, token, stock, input: () => input, reads: () => ({ nativeReads, feeReads }),
+  return { byClass, button, text: () => text(runtime.output()), token, stock, input: () => input, reads: () => ({ nativeReads, feeReads }),
     async load(overrides: Partial<RuntimeConfig> = {}) { config = { mode: token.mode, chainId: fork ? 31337 : chain, deploymentChainId: chain, writesEnabled: true, blockReason: null, treasury: null, ...overrides }; runtime.render(); await settle(); },
     async verify() { status = [{ address: stock.address, verified: true }]; runtime.render(); await settle(); },
     async disconnect() { wallet.account = null; runtime.render(); await settle(); },
@@ -47,6 +48,7 @@ for (const fork of [false, true]) test(`Robinhood ${fork ? "fork" : "mainnet"}: 
   const p = await panel(t, { fork, connected: true });
   assert(p.byClass("pay-with"), "the row exists on the first token render");
   assert.equal(p.byClass("pay-with").props["aria-busy"], true);
+  assert.equal(p.button("ETH").props["aria-pressed"], false); assert.equal(p.button("COST").props["aria-pressed"], false);
   assert.equal(p.button("ETH").props.disabled, true); assert.equal(p.button("COST").props.disabled, true);
   await p.type("1");
   assert.equal(p.input().pool, false, "config still gates quote scheduling");
@@ -85,23 +87,33 @@ for (const [pair, connected, balance, expected] of [
 test("the stock verification badge reserves its space before stock status resolves", async t => {
   const p = await panel(t);
   const badge = p.byClass("chip sm up quote-verification"); assert(badge);
-  assert.equal(badge.props["aria-hidden"], true); await p.verify();
+  assert.equal(badge.props["aria-hidden"], true); assert.equal(badge.props.children, undefined);
+  assert.doesNotMatch(p.text(), /Verified quote asset/); await p.verify();
+  assert.match(p.text(), /Verified quote asset/);
   assert.equal(p.byClass("chip sm up quote-verification").props["aria-hidden"], false);
 });
-test("a typed pair amount keeps its unit when the wallet default changes", async t => {
-  const p = await panel(t, { connected: true, balance: 0n });
-  await p.type("2"); await p.load();
-  assert.equal(p.button("ETH").props["aria-pressed"], true, "the existing config-ready default is retained");
-  await p.click("COST"); await p.type("2"); await p.disconnect();
-  assert.equal(p.button("COST").props["aria-pressed"], true);
-  assert.equal(p.input().valid, true);
+for (const [pair, connected, balance] of [["WETH", false, 0n], ["WETH", true, 0n], ["COST", true, 0n]] as const) test(`${pair}, connected=${connected}: typing before config freezes the displayed pair unit`, async t => {
+  const p = await panel(t, { pair, connected, balance });
+  assert.equal(p.button(pair).props["aria-pressed"], false);
+  await p.type("2"); assert.equal(p.input().pool, false);
+  await p.load(); assert.equal(p.button(pair).props["aria-pressed"], true);
+  assert.equal(p.input().valid, true); assert.equal(p.input().lifi, false);
+  await p.disconnect(); assert.equal(p.button(pair).props["aria-pressed"], true);
+  await p.type("");
+  assert.equal(p.button(pair === "WETH" ? "ETH" : pair).props["aria-pressed"], true, "empty input resumes the existing guest default");
 });
-test("the projection uses the same deployment-chain availability for all supported modes", () => {
-  for (const [config, expected] of [
-    [{ mode: "robinhood" }, true], [{ mode: "robinhood", deploymentChainId: 4663 }, true],
-    [{ mode: "base" }, false], [{ mode: "base", deploymentChainId: 8453 }, false],
-    [{ mode: "fork" }, false], [{ mode: "fork", deploymentChainId: 4663 }, true], [{ mode: "fork", deploymentChainId: 8453 }, false],
-  ] as const) assert.equal(ethBuyAvailable(config), expected);
+for (const tokenChain of [4663, 8453] as const) for (const configChain of [4663, 8453] as const) for (const fork of [false, true]) test(`post-config row uses config availability: token=${tokenChain}, config=${configChain}, fork=${fork}`, async t => {
+  const p = await panel(t, { chain: tokenChain, fork });
+  await p.load({ mode: fork ? "fork" : configChain === 4663 ? "robinhood" : "base", chainId: fork ? 31337 : configChain, deploymentChainId: configChain });
+  assert.equal(!!p.byClass("pay-with"), configChain === 4663);
+  await p.click("Sell"); assert.equal(p.byClass("pay-with"), undefined);
+});
+test("the 16px share line cannot put a scrollbar over its text and exposes the full value", () => {
+  const css = readFileSync("src/styles.css", "utf8"), app = readFileSync("src/App.tsx", "utf8");
+  const rule = css.match(/\.trade-share-slot\s*\{([^}]+)\}/)?.[1] ?? "";
+  assert.match(rule, /overflow:\s*hidden/); assert.doesNotMatch(rule, /overflow-x:\s*auto/);
+  assert.match(css, /\.trade-share-slot \.share-equivalent\s*\{[^}]*text-overflow:\s*ellipsis/);
+  assert.match(app, /className="share-equivalent" title=\{`Approximately \$\{formatUnits/);
 });
 test("a Base share-equivalent line has a slot before the wallet balance arrives", async t => {
   const p = await panel(t, { chain: 8453 });
