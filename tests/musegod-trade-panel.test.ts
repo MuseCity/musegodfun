@@ -122,6 +122,14 @@ test("MUSEGOD verification uses one line for loading/success, complete errors an
   assert.match(rule, /min-height:\s*16px/); assert.doesNotMatch(rule, /(?:^|;)\s*height:|overflow:\s*(auto|hidden)|line-clamp/);
 });
 
+test("MUSEGOD amount headers keep their labels and expose the exact value of a long balance", async t => {
+  const s = await session(t, { connected: true, native: 123456789012345678901234567890123456789n });
+  const markup = (node: unknown) => renderToStaticMarkup(node as any).replaceAll("<!-- -->", "");
+  assert.equal(markup(s.byClass("trade-box-head")), '<span class="trade-box-head"><span>You pay <b>ETH</b></span><span class="balance">Balance: '
+    + '<b class="musegod-amount" title="123456789012345678901.234567890123456789">123,456,789,012,345,680,000 ETH</b></span></span>');
+  assert.equal(markup(s.byClass("trade-box receive").props.children[0]), '<span class="trade-box-head"><span>You receive (estimated) <b>MUSEGOD</b></span></span>');
+});
+
 test("MUSEGOD guest typing debounces to one verified automatic quote and updates receive/minimum/expiry", async t => {
   const s = await session(t, { deferQuotes: true });
   await s.tick(5_000); assert.equal(s.requests.length, 0); assert.equal(s.button("Get on-chain quote"), undefined); assert.equal(s.max(), undefined);

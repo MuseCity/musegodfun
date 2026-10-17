@@ -671,6 +671,8 @@ dialog.modal[open] { display: flex; flex-direction: column; gap: 16px; }
 .trade-box.pay:focus-within { border-color: var(--sky); }
 .trade-box-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 8px; font-size: 12px; line-height: 16px; color: var(--ink-muted); }
 .trade-box-head b { color: var(--ink); font-family: var(--font-mono); font-weight: 600; }
+/* Basis 0: the balance only takes the room beside the label, so a long value ellipsizes (exact value in its title) instead of wrapping the header. */
+.trade-box-head .balance { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
 .trade-box input { width: 100%; min-width: 0; height: 40px; padding: 0; border: 0; background: transparent; font-family: var(--font-mono); font-size: 26px; line-height: 36px; font-weight: 500; outline: none; }
 .trade-amount-field { display: flex; align-items: center; gap: 8px; }
 .trade-max { flex: 0 0 auto; border: 1px solid var(--line-strong); border-radius: 7px; padding: 3px 8px; background: var(--surface-raised); color: var(--ink-muted); font-size: 11px; font-weight: 600; }
@@ -1056,6 +1058,8 @@ dialog.modal.launch-review { width: min(640px, calc(100vw - 32px)); }
   .token-icon.xl { width: 64px; height: 64px; font-size: 30px; }
   .market-price > .mono { font-size: min(28px, calc(100cqi / var(--price-characters) / 0.6)); line-height: 34px; }
   .quick-amounts button { padding: 0 8px; }
+  /* Token panel presets: equal-width pills on one row from a 338px viewport (the longest set, cbBTC, needs 273px of the 296px panel at 360px); narrower screens wrap instead of clipping. */
+  .quick-amounts.trade-presets button { flex: 1 1 0; min-width: max-content; padding: 0 4px; font-size: 11px; white-space: nowrap; }
   .history-hash { flex-direction: column; }
   .burn-hero { padding: 22px 20px; border-radius: 22px; }
   .burn-number .int { font-size: 48px; line-height: 56px; }

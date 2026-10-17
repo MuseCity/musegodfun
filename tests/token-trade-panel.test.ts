@@ -66,7 +66,7 @@ for (const chainId of [4663, 8453] as const) test(`actual ${chainId} token panel
     assert.doesNotMatch(f.html, /Get on-chain quote|Get a quote here/);
     const field = f.html.match(/<span class="trade-amount-field">([\s\S]*?)<\/span>/)![0];
     assert.equal(field.includes('class="trade-max"'), connected);
-    assert.doesNotMatch(f.html.match(/<div class="quick-amounts">([\s\S]*?)<\/div>/)![0], /Max/);
+    assert.doesNotMatch(f.html.match(/<div class="quick-amounts trade-presets">([\s\S]*?)<\/div>/)![0], /Max/);
   }
 });
 

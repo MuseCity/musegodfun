@@ -3461,7 +3461,7 @@ function TokenPage({
             </span>
             {side === "buy" && (stock.standard === "B20" || assetCategory(stock) !== "OTHERS") && (
               <span className="trade-share-slot" aria-hidden={payingEth || balance === null}>
-                <StockShares value={balance ?? 0n} stock={stock} status={stockStatus} />
+                {!payingEth && balance !== null && <StockShares value={balance} stock={stock} status={stockStatus} />}
               </span>
             )}
           </label>
@@ -3469,7 +3469,7 @@ function TokenPage({
             You hold less than {amountWords(enteredPair, stock.decimals)} {stock.symbol}. Pay with ETH?{" "}
             <button type="button" className="text-button" disabled={busy} onClick={() => choosePay("eth")}>Switch to ETH</button>
           </p>}
-          <div className="quick-amounts">
+          <div className="quick-amounts trade-presets">
             {side === "buy"
               ? buyPresets(stock, payingEth).map(
                   (value) => (
