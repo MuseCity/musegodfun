@@ -515,6 +515,7 @@ dialog.modal[open] { display: flex; flex-direction: column; gap: 16px; }
 .social-links a { display: inline-flex; align-items: center; gap: 2px; min-height: 32px; font-size: 13px; font-weight: 600; }
 .token-header-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-size: 12px; line-height: 16px; color: var(--ink-muted); }
 .token-header-meta .strong { color: var(--ink); }
+.quote-verification[aria-hidden="true"] { visibility: hidden; }
 .token-share { flex: none; }
 .musegod-header .token-icon.xl { box-shadow: var(--shadow-halo); background: var(--halo-tint); }
 .detail-layout { display: grid; grid-template-columns: minmax(0, 1fr) 400px; align-items: start; gap: 24px; }
@@ -665,6 +666,9 @@ dialog.modal[open] { display: flex; flex-direction: column; gap: 16px; }
 .trade-amount-field { display: flex; align-items: center; gap: 8px; }
 .trade-max { flex: 0 0 auto; border: 1px solid var(--line-strong); border-radius: 7px; padding: 3px 8px; background: var(--surface-raised); color: var(--ink-muted); font-size: 11px; font-weight: 600; }
 .trade-max:hover:not(:disabled) { color: var(--ink); border-color: var(--sky); }
+.trade-share-slot { height: 16px; line-height: 16px; white-space: nowrap; overflow-x: auto; }
+.trade-share-slot .share-equivalent { line-height: 16px; }
+.trade-share-slot[aria-hidden="true"] { visibility: hidden; }
 .quote-refresh { display: inline-flex; align-items: center; justify-content: center; gap: 5px; align-self: flex-end; font-size: 12px; }
 .trade-box strong { font-family: var(--font-mono); font-size: 26px; line-height: 40px; font-weight: 500; overflow-wrap: anywhere; }
 .quick-amounts { display: flex; flex-wrap: wrap; gap: 6px; }

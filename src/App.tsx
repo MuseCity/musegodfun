@@ -3046,6 +3046,9 @@ function TokenPage({
   const ethBuy = useEthBuyRecord(config, wallet.account, pairAsset?.symbol), ethHeld = !!ethBuy.record;
   useEffect(() => { if (ethBuy.adopted) setBalanceTick((n) => n + 1); }, [ethBuy.adopted]);
   const ethPayable = side === "buy" && !!pairAsset && ethBuyAvailable(config);
+  // Token metadata reserves the row; config still gates every payment state and action.
+  // A contradictory config hides it rather than offering an unavailable payment method.
+  const payWithRow = side === "buy" && !!pairAsset && ethBuyAvailable(resource.data?.token ?? null) && (!config || ethBuyAvailable(config));
   // Only the pair-asset balance decides the default, and only on the buy side of a pair-asset coin.
   const pairBalance = ethPayable && balanceFor && sameAddress(balanceFor, pairAsset!.address) ? balance : null;
   const wethPair = !!pairAsset && sameAddress(pairAsset.address, wrappedEther(4663));
@@ -3354,7 +3357,7 @@ function TokenPage({
             </span>
             {token.tradingFeeBps !== undefined && <span className="chip sm sunken mono">{feePercent(token.tradingFeeBps)} + 0.05% LP fee</span>}
             {!stateInvalid && <span className="chip sm sunken"><LockKeyhole size={12} />Liquidity locked</span>}
-            {!stateInvalid && stockStatus?.verified && <span className="chip sm up"><Check size={12} />Verified quote asset</span>}
+            {!stateInvalid && <span className="chip sm up quote-verification" aria-hidden={!stockStatus?.verified}><Check size={12} />Verified quote asset</span>}
             <NftBadge token={token} withContract />
           </div>
         </div>
@@ -3412,12 +3415,12 @@ function TokenPage({
               Sell
             </button>
           </div>
-          {ethPayable && (
-            <div className="pay-with">
+          {payWithRow && (
+            <div className="pay-with" aria-busy={!config}>
               <span id="pay-with-label">Pay with</span>
               <div className="segmented" role="group" aria-labelledby="pay-with-label">
                 {(["eth", "pair"] as const).map((option) => (
-                  <button type="button" key={option} aria-pressed={payWith === option} disabled={busy} onClick={() => choosePay(option)}>
+                  <button type="button" key={option} aria-pressed={payWith === option} disabled={busy || !config} onClick={() => choosePay(option)}>
                     {option === "eth" ? "ETH" : stock.symbol}
                   </button>
                 ))}
@@ -3457,12 +3460,10 @@ function TokenPage({
               {wallet.account && inputBalance !== null && <button type="button" className="trade-max"
                 disabled={busy || maxLoading} onClick={() => void fillMax()}>{maxLoading ? "…" : "Max"}</button>}
             </span>
-            {side === "buy" && !payingEth && balance !== null && (
-              <StockShares
-                value={balance}
-                stock={stock}
-                status={stockStatus}
-              />
+            {side === "buy" && (stock.standard === "B20" || assetCategory(stock) !== "OTHERS") && (
+              <span className="trade-share-slot" aria-hidden={payingEth || balance === null}>
+                <StockShares value={balance ?? 0n} stock={stock} status={stockStatus} />
+              </span>
             )}
           </label>
           {shortfall && enteredPair !== null && <p className="nft-warning pay-hint">
