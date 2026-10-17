@@ -1,5 +1,4 @@
 import { X } from "lucide-react";
-import { quoteNow } from "./quote-clock";
 import { assertLaunchIntentLock, launchIntentStorageKey, saveFrozenLaunch } from "./launch-intent";
 import {
   createContext,
@@ -37,9 +36,6 @@ import { assertSigningEnabled, errorMessage, simulationError } from "./validatio
 import { assertLaunchFeePayable, isLaunchFeeTx, type LaunchFeeQuote } from "./nft-client";
 import { isNftTreasuryTx } from "./nft-treasury";
 import type { NftRef } from "./nft-mode";
-import { permit2Abi, swapTransaction } from "./protocol";
-import { executeWethEthTrade } from "./weth-eth-trade";
-import type { V4PoolKey } from "@whetstone-research/doppler-sdk/evm";
 import {
   WalletConnection,
   walletAnnouncement,
@@ -59,7 +55,6 @@ import { api, chainApi } from "./api";
 import { useNetwork } from "./network";
 import { assertFirstBuyPaymentQuote, firstBuyDiamondAbi, firstBuyPaymentRefreshInput, type FirstBuyPaymentQuote, type FirstBuyPaymentVerification,
   type FirstBuySwapData } from "./first-buy-payment";
-import { assertLifiTradeQuote, ethBuyAvailable, executeLifiTrade, type LifiTradeTarget } from "./eth-buy";
 import { assertFirstBuyLaunchConfig, executeFirstBuyPayment } from "./first-buy-wallet";
 import { bundlerAbi } from "./first-buy-lock";
 import type { FirstBuyLockStatus } from "./launch-plan";
@@ -68,24 +63,13 @@ import { executeMusegodTrade } from "./musegod-trade";
 import type { LaunchPlan, LaunchTransaction } from "./launch-plan";
 import { assertLaunchRequest, assertLaunchWalletPlan, bufferedLaunchGas, executeLaunchPlan, launchDraftInput, type LaunchSimulation } from "./launch-wallet";
 import { engineTransaction, type EngineAction } from "./buyback-engine";
-import { isTransactionSend, signingRequest, walletRefusedUnsent, type BeforeSend, type WalletRequest } from "./wallet-signing";
+import { isTransactionSend, profileSigningRequest, signingRequest, walletRefusedUnsent, type BeforeSend, type ProfileSignature, type WalletRequest } from "./wallet-signing";
+import { profileTypedData, type ProfileLinks } from "./token-profile";
 declare global {
   interface Window {
     ethereum?: Provider;
   }
 }
-export type Quote = {
-  poolPrice?: import("./price-impact").PoolPrice;
-  token: Address;
-  side: "buy" | "sell";
-  amountIn: string;
-  amountOut: string;
-  currencyIn: Address;
-  poolKey: V4PoolKey;
-  slippageBps: number;
-  quotedAt: number;
-  expiresAt: number;
-};
 export const publicClient = createPublicClient({
   transport: http("/api/chains/4663/rpc", { retryCount: 2, retryDelay: 500, timeout: 30_000 }),
 });
@@ -205,11 +189,6 @@ async function verifyLifiRouter(client: ReturnType<typeof transactionClient>, fr
     }
   }
 }
-/** Progress copy for the pair → coin flow; a two-step ETH buy passes its own wording. `router` may depend on whether the
- * amount approval was sent first (its approval number: 1 or 2). */
-export type TradeSteps = { approve: string; router: string | ((approval: number) => string); swap: string; waiting: string };
-const TRADE_STEPS: TradeSteps = { approve: "1/3 · Approve this transaction amount", router: "2/3 · Approve the trading router; approval expires in 5 minutes",
-  swap: "3/3 · Confirm the transaction in your wallet", waiting: "Waiting for onchain confirmation" };
 /** `send` extras: an NFT launch-fee payment passes its exact value (and, for ETH, the quote it must equal); `beforeSend` runs right
  * before the wallet receives the request (and again before viem's `wallet_sendTransaction` resend of it), after every check that
  * could still refuse it, and may itself refuse (a lost cross-tab lease, another attempt's record). */
@@ -237,18 +216,6 @@ type WalletState = {
   ) => Promise<Hash>;
   launch: (plan: LaunchPlan, config: RuntimeConfig, progress: (message: string) => void,
     onHash?: (hash: Hash) => void, assertCurrent?: () => void, onPlan?: (plan: LaunchPlan) => void) => Promise<Hash>;
-  trade: (
-    quote: Quote,
-    config: RuntimeConfig,
-    progress: (message: string) => void,
-    steps?: TradeSteps,
-  ) => Promise<Hash>;
-  tradeNativeWeth: (quote: Quote, config: RuntimeConfig, progress: (message: string) => void) => Promise<Hash>;
-  /** One verified LI.FI transaction paid in ETH on Robinhood: a coin buy, or the first step of a two-step buy. `beforeSend`, required, runs
-   * right before the wallet receives it (and before viem's resend of it), after every check that could still refuse it: it writes the
-   * caller's anti-duplicate record (use-eth-buy-record.ts), so ETH is never sent without one. */
-  lifiTrade: (quote: FirstBuyPaymentQuote, target: LifiTradeTarget, config: RuntimeConfig, progress: (message: string) => void,
-    confirmMessage: string, onHash: ((hash: Hash) => void) | undefined, options: { beforeSend: BeforeSend }) => Promise<{ hash: Hash; received: bigint | null }>;
   buyback: (step: BuybackStep, config: RuntimeConfig, onHash?: (hash: Hash) => void) => Promise<Hash>;
   engineAction: (action: EngineAction, config: RuntimeConfig, onHash?: (hash: Hash) => void) => Promise<Hash>;
   balance: (token: Address, config?: RuntimeConfig) => Promise<bigint>;
@@ -258,6 +225,8 @@ type WalletState = {
   claimFirstBuy: (token: Address, config: RuntimeConfig, onHash?: (hash: Hash) => void) => Promise<Hash>;
   tradeMusegod: (quote: MusegodQuote, config: RuntimeConfig, progress: (message: string) => void,
     onHash?: (hash: Hash) => void) => Promise<Hash>;
+  /** Signs a coin's TokenProfile typed data with the connected account on `chainId` (the app's only signature; no transaction). */
+  signProfile: (token: Address, links: ProfileLinks, chainId: 8453 | 4663, issuedAt: number) => Promise<{ signer: Address; signature: Hex }>;
 };
 // Preserve context identity when Vite updates the provider and its consumers
 // in the same batch. Production has no hot module data.
@@ -779,147 +748,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       progress,
     });
   }
-  async function trade(
-    quote: Quote,
-    config: RuntimeConfig,
-    progress: (message: string) => void,
-    steps: TradeSteps = TRADE_STEPS,
-  ) {
-    const publicClient = transactionClient(config.chainId, config);
-    if (!account) throw new Error("Connect your wallet first");
-    const expected = account;
-    const contracts = contractsFor(config);
-    const fresh = () => {
-      if (quoteNow(quote) >= quote.expiresAt)
-        throw new Error("The quote has expired. Refresh the quote. Existing approvals can still be reused.");
-    };
-    fresh();
-    const amount = BigInt(quote.amountIn),
-      wallet = await signer(config, expected);
-    const balance = await publicClient.readContract({
-      address: quote.currencyIn,
-      abi: erc20Abi,
-      functionName: "balanceOf",
-      args: [expected],
-    });
-    if (balance < amount) throw new Error("Insufficient available token balance");
-    const allowance = await publicClient.readContract({
-      address: quote.currencyIn,
-      abi: erc20Abi,
-      functionName: "allowance",
-      args: [expected, contracts.permit2],
-    });
-    let approvals = 0;
-    if (allowance < amount) {
-      approvals++;
-      progress(steps.approve);
-      fresh();
-      await signer(config, expected);
-      const request = {
-        address: quote.currencyIn,
-        abi: erc20Abi,
-        functionName: "approve" as const,
-        args: [contracts.permit2, amount] as const,
-        account: expected,
-      };
-      await publicClient.simulateContract(request);
-      await signer(config, expected);
-      await confirmed(
-        await wallet.writeContract({ ...request, gas: await fundedContractGas(publicClient, request, config, expected) }),
-        config,
-        expected,
-        "approval",
-      );
-    }
-    const block = await publicClient.getBlock();
-    const deadline = block.timestamp + 300n;
-    const permit = await publicClient.readContract({
-      address: contracts.permit2,
-      abi: permit2Abi,
-      functionName: "allowance",
-      args: [expected, quote.currencyIn, contracts.router],
-    });
-    if (
-      permit[0] !== amount ||
-      permit[1] < Number(block.timestamp + 60n) ||
-      permit[1] > Number(deadline)
-    ) {
-      progress(typeof steps.router === "function" ? steps.router(approvals + 1) : steps.router);
-      fresh();
-      await signer(config, expected);
-      const request = {
-        address: contracts.permit2,
-        abi: permit2Abi,
-        functionName: "approve" as const,
-        args: [
-          quote.currencyIn,
-          contracts.router,
-          amount,
-          Number(deadline),
-        ] as const,
-        account: expected,
-      };
-      await publicClient.simulateContract(request).catch((error: unknown) => {
-        throw simulationError(error);
-      });
-      fresh();
-      await signer(config, expected);
-      await confirmed(
-        await wallet.writeContract({ ...request, gas: await fundedContractGas(publicClient, request, config, expected) }),
-        config,
-        expected,
-        "approval",
-      );
-    }
-    fresh();
-    const tx = swapTransaction(
-      quote.poolKey,
-      quote.currencyIn,
-      amount,
-      BigInt(quote.amountOut),
-      quote.slippageBps,
-      deadline,
-      contracts,
-    );
-    await publicClient
-      .call({
-        account: expected,
-        to: tx.to,
-        data: tx.data,
-        value: 0n,
-      })
-      .catch((error: unknown) => {
-        throw simulationError(error);
-      });
-    fresh();
-    await signer(config, expected);
-    progress(steps.swap);
-    const hash = await wallet.sendTransaction({
-      to: tx.to,
-      data: tx.data,
-      value: 0n,
-      gas: await fundedGas(publicClient, tx.to, tx.data, 0n, config, expected),
-    });
-    progress(`${steps.waiting} · ${hash}`);
-    return confirmed(hash, config, expected, "swap");
-  }
-  async function tradeNativeWeth(quote: Quote, config: RuntimeConfig, progress: (message: string) => void) {
-    if (!account) throw new Error("Connect your wallet first");
-    const expected = account, client = transactionClient(config.chainId, config);
-    // The transport checks freshness again immediately before either wallet send method.
-    const fresh = async () => {
-      if (quoteNow(quote) >= quote.expiresAt) throw new Error("The quote has expired. Refresh the quote and try again.");
-    };
-    const guardedWallet = () => signer(config, expected, fresh);
-    return executeWethEthTrade(quote, config, {
-      now: () => quoteNow(quote), guard: guardedWallet,
-      balance: () => client.getBalance({ address: expected }), blockTimestamp: async () => (await client.getBlock()).timestamp,
-      simulate: (tx) => client.call({ account: expected, to: tx.to, data: tx.data, value: tx.value }).catch((error: unknown) => { throw simulationError(error); }),
-      fundedGas: (tx) => fundedGas(client, tx.to, tx.data, tx.value, config, expected),
-      send: async (tx, gas) => (await guardedWallet()).sendTransaction({ to: tx.to, data: tx.data, value: tx.value, gas }),
-      confirmed: (hash) => confirmed(hash, config, expected, "swap"), progress,
-    });
-  }
   async function balance(token: Address, config?: RuntimeConfig) {
     if (!account) throw new Error("No wallet connected");
     const current = config ?? await chainApi<RuntimeConfig>(network.chainId, "/config");
@@ -1008,39 +836,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       throw new Error("The saved payment request changed. Check the current transaction before continuing.");
     return verification;
   }
-  async function lifiTrade(quote: FirstBuyPaymentQuote, target: LifiTradeTarget, config: RuntimeConfig, progress: (message: string) => void,
-    confirmMessage: string, onHash: ((hash: Hash) => void) | undefined, { beforeSend }: { beforeSend: BeforeSend }) {
-    if (!account) throw new Error("Connect your wallet first");
-    config = Object.freeze({ ...config });
-    if (!ethBuyAvailable(config)) throw new Error(`Buying a coin with ETH is unavailable on ${networkName(config)}.`);
-    if (quote.chainId !== deploymentChain(config) || (target.kind === "coin" ? target.coin : target.pair).chainId !== deploymentChain(config))
-      throw new Error(`The ETH buy quote does not match ${networkName(config)}. Refresh the quote.`);
-    const expected = account, client = transactionClient(config.chainId, config);
-    const verify = (frozen: FirstBuyPaymentQuote, swaps: FirstBuySwapData[]) => verifyLifiRouter(client, frozen, swaps);
-    return executeLifiTrade(quote, target, expected, {
-      verify,
-      balance: () => client.getBalance({ address: expected }),
-      simulate: async (frozen) => {
-        const request = { account: expected, to: frozen.transaction.to, data: frozen.transaction.data, value: BigInt(frozen.transaction.value) };
-        await client.call(request).catch((error: unknown) => { throw simulationError(error); });
-        return client.estimateGas(request);
-      },
-      submit: async (frozen, gas) => {
-        gas = bufferedLaunchGas(gas, (await client.getBlock()).gasLimit);
-        await ensureGas(config, expected, BigInt(frozen.transaction.value), gas);
-        // Every wallet request re-runs the static and on-chain checks and must be exactly this transaction; `beforeSend` records it last.
-        const wallet = await signer(config, expected, () => verify(frozen, assertLifiTradeQuote(frozen, target, expected)),
-          (request) => assertLaunchRequest(request, { ...frozen.transaction, from: expected, chainId: config.chainId }), beforeSend);
-        const hash = await wallet.sendTransaction({ to: frozen.transaction.to, data: frozen.transaction.data, value: BigInt(frozen.transaction.value), gas });
-        const confirmation = confirmed(hash, config, expected, "swap");
-        onHash?.(hash);
-        progress(`Waiting for on-chain confirmation · ${hash}`);
-        return confirmation;
-      },
-      logs: async (hash) => (await client.getTransactionReceipt({ hash })).logs,
-      progress,
-    }, confirmMessage);
-  }
   async function claimFirstBuy(token: Address, config: RuntimeConfig, onHash?: (hash: Hash) => void) {
     if (!account) throw new Error("Connect the recipient wallet first");
     const expected = account, client = transactionClient(config.chainId, config);
@@ -1082,6 +877,23 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       throw new Error("The claim is confirmed, but its token receipt needs to be checked. Refresh the lock status before trying again.");
     updateTransaction(confirmedHash, config.chainId, { registered: true }, config.deploymentChainId);
     return confirmedHash;
+  }
+  async function signProfile(token: Address, links: ProfileLinks, chainId: 8453 | 4663, issuedAt: number) {
+    const p = controller.current?.selected?.provider, account = controller.current?.state.account;
+    if (!p || !account) throw new Error("Connect your wallet first");
+    const typedData = profileTypedData(chainId, token, links, issuedAt);
+    const expected: ProfileSignature = { account, domain: typedData.domain, types: typedData.types, primaryType: typedData.primaryType,
+      message: { ...typedData.message, issuedAt: typedData.message.issuedAt.toString() } };
+    const validate = async () => { await controller.current!.validate(account, chainId, p); };
+    await validate();
+    const client = createWalletClient({
+      account,
+      chain: chainId === 4663 ? robinhood : base,
+      // Only this profile's typed data may reach the wallet; every other signature or transaction is refused.
+      transport: custom({ request: profileSigningRequest({ request: (request) => p.request(request as Parameters<Provider["request"]>[0]) }, expected, validate) },
+        { retryCount: 0 }),
+    });
+    return { signer: account, signature: await client.signTypedData({ account, ...typedData }) };
   }
   async function tradeMusegod(quote: MusegodQuote, config: RuntimeConfig,
     progress: (message: string) => void, onHash?: (hash: Hash) => void) {
@@ -1171,16 +983,14 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         switchChain,
         send: (...args) => exclusive(() => send(...args)),
         launch: (...args) => exclusive(() => launch(...args)),
-        trade: (...args) => exclusive(() => trade(...args)),
-        tradeNativeWeth: (...args) => exclusive(() => tradeNativeWeth(...args)),
         buyback: (...args) => exclusive(() => buyback(...args)),
         engineAction: (...args) => exclusive(() => engineAction(...args)),
         payFirstBuy: (...args) => exclusive(() => payFirstBuy(...args)),
-        lifiTrade: (...args) => exclusive(() => lifiTrade(...args)),
         claimFirstBuy: (...args) => exclusive(() => claimFirstBuy(...args)),
         balance,
         balanceNative,
         tradeMusegod: (...args) => exclusive(() => tradeMusegod(...args)),
+        signProfile: (...args) => exclusive(() => signProfile(...args)),
       }}
     >
       {children}

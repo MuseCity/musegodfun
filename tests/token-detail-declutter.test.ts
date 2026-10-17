@@ -3,62 +3,24 @@ import assert from "node:assert/strict";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ROBINHOOD_STOCKS, STOCKS } from "../src/lib/config";
-import { buyPresets, ownershipDisclaimer, stockStatusFailure, tokenFeeCardTier } from "../src/lib/token-detail";
-import TokenTradeNotes from "../src/components/TokenTradeNotes";
+import { ownershipDisclaimer, stockStatusFailure, tokenFeeCardTier } from "../src/lib/token-detail";
 import { TokenFeeDisclosure } from "../src/components/FeeBreakdown";
 import { NetworkProvider } from "../src/lib/network";
 import { syntheticToken } from "./fixtures";
 
 const asset = (symbol: string) => ROBINHOOD_STOCKS.find(a => a.symbol === symbol)!;
 
-test("D1 crypto pairs have vetted units and no stock ownership or multiplier claims", () => {
-  for (const [symbol, values] of [
-    ["WETH", ["0.001", "0.005", "0.01"]], ["cbBTC", ["0.0001", "0.0005", "0.001"]],
-    ["USDG", ["10", "50", "100"]], ["MUSEGOD", []],
-  ] as const) {
-    assert.deepEqual(buyPresets(asset(symbol), false), values);
-    assert.deepEqual(buyPresets(asset(symbol), true), ["0.001", "0.005", "0.01"]);
+test("D1 crypto pairs make no stock ownership or multiplier claims", () => {
+  for (const symbol of ["WETH", "cbBTC", "USDG", "MUSEGOD"]) {
     assert.equal(ownershipDisclaimer("COIN", asset(symbol)), "");
     assert.doesNotMatch(stockStatusFailure(asset(symbol)), /stock|multiplier|share equivalent/i);
   }
-  assert.deepEqual(buyPresets({ ...asset("WETH"), symbol: "UNKNOWN" }, false), []);
 });
 
 test("D1 legacy stocks, penny stocks and ETFs retain their appropriate disclosure", () => {
   for (const stock of [STOCKS[0], ...["STOCK", "PENNY_STOCK", "ETF"].map(category => ({ ...asset("WETH"), category }))]) {
-    assert.deepEqual(buyPresets(stock, false), ["1", "5", "10"]);
     assert.equal(ownershipDisclaimer("COIN", stock), `COIN does not represent ownership of ${stock.name}${stock.category === "ETF" ? "" : " stock"}.`);
     assert.match(stockStatusFailure(stock), /stock multiplier.*share equivalent/);
-  }
-});
-
-test("D2 default trade notes contain only the short state and move guidance into a closed disclosure", () => {
-  for (const stock of [asset("WETH"), { ...asset("WETH"), category: "ETF" }, STOCKS[0]]) {
-    for (const url of [undefined, "https://doppler.lol/token/verified"]) {
-      const html = renderToStaticMarkup(createElement(TokenTradeNotes, { stock, symbol: "COIN", payingEth: false, config: { writesEnabled: false }, doppler: url }));
-      const outside = html.replace(/<details[\s\S]*?<\/details>/g, "");
-      assert.match(outside, /Transactions are disabled; quotes are previews/);
-      assert.doesNotMatch(outside, /approval|5 minutes|slippage|pending|Get a quote here/);
-      assert.match(html, /<details[^>]*><summary>Trading details<\/summary>/);
-      assert.match(html, /approval.*5 minutes/);
-      assert.doesNotMatch(html, /confirm the trade|confirm.*wallet/i);
-      if (url) assert.match(outside, /Trade on Doppler/);
-      else { assert.doesNotMatch(html, /verified Doppler link|Trade on Doppler/); assert.match(html, /Doppler trading is pending/); }
-      if (stock.category === "OTHERS") assert.doesNotMatch(html, /stock token|ownership/);
-      else { assert.match(html, /transfer rules/); assert.match(outside, /ownership/); }
-    }
-  }
-  const html = renderToStaticMarkup(createElement(TokenTradeNotes, { stock: asset("WETH"), symbol: "COIN", payingEth: true, config: { writesEnabled: true }, fork: true }));
-  assert.match(html, /LI.FI.*fee is included/); assert.doesNotMatch(html, /Doppler|Transactions are disabled/);
-});
-
-test("C1-2 loading config does not claim transactions are disabled or invite confirmation", () => {
-  for (const config of [null, { writesEnabled: false }, { writesEnabled: true }]) {
-    const html = renderToStaticMarkup(createElement(TokenTradeNotes, { stock: asset("WETH"), symbol: "COIN", payingEth: false, config }));
-    if (config?.writesEnabled === false) assert.match(html, /Transactions are disabled; quotes are previews/);
-    else assert.doesNotMatch(html, /Transactions are disabled/);
-    if (config?.writesEnabled === true) assert.match(html, /Enter an amount for an automatic quote, then confirm the trade in your wallet/);
-    else assert.doesNotMatch(html, /confirm the trade|confirm.*wallet/i);
   }
 });
 
@@ -80,27 +42,20 @@ test("D6 the fee split is inside the collapsed token disclosure, retaining its p
   assert.match(html, /href="\/buyback"/);
 });
 
-test("C1-5 the actual About card keeps facts inside Contract details and the split inside fee details", async () => {
-  const { default: TokenAbout } = await import("../src/components/TokenAbout");
+test("C1-5 the On-chain contract card lists the launch record, links mainnet addresses only, and keeps the fee split collapsed", async () => {
+  const { default: TokenContract } = await import("../src/components/TokenContract");
   for (const mode of ["base", "fork"] as const) {
-    const token = syntheticToken({ mode, tradingFeeBps: 100, feePolicy: "creator-70-musegod-v2", openingValuationUnverified: true });
-    const html = renderToStaticMarkup(createElement(TokenAbout, { token, stock: STOCKS[0], children: createElement(TokenFeeDisclosure, { token, children: createElement("a", { href: "/buyback" }, "View the buyback policy and status") }) }));
-    const contract = html.match(/<details[^>]*><summary>Contract details<\/summary>([\s\S]*?)<\/details>/)?.[0];
-    assert(contract);
-    assert.match(contract, /Pool ID.*<code title=/);
-    assert(contract.includes(token.poolId));
-    assert.match(contract, /Supply.*1,000,000,000/);
-    assert.match(contract, /Token contract.*Quote asset.*Creator.*Opening valuation.*Unverified.*Created/);
-    const outsideContract = html.replace(contract, "");
-    assert.doesNotMatch(outsideContract, /Pool ID|Supply/);
-    assert.doesNotMatch(html, /about-facts|How the buyback works/);
+    const token = syntheticToken({ mode, tradingFeeBps: 100, feePolicy: "creator-70-musegod-v2", openingValuationUnverified: true,
+      feeTreasury: "0x3333333333333333333333333333333333333333" });
+    const html = renderToStaticMarkup(createElement(TokenContract, { token, stock: STOCKS[0], children: createElement(TokenFeeDisclosure, { token, children: createElement("a", { href: "/buyback" }, "View the buyback policy and status") }) }));
+    assert.match(html, /Contract and launch record/);
+    assert.match(html, /Token contract.*Quote asset.*Creator.*Operations · 5.7%.*Pool ID.*Supply.*1,000,000,000.*Opening valuation.*Unverified.*Created/);
+    assert(html.includes(token.poolId));
     assert.equal((html.match(/href="\/buyback"/g) ?? []).length, 1);
     const outsideDetails = html.replace(/<details[\s\S]*<\/details>/g, "");
-    assert.doesNotMatch(outsideDetails, /fee-split|Pool ID|Supply/);
-    assert.match(outsideDetails, /About Synthetic Meme/);
-    assert(outsideDetails.includes(token.description));
-    if (mode === "base") assert.match(contract, /https:\/\/basescan.org\/token\//);
-    else assert.doesNotMatch(contract, /https:/);
+    assert.doesNotMatch(outsideDetails, /fee-split/);
+    if (mode === "base") assert.match(html, /https:\/\/basescan.org\/token\//);
+    else assert.doesNotMatch(html, /https:/);
   }
 });
 
@@ -131,18 +86,4 @@ test("D3 compact fee UI keeps both claims and allocation but omits catalog ident
     const rewards = renderToStaticMarkup(createElement(NetworkProvider, { children: createElement(FeeCard, { token, config }) }));
     assert.match(rewards, /fee-identity/); assert.match(rewards, /Synthetic Meme/); assert.match(rewards, / pair/); assert.match(rewards, /no second 80\/20 split/);
   } finally { hooks.deregister(); Reflect.deleteProperty(globalThis, key); Reflect.deleteProperty(globalThis, "__BUILD_IDENTITY__"); }
-});
-
-test("native WETH notes describe one transaction with no approval or LI.FI fee", () => {
-  const html = renderToStaticMarkup(createElement(TokenTradeNotes, { stock: asset("WETH"), symbol: "CLAWGOD", payingEth: true, nativeWeth: true, config: { writesEnabled: true } }));
-  assert.match(html, /ETH is wrapped to WETH and swapped in one transaction with no approval/);
-  assert.doesNotMatch(html, /LI.FI|Router approval|Get a quote/);
-});
-
-test("Base trade notes explain automatic quotes", () => {
-  for (const writesEnabled of [true, false]) {
-    const html = renderToStaticMarkup(createElement(TokenTradeNotes, { stock: STOCKS[0], symbol: "COIN", payingEth: false, config: { writesEnabled } }));
-    assert.doesNotMatch(html, /Get a quote here/);
-    assert.match(html, writesEnabled ? /Enter an amount for an automatic quote, then confirm the trade in your wallet/ : /Enter an amount for an automatic price preview/);
-  }
 });

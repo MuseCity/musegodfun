@@ -1,11 +1,8 @@
 import { assetCategory } from "./asset-categories";
 import { sameAddress, type Stock, type TokenRecord } from "./config";
+import { feePolicyFor } from "./fee-policy";
+import { LP_FEE_PPM } from "./trading-fee";
 
-export function buyPresets(stock: Stock, payingEth: boolean): readonly string[] {
-  if (payingEth) return ["0.001", "0.005", "0.01"];
-  if (assetCategory(stock) !== "OTHERS") return ["1", "5", "10"];
-  return ({ WETH: ["0.001", "0.005", "0.01"], cbBTC: ["0.0001", "0.0005", "0.001"], USDG: ["10", "50", "100"] } as Record<string, string[]>)[stock.symbol] ?? [];
-}
 export function ownershipDisclaimer(symbol: string, stock: Stock) {
   const category = assetCategory(stock);
   return category === "OTHERS" ? "" : `${symbol} does not represent ownership of ${stock.name}${category === "ETF" ? "" : " stock"}.`;
@@ -19,3 +16,34 @@ export function tokenFeeCardTier(token: Pick<TokenRecord, "nft" | "creator" | "f
   if (!account) return null;
   return treasury || !!token.creator && sameAddress(token.creator, account) ? "token" : "compact";
 }
+
+/** The coin's page on Doppler's app (tasks/token-ip-detail-plan.md §4). Every registered launch is a Doppler pool whose identity the
+ * server verified against the canonical contracts at registration; a local fork never links to mainnet. */
+export function dopplerUrl(token: Pick<TokenRecord, "address" | "mode">): string | null {
+  if (token.mode === "fork") return null;
+  return `https://app.doppler.lol/tokens/${token.mode === "robinhood" ? "robinhood" : "base"}/${token.address.toLowerCase()}`;
+}
+/** The owner's Fomo invite link (FOMO_INVITE_HANDLE), or null when it is not configured or the coin is a fork test asset. */
+export function fomoInviteUrl(token: Pick<TokenRecord, "mode">, handle: string | null | undefined): string | null {
+  if (token.mode === "fork" || !handle || !/^[A-Za-z0-9_-]{1,40}$/.test(handle)) return null;
+  return `https://fomo.family/r/${handle}`;
+}
+/** The bound NFT on OpenSea (NFT coins only; v1 binds NFTs on Robinhood Chain). */
+export function openSeaUrl(token: Pick<TokenRecord, "nft" | "mode">): string | null {
+  if (!token.nft || token.mode === "fork" || token.nft.chainId !== 4663) return null;
+  return `https://opensea.io/item/robinhood/${token.nft.contract.toLowerCase()}/${token.nft.tokenId}`;
+}
+
+/** Shares of every trading fee as percentages of the gross fee, from the launch's recorded fee policy; null for a launch
+ * without one (older launches), which the page then does not describe. */
+export function feeShares(token: Pick<TokenRecord, "feePolicy">): { creator: number; buyback: number; operations: number; protocol: number } | null {
+  const policy = feePolicyFor(token.feePolicy);
+  if (!policy) return null;
+  const operations = policy.operations || (policy.platform - policy.buyback);
+  return { creator: policy.creator / 100, buyback: policy.buyback / 100, operations: operations / 100, protocol: policy.protocol / 100 };
+}
+/** What a $100 buy pays the pool on any venue: the trading fee plus the LP fee, in dollars; null when the trading fee is unknown. */
+export function poolFeeOn100(token: Pick<TokenRecord, "tradingFeeBps">): number | null {
+  return token.tradingFeeBps === undefined ? null : token.tradingFeeBps / 100 + LP_FEE_PPM / 10_000;
+}
+export const LP_FEE_PERCENT = `${LP_FEE_PPM / 10_000}%`;

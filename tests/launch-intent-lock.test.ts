@@ -6,8 +6,7 @@ import { assertLaunchIntentLock, launchIntentStorageKey, withLaunchIntentLock } 
 import { observeServerTime, resetQuoteClock } from "../src/lib/quote-clock";
 import { signingRequest } from "../src/lib/wallet-signing";
 import { SEND_LEASE_LOST, recordAtBroadcast } from "../src/lib/send-record";
-import { ETH_BUY_LOCK, ETH_BUY_TAKEN, ethBuyStorageKey, parseEthBuyRecord, type EthBuyRecord } from "../src/lib/eth-buy-record";
-import { FEE_TAKEN, LAUNCH_FEE_LOCK, launchFeeStorageKey, parseLaunchFeeRecord } from "../src/lib/nft-client";
+import { FEE_TAKEN, LAUNCH_FEE_LOCK, launchFeeStorageKey, parseLaunchFeeRecord, type LaunchFeeAttempt } from "../src/lib/nft-client";
 
 const config: RuntimeConfig = { mode: "robinhood", chainId: 4663, treasury: null, writesEnabled: false, blockReason: null };
 const account = "0x1111111111111111111111111111111111111111" as Address;
@@ -127,31 +126,29 @@ test("native Web Locks remain preferred when IndexedDB is unavailable", async (t
 // ---- round 5 P1: a recorded payment re-verifies its lease and the stored record at the wallet request itself -------------------
 const buyer = getAddress(account), diamond = getAddress("0x2222222222222222222222222222222222222222");
 const buyTx = { from: buyer, to: diamond, data: "0xabcdef" as Hex, value: "0x38d7ea4c68000", chainId: "0x1237" };
-const buyRecord = (at: number, nonce = 0): EthBuyRecord => ({ state: "sending", from: buyer, nonce, block: "100", at, quoteId: `quote-${at}`,
-  tx: { to: diamond, data: "0xabcdef", value: "1000000000000000" },
-  target: { kind: "coin", token: getAddress("0x5555555555555555555555555555555555555555"), symbol: "BARD", decimals: 18, coin: "BARD" } });
-/** One tab's ETH buy: its lock, then the signing transport with the round-5 beforeSend. `hold` keeps it inside async signing validation;
+const buyRecord = (at: number, nonce = 0): LaunchFeeAttempt => ({ state: "sending", asset: "stable", from: buyer, nonce, block: "100", at });
+/** One tab's launch fee payment: its lock, then the signing transport with the round-5 beforeSend. `hold` keeps it inside async signing validation;
  * `answer` is when its wallet answers. */
-function buyInTab(lock: typeof withLaunchIntentLock, tab: string, record: EthBuyRecord, wallet: string[], hold: Promise<void> = Promise.resolve(),
+function buyInTab(lock: typeof withLaunchIntentLock, tab: string, record: LaunchFeeAttempt, wallet: string[], hold: Promise<void> = Promise.resolve(),
   answer: Promise<void> = Promise.resolve()) {
-  const key = ethBuyStorageKey(config, buyer);
-  return lock(config, buyer, ETH_BUY_LOCK, async (assertHeld) => {
+  const key = launchFeeStorageKey(config, buyer);
+  return lock(config, buyer, LAUNCH_FEE_LOCK, async (assertHeld) => {
     await assertHeld();
     const request = signingRequest({ request: async () => { wallet.push(tab); await answer; return `0x${"ab".repeat(32)}`; } }, {
       validate: () => hold,
-      beforeSend: () => recordAtBroadcast(record, { assertHeld, read: () => parseEthBuyRecord(localStorage.getItem(key)),
-        write: (next) => localStorage.setItem(key, JSON.stringify(next)), taken: ETH_BUY_TAKEN }),
+      beforeSend: () => recordAtBroadcast(record, { assertHeld, read: () => parseLaunchFeeRecord(localStorage.getItem(key)),
+        write: (next) => localStorage.setItem(key, JSON.stringify(next)), taken: FEE_TAKEN }),
     });
     return request({ method: "eth_sendTransaction", params: [buyTx] });
   });
 }
 /** Tab A passes its lease check, then is suspended in async signing validation for longer than the lease (no Web Locks: the IndexedDB
- * lease). Tab B takes the expired lease over: when A resumes, B has finished its buy, is still waiting for its wallet, or is still in its
+ * lease). Tab B takes the expired lease over: when A resumes, B has finished its payment, is still waiting for its wallet, or is still in its
  * own signing validation (no record yet). */
 async function suspendedTakeover(t: TestContext, takeover: "finished" | "still sending" | "validating") {
   const f = setup(t), suspended = deferred(), walletB = deferred(), validatingB = deferred(), wallet: string[] = [];
   const secondTab = await import(new URL(`../src/lib/launch-intent.ts?tab=broadcast-${takeover.replace(" ", "-")}`, import.meta.url).href) as typeof import("../src/lib/launch-intent");
-  const key = ethBuyStorageKey(config, buyer), first = buyRecord(1_000), second = buyRecord(2_000);
+  const key = launchFeeStorageKey(config, buyer), first = buyRecord(1_000), second = buyRecord(2_000);
   const settle = (work: Promise<unknown>) => work.then(() => "sent", (error: Error) => error.message);
   const a = settle(buyInTab(withLaunchIntentLock, "A", first, wallet, suspended.promise));
   for (let i = 0; i < 5; i++) { await f.flush(); await Promise.resolve(); }
@@ -180,12 +177,12 @@ test("a tab suspended in signing past its lease sends nothing while another tab 
   suspendedTakeover(t, "validating"));
 
 test("with the lease held, the broadcast step never overwrites another attempt's record, yet allows its own resend", async (t) => {
-  const f = setup(t), key = ethBuyStorageKey(config, buyer), mine = buyRecord(1_000, 4);
+  const f = setup(t), key = launchFeeStorageKey(config, buyer), mine = buyRecord(1_000, 4);
   // Another attempt's record (another time, or the same time with another nonce) stands: nothing reaches the wallet.
   for (const other of [buyRecord(2_000, 4), buyRecord(1_000, 5)]) {
     localStorage.setItem(key, JSON.stringify(other));
     const wallet: string[] = [];
-    await assert.rejects(buyInTab(withLaunchIntentLock, "A", mine, wallet), (error: Error) => error.message === ETH_BUY_TAKEN);
+    await assert.rejects(buyInTab(withLaunchIntentLock, "A", mine, wallet), (error: Error) => error.message === FEE_TAKEN);
     assert.deepEqual(wallet, []);
     assert.deepEqual(JSON.parse(localStorage.getItem(key)!), other);
   }
@@ -199,14 +196,14 @@ test("with the lease held, the broadcast step never overwrites another attempt's
   // The same attempt, resent by viem after the wallet refused the method unprocessed, passes the lease and the record check again.
   localStorage.removeItem(key);
   const requests: string[] = [], records: string[] = [];
-  await withLaunchIntentLock(config, buyer, ETH_BUY_LOCK, async (assertHeld) => {
+  await withLaunchIntentLock(config, buyer, LAUNCH_FEE_LOCK, async (assertHeld) => {
     const request = signingRequest({ request: async ({ method }) => {
       requests.push(method);
       if (method === "eth_sendTransaction") throw Object.assign(new Error("Method not supported"), { code: -32004 });
       return `0x${"ab".repeat(32)}`;
     } }, { validate: async () => {}, beforeSend: async (resend) => {
       records.push(`${resend}`);
-      await recordAtBroadcast(mine, { assertHeld, read: () => parseEthBuyRecord(localStorage.getItem(key)), write: (next) => localStorage.setItem(key, JSON.stringify(next)), taken: ETH_BUY_TAKEN });
+      await recordAtBroadcast(mine, { assertHeld, read: () => parseLaunchFeeRecord(localStorage.getItem(key)), write: (next) => localStorage.setItem(key, JSON.stringify(next)), taken: FEE_TAKEN });
     } });
     await assert.rejects(request({ method: "eth_sendTransaction", params: [buyTx] }), /Method not supported/);
     assert.equal(await request({ method: "wallet_sendTransaction", params: [buyTx] }), `0x${"ab".repeat(32)}`);

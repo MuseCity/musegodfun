@@ -89,6 +89,8 @@ export function runtimeFromEnv(requestedChainId?: DeploymentChainId, environment
     : environment.ROBINHOOD_LAUNCH_GUARD_ADDRESS ?? environment.LAUNCH_GUARD_ADDRESS, "launch guard");
   const firstBuyGuardCandidate = publicAddress(deploymentChainId === 8453 ? environment.BASE_FIRST_BUY_GUARD_ADDRESS
     : environment.ROBINHOOD_FIRST_BUY_GUARD_ADDRESS ?? environment.FIRST_BUY_GUARD_ADDRESS, "first buy guard");
+  const fomoInvite = environment.FOMO_INVITE_HANDLE?.trim() || null;
+  if (fomoInvite && !/^[A-Za-z0-9_-]{1,40}$/.test(fomoInvite)) throw new Error("FOMO_INVITE_HANDLE must be a Fomo invite handle (letters, digits, _ or -)");
   const dataScope = requestedChainId === undefined && environment.NODE_ENV !== "production"
     ? environment.SUPABASE_DATA_SCOPE || mode : mode;
   const defaultDir = `.data/${mode}${mode === "fork" ? `-${deploymentChainId}` : ""}`;
@@ -100,7 +102,7 @@ export function runtimeFromEnv(requestedChainId?: DeploymentChainId, environment
       // The deploymentChainId === 4663 guard is the Robinhood-only lock of this release; the Base plan removes it.
       nftMode: { enabled: environment.NFT_MODE_ENABLED === "true" && deploymentChainId === 4663, vaultFactory: vaultFactory(deploymentChainId),
         launchFeeUsd: LAUNCH_FEE_USD, freeCollections: [`4663:${MUSES.contract.toLowerCase()}`], verifiedCollections: [`4663:${MUSES.contract.toLowerCase()}`] },
-      launchLockAvailable: false,
+      launchLockAvailable: false, fomoInvite,
       feeEngine, feePolicy: feeEngine ? deploymentChainId === 8453 ? BASE_AUTOMATION_FEE_POLICY : ENGINE_FEE_POLICY : FEE_POLICY, buybackExecutor: null,
       blockReason: !treasury ? "The platform treasury is not configured. Browsing and drafts are available."
         : !writesEnabled ? "Mainnet is read-only. Connect a wallet to query balances and simulate issuance." : null },

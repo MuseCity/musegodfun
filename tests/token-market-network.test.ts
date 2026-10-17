@@ -111,7 +111,7 @@ test("refreshing populated summaries hide initial loading banners and empty char
   } });
   try {
     const { default: View } = await import(entry.href);
-    const markup = renderToStaticMarkup(createElement(View, { token, kind: "musegod", refreshKey: "" }));
+    const markup = renderToStaticMarkup(createElement(View, { token, refreshKey: "" }));
     assert.doesNotMatch(markup, /Loading market data/);
     assert.match(markup, /No indexed price records for this interval/);
     assert.doesNotMatch(markup, /No indexed trades for this interval/);

@@ -48,3 +48,7 @@ export function vaultFor(nft: NftRef, factory: Address, initCodeHash: Hex = NFT_
     [BigInt(nft.chainId), nft.contract, BigInt(nft.tokenId)]));
   return getContractAddress({ opcode: "CREATE2", from: factory, salt, bytecodeHash: initCodeHash });
 }
+/** ERC-8004 Identity Registry on Robinhood Chain, and the ERC-8217 binding contract (Adapter8004) that binds Muse agents to their NFTs
+ * (tasks/nft-mode.md §1). Display only: the token page names them; no flow calls them. Adapter8004 is a UUPS proxy its owner can upgrade. */
+export const ERC8004_IDENTITY_REGISTRY = getAddress("0x8004A169FB4a3325136EB29fA0ceB6D2e539a432");
+export const ADAPTER_8004 = getAddress("0x000000009d62675362a58911e3f32FEcf46F5E18");

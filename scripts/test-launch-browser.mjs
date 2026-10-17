@@ -329,6 +329,12 @@ async function casePage(mode, viewport = { width: 1440, height: 1000 }) {
         return { jsonrpc:'2.0',id:item.id,result };
       }; return reply(Array.isArray(payload)?payload.map(one):one(payload));
     }
+    // The unavailable-state fixture is a registered non-fork coin, so its market reads need real response shapes too.
+    if (/^\/api\/tokens\/0x[0-9a-fA-F]{40}\/market\/(summary|trades)$/.test(path)) return reply({
+      fetchedAt: new Date().toISOString(), status: 'unavailable', reason: 'not_indexed',
+      ...(path.endsWith('/summary') ? { priceUsd: null, fdvUsd: null, marketCapUsd: null, liquidityUsd: null,
+        periods: { h24: { change: null, volume: null, buys: null, sells: null } } } : { trades: [] }),
+    });
     if (path.startsWith('/api/tokens/')) {
       if (mode.startsWith('token_detail_') && path === `/api/tokens/${token}`) {
         state.detailRequested = true;
@@ -336,7 +342,7 @@ async function casePage(mode, viewport = { width: 1440, height: 1000 }) {
         if (mode === 'token_detail_unregistered_backup') return reply({error:'Platform token not found',code:'TOKEN_NOT_REGISTERED'},404);
         if (mode === 'token_detail_unverified_opening') return reply({ token:{ ...state.plan?.draft,address:token,creator,poolId:state.plan?.poolId,quoteAddress:quote.address,mode:'fork',deploymentChainId:4663,openingCap:'1.666666',openingValuation:state.plan?.openingValuation,curvePolicy:CURVE_POLICY,feePolicy:FEE_POLICY,openingValuationUnverified:true },state:{status:2,numeraire:quote.address,poolKey:{currency0:token,currency1:quote.address,fee:8388608,tickSpacing:10,hooks:contracts.initializer}} });
         if (mode === 'token_detail_invalid_pool') return reply({ token:{ ...state.plan?.draft,address:token,creator,poolId:state.plan?.poolId,quoteAddress:quote.address,mode:'fork',deploymentChainId:4663,openingCap:'1.666666',openingValuation:state.plan?.openingValuation,curvePolicy:CURVE_POLICY,feePolicy:FEE_POLICY },state:null,stateError:'The pool identity or locked state is invalid',stateInvalid:true });
-        if (mode === 'token_detail_state_unavailable') return reply({ token:{ ...state.plan?.draft,address:token,creator,poolId:state.plan?.poolId,quoteAddress:quote.address,mode:'fork',deploymentChainId:4663,openingCap:'1.666666',openingValuation:state.plan?.openingValuation,curvePolicy:CURVE_POLICY,feePolicy:FEE_POLICY },state:null,stateError:'RPC request timed out' });
+        if (mode === 'token_detail_state_unavailable') return reply({ token:{ ...state.plan?.draft,address:token,creator,poolId:state.plan?.poolId,quoteAddress:quote.address,mode:'robinhood',deploymentChainId:4663,openingCap:'1.666666',openingValuation:state.plan?.openingValuation,curvePolicy:CURVE_POLICY,feePolicy:FEE_POLICY },state:null,stateError:'RPC request timed out' });
         await new Promise(resolve => {state.releaseDetail=resolve;});
       }
       return reply({ token:{ ...state.plan?.draft,address:token,creator,poolId:state.plan?.poolId,quoteAddress:quote.address,mode:'fork',deploymentChainId:4663,openingCap:'1.666666',openingValuation:state.plan?.openingValuation,curvePolicy:CURVE_POLICY,feePolicy:FEE_POLICY },state:{status:2,numeraire:quote.address,poolKey:{currency0:token,currency1:quote.address,fee:8388608,tickSpacing:10,hooks:contracts.initializer}} });
@@ -428,7 +434,7 @@ async function quietReview(page, state) {
 }
 async function tokenLookup(page, state) {
   const tradeQuotes = [];
-  page.on('request', request => { if (request.method() === 'POST' && /\/(quote|eth-quote)$/.test(new URL(request.url()).pathname)) tradeQuotes.push(request.url()); });
+  page.on('request', request => { if (request.method() === 'POST' && /\/quote$/.test(new URL(request.url()).pathname)) tradeQuotes.push(request.url()); });
   if (state.mode === 'token_detail_unregistered_backup')
     await page.evaluate(({ token, creator }) => localStorage.setItem('musegod.transactions.v1', JSON.stringify([{ hash:'0x'+'ab'.repeat(32),
       chainId:31337, deploymentChainId:4663, account:creator, action:'launch', status:'success', at:Date.now(), tokenAddress:token, intentId:'browser-sent-intent' }])), { token, creator });
@@ -445,13 +451,14 @@ async function tokenLookup(page, state) {
     await page.getByRole('heading',{name:state.plan.draft.name,exact:true}).waitFor();
     await page.getByText(/does not match this listing/).waitFor();
     assert.equal(await page.getByText(/Retrying automatically/).count(),0,'An integrity failure is not presented as a transient outage');
-    await page.getByLabel('Trade input amount',{exact:true}).fill('1');
+    assert.equal(await page.getByRole('link',{name:/Trade on Doppler/}).count(),0,'An invalid pool offers no trading venue');
     await page.waitForTimeout(1200);
-    assert.equal(tradeQuotes.length, 0, 'Invalid pools never request an automatic quote');
+    assert.equal(tradeQuotes.length, 0, 'Invalid pools never request a quote');
   } else if (state.mode === 'token_detail_state_unavailable') {
     await page.getByRole('heading',{name:state.plan.draft.name,exact:true}).waitFor();
     await page.getByText(/On-chain pool state is unavailable/).waitFor();
-    await page.getByLabel('Trade input amount',{exact:true}).fill('1');
+    assert.equal(await page.getByRole('link',{name:/Trade on Doppler/}).count(),1,'The fixture is a non-fork coin');
+    assert.equal(await page.getByRole('button',{name:'Get pool quote'}).count(),0,'No pool quote is offered without verified pool state');
     await page.waitForTimeout(1200);
     assert.equal(tradeQuotes.length, 0, 'Quotes stay paused until live pool state is verified');
   } else if (state.mode === 'token_detail_error') {

@@ -121,7 +121,7 @@ export function assertFirstBuyPaymentQuote(q: FirstBuyPaymentQuote, now = quoteN
   const fromToken = firstBuyPaymentAssets(q.chainId, toToken.address).find((a) => sameAddress(a.address, q.fromToken?.address ?? ""));
   return assertLifiSwap(q, fromToken, toToken, now, allowExpired);
 }
-/** The LI.FI checks shared by first-buy payments and ETH buys: the caller fixes the only accepted input and output assets. */
+/** The LI.FI checks of a first-buy payment: the caller fixes the only accepted input and output assets. */
 function assertLifiSwap(q: FirstBuyPaymentQuote, fromToken: FirstBuyPaymentAsset | undefined, toToken: FirstBuyPaymentAsset,
   now: number, allowExpired: boolean): FirstBuySwapData[] {
   const registry = FIRST_BUY_PAYMENT_CONTRACTS[q.chainId];
@@ -183,42 +183,10 @@ function assertLifiSwap(q: FirstBuyPaymentQuote, fromToken: FirstBuyPaymentAsset
   }
   return swaps;
 }
-/** Networks that support buying a listed coin with native ETH. */
+/** Networks whose trading router can wrap native ETH into a WETH-paired pool swap (wrapAndSwapTransaction). */
 export const ETH_BUY_CHAINS = [4663, 8453] as const;
 export function isEthBuyChain(chainId: number): chainId is typeof ETH_BUY_CHAINS[number] {
   return ETH_BUY_CHAINS.some((chain) => chain === chainId);
-}
-export type EthBuyCoinInput = { address: string; symbol: string; decimals?: number };
-export type EthBuyQuoteInput = { account: string; amount: string; coin: EthBuyCoinInput; slippageBps: number };
-function ethBuyInvalid(): never { throw new Error("The ETH buy quote could not be verified. Refresh the quote."); }
-const nativeEther = (chainId: FirstBuyPaymentChain): FirstBuyPaymentAsset => ({ chainId, address: zeroAddress, symbol: "ETH", decimals: 18 });
-/** The only output an ETH buy accepts: a coin the caller found in the platform catalog (server) or loaded as this page's coin
- * (wallet). It is an 18-decimal ERC-20 that is none of the fixed first-buy assets, ETH or a LI.FI contract, so this path never
- * widens what a first-buy payment may convert into. */
-export function ethBuyCoin(chainId: FirstBuyPaymentChain, coin: EthBuyCoinInput): FirstBuyPaymentAsset {
-  if (!isEthBuyChain(chainId) || !coin || typeof coin.address !== "string" || !isAddress(coin.address, { strict: false }) ||
-    typeof coin.symbol !== "string" || !/^[A-Za-z0-9]{1,32}$/.test(coin.symbol) || (coin.decimals ?? 18) !== 18) return ethBuyInvalid();
-  const registry = FIRST_BUY_PAYMENT_CONTRACTS[chainId];
-  const reserved = [zeroAddress, wrappedEther(chainId), registry.diamond, registry.facet, registry.feeForwarder,
-    ...(chainId === 4663 ? ROBINHOOD_STOCKS : STOCKS).map((asset) => asset.address), ...STABLE_ASSETS[chainId].map((asset) => asset.address)];
-  if (reserved.some((address) => sameAddress(address, coin.address))) return ethBuyInvalid();
-  return { chainId, address: getAddress(coin.address), symbol: coin.symbol, decimals: 18 };
-}
-export function ethBuyInput(chainId: FirstBuyPaymentChain, input: EthBuyQuoteInput) {
-  if (!input || typeof input.account !== "string" || !isAddress(input.account, { strict: false }) || sameAddress(input.account, zeroAddress) ||
-    !FIRST_BUY_SLIPPAGE_BPS.some((bps) => bps === input.slippageBps) || typeof input.amount !== "string" ||
-    !/^(?:0|[1-9]\d{0,20})(?:\.\d{1,18})?$/.test(input.amount)) return ethBuyInvalid();
-  const toToken = ethBuyCoin(chainId, input.coin), amountIn = parseUnits(input.amount, 18);
-  if (amountIn <= 0n) return ethBuyInvalid();
-  return { account: getAddress(input.account), fromToken: nativeEther(chainId), toToken, amountIn };
-}
-/** Every static first-buy check, with native ETH as the only input and exactly this coin as the only output. */
-export function assertEthBuyQuote(q: FirstBuyPaymentQuote, coin: EthBuyCoinInput & { chainId: FirstBuyPaymentChain },
-  now = quoteNow(q), allowExpired = false): FirstBuySwapData[] {
-  if (!q || q.protocol !== "lifi" || !isEthBuyChain(coin.chainId) || q.chainId !== coin.chainId) return ethBuyInvalid();
-  const toToken = ethBuyCoin(coin.chainId, coin);
-  try { return assertLifiSwap(q, nativeEther(coin.chainId), toToken, now, allowExpired); }
-  catch { return ethBuyInvalid(); }
 }
 export type FirstBuyReceiptLog ={ address: Address; topics: readonly Hex[]; data: Hex };
 export function firstBuyReceiptOutput(q: FirstBuyPaymentQuote, logs: readonly FirstBuyReceiptLog[]): bigint {

@@ -392,15 +392,12 @@ test("errors redact all server-only Pinata credentials", () => {
   }
 });
 
-test("fork tokens and unreviewed / mismatched pools cannot link to mainnet Doppler", async () => {
-  const { dopplerUrl } = await import("../src/lib/doppler");
-  assert.equal(dopplerUrl(syntheticToken()), null);
+test("every registered mainnet coin links to its own Doppler page; fork tokens never link to mainnet", async () => {
+  const { dopplerUrl } = await import("../src/lib/token-detail");
+  const base = syntheticToken(), robinhood = syntheticToken({ mode: "robinhood", deploymentChainId: 4663 });
+  assert.equal(dopplerUrl(base), `https://app.doppler.lol/tokens/base/${base.address.toLowerCase()}`);
+  assert.equal(dopplerUrl(robinhood), `https://app.doppler.lol/tokens/robinhood/${robinhood.address.toLowerCase()}`);
   assert.equal(dopplerUrl(syntheticToken({ mode: "fork" })), null);
-  assert.equal(
-    dopplerUrl(syntheticToken({ poolId: `0x${"1".repeat(64)}` })),
-    null,
-  );
-  assert.equal(dopplerUrl(syntheticToken({ address: other })), null);
 });
 test("transaction records preserve pending entries, chain separation and replacement status across reload", async () => {
   const savedStorage = Object.getOwnPropertyDescriptor(

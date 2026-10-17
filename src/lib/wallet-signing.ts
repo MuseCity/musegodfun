@@ -114,3 +114,51 @@ export function signingRequest(provider: { request: (request: WalletRequest) => 
     }
   };
 }
+
+/** The only signature this app requests: a coin owner's `TokenProfile` typed data (tasks/token-ip-detail-plan.md §5). `expected` is
+ * exactly what the editor built; the domain names musegod.fun with no verifying contract, so no token contract can read the signature
+ * as an approval. Every other flow keeps refusing every signature (POLICY above). */
+export type ProfileSignature = {
+  account: string;
+  domain: { name: string; version: string; chainId: number };
+  types: Record<string, readonly { name: string; type: string }[]>;
+  primaryType: string;
+  /** The message with `issuedAt` as a decimal string, as viem serializes a bigint. */
+  message: Record<string, string>;
+};
+const PROFILE_DOMAIN_TYPES = [{ name: "name", type: "string" }, { name: "version", type: "string" }, { name: "chainId", type: "uint256" }];
+/** Sorted-key JSON, so two equal structures compare equal whatever key order a wallet library used. */
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (value && typeof value === "object") return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonical((value as Record<string, unknown>)[key])}`).join(",")}}`;
+  return JSON.stringify(value);
+}
+/** Throws unless `request` is `eth_signTypedData_v4` for exactly `expected`: the same account, domain, types, primary type and message. */
+export function assertProfileSignRequest(request: WalletRequest, expected: ProfileSignature) {
+  if (request.method !== "eth_signTypedData_v4") throw new Error(`The wallet request ${request.method || "(unnamed)"} is not allowed`);
+  const params = request.params;
+  if (!Array.isArray(params) || params.length !== 2 || typeof params[0] !== "string" || params[0].toLowerCase() !== expected.account.toLowerCase())
+    throw new Error("The profile signature request does not match the connected account");
+  let data: unknown;
+  try { data = typeof params[1] === "string" ? JSON.parse(params[1]) : undefined; } catch { data = undefined; }
+  const want = { domain: expected.domain, message: expected.message, primaryType: expected.primaryType,
+    types: { EIP712Domain: PROFILE_DOMAIN_TYPES, ...expected.types } };
+  if (!data || canonical(data) !== canonical(want)) throw new Error("The profile signature request does not match the profile being saved");
+}
+/** The EIP-1193 `request` of the profile signer: reads pass; one `eth_signTypedData_v4` for exactly `expected` may reach the wallet,
+ * after `validate()`; anything else, a second signature included, is refused. */
+export function profileSigningRequest(provider: { request: (request: WalletRequest) => Promise<unknown> }, expected: ProfileSignature,
+  validate: () => Promise<void>) {
+  let state: "ready" | "open" | "used" = "ready";
+  return async (input: unknown) => {
+    const { request, forward } = snapshot(input), { method } = request;
+    if (walletMethodPolicy(method) === "read") return provider.request(forward());
+    assertProfileSignRequest(request, expected);
+    if (state !== "ready") throw new Error(state === "open" ? "A wallet request is already open. Check your wallet." : "This profile was already signed. Save again to sign once more.");
+    state = "open";
+    try {
+      await validate();
+    } catch (error) { state = "ready"; throw error; }
+    try { return await provider.request(forward()); } finally { state = "used"; }
+  };
+}

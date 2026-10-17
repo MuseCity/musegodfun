@@ -2,15 +2,12 @@
 // "My NFT treasuries", against the built `dist` served on 127.0.0.1. Wallet, API and RPC are mocked in the page; every other request is
 // refused, and musegod.org art is a stubbed image, so nothing leaves the machine. Screenshots go to .cache/nft-ui/ (git-ignored).
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { decodeAbiParameters, decodeFunctionData, encodeAbiParameters, encodeEventTopics, encodeFunctionData, encodeFunctionResult, erc20Abi, formatUnits,
   getAddress, keccak256, multicall3Abi, parseAbi, parseUnits, toFunctionSelector, toHex } from 'viem';
 import { ROBINHOOD_CONTRACTS, ROBINHOOD_STOCKS } from '../src/lib/config.ts';
 import { FEE_POLICY } from '../src/lib/fee-policy.ts';
 import { MUSES, TOKENBOUND_V3_IMPLEMENTATION, treasuryFor, vaultFor } from '../src/lib/nft-mode.ts';
-import { FIRST_BUY_PAYMENT_CONTRACTS, firstBuyFeeAbi, firstBuyPaymentAbi } from '../src/lib/first-buy-payment.ts';
-import { amountWords } from '../src/lib/eth-buy.ts';
 import { permit2Abi } from '../src/lib/protocol.ts';
 import { MUSEGOD } from '../src/lib/musegod.ts';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
@@ -36,34 +33,12 @@ const vaultAbi = parseAbi(['function sweep(bytes32[] poolIds, address[] tokens)'
 const selector = { lockedUntil: toFunctionSelector('lockedUntil()'), isLocked: toFunctionSelector('isLocked()'), ownerOf: toFunctionSelector('ownerOf(uint256)'),
   facetAddress: toFunctionSelector('facetAddress(bytes4)'), whitelisted: toFunctionSelector('isContractSelectorWhitelisted(address,bytes4)'),
   allowance: toFunctionSelector('allowance(address,address)'), permit2Allowance: toFunctionSelector('allowance(address,address,address)') };
-// Pay with ETH: the pinned LI.FI diamond and facet (its verified runtime is the unit-test fixture), a local swap target and the fee receiver.
-const lifi = FIRST_BUY_PAYMENT_CONTRACTS[4663], lifiDex = '0x603206D6105217DD972E4Ab30676A220CA393346';
-const lifiRuntime = JSON.parse(readFileSync(new URL('../tests/fixtures/lifi-4663-runtime.json', import.meta.url), 'utf8')).onchainBytecode;
-const transferAbi = parseAbi(['event Transfer(address indexed from, address indexed to, uint256 value)']);
-const directOut = 4_990n * 10n ** 18n, convertedExtra = 123_456_789n, swapOut = 49n * 10n ** 18n;
 const coin = (address, name, symbol, quoteAddress, extra = {}) => ({ address, name, symbol, description: `${name}: a local NFT UI fixture, never deployed.`, image: '',
   quoteAddress, creator: launcher, poolId: keccak256(toHex(address)), transactionHash: '0x' + 'cd'.repeat(32), blockNumber: '16',
   createdAt: Date.now() - 3_600_000, openingCap: '1', mode: 'robinhood', deploymentChainId: 4663, feePolicy: FEE_POLICY, feeTreasury: treasury,
   tradingFeeBps: 100, ...extra });
 const museCoin = coin('0x5555555555555555555555555555555555555555', 'Bard of the Muses', 'BARD', musegod, { nft: museNft, nftVerification: { status: 'verified' } });
 const poolKeyOf = row => ({ currency0: row.address, currency1: row.quoteAddress, fee: 8388608, tickSpacing: 10, hooks: '0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544' });
-// A LI.FI V3 native swap of `amountIn` ETH into `target` for `account`, the shape the server's verified reader returns.
-function lifiQuote(target, amountIn, expectedOut, account) {
-  const now = Date.now(), feeAmount = amountIn * 25n / 10_000n, minimumOut = expectedOut * 99n / 100n;
-  const swaps = [{ callTo: lifi.feeForwarder, approveTo: lifi.feeForwarder, sendingAssetId: zeroAddress, receivingAssetId: zeroAddress, fromAmount: amountIn,
-    requiresDeposit: true, callData: encodeFunctionData({ abi: firstBuyFeeAbi, functionName: 'forwardNativeFees',
-      args: [[{ recipient: '0xc06ebbefd94032b85424d51906e2a335efae264b', amount: feeAmount }]] }) },
-  { callTo: lifiDex, approveTo: lifiDex, sendingAssetId: zeroAddress, receivingAssetId: target.address, fromAmount: amountIn - feeAmount,
-    callData: '0x3f0bde251234', requiresDeposit: false }];
-  const transactionId = keccak256(toHex(`eth-buy-${target.symbol}-${now}`));
-  return { protocol: 'lifi', id: `fixture-${target.symbol}`, transactionId, integrator: 'musegodfun', tool: 'bitget', chainId: 4663, account,
-    fromToken: { chainId: 4663, address: zeroAddress, symbol: 'ETH', decimals: 18 }, toToken: target, amountIn: amountIn.toString(),
-    expectedOut: expectedOut.toString(), minimumOut: minimumOut.toString(), slippageBps: 100, quotedAt: now, expiresAt: now + 60_000, serverTime: now,
-    router: lifi.diamond, facet: lifi.facet, facetRuntimeHash: lifi.runtimeHash, blockNumber: '16', blockHash,
-    transaction: { to: lifi.diamond, value: amountIn.toString(), data: encodeFunctionData({ abi: firstBuyPaymentAbi, functionName: 'swapTokensMultipleV3NativeToERC20',
-      args: [transactionId, 'musegodfun', zeroAddress, account, minimumOut, swaps] }) },
-    approval: null, feeAmount: feeAmount.toString(), feeUsd: null, gasFeeUsd: null, amountInUsd: null };
-}
 const v4Quote = (row, amountIn) => ({ token: row.address, side: 'buy', amountIn: amountIn.toString(), amountOut: (amountIn * 2n).toString(), currencyIn: row.quoteAddress,
   poolKey: poolKeyOf(row), slippageBps: 100, quotedAt: Date.now(), expiresAt: Date.now() + 60_000, serverTime: Date.now() });
 // A verified coin of a collection outside the allowlist: its badge still warns, because the badge follows the collection, not the status.
@@ -86,28 +61,16 @@ const browser = await chromium.launch({ headless: true });
 
 // `account: null`: an anonymous viewer (no wallet connected). `nftEnabled: false`: NFT mode is off on this network.
 async function open(path, { account = holder, owner = holder, locked = false, factoryDeployed = true, theme = 'light', viewport = { width: 1440, height: 1000 },
-  undeployed = false, uninitialized = false, holderless = false, statusFailures = 0, lockFailures = 0, chainHex = '0x1237', nftEnabled = true, ethRoute = 'direct', rejectSends = [],
-  musegodHeld = 10n ** 18n, holdSend = -1, walletEvent = null, coinHeld = 10n ** 20n, holdPairBalance = false, unreadableConversion = false, failSend = null,
-  pendingCoins = [museCoin], vaultHeld = 10n ** 18n } = {}) {
+  undeployed = false, uninitialized = false, holderless = false, statusFailures = 0, lockFailures = 0, chainHex = '0x1237', nftEnabled = true,
+  musegodHeld = 10n ** 18n, coinHeld = 10n ** 20n,
+  onchain = true, pendingCoins = [museCoin], vaultHeld = 10n ** 18n } = {}) {
   const context = await browser.newContext({ viewport, colorScheme: theme });
-  // `ethRoute`: what /trade/eth-quote answers ('direct' or 'two-step'). `rejectSends`: wallet requests (0-based) the fixture wallet rejects.
-  // `musegodHeld`: the wallet's MUSEGOD before any trade. `holdSend`: a wallet request that waits until `state.releaseSend()`.
-  // `walletEvent`: { attempt, event, value }: the wallet emits that provider event while handling that request.
-  // `coinHeld`: the wallet's balance of every other token. `holdPairBalance`: MUSEGOD balance reads wait for `state.releaseBalance()`.
-  // `unreadableConversion`: an ETH → MUSEGOD conversion's receipt carries no MUSEGOD Transfer (its amount cannot be read).
-  // `failSend`: { attempt, code, broadcast }: the wallet answers that request with an EIP-1193 error of `code` and no hash; with `broadcast`
-  // it did broadcast it, held unmined (`state.lost`) until `state.mineLost()`.
+  // `musegodHeld`: the wallet's MUSEGOD. `coinHeld`: the wallet's balance of every other token.
   // `uninitialized`: the treasury account was created but its initialize never confirmed: it has code, its lock cannot be read until this
   // page sends initialize, and the server's view keeps saying so (its cache).
   // `pendingCoins`: bound pools with nonzero pending fees. `vaultHeld`: MUSEGOD already sitting in the fee vault.
-  const state = { sends: [], attempts: 0, refusedSends: 0, rejected: [], treasuryReads: 0, statusAccounts: [], multicalls: [], external: [], stubbed: [], pageErrors: [], statusFailures, lockFailures,
-    ethQuotes: [], ethQuoteResponses: [], v4Quotes: [], musegodQuotes: [], swapSpends: [], held: null, releaseSend: () => {}, lost: [] };
-  // The broadcast the wallet never reported is mined: it takes the next nonce, like any other send.
-  state.mineLost = () => { state.sends.push(...state.lost.splice(0)); };
-  const holding = new Promise(resolve => { state.releaseSend = resolve; });
-  let balanceReleased = !holdPairBalance;
-  const balanceGate = new Promise(resolve => { state.releaseBalance = () => { balanceReleased = true; resolve(); }; });
-  state.pairBalanceReads = 0;
+  const state = { sends: [], attempts: 0, refusedSends: 0, treasuryReads: 0, statusAccounts: [], multicalls: [], external: [], stubbed: [], pageErrors: [], statusFailures, lockFailures,
+    poolQuotes: [], musegodQuotes: [] };
   const config = { ...baseConfig, nftMode: { ...baseConfig.nftMode, enabled: nftEnabled, vaultFactory: factoryDeployed ? factory : null } };
   await context.addInitScript(({ account, theme, chainHex, walletSend }) => {
     localStorage.setItem('musegod.theme', theme);
@@ -133,44 +96,16 @@ async function open(path, { account = holder, owner = holder, locked = false, fa
     window.addEventListener('eip6963:requestProvider', announce); window.addEventListener('load', announce);
   }, { account, theme, chainHex, walletSend });
   await context.exposeBinding('__nftRefusedSend', () => { state.refusedSends++; });
-  await context.exposeBinding('__nftSend', async (source, tx) => {
-    const attempt = state.attempts++;
-    if (walletEvent?.attempt === attempt) {
-      await source.page.evaluate(([event, value]) => (window.__walletListeners[event] || []).forEach(listener => listener(value)), [walletEvent.event, walletEvent.value]);
-      await new Promise(resolve => setTimeout(resolve, 500));
-    }
-    if (rejectSends.includes(attempt)) { state.rejected.push(tx); throw new Error('User rejected the request.'); }
-    if (failSend?.attempt === attempt) {
-      if (failSend.broadcast) state.lost.push({ ...tx, hash: keccak256(toHex(`nft-ui-lost-${state.lost.length}-${tx.data}`)) });
-      return { fail: { code: failSend.code, message: failSend.code === 4001 ? 'User rejected the request.' : 'Internal error' } };
-    }
-    if (attempt === holdSend) { state.held = tx; await holding; }
+  await context.exposeBinding('__nftSend', async (_source, tx) => {
+    state.attempts++;
     const hash = keccak256(toHex(`nft-ui-send-${state.sends.length}-${tx.data}`));
     state.sends.push({ ...tx, hash });
-    // A swap through the trading router spends the MUSEGOD of the latest v4 quote.
-    if (tx.to.toLowerCase() === ROBINHOOD_CONTRACTS.router.toLowerCase()) state.swapSpends.push(parseUnits(state.v4Quotes.at(-1).amount, 18));
     return hash;
   });
-  // What a confirmed send transferred to the wallet: a LI.FI buy delivers its quote's output token, the trading router delivers the coin.
-  const transferLog = (sent, token, value, index) => ({ address: token, topics: encodeEventTopics({ abi: transferAbi, eventName: 'Transfer', args: { from: lifiDex, to: account } }),
-    data: encodeAbiParameters([{ type: 'uint256' }], [value]), blockHash, blockNumber: '0x10', transactionHash: sent.hash, transactionIndex: '0x0', logIndex: toHex(index), removed: false });
-  const delivered = sent => {
-    if (sent.to.toLowerCase() === lifi.diamond.toLowerCase()) {
-      const swaps = decodeFunctionData({ abi: firstBuyPaymentAbi, data: sent.data }).args[5];
-      const output = swaps[swaps.length - 1].receivingAssetId;
-      const quoted = state.ethQuoteResponses.map(r => r.mode === 'direct' ? r.quote : r.conversion).find(q => q.transaction.data === sent.data);
-      if (unreadableConversion && output.toLowerCase() === musegod.toLowerCase()) return null;
-      return { token: output, value: output.toLowerCase() === musegod.toLowerCase() ? BigInt(quoted.minimumOut) + convertedExtra : directOut };
-    }
-    if (sent.to.toLowerCase() === ROBINHOOD_CONTRACTS.router.toLowerCase()) return { token: museCoin.address, value: swapOut };
-    return null;
-  };
-  const musegodBalance = () => musegodHeld + state.sends.map(delivered).filter(d => d?.token.toLowerCase() === musegod.toLowerCase()).reduce((sum, d) => sum + d.value, 0n)
-    - state.swapSpends.reduce((sum, value) => sum + value, 0n);
+  // The fixture sends (NFT vault and treasury actions) transfer nothing to the wallet: their receipts carry no logs.
   const receipt = sent => {
-    const output = delivered(sent);
     return { transactionHash: sent.hash, transactionIndex: '0x0', blockHash, blockNumber: '0x10', from: account, to: sent.to, cumulativeGasUsed: '0xea60',
-      gasUsed: '0xea60', contractAddress: null, logs: output ? [transferLog(sent, output.token, output.value, 0)] : [], logsBloom: '0x' + '00'.repeat(256),
+      gasUsed: '0xea60', contractAddress: null, logs: [], logsBloom: '0x' + '00'.repeat(256),
       status: '0x1', effectiveGasPrice: '0x1', type: '0x2' };
   };
   // Every send is mined in block 16 at its own nonce (its index); a full block 16 lists them, as the nonce search reads it.
@@ -200,11 +135,8 @@ async function open(path, { account = holder, owner = holder, locked = false, fa
         return { success: false, returnData: '0x' };
       }) });
     }
-    // balanceOf: 1 MUSEGOD (less than a 5 MUSEGOD buy) plus what LI.FI delivered, plenty of everything else.
-    if (data?.startsWith('0x70a08231')) return toHex(to.toLowerCase() === musegod.toLowerCase() ? musegodBalance() : coinHeld, { size: 32 });
-    // The LI.FI diamond routes to the pinned facet and whitelists the fixture swap target.
-    if (to?.toLowerCase() === lifi.diamond.toLowerCase() && data.startsWith(selector.facetAddress)) return encodeAbiParameters([{ type: 'address' }], [lifi.facet]);
-    if (to?.toLowerCase() === lifi.diamond.toLowerCase() && data.startsWith(selector.whitelisted)) return encodeAbiParameters([{ type: 'bool' }], [true]);
+    // balanceOf: the wallet's MUSEGOD and plenty of everything else.
+    if (data?.startsWith('0x70a08231')) return toHex(to.toLowerCase() === musegod.toLowerCase() ? musegodHeld : coinHeld, { size: 32 });
     // The wallet already approved Permit2 for MUSEGOD (so no ERC-20 approval); its Permit2 router allowance is empty.
     if (data?.startsWith(selector.allowance)) return encodeAbiParameters([{ type: 'uint256' }], [2n ** 256n - 1n]);
     if (data?.startsWith(selector.permit2Allowance)) return encodeAbiParameters([{ type: 'uint160' }, { type: 'uint48' }, { type: 'uint48' }], [0n, 0, 0]);
@@ -214,7 +146,7 @@ async function open(path, { account = holder, owner = holder, locked = false, fa
   // A vault or treasury has code once deployed: from the start, or (`undeployed`) after this page sent its deploy or activation.
   const sentTo = target => state.sends.some(sent => sent.to.toLowerCase() === target.toLowerCase());
   const initializedNow = () => state.sends.some(sent => sent.to.toLowerCase() === museTreasury.toLowerCase() && sent.data === initializeData);
-  const code = address => address.toLowerCase() === lifi.facet.toLowerCase() ? lifiRuntime : address.toLowerCase() === vault.toLowerCase() ? !undeployed || sentTo(factory)
+  const code = address => address.toLowerCase() === vault.toLowerCase() ? !undeployed || sentTo(factory)
     : address.toLowerCase() === museTreasury.toLowerCase() ? !undeployed || sentTo('0x000000006551c19487814612e58FE06813775758') : false;
   const rpc = item => {
     const result = item.method === 'eth_chainId' ? '0x1237' : item.method === 'eth_blockNumber' ? '0x20'
@@ -281,25 +213,12 @@ async function open(path, { account = holder, owner = holder, locked = false, fa
         minAmountOut: (amountOut * BigInt(10_000 - payload.slippageBps) / 10_000n).toString(), slippageBps: payload.slippageBps,
         quotedAt: now, expiresAt: now + 60_000, serverTime: now, blockNumber: '16', blockHash });
     }
-    if (path === '/api/trade/eth-quote') {
-      state.ethQuotes.push(payload);
-      const row = catalog.find(entry => entry.address.toLowerCase() === payload.token.toLowerCase()), amountIn = parseUnits(payload.amountIn, 18);
-      const coinAsset = { chainId: 4663, address: getAddress(row.address), symbol: row.symbol, decimals: 18 };
-      const pair = { chainId: 4663, address: getAddress(musegod), symbol: 'MUSEGOD', decimals: 18 };
-      const conversion = lifiQuote(pair, amountIn, 25n * 10n ** 18n, payload.account);
-      const response = ethRoute === 'direct' ? { mode: 'direct', quote: lifiQuote(coinAsset, amountIn, 5_000n * 10n ** 18n, payload.account), serverTime: Date.now() }
-        : { mode: 'two-step', conversion, swapPreview: v4Quote(row, BigInt(conversion.minimumOut)), serverTime: Date.now() };
-      state.ethQuoteResponses.push(response);
-      return reply(response);
-    }
     if (path === '/api/quote') {
-      state.v4Quotes.push(payload);
+      state.poolQuotes.push(payload);
       const row = catalog.find(entry => entry.address.toLowerCase() === payload.address.toLowerCase());
       return reply(v4Quote(row, parseUnits(payload.amount, 18)));
     }
     if (path === '/api/rpc') {
-      const pairRead = item => item?.method === 'eth_call' && item.params?.[0]?.to?.toLowerCase() === musegod.toLowerCase() && item.params[0].data?.startsWith('0x70a08231');
-      if ((Array.isArray(payload) ? payload : [payload]).some(pairRead)) { state.pairBalanceReads++; if (!balanceReleased) await balanceGate; }
       return reply(Array.isArray(payload) ? payload.map(rpc) : rpc(payload));
     }
     return reply({ error: 'Unavailable fixture route' }, 404);
@@ -307,6 +226,8 @@ async function open(path, { account = holder, owner = holder, locked = false, fa
   const page = await context.newPage();
   page.on('pageerror', error => state.pageErrors.push(error.message));
   await page.goto(origin + path);
+  // A launch coin's NFT card lives in the token page's On-chain tab (tasks/token-ip-detail-plan.md §3); MUSEGOD's own page has no tabs.
+  if (onchain && path.startsWith('/token/') && !path.toLowerCase().includes(musegod.toLowerCase())) await page.getByRole('tab', { name: 'On-chain' }).click();
   return { context, page, state };
 }
 // NFT_UI_CASES=a,b runs only those checks (and no screenshots), for a focused rerun.
@@ -413,381 +334,6 @@ try {
     assert.deepEqual(state.sends, []);
     await finish(run);
   });
-  // Pay with ETH replaced the separate "Get MUSEGOD with ETH first" panel: one control in the coin's own trade panel.
-  await check('pay_with_default', async () => {
-    const run = await open(tokenPath), { page } = run, trade = page.locator('#trade'), payWith = trade.getByRole('group', { name: 'Pay with' });
-    const pressed = name => payWith.getByRole('button', { name, exact: true, pressed: true });
-    const live = trade.locator('.trade-live[role="status"]');
-    await page.locator('#nft-card').getByText('Unlocked').waitFor();
-    // The wallet holds 1 MUSEGOD: with the field empty it pays MUSEGOD. Typed MUSEGOD stays MUSEGOD, even above the balance.
-    await pressed('MUSEGOD').waitFor();
-    await trade.getByLabel('Trade input amount').fill('5');
-    // The visible hint (with its button) sits under the amount, outside the live region; the region announces it once.
-    const hint = trade.locator('.pay-hint.nft-warning');
-    await hint.filter({ hasText: 'You hold less than 5 MUSEGOD. Pay with ETH?' }).waitFor();
-    assert.equal(await live.locator('.pay-hint, button').count(), 0, 'no button inside the live region');
-    const announced = (await live.textContent()).trim();
-    assert.equal(announced, 'You hold less than the amount entered in MUSEGOD. Pay with ETH?');
-    await trade.getByLabel('Trade input amount').fill('6');
-    await hint.filter({ hasText: 'You hold less than 6 MUSEGOD.' }).waitFor();
-    assert.equal((await live.textContent()).trim(), announced, 'a keystroke does not change what the live region says');
-    assert.equal(await pressed('MUSEGOD').count(), 1, 'a typed amount never changes unit');
-    assert.equal(await trade.getByText('You pay MUSEGOD', { exact: true }).count(), 1);
-    await trade.getByLabel('Trade input amount').fill('0.5');
-    await hint.waitFor({ state: 'detached' });
-    assert.equal((await live.textContent()).trim(), '');
-    await trade.getByLabel('Trade input amount').fill('5');
-    // One tap switches to ETH and clears the field, so the user enters an ETH amount; nothing is converted.
-    await hint.getByRole('button', { name: 'Switch to ETH' }).click();
-    await pressed('ETH').waitFor();
-    assert.equal(await trade.getByLabel('Trade input amount').inputValue(), '');
-    await live.locator('.nft-warning', { hasText: 'Amount cleared. Enter it in ETH.' }).waitFor();
-    assert.equal(await trade.getByText('You pay ETH', { exact: true }).count(), 1);
-    await trade.getByLabel('Trade input amount').fill('0.25');
-    assert.equal(await pressed('ETH').count(), 1);
-    assert.equal(await live.locator('.nft-warning').count(), 0, 'the note goes once an amount is entered');
-    // Switching the unit by hand also empties a typed amount instead of reinterpreting it; picking the current unit does not.
-    await payWith.getByRole('button', { name: 'ETH', exact: true }).click();
-    assert.equal(await trade.getByLabel('Trade input amount').inputValue(), '0.25');
-    await payWith.getByRole('button', { name: 'MUSEGOD', exact: true }).click();
-    await pressed('MUSEGOD').waitFor();
-    assert.equal(await trade.getByLabel('Trade input amount').inputValue(), '');
-    await live.locator('.nft-warning', { hasText: 'Amount cleared. Enter it in MUSEGOD.' }).waitFor();
-    await trade.getByLabel('Trade input amount').fill('0.25');
-    await payWith.getByRole('button', { name: 'ETH', exact: true }).click();
-    assert.equal(await trade.getByRole('button', { name: /Get (on-chain )?quote/ }).count(), 0);
-    // No separate MUSEGOD panel, link or status line anywhere on a token page.
-    assert.equal(await page.getByRole('heading', { name: /Get MUSEGOD/ }).count(), 0);
-    assert.equal(await page.locator('#get-musegod, .trade-status, .trade-column, .musegod-acquire').count(), 0);
-    assert.equal(await page.getByRole('link', { name: /Get MUSEGOD/ }).count(), 0);
-    assert.equal(await page.getByRole('textbox', { name: /trade input amount/i }).count(), 1, 'one trade panel');
-    // R2: a side switch changes the input unit (ETH or MUSEGOD on Buy, BARD on Sell), so it empties a typed amount and says so.
-    const sides = trade.getByRole('group', { name: 'Trade side' });
-    await trade.getByLabel('Trade input amount').fill('5000');
-    await sides.getByRole('button', { name: 'Sell' }).click();
-    await payWith.waitFor({ state: 'detached' });
-    assert.equal(await trade.getByLabel('Trade input amount').inputValue(), '', '"5000" ETH never becomes "5000" BARD');
-    await live.locator('.nft-warning', { hasText: 'Amount cleared. Enter it in BARD.' }).waitFor();
-    await trade.getByLabel('Trade input amount').fill('1');
-    assert.equal(await live.locator('.nft-warning').count(), 0);
-    await sides.getByRole('button', { name: 'Sell' }).click();
-    assert.equal(await trade.getByLabel('Trade input amount').inputValue(), '1', 'the same side keeps the amount');
-    await sides.getByRole('button', { name: 'Buy' }).click();
-    await pressed('ETH').waitFor();
-    assert.equal(await trade.getByLabel('Trade input amount').inputValue(), '', '"1" BARD never becomes "1" ETH');
-    await live.locator('.nft-warning', { hasText: 'Amount cleared. Enter it in ETH.' }).waitFor();
-    await finish(run);
-    // A wallet without MUSEGOD pays ETH; a typed ETH amount stays ETH and never shows the MUSEGOD hint.
-    const empty = await open(tokenPath, { musegodHeld: 0n }), emptyTrade = empty.page.locator('#trade');
-    await empty.page.locator('#nft-card').getByText('Unlocked').waitFor();
-    const emptyPay = emptyTrade.getByRole('group', { name: 'Pay with' });
-    await emptyPay.getByRole('button', { name: 'ETH', exact: true, pressed: true }).waitFor();
-    for (const typed of ['5', '0.5', '0.001']) {
-      await emptyTrade.getByLabel('Trade input amount').fill(typed);
-      assert.equal(await emptyPay.getByRole('button', { name: 'ETH', exact: true }).getAttribute('aria-pressed'), 'true', typed);
-      assert.equal(await emptyTrade.getByText('You pay ETH', { exact: true }).count(), 1, typed);
-    }
-    assert.equal(await emptyTrade.locator('.trade-live .nft-warning').count(), 0);
-    await finish(empty);
-    // Ruling: once the field holds an amount, the default never flips, not even when the pair balance first loads.
-    // (1) Typed before the balance loads: the pair unit stays when a zero balance arrives; the hint offers ETH, the field keeps "5".
-    const early = await open(tokenPath, { musegodHeld: 0n, holdPairBalance: true }), earlyTrade = early.page.locator('#trade');
-    const earlyPay = earlyTrade.getByRole('group', { name: 'Pay with' });
-    await earlyPay.getByRole('button', { name: 'MUSEGOD', exact: true, pressed: true }).waitFor();
-    for (let i = 0; i < 200 && early.state.pairBalanceReads < 1; i++) await early.page.waitForTimeout(25);
-    assert(early.state.pairBalanceReads >= 1, 'the MUSEGOD balance read is in flight');
-    await earlyTrade.getByLabel('Trade input amount').fill('5');
-    early.state.releaseBalance();
-    await earlyTrade.locator('.pay-hint', { hasText: 'You hold less than 5 MUSEGOD. Pay with ETH?' }).waitFor();
-    assert.equal(await earlyPay.getByRole('button', { name: 'MUSEGOD', exact: true }).getAttribute('aria-pressed'), 'true', 'the unit is unchanged');
-    assert.equal(await earlyTrade.getByLabel('Trade input amount').inputValue(), '5');
-    assert.equal(await earlyTrade.getByText('Balance: 0', { exact: true }).count(), 1);
-    assert.equal((await earlyTrade.locator('.trade-live').textContent()).trim(), 'You hold less than the amount entered in MUSEGOD. Pay with ETH?', 'announced once');
-    await finish(early);
-    // (2) Typed on Sell, then Buy: the switch empties the field (R2). The empty Buy field then takes its default from the pair
-    // balance (1 MUSEGOD: MUSEGOD), never from the Sell-side balance (0 BARD, which would have meant ETH); the note names it.
-    const carried = await open(tokenPath, { coinHeld: 0n }), carriedTrade = carried.page.locator('#trade');
-    await carried.page.locator('#nft-card').getByText('Unlocked').waitFor();
-    await carriedTrade.getByRole('group', { name: 'Trade side' }).getByRole('button', { name: 'Sell' }).click();
-    await carriedTrade.getByText('You pay BARD', { exact: true }).waitFor();
-    await carriedTrade.getByText('Balance: 0', { exact: true }).waitFor();
-    await carriedTrade.getByLabel('Trade input amount').fill('5');
-    await carriedTrade.getByRole('group', { name: 'Trade side' }).getByRole('button', { name: 'Buy' }).click();
-    const carriedPay = carriedTrade.getByRole('group', { name: 'Pay with' });
-    await carriedTrade.getByText('Balance: 1', { exact: true }).waitFor();
-    await carriedPay.getByRole('button', { name: 'MUSEGOD', exact: true, pressed: true }).waitFor();
-    assert.equal(await carriedTrade.getByLabel('Trade input amount').inputValue(), '');
-    await carriedTrade.locator('.trade-live .nft-warning', { hasText: 'Amount cleared. Enter it in MUSEGOD.' }).waitFor();
-    await finish(carried);
-    // No wallet: the pair asset, so the read-only on-chain quote works; ETH asks for a wallet first.
-    const anonymous = await open(tokenPath, { account: null }), anonTrade = anonymous.page.locator('#trade');
-    const anonPay = anonTrade.getByRole('group', { name: 'Pay with' });
-    await anonPay.getByRole('button', { name: 'MUSEGOD', exact: true, pressed: true }).waitFor();
-    await anonTrade.getByLabel('Trade input amount').fill('1');
-    await anonTrade.locator('.trade-box.receive strong', { hasText: '2' }).waitFor();
-    await anonPay.getByRole('button', { name: 'ETH', exact: true }).click();
-    await anonTrade.locator('.trade-live .nft-warning', { hasText: 'Connect a wallet for an automatic ETH route quote.' }).waitFor();
-    assert.equal(await anonTrade.getByRole('button', { name: /Get (on-chain )?quote/ }).count(), 0);
-    await finish(anonymous);
-    // WETH pairs default to native ETH and quote automatically.
-    const plain = await open(`/token/robinhood/${plainCoin.address}`);
-    await plain.page.getByRole('heading', { name: 'Trade PLAIN' }).waitFor();
-    await plain.page.locator('#trade').getByLabel('Trade input amount').fill('5');
-    assert.equal(await plain.page.getByRole('group', { name: 'Pay with' }).count(), 1);
-    await plain.page.getByRole('group', { name: 'Pay with' }).getByRole('button', { name: 'ETH', exact: true, pressed: true }).waitFor();
-    assert.equal(await plain.page.getByRole('button', { name: /Get (on-chain )?quote/ }).count(), 0);
-    await plain.page.locator('#trade .quote-summary').waitFor();
-    await finish(plain);
-  });
-  // Records every progress text of the coin's trade panel, so the order of the steps can be checked afterwards.
-  const recordProgress = page => page.evaluate(() => {
-    window.__progress = [];
-    new MutationObserver(() => {
-      const text = document.querySelector('#trade .trade-live .trade-progress')?.textContent?.trim();
-      if (text && window.__progress.at(-1) !== text) window.__progress.push(text);
-    }).observe(document.querySelector('#trade'), { subtree: true, childList: true, characterData: true });
-  });
-  async function ethQuoteFor(page, amount) {
-    const trade = page.locator('#trade');
-    await trade.getByRole('group', { name: 'Pay with' }).getByRole('button', { name: 'ETH', exact: true }).click();
-    await trade.getByLabel('Trade input amount').fill(amount);
-    await trade.locator('.quote-summary').waitFor();
-    await trade.locator('.receive[aria-busy="false"]').waitFor();
-    return trade;
-  }
-  await check('eth_buy_direct', async () => {
-    const run = await open(tokenPath), { page, state } = run;
-    await page.locator('#nft-card').getByText('Unlocked').waitFor();
-    const trade = await ethQuoteFor(page, '0.001');
-    await trade.getByText('One step via LI.FI').waitFor();
-    assert.deepEqual(state.ethQuotes, [{ token: museCoin.address, amountIn: '0.001', account: holder, slippageBps: 100 }]);
-    assert.equal((await trade.locator('.trade-box.receive strong').textContent()).trim(), '5,000', 'the expected coin amount before confirming');
-    assert.equal(await trade.locator('.nft-warning', { hasText: 'No one-step route' }).count(), 0);
-    await trade.getByRole('button', { name: 'Buy with ETH' }).click();
-    await trade.getByRole('status').filter({ hasText: 'Received 4,990 BARD.' }).waitFor();
-    // Exactly one wallet confirmation: the frozen LI.FI transaction, paying the quoted ETH.
-    assert.equal(state.sends.length, 1);
-    const quote = state.ethQuoteResponses[0].quote;
-    assert.equal(state.sends[0].to.toLowerCase(), lifi.diamond.toLowerCase());
-    assert.equal(state.sends[0].data, quote.transaction.data);
-    assert.equal(BigInt(state.sends[0].value), 10n ** 15n);
-    assert.equal(await trade.getByRole('link', { name: 'View transaction' }).getAttribute('href'), `https://robinhoodchain.blockscout.com/tx/${state.sends[0].hash}`);
-    const history = await page.evaluate(() => JSON.parse(localStorage.getItem('musegod.transactions.v1') || '[]'));
-    assert.deepEqual(history.map(row => [row.action, row.status]), [['swap', 'success']]);
-    await finish(run);
-  });
-  await check('eth_buy_two_step', async () => {
-    const run = await open(tokenPath, { ethRoute: 'two-step' }), { page, state } = run;
-    await page.locator('#nft-card').getByText('Unlocked').waitFor();
-    const trade = await ethQuoteFor(page, '0.02');
-    await trade.getByText('Two steps', { exact: true }).waitFor();
-    // The disclosure is in the panel's one live region before the first confirmation; the same node later carries progress and the result.
-    const disclosure = trade.locator('.trade-live[role="status"] .nft-warning', { hasText: 'No one-step route right now.' });
-    assert.equal((await disclosure.textContent()).trim(),
-      'No one-step route right now. This buy takes 3 steps (3 or 4 wallet confirmations): ETH → MUSEGOD, then MUSEGOD → BARD.');
-    assert.equal(await page.locator('#trade [role="status"].trade-live').count(), 1);
-    await page.evaluate(() => { document.querySelector('#trade .trade-live').dataset.fixtureNode = 'same'; });
-    await recordProgress(page);
-    await trade.getByRole('button', { name: 'Buy with ETH' }).click();
-    await trade.getByRole('status').filter({ hasText: 'Received 49 BARD.' }).waitFor();
-    // Three confirmations, in order: ETH → MUSEGOD on LI.FI, the Permit2 router approval, then the swap.
-    const conversion = state.ethQuoteResponses[0].conversion, received = BigInt(conversion.minimumOut) + convertedExtra;
-    assert.deepEqual(state.sends.map(sent => sent.to.toLowerCase()), [lifi.diamond, ROBINHOOD_CONTRACTS.permit2, ROBINHOOD_CONTRACTS.router].map(a => a.toLowerCase()));
-    assert.equal(state.sends[0].data, conversion.transaction.data);
-    assert.equal(BigInt(state.sends[0].value), 2n * 10n ** 16n);
-    // Step 2 uses exactly the MUSEGOD the conversion delivered, never the preview's minimum.
-    assert.deepEqual(state.v4Quotes, [{ address: museCoin.address, side: 'buy', amount: formatUnits(received, 18), slippageBps: 100 }]);
-    const approval = decodeFunctionData({ abi: permit2Abi, data: state.sends[1].data });
-    assert.equal(approval.functionName, 'approve');
-    assert.deepEqual(approval.args.slice(0, 3).map(String), [getAddress(musegod), ROBINHOOD_CONTRACTS.router, String(received)]);
-    assert(state.sends[2].data.toLowerCase().includes(received.toString(16).padStart(64, '0')), 'the swap spends the exact amount received');
-    const progress = await page.evaluate(() => window.__progress);
-    const steps = ['Step 1 of 3 · Confirm in your wallet: ETH → MUSEGOD', 'Step 1 of 3 · Waiting for on-chain confirmation',
-      'Step 2 of 3 · Approval 1 of 1 · Approve the trading router for MUSEGOD', 'Step 3 of 3 · Confirm in your wallet: MUSEGOD → BARD',
-      'Step 3 of 3 · Waiting for on-chain confirmation'];
-    let at = -1;
-    for (const step of steps) {
-      const next = progress.findIndex((text, index) => index > at && text.startsWith(step));
-      assert(next > at, `progress "${step}" in order: ${JSON.stringify(progress)}`); at = next;
-    }
-    assert.equal(await trade.locator('.trade-live[data-fixture-node="same"]', { hasText: 'Received 49 BARD.' }).count(), 1, 'one live region, filled in place');
-    // Both transactions are linked.
-    assert.equal(await trade.getByRole('link', { name: 'View ETH → MUSEGOD transaction' }).getAttribute('href'), `https://robinhoodchain.blockscout.com/tx/${state.sends[0].hash}`);
-    assert.equal(await trade.getByRole('link', { name: 'View MUSEGOD → BARD transaction' }).getAttribute('href'), `https://robinhoodchain.blockscout.com/tx/${state.sends[2].hash}`);
-    const history = await page.evaluate(() => JSON.parse(localStorage.getItem('musegod.transactions.v1') || '[]'));
-    assert.deepEqual(history.map(row => row.action), ['swap', 'approval', 'swap']);
-    await finish(run);
-  });
-  await check('pair_buy_keeps_its_choice', async () => {
-    // Paying with all of the MUSEGOD held (the default): afterwards the wallet holds none, yet the panel keeps MUSEGOD and the result.
-    const run = await open(tokenPath), { page, state } = run, trade = page.locator('#trade'), payWith = trade.getByRole('group', { name: 'Pay with' });
-    await page.locator('#nft-card').getByText('Unlocked').waitFor();
-    await payWith.getByRole('button', { name: 'MUSEGOD', exact: true, pressed: true }).waitFor();
-    await trade.getByLabel('Trade input amount').fill('1');
-    await trade.locator('.quote-summary').waitFor();
-    await trade.locator('.receive[aria-busy="false"]').waitFor();
-    await trade.getByRole('button', { name: 'Confirm Buy' }).click();
-    await trade.getByText('Transaction confirmed').waitFor();
-    assert.deepEqual(state.sends.map(sent => sent.to.toLowerCase()), [ROBINHOOD_CONTRACTS.permit2, ROBINHOOD_CONTRACTS.router].map(a => a.toLowerCase()));
-    await trade.getByText('Balance: 0', { exact: true }).waitFor();
-    assert.equal(await payWith.getByRole('button', { name: 'MUSEGOD', exact: true }).getAttribute('aria-pressed'), 'true');
-    assert.equal(await trade.getByText('Transaction confirmed').count(), 1, 'the result stays on screen');
-    assert.equal(await trade.getByText(/You hold less than/).count(), 0, 'no "Pay with ETH?" hint next to a confirmed buy');
-    await finish(run);
-  });
-  await check('eth_buy_two_step_step2_rejected', async () => {
-    const run = await open(tokenPath, { ethRoute: 'two-step', rejectSends: [1] }), { page, state } = run;
-    await page.locator('#nft-card').getByText('Unlocked').waitFor();
-    const trade = await ethQuoteFor(page, '0.02');
-    await trade.getByText('Two steps', { exact: true }).waitFor();
-    await trade.getByRole('button', { name: 'Buy with ETH' }).click();
-    const conversion = state.ethQuoteResponses[0].conversion, received = BigInt(conversion.minimumOut) + convertedExtra;
-    const recovery = trade.locator('.trade-live[role="status"] .nft-warning', { hasText: 'You received' });
-    await recovery.waitFor();
-    assert.equal((await recovery.textContent()).trim(), `You received ${amountWords(received, 18)} MUSEGOD. Buy BARD with MUSEGOD to finish.`);
-    // Nothing lost and no retry: the panel now pays MUSEGOD, prefilled with exactly what arrived.
-    await trade.getByRole('group', { name: 'Pay with' }).getByRole('button', { name: 'MUSEGOD', exact: true, pressed: true }).waitFor();
-    assert.equal(await trade.getByLabel('Trade input amount').inputValue(), formatUnits(received, 18));
-    assert.equal(await trade.getByText('You pay MUSEGOD', { exact: true }).count(), 1);
-    assert.equal(state.sends.length, 1, 'only the conversion went through');
-    assert.equal(state.rejected.length, 1);
-    assert.equal(state.rejected[0].to.toLowerCase(), ROBINHOOD_CONTRACTS.permit2.toLowerCase());
-    assert.equal(await trade.getByRole('button', { name: /Get (on-chain )?quote/ }).count(), 0);
-    // The balances are read again: the MUSEGOD now held covers the prefilled amount, so no "hold less" hint.
-    await trade.getByText(`Balance: ${Number(formatUnits(10n ** 18n + received, 18)).toLocaleString('en-US', { maximumFractionDigits: 8 })}`, { exact: true }).waitFor();
-    assert.equal(await trade.getByText(/You hold less than/).count(), 0);
-    assert.equal(await trade.getByRole('link', { name: 'View ETH → MUSEGOD transaction' }).getAttribute('href'), `https://robinhoodchain.blockscout.com/tx/${state.sends[0].hash}`);
-    await finish(run);
-  });
-  await check('eth_buy_unreadable_conversion', async () => {
-    // R1: the conversion confirmed but its MUSEGOD amount cannot be read. The panel pays MUSEGOD and never keeps the ETH number.
-    const run = await open(tokenPath, { ethRoute: 'two-step', unreadableConversion: true }), { page, state } = run;
-    await page.locator('#nft-card').getByText('Unlocked').waitFor();
-    const trade = await ethQuoteFor(page, '0.02');
-    await trade.getByText('Two steps', { exact: true }).waitFor();
-    await trade.getByRole('button', { name: 'Buy with ETH' }).click();
-    const live = trade.locator('.trade-live[role="status"]');
-    await live.locator('.nft-warning', { hasText: 'Your ETH → MUSEGOD conversion is confirmed. Buy BARD with MUSEGOD to finish.' }).waitFor();
-    await trade.getByRole('group', { name: 'Pay with' }).getByRole('button', { name: 'MUSEGOD', exact: true, pressed: true }).waitFor();
-    assert.equal(await trade.getByLabel('Trade input amount').inputValue(), '', '"0.02" ETH never becomes "0.02" MUSEGOD');
-    await live.locator('.nft-warning', { hasText: 'Amount cleared. Enter it in MUSEGOD.' }).waitFor();
-    assert.equal(state.sends.length, 1, 'no step 2 without a known amount');
-    assert.equal(await trade.getByRole('link', { name: 'View ETH → MUSEGOD transaction' }).getAttribute('href'), `https://robinhoodchain.blockscout.com/tx/${state.sends[0].hash}`);
-    await finish(run);
-  });
-  // Round 4 F1: the wallet broadcast a LI.FI ETH buy but answered without a hash. The record saved before the request keeps the wallet from
-  // paying again until the chain or the user settles it.
-  await check('eth_buy_lost_answer', async () => {
-    const recordKey = `musegod.eth-buy.v1.4663.4663.${holder.toLowerCase()}`;
-    const savedRecord = page => page.evaluate(key => JSON.parse(localStorage.getItem(key) || 'null'), recordKey);
-    const run = await open(tokenPath, { failSend: { attempt: 0, code: -32000, broadcast: true } }), { page, state } = run;
-    await page.locator('#nft-card').getByText('Unlocked').waitFor();
-    let trade = await ethQuoteFor(page, '0.001');
-    await trade.getByText('One step via LI.FI').waitFor();
-    const quote = state.ethQuoteResponses[0].quote;
-    await trade.getByRole('button', { name: 'Buy with ETH' }).click();
-    const live = () => page.locator('#trade .trade-live[role="status"]');
-    await live().getByText(/^We can't confirm this ETH buy yet\. Check your wallet's activity\./).waitFor();
-    const saved = await savedRecord(page);
-    assert.equal(saved.state, 'sending', 'saved before the wallet request, without a hash');
-    assert.equal(saved.nonce, 0); assert.equal(saved.from.toLowerCase(), holder.toLowerCase());
-    assert.deepEqual(saved.tx, { to: quote.transaction.to, data: quote.transaction.data.toLowerCase(), value: quote.transaction.value });
-    assert.equal(saved.quoteId, quote.id);
-    assert.equal(await trade.getByRole('button', { name: 'Buy with ETH' }).isDisabled(), true, 'no second buy of the same quote');
-    assert.equal(await trade.getByRole('button', { name: /Get (on-chain )?quote/ }).count(), 0, 'no manual quote request');
-    assert.equal(await trade.getByRole('button', { name: 'No payment was sent', exact: true }).count(), 1);
-    assert.equal(await live().locator('button').count(), 0, 'its buttons sit outside the live region');
-    // A reload keeps the record and the refusal.
-    await page.reload();
-    await page.locator('#nft-card').getByText('Unlocked').waitFor();
-    trade = page.locator('#trade');
-    await trade.getByRole('group', { name: 'Pay with' }).getByRole('button', { name: 'ETH', exact: true }).click();
-    await trade.getByLabel('Trade input amount').fill('0.001');
-    await live().getByText(/^We can't confirm this ETH buy yet\./).waitFor();
-    assert.equal(await trade.getByRole('button', { name: /Get (on-chain )?quote/ }).count(), 0);
-    assert.deepEqual(state.ethQuotes.length, 1, 'no quote was requested again');
-    // The lost broadcast is mined: the exact transaction at the saved nonce is adopted and shown, once.
-    state.mineLost();
-    await trade.getByRole('button', { name: 'Check again', exact: true }).click();
-    await live().getByText('Your ETH buy confirmed: received 4,990 BARD.', { exact: true }).waitFor();
-    assert.equal(await savedRecord(page), null, 'settled');
-    assert.equal(await trade.getByRole('link', { name: 'View ETH buy transaction' }).getAttribute('href'), `https://robinhoodchain.blockscout.com/tx/${state.sends[0].hash}`);
-    assert.equal(state.attempts, 1, 'the wallet was asked once');
-    await trade.locator('.quote-summary').waitFor();
-    assert.equal(await trade.getByRole('button', { name: 'Buy with ETH' }).isEnabled(), true, 'buying with ETH opens again');
-    await finish(run);
-    // The wallet never broadcast it: only the user's explicit choice clears the record, and the next buy goes through once.
-    const unsent = await open(tokenPath, { failSend: { attempt: 0, code: -32000, broadcast: false } });
-    await unsent.page.locator('#nft-card').getByText('Unlocked').waitFor();
-    trade = await ethQuoteFor(unsent.page, '0.001');
-    await trade.getByText('One step via LI.FI').waitFor();
-    await trade.getByRole('button', { name: 'Buy with ETH' }).click();
-    await trade.getByRole('button', { name: 'No payment was sent', exact: true }).click();
-    await trade.getByRole('button', { name: 'No payment was sent', exact: true }).waitFor({ state: 'detached' });
-    assert.equal(await savedRecord(unsent.page), null);
-    await trade.locator('.quote-summary').waitFor();
-    await trade.locator('.receive[aria-busy="false"]').waitFor();
-    await trade.getByRole('button', { name: 'Buy with ETH' }).click();
-    await trade.getByRole('status').filter({ hasText: 'Received 4,990 BARD.' }).waitFor();
-    assert.equal(unsent.state.sends.length, 1, 'one transaction, after the user cleared the unsent one');
-    assert.equal(await savedRecord(unsent.page), null, 'a confirmed buy leaves no record');
-    await finish(unsent);
-    // A definite rejection (4001) before any hash clears the record at once.
-    const rejected = await open(tokenPath, { failSend: { attempt: 0, code: 4001, broadcast: false } });
-    await rejected.page.locator('#nft-card').getByText('Unlocked').waitFor();
-    trade = await ethQuoteFor(rejected.page, '0.001');
-    await trade.getByText('One step via LI.FI').waitFor();
-    await trade.getByRole('button', { name: 'Buy with ETH' }).click();
-    await trade.locator('.notice.error', { hasText: /User rejected the request|You cancelled the wallet request/ }).waitFor();
-    assert.equal(await savedRecord(rejected.page), null);
-    assert.equal(await trade.getByRole('button', { name: 'No payment was sent', exact: true }).count(), 0);
-    assert.equal(await trade.getByRole('button', { name: 'Buy with ETH' }).isEnabled(), true);
-    await finish(rejected);
-  });
-  await check('eth_buy_result_stays_on_its_page', async () => {
-    // The wallet answers after the user moved to another coin: nothing from that buy lands on the new page.
-    const run = await open(tokenPath, { holdSend: 0 }), { page, state } = run;
-    await page.locator('#nft-card').getByText('Unlocked').waitFor();
-    const trade = await ethQuoteFor(page, '0.001');
-    await trade.getByText('One step via LI.FI').waitFor();
-    await trade.getByRole('button', { name: 'Buy with ETH' }).click();
-    for (let i = 0; i < 200 && !state.held; i++) await page.waitForTimeout(25);
-    assert(state.held, 'the wallet holds the request');
-    await page.evaluate(path => { history.pushState({}, '', path); window.dispatchEvent(new PopStateEvent('popstate')); }, `/token/robinhood/${plainCoin.address}`);
-    await page.getByRole('heading', { name: 'Trade PLAIN' }).waitFor();
-    state.releaseSend();
-    for (let i = 0; i < 200 && state.sends.length < 1; i++) await page.waitForTimeout(25);
-    await page.waitForTimeout(1500);
-    const plainTrade = page.locator('#trade');
-    assert.equal(await plainTrade.getByText(/Received|Waiting for on-chain|Bought/).count(), 0);
-    assert.equal(await plainTrade.getByRole('link', { name: /View .*transaction/ }).count(), 0);
-    await plainTrade.getByLabel('Trade input amount').fill('1');
-    assert.equal(await plainTrade.getByLabel('Trade input amount').isEnabled(), true, 'the new page is not busy');
-    await finish(run);
-  });
-  await check('eth_buy_wallet_events_mid_buy', async () => {
-    // A wallet event that leaves the account and network as they were keeps the recovery; a real account change drops it.
-    for (const [event, value, kept] of [['chainChanged', '0x1237', true], ['accountsChanged', [delegate], false]]) {
-      const run = await open(tokenPath, { ethRoute: 'two-step', rejectSends: [1], walletEvent: { attempt: 1, event, value } }), { page, state } = run;
-      await page.locator('#nft-card').getByText('Unlocked').waitFor();
-      const trade = await ethQuoteFor(page, '0.02');
-      await trade.getByText('Two steps', { exact: true }).waitFor();
-      await trade.getByRole('button', { name: 'Buy with ETH' }).click();
-      for (let i = 0; i < 400 && state.rejected.length < 1; i++) await page.waitForTimeout(25);
-      assert.equal(state.rejected.length, 1, event);
-      const received = BigInt(state.ethQuoteResponses[0].conversion.minimumOut) + convertedExtra;
-      if (kept) {
-        await trade.locator('.trade-live .nft-warning', { hasText: `You received ${amountWords(received, 18)} MUSEGOD.` }).waitFor();
-        assert.equal(await trade.getByLabel('Trade input amount').inputValue(), formatUnits(received, 18));
-        await trade.getByRole('group', { name: 'Pay with' }).getByRole('button', { name: 'MUSEGOD', exact: true, pressed: true }).waitFor();
-      } else {
-        await page.waitForTimeout(1500);
-        assert.equal(await trade.getByText(/You received/).count(), 0, 'nothing from the old account lands on the page');
-        assert.equal(await trade.getByLabel('Trade input amount').inputValue(), '0.02');
-      }
-      await finish(run);
-    }
-  });
   await check('musegod_page_trade_panel', async () => {
     // The MUSEGOD page uses automatic ETH ↔ MUSEGOD quotes and in-field Max, without a Pay with control.
     const run = await open(`/token/robinhood/${getAddress(musegod)}`), { page } = run, trade = page.locator('#trade');
@@ -833,7 +379,10 @@ try {
     await finish(run);
   });
   await check('hidden_coin', async () => {
-    const run = await open(`/token/robinhood/${hiddenCoin.address}`), { page } = run, card = page.locator('#nft-card');
+    const run = await open(`/token/robinhood/${hiddenCoin.address}`, { onchain: false }), { page } = run, card = page.locator('#nft-card');
+    await page.locator('.notice', { hasText: 'Hidden by operator.' }).waitFor();
+    assert.equal(await page.getByRole('tab', { name: 'Overview' }).getAttribute('aria-selected'), 'true');
+    await page.getByRole('tab', { name: 'On-chain' }).click();
     await card.locator('.nft-warning', { hasText: 'Hidden by operator.' }).waitFor();
     await card.getByText('Unlocked').waitFor();
     assert.equal(await card.getByRole('button', { name: 'Sweep fees to the treasury' }).isEnabled(), true, 'actions stay available');
@@ -907,7 +456,11 @@ try {
     await finish(run);
   });
   await check('holder_read_failure', async () => {
-    const run = await open(tokenPath, { statusFailures: 1 }), { page } = run, card = page.locator('#nft-card');
+    // Finish the hero's owner read, then scope this failure to the card's first read on its first visit.
+    const run = await open(tokenPath, { onchain: false }), { page, state } = run, card = page.locator('#nft-card');
+    await page.locator('.token-hero-links').getByRole('button', { name: 'Edit profile', exact: true }).waitFor();
+    state.statusFailures = 1;
+    await page.getByRole('tab', { name: 'On-chain' }).click();
     await card.getByText(/The NFT holder could not be read: The NFT status read failed in this fixture\./).waitFor();
     assert.equal(await card.getByText('Checking the NFT holder…').count(), 0);
     await card.getByRole('button', { name: 'Retry' }).click();
@@ -961,7 +514,7 @@ try {
   await check('unverified_collection_badge', async () => {
     // The badge follows the collection allowlist: a verified coin of another collection still warns, and the token header names the contract.
     const run = await open(`/token/robinhood/${unverifiedCoin.address}`), { page } = run;
-    const header = page.locator('.token-header-meta .nft-badge');
+    const header = page.locator('.token-hero-title .nft-badge');
     await header.waitFor();
     assert.equal((await header.textContent()).trim(), 'NFT · unverified collection · 0x9999…9999');
     assert.equal(await header.evaluate(node => node.classList.contains('nft-warning')), true);
@@ -1020,16 +573,9 @@ try {
     let run = await open(tokenPath, { theme, viewport });
     await run.page.locator('#nft-card').getByText('Unlocked').waitFor();
     await run.page.locator('#nft-card').getByText('BARD pool').first().waitFor();
-    // A MUSEGOD-paired coin, paying with ETH, with a one-step quote on screen.
-    await (await ethQuoteFor(run.page, '0.001')).getByText('One step via LI.FI').waitFor();
+    // A MUSEGOD-paired coin trades on its venues: the trade card links to Doppler.
+    await run.page.locator('#trade').getByRole('link', { name: /Trade on Doppler/ }).waitFor();
     await shoot(run.page, `token-${tag}`); await finish(run);
-    // Paying with MUSEGOD, above the 1 MUSEGOD held: the "Pay with ETH?" hint.
-    run = await open(tokenPath, { theme, viewport });
-    await run.page.locator('#nft-card').getByText('BARD pool').first().waitFor();
-    await run.page.locator('#trade').getByRole('group', { name: 'Pay with' }).getByRole('button', { name: 'MUSEGOD', exact: true, pressed: true }).waitFor();
-    await run.page.locator('#trade').getByLabel('Trade input amount').fill('5');
-    await run.page.locator('#trade .pay-hint').getByRole('button', { name: 'Switch to ETH' }).waitFor();
-    await shoot(run.page, `token-hint-${tag}`); await finish(run);
     run = await open(nftPagePath, { theme, viewport });
     await run.page.getByRole('link', { name: 'Bard of the Muses' }).waitFor();
     await run.page.locator('#nft-card').getByText('Unlocked').waitFor();

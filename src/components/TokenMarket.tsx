@@ -124,8 +124,32 @@ function useMarket<
   },[result.data?.fetchedAt]);
   return previousPath.current === key ? result : { data: null, error: "", loading: true };
 }
+/** A launch coin's market summary and trades for the token page (tasks/token-ip-detail-plan.md §3): no candles, since the page has no
+ * chart. One instance owns the data and the live swap stream; the trade card shows the summary and the Activity tab the trades.
+ * `live` is the stream's status element, rendered once by the caller. */
+export function useLaunchMarket(token: MarketToken, config: import("../lib/config").RuntimeConfig | null) {
+  const [live, setLive] = useState<LiveProjection | null>(null);
+  const [revision, setRevision] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => { if (document.visibilityState === "visible") setRevision((n) => n + 1); }, 15 * 60_000);
+    return () => clearInterval(timer);
+  }, []);
+  const summary = useMarket<MarketSummary>(token, "launch", "summary", revision);
+  const trades = useMarket<TradeData>(token, "launch", "trades", revision);
+  const liveEnabled = !!config && config.mode !== "fork" && token.mode !== "fork" && config.chainId === deploymentChain(token) && !!token.poolId;
+  const currentLive = liveEnabled && live?.basis.summary === summary.data && live?.basis.candles === null &&
+    live?.basis.trades === trades.data && live?.basis.info === null ? live : null;
+  const stats = currentLive?.summary || summary.data;
+  const tradeData = currentLive?.trades || trades.data;
+  const liveNode = liveEnabled ? <Suspense fallback={null}><SwapLive chainId={deploymentChain(token)} pool={token.poolId!.toLowerCase()}
+    path={`/tokens/${token.address}/market`} summary={summary.data} candles={null} trades={trades.data} interval="1h" info={null} onUpdate={setLive} /></Suspense> : null;
+  return { summary, trades, stats, tradeData, currentLive, liveNode, refresh: () => setRevision((n) => n + 1) };
+}
+export type LaunchMarket = ReturnType<typeof useLaunchMarket>;
+export const formatUsd = (n: number | null | undefined, precise = false) => usd(n, precise);
+export const formatCount = count;
 // A stale snapshot with no rows keeps its empty statement beside the stale note, like the summary does.
-function emptyText(data: { status?: string; warning?: string } | null, error: string, empty: string, fallback: string) {
+export function emptyText(data: { status?: string; warning?: string } | null, error: string, empty: string, fallback: string) {
   return data?.status === "stale" ? `${empty} ${error || data.warning || fallback}` : error || empty;
 }
 function Message({ loading, text }: { loading: boolean; text: string }) {
@@ -138,21 +162,19 @@ function Message({ loading, text }: { loading: boolean; text: string }) {
 export default function TokenMarket({
   token,
   refreshKey,
-  kind = "launch",
   metric,
   info = null,
   config = null,
 }: {
   token: MarketToken;
   refreshKey: string;
-  kind?: "launch" | "musegod";
   // Replaces the fully diluted valuation tile (MUSEGOD shows its burn share).
   metric?: { label: string; value: string; title?: string };
   info?: SupplyInfo | null;
   config?: import("../lib/config").RuntimeConfig | null;
 }) {
   const [live, setLive] = useState<LiveProjection | null>(null);
-  const [chartType, setChartType] = useState<"line" | "candles">(kind === "musegod" ? "line" : "candles");
+  const [chartType, setChartType] = useState<"line" | "candles">("line");
   const [interval, setIntervalValue] = useState<ChartInterval>("1h"),
     [revision, setRevision] = useState(0);
   const [period, setPeriod] = useState("h24"),
@@ -173,32 +195,30 @@ export default function TokenMarket({
     };
     const timer = setInterval(() => {
       if (document.visibilityState === "visible") setRevision((n) => n + 1);
-    }, kind === "musegod" ? 15_000 : 15 * 60_000);
-    if (kind === "musegod") {
-      document.addEventListener("visibilitychange", refreshVisible);
-      window.addEventListener("focus", refreshVisible);
-    }
+    }, 15_000);
+    document.addEventListener("visibilitychange", refreshVisible);
+    window.addEventListener("focus", refreshVisible);
     return () => {
       clearInterval(timer);
       document.removeEventListener("visibilitychange", refreshVisible);
       window.removeEventListener("focus", refreshVisible);
     };
-  }, [kind]);
-  const summary = useMarket<MarketSummary>(token, kind, "summary", revision);
+  }, []);
+  const summary = useMarket<MarketSummary>(token, "musegod", "summary", revision);
   const history = useMarket<CandleData>(
     token,
-    kind,
+    "musegod",
     `candles?interval=${interval}`,
     revision,
   );
   const trades = useMarket<TradeData>(
     token,
-    kind,
+    "musegod",
     "trades",
     revision,
   );
   const explorer = explorerFor(token);
-  const liveEnabled = !!config && config.mode !== "fork" && token.mode !== "fork" && config.chainId === deploymentChain(token) && (kind === "launch" ? !!token.poolId : musegodNetwork(config));
+  const liveEnabled = !!config && config.mode !== "fork" && token.mode !== "fork" && config.chainId === deploymentChain(token) && musegodNetwork(config);
   const currentLive = liveEnabled && live?.basis.summary === summary.data && live?.basis.candles === history.data &&
     live?.basis.trades === trades.data && live?.basis.interval === interval && live?.basis.info === info ? live : null;
   const chartData = currentLive?.candles || history.data;
@@ -273,9 +293,9 @@ export default function TokenMarket({
         <Suspense fallback={<PriceChartFrame symbol={token.symbol} unit={chartData?.candles.length ? chartData.unit ?? "USD" : chartData?.unit} type={chartType} status={chartStatus} />}>
           {chartData?.candles.length ? (
             <MarketChart
-              key={`${marketEndpoint(token, kind, `candles?interval=${interval}`).key}:${chartData.source}:${chartData.unit ?? "USD"}`}
+              key={`${marketEndpoint(token, "musegod", `candles?interval=${interval}`).key}:${chartData.source}:${chartData.unit ?? "USD"}`}
               data={chartData}
-              endpoint={marketEndpoint(token, kind, `candles?interval=${interval}`)}
+              endpoint={marketEndpoint(token, "musegod", `candles?interval=${interval}`)}
               interval={interval}
               symbol={token.symbol}
               type={chartType}
@@ -362,15 +382,15 @@ export default function TokenMarket({
           </p>
         </>}
         {stats?.quotePriceAt && <p className="feed-note">Latest swap · On-chain · Alchemy · {Number(stats.priceQuote).toLocaleString("en-US", {maximumSignificantDigits:6})} {stats.quoteSymbol} · Block <time dateTime={stats.quotePriceAt}>{new Date(stats.quotePriceAt).toLocaleTimeString("en-US")}</time></p>}
-        {(liveEnabled || summary.data || history.data || kind === "musegod") && <p className="feed-note">
-          <MarketProvenance label="Summary" data={stats} kind={kind} />
+        <p className="feed-note">
+          <MarketProvenance label="Summary" data={stats} kind="musegod" />
           {summary.data && history.data ? " · " : ""}
-          <MarketProvenance label="Candles" data={chartData} kind={kind} />
+          <MarketProvenance label="Candles" data={chartData} kind="musegod" />
           {currentLive?.candlesAt && <> · Live candles · On-chain · Alchemy · Trade <time dateTime={currentLive.candlesAt}>{new Date(currentLive.candlesAt).toLocaleTimeString("en-US")}</time></>}
-          {kind === "musegod" && <>{summary.data || history.data ? " · " : ""}refreshes every 15 seconds while visible</>}
-          {liveEnabled && <Suspense fallback={null}>{" "}<SwapLive chainId={kind === "musegod" ? 4663 : deploymentChain(token)} pool={(kind === "musegod" ? MUSEGOD.pool : token.poolId!).toLowerCase()} path={kind === "musegod" ? "/musegod/market" : `/tokens/${token.address}/market`} summary={summary.data} candles={history.data} trades={trades.data}
+          <>{summary.data || history.data ? " · " : ""}refreshes every 15 seconds while visible</>
+          {liveEnabled && <Suspense fallback={null}>{" "}<SwapLive chainId={4663} pool={MUSEGOD.pool.toLowerCase()} path={"/musegod/market"} summary={summary.data} candles={history.data} trades={trades.data}
             interval={interval} info={info} onUpdate={setLive} /></Suspense>}
-        </p>}
+        </p>
       </section>
       <section className="card market-feed" aria-label="Recent trades">
         <div className="feed-head">
@@ -451,7 +471,7 @@ export default function TokenMarket({
         )}
         {items.length && (trades.error || trades.data?.status === "stale") ? <p className="market-warning" role="status">{trades.error || trades.data?.warning || "Previous trades snapshot. Refresh to update."}</p> : null}
         <p className="feed-note">
-          <MarketProvenance label="Trades" data={currentLive?.trades || trades.data} kind={kind} />{trades.data ? " · " : ""}
+          <MarketProvenance label="Trades" data={currentLive?.trades || trades.data} kind="musegod" />{trades.data ? " · " : ""}
           {currentLive?.tradesAt && <>Live trades · On-chain · Alchemy · Trade <time dateTime={currentLive.tradesAt}>{new Date(currentLive.tradesAt).toLocaleTimeString("en-US")}</time> · </>}
           Latest 30 indexed trades · indexing may lag the chain.
         </p>

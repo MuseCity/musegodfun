@@ -32,14 +32,15 @@ for (const kind of ["musegod", "launch"] as const) test(`${kind} polls only whil
     priceUsd: null, fdvUsd: null, marketCapUsd: null, liquidityUsd: null,
   }); });
   let View: any;
-  const runtime = hookRuntime(() => View({ token: syntheticToken({ mode: "robinhood", deploymentChainId: 4663 }), kind, refreshKey: "" }));
-  ({ default: View } = await importFresh("src/components/TokenMarket.tsx", { react: { file: import.meta.resolve("react"), bindings: runtime.hooks } }));
+  const runtime = hookRuntime(() => kind === "musegod" ? View({ token: syntheticToken({ mode: "robinhood", deploymentChainId: 4663 }), refreshKey: "" }) : View(syntheticToken({ mode: "robinhood", deploymentChainId: 4663 }), null));
+  const module = await importFresh("src/components/TokenMarket.tsx", { react: { file: import.meta.resolve("react"), bindings: runtime.hooks } });
+  View = kind === "musegod" ? module.default : module.useLaunchMarket;
   try {
-    runtime.render(); await settle(); assert.equal(calls.length, 3);
+    runtime.render(); await settle(); const reads = kind === "musegod" ? 3 : 2; assert.equal(calls.length, reads);
     const interval = kind === "musegod" ? 15_000 : 15 * 60_000;
-    t.mock.timers.tick(interval - 1); await settle(); assert.equal(calls.length, 3);
-    t.mock.timers.tick(1); await settle(); assert.equal(calls.length, 6);
-    document.visibilityState = "hidden"; t.mock.timers.tick(interval); await settle(); assert.equal(calls.length, 6);
+    t.mock.timers.tick(interval - 1); await settle(); assert.equal(calls.length, reads);
+    t.mock.timers.tick(1); await settle(); assert.equal(calls.length, reads * 2);
+    document.visibilityState = "hidden"; t.mock.timers.tick(interval); await settle(); assert.equal(calls.length, reads * 2);
   } finally {
     runtime.unmount();
     for (const [name, descriptor] of previous) { if (descriptor) Object.defineProperty(globalThis, name, descriptor); else Reflect.deleteProperty(globalThis, name); }

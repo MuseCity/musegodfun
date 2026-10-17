@@ -133,6 +133,8 @@ export type RuntimeConfig = {
   buybackVault?: Address | null;
   // NFT mode (tasks/nft-mode.md). vaultFactory is exposed only after its deployed runtime hash matches the manifest.
   nftMode?: { enabled: boolean; vaultFactory: Address | null; launchFeeUsd: number; freeCollections: string[]; verifiedCollections: string[] };
+  // The owner's Fomo invite handle (FOMO_INVITE_HANDLE); the token page offers Fomo only when it is set (tasks/token-ip-detail-plan.md §4).
+  fomoInvite?: string | null;
 };
 export type StockStatus = Stock & {
   verified: boolean;

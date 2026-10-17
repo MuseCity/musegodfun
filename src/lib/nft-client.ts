@@ -45,10 +45,18 @@ export function formatFeeEth(wei: string): string {
   const step = 10n ** 12n;
   return formatUnits((BigInt(wei) + step - 1n) / step, 6);
 }
+// Share concurrent reads only. A later wallet action or refresh must always read the current holder.
+const nftStatusReads = new Map<string, Promise<NftStatus>>();
 /** The server re-checks all of this at prepare; the check here only guides the form. */
 export function readNftStatus(config: Pick<RuntimeConfig, "mode" | "deploymentChainId">, nft: NftRef, account: Address) {
-  return chainApi<NftStatus>(deploymentChain(config),
-    `/nft-status?nft=${encodeURIComponent(`${nft.chainId}:${nft.contract}:${nft.tokenId}`)}&account=${account}`);
+  const chainId = deploymentChain(config), key = `${chainId}:${nftKey(nft)}:${account.toLowerCase()}`;
+  const pending = nftStatusReads.get(key);
+  if (pending) return pending;
+  const read = chainApi<NftStatus>(chainId,
+    `/nft-status?nft=${encodeURIComponent(`${nft.chainId}:${nft.contract}:${nft.tokenId}`)}&account=${account}`)
+    .finally(() => { if (nftStatusReads.get(key) === read) nftStatusReads.delete(key); });
+  nftStatusReads.set(key, read);
+  return read;
 }
 /** The NFT step's wallet lists (tasks/nft-mode-wallet-picker.md §4): a convenience; the live check stays the authority. */
 export function readNftCollections(config: Pick<RuntimeConfig, "mode" | "deploymentChainId">, owner: Address) {

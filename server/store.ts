@@ -341,6 +341,13 @@ export class Store {
       .prepare("INSERT OR REPLACE INTO snapshots VALUES(?,?,?)")
       .run(key, at, JSON.stringify({ at, data }));
   }
+  /** Writes a coin profile only when no row exists or the stored one was signed earlier (`at` holds a profile's signature time), in one
+   * statement, so overlapping saves can never put an older signature back. Returns whether it wrote. */
+  saveProfileSnapshot(key: string, data: unknown, issuedAt: number): boolean {
+    return Number(this.db
+      .prepare("INSERT INTO snapshots VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET at=excluded.at, payload=excluded.payload WHERE snapshots.at < excluded.at")
+      .run(key, issuedAt, JSON.stringify({ at: issuedAt, data })).changes) > 0;
+  }
   reserveMarketCall(now: number, daily = 300, monthly = 9000, bucket?: "candles") {
     const day = new Date(now).toISOString().slice(0, 10),
       month = day.slice(0, 7);
@@ -373,7 +380,8 @@ export class Store {
     }
   }
   cleanup(now = Date.now()) {
-    this.db.prepare("DELETE FROM snapshots WHERE at < ? AND key NOT LIKE 'pinata:%' AND key NOT LIKE 'buyback:index:%'").run(now - 86400000);
+    // pinata:, buyback:index: and profile: rows are records, not caches (profile: since migration 20261017120000_profile_snapshots.sql).
+    this.db.prepare("DELETE FROM snapshots WHERE at < ? AND key NOT LIKE 'pinata:%' AND key NOT LIKE 'buyback:index:%' AND key NOT LIKE 'profile:%'").run(now - 86400000);
     this.db
       .prepare("DELETE FROM quota WHERE key < ?")
       .run(new Date(now - 100 * 86400000).toISOString().slice(0, 7));

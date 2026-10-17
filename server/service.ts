@@ -72,6 +72,8 @@ import { planAttestation, verifyPlanAttestation } from "./plan-attestation";
 import { BudgetUnavailable } from "./runtime-policy";
 import { NftLaunchError, assertNftDraftRules, inspectVaultFactory, launchFeeQuoteMac, nftRegistrationStatus, readMuseAgentId, readMuseName, readNftControl, settleLaunchFee, verifyLaunchFeePayment, type NftRegistrationStatus, type RegistrationFee } from "./nft-launch";
 import { isMuse, nftKey, treasuryFor, vaultFor, type NftRef, type NftStatus } from "../src/lib/nft-mode";
+import { creatorOwnsProfile, ProfileError, readTokenProfile, saveTokenProfile } from "./token-profile";
+import type { TokenProfile } from "../src/lib/token-profile";
 import { ERC1967_IMPLEMENTATION_SLOT, treasuryInitialized } from "../src/lib/nft-treasury";
 import { LAUNCH_FEE_QUOTE_TTL, LAUNCH_FEE_STABLE, LAUNCH_FEE_USD, type LaunchFee } from "../src/lib/launch-fee";
 import { NftHoldings } from "./nft-holdings";
@@ -108,6 +110,11 @@ export class LaunchpadService {
   private tokensRevision = 0;
   private openingCache?: Map<string, { at: number; value: LifiOpeningValuation }>;
   private museProfiles?: Map<string, { name?: string; agentId?: string }>;
+  private readonly museDetails = new Map<string, { at: number; value: { name?: string; agentId?: string } }>();
+  // Saved social profiles by lowercased coin address, for 60 seconds; a save replaces its entry.
+  private readonly profileCache = new Map<string, { at: number; value: TokenProfile | null }>();
+  /** Counts this runtime's successful profile saves per coin, so a read that began before a save never caches over it. */
+  private readonly profileSaves = new Map<string, number>();
   private openingRequests?: Map<string, Promise<LifiOpeningValuation>>;
   private registerRequests?: Map<string, Promise<TokenRecord>>;
   private stateReads?: Map<string, ReturnType<LaunchpadService["state"]>>;
@@ -1262,18 +1269,93 @@ export class LaunchpadService {
    * exceed it). A pool that contradicts the record is reported as invalid,
    * not as a transient outage. */
   async tokenDetail(address: Address, stateDeadlineMs = TOKEN_STATE_DEADLINE_MS): Promise<{ token: TokenRecord;
-    state: Awaited<ReturnType<LaunchpadService["state"]>>["state"] | null; stateError?: string; stateInvalid?: true } | null> {
+    state: Awaited<ReturnType<LaunchpadService["state"]>>["state"] | null; stateError?: string; stateInvalid?: true;
+    profile?: TokenProfile; nftProfile?: { name?: string; agentId?: string } } | null> {
     const token = await this.store.token(address);
     if (!token || !listedTokens([token], this.runtime.config.mode, deploymentChain(this.runtime.config)).length) return null;
+    const deadline = Date.now() + stateDeadlineMs;
+    // Display extras never fail the page: a missing profile shows the launch links, a missing Muse name or agent shows neither. The
+    // profile comes from the store like the token itself; the Muse reads need the RPC, so they share the state read's deadline and an
+    // unfinished read is left out (it keeps running and fills the cache for the next view).
+    const profile = this.tokenProfile(token.address).catch(() => null);
+    const muse = token.nft && isMuse(token.nft) && token.mode !== "fork" ? this.sharedMuseProfile(token.nft).catch(() => ({})) : null;
+    const extras = async () => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const [saved, nftProfile] = await Promise.all([profile, muse && Promise.race([muse, new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), Math.max(0, deadline - Date.now()));
+      })]).finally(() => clearTimeout(timer))]);
+      return { ...(saved ? { profile: saved } : {}), ...(nftProfile && Object.keys(nftProfile).length ? { nftProfile } : {}) };
+    };
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const { state } = await Promise.race([this.sharedState(token), new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new Error("The on-chain pool state read timed out.")), stateDeadlineMs);
       })]);
-      return { token, state };
+      return { token, state, ...await extras() };
     } catch (error) {
-      return { token, state: null, stateError: redact(error, this.runtime.environment), ...(error instanceof PoolIdentityError ? { stateInvalid: true as const } : {}) };
+      return { token, state: null, stateError: redact(error, this.runtime.environment), ...(error instanceof PoolIdentityError ? { stateInvalid: true as const } : {}),
+        ...await extras() };
     } finally { clearTimeout(timer); }
+  }
+  /** The coin's saved social profile (tasks/token-ip-detail-plan.md §5), or null when its owner has not saved one. */
+  async tokenProfile(address: Address): Promise<TokenProfile | null> {
+    const key = address.toLowerCase(), cached = this.profileCache.get(key);
+    if (cached && Date.now() - cached.at < 60_000) return cached.value;
+    const saves = this.profileSaves.get(key) ?? 0;
+    const value = await readTokenProfile(this.store, address);
+    // A save that finished while this read was in flight already cached a newer answer; this read must not replace it.
+    if ((this.profileSaves.get(key) ?? 0) === saves) this.profileCache.set(key, { at: Date.now(), value });
+    return value;
+  }
+  /** Saves the coin's social links signed by its owner: the creator for a plain coin, the NFT's holder or delegate for an NFT coin. */
+  async saveTokenProfile(rawAddress: unknown, body: unknown): Promise<TokenProfile> {
+    const token = await this.token(addressSchema.parse(rawAddress));
+    if (token.nft && !(await this.nftModeEnabled()))
+      throw new ProfileError("PROFILE_UNAVAILABLE", "NFT profile editing is unavailable while NFT mode is unavailable on this network.", 409);
+    const profile = await saveTokenProfile(token, body, {
+      store: this.store,
+      chainId: token.deploymentChainId ?? deploymentChain(this.runtime.config),
+      verifyContractSignature: async (signer, typedData, signature) => {
+        await this.assertNetwork();
+        const code = await this.client.getCode({ address: signer });
+        // An undeployed smart account signs with the ERC-6492 wrapper; any other signer without code is an EOA that local recovery refused.
+        if ((!code || code === "0x") && !signature.toLowerCase().endsWith("6492".repeat(16))) return false;
+        return this.client.verifyTypedData({ address: signer, ...typedData, signature }).catch(() => false);
+      },
+      isOwner: async (coin, signer) => {
+        const creator = creatorOwnsProfile(coin, signer);
+        if (creator !== null) return creator;
+        await this.assertNetwork();
+        return (await readNftControl(this.client, coin.nft!, signer)).controls;
+      },
+    });
+    // Saves can finish out of order: only the newest signature this runtime has seen goes in the cache.
+    const key = token.address.toLowerCase(), cached = this.profileCache.get(key)?.value;
+    this.profileSaves.set(key, (this.profileSaves.get(key) ?? 0) + 1);
+    if (!cached || cached.issuedAt < profile.issuedAt) this.profileCache.set(key, { at: Date.now(), value: profile });
+    return profile;
+  }
+  /** One Muse profile read per NFT at a time: simultaneous page views share it. */
+  private sharedMuseProfile(nft: NftRef) {
+    const reads = this.museReads ??= new Map(), pending = reads.get(nft.tokenId);
+    if (pending) return pending;
+    const read = this.museProfile(nft).finally(() => { if (reads.get(nft.tokenId) === read) reads.delete(nft.tokenId); });
+    reads.set(nft.tokenId, read);
+    return read;
+  }
+  private museReads?: Map<string, Promise<{ name?: string; agentId?: string }>>;
+  /** A Muse's ERC-8048 name and ERC-8004 agent id for the token page. Both only display and change rarely: a complete answer is kept for
+   * the runtime's life (shared with nftStatus), an incomplete one for an hour, so a page view never re-reads them each time. */
+  private async museProfile(nft: NftRef): Promise<{ name?: string; agentId?: string }> {
+    const profiles = this.museProfiles ??= new Map(), saved = profiles.get(nft.tokenId);
+    if (saved?.name && saved.agentId) return saved;
+    const recent = this.museDetails.get(nft.tokenId);
+    if (recent && Date.now() - recent.at < 3_600_000) return recent.value;
+    const [name, agentId] = await Promise.all([saved?.name ?? readMuseName(this.client, nft), saved?.agentId ?? readMuseAgentId(this.client, nft)]);
+    const profile = { ...(name ? { name } : {}), ...(agentId ? { agentId } : {}) };
+    if (name && agentId) profiles.set(nft.tokenId, profile);
+    else this.museDetails.set(nft.tokenId, { at: Date.now(), value: profile });
+    return profile;
   }
   async tokens() {
     if (this.tokensCache && Date.now() - this.tokensCache.at < 10_000) return structuredClone(this.tokensCache.value);

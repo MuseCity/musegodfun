@@ -12,7 +12,7 @@ import type { MarketSummary, CandleData, TradeData } from "../src/lib/market";
 const token = syntheticToken({ mode: "robinhood", deploymentChainId: 4663 });
 const emptySummary: MarketSummary = { fetchedAt: new Date().toISOString(), source: "CoinGecko", status: "fresh", priceUsd: null, marketCapUsd: null, fdvUsd: null, liquidityUsd: null, periods: { h24: { volume: null, buys: null, sells: null, change: null } } };
 
-async function renderMarket({ summary = emptySummary, error = "", candles = {}, historyError = "", trades = {}, tradesError = "", loading = false, filter = "all", kind = "launch", metric, liveIndicator = false }: { summary?: MarketSummary | null; error?: string; candles?: Partial<CandleData> | null; historyError?: string; trades?: Partial<TradeData> | null; tradesError?: string; loading?: boolean; filter?: string; kind?: "launch" | "musegod"; metric?: { label: string; value: string }; liveIndicator?: boolean } = {}) {
+async function renderMarket({ summary = emptySummary, error = "", candles = {}, historyError = "", trades = {}, tradesError = "", loading = false, filter = "all", kind = "musegod", metric, liveIndicator = false }: { summary?: MarketSummary | null; error?: string; candles?: Partial<CandleData> | null; historyError?: string; trades?: Partial<TradeData> | null; tradesError?: string; loading?: boolean; filter?: string; kind?: "launch" | "musegod"; metric?: { label: string; value: string }; liveIndicator?: boolean } = {}) {
   const entry = pathToFileURL(`${process.cwd()}/src/components/TokenMarket.tsx`); entry.search = `fixture=${crypto.randomUUID()}`;
   const key = `__declutter${crypto.randomUUID().replaceAll("-", "")}`;
   let dataIndex = 0;
@@ -32,12 +32,12 @@ async function renderMarket({ summary = emptySummary, error = "", candles = {}, 
     if (specifier !== "react" || context.parentURL !== entry.href) return next(specifier, context);
     return { shortCircuit: true, url: `data:text/javascript,${encodeURIComponent(`export * from ${JSON.stringify(import.meta.resolve("react"))};export const {useState,useRef,lazy}=globalThis[${JSON.stringify(key)}];`)}` };
   } });
-  try { const { default: View } = await import(entry.href); return renderToStaticMarkup(createElement(View, { token, kind, refreshKey: "initial", metric, config: liveIndicator ? { mode: "robinhood", chainId: 4663, deploymentChainId: 4663 } as import("../src/lib/config").RuntimeConfig : null })); }
+  try { const { default: View } = await import(entry.href); return renderToStaticMarkup(createElement(View, { token, refreshKey: "initial", metric, config: liveIndicator ? { mode: "robinhood", chainId: 4663, deploymentChainId: 4663 } as import("../src/lib/config").RuntimeConfig : null })); }
   finally { hooks.deregister(); Reflect.deleteProperty(globalThis, key); }
 }
 
 test("D4/D5 empty market sections show honest statuses without empty controls or holders", async () => {
-  for (const kind of ["launch", "musegod"] as const) {
+  for (const kind of ["musegod"] as const) {
     const html = await renderMarket({ kind, metric: { label: "Burn share", value: "12%" } });
     assert.match(html, /No market price yet.*on-chain price preview/i);
     assert.doesNotMatch(html, /The source has no price for this pool yet/);
@@ -71,7 +71,7 @@ test("D4 empty candles with fallback failure do not mislabel the primary source 
 
 test("C1-1 missing sections retain errors in each section and the chart's tooltip and description", async () => {
   for (const error of ["Market data unavailable", "Market records are not indexed for this pool yet.", "The market snapshot is more than 24 hours old. Refresh to update.", "The local fork does not show mainnet market data. Use the on-chain quote panel on the right."]) {
-    for (const kind of ["launch", "musegod"] as const) {
+    for (const kind of ["musegod"] as const) {
       const html = await renderMarket({ summary: null, error, candles: null, historyError: error, trades: null, tradesError: error, kind });
       assert.doesNotMatch(html, /Request failed:/);
       const [market, feed] = html.split('<section class="card market-feed"');
@@ -140,7 +140,7 @@ const activitySummary = (kind: "launch" | "musegod", over: Partial<MarketSummary
 });
 const summaryProvenance = (kind: "launch" | "musegod", stale: boolean) => new RegExp(`Summary · ${stale ? "Previous snapshot · " : "(?!Previous snapshot)"}${kind === "musegod" ? '<a href="[^"]*"[^>]*>Bankr / Pools' : '<a href="https://www.coingecko.com/en/api"[^>]*>Data provided by CoinGecko'}[^<]*</a> · Fetched <time dateTime="2026-10-16T01:00:00Z"`);
 
-for (const kind of ["launch", "musegod"] as const) {
+for (const kind of ["musegod"] as const) {
   test(`Run 1b ${kind} keeps summary content and warnings below the chart in every state`, async () => {
     const states: Parameters<typeof renderMarket>[0][] = [
       { summary: null, candles: null, trades: null, loading: true },
@@ -170,7 +170,7 @@ test("Run 1b the price row reserves the same nonshrinking height for all respons
   const css = readFileSync("src/styles.css", "utf8"), rule = css.match(/\.market-price-row\s*\{([^}]+)\}/)?.[1] ?? "";
   assert.match(rule, /(?:^|;)\s*height:\s*\d+px\s*;/);
   assert.match(rule, /(?:flex:\s*0 0 auto|flex-shrink:\s*0)\s*;/);
-  for (const kind of ["launch", "musegod"] as const) {
+  for (const kind of ["musegod"] as const) {
     for (const state of [{ summary: null, loading: true }, {}, { summary: null, error: "Summary request failed" }, { summary: activitySummary(kind) }]) {
       const html = await renderMarket({ ...state, kind });
       const row = html.slice(html.indexOf('class="market-price-row"'), html.indexOf('class="chart-toolbar"'));
@@ -182,7 +182,7 @@ test("Run 1b the price row reserves the same nonshrinking height for all respons
 });
 
 test("Run 1b the receiving-live indicator cannot insert a row above either chart", async () => {
-  for (const kind of ["launch", "musegod"] as const) {
+  for (const kind of ["musegod"] as const) {
     const [market] = cards(await renderMarket({ kind, liveIndicator: true, summary: activitySummary(kind) }));
     assert(market.includes("Live · On-chain · Received 12:00"));
     assert(market.indexOf("Live · On-chain · Received 12:00") > market.indexOf('class="chart-frame"'));
@@ -190,7 +190,7 @@ test("Run 1b the receiving-live indicator cannot insert a row above either chart
 });
 
 test("X2-1 activity sits in the market card with the summary's own source, time and stale state", async () => {
-  for (const kind of ["launch", "musegod"] as const) {
+  for (const kind of ["musegod"] as const) {
     const staleSummary = activitySummary(kind, { status: "stale", warning: "Summary-only refresh failed" });
     const staleMixed = await renderMarket({ kind, summary: staleSummary, trades: { source: "GeckoTerminal", fetchedAt: "2026-10-16T01:02:00Z" } });
     const [market, feed] = cards(staleMixed);
@@ -220,7 +220,7 @@ test("X2-1 activity sits in the market card with the summary's own source, time 
 });
 
 test("X2-1 activity keeps its visibility rule without summary activity values", async () => {
-  for (const kind of ["launch", "musegod"] as const) {
+  for (const kind of ["musegod"] as const) {
     const none = await renderMarket({ kind, summary: activitySummary(kind, { periods: { h24: { volume: null, buys: null, sells: null, change: null } } }) });
     assert.doesNotMatch(none, /Activity period|buys|sells|Price change/);
     const zero = await renderMarket({ kind, summary: activitySummary(kind, { periods: { h24: { volume: 0, buys: 0, sells: 0, change: 0 } } }) });
@@ -310,7 +310,7 @@ test("D4 the longest interval never suggests a longer one and reason codes remai
 });
 
 test("empty, loading, failed and stale-empty charts share the real frame and retain their status", async () => {
-  for (const kind of ["launch", "musegod"] as const) {
+  for (const kind of ["musegod"] as const) {
     for (const [options, status] of [
       [{}, "No indexed price records for this interval."],
       [{ candles: null, loading: true }, "Loading market data…"],
@@ -344,7 +344,7 @@ test("chart frames omit an unknown unit and empty labels never invite price insp
 
 test("chart status maps loading, empty, every reason and client failures to buyer copy with precise descriptions", async () => {
   const reasons = ["missing_config", "quota_exhausted", "not_indexed", "rate_limited", "upstream_http", "upstream_transport", "upstream_unclassified", "invalid_identity", "invalid_schema", "source_not_provided", "history_not_available", "storage_unavailable", "internal_error", "backoff"] as const;
-  for (const kind of ["launch", "musegod"] as const) {
+  for (const kind of ["musegod"] as const) {
     for (const [options, text, reason] of [
       [{ candles: null, loading: true }, "Loading market data…", "Loading market data…"],
       [{}, "No price history yet", emptyCandlesMessage({ ...emptySummary, candles: [] }, "1h")],
@@ -378,7 +378,7 @@ test("loading chart chunks show the final populated unit and loading label, incl
   }
 });
 
-for (const kind of ["launch", "musegod"] as const) {
+for (const kind of ["musegod"] as const) {
   test(`Run 2 ${kind} quote prices separate every digit from the small unit and change line`, async () => {
     const html = cards(await renderMarket({ kind, summary: activitySummary(kind, { priceUsd: null, priceQuote: "0.00000000555556", quoteSymbol: "COST" }) }))[0];
     assert.match(html, /<span class="mono"[^>]*>0\.00000000555556<\/span>/);

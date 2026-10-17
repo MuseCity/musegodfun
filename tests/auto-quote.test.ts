@@ -105,7 +105,7 @@ test("LI.FI challenge refusal pauses automatic requests across input and visibil
       ? Response.json({ expires: Date.now() + 10_000 })
       : Response.json({ code: "CHALLENGE_REQUIRED", error: "Security check required", siteKey: "fixture" }, { status: 403 });
   });
-  const scheduler = createAutoQuoteScheduler<{ expires: number }>({ request: options => api("/trade/eth-quote", { amount: "1" }, options),
+  const scheduler = createAutoQuoteScheduler<{ expires: number }>({ request: options => api("/quote", { amount: "1" }, options),
     remaining: q => q.expires - Date.now(), result: () => {}, error: () => {}, pending: () => {}, manual: value => { manual = value; } });
   t.after(() => scheduler.dispose());
   const active = { ...input, lifi: true, connected: true };

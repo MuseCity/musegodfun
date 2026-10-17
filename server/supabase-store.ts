@@ -181,6 +181,16 @@ export class SupabaseStore implements StoreBackend {
       "resolution=merge-duplicates,return=minimal",
     );
   }
+  /** Store.saveProfileSnapshot over PostgREST: insert when absent, otherwise update only a row signed earlier. Each step is one atomic
+   * statement and a profile row is never deleted (cleanup keeps `profile:` keys), so an older signature can never replace a newer one. */
+  async saveProfileSnapshot(key: string, data: unknown, issuedAt: number): Promise<boolean> {
+    const inserted = await this.request<unknown[]>("musegod_snapshots?on_conflict=scope,key&select=key", "POST",
+      { scope: this.scope, key, at: issuedAt, payload: data }, "resolution=ignore-duplicates,return=representation");
+    if (inserted.length) return true;
+    const updated = await this.request<unknown[]>(`musegod_snapshots?${this.where()}&key=eq.${encodeURIComponent(key)}&at=lt.${issuedAt}&select=key`,
+      "PATCH", { at: issuedAt, payload: data }, "return=representation");
+    return updated.length > 0;
+  }
   reserveMarketCall(now: number, daily = 300, monthly = 9000, bucket?: "candles") {
     return this.request<boolean>("rpc/musegod_reserve_market_call", "POST", {
       p_scope: bucket ? `${this.quotaScope}:${bucket}` : this.quotaScope,

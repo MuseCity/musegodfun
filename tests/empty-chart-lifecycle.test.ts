@@ -11,7 +11,7 @@ test("changing activity period preserves an empty chart's data and user viewport
   let snapshot = { fetchedAt, candles: [] }, snapshotIndex = 0, pathIndex = 0, Market: any, Chart: any, chartProps: any, refIndex = 0;
   const parent = hookRuntime(() => { snapshotIndex = 0; pathIndex = 0; return Market({ token, refreshKey: "initial" }); });
   ({ default: Market } = await importFresh("src/components/TokenMarket.tsx", { react: { file: import.meta.resolve("react"), bindings: {
-    ...parent.hooks, useEffect() {}, useRef(initial: any) { return parent.hooks.useRef(initial === "" ? marketEndpoint(token, "launch", ["summary", "candles?interval=1h", "trades"][pathIndex++]).key : initial); }, useState(initial: any) {
+    ...parent.hooks, useEffect() {}, useRef(initial: any) { return parent.hooks.useRef(initial === "" ? marketEndpoint(token, "musegod", ["summary", "candles?interval=1h", "trades"][pathIndex++]).key : initial); }, useState(initial: any) {
       return initial && typeof initial === "object" && "loading" in initial
         ? [{ data: [summary, snapshot, { fetchedAt, trades: [] }][snapshotIndex++], loading: false, error: "" }, () => {}]
         : parent.hooks.useState(initial);

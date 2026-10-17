@@ -20,7 +20,6 @@ import { LaunchClaimUnavailable, LaunchpadService, runtimeFromEnv } from "./serv
 import { redact, type Runtime, type DeploymentChainId } from "./config";
 import { deploymentChain } from "../src/lib/config";
 import { FirstBuyPaymentReader } from "./lifi";
-import { EthBuyError, quoteEthBuy } from "./eth-buy";
 import { MarketUnavailable, marketFetch } from "./snapshots";
 import { MarketReader } from "./market";
 import { MusegodReader } from "./musegod";
@@ -28,6 +27,7 @@ import { MusegodMarketReader } from "./musegod-market";
 import { CHART_INTERVALS } from "../src/lib/market";
 import { BuybackReader, BuybackError, RobinhoodBuybackSummaryReader } from "./buyback";
 import { NftLaunchError, isBoundNftCoin } from "./nft-launch";
+import { ProfileError } from "./token-profile";
 import { BuybackBatchService } from "./buyback-batches";
 import { BuybackEngineReader } from "./buyback-engine";
 import { BaseFeeQuoteReader, readTrustedBaseRecoveryAssets, unavailableBaseCollectorStatus } from "./base-buyback";
@@ -281,12 +281,6 @@ app.post("/api/first-buy/verify", route(async (req, res) => {
   const input = z.object({ quote: z.unknown(), hash: hashSchema }).strict().parse(req.body);
   res.json(await payments.verify({ quote: input.quote as Parameters<FirstBuyPaymentReader["verify"]>[0]["quote"], hash: input.hash as Hex }));
 }));
-// Pay with ETH on a pair-asset coin's page (Robinhood): a direct LI.FI route, or the two-step plan when LI.FI has none.
-app.post("/api/trade/eth-quote", route(async (req, res) => {
-  res.json(await quoteEthBuy(req.body, { chainId: deploymentChain(runtime.config), mode: runtime.config.mode, payments: runtime.lifi ? payments : null,
-    token: (address) => service.token(address), swapQuote: (token, amount, slippageBps) => service.quote(token, "buy", amount, slippageBps),
-    environment: runtime.environment }));
-}));
 app.get("/api/first-buy-lock/:address", route(async (req, res) =>
   res.json(await service.firstBuyLock(addressSchema.parse(req.params.address))),
 ));
@@ -421,6 +415,8 @@ app.get(
     res.json({ ...detail, token: withHiddenFlag(detail.token) });
   }),
 );
+// The coin owner's social links, saved by signing typed data (tasks/token-ip-detail-plan.md §5); no transaction, no gas.
+app.post("/api/tokens/:address/profile", route(async (req, res) => res.json(await service.saveTokenProfile(req.params.address, req.body))));
 
 app.get("/api/nft-treasury", route(async (req, res) => res.json(await service.nftTreasury(req.query.nft))));
 // The create form's NFT check (holder or delegate, one coin per NFT, free tier); prepare re-checks everything.
@@ -608,6 +604,7 @@ app.use(
       res.status(400).json({error:"Invalid JSON request body"}); return;
     }
     if(error instanceof BudgetUnavailable){res.setHeader("Retry-After",String(error.retryAfter));res.status(429).json({error:error.message,code:"CAPACITY_LIMITED"});return;}
+    if(error instanceof ProfileError){res.status(error.status).json({error:error.message,code:error.code});return;}
     const status =
       error instanceof MarketUnavailable || (error instanceof NftLaunchError && error.code === "NFT_LIST_UNAVAILABLE")
         ? 503
@@ -618,7 +615,7 @@ app.use(
       res.setHeader("Retry-After", String(Math.max(1, Math.ceil((Date.parse(error.nextRefreshAt) - Date.now()) / 1000))));
     res.status(status).json({
       error: redact(error instanceof z.ZodError ? errorMessage(error) : error, runtime.environment),
-      ...(error instanceof BuybackError || error instanceof NftLaunchError || error instanceof EthBuyError
+      ...(error instanceof BuybackError || error instanceof NftLaunchError
         ? { code: error instanceof NftLaunchError && error.code === "NFT_FEE_INVALID" && error.retry ? "NFT_FEE_PENDING" : error.code } : {}),
       ...(error instanceof MarketUnavailable
         ? {
