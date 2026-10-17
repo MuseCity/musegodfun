@@ -1,5 +1,6 @@
 import test, { type TestContext } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { parseEther, type Hash } from "viem";
 import { MUSEGOD, MUSEGOD_ROUTER_VERIFICATION, type MusegodInfo, type MusegodQuote } from "../src/lib/musegod";
 import type { RuntimeConfig } from "../src/lib/config";
@@ -18,7 +19,7 @@ const text = (node: any): string => node == null || typeof node === "boolean" ? 
   : (Array.isArray(node) ? node : [node.props?.children]).map(text).join("");
 
 // Real panel, hook, scheduler, API and quote verification; only browser visibility, wallet, fees and HTTP are injected.
-async function session(t: TestContext, options: { connected?: boolean; native?: bigint; held?: bigint; deferQuotes?: boolean } = {}) {
+async function session(t: TestContext, options: { connected?: boolean; native?: bigint; held?: bigint; deferQuotes?: boolean; loading?: boolean } = {}) {
   t.mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"], now: 1_800_000_000_000 });
   resetQuoteClock();
   const prior = Object.getOwnPropertyDescriptor(globalThis, "document"), listeners = new Set<() => void>();
@@ -26,6 +27,7 @@ async function session(t: TestContext, options: { connected?: boolean; native?: 
     removeEventListener: (_: string, fn: () => void) => listeners.delete(fn) };
   Object.defineProperty(globalThis, "document", { configurable: true, value: document });
   let props = { config: { ...config } as RuntimeConfig | null, musegod: { info: { ...info } as MusegodInfo | null, infoError: "", revision: 0, refresh() {} } };
+  if (options.loading) { props.config = null; props.musegod.info = null; }
   const fees: ReturnType<typeof deferred<{ maxFeePerGas?: bigint; gasPrice?: bigint }>>[] = [];
   const sends: (ReturnType<typeof deferred<Hash>> & { submitted: (hash: Hash) => void })[] = [];
   const balanceReads: string[] = [], requests: { body: { side: "buy" | "sell"; amount: string; slippageBps: number }; reply: ReturnType<typeof deferred<Response>> }[] = [];
@@ -85,6 +87,42 @@ async function session(t: TestContext, options: { connected?: boolean; native?: 
   };
   return s;
 }
+
+test("MUSEGOD reserves the same verification slot from first render through loading, verified, blocked and error states", async t => {
+  const s = await session(t, { loading: true });
+  const slot = () => {
+    const node = s.byClass("musegod-verification");
+    assert.ok(node, "verification footprint exists even without config or token info");
+    const children = node.props.children;
+    assert.equal(children.length, 2);
+    assert.deepEqual(children.map((child: any) => child.type), ["div", "div"]);
+    assert.equal(children[0].props.role, "status");
+    return node;
+  };
+  assert.equal(text(slot()), "Loading token verification…");
+  await s.info(info); assert.equal(text(slot()), "");
+  assert.equal(slot().props.tabIndex, undefined);
+  await s.set({ config }); await s.info(null);
+  assert.equal(text(slot()), "Loading token verification…");
+  await s.info({ ...info, tradeEnabled: false, tradeBlockReason: MUSEGOD_ROUTER_VERIFICATION.reason });
+  assert.equal(text(slot()), MUSEGOD_ROUTER_VERIFICATION.reason);
+  await s.set({ musegod: { info: null, infoError: "Verification service unavailable", revision: 0, refresh() {} } });
+  assert.equal(text(slot()), "Token verification is unavailable. Refresh to retry.Verification service unavailable");
+  assert.deepEqual(s.errors(), ["Verification service unavailable"]);
+  assert.equal(slot().props.children[1].props.role, "alert");
+  assert.equal(slot().props.tabIndex, 0, "feedback can be reached with the keyboard if it overflows");
+  const detail = "Verification endpoint unavailable. ".repeat(15);
+  await s.set({ musegod: { info: null, infoError: detail, revision: 0, refresh() {} } });
+  assert.equal(text(slot().props.children[1]), detail, "full error stays in the alert without truncation or delayed rendering");
+  await s.info(info); await s.set({ musegod: { info, infoError: "", revision: 0, refresh() {} } });
+  assert.equal(text(slot()), "", "empty reservation never claims verification");
+  const css = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+  const rule = css.match(/\.musegod-verification\s*\{([^}]+)\}/)?.[1] ?? "";
+  assert.match(rule, /(?:^|;)\s*height:\s*\d+px\s*;/);
+  assert.match(rule, /flex-shrink:\s*0\s*;/);
+  assert.match(rule, /overflow:\s*auto\s*;/, "long feedback remains scrollable inside the stable footprint");
+  assert.doesNotMatch(rule, /hidden|clip|line-clamp|visibility/);
+});
 
 test("MUSEGOD guest typing debounces to one verified automatic quote and updates receive/minimum/expiry", async t => {
   const s = await session(t, { deferQuotes: true });

@@ -180,8 +180,10 @@ export default function MusegodTradePanel({ config, musegod, onHash }: {
         <button type="button" aria-pressed={side === "buy"} className={side === "buy" ? "active" : ""} disabled={busy} onClick={() => chooseSide("buy")}>Buy</button>
         <button type="button" aria-pressed={side === "sell"} className={side === "sell" ? "active sell" : ""} disabled={busy} onClick={() => chooseSide("sell")}>Sell</button>
       </div>
-      {blockReason && <div className="notice warning" role="status"><TriangleAlert size={17} aria-hidden="true" /><span>{blockReason}</span></div>}
-      {infoError && <div className="notice error" role="alert"><CircleAlert size={17} aria-hidden="true" /><span>{infoError}</span></div>}
+      <div className="musegod-verification" role="group" aria-label="Token verification" tabIndex={blockReason || infoError ? 0 : undefined}>
+        <div className={blockReason ? "notice warning" : undefined} role="status">{blockReason && <><TriangleAlert size={17} aria-hidden="true" /><span>{blockReason}</span></>}</div>
+        <div className={infoError ? "notice error" : undefined} role={infoError ? "alert" : undefined}>{infoError && <><CircleAlert size={17} aria-hidden="true" /><span>{infoError}</span></>}</div>
+      </div>
       <label className="trade-box pay">
         <span className="trade-box-head"><span>You pay <b>{inputSymbol}</b></span>
           <span className="balance">Balance: <b className="musegod-amount" title={exactAmount(balance)}>{amountText(balance)} {inputSymbol}</b></span></span>

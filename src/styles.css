@@ -637,6 +637,10 @@ dialog.modal[open] { display: flex; flex-direction: column; gap: 16px; }
 
 /* Trade panel */
 .trade-panel { position: sticky; top: 24px; gap: 12px; }
+/* Reserve wrapped verification feedback; longer errors remain keyboard-scrollable in full. */
+.musegod-verification { height: 114px; flex-shrink: 0; overflow: auto; display: flex; flex-direction: column; gap: 12px; }
+.musegod-verification > div { flex-shrink: 0; }
+.musegod-verification > div:empty { display: none; }
 /* "Pay with: ETH | <pair>" on a pair-asset coin's buy side, sized for low vision like the money warnings. */
 .pay-with { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; font-size: 14px; line-height: 20px; font-weight: 600; }
 .pay-with .segmented button { min-height: 36px; padding: 0 16px; font-size: 14px; line-height: 20px; }
