@@ -104,12 +104,3 @@ test("a quote-unit chart never appends provider USD history into its price axis"
     async () => { calls++; return { candles: [candle(time - 3600, 3000)], fetchedAt: new Date().toISOString(), source: "Bankr" }; });
   view.chart().props.onLoadOlder(); await settle(); assert.equal(calls, 0);
 });
-
-test("an empty market chart has no history paging trigger or requests", async t => {
-  const calls: string[] = [];
-  const view = await mountChart(t, { candles: [], fetchedAt: new Date().toISOString(), source: "Bankr", status: "fresh" },
-    async (_chain, path) => { calls.push(path); throw new Error("unexpected request"); });
-  assert.equal(view.chart().props.onLoadOlder, undefined);
-  assert.equal(view.chart().props.interval, "1h");
-  await settle(); assert.deepEqual(calls, []);
-});

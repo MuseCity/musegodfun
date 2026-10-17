@@ -278,3 +278,14 @@ test("empty, loading, failed and stale-empty charts share the real frame and ret
     }
   }
 });
+
+test("chart frames omit an unknown unit and empty labels never invite price inspection", async () => {
+  for (const options of [{ candles: null, loading: true }, { candles: null, historyError: "Chart request failed." }, { candles: {} }] as const) {
+    const [market] = cards(await renderMarket(options));
+    const frame = market.slice(market.indexOf('class="price-chart-wrap"'), market.indexOf('class="chart-credit"'));
+    assert.doesNotMatch(frame, /USD|hover to inspect prices/);
+    assert.match(frame, /with 0 (?:candles|points)\. No price records\./);
+  }
+  const [known] = cards(await renderMarket({ candles: { unit: "WETH" } }));
+  assert.match(known, /WETH price \/ volume/);
+});

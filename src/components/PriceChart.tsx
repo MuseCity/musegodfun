@@ -10,6 +10,7 @@ import {
   type UTCTimestamp,
 } from "lightweight-charts";
 import type { Candle, ChartInterval } from "../lib/market";
+import PriceChartFrame from "./PriceChartFrame";
 
 // Price charts keep their own dark palette in both site themes.
 function palette(element: HTMLElement) {
@@ -31,7 +32,7 @@ const alpha = (color: string, hex: string) => /^#[0-9a-f]{6}$/i.test(color) ? `$
 export default function PriceChart({
   candles,
   symbol,
-  unit = "USD",
+  unit,
   type = "candles",
   interval = "1h",
   emptyMessage,
@@ -158,6 +159,7 @@ export default function PriceChart({
       })),
     );
     if (range && prepended) chart.current?.timeScale().setVisibleLogicalRange({ from: range.from + prepended, to: range.to + prepended });
+    chart.current?.timeScale().applyOptions({ fixLeftEdge: !candles.length });
     if (!candles.length) {
       fitted.current = false;
       setHover(null);
@@ -165,46 +167,10 @@ export default function PriceChart({
       chart.current?.timeScale().setVisibleLogicalRange({ from: 0, to: 59 });
     } else if (!fitted.current) {
       chart.current?.timeScale().fitContent();
-      fitted.current = !!candles.length;
+      fitted.current = true;
     }
   }, [candles, type, interval]);
   const bar = candles.length ? hover ?? candles.at(-1) : undefined;
-  return (
-    <div className="price-chart-wrap">
-      <div className="chart-ohlc" aria-live="off">
-        <span>{symbol} / {unit}</span>
-        {bar && (
-          <>
-            {[
-              ["O", bar.open],
-              ["H", bar.high],
-              ["L", bar.low],
-              ["C", bar.close],
-            ].map(([key, value]) => (
-              <span key={key}>
-                {key} <b>{Number(value).toPrecision(5)}</b>
-              </span>
-            ))}
-          </>
-        )}
-      </div>
-      <div className="chart-frame">
-        <div
-          className={`price-chart${candles.length ? "" : " is-empty"}`}
-          ref={container}
-          onPointerDown={() => { interacted.current = true; }}
-          onWheel={() => { interacted.current = true; }}
-          role="img"
-          aria-label={`${symbol} ${unit} ${type === "line" ? "line" : "candlestick"} chart and volume with ${candles.length} ${type === "line" ? "points" : "candles"}. Drag, zoom, and hover to inspect prices.`}
-        />
-        {!candles.length && emptyMessage && <div className="chart-empty-status" role="status"><span>{emptyMessage}</span></div>}
-      </div>
-      <div className="chart-credit">
-        <span>UTC · {unit} price / volume</span>
-        <a href="https://www.tradingview.com/" target="_blank" rel="noreferrer">
-          TradingView Lightweight Charts™ · © 2025 TradingView, Inc.
-        </a>
-      </div>
-    </div>
-  );
+  return <PriceChartFrame ref={container} symbol={symbol} unit={unit} type={type} count={candles.length} bar={bar}
+    emptyMessage={emptyMessage} onInteract={() => { interacted.current = true; }} />;
 }

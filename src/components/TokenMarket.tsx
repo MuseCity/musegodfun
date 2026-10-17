@@ -8,6 +8,7 @@ import {
   marketSnapshotKey,
   marketStatusMessage,
   type SnapshotMeta,
+  type Candle,
   type CandleData,
   type ChartInterval,
   type MarketSummary,
@@ -16,7 +17,9 @@ import {
 import { errorMessage } from "../lib/validation";
 import { changeClass } from "../lib/format";
 import type { LiveProjection, SupplyInfo } from "./SwapLive";
-import PriceChart from "./PriceChart";
+import PriceChartFrame from "./PriceChartFrame";
+const PriceChart = lazy(() => import("./PriceChart"));
+const EMPTY_CANDLES: Candle[] = [];
 const MarketChart = lazy(() => import("./MarketChart"));
 const SwapLive = lazy(() => import("./SwapLive").catch(() => ({ default: () => null })));
 const usd = (n: number | null | undefined, precise = false) =>
@@ -198,6 +201,8 @@ export default function TokenMarket({
   const currentLive = liveEnabled && live?.basis.summary === summary.data && live?.basis.candles === history.data &&
     live?.basis.trades === trades.data && live?.basis.interval === interval && live?.basis.info === info ? live : null;
   const chartData = currentLive?.candles || history.data;
+  const chartMessage = chartData?.candles.length || history.loading && !history.data ? "Loading market data…"
+    : emptyText(history.data, history.error, emptyCandlesMessage(history.data, interval), "Previous chart snapshot. Refresh to update.");
   const stats = currentLive?.summary || summary.data,
     activity = stats?.periods[period],
     change = stats?.periods.h24?.change;
@@ -328,8 +333,8 @@ export default function TokenMarket({
             {history.error || chartData.warning || "Previous chart snapshot. Refresh to update."}
           </p>
         )}
-        {chartData?.candles.length ? (
-          <Suspense fallback={<PriceChart candles={[]} symbol={token.symbol} unit={chartData.unit ?? "USD"} type={chartType} interval={interval} emptyMessage="Loading market data…" />}>
+        <Suspense fallback={<PriceChartFrame symbol={token.symbol} unit={chartData?.unit} type={chartType} emptyMessage={chartMessage} />}>
+          {chartData?.candles.length ? (
             <MarketChart
               key={`${marketEndpoint(token, kind, `candles?interval=${interval}`).key}:${chartData.source}:${chartData.unit ?? "USD"}`}
               data={chartData}
@@ -338,17 +343,17 @@ export default function TokenMarket({
               symbol={token.symbol}
               type={chartType}
             />
-          </Suspense>
-        ) : (
-          <PriceChart
-            candles={[]}
-            symbol={token.symbol}
-            unit={chartData?.unit ?? "USD"}
-            type={chartType}
-            interval={interval}
-            emptyMessage={history.loading && !history.data ? "Loading market data…" : emptyText(history.data, history.error, emptyCandlesMessage(history.data, interval), "Previous chart snapshot. Refresh to update.")}
-          />
-        )}
+          ) : (
+            <PriceChart
+              candles={chartData?.candles ?? EMPTY_CANDLES}
+              symbol={token.symbol}
+              unit={chartData?.unit}
+              type={chartType}
+              interval={interval}
+              emptyMessage={chartMessage}
+            />
+          )}
+        </Suspense>
         {(!hasValues && !summary.loading || !chartData?.candles.length && !history.loading) && <p className="hint">Enter an amount in the trade panel for an on-chain price preview.</p>}
         {(summary.data || history.data || kind === "musegod") && <p className="feed-note">
           <MarketProvenance label="Summary" data={stats} kind={kind} />

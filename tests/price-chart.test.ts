@@ -31,7 +31,7 @@ test("empty and populated candle, line and volume charts keep the same dark opti
         const frame = { options, series: [] as any[] }; created.push(frame);
         return { addSeries(_kind: any, seriesOptions: any) { const record = { options: seriesOptions, data: [] as any[] }; frame.series.push(record);
           return { setData(data: any[]) { record.data = data; }, priceScale: () => ({ applyOptions() {} }) }; },
-          timeScale: () => ({ subscribeVisibleLogicalRangeChange() {}, getVisibleLogicalRange: () => null, setVisibleLogicalRange() {}, fitContent() {} }),
+          timeScale: () => ({ applyOptions() {}, subscribeVisibleLogicalRangeChange() {}, getVisibleLogicalRange: () => null, setVisibleLogicalRange() {}, fitContent() {} }),
           subscribeCrosshairMove() {}, remove() {} };
       } } },
     }));
@@ -76,7 +76,7 @@ test("the chart uses time-only whitespace for each empty interval, never pages, 
   let candles: Candle[] = [], interval: ChartInterval = "1h", type = "candles", View: any, pages = 0;
   let rangeChanged: (range: { from: number; to: number }) => void, crosshair: (event: any) => void;
   const datasets: any[][] = [], fits: number[] = [], ranges: { from: number; to: number }[] = [];
-  const timeScale = { subscribeVisibleLogicalRangeChange(fn: typeof rangeChanged) { rangeChanged = fn; },
+  const timeScale = { applyOptions() {}, subscribeVisibleLogicalRangeChange(fn: typeof rangeChanged) { rangeChanged = fn; },
     getVisibleLogicalRange: () => null, setVisibleLogicalRange(range: { from: number; to: number }) { ranges.push(range); }, fitContent() { fits.push(1); } };
   const chart = { addSeries() { const index = datasets.length; datasets.push([]);
     return { setData(data: any[]) { datasets[index] = data; }, priceScale: () => ({ applyOptions() {} }) }; },
@@ -101,9 +101,7 @@ test("the chart uses time-only whitespace for each empty interval, never pages, 
     assert.equal(datasets[0][1].time - datasets[0][0].time, step);
     assert.equal(datasets[0].at(-1).time % step, 0);
     assert.deepEqual(datasets[1], []);
-    const find = (node: any): any => node?.props?.className?.split(" ").includes("price-chart") ? node
-      : (Array.isArray(node?.props?.children) ? node.props.children : [node?.props?.children]).filter(Boolean).map(find).find(Boolean);
-    find(runtime.output()).props.onPointerDown(); rangeChanged!({ from: -10, to: 10 });
+    runtime.output().props.onInteract(); rangeChanged!({ from: -10, to: 10 });
     assert.equal(pages, 0);
   }
   assert.equal(ranges.length, 6, "each empty interval lays out the whole time axis");
@@ -114,7 +112,7 @@ test("the chart uses time-only whitespace for each empty interval, never pages, 
   rangeChanged!({ from: 0, to: 10 }); assert.equal(pages, 1);
   crosshair!({ time: candles[0].time }); await settle();
   candles = []; runtime.render();
-  assert.equal(nodes(runtime.output()).filter(node => node.type === "b").length, 0, "old hover values disappear when the chart empties");
+  assert.equal(nodes(runtime.output().type.render(runtime.output().props, null)).filter(node => node.type === "b").length, 0, "old hover values disappear when the chart empties");
   type = "line"; runtime.render();
   assert(datasets.at(-2)!.every(point => Object.keys(point).join() === "time"));
   assert.deepEqual(datasets.at(-1), []);

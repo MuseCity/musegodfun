@@ -548,9 +548,9 @@ dialog.modal[open] { display: flex; flex-direction: column; gap: 16px; }
 .chart-frame { position: relative; height: 260px; }
 .price-chart.is-empty::after { content: ""; position: absolute; inset: 0 56px 28px 0; z-index: 2; pointer-events: none;
   background: linear-gradient(to bottom, transparent calc(25% - 1px), var(--chart-grid) 25%, transparent 25%, transparent calc(50% - 1px), var(--chart-grid) 50%, transparent 50%, transparent calc(75% - 1px), var(--chart-grid) 75%, transparent 75%); }
-.chart-empty-status { position: absolute; inset: 20px 16px 64px; z-index: 4; display: flex; align-items: center; justify-content: center;
+.chart-empty-status { position: absolute; inset: 20px 0 64px; z-index: 4; display: flex; align-items: center; justify-content: center;
   color: var(--chart-text); font-size: 13px; line-height: 20px; text-align: center; pointer-events: none; }
-.chart-empty-status > span { padding: 8px; background: var(--chart-background); }
+.chart-empty-status > span { width: 100%; padding: 8px 24px; background: var(--chart-background); }
 .chart-credit { display: flex; flex-wrap: wrap; justify-content: space-between; margin: 0 8px; gap: 4px 12px; font-size: 11px; line-height: 16px; color: var(--chart-text); }
 .chart-credit a { color: var(--chart-link); }
 .chart-credit a:hover { color: var(--chart-strong); }
