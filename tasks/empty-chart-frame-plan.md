@@ -1,6 +1,6 @@
 # Empty TradingView chart frame for coins without trades
 
-Status: In progress (2026-10-17). Branch `claude/empty-chart-frame`, based on `1749822` (master `01637b7` plus its unpushed release record).
+Status: Implemented and cross-review accepted locally (2026-10-17); not released. Branch `claude/empty-chart-frame`, based on `1749822`. Release needs the owner's explicit approval.
 
 ## Owner request (2026-10-17, translated)
 
@@ -108,3 +108,12 @@ The owner asked whether the sentence "No indexed price records for this interval
 
 - Fixed X2-1 (P3): at `max-width: 480px` the shared legend header reserves three rows (56 px) in the loading, empty and populated states, so a filled legend (for example `MICROCOIN / USD` with O/H/L/C `0.0000010000` at 390 px) no longer moves the plot 20 px when the chart chunk or the first candle arrives. Desktop keeps its 36 px reservation; values, markup and accessible text are unchanged and nothing is truncated or hidden.
 - TDD: a wrap model built from the rendered legend text and the stylesheet's own rules fails on `988e3f3` (36 px against 56 px, first at 320 px) and passes after the one-rule change; a second test rejects clipping or hiding. A deliberately undersized 360 px breakpoint fails the model again. 1789 full-suite tests, build (entry 1127.13 kB / 330.67 kB gzip, chart library still only in the lazy chunk), diff check and Han scan are clean. No browser run: the check is the font-metric model, not a fresh layout capture. Local commit only; independent Codex acceptance is pending. Roll back by reverting this commit to the `988e3f3` baseline.
+
+### Cross-review closure (2026-10-17)
+
+- Codex implemented the empty frame in `2f28131` and the dark palette (owner decision) in `e57c690`.
+- Claude review found C1-1, a P1: the chart library had moved into the main bundle, adding 57.7 kB gzip on every route. It also found C1-2…C1-5 (P3). Codex fixed them in `a42e664`, and claude accepted them. The main entry is back to about 1,126 kB, and the chart library sits in a lazy chunk with a library-free fallback frame.
+- The owner's copy decision (no status sentence in the frame; a symbol watermark; one short status line below) and C1b-1 landed in `988e3f3`.
+- Codex reverse review: ACCEPT, with X2-1 (P3, a narrow-screen legend height shift). Claude fixed it in `7d462bf` with a 56 px reserved legend at 480 px and below, and codex accepted it.
+- Conductor rerun on `7d462bf`: `npm test` **1789/1789**, `npm run build`, `git diff --check` and the Han scan pass.
+- Not verified: a browser check of the final narrow-screen legend. The geometry is covered by a CSS and font-metric test. Online acceptance after release covers it.
