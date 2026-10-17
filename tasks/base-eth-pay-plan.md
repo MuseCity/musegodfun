@@ -1,6 +1,6 @@
 # Base parity, part 1: "Pay with ETH" coin buys on Base
 
-Status: done locally (2026-10-17): implemented by codex, cross-reviewed to convergence and committed on branch `claude/base-eth-pay`, based on local master `49d54aa` (released `fc3c531` plus its docs record). Not released; not fork-verified on Base. Development by codex (`gpt-6.1-sol`, reasoning `xhigh`); claude writes the spec, drives the tasks, reviews every diff and runs verification and the cross review. Local commits only; the release is the owner's master push.
+Status: released 2026-10-17 as `db37915` (build-39019731709-1, Worker version `ff3967aa`; rollback point Worker `5992e797` = build-39013971133-1 / `fc3c531`) on the owner's "Release now". Implemented by codex, cross-reviewed to convergence, verified live on both domains and on the Base Durable Object. Open: the Base fork gate (`npm run test:weth-eth-buy-fork` Base branch with `.env.fork`) and real-wallet Base buys. Development by codex (`gpt-6.1-sol`, reasoning `xhigh`); claude writes the spec, drives the tasks, reviews every diff and runs verification and the cross review. Local commits only; the release is the owner's master push.
 
 ## Owner request (2026-10-17, translated)
 
@@ -49,3 +49,12 @@ A Base coin page offers exactly Robinhood's "Pay with ETH" buy: the same three r
 - codex acceptance: ACCEPT, with one P3 (this spec's docs item had listed `public/skill.md` unconditionally); the item is now conditional.
 - Claude reverse review: no P0/P1/P2; one P3, inconsistent "unavailable" copy. codex fixer: the hook and the server now name the network through `networkName` ("… unavailable on Base.", "… on Robinhood Chain local fork.", with "this network" as the hook's null-config fallback); tests adjusted. Claude acceptance: 134/134 targeted tests, `npm run typecheck`, `git diff --check` and the Han scan pass. The cross review has converged.
 - Final verification: `npm test` 1871/1871, `npm run build` (both typechecks and Vite; the existing chunk-size warning remains), `git diff --check` and the changed-file Han scan pass. Committed locally; not pushed.
+
+### Release (2026-10-17)
+
+- Owner approval: "Release now". Fast-forward push of `db37915` (with the docs commit `49d54aa`) to `master`; the main checkout's `master` was fast-forwarded to the same commit. CI run [39019731709](https://github.com/MuseCity/musegodfun/actions/runs/39019731709) succeeded: release `build-39019731709-1`.
+- Live: `musegod.fun` and `www.musegod.fun` serve `X-Source-Commit db37915…` and Worker version `ff3967aa-c2d4-4ad4-abb1-8b10e5c7d625`; `build-info.json` reports `build-39019731709-1`. Rollback point: Worker `5992e797-c98c-4bb1-81cc-b63ccbd24cc7` (`build-39013971133-1`, `fc3c531`).
+- Durable Object probe (new-only behavior): `POST /api/chains/8453/trade/eth-quote` with a well-formed body and an unlisted token answered 422 "Platform token not found" after activation, where the previous build answered 422 `ETH_BUY_UNAVAILABLE` "available on Robinhood Chain only"; both chain Durable Objects restarted at 09:08 UTC (`/readyz` `maintenance.since`), so no immediate-mode redeploy was needed.
+- Live UI (built-in browser, read-only, no wallet): `/token/base/0x79eA…E670` renders the "Pay with" row (ETH / NVDAc) once config loads; selecting ETH and typing an amount shows the LI.FI route disclosure and the connect-wallet quote hint, as on Robinhood. No quote is sent without a wallet.
+- Not verified live: a Base wrap-and-swap or LI.FI execution (no WETH-paired public Base coin exists yet; the Base fork gate is proposed as a follow-up) and real-wallet buys.
+- Cleanup per the owner's rule: `origin/master` is the only remote branch; `claude/base-eth-pay` was merged and deleted, this worktree detached at `origin/master`; this record is a local docs commit on `master` on top of `db37915`, to go out with the next master push; the other worktree `codex-redundancy-review-5ebb74` belongs to a separate session and was left alone.
