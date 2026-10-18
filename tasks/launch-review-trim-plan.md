@@ -1,6 +1,6 @@
 # Launch review dialog trim plan
 
-Status: Approved by the owner on 2026-10-18 (translated from Chinese: "Agreed, implement this trimmed plan."). Branch `claude/eloquent-morse-877b44`, based on master `920219a` plus the record commit `63bed91`.
+Status: Implemented and reviewed, not released (release only on the owner's word). Approved by the owner on 2026-10-18 (translated from Chinese: "Agreed, implement this trimmed plan."). Branch `claude/eloquent-morse-877b44`, based on master `920219a` plus the record commit `63bed91`: `c65ccd4` (trim) and `1110d31` (review round 1 fixes).
 
 ## Background
 
@@ -48,3 +48,11 @@ The dialog states each fact a person needs before signing once, in the place the
 - `npm test`, `npm run typecheck`, `npm run build` pass; codex (gpt-6.1-sol, xhigh) cross-review accepts.
 - `scripts/test-launch-browser.mjs` (not run: playwright is not a dependency) is updated for the removed "Launch cost" review row.
 - Release only on the owner's word.
+
+## Review
+
+- Round 1 on `c65ccd4`: codex (gpt-6.1-sol, xhigh) 2 P2 + 1 P3; claude reviewer (xhigh) 1 P2 + 5 P3, overlapping. The first-buy card had lost its fee waiver and simulation sentence; the success notice could sit beside an expired preview; the First buy tile showed the original payment after a completed conversion; a conversion's spend read as the guaranteed minimum; the notice had no `role="status"`; an ETH wrap showed "0 ETH route fee".
+- `1110d31` fixed all of them (the claude reviewer's findings were fixed by claude in the same round, then verified by codex) and added tests for the wrap, expiry in a hidden tab and a completed conversion that waits for a changed minimum.
+- Round 2: codex ACCEPT, no findings. `npm test` 1828/1828, `npm run build` (with typecheck) passed. Reports are in the worktree's ignored `.superpowers/sdd/launch-review-trim/`.
+- Read-only preview (plain Vite, GET-only proxy): the dialog before a preview, at desktop and phone width. A preview needs a POST, so later states are covered by the tests only.
+
