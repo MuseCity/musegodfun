@@ -123,13 +123,13 @@ import TokenVenues from "./components/TokenVenues";
 import TokenActivity from "./components/TokenActivity";
 import TokenContract from "./components/TokenContract";
 import ProfileEditor from "./components/ProfileEditor";
-import { effectiveProfileLinks, profileLinkList, PROFILE_FIELD_LABELS, type TokenProfile } from "./lib/token-profile";
+import { displayedProfileLinks, effectiveProfileLinks, profileLinkList, PROFILE_FIELD_LABELS, type ProfileStatus, type TokenProfile } from "./lib/token-profile";
 import MusegodPage from "./components/MusegodPage";
 import NftCoinCard from "./components/NftCoinCard";
 import NftPage, { MyNftTreasuries } from "./components/NftPage";
 import { MUSEGOD } from "./lib/musegod";
 import BuybackPage from "./components/BuybackPage";
-import { feeShares, LP_FEE_PERCENT, openSeaUrl, stockStatusFailure, tokenFeeCardTier } from "./lib/token-detail";
+import { feeShares, LP_FEE_PERCENT, openSeaUrl, searchWithTokenTab, stockStatusFailure, tokenFeeCardTier, tokenTabFromSearch, type TokenTab } from "./lib/token-detail";
 import FeeBreakdown, { TokenFeeDisclosure } from "./components/FeeBreakdown";
 import ShareDialog from "./components/ShareDialog";
 import { LP_FEE_PPM, TRADING_FEE_BPS, tradingFeeBpsFor } from "./lib/trading-fee";
@@ -430,7 +430,7 @@ export function App() {
   useEffect(() => {
     if (/^\/token\/0x[0-9a-fA-F]{40}$/.test(path)) {
       const canonical = `/token/robinhood/${path.split("/")[2]}`;
-      history.replaceState({}, "", canonical);
+      history.replaceState({}, "", `${canonical}${location.search}${location.hash}`);
       setPath(canonical);
       window.dispatchEvent(new PopStateEvent("popstate"));
     }
@@ -2985,6 +2985,8 @@ type TokenDetailData = {
   stateError?: string;
   stateInvalid?: true;
   profile?: TokenProfile;
+  profileStatus?: ProfileStatus;
+  profileCheckedAt?: number;
   nftProfile?: { name?: string; agentId?: string };
 };
 function TokenPage({
@@ -3008,11 +3010,21 @@ function TokenPage({
     else if (resource.data && !resource.loading) setLastLookupError({ address, message: "" });
   }, [address, resource.error, resource.data, resource.loading]);
   const lastError = lastLookupError.address === address ? lastLookupError.message : "";
+  // A profile the server could not read in time is retried with backoff (15 s, 30 s, 60 s, then every 120 s); a state retry already
+  // refreshes the whole detail every 15 s.
+  const stateRetry = !stateInvalid && (stateUnavailable || (!!lastError && !resource.data));
+  const profileRetry = !!resource.data?.profileStatus;
+  const [profileRetries, setProfileRetries] = useState(0);
+  useEffect(() => { if (resource.data && !resource.data.profileStatus) setProfileRetries(0); }, [resource.data]);
+  // Each wait starts when the previous request settles, failed or not, so repeated identical errors keep the retries going.
   useEffect(() => {
-    if (stateInvalid || (!stateUnavailable && !(lastError && !resource.data))) return;
-    const timer = setTimeout(() => setDetailRevision((value) => value + 1), 15_000);
+    if (resource.loading || (!stateRetry && !profileRetry)) return;
+    const timer = setTimeout(() => {
+      if (!stateRetry) setProfileRetries((value) => value + 1);
+      setDetailRevision((value) => value + 1);
+    }, stateRetry ? 15_000 : Math.min(120_000, 15_000 * 2 ** profileRetries));
     return () => clearTimeout(timer);
-  }, [stateUnavailable, stateInvalid, lastError, resource.data]);
+  }, [stateRetry, profileRetry, profileRetries, resource.loading, detailRevision]);
   const detail = resource.data;
   if (!detail?.token) {
     const lookupError = resource.error || lastError;
@@ -3030,7 +3042,6 @@ function TokenPage({
   return <TokenDetail key={detail.token.address} detail={detail} config={config} refreshError={resource.error} />;
 }
 
-type TokenTab = "overview" | "activity" | "onchain";
 const TOKEN_TABS: { id: TokenTab; label: string }[] = [{ id: "overview", label: "Overview" }, { id: "activity", label: "Activity" }, { id: "onchain", label: "On-chain" }];
 
 /** The token page (tasks/token-ip-detail-plan.md): the coin as an IP. Trading happens on Doppler or Fomo; nothing on this page signs a
@@ -3040,13 +3051,26 @@ function TokenDetail({ detail, config, refreshError }: { detail: TokenDetailData
   const api = scopedApi(config);
   const stockResource = useResource<StockStatus[]>("/stocks"), wallet = useWallet();
   const market = useLaunchMarket(token, config);
-  const [tab, setTab] = useState<TokenTab>("overview");
-  const [visited, setVisited] = useState({ activity: false, onchain: false });
+  // The selected tab lives in the URL (`?tab=`), so a copied link opens it; switching replaces the entry rather than adding one.
+  const [tab, setTab] = useState<TokenTab>(() => tokenTabFromSearch(location.search));
+  const [visited, setVisited] = useState({ activity: tab === "activity", onchain: tab === "onchain" });
+  useEffect(() => {
+    const follow = () => {
+      const next = tokenTabFromSearch(location.search);
+      if (next !== "overview") setVisited((current) => ({ ...current, [next]: true }));
+      setTab(next);
+    };
+    window.addEventListener("popstate", follow);
+    return () => window.removeEventListener("popstate", follow);
+  }, []);
   function selectTab(next: TokenTab) {
     if (next !== "overview") setVisited((current) => ({ ...current, [next]: true }));
     setTab(next);
+    const search = searchWithTokenTab(location.search, next);
+    if (search !== location.search) history.replaceState(history.state, "", `${location.pathname}${search}${location.hash}`);
   }
   const [sharing, setSharing] = useState(false), [editing, setEditing] = useState(false);
+  const [editorBlocked, setEditorBlocked] = useState(false);
   const [savedProfile, setSavedProfile] = useState<TokenProfile | null>(null);
   // Whether the connected wallet controls the bound NFT (holder or delegate), keyed so another account never inherits the answer.
   const [nftControl, setNftControl] = useState<{ key: string; controls: boolean } | null>(null);
@@ -3072,11 +3096,24 @@ function TokenDetail({ detail, config, refreshError }: { detail: TokenDetailData
   }, [controlKey, configKey]);
   const stock = quoteAsset(token), explorer = explorerFor(token);
   const stockStatus = stockResource.data?.find((s) => sameAddress(s.address, stock.address));
-  const profile = savedProfile ?? detail.profile ?? null;
-  const links = profileLinkList(effectiveProfileLinks(token, profile));
+  // The newer (by signature time) of this page's own save and the server's answer. The server's status still governs: until it answers
+  // for the saved profile, the page shows no links and offers no editing, because a launch link the owner replaced or cleared must not
+  // come back and an editor prefilled from an unconfirmed answer could overwrite a newer save.
+  const served = detail.profile ?? null;
+  const profile = savedProfile && (!served || served.issuedAt < savedProfile.issuedAt) ? savedProfile : served;
+  const profileStatus = detail.profileStatus;
+  const shownLinks = displayedProfileLinks(token, profile, profileStatus);
+  const links = shownLinks ? profileLinkList(shownLinks) : [];
+  const checkedAt = profileStatus === "stale" ? detail.profileCheckedAt : undefined;
+  const staleNote = checkedAt !== undefined ? <p className="feed-note" role="status">Links last confirmed <time dateTime={new Date(checkedAt).toISOString()}>
+    {new Date(checkedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}</time>. Refreshing automatically.</p> : null;
   const owner = !!wallet.account && token.mode !== "fork" && (nft ? config?.nftMode?.enabled === true && nftControl?.key === controlKey && nftControl.controls
     : !!token.creator && sameAddress(token.creator, wallet.account));
   useEffect(() => { if (!owner) setEditing(false); }, [owner]);
+  useEffect(() => {
+    if (!editing) setEditorBlocked(false);
+    else if (profileStatus) setEditorBlocked(true);
+  }, [editing, profileStatus]);
   const shares = feeShares(token), feeTier = tokenFeeCardTier(token, wallet.account);
   const chainLabel = token.mode === "fork" ? "Fork test asset" : token.mode === "robinhood" ? "Robinhood Chain" : "Base";
   const nftLabel = nft ? `${isMuse(nft) ? "Muse" : "NFT"} #${nft.tokenId}${nftProfile?.name ? ` · ${nftProfile.name}` : ""}` : "";
@@ -3101,132 +3138,145 @@ function TokenDetail({ detail, config, refreshError }: { detail: TokenDetailData
       {token.openingValuationUnverified && <Notice kind="warning">Not verified by the platform: this launch was recovered from a backup without a platform attestation, so its opening valuation is unverified.</Notice>}
       {token.hidden && <Notice kind="warning">Hidden by operator. This coin is not listed on Explore and musegod.fun does not endorse it; trading still works.</Notice>}
       {refreshError && <Notice kind="error">Could not refresh this token: {refreshError}</Notice>}
-      <TokenHero
-        icon={<TokenIcon name={token.name} image={token.image} size="xl" />}
-        overline={nft ? `${nftLabel} · ${chainLabel}` : `${chainLabel} · ${stock.symbol} pair · launched ${dateLabel(token.createdAt)}`}
-        name={token.name}
-        symbol={token.symbol}
-        badges={<>
-          {!stateInvalid && stockStatus?.verified && <span className="chip sm up"><Check size={12} />Verified quote asset</span>}
-          {!stateInvalid && <span className="chip sm sunken"><LockKeyhole size={12} />Liquidity locked</span>}
-          {nftProfile?.agentId && <span className="chip sm halo">ERC-8004 agent #{nftProfile.agentId}</span>}
-          <NftBadge token={token} withContract />
-        </>}
-        story={token.description}
-        meta={<>
-          <span>{creatorLink ? <>by {creatorLink}</> : "Creator not verified"}</span>
-          {nft && <span>{stock.symbol} pair · launched <span className="mono strong">{dateLabel(token.createdAt)}</span></span>}
-          {token.tradingFeeBps !== undefined && <span className="mono">{feePercent(token.tradingFeeBps)} + {LP_FEE_PERCENT} LP fee</span>}
-        </>}
-        links={links}
-        extraLinks={openSeaUrl(token) ? [{ href: openSeaUrl(token)!, label: "OpenSea" }] : undefined}
-        onShare={() => setSharing(true)}
-        onEdit={owner ? () => setEditing(true) : undefined}
-        figure={shares ? { label: nft ? "NFT treasury share" : "Creator share", value: `${shares.creator}%`, note: "of every trading fee · fixed at launch" } : null}
-        stats={stats}
-      />
+      {/* Hero, then tabs, then the trade aside: reading and keyboard order match the layout, and the tabs sit under the hero even
+          when the columns stack (tasks/ip-page-improvements-2026-10-18-plan.md §4). */}
+      <div className="token-page">
+        <TokenHero
+          icon={<TokenIcon name={token.name} image={token.image} size="xl" />}
+          overline={nft ? `${nftLabel} · ${chainLabel}` : `${chainLabel} · ${stock.symbol} pair · launched ${dateLabel(token.createdAt)}`}
+          name={token.name}
+          symbol={token.symbol}
+          badges={<>
+            {!stateInvalid && stockStatus?.verified && <span className="chip sm up"><Check size={12} />Verified quote asset</span>}
+            {!stateInvalid && <span className="chip sm sunken"><LockKeyhole size={12} />Liquidity locked</span>}
+            {nftProfile?.agentId && <span className="chip sm halo">ERC-8004 agent #{nftProfile.agentId}</span>}
+            <NftBadge token={token} withContract />
+          </>}
+          story={token.description}
+          meta={<>
+            <span>{creatorLink ? <>by {creatorLink}</> : "Creator not verified"}</span>
+            {nft && <span>{stock.symbol} pair · launched <span className="mono strong">{dateLabel(token.createdAt)}</span></span>}
+            {token.tradingFeeBps !== undefined && <span className="mono">{feePercent(token.tradingFeeBps)} + {LP_FEE_PERCENT} LP fee</span>}
+          </>}
+          links={links}
+          extraLinks={openSeaUrl(token) ? [{ href: openSeaUrl(token)!, label: "OpenSea" }] : undefined}
+          onShare={() => setSharing(true)}
+          onEdit={owner && !profileStatus ? () => setEditing(true) : undefined}
+          onTrade={stateInvalid ? undefined : () => {
+            const target = document.getElementById("trade");
+            target?.scrollIntoView({ block: "start" }); target?.focus({ preventScroll: true });
+          }}
+          figure={shares ? { label: nft ? "NFT treasury share" : "Creator share", value: `${shares.creator}%`, note: "of every trading fee · fixed at launch" } : null}
+          stats={stats}
+        />
+        <div className="token-columns">
+          <div className="token-main">
+            <div className="token-tabs" role="tablist" aria-label={`${token.symbol} sections`}>
+              {TOKEN_TABS.map((entry) => <button type="button" role="tab" key={entry.id} id={`token-tab-${entry.id}`} aria-controls={`token-panel-${entry.id}`}
+                aria-selected={tab === entry.id} tabIndex={tab === entry.id ? 0 : -1} className={tab === entry.id ? "active" : ""} onClick={() => selectTab(entry.id)}
+                onKeyDown={(event) => {
+                  const index = TOKEN_TABS.findIndex((item) => item.id === tab), step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+                  if (!step) return;
+                  event.preventDefault();
+                  const next = TOKEN_TABS[(index + step + TOKEN_TABS.length) % TOKEN_TABS.length].id;
+                  selectTab(next); document.getElementById(`token-tab-${next}`)?.focus();
+                }}>{entry.label}</button>)}
+            </div>
+            <div {...panelProps("overview")} className="tab-stack">
+              {(token.description || shares) && <section className="card" aria-labelledby="about-title">
+                <h2 id="about-title" className="card-title">About {token.name}</h2>
+                {token.description && <p className="body-copy">{token.description}</p>}
+                {shares && <p className="hint">{nft
+                  ? <><b>The holder.</b> Whoever holds {nftLabel} controls its treasury{nftProfile?.agentId ? ", its agent" : ""} and every future fee; the coin's {shares.creator}% creator share belongs to the NFT, not to whoever launched it.</>
+                  : <><b>The creator.</b> {token.creator ? shortAddress(token.creator) : "The creator"} launched ${token.symbol} and keeps {shares.creator}% of every trading fee; {shares.buyback}% buys back MUSEGOD and {shares.operations}% runs the platform.</>}</p>}
+              </section>}
+              {links.length > 0 ? <section className="card" aria-labelledby="channels-title">
+                <h2 id="channels-title" className="card-title">Channels · {links.length} linked</h2>
+                <ul className="channel-grid">
+                  {links.map((link) => <li key={link.field}>
+                    <a className="channel-card" href={link.href} target="_blank" rel="noopener noreferrer">
+                      <span className="channel-name">{PROFILE_FIELD_LABELS[link.field]}</span>
+                      <span className="mono hint">{link.label.replace(/^(X|YouTube|TikTok|Telegram) /, "")}</span>
+                      <ArrowUpRight size={14} aria-hidden="true" />
+                    </a>
+                  </li>)}
+                </ul>
+                {profile && <p className="feed-note">Saved by {shortAddress(profile.signer)} · <time dateTime={new Date(profile.savedAt).toISOString()}>{new Date(profile.savedAt).toLocaleString("en-US")}</time></p>}
+                {staleNote}
+              </section> : !shownLinks || staleNote ? <section className="card" aria-labelledby="channels-title">
+                <h2 id="channels-title" className="card-title">Channels</h2>
+                {staleNote ?? <p className="hint" role="status">Channel links are temporarily unavailable. Retrying automatically.</p>}
+              </section> : owner && !profileStatus && <section className="card" aria-labelledby="channels-title">
+                <h2 id="channels-title" className="card-title">Channels</h2>
+                <p className="hint">Link X, YouTube, TikTok, Telegram or a website so buyers can find this coin's community.</p>
+                <button type="button" className="secondary" onClick={() => setEditing(true)}>Edit profile</button>
+              </section>}
+              {nftProfile?.agentId && <section className="card" aria-labelledby="agent-title">
+                <h2 id="agent-title" className="card-title">Agent identity · ERC-8004</h2>
+                <dl className="rows">
+                  <div><dt>Agent ID</dt><dd>#{nftProfile.agentId}</dd></div>
+                  <div><dt>Identity registry</dt><dd>{explorer ? <a href={`${explorer}/address/${ERC8004_IDENTITY_REGISTRY}`} target="_blank" rel="noreferrer">{shortAddress(ERC8004_IDENTITY_REGISTRY)}</a> : shortAddress(ERC8004_IDENTITY_REGISTRY)}</dd></div>
+                  <div><dt>Binding (ERC-8217)</dt><dd className="sans">{nftLabel} via Adapter8004 {shortAddress(ADAPTER_8004)}</dd></div>
+                  <div><dt>Controller</dt><dd className="sans">The NFT's holder</dd></div>
+                </dl>
+                <p className="hint">The binding is immutable; Adapter8004, which decides who controls the agent, is an upgradeable contract.</p>
+              </section>}
+            </div>
+            <div {...panelProps("activity")}>{visited.activity && <TokenActivity token={token} market={market} />}</div>
+            <div {...panelProps("onchain")} className="tab-stack">
+              {visited.onchain && <>
+                <FirstBuyLock token={token} config={config} hideWhenEmpty />
+                <NftCoinCard token={token} config={config} navigate={navigate} />
+                {feeTier && <FeeCard token={token} config={config} variant={feeTier} />}
+                <TokenContract token={token} stock={stock}>
+                  <TokenFeeDisclosure token={token}>
+                    <Link href="/buyback" className="mechanism-link">View the buyback policy and status <ArrowUpRight size={14} /></Link>
+                  </TokenFeeDisclosure>
+                  <details className="disclosure boxed launch-curve-details">
+                    <summary>View launch curve</summary>
+                    {token.openingValuationUnverified && <p className="muted">The opening valuation behind this curve is not verified by the platform.</p>}
+                    <LaunchCurve ticker={stock.symbol} curvePolicy={token.curvePolicy}
+                      openingValuation={token.openingValuation} quoteDecimals={stock.decimals}
+                      tokenAddress={token.address} quoteAddress={stock.address} />
+                  </details>
+                </TokenContract>
+              </>}
+            </div>
+          </div>
+          <aside className="token-aside" aria-label="Trade and beneficiary">
+            {stateInvalid ? <section className="card"><Notice kind="error">The on-chain pool does not match this listing, so trading links are hidden.</Notice></section>
+              : <TokenVenues token={token} stock={stock} market={market} fomoHandle={config?.fomoInvite} stateUnavailable={!detail.state}
+                quoteProbe={() => api<{ amountOut: string }>("/quote", { address: token.address, side: "buy", amount: "1", slippageBps: 100 })} />}
+            {stockResource.error && <Notice kind="error">{stockStatusFailure(stock)} {stockResource.error}</Notice>}
+            <section className="card beneficiary-card" aria-labelledby="beneficiary-title">
+              <h2 id="beneficiary-title" className="card-title">{nft ? "Bound NFT · fee beneficiary" : "Creator · fee beneficiary"}</h2>
+              {nft ? <dl className="rows">
+                <div><dt>NFT</dt><dd className="sans">{nftLabel}</dd></div>
+                <div><dt>Collection</dt><dd>{explorer && token.mode !== "fork" ? <a href={`${explorer}/address/${nft.contract}`} target="_blank" rel="noreferrer">{shortAddress(nft.contract)}</a> : shortAddress(nft.contract)}</dd></div>
+                {factory && <div><dt>Fee vault</dt><dd>{shortAddress(vaultFor(nft, factory))}</dd></div>}
+                <div><dt>Treasury (ERC-6551)</dt><dd>{shortAddress(treasuryFor(nft))}</dd></div>
+                {shares && <div><dt>Share of every trading fee</dt><dd>{shares.creator}%</dd></div>}
+              </dl> : <dl className="rows">
+                <div><dt>Creator wallet</dt><dd>{creatorLink ?? "Not verified"}</dd></div>
+                {shares && <div><dt>Share of every trading fee</dt><dd>{shares.creator}%</dd></div>}
+              </dl>}
+              <p className="hint">{nft ? "Whoever holds the NFT controls its treasury and every future fee. Selling the NFT hands all of it over."
+                : "Fees stay on-chain until the creator claims them."}</p>
+              <button type="button" className="secondary" onClick={() => {
+                selectTab("onchain");
+                const target = document.getElementById("token-tab-onchain");
+                target?.focus(); target?.scrollIntoView({ block: "nearest" });
+              }}>{nft ? "Treasury and sweep" : feeTier ? "Check fees" : "On-chain details"}</button>
+            </section>
+          </aside>
+        </div>
+      </div>
       {sharing && <ShareDialog name={token.name} url={canonicalUrl}
         detail={`$${token.symbol} · ${stock.symbol} pair${token.tradingFeeBps !== undefined ? ` · ${feePercent(token.tradingFeeBps)} fee` : ""}`}
         icon={<TokenIcon name={token.name} image={token.image} />} onClose={() => setSharing(false)} />}
       {editing && owner && <ProfileEditor token={token} links={effectiveProfileLinks(token, profile)} owner={ownerRule}
+        blocked={editorBlocked || profileStatus ? "The saved links cannot be confirmed right now. Close the editor and reopen it once they load again." : undefined}
         onClose={() => setEditing(false)} onSaved={(saved) => setSavedProfile(saved)} />}
-      <div className="token-columns">
-        <aside className="token-aside" aria-label="Trade and beneficiary">
-          {stateInvalid ? <section className="card"><Notice kind="error">The on-chain pool does not match this listing, so trading links are hidden.</Notice></section>
-            : <TokenVenues token={token} stock={stock} market={market} fomoHandle={config?.fomoInvite} stateUnavailable={!detail.state}
-              quoteProbe={() => api<{ amountOut: string }>("/quote", { address: token.address, side: "buy", amount: "1", slippageBps: 100 })} />}
-          {stockResource.error && <Notice kind="error">{stockStatusFailure(stock)} {stockResource.error}</Notice>}
-          <section className="card beneficiary-card" aria-labelledby="beneficiary-title">
-            <h2 id="beneficiary-title" className="card-title">{nft ? "Bound NFT · fee beneficiary" : "Creator · fee beneficiary"}</h2>
-            {nft ? <dl className="rows">
-              <div><dt>NFT</dt><dd className="sans">{nftLabel}</dd></div>
-              <div><dt>Collection</dt><dd>{explorer && token.mode !== "fork" ? <a href={`${explorer}/address/${nft.contract}`} target="_blank" rel="noreferrer">{shortAddress(nft.contract)}</a> : shortAddress(nft.contract)}</dd></div>
-              {factory && <div><dt>Fee vault</dt><dd>{shortAddress(vaultFor(nft, factory))}</dd></div>}
-              <div><dt>Treasury (ERC-6551)</dt><dd>{shortAddress(treasuryFor(nft))}</dd></div>
-              {shares && <div><dt>Share of every trading fee</dt><dd>{shares.creator}%</dd></div>}
-            </dl> : <dl className="rows">
-              <div><dt>Creator wallet</dt><dd>{creatorLink ?? "Not verified"}</dd></div>
-              {shares && <div><dt>Share of every trading fee</dt><dd>{shares.creator}%</dd></div>}
-            </dl>}
-            <p className="hint">{nft ? "Whoever holds the NFT controls its treasury and every future fee. Selling the NFT hands all of it over."
-              : "Fees stay on-chain until the creator claims them."}</p>
-            <button type="button" className="secondary" onClick={() => {
-              selectTab("onchain");
-              const target = document.getElementById("token-tab-onchain");
-              target?.focus(); target?.scrollIntoView({ block: "nearest" });
-            }}>{nft ? "Treasury and sweep" : feeTier ? "Check fees" : "On-chain details"}</button>
-          </section>
-        </aside>
-        <div className="token-main">
-          <div className="token-tabs" role="tablist" aria-label={`${token.symbol} sections`}>
-            {TOKEN_TABS.map((entry) => <button type="button" role="tab" key={entry.id} id={`token-tab-${entry.id}`} aria-controls={`token-panel-${entry.id}`}
-              aria-selected={tab === entry.id} tabIndex={tab === entry.id ? 0 : -1} className={tab === entry.id ? "active" : ""} onClick={() => selectTab(entry.id)}
-              onKeyDown={(event) => {
-                const index = TOKEN_TABS.findIndex((item) => item.id === tab), step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
-                if (!step) return;
-                event.preventDefault();
-                const next = TOKEN_TABS[(index + step + TOKEN_TABS.length) % TOKEN_TABS.length].id;
-                selectTab(next); document.getElementById(`token-tab-${next}`)?.focus();
-              }}>{entry.label}</button>)}
-          </div>
-          <div {...panelProps("overview")} className="tab-stack">
-            {(token.description || shares) && <section className="card" aria-labelledby="about-title">
-              <h2 id="about-title" className="card-title">About {token.name}</h2>
-              {token.description && <p className="body-copy">{token.description}</p>}
-              {shares && <p className="hint">{nft
-                ? <><b>The holder.</b> Whoever holds {nftLabel} controls its treasury{nftProfile?.agentId ? ", its agent" : ""} and every future fee; the coin's {shares.creator}% creator share belongs to the NFT, not to whoever launched it.</>
-                : <><b>The creator.</b> {token.creator ? shortAddress(token.creator) : "The creator"} launched ${token.symbol} and keeps {shares.creator}% of every trading fee; {shares.buyback}% buys back MUSEGOD and {shares.operations}% runs the platform.</>}</p>}
-            </section>}
-            {links.length > 0 ? <section className="card" aria-labelledby="channels-title">
-              <h2 id="channels-title" className="card-title">Channels · {links.length} linked</h2>
-              <ul className="channel-grid">
-                {links.map((link) => <li key={link.field}>
-                  <a className="channel-card" href={link.href} target="_blank" rel="noopener noreferrer">
-                    <span className="channel-name">{PROFILE_FIELD_LABELS[link.field]}</span>
-                    <span className="mono hint">{link.label.replace(/^(X|YouTube|TikTok|Telegram) /, "")}</span>
-                    <ArrowUpRight size={14} aria-hidden="true" />
-                  </a>
-                </li>)}
-              </ul>
-              {profile && <p className="feed-note">Saved by {shortAddress(profile.signer)} · <time dateTime={new Date(profile.savedAt).toISOString()}>{new Date(profile.savedAt).toLocaleString("en-US")}</time></p>}
-            </section> : owner && <section className="card" aria-labelledby="channels-title">
-              <h2 id="channels-title" className="card-title">Channels</h2>
-              <p className="hint">Link X, YouTube, TikTok, Telegram or a website so buyers can find this coin's community.</p>
-              <button type="button" className="secondary" onClick={() => setEditing(true)}>Edit profile</button>
-            </section>}
-            {nftProfile?.agentId && <section className="card" aria-labelledby="agent-title">
-              <h2 id="agent-title" className="card-title">Agent identity · ERC-8004</h2>
-              <dl className="rows">
-                <div><dt>Agent ID</dt><dd>#{nftProfile.agentId}</dd></div>
-                <div><dt>Identity registry</dt><dd>{explorer ? <a href={`${explorer}/address/${ERC8004_IDENTITY_REGISTRY}`} target="_blank" rel="noreferrer">{shortAddress(ERC8004_IDENTITY_REGISTRY)}</a> : shortAddress(ERC8004_IDENTITY_REGISTRY)}</dd></div>
-                <div><dt>Binding (ERC-8217)</dt><dd className="sans">{nftLabel} via Adapter8004 {shortAddress(ADAPTER_8004)}</dd></div>
-                <div><dt>Controller</dt><dd className="sans">The NFT's holder</dd></div>
-              </dl>
-              <p className="hint">The binding is immutable; Adapter8004, which decides who controls the agent, is an upgradeable contract.</p>
-            </section>}
-          </div>
-          <div {...panelProps("activity")}>{visited.activity && <TokenActivity token={token} market={market} />}</div>
-          <div {...panelProps("onchain")} className="tab-stack">
-            {visited.onchain && <>
-              <FirstBuyLock token={token} config={config} hideWhenEmpty />
-              <NftCoinCard token={token} config={config} navigate={navigate} />
-              {feeTier && <FeeCard token={token} config={config} variant={feeTier} />}
-              <TokenContract token={token} stock={stock}>
-                <TokenFeeDisclosure token={token}>
-                  <Link href="/buyback" className="mechanism-link">View the buyback policy and status <ArrowUpRight size={14} /></Link>
-                </TokenFeeDisclosure>
-                <details className="disclosure boxed launch-curve-details">
-                  <summary>View launch curve</summary>
-                  {token.openingValuationUnverified && <p className="muted">The opening valuation behind this curve is not verified by the platform.</p>}
-                  <LaunchCurve ticker={stock.symbol} curvePolicy={token.curvePolicy}
-                    openingValuation={token.openingValuation} quoteDecimals={stock.decimals}
-                    tokenAddress={token.address} quoteAddress={stock.address} />
-                </details>
-              </TokenContract>
-            </>}
-          </div>
-        </div>
-      </div>
     </>
   );
 }

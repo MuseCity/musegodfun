@@ -30,7 +30,8 @@ const render = (detail: Record<string, unknown>, runtime: RuntimeConfig | null =
   renderToStaticMarkup(createElement(TokenDetail, { detail: { state: { poolKey: {} }, ...detail }, config: runtime, refreshError: "" }));
 
 test.before(async () => {
-  for (const [name, value] of Object.entries({ localStorage: { getItem: () => null, setItem() {} }, location: { origin: "https://musegod.fun" },
+  for (const [name, value] of Object.entries({ localStorage: { getItem: () => null, setItem() {} },
+    location: { origin: "https://musegod.fun", pathname: "/", search: "", hash: "" }, history: { state: null, replaceState() {} }, window: new EventTarget(),
     __BUILD_IDENTITY__: { schemaVersion: 1, repository: "https://github.com/test/test", commit: "a".repeat(40), source: "local", dirty: true, buildId: null, runUrl: null, releaseUrl: null } }))
     if (!(name in globalThis)) Object.defineProperty(globalThis, name, { configurable: true, value });
   ({ TokenDetail } = await importFresh("src/App.tsx", {
@@ -166,6 +167,24 @@ async function detailRuntime(options: { token?: TokenRecord; runtime?: RuntimeCo
   return { ...runtime, props };
 }
 
+const blockedEditorReason = "The saved links cannot be confirmed right now. Close the editor and reopen it once they load again.";
+/** Render the real editor with the parent's current props, keeping wallet and HTTP at fixture boundaries. */
+async function detailEditorRuntime(parent: Awaited<ReturnType<typeof detailRuntime>>, signProfile = async () => ({ signer: creator, signature: "0x1234" })) {
+  let View: any;
+  const saved: any[] = [], calls: any[][] = [];
+  const editor = () => find(parent.output(), (node) => node.type?.name === "ProfileEditor");
+  const runtime = hookRuntime(() => View({ ...editor().props, onSaved(profile: any) { saved.push(profile); editor().props.onSaved(profile); } }));
+  ({ default: View } = await importFresh("src/components/ProfileEditor.tsx", {
+    react: { file: import.meta.resolve("react"), bindings: runtime.hooks },
+    "../lib/wallet": { file: import.meta.resolve("../src/lib/wallet.tsx"), bindings: { useWallet: () => ({ account: creator, chainId: 4663,
+      connection: () => ({ chainId: 4663 }), signProfile }) } },
+    "../lib/api": { file: import.meta.resolve("../src/lib/api.ts"), bindings: { chainApi: async (...args: any[]) => {
+      calls.push(args); return { links: args[2].links, signer: creator, issuedAt: args[2].issuedAt, savedAt: args[2].issuedAt };
+    } } },
+  }));
+  return { ...runtime, saved, calls, submit: () => find(runtime.output(), (node) => node.type === "form").props.onSubmit({ preventDefault() {} }) };
+}
+
 test("hidden NFT coins warn on Overview; unverified opening targets and empty descriptions stay honest", () => {
   const hidden = render({ token: { ...muse, hidden: true } });
   assert.match(hidden, /Hidden by operator/);
@@ -250,6 +269,8 @@ test("tabs support keyboard wrapping and beneficiary navigation focuses and scro
     tab("onchain").props.onKeyDown({ key: "ArrowRight", preventDefault() {} }); await settle(); assert.equal(tab("overview").props.tabIndex, 0);
     button(runtime.output(), "On-chain details").props.onClick(); await settle();
     assert.equal(tab("onchain").props["aria-selected"], true); assert.deepEqual(scrolled, ["token-tab-onchain"]);
+    find(runtime.output(), (node) => node.type?.name === "TokenHero").props.onTrade();
+    assert.deepEqual([scrolled.at(-1), focused.at(-1)], ["trade", "trade"], "the stacked layout's Trade button moves to the trade card");
   } finally { runtime.unmount(); }
 });
 
@@ -314,4 +335,225 @@ test("a non-fork pool quote is gated by state, shows its average fill price, and
 test("a coin with neither a description nor a recorded fee policy shows no empty About card", () => {
   assert.doesNotMatch(render({ token: { ...coin, description: "", feePolicy: undefined } }), /About Synthetic Meme/);
   assert.match(render({ token: { ...coin, description: "" } }), /About Synthetic Meme/, "the fee owner sentence alone still fills it");
+});
+
+test("the tabs follow the hero and precede the trade aside, so reading and keyboard order match the layout", () => {
+  const html = render({ token: coin });
+  const order = ['id="token-title"', 'role="tablist"', 'id="token-panel-overview"', 'id="trade"', 'id="beneficiary-title"'].map((marker) => html.indexOf(marker));
+  assert(order.every((at, index) => at >= 0 && (index === 0 || at > order[index - 1])), `DOM order ${order}`);
+  assert.match(html, /class="primary small-button token-hero-trade"[^>]*>Trade \$SYN/);
+  assert.match(html, /id="trade" tabindex="-1"/, "the trade card can take focus from the hero button");
+  assert.doesNotMatch(render({ token: coin, stateInvalid: true }), /token-hero-trade/, "no jump to trading links that are hidden");
+});
+
+test("the selected tab lives in the URL: a copied link opens it, and switching rewrites only the tab parameter", async (t) => {
+  const saved = ["location", "history"].map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)] as const), writes: string[] = [];
+  const place = { origin: "https://musegod.fun", pathname: `/token/robinhood/${coin.address}`, search: "?ref=x&tab=onchain", hash: "#top" };
+  Object.defineProperty(globalThis, "location", { configurable: true, value: place });
+  Object.defineProperty(globalThis, "history", { configurable: true, value: { state: { kept: true }, replaceState(state: unknown, _title: string, url: string) {
+    assert.deepEqual(state, { kept: true }, "the history entry's state is kept"); writes.push(url); place.search = new URL(url, place.origin).search;
+  } } });
+  t.after(() => { for (const [name, descriptor] of saved) if (descriptor) Object.defineProperty(globalThis, name, descriptor); });
+  const runtime = await detailRuntime();
+  const tab = (name: string) => find(runtime.output(), (node) => node.props?.id === `token-tab-${name}`);
+  try {
+    runtime.render();
+    assert.equal(tab("onchain").props["aria-selected"], true, "a link to On-chain opens On-chain");
+    assert(find(runtime.output(), (node) => node.type?.name === "TokenContract"), "and renders its panel on load");
+    tab("activity").props.onClick(); await settle();
+    tab("overview").props.onClick(); await settle();
+    tab("overview").props.onClick(); await settle();
+    assert.deepEqual(writes, [`${place.pathname}?ref=x&tab=activity#top`, `${place.pathname}?ref=x#top`], "Overview drops the parameter; no rewrite when unchanged");
+    place.search = "?tab=onchain"; window.dispatchEvent(new Event("popstate")); await settle();
+    assert.equal(tab("onchain").props["aria-selected"], true, "history moving to another tab's URL selects that tab");
+    assert.equal(writes.length, 2, "following history never rewrites it");
+  } finally { runtime.unmount(); }
+  // Start a fresh page on Overview so Activity has never mounted before the history navigation.
+  place.search = "?ref=x";
+  const overview = await detailRuntime();
+  try {
+    overview.render();
+    assert.equal(find(overview.output(), (node) => node.props?.id === "token-tab-overview").props["aria-selected"], true);
+    assert.equal(find(overview.output(), (node) => node.type?.name === "TokenActivity"), null);
+    place.search = "?ref=x&tab=activity"; window.dispatchEvent(new Event("popstate")); await settle();
+    assert.equal(find(overview.output(), (node) => node.props?.id === "token-tab-activity").props["aria-selected"], true);
+    assert(find(overview.output(), (node) => node.type?.name === "TokenActivity"), "history mounts a previously unvisited Activity panel");
+    assert.equal(writes.length, 2, "following history never rewrites it");
+  } finally { overview.unmount(); }
+  const { tokenTabFromSearch, searchWithTokenTab } = await import("../src/lib/token-detail");
+  assert.deepEqual(["", "?tab=activity", "?tab=onchain", "?tab=posts", "?tab=ACTIVITY"].map(tokenTabFromSearch), ["overview", "activity", "onchain", "overview", "overview"]);
+  assert.equal(searchWithTokenTab("?tab=activity", "overview"), "");
+});
+
+test("a profile the server could not read shows no launch links and no editor; a stale one says when it was last confirmed", () => {
+  account = creator;
+  const unavailable = render({ token: coin, profileStatus: "unavailable" });
+  assert.doesNotMatch(unavailable, /x\.com\/musegod_rh/, "a launch link the owner may have replaced never returns in its place");
+  assert.match(unavailable, /Channel links are temporarily unavailable\. Retrying automatically\./);
+  assert.doesNotMatch(unavailable, /Edit profile|Channels<\/dt>/, "no editor prefilled from launch links, no channel count");
+  const replaced = { ...EMPTY_PROFILE_LINKS, website: "https://b.example.org/" };
+  const stale = render({ token: coin, profile: { links: replaced, signer: creator, issuedAt: 1, savedAt: 1 }, profileStatus: "stale", profileCheckedAt: Date.UTC(2026, 9, 18) });
+  assert.match(stale, /href="https:\/\/b\.example\.org\/"/);
+  assert.match(stale, /Links last confirmed <time datetime="2026-10-18T00:00:00.000Z">/i);
+  assert.doesNotMatch(stale, /x\.com\/musegod_rh|Edit profile/);
+  assert.match(render({ token: coin }), /Edit profile/, "a definitive answer still offers editing to the owner");
+  for (const detail of [{ token: coin, profile: { links: EMPTY_PROFILE_LINKS, signer: creator, issuedAt: 1, savedAt: 1 } },
+    { token: { ...coin, twitter: undefined } }]) {
+    const html = render({ ...detail, profileStatus: "stale", profileCheckedAt: Date.UTC(2026, 9, 18) });
+    assert.match(html, /<h2 id="channels-title" class="card-title">Channels<\/h2><p class="feed-note" role="status">Links last confirmed/,
+      "a stale answer with no links (a cleared profile, or none saved and no launch links) still says when it was confirmed");
+    assert.doesNotMatch(html, /x\.com\/musegod_rh|Edit profile|Channels · /);
+  }
+});
+
+test("an open editor locks when a refresh makes the profile answer stale or unavailable, until it closes", async () => {
+  account = creator;
+  for (const profileStatus of ["stale", "unavailable"]) {
+    const runtime = await detailRuntime();
+    const editor = () => find(runtime.output(), (node) => node.type?.name === "ProfileEditor");
+    let form: Awaited<ReturnType<typeof detailEditorRuntime>> | undefined;
+    try {
+      runtime.render(); find(runtime.output(), (node) => node.type?.name === "TokenHero").props.onEdit(); await settle();
+      assert(editor(), "the editor opens on a definitive answer");
+      const mounted = editor().type;
+      let signatures = 0;
+      form = await detailEditorRuntime(runtime, async () => { signatures++; return { signer: creator, signature: "0x1234" }; });
+      form.render();
+      find(form.output(), (node) => node.type === "input" && node.props.name === "website").props.onChange({ target: { value: "https://typed.example.org/" } });
+      await settle();
+      runtime.props.detail = { ...runtime.props.detail, profileStatus, profileCheckedAt: 1 } as any; runtime.render(); await settle();
+      assert.equal(editor().type, mounted, `${profileStatus}: the same editor stays mounted`);
+      form.render();
+      assert.equal(button(form.output(), "Sign and save").props.disabled, true);
+      assert(find(form.output(), (node) => node.props?.role === "status" && textOf(node) === blockedEditorReason));
+      assert.equal(find(form.output(), (node) => node.type === "input" && node.props.name === "website").props.value, "https://typed.example.org/");
+      form.submit(); await settle(); assert.equal(signatures, 0, "form submission cannot bypass the lock");
+      runtime.props.detail = { ...runtime.props.detail, profileStatus: undefined } as any; runtime.render(); await settle();
+      form.render();
+      assert.equal(button(form.output(), "Sign and save").props.disabled, true, "a later definitive answer does not unlock the old prefill");
+      assert.equal(editor().props.blocked, blockedEditorReason);
+      editor().props.onClose(); await settle(); assert.equal(editor(), null);
+      find(runtime.output(), (node) => node.type?.name === "TokenHero").props.onEdit(); await settle();
+      assert.equal(editor().props.blocked, undefined, "closing and reopening after a definitive answer clears the lock");
+    } finally { form?.unmount(); runtime.unmount(); }
+  }
+});
+
+test("after a save on this page, the newer profile wins and a later stale or unavailable answer still governs editing", async () => {
+  account = creator;
+  const at = (issuedAt: number, website: string) => ({ links: { ...EMPTY_PROFILE_LINKS, website }, signer: creator, issuedAt, savedAt: issuedAt });
+  for (const profileStatus of ["stale", "unavailable"]) {
+    const runtime = await detailRuntime();
+    const hero = () => find(runtime.output(), (node) => node.type?.name === "TokenHero");
+    const editor = () => find(runtime.output(), (node) => node.type?.name === "ProfileEditor");
+    const shown = () => hero().props.links.map((link: any) => link.href);
+    let form: Awaited<ReturnType<typeof detailEditorRuntime>> | undefined;
+    try {
+      runtime.render(); hero().props.onEdit(); await settle();
+      editor().props.onSaved(at(20, "https://b.example.org/")); editor().props.onClose(); await settle();
+      runtime.props.detail = { ...runtime.props.detail, profile: at(10, "https://a.example.org/") } as any; runtime.render(); await settle();
+      assert.deepEqual(shown(), ["https://b.example.org/"], "an older served answer does not replace this page's newer save");
+      hero().props.onEdit(); await settle(); assert(editor(), "the owner can reopen the editor");
+      const mounted = editor().type;
+      let finish!: (value: { signer: string; signature: string }) => void;
+      form = await detailEditorRuntime(runtime, () => new Promise((resolve) => { finish = resolve; }));
+      form.render(); form.submit(); await settle();
+      assert.match(textOf(form.output()), /Sign in your wallet/);
+      runtime.props.detail = { ...runtime.props.detail, profile: profileStatus === "stale" ? at(30, "https://c.example.org/") : undefined, profileStatus,
+        profileCheckedAt: Date.UTC(2026, 9, 18) } as any;
+      runtime.render(); await settle();
+      assert.equal(editor().type, mounted, `${profileStatus}: a pending signature keeps its editor mounted`);
+      form.render();
+      assert.equal(button(form.output(), "Sign and save").props.disabled, true);
+      assert(find(form.output(), (node) => node.props?.role === "status" && textOf(node) === blockedEditorReason));
+      assert.equal(hero().props.onEdit, undefined);
+      if (profileStatus === "stale") {
+        assert.deepEqual(shown(), ["https://c.example.org/"], "a newer save from elsewhere replaces this page's own");
+        assert.match(textOf(runtime.output()), /Links last confirmed/);
+      } else assert.deepEqual(shown(), [], "unavailable hides links even after a local save");
+      runtime.props.detail = { ...runtime.props.detail, profileStatus: undefined } as any; runtime.render(); await settle(); form.render();
+      assert.equal(button(form.output(), "Sign and save").props.disabled, true, "a definitive refresh keeps the editor locked");
+      finish({ signer: creator, signature: "0x1234" }); await settle();
+      assert.equal(form.calls.length, 1, "the signature already in flight still submits its save");
+      assert.equal(form.saved.length, 1, "the pending save still calls onSaved");
+      assert.deepEqual(shown(), ["https://b.example.org/"], "the saved editor values reach the page");
+    } finally { form?.unmount(); runtime.unmount(); }
+  }
+});
+
+test("a pool quote keeps its read time and a refresh button, expires after a minute, and a failed refresh never passes as new", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: Date.UTC(2026, 9, 18, 6) });
+  const { quoteAsset } = await import("../src/lib/config");
+  let amount = 2n * 10n ** 18n, fail = false, quoteSlow: Promise<{ amountOut: string }> | null = null, View: any;
+  const runtime = hookRuntime(() => View({ token: coin, stock: quoteAsset(coin), market, fomoHandle: null,
+    quoteProbe: async () => { if (fail) throw new Error("Pool read failed"); if (quoteSlow) return quoteSlow; return { amountOut: amount.toString() }; } }));
+  ({ default: View } = await importFresh("src/components/TokenVenues.tsx", { react: { file: import.meta.resolve("react"), bindings: runtime.hooks } }));
+  const text = () => textOf(runtime.output()), time = () => find(runtime.output(), (node) => node.type === "time")?.props.dateTime;
+  try {
+    runtime.render(); button(runtime.output(), "Get pool quote").props.onClick(); await settle();
+    assert.match(text(), /≈ 0.5 WETH per SYN.*Read at /); assert.equal(time(), "2026-10-18T06:00:00.000Z");
+    assert.doesNotMatch(text(), /expired/);
+    t.mock.timers.tick(60_000); await settle();
+    assert.match(text(), /expired, refresh for a current quote/, "an old figure is labelled, never refreshed on its own");
+    amount = 4n * 10n ** 18n; button(runtime.output(), "Refresh pool quote").props.onClick(); await settle();
+    assert.match(text(), /≈ 0.25 WETH/); assert.equal(time(), "2026-10-18T06:01:00.000Z"); assert.doesNotMatch(text(), /expired|not current/);
+    fail = true; button(runtime.output(), "Refresh pool quote").props.onClick(); await settle();
+    assert.match(text(), /≈ 0.25 WETH.*Previous quote, read at .* · not current/); assert.equal(time(), "2026-10-18T06:01:00.000Z");
+    assert.match(text(), /Pool read failed/);
+    assert(button(runtime.output(), "Refresh pool quote"), "the refresh stays available after a failure");
+    let answer!: (value: { amountOut: string }) => void;
+    fail = false; const slow = new Promise<{ amountOut: string }>((resolve) => { answer = resolve; });
+    quoteSlow = slow;
+    button(runtime.output(), "Refresh pool quote").props.onClick(); await settle();
+    assert.match(text(), /Reading the pool…/);
+    assert.match(text(), /≈ 0.25 WETH.*Previous quote, read at .* · not current/, "a pending retry does not make the failed figure look current");
+    answer({ amountOut: (5n * 10n ** 18n).toString() }); await settle();
+    assert.match(text(), /≈ 0.2 WETH/); assert.doesNotMatch(text(), /not current|Pool read failed/);
+  } finally { runtime.unmount(); }
+});
+
+test("an unanswered profile refreshes the detail with backoff, and repeated failed refreshes keep the 15 s state retry going", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const answers: (() => unknown)[] = [], calls: number[] = [];
+  let clock = 0, View: any;
+  const runtime = hookRuntime(() => View({ address: coin.address, config }));
+  const { useResource } = await importFresh("src/lib/resource.ts", {
+    react: { file: import.meta.resolve("react"), bindings: runtime.hooks },
+    "./api": { file: import.meta.resolve("../src/lib/api.ts"), bindings: { chainApi: async () => { calls.push(clock); return (answers.shift() ?? answers.at(-1) ?? (() => { throw new Error("no answer"); }))(); } } },
+    "./network": { file: import.meta.resolve("../src/lib/network.tsx"), bindings: { useNetwork: () => ({ chainId: 4663 }) } },
+  });
+  ({ TokenPage: View } = await importFresh("src/App.tsx", {
+    react: { file: import.meta.resolve("react"), bindings: runtime.hooks },
+    "./lib/resource": { file: import.meta.resolve("../src/lib/resource.ts"), bindings: { useResource } },
+  }, ["TokenPage"]));
+  const wait = async (ms: number) => { for (let step = 0; step < ms; step += 1_000) { clock += 1_000; t.mock.timers.tick(1_000); await settle(); } };
+  const unanswered = () => ({ token: coin, state: { poolKey: {} }, profileStatus: "unavailable" });
+  try {
+    for (let i = 0; i < 6; i++) answers.push(unanswered);
+    runtime.render(); await settle();
+    await wait(400_000);
+    const gaps = calls.slice(1).map((at, index) => at - calls[index]);
+    assert.deepEqual(gaps.slice(0, 5), [15_000, 30_000, 60_000, 120_000, 120_000], "profile-only retries back off");
+    answers.length = 0; answers.push(() => ({ token: coin, state: { poolKey: {} } }));
+    await wait(120_000); const settled = calls.length; await wait(600_000);
+    assert.equal(calls.length, settled, "a definitive answer stops the retries");
+  } finally { runtime.unmount(); }
+  // Pool state and profile both missing, then two identical failed refreshes: the 15 s retry continues and recovers.
+  calls.length = 0; clock = 0;
+  const offline = () => { throw new Error("offline"); };
+  answers.push(() => ({ token: coin, state: null, profileStatus: "unavailable" }), offline, offline, () => ({ token: coin, state: { poolKey: {} } }));
+  const second = hookRuntime(() => View({ address: coin.address, config }));
+  const { useResource: useResource2 } = await importFresh("src/lib/resource.ts", {
+    react: { file: import.meta.resolve("react"), bindings: second.hooks },
+    "./api": { file: import.meta.resolve("../src/lib/api.ts"), bindings: { chainApi: async () => { calls.push(clock); return (answers.shift() ?? (() => ({ token: coin, state: { poolKey: {} } })))(); } } },
+    "./network": { file: import.meta.resolve("../src/lib/network.tsx"), bindings: { useNetwork: () => ({ chainId: 4663 }) } },
+  });
+  ({ TokenPage: View } = await importFresh("src/App.tsx", {
+    react: { file: import.meta.resolve("react"), bindings: second.hooks },
+    "./lib/resource": { file: import.meta.resolve("../src/lib/resource.ts"), bindings: { useResource: useResource2 } },
+  }, ["TokenPage"]));
+  try {
+    second.render(); await settle(); await wait(120_000);
+    assert.deepEqual(calls, [0, 15_000, 30_000, 45_000], "every settled request, failed or not, schedules the next one");
+  } finally { second.unmount(); }
 });

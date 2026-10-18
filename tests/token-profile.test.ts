@@ -1,4 +1,4 @@
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -8,7 +8,7 @@ import { createWalletClient, custom, getAddress, type Address, type Hex } from "
 import { privateKeyToAccount } from "viem/accounts";
 import { robinhood } from "viem/chains";
 import {
-  EMPTY_PROFILE_LINKS, effectiveProfileLinks, isCanonicalProfileLinks, launchProfileLinks, normalizeProfileLink, parseProfileLinks,
+  EMPTY_PROFILE_LINKS, displayedProfileLinks, effectiveProfileLinks, isCanonicalProfileLinks, launchProfileLinks, normalizeProfileLink, parseProfileLinks,
   profileLinkLabel, profileLinkList, profileTypedData, ProfileLinkError, PROFILE_SIGNATURE_WINDOW_MS, type ProfileLinks,
 } from "../src/lib/token-profile";
 import { creatorOwnsProfile, profileKey, readTokenProfile, saveTokenProfile, ProfileError, type ProfileStore } from "../server/token-profile";
@@ -39,6 +39,18 @@ const deps = (store = memoryStore(), extra: Partial<Parameters<typeof saveTokenP
   store, chainId: 4663, now: () => NOW, isOwner: async (token: typeof coin, signer: Address) => creatorOwnsProfile(token, signer) ?? false, ...extra,
 });
 const refused = (code: string, status: number) => (error: unknown) => error instanceof ProfileError && error.code === code && error.status === status;
+
+/** Track timers until explicitly cleared or fired, as in fetch-deadline.test.ts. */
+function timerLedger(t: TestContext) {
+  const live = new Map<object, () => void>();
+  t.mock.method(globalThis, "setTimeout", (callback: () => void) => {
+    const id = {};
+    live.set(id, () => { live.delete(id); callback(); });
+    return id;
+  });
+  t.mock.method(globalThis, "clearTimeout", (id: object) => { live.delete(id); });
+  return { live, fireAll() { for (const fire of [...live.values()]) fire(); } };
+}
 
 test("profile links accept handles, @handles and platform links, and store one canonical https URL each", () => {
   assert.equal(normalizeProfileLink("x", "@musegod_rh"), "https://x.com/musegod_rh");
@@ -385,8 +397,151 @@ test("the service cache keeps the newest profile when a save or a read finishes 
   await new Promise((resolve) => setImmediate(resolve));
   const saved = await service.saveTokenProfile(fresh, await signed(owner, links, now + 2, 4663, fresh));
   releaseRead();
-  assert.equal(await early, null, "the early read saw no profile");
-  assert.deepEqual(await service.tokenProfile(fresh), saved, "and does not cache that over the save");
+  assert.deepEqual(await early, saved, "a read the save overtook answers with the save, not the replaced launch links");
+  assert.deepEqual(await service.tokenProfile(fresh), saved, "and does not cache its older answer over the save");
+});
+
+test("a page view assembled across a save returns the save, whether it replaced or cleared the launch links", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "token-profile-page-save-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const service = new LaunchpadService({
+    config: { mode: "robinhood", chainId: 4663, deploymentChainId: 4663, treasury: null, writesEnabled: false, blockReason: null },
+    rpcUrl: "https://rpc.fixture.test", dataDir: directory, dataScope: "robinhood",
+    launchGuardCandidate: null, firstBuyGuardCandidate: null, lifi: { integrator: "musegodfun" },
+  });
+  t.after(() => service.store.close());
+  await service.store.saveToken(coin);
+  const store = service.store as any, read = store.snapshot.bind(store);
+  let issuedAt = Date.now();
+  for (const replacement of [{ ...EMPTY_PROFILE_LINKS, website: "https://b.example.org/" }, EMPTY_PROFILE_LINKS]) {
+    (service as any).profileCache.clear();
+    // Two views share a paused profile read that captured the previous answer; the owner saves before it lands.
+    let releaseRead!: () => void, paused = true;
+    const readAnswer = new Promise<void>((resolve) => { releaseRead = resolve; });
+    store.snapshot = async (key: string) => { const row = read(key); if (paused) { paused = false; await readAnswer; } return row; };
+    (service as any).state = async () => { throw new Error("offline"); };
+    const views = Promise.all([service.tokenDetail(coin.address, 5_000), service.tokenDetail(coin.address, 5_000)]);
+    await new Promise((resolve) => setImmediate(resolve));
+    const saved = await service.saveTokenProfile(coin.address, await signed(owner, replacement, ++issuedAt));
+    releaseRead();
+    for (const detail of await views) assert.deepEqual([detail?.profile, detail?.profileStatus], [saved, undefined], "shared read overtaken by a save");
+
+    // A view whose profile answer arrived first, while its pool state read is still pending when the owner saves again.
+    store.snapshot = read;
+    let releaseState!: () => void;
+    (service as any).state = () => new Promise((_resolve, reject) => { releaseState = () => reject(new Error("offline")); });
+    const pending = service.tokenDetail(coin.address, 5_000);
+    await new Promise((resolve) => setImmediate(resolve));
+    const newer = await service.saveTokenProfile(coin.address, await signed(owner, { ...replacement, x: "https://x.com/newer_handle" }, ++issuedAt));
+    releaseState();
+    assert.deepEqual((await pending)?.profile, newer, "the response carries the save that finished while the view was assembled");
+  }
+});
+
+test("an unknown save outcome discards pre-save answers, including reads and views overtaken by the save", async (t) => {
+  for (const scenario of ["fresh", "expired", "shared read", "pending view"]) {
+    const directory = mkdtempSync(join(tmpdir(), "token-profile-unknown-save-"));
+    t.after(() => rmSync(directory, { recursive: true, force: true }));
+    const service = new LaunchpadService({
+      config: { mode: "robinhood", chainId: 4663, deploymentChainId: 4663, treasury: null, writesEnabled: false, blockReason: null },
+      rpcUrl: "https://rpc.fixture.test", dataDir: directory, dataScope: "robinhood",
+      launchGuardCandidate: null, firstBuyGuardCandidate: null, lifi: { integrator: "musegodfun" },
+    });
+    t.after(() => service.store.close());
+    await service.store.saveToken(coin);
+    assert.equal(await service.tokenProfile(coin.address), null, "the pre-save answer permits launch link A");
+    const store = service.store as any, read = store.snapshot.bind(store), write = store.saveProfileSnapshot.bind(store);
+    const cache = (service as any).profileCache, key = coin.address.toLowerCase(), entry = cache.get(key);
+    (service as any).state = async () => { throw new Error("offline"); };
+    let releaseRead = () => {}, releaseState = () => {};
+    let views: Promise<any[]> | undefined;
+    let overtakenRead: Promise<void> | undefined;
+    if (scenario === "shared read") {
+      entry.at -= 120_000;
+      let paused = true;
+      const answer = new Promise<void>((resolve) => { releaseRead = resolve; });
+      store.snapshot = async (key: string) => { const row = read(key); if (paused) { paused = false; await answer; } return row; };
+      views = Promise.all([service.tokenDetail(coin.address, 5_000), service.tokenDetail(coin.address, 5_000)]);
+      await settle();
+      overtakenRead = assert.rejects(service.tokenProfile(coin.address), /could not be confirmed after a save/);
+    } else if (scenario === "pending view") {
+      (service as any).state = () => new Promise((_resolve, reject) => { releaseState = () => reject(new Error("offline")); });
+      views = Promise.all([service.tokenDetail(coin.address, 5_000)]);
+      await settle();
+    }
+    const replaced = { ...EMPTY_PROFILE_LINKS, website: "https://b.example.org/" };
+    store.saveProfileSnapshot = (key: string, data: unknown, at: number) => { assert.equal(write(key, data, at), true); throw new Error("Write response lost"); };
+    await assert.rejects(service.saveTokenProfile(coin.address, await signed(owner, replaced, Date.now())), /Write response lost/);
+    assert.deepEqual(read(profileKey(coin.address)).data.links, replaced, "the write committed before its response was lost");
+    store.snapshot = async () => { throw new Error("Storage unavailable"); };
+    if (scenario === "expired") entry.at -= 120_000;
+    releaseRead(); releaseState();
+    await overtakenRead;
+    const details = views ? await views : [await service.tokenDetail(coin.address, 30)];
+    for (const detail of details) {
+      assert.deepEqual([detail?.profile, detail?.profileStatus], [undefined, "unavailable"], scenario);
+      assert.equal(displayedProfileLinks(coin, detail?.profile ?? null, detail?.profileStatus), null, `${scenario}: no launch-link fallback`);
+    }
+    assert.equal(cache.has(key), false, `${scenario}: an overtaken read cannot restore the old cache entry`);
+    store.snapshot = read;
+    (service as any).state = async () => { throw new Error("offline"); };
+    const recovered = await service.tokenDetail(coin.address, 30);
+    assert.deepEqual([recovered?.profile?.links, recovered?.profileStatus], [replaced, undefined], "a confirmed read recovers B");
+  }
+});
+
+test("a token page never falls back to launch links the store could not confirm, and a late profile read stays within the deadline", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "token-profile-page-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const service = new LaunchpadService({
+    config: { mode: "robinhood", chainId: 4663, deploymentChainId: 4663, treasury: null, writesEnabled: false, blockReason: null },
+    rpcUrl: "https://rpc.fixture.test", dataDir: directory, dataScope: "robinhood",
+    launchGuardCandidate: null, firstBuyGuardCandidate: null, lifi: { integrator: "musegodfun" },
+  });
+  t.after(() => service.store.close());
+  await service.store.saveToken(coin);
+  const ledger = timerLedger(t);
+  (service as any).state = async () => { throw new Error("offline"); };
+  const store = service.store as any, read = store.snapshot.bind(store), key = coin.address.toLowerCase();
+  const failing = async () => { throw new Error("Storage unavailable"); };
+
+  // No answer known yet: unavailable, never "absent" (which would show the launch link A).
+  store.snapshot = failing;
+  const cold = await service.tokenDetail(coin.address, 30);
+  assert.deepEqual([cold?.profile, cold?.profileStatus, cold?.profileCheckedAt], [undefined, "unavailable", undefined]);
+
+  // The owner replaces A with B; then the cached answer ages out and the store fails: B is served stale with its confirmation time.
+  store.snapshot = read;
+  const replaced = { ...EMPTY_PROFILE_LINKS, website: "https://b.example.org/" };
+  const saved = await service.saveTokenProfile(coin.address, await signed(owner, replaced, Date.now()));
+  (service as any).profileCache.clear();
+  const definitive = await service.tokenDetail(coin.address, 30);
+  assert.deepEqual([definitive?.profile, definitive?.profileStatus], [saved, undefined]);
+  assert.equal(ledger.live.size, 0, "a fast profile read leaves no live deadline timer");
+  const entry = (service as any).profileCache.get(key); entry.at -= 120_000;
+  store.snapshot = failing;
+  const stale = await service.tokenDetail(coin.address, 30);
+  assert.deepEqual([stale?.profile, stale?.profileStatus, stale?.profileCheckedAt], [saved, "stale", entry.at]);
+
+  // A store read that never settles: both views answer by the deadline and share one read; once it lands, the next view has B.
+  (service as any).profileCache.clear();
+  let reads = 0, finish!: () => void;
+  store.snapshot = (row: string) => { reads++; return new Promise((resolve) => { finish = () => resolve(read(row)); }); };
+  const started = Date.now();
+  const pending = Promise.all([service.tokenDetail(coin.address, 30), service.tokenDetail(coin.address, 30)]);
+  await settle();
+  assert(ledger.live.size > 0, "the unfinished views have armed deadlines");
+  ledger.fireAll();
+  const late = await pending;
+  assert(Date.now() - started < 1_000, "the page does not wait for the store's own timeout");
+  assert.deepEqual(late.map((detail) => detail?.profileStatus), ["unavailable", "unavailable"]);
+  assert.equal(ledger.live.size, 0, "a profile read past the page deadline leaves no live timer");
+  assert.equal(reads, 1, "simultaneous views share one store read");
+  finish(); await new Promise((resolve) => setImmediate(resolve));
+  const filled = await service.tokenDetail(coin.address, 30);
+  assert.deepEqual([filled?.profile, filled?.profileStatus], [saved, undefined], "the late read filled the cache for the next view");
+  assert.equal(reads, 1);
+  assert.equal(ledger.live.size, 0, "the late cache fill and its next view leave no timers");
 });
 
 test("NFT profile saves use the status gate: off flag or missing database guards refuses before owner RPC", async () => {

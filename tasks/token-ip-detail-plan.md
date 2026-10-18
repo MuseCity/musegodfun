@@ -32,7 +32,7 @@ A standalone ERC-8004 agent launch does not exist in the launch flow, so standal
 ## 3. Layout
 
 - **Hero card:** coin image, an overline (network, pair, launch date; NFT coins: collection and token id), name, `$SYMBOL`, trust badges, the launch description as the story, a meta row (creator and the fee line; NFT coins add the pair and launch date), the link row (social links, OpenSea for NFT coins, Share, Edit profile for the owner), a headline figure (the creator's or NFT treasury's share of every trading fee) and a stat band of facts the page already has (trading fee, buyback share, opening valuation, supply, linked channels, age).
-- **Aside:** the trade card, then the fee beneficiary card. It is a sticky right column when the columns fit side by side (a container query on the columns' own width) and leads the page otherwise.
+- **Aside:** the trade card, then the fee beneficiary card. It is a sticky right column when the columns fit side by side (a container query on the columns' own width) and leads the page otherwise. Superseded on 2026-10-18 by `tasks/ip-page-improvements-2026-10-18-plan.md` §4: the tabs now follow the hero and the aside comes after them when stacked.
   - Trade card: the price block (market summary price and 24h change, market cap, liquidity, 24h volume, with source attribution), "Trade on Doppler" (gold), "Open Fomo with invite" plus the contract to search, what a $100 buy pays, and "musegod.fun adds no fee of its own and signs nothing here". When the summary has no price, a "Get pool quote" button reads one on-chain quote for 1 unit of the pair asset, labelled as that buy's average price; it never runs automatically.
   - Beneficiary card: the creator address (Route 1) or the NFT, its vault and treasury (Routes 2–3), the share, and a button that opens the On-chain tab.
 - **Tabs:** Overview, Activity, On-chain.
@@ -67,7 +67,7 @@ A standalone ERC-8004 agent launch does not exist in the launch flow, so standal
 6. NFT coins show the collection overline, OpenSea link and NFT treasury card; Muse agent coins show the identity card.
 7. Profiles survive cleanup in both stores.
 8. `npm test`, `npm run typecheck` and `npm run build` pass; repo documents stay English; README and SPEC describe the new page.
-9. The page works at phone width (390 px): the aside stacks above the tabs, tabs scroll horizontally, no horizontal page scroll.
+9. The page works at phone width (390 px): the aside stacks above the tabs, tabs scroll horizontally, no horizontal page scroll. (Stacking order superseded on 2026-10-18: the tabs come first, see `tasks/ip-page-improvements-2026-10-18-plan.md` §4.)
 
 ## 7. Review
 

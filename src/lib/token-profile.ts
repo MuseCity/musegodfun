@@ -113,6 +113,15 @@ export function launchProfileLinks(token: Pick<TokenRecord, "twitter" | "telegra
 export function effectiveProfileLinks(token: Pick<TokenRecord, "twitter" | "telegram" | "website">, profile?: Pick<TokenProfile, "links"> | null): ProfileLinks {
   return profile && isCanonicalProfileLinks(profile.links) ? { ...profile.links } : launchProfileLinks(token);
 }
+/** A token detail's profile answer when the store could not give one in time (tasks/ip-page-improvements-2026-10-18-plan.md §1):
+ * "stale" is the server's last answer (`profileCheckedAt` says when it was confirmed), "unavailable" means no answer is known. */
+export type ProfileStatus = "stale" | "unavailable";
+/** The links a page view may show, or null while the saved profile is unknown: a launch link its owner replaced or cleared must not
+ * return in its place. */
+export function displayedProfileLinks(token: Pick<TokenRecord, "twitter" | "telegram" | "website">, profile: Pick<TokenProfile, "links"> | null | undefined,
+  status: ProfileStatus | undefined): ProfileLinks | null {
+  return status === "unavailable" ? null : effectiveProfileLinks(token, profile);
+}
 
 /** The visible text of a link: the platform and its handle when the link names one, else the platform alone (or the site's host). */
 export function profileLinkLabel(field: ProfileField, href: string): string {

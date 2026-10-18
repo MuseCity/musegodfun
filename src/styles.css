@@ -556,12 +556,16 @@ dialog.modal[open] { display: flex; flex-direction: column; gap: 16px; }
 /* Values never truncate: a number stays on one line and its hint wraps under it. */
 .token-hero-stats dd { margin: 0; font-family: var(--font-mono); font-size: 15px; line-height: 22px; font-weight: 500; }
 .token-hero-stats dd small { font-family: var(--font-sans); font-size: 11px; font-weight: 500; color: var(--ink-muted); }
-/* The trade card leads whenever the two columns cannot sit side by side (by the columns' own width, not the window's),
- * and moves to a sticky right column once they can. */
-.token-columns { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 20px; container-type: inline-size; }
+/* Two columns from 820 px of content, measured on the page's own width (a 1180 px desktop window leaves about 853–868 px); stacked,
+   the tabs follow the hero and the aside comes after them, in DOM order (tasks/ip-page-improvements-2026-10-18-plan.md §4). */
+.token-page { display: flex; flex-direction: column; gap: inherit; container: token-page / inline-size; }
+.token-columns { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 20px; }
 .token-aside { flex: 1 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
-.token-main { flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
-@container (min-width: 900px) { .token-aside { order: 1; max-width: 380px; position: sticky; top: 24px; } }
+.token-main { flex: 999 1 480px; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+@container token-page (min-width: 820px) {
+  .token-aside { max-width: 380px; position: sticky; top: 24px; }
+  .token-hero-trade { display: none; }
+}
 .token-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }
 .token-tabs::-webkit-scrollbar { display: none; }
 .token-tabs button { flex: none; min-height: 44px; padding: 0 14px; margin-bottom: -1px; border-bottom: 2px solid transparent; font-size: 12px; line-height: 16px;
@@ -580,6 +584,8 @@ dialog.modal[open] { display: flex; flex-direction: column; gap: 16px; }
 .venue-probe { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
 .venue-probe-result { font-size: 13px; line-height: 18px; }
 .venue-probe-result .mono { font-size: 18px; line-height: 24px; font-weight: 500; }
+.venue-probe-result.stale .mono { color: var(--ink-muted); }
+.venue-probe-time { display: block; }
 .venue { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--line); }
 .venue-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 8px; }
 .venue-head b { font-size: 15px; line-height: 20px; }

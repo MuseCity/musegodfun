@@ -17,6 +17,21 @@ export function tokenFeeCardTier(token: Pick<TokenRecord, "nft" | "creator" | "f
   return treasury || !!token.creator && sameAddress(token.creator, account) ? "token" : "compact";
 }
 
+/** The token page's tabs. The selected one is the `tab` query parameter (none for Overview), so a copied link opens it
+ * (tasks/ip-page-improvements-2026-10-18-plan.md §4). */
+export type TokenTab = "overview" | "activity" | "onchain";
+export function tokenTabFromSearch(search: string): TokenTab {
+  const tab = new URLSearchParams(search).get("tab");
+  return tab === "activity" || tab === "onchain" ? tab : "overview";
+}
+/** `search` with the tab parameter for `tab` (removed for Overview); other parameters stay as they are. */
+export function searchWithTokenTab(search: string, tab: TokenTab): string {
+  const params = new URLSearchParams(search);
+  if (tab === "overview") params.delete("tab"); else params.set("tab", tab);
+  const next = params.toString();
+  return next ? `?${next}` : "";
+}
+
 /** The coin's page on Doppler's app (tasks/token-ip-detail-plan.md §4). Every registered launch is a Doppler pool whose identity the
  * server verified against the canonical contracts at registration; a local fork never links to mainnet. */
 export function dopplerUrl(token: Pick<TokenRecord, "address" | "mode">): string | null {

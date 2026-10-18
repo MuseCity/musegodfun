@@ -74,7 +74,7 @@ import { BudgetUnavailable } from "./runtime-policy";
 import { NftLaunchError, assertNftDraftRules, inspectVaultFactory, launchFeeQuoteMac, nftRegistrationStatus, readMuseAgentId, readMuseName, readNftControl, settleLaunchFee, verifyLaunchFeePayment, type NftRegistrationStatus, type RegistrationFee } from "./nft-launch";
 import { isMuse, nftKey, treasuryFor, vaultFor, type NftRef, type NftStatus } from "../src/lib/nft-mode";
 import { creatorOwnsProfile, ProfileError, readTokenProfile, saveTokenProfile } from "./token-profile";
-import type { TokenProfile } from "../src/lib/token-profile";
+import type { ProfileStatus, TokenProfile } from "../src/lib/token-profile";
 import { ERC1967_IMPLEMENTATION_SLOT, treasuryInitialized } from "../src/lib/nft-treasury";
 import { LAUNCH_FEE_QUOTE_TTL, LAUNCH_FEE_STABLE, LAUNCH_FEE_USD, type LaunchFee } from "../src/lib/launch-fee";
 import { NftHoldings } from "./nft-holdings";
@@ -114,8 +114,9 @@ export class LaunchpadService {
   private readonly museDetails = new Map<string, { at: number; value: { name?: string; agentId?: string } }>();
   // Saved social profiles by lowercased coin address, for 60 seconds; a save replaces its entry.
   private readonly profileCache = new Map<string, { at: number; value: TokenProfile | null }>();
-  /** Counts this runtime's successful profile saves per coin, so a read that began before a save never caches over it. */
+  /** Counts successful or unknown-outcome profile saves per coin, so a read that began before a save never caches over it. */
   private readonly profileSaves = new Map<string, number>();
+  private readonly profileReads = new Map<string, Promise<TokenProfile | null>>();
   private openingRequests?: Map<string, Promise<LifiOpeningValuation>>;
   private registerRequests?: Map<string, Promise<TokenRecord>>;
   private stateReads?: Map<string, ReturnType<LaunchpadService["state"]>>;
@@ -1273,21 +1274,29 @@ export class LaunchpadService {
    * not as a transient outage. */
   async tokenDetail(address: Address, stateDeadlineMs = TOKEN_STATE_DEADLINE_MS): Promise<{ token: TokenRecord;
     state: Awaited<ReturnType<LaunchpadService["state"]>>["state"] | null; stateError?: string; stateInvalid?: true;
-    profile?: TokenProfile; nftProfile?: { name?: string; agentId?: string } } | null> {
+    profile?: TokenProfile; profileStatus?: ProfileStatus; profileCheckedAt?: number; nftProfile?: { name?: string; agentId?: string } } | null> {
     const token = await this.store.token(address);
     if (!token || !listedTokens([token], this.runtime.config.mode, deploymentChain(this.runtime.config)).length) return null;
     const deadline = Date.now() + stateDeadlineMs;
-    // Display extras never fail the page: a missing profile shows the launch links, a missing Muse name or agent shows neither. The
-    // profile comes from the store like the token itself; the Muse reads need the RPC, so they share the state read's deadline and an
-    // unfinished read is left out (it keeps running and fills the cache for the next view).
-    const profile = this.tokenProfile(token.address).catch(() => null);
+    // Display extras never fail the page or hold it past the state read's deadline; an unfinished read keeps running and fills the
+    // service's memory cache, which DO hibernation discards. A profile the store could not answer is reported as stale or unavailable,
+    // never as absent, so the page does not fall back to launch links its owner may have replaced
+    // (tasks/ip-page-improvements-2026-10-18-plan.md §1–2). A missing Muse name or agent shows neither.
+    const coinKey = token.address.toLowerCase(), savesAtStart = this.profileSaves.get(coinKey) ?? 0;
+    const profile = this.pageProfile(token.address, deadline);
     const muse = token.nft && isMuse(token.nft) && token.mode !== "fork" ? this.sharedMuseProfile(token.nft).catch(() => ({})) : null;
     const extras = async () => {
       let timer: ReturnType<typeof setTimeout> | undefined;
-      const [saved, nftProfile] = await Promise.all([profile, muse && Promise.race([muse, new Promise<null>((resolve) => {
+      let [saved, nftProfile] = await Promise.all([profile, muse && Promise.race([muse, new Promise<null>((resolve) => {
         timer = setTimeout(() => resolve(null), Math.max(0, deadline - Date.now()));
       })]).finally(() => clearTimeout(timer))]);
-      return { ...(saved ? { profile: saved } : {}), ...(nftProfile && Object.keys(nftProfile).length ? { nftProfile } : {}) };
+      // A save that finished while this view was assembled (the pool state read can take seconds) is newer than any answer read before it.
+      if ((this.profileSaves.get(coinKey) ?? 0) !== savesAtStart) {
+        const cached = this.profileCache.get(coinKey);
+        saved = cached ? { profile: cached.value } : { profile: null, status: "unavailable" };
+      }
+      return { ...(saved.profile ? { profile: saved.profile } : {}), ...(saved.status ? { profileStatus: saved.status } : {}),
+        ...(saved.checkedAt !== undefined ? { profileCheckedAt: saved.checkedAt } : {}), ...(nftProfile && Object.keys(nftProfile).length ? { nftProfile } : {}) };
     };
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
@@ -1300,40 +1309,71 @@ export class LaunchpadService {
         ...await extras() };
     } finally { clearTimeout(timer); }
   }
-  /** The coin's saved social profile (tasks/token-ip-detail-plan.md §5), or null when its owner has not saved one. */
+  /** The coin's saved social profile (tasks/token-ip-detail-plan.md §5), or null when its owner has not saved one. Simultaneous reads
+   * share one store request, so a slow store does not stack a request per page view. */
   async tokenProfile(address: Address): Promise<TokenProfile | null> {
     const key = address.toLowerCase(), cached = this.profileCache.get(key);
     if (cached && Date.now() - cached.at < 60_000) return cached.value;
+    const pending = this.profileReads.get(key);
+    if (pending) return pending;
     const saves = this.profileSaves.get(key) ?? 0;
-    const value = await readTokenProfile(this.store, address);
-    // A save that finished while this read was in flight already cached a newer answer; this read must not replace it.
-    if ((this.profileSaves.get(key) ?? 0) === saves) this.profileCache.set(key, { at: Date.now(), value });
-    return value;
+    const read = readTokenProfile(this.store, address).then((value) => {
+      if ((this.profileSaves.get(key) ?? 0) === saves) { this.profileCache.set(key, { at: Date.now(), value }); return value; }
+      // A save overtook this read. Its confirmed answer wins; an unknown write outcome leaves no answer to trust.
+      const current = this.profileCache.get(key);
+      if (!current) throw new Error("The saved profile could not be confirmed after a save.");
+      return current.value;
+    }).finally(() => { if (this.profileReads.get(key) === read) this.profileReads.delete(key); });
+    this.profileReads.set(key, read);
+    return read;
+  }
+  /** A page view's profile by `deadline`: the store's answer, else this service's last answer marked stale with the time it was confirmed
+   * (kept only in memory, discarded on DO hibernation or an unknown write outcome), else unavailable. */
+  private async pageProfile(address: Address, deadline: number): Promise<{ profile: TokenProfile | null; status?: ProfileStatus; checkedAt?: number }> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const answer = await Promise.race([
+      this.tokenProfile(address).then((profile) => ({ profile }), () => null),
+      new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), Math.max(0, deadline - Date.now())); }),
+    ]).finally(() => clearTimeout(timer));
+    if (answer) return answer;
+    const cached = this.profileCache.get(address.toLowerCase());
+    return cached ? { profile: cached.value, status: "stale", checkedAt: cached.at } : { profile: null, status: "unavailable" };
   }
   /** Saves the coin's social links signed by its owner: the creator for a plain coin, the NFT's holder or delegate for an NFT coin. */
   async saveTokenProfile(rawAddress: unknown, body: unknown): Promise<TokenProfile> {
     const token = await this.token(addressSchema.parse(rawAddress));
     if (token.nft && !(await this.nftModeEnabled()))
       throw new ProfileError("PROFILE_UNAVAILABLE", "NFT profile editing is unavailable while NFT mode is unavailable on this network.", 409);
-    const profile = await saveTokenProfile(token, body, {
-      store: this.store,
-      chainId: token.deploymentChainId ?? deploymentChain(this.runtime.config),
-      verifyContractSignature: async (signer, typedData, signature) => {
-        await this.assertNetwork();
-        const code = await this.client.getCode({ address: signer });
-        // An undeployed smart account signs with the ERC-6492 wrapper; any other signer without code is an EOA that local recovery refused.
-        if ((!code || code === "0x") && !signature.toLowerCase().endsWith("6492".repeat(16))) return false;
-        return this.client.verifyTypedData({ address: signer, ...typedData, signature }).catch(() => false);
-      },
-      isOwner: async (coin, signer) => {
-        const creator = creatorOwnsProfile(coin, signer);
-        if (creator !== null) return creator;
-        await this.assertNetwork();
-        return (await readNftControl(this.client, coin.nft!, signer)).controls;
-      },
-    });
+    const key = token.address.toLowerCase();
+    let profile: TokenProfile;
+    try {
+      profile = await saveTokenProfile(token, body, {
+        store: this.store,
+        chainId: token.deploymentChainId ?? deploymentChain(this.runtime.config),
+        verifyContractSignature: async (signer, typedData, signature) => {
+          await this.assertNetwork();
+          const code = await this.client.getCode({ address: signer });
+          // An undeployed smart account signs with the ERC-6492 wrapper; any other signer without code is an EOA that local recovery refused.
+          if ((!code || code === "0x") && !signature.toLowerCase().endsWith("6492".repeat(16))) return false;
+          return this.client.verifyTypedData({ address: signer, ...typedData, signature }).catch(() => false);
+        },
+        isOwner: async (coin, signer) => {
+          const creator = creatorOwnsProfile(coin, signer);
+          if (creator !== null) return creator;
+          await this.assertNetwork();
+          return (await readNftControl(this.client, coin.nft!, signer)).controls;
+        },
+      });
+    } catch (error) {
+      if (!(error instanceof ProfileError)) {
+        // The store may have committed before its response was lost. Neither the old cache nor a read begun before this save is safe.
+        this.profileCache.delete(key);
+        this.profileSaves.set(key, (this.profileSaves.get(key) ?? 0) + 1);
+      }
+      throw error;
+    }
     // Saves can finish out of order: only the newest signature this runtime has seen goes in the cache.
-    const key = token.address.toLowerCase(), cached = this.profileCache.get(key)?.value;
+    const cached = this.profileCache.get(key)?.value;
     this.profileSaves.set(key, (this.profileSaves.get(key) ?? 0) + 1);
     if (!cached || cached.issuedAt < profile.issuedAt) this.profileCache.set(key, { at: Date.now(), value: profile });
     return profile;

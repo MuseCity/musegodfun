@@ -14,11 +14,12 @@ const PLACEHOLDERS: Record<ProfileField, string> = {
 
 /** The owner's editor for a coin's social links (tasks/token-ip-detail-plan.md §5). Saving signs typed data with the owner's wallet;
  * the server checks the signature and that the signer owns the profile. Name, symbol, image and story are fixed at launch. */
-export default function ProfileEditor({ token, links, owner, onClose, onSaved }: {
+export default function ProfileEditor({ token, links, owner, blocked, onClose, onSaved }: {
   token: TokenRecord;
   links: ProfileLinks;
   /** Who may save, in one sentence. */
   owner: string;
+  blocked?: string;
   onClose: () => void;
   onSaved: (profile: TokenProfile) => void;
 }) {
@@ -34,7 +35,7 @@ export default function ProfileEditor({ token, links, owner, onClose, onSaved }:
     try { normalizeProfileLink(field, value); return ""; } catch (cause) { return cause instanceof ProfileLinkError ? cause.message : "Not a valid link."; }
   }
   async function save() {
-    if (saving.current) return;
+    if (saving.current || blocked) return;
     setError("");
     const found = Object.fromEntries(PROFILE_FIELDS.map((field) => [field, check(field, values[field])]).filter(([, message]) => message));
     setErrors(found);
@@ -83,10 +84,11 @@ export default function ProfileEditor({ token, links, owner, onClose, onSaved }:
         <b>Set at launch, cannot change.</b> Name, symbol, image and story live in the coin's on-chain metadata.
       </div>
       <p className="trade-progress" role="status">{busy}</p>
+      {blocked && <p className="notice" role="status">{blocked}</p>}
       {error && <p className="notice error" role="alert"><span>{error}</span></p>}
       <div className="button-row profile-actions">
         <button type="button" className="secondary" onClick={() => dialog.current?.close()} disabled={!!busy}>Cancel</button>
-        <button type="submit" className="primary" disabled={!!busy}>{wallet.account ? "Sign and save" : "Connect wallet"}</button>
+        <button type="submit" className="primary" disabled={!!busy || !!blocked}>{wallet.account ? "Sign and save" : "Connect wallet"}</button>
       </div>
     </form>
   </dialog>;

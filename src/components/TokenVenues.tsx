@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { ArrowDownRight, ArrowUpRight, Check, Copy, RefreshCw } from "lucide-react";
 import { formatUnits } from "viem";
 import type { Stock, TokenRecord } from "../lib/config";
@@ -7,6 +7,10 @@ import { summaryHasValues } from "../lib/market";
 import { dopplerUrl, fomoInviteUrl, LP_FEE_PERCENT, ownershipDisclaimer, poolFeeOn100 } from "../lib/token-detail";
 import { errorMessage } from "../lib/validation";
 import { formatUsd, MarketProvenance, type LaunchMarket } from "./TokenMarket";
+
+/** A pool quote older than this is labelled expired; it is never refreshed automatically. */
+export const POOL_QUOTE_TTL_MS = 60_000;
+const clock = (at: number) => new Date(at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
 /** The page's only trading surface (tasks/token-ip-detail-plan.md §3–4): the market price block, then the venues. Nothing here signs. */
 export default function TokenVenues({ token, stock, market, fomoHandle, stateUnavailable = false, quoteProbe }: {
@@ -21,7 +25,17 @@ export default function TokenVenues({ token, stock, market, fomoHandle, stateUna
 }) {
   const doppler = dopplerUrl(token), fomo = fomoInviteUrl(token, fomoHandle);
   const [copied, setCopied] = useState<"" | "done" | "failed">("");
-  const [probe, setProbe] = useState<{ busy: boolean; price: string; error: string }>({ busy: false, price: "", error: "" });
+  // The last pool quote and its read time stay after a failed refresh, labelled as not current (tasks/ip-page-improvements-2026-10-18-plan.md §3).
+  // `failed` marks a quote whose later refresh failed; it stays until a refresh succeeds, even while another one is pending.
+  const [probe, setProbe] = useState<{ busy: boolean; quote: { price: string; at: number; failed?: true } | null; error: string }>({ busy: false, quote: null, error: "" });
+  // The read time of the quote whose expiry timer fired, so a newer quote never inherits the label.
+  const [expiredAt, setExpiredAt] = useState(0);
+  useEffect(() => {
+    const at = probe.quote?.at;
+    if (!at) return;
+    const timer = setTimeout(() => setExpiredAt(at), Math.max(0, at + POOL_QUOTE_TTL_MS - Date.now()));
+    return () => clearTimeout(timer);
+  }, [probe.quote?.at]);
   const { stats, summary } = market;
   // Metrics show whenever the summary holds any value; the price line needs a price, otherwise the pool quote fallback is offered.
   const hasValues = summaryHasValues(stats), hasPrice = stats?.priceUsd != null || !!stats?.priceQuote;
@@ -30,15 +44,18 @@ export default function TokenVenues({ token, stock, market, fomoHandle, stateUna
     : stats?.priceQuote ? Number(stats.priceQuote).toLocaleString("en-US", { maximumSignificantDigits: 6 }) : "—";
   const poolFee = poolFeeOn100(token), disclaimer = ownershipDisclaimer(token.symbol, stock);
   async function readProbe() {
-    setProbe({ busy: true, price: "", error: "" });
+    setProbe((current) => ({ ...current, busy: true, error: "" }));
     try {
       const tokens = Number(formatUnits(BigInt((await quoteProbe()).amountOut), 18));
       if (!(tokens > 0)) throw new Error("The pool returned no tokens for this amount.");
-      setProbe({ busy: false, price: (1 / tokens).toLocaleString("en-US", { maximumSignificantDigits: 6 }), error: "" });
-    } catch (cause) { setProbe({ busy: false, price: "", error: errorMessage(cause) }); }
+      setProbe({ busy: false, quote: { price: (1 / tokens).toLocaleString("en-US", { maximumSignificantDigits: 6 }), at: Date.now() }, error: "" });
+    } catch (cause) {
+      setProbe((current) => ({ busy: false, quote: current.quote && { ...current.quote, failed: true }, error: errorMessage(cause) }));
+    }
   }
+  const quote = probe.quote, expired = !!quote && expiredAt === quote.at, quoteCurrent = !!quote && !expired && !quote.failed;
   return (
-    <section className="card venue-card" id="trade" aria-labelledby="trade-title">
+    <section className="card venue-card" id="trade" tabIndex={-1} aria-labelledby="trade-title">
       <div className="card-head">
         <h2 id="trade-title" className="card-title">Trade ${token.symbol}</h2>
         <span className="pill">{stock.symbol} pair</span>
@@ -63,10 +80,12 @@ export default function TokenVenues({ token, stock, market, fomoHandle, stateUna
           {stateUnavailable && <p className="hint" role="status">On-chain pool state is unavailable, so the pool quote is paused. Retrying automatically.</p>}
           {token.mode !== "fork" && !summary.loading && !stateUnavailable && <>
             {/* Mounted before the result arrives, so screen readers announce it. */}
-            <div role="status">{probe.price && <p className="venue-probe-result">Average price: <span className="mono">≈ {probe.price}</span> {stock.symbol} per {token.symbol}
-              <small className="hint"> · average for a 1-unit buy with 1 {stock.symbol}, fees included</small></p>}</div>
-            {!probe.price && <button type="button" className="secondary" disabled={probe.busy} onClick={() => void readProbe()}>
-              <RefreshCw size={14} className={probe.busy ? "spin" : undefined} />{probe.busy ? "Reading the pool…" : "Get pool quote"}</button>}
+            <div role="status">{quote && <p className={`venue-probe-result${quoteCurrent ? "" : " stale"}`}>Average price: <span className="mono">≈ {quote.price}</span> {stock.symbol} per {token.symbol}
+              <small className="hint"> · average for a 1-unit buy with 1 {stock.symbol}, fees included</small>
+              <small className="hint venue-probe-time">{quote.failed ? "Previous quote, read" : "Read"} at <time dateTime={new Date(quote.at).toISOString()}>{clock(quote.at)}</time>
+                {quote.failed ? " · not current" : expired ? " · expired, refresh for a current quote" : ""}</small></p>}</div>
+            <button type="button" className="secondary" disabled={probe.busy} onClick={() => void readProbe()}>
+              <RefreshCw size={14} className={probe.busy ? "spin" : undefined} />{probe.busy ? "Reading the pool…" : quote ? "Refresh pool quote" : "Get pool quote"}</button>
             {probe.error && <p className="field-error" role="alert">{probe.error}</p>}
           </>}
         </div>}
