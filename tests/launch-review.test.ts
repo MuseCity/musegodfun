@@ -6,13 +6,14 @@ import { FEE_POLICY } from "../src/lib/fee-policy";
 import { firstBuyPaymentAssets } from "../src/lib/first-buy-payment";
 import { CURVE_POLICY } from "../src/lib/launch-curve";
 import { NFT_DISCLAIMER } from "../src/components/NftLaunchStep";
-import { find, holder, installGlobals, launchForm, muse, nodes, store, textOf } from "./launch-form";
+import { find, holder, installGlobals, launchForm, muse, nodes, store, textOf, wallet } from "./launch-form";
 
 // Owner, 2026-10-18: the launch review dialog repeated itself. Each fact a person needs before signing is stated once; nothing the
 // wallet signs, no amount, fee, lock, irreversible effect or NFT rule is lost (tasks/launch-review-trim-plan.md).
 
 const weth = ROBINHOOD_STOCKS.find((asset) => asset.symbol === "WETH")!;
 const usdg = firstBuyPaymentAssets(4663, weth.address).find((asset) => asset.symbol === "USDG")!;
+const eth = firstBuyPaymentAssets(4663, weth.address).find((asset) => asset.symbol === "ETH")!;
 const treasury = "0x1111111111111111111111111111111111111111", token = "0x2222222222222222222222222222222222222222";
 const preview = { treasury, launchGuard: "0x3333333333333333333333333333333333333333", curvePolicy: CURVE_POLICY } as const;
 const minimumOut = 3_267_000_000_000_000n;
@@ -29,15 +30,17 @@ function prepare(body: any) {
       deadline: Math.floor(now / 1000) + 300, recipient: body.creator, quoteAddress: weth.address, guard: preview.launchGuard,
       bundler: preview.launchGuard, lockDays: body.firstBuy.lockDays } } : {}) };
 }
-/** A LI.FI quote converting 10 USDG into at least 0.003267 WETH, for `account`. */
-const quote = (account: string) => (body: any) => {
-  const now = Date.now();
-  return { protocol: "lifi", id: "quote-1", transactionId: `0x${"ef".repeat(32)}`, integrator: "musegodfun", tool: "test", chainId: 4663, account,
-    fromToken: usdg, toToken: { chainId: 4663, address: weth.address, symbol: "WETH", decimals: 18 }, amountIn: parseUnits(body.amount, 6).toString(),
-    expectedOut: "3300000000000000", minimumOut: minimumOut.toString(), slippageBps: body.slippageBps, quotedAt: now, expiresAt: now + 60_000,
-    router: token, facet: token, facetRuntimeHash: `0x${"00".repeat(32)}`, blockNumber: "1", blockHash: `0x${"00".repeat(32)}`,
-    transaction: { to: token, data: "0x", value: "0" }, approval: null, feeAmount: "25000", feeUsd: "0.03", gasFeeUsd: "0.01", amountInUsd: "10" };
+/** A LI.FI quote converting 10 USDG into at least 0.003267 WETH for `account`; with `wrap`, ETH wrapped one to one, with no route fee. */
+const quote = (account: string, wrap = false) => (body: any) => {
+  const now = Date.now(), amountIn = parseUnits(body.amount, wrap ? 18 : 6).toString();
+  return { protocol: wrap ? "wrap" : "lifi", id: "quote-1", transactionId: `0x${"ef".repeat(32)}`, integrator: "musegodfun", tool: "test", chainId: 4663, account,
+    fromToken: wrap ? eth : usdg, toToken: { chainId: 4663, address: weth.address, symbol: "WETH", decimals: 18 }, amountIn,
+    expectedOut: wrap ? amountIn : "3300000000000000", minimumOut: wrap ? amountIn : minimumOut.toString(), slippageBps: body.slippageBps, quotedAt: now,
+    expiresAt: now + 60_000, router: token, facet: token, facetRuntimeHash: `0x${"00".repeat(32)}`, blockNumber: "1", blockHash: `0x${"00".repeat(32)}`,
+    transaction: { to: token, data: "0x", value: "0" }, approval: null, feeAmount: wrap ? "0" : "25000", feeUsd: wrap ? "0" : "0.03",
+    gasFeeUsd: wrap ? null : "0.01", amountInUsd: "10" };
 };
+const firstBuyHint = /Creator and platform fees are waived on this first buy; protocol and LP fees are included in the token amounts\. Any required approval comes first, then the complete launch and buy is simulated before you confirm; if the buy fails, the launch reverts too, and a confirmed approval stays in place\./;
 const count = (text: string, pattern: RegExp) => text.match(new RegExp(pattern.source, `${pattern.flags.replace("g", "")}g`))?.length ?? 0;
 const byClass = (node: any, name: string) => find(node, (element) => String(element.props?.className ?? "").split(" ").includes(name));
 const byLabel = (node: any, label: string) => find(node, (element) => element.props?.["aria-label"] === label);
@@ -86,10 +89,11 @@ test("a first buy paid by conversion shows each amount, fee, lock and the recipi
     ["Fees", "0.025 USDG (≈ $0.03) route fee · gas ≈ $0.01"]]);
   const buy = byLabel(dialog, "First buy preview");
   assert.deepEqual(terms(buy), ["You spend", "Estimated tokens received", "Minimum tokens received", "Share of total supply", "First buy lock", "Recipient"]);
-  assert.deepEqual(rows(buy)[0], ["You spend", `${spend} WETH · approval for this amount only`]);
+  assert.deepEqual(rows(buy)[0], ["You spend", `At least ${spend} WETH, the conversion's actual output · approval for that amount only`]);
   assert.deepEqual(rows(buy)[4], ["First buy lock", "No lock"]);
   assert.deepEqual(rows(buy)[5], ["Recipient", holder]);
-  assert.match(textOf(buy), /Any required approval comes first; if the buy fails, the launch reverts too, and a confirmed approval stays in place\./);
+  assert.match(textOf(byLabel(dialog, "Payment conversion review")), /its actual output funds the first buy below, previewed at the guaranteed minimum; your token minimum stays fixed\./);
+  assert.match(textOf(buy), firstBuyHint);
   assert.equal(count(text, new RegExp(holder, "i")), 1, "the recipient is shown once");
   assert.equal(count(text, /slippage/i), 1, "slippage appears only as its control");
   assert.equal(count(text, /five minutes|5-minute|expires/i), 1, "the signing window is stated once");
@@ -115,9 +119,67 @@ test("a locked first buy in the pair asset needs no conversion card and shows it
   assert.equal(textOf(find(buy, (element) => element.props?.className === "step-number")), "1");
   assert.deepEqual(rows(buy)[0], ["You spend", "0.01 WETH · approval for this amount only"]);
   assert.match(rows(buy)[4][1], /30 days · releases in full/);
+  assert.match(textOf(buy), firstBuyHint, "the first buy's own fee treatment, simulation and revert are stated");
   assert.equal(count(text, /five minutes|5-minute|expires/i), 1);
   assert.deepEqual(success(dialog), [`First buy quoted · Predicted token address${token}`]);
   assert(find(dialog, (element) => element.type === "button" && textOf(element) === "Confirm launch and first buy"));
+});
+
+test("an ETH wrap names no route fee and keeps the gas fact", async (t) => {
+  const form = await launchForm(t, { config: preview, api: { "/first-buy/quote": quote(holder, true), "/launch/prepare": prepare } });
+  await form.type("name", "Preview Cat"); await form.type("symbol", "PCAT");
+  await form.submit();
+  await form.firstBuy({ amount: "0.01", payAddress: eth.address });
+  await form.submit();
+  const dialog = form.dialog(), card = byLabel(dialog, "Payment conversion review");
+  assert.match(textOf(card), /^1Wrap ETH into WETH/);
+  assert.deepEqual(rows(card), [["You pay", "0.01 ETH → at least 0.01 WETH"], ["Fees", "No route fee · gas unavailable"]]);
+  assert(find(dialog, (element) => element.type === "button" && textOf(element) === "Wrap ETH and launch"));
+});
+
+test("the success notice leaves with its payment quote and its preview; the expiry notice takes its place", async (t) => {
+  let now = Date.now(); t.mock.method(Date, "now", () => now);
+  // A hidden tab does not refresh the preview in the background, so the expired state stays on screen.
+  (document as { visibilityState: string }).visibilityState = "hidden";
+  t.after(() => { (document as { visibilityState: string }).visibilityState = "visible"; });
+  const form = await launchForm(t, { config: preview, api: { "/first-buy/quote": quote(holder), "/launch/prepare": prepare } });
+  await form.type("name", "Preview Cat"); await form.type("symbol", "PCAT");
+  await form.submit();
+  await form.firstBuy({ amount: "10", payAddress: usdg.address });
+  await form.submit();
+  assert.equal(success(form.dialog()).length, 1);
+  now += 60_001; t.mock.timers.tick(60_001); await form.flush();
+  assert.deepEqual(success(form.dialog()), [], "an expired payment quote is not reported as quoted");
+  now += 240_000; t.mock.timers.tick(240_000); await form.flush();
+  assert.deepEqual(success(form.dialog()), []);
+  assert.match(textOf(form.dialog()), /This preview has expired\. Continuing refreshes it automatically/);
+});
+
+test("after a completed conversion the First buy tile shows the received pair asset and the payment it came from", async (t) => {
+  const hash = `0x${"ee".repeat(32)}`, received = 3_300_000_000_000_000n;
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: { locks: { request: async (_key: string, _options: unknown, run: (lock: unknown) => unknown) => run({}) } } });
+  wallet.payFirstBuy = async (_quote: unknown, _config: unknown, _progress: unknown, onHash: (hash: string) => void) => {
+    onHash(hash); return { status: "success", hash, actualOutput: received.toString(), blockNumber: "2", blockHash: `0x${"00".repeat(32)}` };
+  };
+  t.after(() => { delete wallet.payFirstBuy; });
+  let prepares = 0;
+  // The funded preview's minimum changed, so the review stops for the person to accept it.
+  const form = await launchForm(t, { config: preview, api: { "/first-buy/quote": quote(holder),
+    "/launch/prepare": (body) => ({ ...prepare(body), ...(++prepares > 1 ? { requiresReconfirmation: true } : {}) }) } });
+  await form.type("name", "Preview Cat"); await form.type("symbol", "PCAT");
+  await form.submit();
+  await form.firstBuy({ amount: "10", payAddress: usdg.address });
+  await form.submit();
+  find(form.dialog(), (element) => element.type === "button" && textOf(element) === "Convert payment and launch").props.onClick();
+  await form.flush();
+  const dialog = form.dialog(), output = formatUnits(received, 18);
+  assert.deepEqual(form.calls, ["/first-buy/quote", "/launch/prepare", "/launch/prepare"]);
+  assert(find(dialog, (element) => element.type === "button" && textOf(element) === "Accept updated minimum"));
+  assert.equal(byLabel(dialog, "Payment conversion review"), null, "the payment is done");
+  assert.deepEqual(rows(byClass(dialog, "review-tiles"))[2], ["First buy", `${output} WETH · converted from 10 USDG · no lock`]);
+  assert.deepEqual(rows(byLabel(dialog, "First buy preview"))[0], ["You spend", `${output} WETH · approval for this amount only`]);
+  assert.equal(nodes(dialog).filter((element) => String(element.props?.className ?? "").includes("plan-result")).length, 0,
+    "a preview that waits for the changed minimum is not reported as passed");
 });
 
 test("the preview refuses a conversion quote for another account, so the one recipient shown is the wallet's", async (t) => {

@@ -2187,8 +2187,8 @@ function CreatePage({
   const nftCoin = !!draft.nft, creatorRole = nftCoin ? "NFT treasury" : "Creator", nftFeeCost = nftLaunchFeeCost(draft);
   const buying = Number(firstBuy.amount || "0") > 0;
   const lockLabel = firstBuy.lockDays === 0 ? "No lock" : firstBuy.lockDays === 365 ? "1 year" : `${firstBuy.lockDays} days`;
-  // The review's one success notice, above the button that signs the preview.
-  const planResult = plan && <div className="notice success plan-result">
+  // The review's one success notice, above the button that signs the preview, while that preview (and its payment quote) is current.
+  const planResult = plan && !planExpired && !paymentExpired && <div className="notice success plan-result" role="status">
     <CheckCircle2 size={17} aria-hidden="true" />
     <span>
       {paymentQuote ? "Payment and first buy quoted" : plan.firstBuy ? "First buy quoted" : "Simulation passed"} · Predicted token address
@@ -2773,7 +2773,8 @@ function CreatePage({
           <dl className="review-tiles">
             <div className="tile"><dt>Trading fee</dt><dd>{feePercent(tradingFeeBps)} <small>+ 0.05% LP</small></dd></div>
             <div className="tile"><dt>Opens at</dt><dd>{openingCapUsdLabel}</dd></div>
-            <div className="tile"><dt>First buy</dt><dd>{buying ? <>{firstBuy.amount} {paymentAsset.symbol} <small>· {firstBuy.lockDays ? `${lockLabel} lock` : "no lock"}</small></> : "None"}</dd></div>
+            <div className="tile"><dt>First buy</dt><dd>{!buying ? "None" : converted ? <>{formatUnits(BigInt(paymentAttempt!.actualOutput!), paymentAttempt!.quote.toToken.decimals)} {stock.symbol} <small>· converted from {firstBuy.amount} {paymentAsset.symbol} · {firstBuy.lockDays ? `${lockLabel} lock` : "no lock"}</small></>
+              : <>{firstBuy.amount} {paymentAsset.symbol} <small>· {firstBuy.lockDays ? `${lockLabel} lock` : "no lock"}</small></>}</dd></div>
           </dl>
           {draft.nft && <dl className="review-tiles nft-review-tiles">
             <div className="tile wide"><dt>Bound NFT</dt><dd>{chainName} · <span title={draft.nft.contract}>{shortAddress(draft.nft.contract)}</span> · #{draft.nft.tokenId}</dd></div>
@@ -2840,21 +2841,22 @@ function CreatePage({
             <h3><span className="step-number">1</span>{paymentQuote.protocol === "wrap" ? "Wrap ETH into WETH" : "Convert payment with LI.FI"}</h3>
             <dl className="rows">
               <div><dt>You pay</dt><dd>{formatUnits(BigInt(paymentQuote.amountIn), paymentQuote.fromToken.decimals)} {paymentQuote.fromToken.symbol} → at least {formatUnits(BigInt(paymentQuote.minimumOut), paymentQuote.toToken.decimals)} {paymentQuote.toToken.symbol}</dd></div>
-              <div><dt>Fees</dt><dd>{formatUnits(BigInt(paymentQuote.feeAmount), paymentQuote.fromToken.decimals)} {paymentQuote.fromToken.symbol}{paymentQuote.feeUsd && ` (≈ $${paymentQuote.feeUsd})`} route fee · gas {paymentQuote.gasFeeUsd ? `≈ $${paymentQuote.gasFeeUsd}` : "unavailable"}</dd></div>
+              <div><dt>Fees</dt><dd>{BigInt(paymentQuote.feeAmount) === 0n ? "No route fee" : <>{formatUnits(BigInt(paymentQuote.feeAmount), paymentQuote.fromToken.decimals)} {paymentQuote.fromToken.symbol}{paymentQuote.feeUsd && ` (≈ $${paymentQuote.feeUsd})`} route fee</>} · gas {paymentQuote.gasFeeUsd ? `≈ $${paymentQuote.gasFeeUsd}` : "unavailable"}</dd></div>
             </dl>
-            <p className="hint">After any required approval and this conversion, its guaranteed output funds the first buy below; your token minimum stays fixed.</p>
+            <p className="hint">After any required approval and this conversion, its actual output funds the first buy below, previewed at the guaranteed minimum; your token minimum stays fixed.</p>
           </section>}
           {plan?.firstBuy && <section className="step-card" aria-label="First buy preview">
             <h3><span className="step-number">{paymentQuote ? 2 : 1}</span>Your first buy</h3>
             <dl className="rows">
-              <div><dt>You spend</dt><dd>{plan.firstBuy.amount} {stock.symbol} · approval for this amount only</dd></div>
+              <div><dt>You spend</dt><dd>{paymentQuote ? `At least ${plan.firstBuy.amount} ${stock.symbol}, the conversion's actual output · approval for that amount only`
+                : `${plan.firstBuy.amount} ${stock.symbol} · approval for this amount only`}</dd></div>
               <div><dt>Estimated tokens received</dt><dd>≈ <NumberText value={plan.firstBuy.expectedAmountOut} decimals={18} /> {draft.symbol}</dd></div>
               <div><dt>Minimum tokens received</dt><dd><NumberText value={plan.firstBuy.minAmountOut} decimals={18} /> {draft.symbol}</dd></div>
               <div><dt>Share of total supply</dt><dd>{formatUnits(BigInt(plan.firstBuy.expectedAmountOut) * 100_000_000n / SUPPLY, 6)}%</dd></div>
               <div><dt>First buy lock</dt><dd className="sans">{(plan.firstBuy.lockDays ?? 0) === 0 ? "No lock" : <><LockKeyhole size={12} aria-hidden="true" /> {plan.firstBuy.lockDays === 365 ? "1 year" : `${plan.firstBuy.lockDays} days`} · releases in full</>}</dd></div>
               <div><dt>Recipient</dt><dd><code className="wrap">{plan.firstBuy.recipient}</code></dd></div>
             </dl>
-            <p className="hint">Any required approval comes first; if the buy fails, the launch reverts too, and a confirmed approval stays in place.</p>
+            <p className="hint">Creator and platform fees are waived on this first buy; protocol and LP fees are included in the token amounts. Any required approval comes first, then the complete launch and buy is simulated before you confirm; if the buy fails, the launch reverts too, and a confirmed approval stays in place.</p>
           </section>}
           {(plan?.openingValuation && "warnings" in plan.openingValuation ? plan.openingValuation.warnings : undefined)?.map((warning) => <Notice key={warning.code} kind="warning">{warning.message}</Notice>)}
           {paymentQuote?.warnings?.map((warning) => <Notice key={warning} kind="warning">{warning}</Notice>)}

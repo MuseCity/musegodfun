@@ -23,7 +23,8 @@ export const holder = "0x5555555555555555555555555555555555555555";
 export const hood = "0x7777777777777777777777777777777777777777";
 export const config: RuntimeConfig = { mode: "robinhood", chainId: 4663, deploymentChainId: 4663, treasury: null, writesEnabled: true, blockReason: null, fomoInvite: "musegod",
   nftMode: { enabled: true, vaultFactory: null, launchFeeUsd: 10, freeCollections: [], verifiedCollections: [] } };
-const wallet = { account: holder, chainId: 4663, connecting: false, restoring: false, revision: 0, error: "",
+/** The connected wallet the page sees; a test may add a method it needs (such as `payFirstBuy`) and remove it afterwards. */
+export const wallet: Record<string, unknown> = { account: holder, chainId: 4663, connecting: false, restoring: false, revision: 0, error: "",
   connect: async () => {}, switchChain: async () => {}, balance: async () => 0n, balanceNative: async () => 0n };
 /** The live check's answers: Muses by their on-chain names, other NFTs by token id. */
 export const museNames: Record<string, string> = { "1": "Bard", "2": "Cadenza", "3": "Moonlet" };
@@ -152,6 +153,8 @@ export async function launchForm(t: TestContext, options: { saved?: Record<strin
     dialog: () => find(parent.output(), (element) => element.type === "dialog"),
     /** The API paths answered from `api`, in call order. */
     calls,
+    /** Lets pending work settle and the page and its step re-render, e.g. after a test advanced the mocked clock. */
+    flush,
     /** The draft as the autosave (250 ms after the last change) stores it. */
     async saved() { t.mock.timers.tick(250); await flush(); return JSON.parse(store.get(launchDraftKey(config)) ?? "null"); },
   };

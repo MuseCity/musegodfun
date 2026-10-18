@@ -33,12 +33,12 @@ The dialog states each fact a person needs before signing once, in the place the
 | Earn band's Buyback/Operations/Doppler line | Removed from the band; the disclosure keeps one fee split row |
 | Disclosure: net distribution, nominal total fee, total allocation equivalents | One "Trading fee split" row |
 | Disclosure: initial valuation target, first buy slippage, launch cost | Removed (Opens at tile, slippage control, new First buy tile) |
-| — | "First buy" tile: amount, pay asset and lock, or "None" |
+| — | "First buy" tile: amount, pay asset and lock, or "None"; after a completed conversion, the received paired asset and the payment it came from |
 | Progress row (Parameter check › preview › Wallet confirmation) | Removed |
-| Preview success message and plan-result notice | One notice: what passed, and the predicted token address |
+| Preview success message and plan-result notice | One notice (`role="status"`): what passed, and the predicted token address; hidden once the preview or its payment quote expires |
 | Post-preview caption "Set using LI.FI…", expiry timestamps, "5-minute wallet window" row | Removed; the bottom caption states the five-minute window once, and the disclosure keeps the LI.FI price reference |
-| Conversion card: pay, estimated, minimum, route fee, gas, recipient, expiry, lock, three-sentence hint | Pay → guaranteed output; route fee and gas; a one-sentence hint |
-| First-buy card: spend, approval, slippage, expiry, recipient and a five-sentence hint | Spend with its approval scope; estimated, minimum, supply share, lock, recipient; a one-sentence hint |
+| Conversion card: pay, estimated, minimum, route fee, gas, recipient, expiry, lock, three-sentence hint | Pay → guaranteed output; route fee ("No route fee" for an ETH wrap) and gas; a one-sentence hint |
+| First-buy card: spend, approval, slippage, expiry, recipient and a five-sentence hint | Spend with its approval scope ("at least" the guaranteed minimum after a conversion); estimated, minimum, supply share, lock, recipient; a two-sentence hint keeping the fee waiver, the simulation after approval and the joint revert |
 | Recipient shown in both cards | Shown once (first-buy card). The preview now refuses a conversion quote whose account is not the connected wallet. |
 
 ## Acceptance
