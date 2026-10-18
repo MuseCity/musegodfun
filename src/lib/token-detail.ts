@@ -57,6 +57,12 @@ export function feeShares(token: Pick<TokenRecord, "feePolicy">): { creator: num
   const operations = policy.operations || (policy.platform - policy.buyback);
   return { creator: policy.creator / 100, buyback: policy.buyback / 100, operations: operations / 100, protocol: policy.protocol / 100 };
 }
+/** The creator fee as a share of every trade (the trading fee times the creator's share of it, e.g. 1% × 66.5% = "0.665%"), or null
+ * when the trading fee or the fee policy is unknown. An NFT coin's creator fee goes to the NFT's treasury. */
+export function creatorFeePercent(token: Pick<TokenRecord, "feePolicy" | "tradingFeeBps">): string | null {
+  const shares = feeShares(token);
+  return !shares || token.tradingFeeBps === undefined ? null : `${Number((token.tradingFeeBps * shares.creator / 10_000).toFixed(4))}%`;
+}
 /** What a $100 buy pays the pool on any venue: the trading fee plus the LP fee, in dollars; null when the trading fee is unknown. */
 export function poolFeeOn100(token: Pick<TokenRecord, "tradingFeeBps">): number | null {
   return token.tradingFeeBps === undefined ? null : token.tradingFeeBps / 100 + LP_FEE_PPM / 10_000;

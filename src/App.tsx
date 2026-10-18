@@ -129,7 +129,7 @@ import NftCoinCard from "./components/NftCoinCard";
 import NftPage, { MyNftTreasuries } from "./components/NftPage";
 import { MUSEGOD } from "./lib/musegod";
 import BuybackPage from "./components/BuybackPage";
-import { feeShares, LP_FEE_PERCENT, openSeaUrl, searchWithTokenTab, stockStatusFailure, tokenFeeCardTier, tokenTabFromSearch, type TokenTab } from "./lib/token-detail";
+import { creatorFeePercent, feeShares, LP_FEE_PERCENT, openSeaUrl, searchWithTokenTab, stockStatusFailure, tokenFeeCardTier, tokenTabFromSearch, type TokenTab } from "./lib/token-detail";
 import FeeBreakdown, { TokenFeeDisclosure } from "./components/FeeBreakdown";
 import ShareDialog from "./components/ShareDialog";
 import { LP_FEE_PPM, TRADING_FEE_BPS, tradingFeeBpsFor } from "./lib/trading-fee";
@@ -3114,7 +3114,8 @@ function TokenDetail({ detail, config, refreshError }: { detail: TokenDetailData
     if (!editing) setEditorBlocked(false);
     else if (profileStatus) setEditorBlocked(true);
   }, [editing, profileStatus]);
-  const shares = feeShares(token), feeTier = tokenFeeCardTier(token, wallet.account);
+  // The headline is the creator fee per trade; the buyback and operating shares stay in the fee details (About, On-chain).
+  const shares = feeShares(token), creatorFee = creatorFeePercent(token), feeTier = tokenFeeCardTier(token, wallet.account);
   const chainLabel = token.mode === "fork" ? "Fork test asset" : token.mode === "robinhood" ? "Robinhood Chain" : "Base";
   const nftLabel = nft ? `${isMuse(nft) ? "Muse" : "NFT"} #${nft.tokenId}${nftProfile?.name ? ` · ${nftProfile.name}` : ""}` : "";
   const canonicalUrl = `${location.origin}${tokenPath(token)}`;
@@ -3126,7 +3127,6 @@ function TokenDetail({ detail, config, refreshError }: { detail: TokenDetailData
     : `Only the wallet that launched $${token.symbol}${token.creator ? `, ${shortAddress(token.creator)},` : ""} can save.`;
   const stats = [
     token.tradingFeeBps !== undefined ? { label: "Trading fee", value: feePercent(token.tradingFeeBps), hint: `+ ${LP_FEE_PERCENT} LP` } : null,
-    shares ? { label: "Buyback share", value: `${shares.buyback}%`, hint: "to MUSEGOD" } : null,
     token.openingValuation ? { label: "Opening valuation", value: `$${OPENING_CAP_USD.toLocaleString("en-US")}`, hint: token.openingValuationUnverified ? "unverified target" : "target" } : null,
     { label: "Supply", value: "1,000,000,000" },
     links.length ? { label: "Channels", value: String(links.length), hint: "linked" } : null,
@@ -3166,7 +3166,8 @@ function TokenDetail({ detail, config, refreshError }: { detail: TokenDetailData
             const target = document.getElementById("trade");
             target?.scrollIntoView({ block: "start" }); target?.focus({ preventScroll: true });
           }}
-          figure={shares ? { label: nft ? "NFT treasury share" : "Creator share", value: `${shares.creator}%`, note: "of every trading fee · fixed at launch" } : null}
+          figure={creatorFee ? { label: "Creator fee", value: creatorFee, note: `of every trade${nft ? " · to the NFT treasury" : ""} · fixed at launch` }
+            : shares ? { label: nft ? "NFT treasury share" : "Creator share", value: `${shares.creator}%`, note: "of every trading fee · fixed at launch" } : null}
           stats={stats}
         />
         <div className="token-columns">

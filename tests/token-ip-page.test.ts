@@ -53,6 +53,9 @@ test("a visitor sees the coin as an IP: socials first, Doppler and the owner's F
   assert.match(html, /Channels · 1 linked/);
   assert.match(html, /role="tab"[^>]*>Overview<.*role="tab"[^>]*>Activity<.*role="tab"[^>]*>On-chain</);
   assert.match(html, /Pool fee on any venue, per \$100/);
+  assert.match(html, /<span class="eyebrow muted">Creator fee<\/span><span class="mono">0.665%<\/span><span class="hint">of every trade · fixed at launch<\/span>/,
+    "the headline is the creator fee per trade (1% trading fee × 66.5% creator share)");
+  assert.doesNotMatch(html, /Buyback share/, "the buyback share is a fee detail, not a headline fact");
   assert.doesNotMatch(html, /Edit profile|Talk to it|not linked|Posts|Pay with ETH|Slippage|OpenSea|Agent identity/);
   assert.doesNotMatch(html, /<input/, "the page has no amount field: trading happens on the venues");
   assert.doesNotMatch(render({ token: coin }, { ...config, fomoInvite: null }), /fomo\.family/, "Fomo shows only with the owner's invite handle");
@@ -86,7 +89,7 @@ test("an NFT-bound agent coin names its Muse, links OpenSea, shows the ERC-8004 
   assert(html.includes(`href="https://opensea.io/item/robinhood/${MUSES.contract.toLowerCase()}/931"`));
   assert.match(html, /ERC-8004 agent #42/);
   assert.match(html, /Agent identity · ERC-8004/);
-  assert.match(html, /NFT treasury share/);
+  assert.match(html, /<span class="eyebrow muted">Creator fee<\/span><span class="mono">0.665%<\/span><span class="hint">of every trade · to the NFT treasury · fixed at launch<\/span>/);
   assert.doesNotMatch(html, /Edit profile/, "the launcher of an NFT coin is not its owner until the holder check passes");
   assert.doesNotMatch(render({ token: muse }), /Agent identity|ERC-8004 agent/, "no agent id, no agent card");
 });
@@ -556,4 +559,13 @@ test("an unanswered profile refreshes the detail with backoff, and repeated fail
     second.render(); await settle(); await wait(120_000);
     assert.deepEqual(calls, [0, 15_000, 30_000, 45_000], "every settled request, failed or not, schedules the next one");
   } finally { second.unmount(); }
+});
+
+test("the creator fee is the trading fee times the creator's share, and falls back to the share when the trading fee is unknown", async () => {
+  const { creatorFeePercent } = await import("../src/lib/token-detail");
+  assert.equal(creatorFeePercent(coin), "0.665%");
+  assert.equal(creatorFeePercent({ ...coin, tradingFeeBps: 300 }), "1.995%");
+  assert.equal(creatorFeePercent({ ...coin, tradingFeeBps: undefined }), null);
+  assert.equal(creatorFeePercent({ ...coin, feePolicy: undefined }), null);
+  assert.match(render({ token: { ...coin, tradingFeeBps: undefined } }), /<span class="eyebrow muted">Creator share<\/span><span class="mono">66.5%<\/span><span class="hint">of every trading fee/);
 });
