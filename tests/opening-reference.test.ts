@@ -3,8 +3,8 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 import { keccak256, zeroAddress, type Address, type Hex } from "viem";
 import { ROBINHOOD_STOCKS, STOCKS, sameAddress, type Stock } from "../src/lib/config";
-import { openingReferenceText, type LifiOpeningValuation } from "../src/lib/opening-valuation";
-import { FEED_HEARTBEAT_GRACE, MARKET_CLOSED_MAX_AGE, independentReference, stockFeedMarketOpen, stockFeedOpenSeconds } from "../server/opening-price";
+import { openingReferenceText, type LifiOpeningValuation, type OpeningValuation } from "../src/lib/opening-valuation";
+import { FEED_HEARTBEAT_GRACE, MARKET_CLOSED_MAX_AGE, assertRecoveredOpeningValuation, independentReference, stockFeedMarketOpen, stockFeedOpenSeconds } from "../server/opening-price";
 
 // Owner, 2026-10-18: "An independent fresh price reference is unavailable…" showed on nearly every launch. The buyback oracle maps no
 // feed for WETH or MUSEGOD (the default pairs), and mapped stock feeds stop at the market close. The opening price is now compared with
@@ -168,3 +168,18 @@ test("the review names the reference after a preview, or says why there is none"
     "LI.FI buy/sell quotes; the independent reference could not be read");
   assert.equal(openingReferenceText(valuation({}), "ADBE"), "LI.FI buy/sell quotes; no independent price feed for ADBE");
 });
+
+test("a recovered preview is compared at its own block and that block's time: a MUSEGOD TWAP and a weekend stock close", async () => {
+  // Block 100 is Sunday 2026-03-08 14:00 UTC; its ETH/USD price is fresh then and months stale now, so only the block's time passes.
+  const runtime = readFileSync(new URL("./fixtures/buyback-oracle.runtime.hex", import.meta.url), "utf8").trim() as Hex;
+  const blockTime = at("2026-03-08T14:00:00Z"), HASH = `0x${"ab".repeat(32)}` as Hex;
+  const { client, reads } = chain({ code: runtime, feeds: { [ETH_FEED]: { answer: 2_000_00000000n, at: blockTime - 600 },
+    [NVDA_FEED]: { answer: 180_00000000n, at: at("2026-03-06T18:00:00Z") } } });
+  const recovery = { ...client, async getBlock({ blockNumber }: { blockNumber: bigint }) { assert.equal(blockNumber, BLOCK); return { hash: HASH, timestamp: BigInt(blockTime) }; } };
+  const recovered = (stock: Stock, quotePriceUsd: string) => assertRecoveredOpeningValuation(recovery as unknown as Parameters<typeof assertRecoveredOpeningValuation>[0],
+    { blockNumber: String(BLOCK), blockHash: HASH, quoteAddress: stock.address, quotePriceUsd } as OpeningValuation, BLOCK + 5n, 4663);
+  assert.deepEqual(await recovered(musegod, "0.0000005"), { divergenceBps: 0 });
+  assert.deepEqual(await recovered(nvda, "180"), { divergenceBps: 0 }, "Friday's close, read at the block's Sunday time");
+  assert(reads.includes("quoteWethToMuse") && reads.includes("oraclePaused"));
+});
+

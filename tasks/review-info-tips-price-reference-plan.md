@@ -1,6 +1,6 @@
 # Review info tips and opening price reference plan
 
-Status: In progress. Owner request 2026-10-18 (translated from Chinese): "Put these two lines into info icons at their matching places, shown when the user hovers: 'Not investment advice. musegod.fun does not endorse NFT collections; an unverified collection may imitate another.' and 'The NFT's treasury earns 0.665% of every trade'. Fix the problem 'An independent fresh price reference is unavailable. Review the opening price and minimum received before continuing.'" Branch `claude/review-info-tips`, based on master `6e6cc32` (the launch review trim, `tasks/launch-review-trim-plan.md`).
+Status: Implemented and reviewed, not released (release only on the owner's word). Owner request 2026-10-18 (translated from Chinese): "Put these two lines into info icons at their matching places, shown when the user hovers: 'Not investment advice. musegod.fun does not endorse NFT collections; an unverified collection may imitate another.' and 'The NFT's treasury earns 0.665% of every trade'. Fix the problem 'An independent fresh price reference is unavailable. Review the opening price and minimum received before continuing.'" Branch `claude/review-info-tips`, based on master `6e6cc32` (the launch review trim, `tasks/launch-review-trim-plan.md`).
 
 ## Part 1: info tips in the NFT review block
 
@@ -30,3 +30,10 @@ Fix (advisory reference only; signing, pricing and the immutable oracle are unch
 - Tests: the info tips (button, text, `aria-describedby`) in the NFT review, no NFT earn band, the plain coin's band kept; `independentReference` for WETH, MUSEGOD, a mapped stock open and closed, an unmapped stock (no warning), a stale or paused feed, a changed oracle code and Base; the review's reference row.
 - `docs/SPEC.md` updated; `npm test`, `npm run typecheck`, `npm run build`; codex cross-review accepts.
 - Release only on the owner's word. The reference is computed inside a preview (`/launch/prepare`, a POST that saves a plan), and no GET path exposes it, so the server change is verified by tests; a live check needs the owner's own preview or their permission for a test preview. The info tips are checked in the read-only preview and on musegod.fun before a preview.
+
+## Review
+
+- Round 1 on `189d48a`: codex (gpt-6.1-sol, xhigh) 1 P2 + 4 P3; claude reviewer (xhigh) 6 P3, overlapping. P2: the four-day stock window applied on trading days too, hiding a mid-week feed outage as "last market close". P3s: a second tap left the tip visible (sticky touch hover), a hovered tip's Escape closed the dialog, the tip text could not be hovered, the hidden text widened the dialog at 320 px, a hidden tip swallowed Escape, an always-true test assertion, a browser-script exact-text locator, label height and a misplaced docstring.
+- `a31a00d` fixed them (the claude reviewer's findings by claude in the same round, then verified by codex): 24/5 open-time aging for stock feeds; state-driven InfoTip with document listeners only while shown. Verified in the read-only preview (mock wallet, writes refused): hover over the text keeps the tip, the first Escape hides it with the dialog open, the second closes the dialog.
+- Round 2: codex ACCEPT, one P3 (a committed regression test for historical recovery with the TWAP and a weekend stock), added afterwards. `npm test` 1848/1848, `npm run build` (with typecheck) passed. Reports are in the worktree's ignored `.superpowers/sdd/review-info-tips/`.
+
