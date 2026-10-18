@@ -954,8 +954,6 @@ dialog.modal.launch-review { width: min(640px, calc(100vw - 32px)); }
 .review-identity > div { display: flex; flex-direction: column; min-width: 0; }
 .review-identity h3 { font-family: var(--font-display); font-weight: 400; font-size: 22px; line-height: 28px; overflow-wrap: anywhere; }
 .review-identity .mono { font-size: 12px; color: var(--ink-muted); }
-.review-permanent { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; font-size: 12px; color: var(--ink-muted); }
-.review-permanent span:first-child { display: inline-flex; align-items: center; gap: 6px; color: var(--ink); font-weight: 650; }
 .review-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(130px, 100%), 1fr)); gap: 8px; }
 .review-tiles .tile { padding: 10px 12px; }
 .review-tiles dd { font-size: 14px; font-weight: 600; }
@@ -964,16 +962,11 @@ dialog.modal.launch-review { width: min(640px, calc(100vw - 32px)); }
 .nft-review-tiles dd.sans { font-family: var(--font-sans); font-size: 13px; line-height: 18px; font-weight: 500; }
 .stock-option.selected:disabled { opacity: 1; }
 .review-earn { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; padding: 10px 14px; border-radius: 12px; background: var(--halo-tint); font-size: 12px; line-height: 16px; }
-.review-earn > span:last-child { color: var(--ink-muted); font-size: 11px; }
 .first-buy-slippage { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--ink-muted); padding-top: 12px; border-top: 1px solid var(--line); }
 .step-card { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border-radius: 20px; border: 1px solid var(--line); }
 .step-card h3 { display: flex; align-items: center; gap: 8px; font-size: 14px; line-height: 20px; font-weight: 650; }
 .step-number { width: 22px; height: 22px; border-radius: 999px; background: var(--halo-tint); color: var(--halo-ink); display: inline-flex; align-items: center; justify-content: center;
   font-family: var(--font-mono); font-size: 12px; font-weight: 600; }
-.review-progress { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px; font-size: 12px; color: var(--ink-faint); }
-.review-progress > span { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 10px; border-radius: 999px; font-weight: 600; }
-.review-progress .complete { color: var(--up); }
-.review-progress .current { background: var(--halo-tint); color: var(--ink); }
 .plan-result code { font-size: 12px; }
 
 /* ── Rewards ────────────────────────────────────────────────────────────── */
@@ -1133,6 +1126,7 @@ dialog.modal.launch-review { width: min(640px, calc(100vw - 32px)); }
   .image-drop { min-height: 96px; flex-direction: row; }
   .image-drop.has-image { width: min(148px, 100%); aspect-ratio: 1; }
   .review-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .review-tiles > .tile:last-child:nth-child(odd) { grid-column: 1 / -1; }
   .nft-identity { flex-direction: column; }
 }
 

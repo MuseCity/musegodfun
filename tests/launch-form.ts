@@ -2,6 +2,7 @@ import { type TestContext } from "node:test";
 import type { RuntimeConfig } from "../src/lib/config";
 import { NftLaunchStep } from "../src/components/NftLaunchStep";
 import { NftPicker } from "../src/components/NftPicker";
+import FirstBuy from "../src/components/FirstBuy";
 import { launchDraftKey } from "../src/lib/launch-draft";
 import { MUSES, type NftStatus } from "../src/lib/nft-mode";
 import { hookRuntime, importFresh, settle } from "./hook-runtime";
@@ -15,7 +16,7 @@ export function find(node: any, match: (element: any) => boolean): any {
   if (match(node)) return node;
   return find(node.props?.children, match);
 }
-const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : node && typeof node === "object" ? [node, ...nodes(node.props?.children)] : [];
+export const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : node && typeof node === "object" ? [node, ...nodes(node.props?.children)] : [];
 export const textOf = (node: any): string => Array.isArray(node) ? node.map(textOf).join("") : node && typeof node === "object" ? textOf(node.props?.children) : String(node ?? "");
 
 export const holder = "0x5555555555555555555555555555555555555555";
@@ -45,8 +46,11 @@ export function installGlobals() {
 
 /** The create page with its NFT step. `saved`: a draft stored before the page opened. `refuse`: token ids whose live check says no.
  * `hold`: token ids whose status read waits until the test releases it with `answer`. `names`: Muse names that differ from `museNames`.
- * `fail`: token ids whose first status read fails (the step then offers Retry). */
-export async function launchForm(t: TestContext, options: { saved?: Record<string, unknown>; refuse?: string[]; hold?: string[]; names?: Record<string, string>; fail?: string[] } = {}) {
+ * `fail`: token ids whose first status read fails (the step then offers Retry). `config`: changes to the page's runtime config.
+ * `api`: answers for more API paths (each call is recorded in `calls`); with it, the preview's opening-valuation and payment-quote
+ * checks pass, so a test's plan and quote need only the fields the review shows. */
+export async function launchForm(t: TestContext, options: { saved?: Record<string, unknown>; refuse?: string[]; hold?: string[]; names?: Record<string, string>; fail?: string[];
+  config?: Partial<RuntimeConfig>; api?: Record<string, (body: any) => unknown> } = {}) {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   if (options.saved) store.set(launchDraftKey(config), JSON.stringify(options.saved));
   const held = new Map<string, () => void>(), failed = new Set<string>();
@@ -58,17 +62,24 @@ export async function launchForm(t: TestContext, options: { saved?: Record<strin
       ...(free && (options.names ?? museNames)[nft.tokenId] ? { name: (options.names ?? museNames)[nft.tokenId] } : {}) } as NftStatus;
   };
   let Create: any;
-  const parent = hookRuntime(() => Create({ stocks: null, stockError: "", config, refresh() {} }));
+  const calls: string[] = [], pageConfig = { ...config, ...options.config };
+  const parent = hookRuntime(() => Create({ stocks: null, stockError: "", config: pageConfig, refresh() {} }));
   ({ CreatePage: Create } = await importFresh("src/App.tsx", {
     react: { file: import.meta.resolve("react"), bindings: parent.hooks },
     "./lib/wallet": { file: import.meta.resolve("../src/lib/wallet.tsx"), bindings: { useWallet: () => wallet } },
     "./lib/resource": { file: import.meta.resolve("../src/lib/resource.ts"), bindings: { useResource: () => ({ data: null, error: "", loading: false }) } },
     "./lib/api": { file: import.meta.resolve("../src/lib/api.ts"), bindings: {
-      chainApi: async (_chain: number, path: string, body: { image: string }) => {
+      chainApi: async (_chain: number, path: string, body: any) => {
         if (path === "/token-images") return { image: pinned(body.image) };
+        const answer = options.api?.[path];
+        if (answer) { calls.push(path); return answer(body); }
         throw new Error(`Unexpected API call ${path}`);
       } } },
     "./lib/image-upload": { file: import.meta.resolve("../src/lib/image-upload.ts"), bindings: { prepareTokenImageFromUrl: async (url: string) => url } },
+    ...(options.api ? {
+      "./lib/opening-valuation": { file: import.meta.resolve("../src/lib/opening-valuation.ts"), bindings: { assertOpeningValuation: () => {} } },
+      "./lib/first-buy-payment": { file: import.meta.resolve("../src/lib/first-buy-payment.ts"), bindings: { assertFirstBuyPaymentQuote: () => {} } },
+    } : {}),
   }, ["CreatePage"]));
   // The step mounts, remounts (a new `key`) and unmounts with the page's element, as React does.
   const stepElement = () => find(parent.output(), (element) => element.type === NftLaunchStep);
@@ -127,6 +138,20 @@ export async function launchForm(t: TestContext, options: { saved?: Record<strin
     text: () => textOf(parent.output()),
     /** The NFT step's own text, including its live check status. */
     stepText: () => textOf(step?.output()),
+    /** Submits the form: Continue on the NFT and Identity steps, Review on Economics. */
+    async submit() {
+      find(parent.output(), (element) => element.type === "form" && element.props.id === "launch-form").props.onSubmit({ preventDefault() {} });
+      await flush();
+    },
+    /** Changes the Economics step's first buy, as its controls do. */
+    async firstBuy(change: Record<string, unknown>) {
+      const control = find(parent.output(), (element) => element.type === FirstBuy);
+      control.props.onChange({ ...control.props.value, ...change }); await flush();
+    },
+    /** The review dialog, or null while it is closed. */
+    dialog: () => find(parent.output(), (element) => element.type === "dialog"),
+    /** The API paths answered from `api`, in call order. */
+    calls,
     /** The draft as the autosave (250 ms after the last change) stores it. */
     async saved() { t.mock.timers.tick(250); await flush(); return JSON.parse(store.get(launchDraftKey(config)) ?? "null"); },
   };

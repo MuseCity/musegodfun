@@ -18,7 +18,6 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
-  ChevronRight,
   CircleAlert,
   CircleHelp,
   Coins,
@@ -132,7 +131,7 @@ import BuybackPage from "./components/BuybackPage";
 import { creatorFeePercent, feeShares, LP_FEE_PERCENT, openSeaUrl, searchWithTokenTab, stockStatusFailure, tokenFeeCardTier, tokenTabFromSearch, type TokenTab } from "./lib/token-detail";
 import FeeBreakdown, { TokenFeeDisclosure } from "./components/FeeBreakdown";
 import ShareDialog from "./components/ShareDialog";
-import { LP_FEE_PPM, TRADING_FEE_BPS, tradingFeeBpsFor } from "./lib/trading-fee";
+import { TRADING_FEE_BPS, tradingFeeBpsFor } from "./lib/trading-fee";
 import { ASSET_CATEGORIES, assetCategory, type AssetCategory } from "./lib/asset-categories";
 import assetLogos from "./lib/asset-logos.json";
 import { buildIdentity } from "./lib/build-info";
@@ -1698,6 +1697,8 @@ function CreatePage({
           toToken: stock.address, amount: firstBuy.amount, slippageBps: firstBuy.slippageBps });
         if (request !== generation.current) return;
         assertFirstBuyPaymentQuote(quote);
+        // The review shows one recipient, the first buy's: the conversion must pay the same wallet.
+        if (!sameAddress(quote.account, wallet.account)) throw new Error("The payment quote is not for the connected wallet. Preview again.");
         conversionPreview = quote;
         requestedAmount = formatUnits(BigInt(quote.minimumOut), stock.decimals);
       }
@@ -1744,7 +1745,6 @@ function CreatePage({
         throw new Error("The first buy preview does not match your requested amount or wallet. Preview again.");
       currentPlan.current = next; saveFrozenLaunch(config!, wallet.account!, next); setPlan(next);
       setPaymentQuote(conversionPreview);
-      setMessage(conversionPreview ? "Payment and first buy quoted together. Your token minimum stays fixed after confirmation." : next.firstBuy ? "First buy quoted. The complete transaction will be simulated after any required approval." : "On-chain simulation succeeded. No transaction has been sent.");
     } catch (e) {
       if (request === generation.current) {
         if (e instanceof ApiError && e.code?.startsWith("NFT_")) showNftRejection(e.code, e.message);
@@ -2187,6 +2187,15 @@ function CreatePage({
   const nftCoin = !!draft.nft, creatorRole = nftCoin ? "NFT treasury" : "Creator", nftFeeCost = nftLaunchFeeCost(draft);
   const buying = Number(firstBuy.amount || "0") > 0;
   const lockLabel = firstBuy.lockDays === 0 ? "No lock" : firstBuy.lockDays === 365 ? "1 year" : `${firstBuy.lockDays} days`;
+  // The review's one success notice, above the button that signs the preview.
+  const planResult = plan && <div className="notice success plan-result">
+    <CheckCircle2 size={17} aria-hidden="true" />
+    <span>
+      {paymentQuote ? "Payment and first buy quoted" : plan.firstBuy ? "First buy quoted" : "Simulation passed"} · Predicted token address
+      <br />
+      <code className="wrap">{plan.tokenAddress}</code>
+    </span>
+  </div>;
   const uploadedSrc = tokenImageSrc({ image: draft.image }), imageSrc = uploadedSrc !== brokenImage ? uploadedSrc : "";
   // The draft this render shows: an NFT identity that arrives after the draft is replaced belongs to the old one.
   const prefillEpoch = imagePrefill.epoch;
@@ -2739,9 +2748,8 @@ function CreatePage({
         >
           <div className="modal-head">
             <div>
-              <span className="eyebrow">READY TO LAUNCH</span>
               <h2 className="modal-title" id="launch-review-title">Review your launch</h2>
-              <p>{paymentQuote ? "Your payment converts first; one wallet transaction then launches the pool and makes your first buy." : buying ? "One wallet transaction launches the pool and makes your first buy." : "One wallet transaction launches the pool."} The name, symbol, trading fee, and fee distribution are fixed after launch.</p>
+              <p>{paymentQuote ? "Your payment converts first; one wallet transaction then launches the pool and makes your first buy." : buying ? "One wallet transaction launches the pool and makes your first buy." : "One wallet transaction launches the pool."} You pay network gas. The name, symbol, pair, trading fee, and fee distribution are fixed after launch.</p>
             </div>
             <button
               type="button"
@@ -2758,19 +2766,14 @@ function CreatePage({
             <div>
               <h3>{draft.name}</h3>
               <span className="mono">
-                ${draft.symbol} · {stock.symbol} pair
+                ${draft.symbol} · {stock.symbol} pair · {chainName}
               </span>
             </div>
           </div>
-          <div className="review-permanent">
-            <span><LockKeyhole size={14} aria-hidden="true" /> Permanent after launch</span>
-            <span>{chainName} · Doppler + Uniswap v4</span>
-          </div>
           <dl className="review-tiles">
-            <div className="tile"><dt>Quote asset</dt><dd><span className="pair-label"><StockIcon stock={stock} />{stock.symbol}</span></dd></div>
             <div className="tile"><dt>Trading fee</dt><dd>{feePercent(tradingFeeBps)} <small>+ 0.05% LP</small></dd></div>
-            <div className="tile"><dt>Supply</dt><dd>1B <small>· all in pool</small></dd></div>
             <div className="tile"><dt>Opens at</dt><dd>{openingCapUsdLabel}</dd></div>
+            <div className="tile"><dt>First buy</dt><dd>{buying ? <>{firstBuy.amount} {paymentAsset.symbol} <small>· {firstBuy.lockDays ? `${lockLabel} lock` : "no lock"}</small></> : "None"}</dd></div>
           </dl>
           {draft.nft && <dl className="review-tiles nft-review-tiles">
             <div className="tile wide"><dt>Bound NFT</dt><dd>{chainName} · <span title={draft.nft.contract}>{shortAddress(draft.nft.contract)}</span> · #{draft.nft.tokenId}</dd></div>
@@ -2781,36 +2784,13 @@ function CreatePage({
           {draft.nft && <p className="nft-warning">{NFT_DISCLAIMER}</p>}
           <div className="review-earn">
             <span>{nftCoin ? "The NFT's treasury earns" : "You earn"} <b className="mono">{creatorCut}</b> of every trade</span>
-            <span className="mono">Buyback {Number((tradingFeeBps * launchShares.buyback / 1_000_000).toFixed(4))}% · Operations {Number((tradingFeeBps * launchShares.operations / 1_000_000).toFixed(4))}% · Doppler {Number((tradingFeeBps * launchShares.protocol / 1_000_000).toFixed(4))}%</span>
           </div>
           <details className="disclosure">
             <summary>Fee policy, treasuries and price references</summary>
             <dl className="rows review-facts">
               <div>
-                <dt>Network / asset issuer</dt>
-                <dd className="sans">{chainName} / {stock.issuer}</dd>
-              </div>
-              <div>
-                <dt>Initial valuation target</dt>
-                <dd className="sans">
-                  <b>{openingCapUsdLabel}</b> before the first buy
-                </dd>
-              </div>
-              <div>
-                <dt>Opening price reference</dt>
-                <dd className="sans">Fresh LI.FI reference · 5-minute wallet window</dd>
-              </div>
-              <div>
-                <dt>Net fee distribution (after Doppler)</dt>
-                <dd className="sans">{creatorRole} {feePercent(FEE_SHARES.creatorNet)} · Platform {feePercent(FEE_SHARES.platformNet)}</dd>
-              </div>
-              <div>
-                <dt>Nominal total fee</dt>
-                <dd className="sans">{(tradingFeeBps + LP_FEE_PPM / 100) / 100}% including the 0.05% LP fee</dd>
-              </div>
-              <div>
-                <dt>Total fee allocation equivalents</dt>
-                <dd className="sans">{creatorRole} {feePercent(FEE_SHARES.creator)} · Buyback budget {feePercent(FEE_SHARES.buyback)} · Operating budget {feePercent(FEE_SHARES.operations)} · Doppler {feePercent(FEE_SHARES.protocol)}</dd>
+                <dt>Trading fee split</dt>
+                <dd className="sans">{creatorRole} {feePercent(launchShares.creator)} · Buyback {feePercent(launchShares.buyback)} · Operations {feePercent(launchShares.operations)} · Doppler {feePercent(launchShares.protocol)}</dd>
               </div>
               <div>
                 <dt>Buyback target / recipient</dt>
@@ -2830,16 +2810,24 @@ function CreatePage({
               </div>
               <div>
                 <dt>Platform income allocation (platform income = 100%)</dt>
-                <dd className="sans">{feePercent(FEE_SHARES.platformBuyback)} to buybacks and {feePercent(FEE_SHARES.platformOperations)} to operations{config.feeEngine ? config.feePolicy === BASE_AUTOMATION_FEE_POLICY ? ", split directly between the Base fee adapter and treasury; the buyback share uses Splits native Automation" : config.feePolicy === BASE_COLLECTOR_FEE_POLICY ? ", split directly between the historical Base Collector and treasury" : ", split directly between the public engine and treasury" : ", allocated manually by the treasury wallet"}</dd>
+                <dd className="sans">{feePercent(launchShares.platformBuyback)} to buybacks and {feePercent(launchShares.platformOperations)} to operations{config.feeEngine ? config.feePolicy === BASE_AUTOMATION_FEE_POLICY ? ", split directly between the Base fee adapter and treasury; the buyback share uses Splits native Automation" : config.feePolicy === BASE_COLLECTOR_FEE_POLICY ? ", split directly between the historical Base Collector and treasury" : ", split directly between the public engine and treasury" : ", allocated manually by the treasury wallet"}</dd>
               </div>
               <div>
-                <dt>Launch cost</dt>
-                <dd className="sans">{nftFeeCost ? `${nftFeeCost} + ${buying ? `${firstBuy.amount} ${paymentAsset.symbol} + ` : ""}network gas`
-                  : buying ? `${firstBuy.amount} ${paymentAsset.symbol} + network gas` : "Network gas only"}</dd>
+                <dt>Network / protocol</dt>
+                <dd className="sans">{chainName} · Doppler + Uniswap v4</dd>
               </div>
-              {buying && <div>
-                <dt>First buy slippage</dt><dd>{firstBuy.slippageBps / 100}%</dd>
-              </div>}
+              <div>
+                <dt>Asset issuer</dt>
+                <dd className="sans">{stock.issuer}</dd>
+              </div>
+              <div>
+                <dt>Supply</dt>
+                <dd className="sans">1,000,000,000 · all in the pool</dd>
+              </div>
+              <div>
+                <dt>Opening price reference</dt>
+                <dd className="sans">Fresh LI.FI buy/sell quotes when the preview is prepared; a first buy moves the price above {openingCapUsdLabel}</dd>
+              </div>
             </dl>
           </details>
           {buying && <div className="first-buy-slippage">
@@ -2851,42 +2839,23 @@ function CreatePage({
           {paymentQuote && <section className="step-card" aria-label="Payment conversion review">
             <h3><span className="step-number">1</span>{paymentQuote.protocol === "wrap" ? "Wrap ETH into WETH" : "Convert payment with LI.FI"}</h3>
             <dl className="rows">
-              <div><dt>You pay</dt><dd>{formatUnits(BigInt(paymentQuote.amountIn), paymentQuote.fromToken.decimals)} {paymentQuote.fromToken.symbol}</dd></div>
-              <div><dt>Estimated paired asset</dt><dd>{formatUnits(BigInt(paymentQuote.expectedOut), paymentQuote.toToken.decimals)} {paymentQuote.toToken.symbol}</dd></div>
-              <div><dt>Minimum paired asset</dt><dd>{formatUnits(BigInt(paymentQuote.minimumOut), paymentQuote.toToken.decimals)} {paymentQuote.toToken.symbol}</dd></div>
-              <div><dt>LI.FI route fee</dt><dd>{formatUnits(BigInt(paymentQuote.feeAmount), paymentQuote.fromToken.decimals)} {paymentQuote.fromToken.symbol}{paymentQuote.feeUsd && ` (≈ $${paymentQuote.feeUsd})`}</dd></div>
-              <div><dt>Estimated conversion gas</dt><dd>{paymentQuote.gasFeeUsd ? `≈ $${paymentQuote.gasFeeUsd}` : "Unavailable"}</dd></div>
-              <div><dt>Recipient</dt><dd><code className="wrap">{paymentQuote.account}</code></dd></div>
-              <div><dt>Quote expires</dt><dd>{new Date(paymentQuote.expiresAt).toLocaleString("en-US")}</dd></div>
-              <div><dt>First buy lock</dt><dd className="sans">{lockLabel}</dd></div>
+              <div><dt>You pay</dt><dd>{formatUnits(BigInt(paymentQuote.amountIn), paymentQuote.fromToken.decimals)} {paymentQuote.fromToken.symbol} → at least {formatUnits(BigInt(paymentQuote.minimumOut), paymentQuote.toToken.decimals)} {paymentQuote.toToken.symbol}</dd></div>
+              <div><dt>Fees</dt><dd>{formatUnits(BigInt(paymentQuote.feeAmount), paymentQuote.fromToken.decimals)} {paymentQuote.fromToken.symbol}{paymentQuote.feeUsd && ` (≈ $${paymentQuote.feeUsd})`} route fee · gas {paymentQuote.gasFeeUsd ? `≈ $${paymentQuote.gasFeeUsd}` : "unavailable"}</dd></div>
             </dl>
-            <p className="hint">This payment supplies the first buy shown below, using the conversion's guaranteed output for its preview. Your token minimum stays fixed; after any necessary approvals and conversion, the final wallet transaction is prepared automatically. Network and route fees are included above.</p>
+            <p className="hint">After any required approval and this conversion, its guaranteed output funds the first buy below; your token minimum stays fixed.</p>
           </section>}
           {plan?.firstBuy && <section className="step-card" aria-label="First buy preview">
             <h3><span className="step-number">{paymentQuote ? 2 : 1}</span>Your first buy</h3>
             <dl className="rows">
-              <div><dt>You spend</dt><dd>{plan.firstBuy.amount} {stock.symbol}</dd></div>
+              <div><dt>You spend</dt><dd>{plan.firstBuy.amount} {stock.symbol} · approval for this amount only</dd></div>
               <div><dt>Estimated tokens received</dt><dd>≈ <NumberText value={plan.firstBuy.expectedAmountOut} decimals={18} /> {draft.symbol}</dd></div>
               <div><dt>Minimum tokens received</dt><dd><NumberText value={plan.firstBuy.minAmountOut} decimals={18} /> {draft.symbol}</dd></div>
               <div><dt>Share of total supply</dt><dd>{formatUnits(BigInt(plan.firstBuy.expectedAmountOut) * 100_000_000n / SUPPLY, 6)}%</dd></div>
-              <div><dt>Recipient</dt><dd><code className="wrap">{plan.firstBuy.recipient}</code></dd></div>
               <div><dt>First buy lock</dt><dd className="sans">{(plan.firstBuy.lockDays ?? 0) === 0 ? "No lock" : <><LockKeyhole size={12} aria-hidden="true" /> {plan.firstBuy.lockDays === 365 ? "1 year" : `${plan.firstBuy.lockDays} days`} · releases in full</>}</dd></div>
-              <div><dt>Preview expires</dt><dd>{new Date(plan.firstBuy.deadline * 1000).toLocaleString("en-US")}</dd></div>
-              <div><dt>Slippage tolerance</dt><dd>{plan.firstBuy.slippageBps / 100}%</dd></div>
-              <div><dt>Approval amount</dt><dd>{plan.firstBuy.amount} {stock.symbol} only</dd></div>
+              <div><dt>Recipient</dt><dd><code className="wrap">{plan.firstBuy.recipient}</code></dd></div>
             </dl>
-            <p className="hint">The first buy waives the creator and platform portion of the trading fee. Protocol and liquidity fees are included; network gas is separate. Any required token approval happens first; the complete launch and buy is then simulated before wallet confirmation. If the buy fails, the launch also reverts. A confirmed approval remains in place.</p>
+            <p className="hint">Any required approval comes first; if the buy fails, the launch reverts too, and a confirmed approval stays in place.</p>
           </section>}
-          <div className="review-progress">
-            <span className="complete">
-              <Check size={14} />
-              Parameter check
-            </span>
-            <ChevronRight size={14} aria-hidden="true" />
-            <span className={plan ? "complete" : "current"}>{plan && <Check size={14} />}{buying ? "First buy preview" : "On-chain simulation"}</span>
-            <ChevronRight size={14} aria-hidden="true" />
-            <span className={plan ? "current" : ""}>Wallet confirmation</span>
-          </div>
           {(plan?.openingValuation && "warnings" in plan.openingValuation ? plan.openingValuation.warnings : undefined)?.map((warning) => <Notice key={warning.code} kind="warning">{warning.message}</Notice>)}
           {paymentQuote?.warnings?.map((warning) => <Notice key={warning} kind="warning">{warning}</Notice>)}
           {plan?.requiresReconfirmation && plan.firstBuy && <Notice kind="warning">The updated minimum is {formatUnits(BigInt(plan.firstBuy.expectedAmountOut) * BigInt(10_000 - plan.firstBuy.slippageBps) / 10_000n, 18)} {draft.symbol || "tokens"}. Your previous payment and approval are saved.</Notice>}
@@ -2898,11 +2867,6 @@ function CreatePage({
             <button type="button" className="secondary" onClick={() => updateFirstBuy({ ...firstBuy, amount: "0", lockDays: 0 })}>Launch without a first buy</button>
           </div>}
           {message && !planExpired && <Notice kind="success">{message}</Notice>}
-          {plan && !planExpired && (
-            <p className="launch-caption">
-              Set using LI.FI buy/sell quotes at preview time. A fresh reference is used when this plan is prepared. You have five minutes to confirm in your wallet. The optional first buy moves the pool price above its initial target.
-            </p>
-          )}
           {planExpired && !busy && (
             <Notice>This preview has expired. Continuing refreshes it automatically; your inputs, payment and approvals are saved.</Notice>
           )}
@@ -2923,8 +2887,11 @@ function CreatePage({
           ) : plan?.requiresReconfirmation ? (
             <button className="primary large full" disabled={busy} onClick={() => void acceptPriceChange()}>{converting && !converted ? "Accept updated minimum and convert" : "Accept updated minimum"}</button>
           ) : paymentQuote && plan ? (
-            <button className="primary large full" disabled={busy || !config.writesEnabled || wallet.chainId !== config.chainId}
-              onClick={() => void convertPayment()}><Wallet size={17} />{busy ? "Confirming payment…" : paymentQuote.protocol === "wrap" ? "Wrap ETH and launch" : "Convert payment and launch"}</button>
+            <>
+              {planResult}
+              <button className="primary large full" disabled={busy || !config.writesEnabled || wallet.chainId !== config.chainId}
+                onClick={() => void convertPayment()}><Wallet size={17} />{busy ? "Confirming payment…" : paymentQuote.protocol === "wrap" ? "Wrap ETH and launch" : "Convert payment and launch"}</button>
+            </>
           ) : converting && !converted ? (
             <button className="primary large full" disabled={busy} onClick={() => void simulate()}>Refresh payment and launch preview<RefreshCw size={17} /></button>
           ) : !plan ? (
@@ -2942,14 +2909,7 @@ function CreatePage({
             </button>
           ) : (
             <>
-              <div className="notice success plan-result">
-                <CheckCircle2 size={17} aria-hidden="true" />
-                <span>
-                  {plan.firstBuy ? "First buy quoted" : "Simulation passed"} · Predicted token address
-                  <br />
-                  <code className="wrap">{plan.tokenAddress}</code>
-                </span>
-              </div>
+              {planResult}
               <button
                 className="primary large full"
                 disabled={busy || !!txHash || !config?.writesEnabled || wallet.chainId !== config.chainId}

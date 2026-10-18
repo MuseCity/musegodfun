@@ -824,17 +824,20 @@ async function lockedWalletCase(page, state) {
   assert(posts.every(path => path.endsWith('/rpc')), `no network write: ${posts.join(', ')}`);
   state.nftChecks = { importedWithoutAccount: true, untouchedDraftReplacedInPlace: true, keptOnConnect: true, walletDraftListed: true, blankWalletDraftNotListed: true, noWrites: true };
 }
-/** The "Launch cost" value of a launch summary or review. */
+/** The "Launch cost" value of the live launch summary. */
 async function launchCostRow(scope) {
   return scope.locator('dl.rows > div', { has: scope.page().locator('dt', { hasText: /^Launch cost$/ }) }).locator('dd').textContent();
 }
-/** An NFT draft's review and summary credit the NFT's treasury, never the launcher, and name the $10 where it applies. */
-async function nftEarnCopy(page, dialog, reviewCost) {
+/** An NFT draft's review and summary credit the NFT's treasury, never the launcher. The review names gas once in its intro and the paid
+ * $10 only in its NFT block, never again as a "Launch cost" row. */
+async function nftEarnCopy(page, dialog, paid) {
   await dialog.locator('.review-earn', { hasText: "The NFT's treasury earns" }).waitFor();
   assert.match((await dialog.locator('.review-earn > span').first().textContent()).trim(), /^The NFT's treasury earns \d+(?:\.\d+)?% of every trade$/);
   assert.equal(await dialog.getByText(/\byou earn\b/i).count(), 0, 'nothing tells the launcher they earn the creator share');
   await dialog.getByText('Fee policy, treasuries and price references', { exact: true }).click();
-  assert.equal((await launchCostRow(dialog)).trim(), reviewCost);
+  assert.equal(await dialog.locator('dt', { hasText: /^Launch cost$/ }).count(), 0);
+  await dialog.getByText(/You pay network gas\./).waitFor();
+  assert.equal(await dialog.getByText('$10, paid, non-refundable', { exact: true }).count(), paid ? 1 : 0);
   await dialog.locator('dd', { hasText: /^NFT treasury \d/ }).first().waitFor();
   const aside = page.locator('aside.preview-column');
   assert.equal(await aside.locator('dt', { hasText: /^NFT treasury share$/ }).count(), 1);
@@ -1604,7 +1607,7 @@ async function nftCase(page, state) {
     for (const text of ['Bound NFT', 'Verified', 'Creator fees']) await dialog.getByText(text, { exact: true }).waitFor();
     assert.equal(await dialog.getByText('Launch fee', { exact: true }).count(), 0);
     await dialog.getByText(/Not investment advice\. musegod\.fun does not endorse NFT collections/).waitFor();
-    await nftEarnCopy(page, dialog, 'Network gas only');
+    await nftEarnCopy(page, dialog, false);
     state.nftChecks = { modeSwitch: true, museDefaultPair: true, musePairChangeable: true, prefillOnce: true, freeWithoutFee: true, earnCopyIsNftTreasury: true };
   } else if (mode === 'nft_paid_usdg' || mode === 'nft_fee_sending_reload' || mode === 'nft_paid_eth') {
     await page.getByLabel('Collection contract', { exact: true }).fill(paidCollection);
@@ -1689,7 +1692,7 @@ async function nftCase(page, state) {
       : { asset: 'stable', txHash: state.sends[0].hash });
     const dialog = page.getByRole('dialog');
     for (const text of ['Unverified collection', '$10, paid, non-refundable', 'Creator fees']) await dialog.getByText(text, { exact: true }).waitFor();
-    await nftEarnCopy(page, dialog, '$10 launch fee (paid) + network gas');
+    await nftEarnCopy(page, dialog, true);
     assert.equal(state.sends.length, 1, 'one fee payment, never two');
     state.nftChecks = { modeSwitch: true, feeCardBeforeReview: true, feeKeptAcrossNftChange: true, feePayments: 1, earnCopyIsNftTreasury: true, launchCostNamesFee: true,
       ...(mode === 'nft_paid_usdg' ? { pendingFeeSurvivedReload: true, reviewSaysStillConfirming: true } : {}),
