@@ -1,6 +1,6 @@
 # Launch review dialog trim plan
 
-Status: Implemented and reviewed, not released (release only on the owner's word). Approved by the owner on 2026-10-18 (translated from Chinese: "Agreed, implement this trimmed plan."). Branch `claude/eloquent-morse-877b44`, based on master `920219a` plus the record commit `63bed91`: `c65ccd4` (trim) and `1110d31` (review round 1 fixes).
+Status: Released 2026-10-18 on the owner's word (see Release below). Approved by the owner on 2026-10-18 (translated from Chinese: "Agreed, implement this trimmed plan."). Branch `claude/eloquent-morse-877b44`, based on master `920219a` plus the record commit `63bed91`: `c65ccd4` (trim) and `1110d31` (review round 1 fixes).
 
 ## Background
 
@@ -55,4 +55,10 @@ The dialog states each fact a person needs before signing once, in the place the
 - `1110d31` fixed all of them (the claude reviewer's findings were fixed by claude in the same round, then verified by codex) and added tests for the wrap, expiry in a hidden tab and a completed conversion that waits for a changed minimum.
 - Round 2: codex ACCEPT, no findings. `npm test` 1828/1828, `npm run build` (with typecheck) passed. Reports are in the worktree's ignored `.superpowers/sdd/launch-review-trim/`.
 - Read-only preview (plain Vite, GET-only proxy): the dialog before a preview, at desktop and phone width. A preview needs a POST, so later states are covered by the tests only.
+
+## Release
+
+- 2026-10-18, on the owner's word (translated from Chinese: "Release it: push to master, then check musegod.fun live and delete the merged branch."). Master `6e6cc32` (`c65ccd4` + `1110d31` + `6e6cc32`, with the earlier record `63bed91`); CI run 39128499370, `build-39128499370-1`, Worker version `cc4d1972`; rollback point Worker `23914c13` (`920219a`). `build-info.json` on musegod.fun reports commit `6e6cc32`.
+- Frontend only, so no Durable Object probe was needed.
+- Live check on musegod.fun (built-in browser, no wallet, a fetch guard refusing every non-GET request): a plain coin shows the new intro, identity line, the three tiles with "First buy: None", one earn line, the eight disclosure rows and one five-minute caption; a 10 USDG first buy shows "10 USDG · no lock", the slippage control and the conversion caption. No write request was made, and the test draft was cleared. States after a preview need a wallet and a POST, so they rest on the tests.
 
