@@ -181,7 +181,7 @@ export function NftLaunchStep({ config, account, draft, connecting, onConnect, e
     : !current.erc721 ? "This contract is not an ERC-721 collection."
     : !current.controls ? "This wallet does not hold the NFT and has no delegation for it."
     : current.alreadyLaunched ? "This NFT already has its coin."
-    : current.free ? "Muse launches are free. Muse coins pair with MUSEGOD."
+    : current.free ? "Muse launches are free."
     : "Launching for this NFT costs $10, paid before the launch.";
 
   const fee = useLaunchFee(config, account, draft.launchFee, (next) => latest.current.onFee(next));

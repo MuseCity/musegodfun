@@ -4,7 +4,7 @@ import { LAUNCH_FIELD_MESSAGES, LAUNCH_IDENTITY_FIELDS, launchSchema, type Launc
 // An agent hands its holder a prefilled create page: `/create?chainId=4663#draft=<base64url JSON>`. The fragment never reaches a
 // server. It prefills the identity fields (step one), the NFT and an optional trading fee (a step-two field), and the holder reviews
 // and signs everything in their own wallet. The pairing asset and the launch fee are never part of a link: the form picks the pair
-// (a Muse always pairs with MUSEGOD) and the fee is paid in the holder's wallet.
+// (MUSEGOD by default for a Muse; the holder can choose another) and the fee is paid in the holder's wallet.
 const MAX = 4096;
 const PREFIX = "#draft=";
 const FIELDS = ["name", "symbol", "description", "image", "website", "twitter", "telegram", "tradingFeeBps", "nft"] as const;
@@ -63,7 +63,7 @@ const IMPORTED = "Imported from a link — check every field.";
 const NFT_UNAVAILABLE = "NFT mode is not available on this network yet; the NFT was not imported.";
 const NFT_OTHER_NETWORK = "The NFT is on a different network than this page; the NFT was not imported.";
 export const SAVED_LAUNCHES_NOTE = "Your previous draft is under Saved launches.";
-/** What the create form restores for a decoded link: the draft JSON for `restoreDraft` (so the Muse pair lock and every other
+/** What the create form restores for a decoded link: the draft JSON for `restoreDraft` (so the Muse default pair and every other
  * sanitising apply), and the notice to show. The NFT is dropped, and the other fields still import, where NFT mode is off or when
  * the NFT is on another network than the page. `previousSaved` says the form's earlier draft was saved first. */
 export function importDraftLink(linked: Partial<LaunchInput>, config: Pick<RuntimeConfig, "mode" | "deploymentChainId" | "nftMode">, previousSaved = false) {

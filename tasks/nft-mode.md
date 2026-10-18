@@ -54,7 +54,7 @@ The vault is the Doppler creator-fee beneficiary of every coin bound to that NFT
 | D2 | Who may launch for an NFT | Holder, or a delegate.xyz v2 delegate for that token or contract | Holder only |
 | D3 | Launch fee | Muses free. Other NFTs: $10 per launch, paid as exactly 10 USDC (Base) or 10 USDG (Robinhood), or in ETH using a 60-second server-signed quote. One payment = one launch credit for that payer. No refunds | Stablecoins only |
 | D4 | Where the $10 goes | 100% to the operations wallet | Split with MUSEGOD buyback |
-| D5 | Muse coins | MUSEGOD pair required. Like every NFT, a Muse gets one coin, ever (owner decision) | Any pair |
+| D5 | Muse coins | Any eligible pair, MUSEGOD by default (owner, 2026-10-18, replacing "MUSEGOD pair required"); still free whatever the pair. Like every NFT, a Muse gets one coin, ever (owner decision) | MUSEGOD pair required |
 | D6 | Other NFT coins | Any eligible pair; one coin per NFT, ever (owner decision) | — |
 | D7 | Collection labels | Verified badge only for a committed allowlist (Muses at launch). Everything else shows "Unverified collection" with its contract address | Show every collection equally |
 | D8 | Reserved names | New launches may not use `MUSEGOD`, or an allowlisted collection's name, unless bound to that collection | MUSEGOD only |
@@ -139,7 +139,7 @@ The vault is the Doppler creator-fee beneficiary of every coin bound to that NFT
   - Otherwise check control at the latest block for server-saved previews, or at the receipt block for backup recovery (`server/service.ts:749`, `:680`).
   - Re-check the payment's single use and the one-coin rule (`verified` records only, excluding the coin itself) under a per-NFT in-process mutex. A losing coin registers with `rejected: already_launched` and no badge; its fees still go to the NFT's vault, because the calldata binds them there.
   - `scripts/nft-reverify.ts` applies the same rule: an `unverified` coin whose NFT already has a `verified` coin becomes `rejected: already_launched`.
-  - **Badge rules:** evaluate the collection rules for the badge. A Muse-bound coin registered from a backup with a non-MUSEGOD pair still registers, but gets `rejected: pair` and no badge.
+  - **Badge rules:** evaluate the collection rules for the badge. The pair never decides it: since 2026-10-18 a Muse coin may pair with any eligible asset, so `rejected: pair` is no longer issued.
   - Persist `nftVerification {status: verified|rejected|unverified, reason, block}`.
   - **RPC failure:** retryable 422 while the receipt block (time from `server/service.ts:798`) is under about 10 minutes old, then `unverified`. `reconcile()` also calls register (`:920`), so the same rule applies there.
   - A record with `nft` but no status counts as `unverified`. Records without `nft` are never touched.
@@ -187,7 +187,7 @@ The vault is the Doppler creator-fee beneficiary of every coin bound to that NFT
   - NFT step: the connected wallet's ERC-721 collections (Alchemy NFT API v3 through `nft-collections`; Muses pinned by address, then OpenSea-verified, then by NFTs held; searchable), then the wallet's NFTs with names and images from OpenSea API v2 (`nft-tokens`, server secret `OPENSEA_API_KEY`; already launched NFTs disabled). Manual entry (contract + token number) remains for delegated wallets and unlisted NFTs.
   - Live checks run on the chosen NFT as before: ERC-721, holder or delegate, tier, plus the vault and treasury addresses.
   - Prefill: name and symbol from the Muse's on-chain name, or from a picked NFT's listed name, skipping reserved values. A picked NFT's image becomes the default coin image: converted and pinned like an upload, replaceable (owner decision W6, 2026-10-15, replacing "art only with official permission"). Prefilled values follow a change of NFT, decided by value: a field holding the NFT's value is the NFT's, and the person's change of NFT clears it at once. Values the person typed or uploaded never follow (`tasks/nft-mode-wallet-picker.md` §3.2).
-  - Pair lock for Muses, enforced centrally in `restoreDraft` and the unsupported-asset effect (`src/App.tsx:1251-1260`).
+  - MUSEGOD as a Muse coin's default pair: picking a Muse selects it, and `restoreDraft` gives it to a Muse draft that carries no pair (a draft link). The holder can choose any eligible pair; there is no lock (owner, 2026-10-18).
   - Payment step for paid tiers.
 - **Review:** the bound NFT, verified or unverified collection, vault and treasury, and the rules:
   - fees follow the NFT
@@ -366,7 +366,7 @@ Open items:
 
 > gm — I'm <name>, a MUSEGOD holder building musegod.fun, a community launchpad on Robinhood Chain and Base whose platform fees buy MUSEGOD and send it to the dead address. It is clearly labeled as community-built.
 >
-> I'm adding an "NFT mode". A coin can be launched for an NFT, and its creator fees go to that NFT's ERC-6551 treasury, so they follow the NFT when it is sold. Muses launch free, and their coins always pair with MUSEGOD. Control follows the same rule as your Adapter8004 (holder or delegate.xyz delegate). A Muse's agent can prepare a launch from a skill file; the holder always reviews and signs.
+> I'm adding an "NFT mode". A coin can be launched for an NFT, and its creator fees go to that NFT's ERC-6551 treasury, so they follow the NFT when it is sold. Muses launch free, and their coins pair with MUSEGOD by default. Control follows the same rule as your Adapter8004 (holder or delegate.xyz delegate). A Muse's agent can prepare a launch from a skill file; the holder always reviews and signs.
 >
 > Asks:
 > 1. May Muse coins use their Muse's name and art?

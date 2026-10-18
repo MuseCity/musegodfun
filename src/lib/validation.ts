@@ -165,8 +165,8 @@ export function restoreDraft(raw: string | null, config?: Pick<RuntimeConfig, "m
       const nft = nftRefSchema.safeParse(saved.nft);
       if (nft.success) draft.nft = nft.data;
     }
-    // A Muse coin always pairs with MUSEGOD (prepare refuses anything else).
-    if (draft.nft && isMuse(draft.nft)) {
+    // MUSEGOD is a Muse coin's default pair; a pair the draft carries (any supported asset) is kept. A draft link never carries one.
+    if (draft.nft && isMuse(draft.nft) && typeof saved.quoteAddress !== "string") {
       const musegod = assets.find((asset) => asset.symbol === "MUSEGOD");
       if (musegod) draft.quoteAddress = musegod.address;
     }

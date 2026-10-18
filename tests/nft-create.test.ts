@@ -35,10 +35,12 @@ const stableFee = { asset: "stable" as const, txHash: `0x${"ab".repeat(32)}` as 
 const draftOf = (over: Partial<LaunchInput> = {}): LaunchInput => ({ name: "Bard", symbol: "BARD", description: "", image: "", website: "", twitter: "",
   telegram: "", quoteAddress: musegod.address, tradingFeeBps: 100, ...over });
 
-test("restoring a Muse draft locks the MUSEGOD pair", () => {
-  const draft = restoreDraft(JSON.stringify({ name: "Bard", quoteAddress: weth.address, nft: { chainId: 4663, contract: MUSES.contract, tokenId: "1" } }), config);
-  assert.equal(draft.quoteAddress, musegod.address);
+test("a restored Muse draft keeps its pair; one without a pair gets MUSEGOD, the Muse default", () => {
+  const nft = { chainId: 4663, contract: MUSES.contract, tokenId: "1" };
+  const draft = restoreDraft(JSON.stringify({ name: "Bard", quoteAddress: weth.address, nft }), config);
+  assert.equal(draft.quoteAddress, weth.address);
   assert.equal(draft.nft?.tokenId, "1");
+  assert.equal(restoreDraft(JSON.stringify({ name: "Bard", nft }), config).quoteAddress, musegod.address);
 });
 
 test("restoring a malformed nft drops it and keeps the rest", () => {
@@ -169,7 +171,7 @@ test("review stays blocked while the NFT step re-checks an NFT the draft already
     for (const nft of [muse(), other()])
       assert.equal(nftReviewBlocker(true, draftOf({ nft, launchFee: stableFee }), status, "paid", null, account), status, `${status} (${nft.contract})`);
   assert.match(nftReviewBlocker(true, draftOf({ nft: muse() }), "") ?? "", /NFT/, "a step that reported nothing has not checked: blocked");
-  const free = "Muse launches are free. Muse coins pair with MUSEGOD.";
+  const free = "Muse launches are free.";
   assert.equal(nftReviewBlocker(true, draftOf({ nft: muse() }), free, "none", { nft: nftKey(muse()), account }, account), null);
   assert.equal(nftReviewBlocker(true, draftOf({ nft: muse() }), free, "none", { nft: nftKey(muse()), account: account.toLowerCase() }, account), null,
     "the account compares without case");

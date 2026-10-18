@@ -34,15 +34,14 @@ const ownedBy = (owner: Address | "fail") => ({ readContract: async ({ functionN
   if (owner === "fail") throw new Error("rpc down");
   return functionName === "supportsInterface" ? true : functionName === "ownerOf" ? owner : false;
 } }) as never;
-const base = { nft: muse, creator: holder, quoteAddress: musegod.address, receiptTimestamp: 1000n, nowSeconds: 1010n, existing: null };
+const base = { nft: muse, creator: holder, receiptTimestamp: 1000n, nowSeconds: 1010n, existing: null };
 
 test("verified when the creator still controls the NFT", async () => {
   assert.deepEqual(await nftRegistrationStatus({ ...base, client: ownedBy(holder) }), { status: "verified" });
 });
-test("rejected when control moved, when another verified coin exists, or when a Muse coin is not MUSEGOD-paired", async () => {
+test("rejected when control moved or when another verified coin exists", async () => {
   assert.equal((await nftRegistrationStatus({ ...base, client: ownedBy(other) }) as { reason: string }).reason, "not_controller");
   assert.equal((await nftRegistrationStatus({ ...base, client: ownedBy(holder), existing: { address: other } as never }) as { reason: string }).reason, "already_launched");
-  assert.equal((await nftRegistrationStatus({ ...base, client: ownedBy(holder), quoteAddress: weth.address }) as { reason: string }).reason, "pair");
 });
 test("an RPC failure asks for a retry within 10 minutes, then records unverified", async () => {
   assert.equal(await nftRegistrationStatus({ ...base, client: ownedBy("fail") }), "retry");
@@ -50,12 +49,12 @@ test("an RPC failure asks for a retry within 10 minutes, then records unverified
 });
 test("an unpaid non-Muse coin is rejected for its badge but still registers", async () => {
   const nft = { ...muse, contract: "0x1111111111111111111111111111111111111111" as Address };
-  assert.equal((await nftRegistrationStatus({ ...base, nft, quoteAddress: weth.address, client: ownedBy(holder), fee: "invalid" }) as { reason: string }).reason, "fee");
-  assert.deepEqual(await nftRegistrationStatus({ ...base, nft, quoteAddress: weth.address, client: ownedBy(holder), fee: "paid" }), { status: "verified" });
+  assert.equal((await nftRegistrationStatus({ ...base, nft, client: ownedBy(holder), fee: "invalid" }) as { reason: string }).reason, "fee");
+  assert.deepEqual(await nftRegistrationStatus({ ...base, nft, client: ownedBy(holder), fee: "paid" }), { status: "verified" });
 });
 test("a fee that could not be confirmed (past 10 minutes) leaves a controlled coin unverified, never rejected: fee", async () => {
   const nft = { ...muse, contract: "0x1111111111111111111111111111111111111111" as Address };
-  const late = { ...base, nft, quoteAddress: weth.address, fee: "unconfirmed" as const, nowSeconds: 1000n + 601n };
+  const late = { ...base, nft, fee: "unconfirmed" as const, nowSeconds: 1000n + 601n };
   assert.deepEqual(await nftRegistrationStatus({ ...late, client: ownedBy(holder) }), { status: "unverified", reason: "fee_unconfirmed" });
   // The other rules are definite, so they still decide.
   assert.equal((await nftRegistrationStatus({ ...late, client: ownedBy(other) }) as { reason: string }).reason, "not_controller");
@@ -967,11 +966,11 @@ test("a normal launch never claims or releases anything", withStore(async (store
   assert.deepEqual(touched, []);
 }));
 
-test("register never blocks on the Muse pair rule or the flag: a Muse coin paired with WETH registers rejected: pair", withStore(async (store) => {
-  const wrong = coin(3, { quoteAddress: weth.address });
-  store.savePlan(wrong.plan);
-  const record = await registrar(store, [wrong]).service.register(wrong.hash);
-  assert.equal(record.nftVerification?.reason, "pair");
+test("a Muse coin may pair with any supported asset: one paired with WETH registers verified (owner, 2026-10-18)", withStore(async (store) => {
+  const paired = coin(3, { quoteAddress: weth.address });
+  store.savePlan(paired.plan);
+  const record = await registrar(store, [paired]).service.register(paired.hash);
+  assert.equal(record.nftVerification?.status, "verified");
 }));
 
 test("a recovered backup reads control at its receipt block and records that block", withStore(async (store) => {

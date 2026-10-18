@@ -14,8 +14,8 @@ musegod.fun is a community-built launchpad for coins on Robinhood Chain (chain 4
 ## 2. NFT mode in one paragraph
 
 NFT mode binds one coin to one ERC-721 NFT, ever: once an NFT has its coin, it cannot launch another. Creator fees from trading that coin
-go to the NFT's ERC-6551 treasury account (Tokenbound), so they follow the NFT when it changes hands. Muses launch for free and always pair
-with MUSEGOD. Any other NFT pays a $10 launch fee, once, before the launch. NFT mode is for Robinhood Chain (4663) only.
+go to the NFT's ERC-6551 treasury account (Tokenbound), so they follow the NFT when it changes hands. Muses launch for free and pair with
+MUSEGOD by default; the holder can choose another pair. Any other NFT pays a $10 launch fee, once, before the launch. NFT mode is for Robinhood Chain (4663) only.
 
 ## 3. How a Muse's agent prepares a launch
 
@@ -47,7 +47,7 @@ The JSON, with `v` set to 1 and every other key optional:
 Rules:
 
 - Allowed keys: `v`, `name`, `symbol`, `description`, `image`, `website`, `twitter`, `telegram`, `tradingFeeBps`, `nft`. Any other key makes the page refuse the link.
-- Never add `quoteAddress` or `launchFee`. The pairing asset is chosen on the page (a Muse is always paired with MUSEGOD), and the launch fee is paid in the holder's own wallet.
+- Never add `quoteAddress` or `launchFee`. The pairing asset is chosen on the page (MUSEGOD by default for a Muse), and the launch fee is paid in the holder's own wallet.
 - `nft.tokenId` is a decimal string without leading zeros. `nft.chainId` is 4663.
 - Encode the JSON as UTF-8, then base64url (`-` and `_`, no `=` padding). The encoded part may be at most 4096 characters.
 - Append it to `https://musegod.fun/create?chainId=4663#draft=`.

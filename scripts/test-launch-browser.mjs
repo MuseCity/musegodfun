@@ -29,7 +29,7 @@ const quoteClockModes = new Set(['wrap_near_expiry', 'idle_review', 'hidden_revi
 const tokenLookupModes = new Set(['token_detail_pending', 'token_detail_error', 'token_detail_state_unavailable', 'token_detail_unregistered_backup', 'token_detail_invalid_pool', 'token_detail_unverified_opening']);
 const timeoutModes = new Set(['approval_timeout', 'payment_timeout', 'launch_timeout', 'approval_timeout_reject']);
 const recoveryRaceModes = new Set(['payment_marker_race', 'launch_marker_race', 'payment_status_race', 'payment_submit_race', 'payment_submit_record_race']);
-// NFT mode: the mode switch, the Muse pair lock, the $10 fee card before review and prepare's NFT rejections. No launch is signed.
+// NFT mode: the mode switch, the Muse default pair, the $10 fee card before review and prepare's NFT rejections. No launch is signed.
 const nftModes = new Set(['nft_reload_keeps_nft', 'nft_muse_free', 'nft_paid_usdg', 'nft_paid_eth', 'nft_fee_sending_reload', 'nft_not_controlled', 'nft_already_launched', 'nft_draft_link_during_reconnect', 'nft_draft_link_locked_wallet', 'nft_fee_no_vault', 'nft_fee_mode_off', 'nft_wallet_picker', 'nft_wallet_switch_mid_load', 'nft_same_nft_image']);
 const requestedCases = process.env.BROWSER_CASES?.split(',');
 const feeWei = '3333333333333334';
@@ -713,7 +713,7 @@ async function draftLinkCase(page, state) {
   await page.getByRole('button', { name: 'Enter a contract and token number instead' }).click();
   assert.equal(await page.getByLabel('Collection contract', { exact: true }).inputValue(), muses);
   assert.equal(await page.getByLabel('Token number', { exact: true }).inputValue(), '2');
-  await page.waitForFunction(() => document.getElementById('nft-launch-status')?.textContent === 'Muse launches are free. Muse coins pair with MUSEGOD.');
+  await page.waitForFunction(() => document.getElementById('nft-launch-status')?.textContent === 'Muse launches are free.');
   assert.equal(await name.inputValue(), 'Linked Muse coin', 'the Muse name prefill never overwrites the link');
   assert.equal(await page.getByRole('heading', { name: 'Choose your NFT' }).isVisible(), true, 'the holder lands on the NFT step');
   assert.equal(await page.getByRole('button', { name: 'Review and continue', exact: true }).isVisible(), false);
@@ -782,7 +782,7 @@ async function lockedWalletCase(page, state) {
   await page.getByRole('button', { name: 'Enter a contract and token number instead' }).click();
   assert.equal(await page.getByLabel('Collection contract', { exact: true }).inputValue(), muses);
   assert.equal(await page.getByLabel('Token number', { exact: true }).inputValue(), '2');
-  await page.waitForFunction(() => document.getElementById('nft-launch-status')?.textContent === 'Muse launches are free. Muse coins pair with MUSEGOD.');
+  await page.waitForFunction(() => document.getElementById('nft-launch-status')?.textContent === 'Muse launches are free.');
   assert.equal(await name.inputValue(), 'Linked Muse coin');
   assert.equal(await page.getByRole('heading', { name: 'Choose your NFT' }).isVisible(), true);
   // The imported draft now belongs to the account's active intent; the wallet's earlier draft is listed and intact.
@@ -912,7 +912,7 @@ async function twoTabsDraftCase(context, page, pageErrors) {
 // an unedited second tab ever loses it. Review waits for the check; a check that cannot run keeps the NFT and offers Retry.
 async function nftReloadCase(page, state) {
   const context = page.context(), errors = [], muse1 = { chainId: 4663, contract: muses, tokenId: '1' };
-  const free = 'Muse launches are free. Muse coins pair with MUSEGOD.', checking = 'Checking this NFT…';
+  const free = 'Muse launches are free.', checking = 'Checking this NFT…';
   const statusIs = (target, text) => target.waitForFunction(text => document.getElementById('nft-launch-status')?.textContent === text, text);
   const tokenOf = async target => {
     if (!await target.getByLabel('Token number', { exact: true }).count()) {
@@ -1422,7 +1422,7 @@ async function nftImageRacePins(page, state) {
 }
 // A passing manual/restored NFT can gain its list image without becoming a different NFT or repeating the live check.
 async function sameNftImageCase(page, state) {
-  const free = 'Muse launches are free. Muse coins pair with MUSEGOD.';
+  const free = 'Muse launches are free.';
   const image = page.getByLabel('Image URL', { exact: true }), notice = page.locator('#token-image-nft');
   const statusPassed = () => page.waitForFunction(text => document.getElementById('nft-launch-status')?.textContent === text, free);
   const identity = async () => {
@@ -1574,7 +1574,7 @@ async function nftCase(page, state) {
   };
   if (mode === 'nft_muse_free') {
     await tokenInput.fill('1');
-    await statusIs('Muse launches are free. Muse coins pair with MUSEGOD.');
+    await statusIs('Muse launches are free.');
     // The Muse's name fills the empty fields once; a later selection never overwrites what the user typed.
     await page.waitForFunction(() => document.querySelector('input[name="name"]')?.value === 'Bard');
     assert.equal(await page.getByLabel('Token symbol', { exact: true }).inputValue(), 'BARD');
@@ -1582,15 +1582,15 @@ async function nftCase(page, state) {
     await page.getByLabel('Token name', { exact: true }).fill('My Muse coin');
     await page.getByRole('button', { name: 'Back', exact: true }).click();
     await tokenInput.fill('2');
-    await statusIs('Muse launches are free. Muse coins pair with MUSEGOD.');
+    await statusIs('Muse launches are free.');
     assert.equal(await page.getByLabel('Token name', { exact: true }).inputValue(), 'My Muse coin');
     assert.equal(await page.getByRole('button', { name: /^Pay / }).count(), 0, 'Muses never show the fee card');
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
     const grid = page.getByRole('group', { name: 'Quote assets' });
-    await page.getByText('Muse coins pair with MUSEGOD.', { exact: true }).waitFor();
+    await page.getByText('MUSEGOD is the default pair for Muse coins. You can choose any asset.', { exact: true }).waitFor();
     assert.match(await grid.locator('button[aria-pressed="true"]').innerText(), /MUSEGOD/);
-    assert.equal(await grid.locator('button:not([disabled])').count(), 0, 'the pair picker is disabled');
+    assert.equal(await grid.locator('button[disabled]').count(), 0, 'the pair picker stays open for Muses');
     await reviewAndContinue.click();
     await page.getByRole('button', { name: 'Confirm launch · Sign in wallet', exact: true }).waitFor();
     const request = state.prepareRequests[0];
@@ -1725,7 +1725,7 @@ async function nftCase(page, state) {
     await blocked(blockedStatus, 'nft-launch-error');
     // The check passed, but prepare's own check refuses: its message shows next to the NFT step and focus returns to the token number.
     await tokenInput.fill(rejection.tokenId);
-    await statusIs('Muse launches are free. Muse coins pair with MUSEGOD.');
+    await statusIs('Muse launches are free.');
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
     await page.getByLabel('Token name', { exact: true }).fill('Blocked NFT coin');
     await page.getByLabel('Token symbol', { exact: true }).fill('BLOCK');

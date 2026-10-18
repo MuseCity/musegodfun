@@ -1270,9 +1270,6 @@ function CreatePage({
     sameAddress(paymentAttempt.quote.fromToken.address, paymentAsset.address) &&
     paymentAttempt.quote.amountIn === (() => { try { return parseAmount(firstBuy.amount, paymentAsset.decimals).toString(); } catch { return ""; } })();
   const paymentPairSupported = !paymentAttempt || assets.some((asset) => sameAddress(asset.address, paymentAttempt.quote.toToken.address));
-  // A Muse coin's pair is locked to MUSEGOD, so a conversion into another asset cannot become its first buy.
-  const directPair = paymentPairSupported && (!paymentAttempt || !draft.nft || !isMuse(draft.nft) ||
-    assets.some((asset) => asset.symbol === "MUSEGOD" && sameAddress(asset.address, paymentAttempt.quote.toToken.address)));
   useEffect(() => {
     if (!backgroundRefreshAllowed || !paymentPrices.data) return;
     const snapshot = paymentPrices.data;
@@ -1326,12 +1323,11 @@ function CreatePage({
     };
   }, [wallet.revision]);
   useEffect(() => () => { imagePrefill.cancel({ setBusy() {}, setError() {} }); }, []);
-  // A Muse coin pairs with MUSEGOD; any other pair must still be a supported launch asset.
-  const museLocked = !!draft.nft && isMuse(draft.nft), musegodPair = assets.find((asset) => asset.symbol === "MUSEGOD");
+  // The pair must be a supported launch asset. MUSEGOD is a Muse coin's default pair, never a requirement (owner, 2026-10-18).
+  const museCoin = !!draft.nft && isMuse(draft.nft), musegodPair = assets.find((asset) => asset.symbol === "MUSEGOD");
   useEffect(() => {
-    const pair = museLocked && musegodPair ? musegodPair.address : null;
-    if (!config || (pair ? sameAddress(pair, draft.quoteAddress) : assets.some((asset) => sameAddress(asset.address, draft.quoteAddress)))) return;
-    const next = pair ?? assets[0].address;
+    if (!config || assets.some((asset) => sameAddress(asset.address, draft.quoteAddress))) return;
+    const next = assets[0].address;
     generation.current++;
     setDraft((previous) => ({ ...previous, quoteAddress: next }));
     setFirstBuy((previous) => ({ ...previous, amount: "0", payAddress: next, lockDays: 0 }));
@@ -1339,7 +1335,7 @@ function CreatePage({
     setReview(false);
     setInvalidField("");
     setError("");
-  }, [config?.chainId, config?.deploymentChainId, draft.quoteAddress, museLocked]);
+  }, [config?.chainId, config?.deploymentChainId, draft.quoteAddress]);
   useEffect(() => {
     const dialog = reviewDialog.current;
     if (review && dialog && !dialog.open) dialog.showModal();
@@ -1522,6 +1518,10 @@ function CreatePage({
     generation.current++;
     latestDraft.current = { ...latestDraft.current, [key]: value };
     setDraft((d) => ({ ...d, [key]: value }));
+    // The person's pick of a Muse selects MUSEGOD, its default pair; they can choose another asset in Economics. A restored NFT's
+    // re-check (quiet) keeps the draft's pair.
+    if (key === "nft" && value && !quiet && isMuse(value as NonNullable<LaunchInput["nft"]>) && musegodPair && !sameAddress(musegodPair.address, latestDraft.current.quoteAddress))
+      update("quoteAddress", musegodPair.address, true);
     if (key === "quoteAddress" && !sameAddress(String(value), draft.quoteAddress))
       setFirstBuy((previous) => ({ ...previous, amount: "0", payAddress: String(value), lockDays: 0 }));
     if (key === "quoteAddress") setPaymentQuote(null);
@@ -2403,7 +2403,7 @@ function CreatePage({
                 </div>
                 <span className="pill">{chainName} · {assets.length} assets</span>
               </div>
-              {museLocked && <Notice>Muse coins pair with MUSEGOD.</Notice>}
+              {museCoin && <p className="hint">MUSEGOD is the default pair for Muse coins. You can choose any asset.</p>}
               <div className="quick-filters asset-categories" role="group" aria-label="Quote asset categories">
                 {[{ id: "all", label: "All assets" }, ...ASSET_CATEGORIES].map((group) => {
                   const count = group.id === "all" ? assets.length :
@@ -2445,7 +2445,6 @@ function CreatePage({
                     className={`stock-option ${sameAddress(s.address, stock.address) ? "selected" : ""}`}
                     key={s.address}
                     aria-pressed={sameAddress(s.address, stock.address)}
-                    disabled={museLocked}
                     onClick={() => update("quoteAddress", s.address)}
                   >
                     <StockIcon stock={s} size="md" />
@@ -2579,16 +2578,16 @@ function CreatePage({
               {paymentAttempt.actualOutput && <button type="button" className="text-button" disabled={busy} onClick={() => {
                 if (!wallet.account) return;
                 generation.current++;
-                if (directPair) setDraft((draft) => ({ ...draft, quoteAddress: paymentAttempt.quote.toToken.address }));
-                setFirstBuy(directPair ? { ...firstBuy, payAddress: paymentAttempt.quote.toToken.address,
+                if (paymentPairSupported) setDraft((draft) => ({ ...draft, quoteAddress: paymentAttempt.quote.toToken.address }));
+                setFirstBuy(paymentPairSupported ? { ...firstBuy, payAddress: paymentAttempt.quote.toToken.address,
                   amount: formatUnits(BigInt(paymentAttempt.actualOutput!), paymentAttempt.quote.toToken.decimals) }
                   : { ...firstBuy, payAddress: stock.address, amount: "0", lockDays: 0 });
                 setPlan(null); setPaymentQuote(null); setPaymentAttempt(null);
                 localStorage.removeItem(paymentKey(config, wallet.account, intentId));
                 goToStep(2);
-                setMessage(directPair ? "Use the paired asset in your wallet directly. You can adjust the first buy amount."
+                setMessage(paymentPairSupported ? "Use the paired asset in your wallet directly. You can adjust the first buy amount."
                   : `${paymentAttempt.quote.toToken.symbol} stays in your wallet. Choose a new first buy for the current paired asset.`);
-              }}>{directPair ? "Use paired asset directly" : "Keep tokens and start a new first buy"}</button>}
+              }}>{paymentPairSupported ? "Use paired asset directly" : "Keep tokens and start a new first buy"}</button>}
             </div>
             <p className="hint">A completed conversion stays in your wallet if you cancel or the launch fails. This check never sends another conversion.</p>
           </section>}

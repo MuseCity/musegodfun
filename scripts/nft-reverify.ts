@@ -55,8 +55,7 @@ export async function reverifyNftCoin(deps: NftReverifyDeps, address: Address): 
   }
   const result: NftRegistrationStatus | "retry" = nft.chainId !== deps.chainId ? { status: "rejected", reason: "not_controller", block }
     : await nftRegistrationStatus({ client: deps.client, nft, creator, blockNumber: BigInt(block),
-      existing: await deps.store.verifiedNftCoin(key, record.address), quoteAddress: record.quoteAddress,
-      receiptTimestamp, nowSeconds, ...(fee ? { fee } : {}) });
+      existing: await deps.store.verifiedNftCoin(key, record.address), receiptTimestamp, nowSeconds, ...(fee ? { fee } : {}) });
   if (result === "retry" || result.status === "unverified") return { line: `${address}: ${before}, unchanged (RPC unavailable)` };
   // A settled status drops the claim; only a verified fee is kept, as the coin's spent `launchFee`.
   try {

@@ -28,7 +28,7 @@ const code = (fn: () => unknown) => { try { fn(); } catch (e) { return e instanc
 test("draft rules run before RPC and return stable codes", () => {
   assert.equal(code(() => assertNftDraftRules(draft, 4663, false)), "NFT_MODE_DISABLED");
   assert.equal(code(() => assertNftDraftRules(draft, 8453, true)), "NFT_CHAIN_UNSUPPORTED");
-  assert.equal(code(() => assertNftDraftRules({ ...draft, quoteAddress: weth.address }, 4663, true)), "NFT_MUSE_PAIR_REQUIRED");
+  assert.equal(code(() => assertNftDraftRules({ ...draft, quoteAddress: weth.address }, 4663, true)), "ok", "a Muse coin may pair with any asset");
   assert.equal(code(() => assertNftDraftRules({ ...draft, name: "Muse God", symbol: "MUSEGOD" }, 4663, true)), "NFT_RESERVED_NAME");
   assert.equal(code(() => assertNftDraftRules({ ...draft, nft: { ...muse, contract: "0x1111111111111111111111111111111111111111" as Address },
     quoteAddress: weth.address }, 4663, true)), "ok");

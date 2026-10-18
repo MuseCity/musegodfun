@@ -2,14 +2,14 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { CallExecutionError, ContractFunctionExecutionError, ContractFunctionRevertedError, ContractFunctionZeroDataError, ExecutionRevertedError,
   HttpRequestError, TimeoutError, TransactionNotFoundError, TransactionReceiptNotFoundError, WebSocketRequestError, decodeEventLog, decodeFunctionData, erc20Abi, hexToBytes, isHex, keccak256, parseAbi, size,
   type Address, type Block, type Hex, type PublicClient, type Transaction, type TransactionReceipt } from "viem";
-import { ROBINHOOD_STOCKS, sameAddress, type TokenRecord } from "../src/lib/config";
+import { sameAddress, type TokenRecord } from "../src/lib/config";
 import { LAUNCH_FEE_MIN_BLOCK, LAUNCH_FEE_MINING_GRACE_SECONDS, LAUNCH_FEE_QUOTE_TTL, LAUNCH_FEE_STABLE, type LaunchFee } from "../src/lib/launch-fee";
 import { DELEGATE_REGISTRY_V2, NFT_LAUNCH_RIGHTS, NFT_VAULT_MANIFEST, isMuse, nftKey, vaultFactory, type NftChainId, type NftRef, type NftVaultManifest } from "../src/lib/nft-mode";
 import type { LaunchInput } from "../src/lib/validation";
 import { reservedLaunchName } from "../src/lib/nft-holdings";
 
 export type NftLaunchCode = "NFT_MODE_DISABLED" | "NFT_MODE_UNAVAILABLE" | "NFT_CHAIN_UNSUPPORTED" | "NFT_NOT_ERC721" | "NFT_NOT_CONTROLLED"
-  | "NFT_ALREADY_LAUNCHED" | "NFT_MUSE_PAIR_REQUIRED" | "NFT_RESERVED_NAME" | "NFT_FEE_REQUIRED" | "NFT_FEE_INVALID"
+  | "NFT_ALREADY_LAUNCHED" | "NFT_RESERVED_NAME" | "NFT_FEE_REQUIRED" | "NFT_FEE_INVALID"
   | "NFT_FEE_USED" | "NFT_VAULT_UNAVAILABLE" | "NFT_LAUNCH_IN_PROGRESS" | "NFT_FEE_IN_USE" | "NFT_LIST_UNAVAILABLE";
 /** `retry`: a fee answer that can still change, so registration retries it for 10 minutes like an RPC failure. "unconfirmed": the payment
  * exists but has fewer than two confirmations or sits in a reorganized block, or it is still in the mempool in exactly a payment's shape
@@ -20,7 +20,6 @@ export class NftLaunchError extends Error {
 }
 const erc721Abi = parseAbi(["function supportsInterface(bytes4) view returns (bool)", "function ownerOf(uint256) view returns (address)"]);
 const delegateAbi = parseAbi(["function checkDelegateForERC721(address to, address from, address contract_, uint256 tokenId, bytes32 rights) view returns (bool)"]);
-const MUSEGOD_TICKER = "MUSEGOD";
 
 /** CPU-only rules. Prepare calls this before any RPC; register never does (the badge rules replace it there). The reserved name applies
  * to every launch, normal and NFT, on both chains; letters and digits are compared, so spacing and punctuation cannot get around it. */
@@ -30,11 +29,6 @@ export function assertNftDraftRules(draft: LaunchInput, chainId: NftChainId, ena
   if (!draft.nft) return;
   if (!enabled) throw new NftLaunchError("NFT_MODE_DISABLED", "NFT launches are not enabled on this network.");
   if (draft.nft.chainId !== chainId) throw new NftLaunchError("NFT_CHAIN_UNSUPPORTED", "This NFT must launch on its own network.");
-  if (isMuse(draft.nft)) {
-    const musegod = ROBINHOOD_STOCKS.find((asset) => asset.symbol === MUSEGOD_TICKER);
-    if (!musegod || !sameAddress(musegod.address, draft.quoteAddress))
-      throw new NftLaunchError("NFT_MUSE_PAIR_REQUIRED", "Muse coins must pair with MUSEGOD.");
-  }
 }
 
 /** A coin bound to an NFT (to `nft`, or to any NFT when omitted) that the public `?nft=` listing shows: `verified`, or `unverified`, which
@@ -118,20 +112,17 @@ export async function settleLaunchFee(check: () => Promise<unknown>, receiptTime
     return error instanceof NftLaunchError && error.retry === "missing" ? "invalid" : "unconfirmed";
   }
 }
-/** The status an NFT coin is registered with, decided once. Register never blocks on it: the pair, fee, one-coin and control rules only
+/** The status an NFT coin is registered with, decided once. Register never blocks on it: the fee, one-coin and control rules only
  * decide the status. The caller holds the NFT's (and payment's) lock and passes the NFT's earliest other `verified` coin as `existing`.
  * "retry" asks the caller to fail the registration retryably while the receipt block is at most 10 minutes old; after that an RPC
  * failure records `unverified` (`rpc`), and an unconfirmed fee leaves an otherwise verified coin `unverified` (`fee_unconfirmed`).
  * Only `scripts/nft-reverify.ts` may later settle an `unverified` record. */
 export async function nftRegistrationStatus(args: { client: Pick<PublicClient, "readContract">; nft: NftRef; creator: Address; blockNumber?: bigint;
-  existing: TokenRecord | null; quoteAddress: Address; receiptTimestamp: bigint; nowSeconds: bigint; fee?: RegistrationFee }):
+  existing: TokenRecord | null; receiptTimestamp: bigint; nowSeconds: bigint; fee?: RegistrationFee }):
   Promise<NftRegistrationStatus | "retry"> {
   const block = args.blockNumber === undefined ? undefined : String(args.blockNumber);
   const rejected = (reason: string): NftRegistrationStatus => ({ status: "rejected", reason, ...(block ? { block } : {}) });
-  if (isMuse(args.nft)) {
-    const musegod = ROBINHOOD_STOCKS.find((asset) => asset.symbol === MUSEGOD_TICKER)!;
-    if (!sameAddress(musegod.address, args.quoteAddress)) return rejected("pair");
-  } else if (args.fee === "invalid") return rejected("fee");
+  if (!isMuse(args.nft) && args.fee === "invalid") return rejected("fee");
   if (args.existing) return rejected("already_launched");
   try {
     const control = await readNftControl(args.client, args.nft, args.creator, args.blockNumber);

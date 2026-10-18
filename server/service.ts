@@ -1158,7 +1158,7 @@ export class LaunchpadService {
         // Saved previews read the latest block (registration makes no historical-state read); backups read the receipt block.
         blockNumber: args.saved ? undefined : args.receiptBlock,
         existing: await this.store.verifiedNftCoin(nftKey(nft), plan.tokenAddress),
-        quoteAddress: plan.draft.quoteAddress, receiptTimestamp: args.receiptTimestamp, nowSeconds, ...(fee ? { fee } : {}) });
+        receiptTimestamp: args.receiptTimestamp, nowSeconds, ...(fee ? { fee } : {}) });
     if (result === "retry") throw new Error("The NFT ownership check is temporarily unavailable. Registration will retry.");
     // An unconfirmed fee stays unspent; the coin keeps its claim so `npm run nft:reverify` can settle it later.
     const settledStatus: NftRegistrationStatus = fee === "unconfirmed" && claim && result.status === "unverified" ? { ...result, feeClaim: claim } : result;
