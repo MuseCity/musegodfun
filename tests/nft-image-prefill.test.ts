@@ -191,19 +191,49 @@ test("a draft holding an NFT's name and symbol without recorded ownership is tha
   const { state, work, io } = fixture({ name: "A", symbol: "A", image: "https://mine.test/own" });
   await work.prefill({ name: "A" }, io, true);
   assert.deepEqual(state.draft, { name: "A", symbol: "A", image: "https://mine.test/own" }, "the re-check changes nothing");
-  assert.deepEqual(work.previous, { name: "A", symbol: "A" });
   work.changeNft(io);
   await work.prefill(b, io);
   assert.deepEqual(state.draft, { name: "B", symbol: "B", image: "https://mine.test/own" }, "an image that is not the NFT's stays");
 });
 
-test("a recorded prefill stays owned when the NFT's name has since changed", async () => {
+test("a recorded prefill stays owned when the NFT's name has since changed, and the new name is the NFT's too", async () => {
   const owned = { name: "A", symbol: "A" };
   const { state, work, io } = fixture({ ...owned, image: "" }, owned);
   await work.prefill({ name: "Renamed" }, io, true);
   assert.deepEqual(state.draft, { name: "A", symbol: "A", image: "" }); assert.deepEqual(work.previous, owned);
+  state.draft.name = "Renamed";
   work.changeNft(io);
   assert.deepEqual(state.draft, { name: "", symbol: "", image: "" });
+});
+
+test("the opened NFT's identity: chosen, its values become its own; replaced, its stale values take the current NFT's or clear", async () => {
+  const chosen = fixture({ name: "A", symbol: "A", image: "" });
+  chosen.work.recognize({ name: "A" }, true, chosen.io, chosen.work.epoch);
+  chosen.work.changeNft(chosen.io);
+  assert.deepEqual(chosen.state.draft, { name: "", symbol: "", image: "" });
+
+  const moved = fixture({ name: "A", symbol: "MINE", image: "" });
+  moved.work.changeNft(moved.io);
+  await moved.work.prefill(b, moved.io);
+  assert.deepEqual(moved.state.draft, { name: "A", symbol: "MINE", image: "https://pin.test/b" }, "unknown until its identity arrives");
+  moved.work.recognize({ name: "A" }, false, moved.io, moved.work.epoch);
+  assert.deepEqual(moved.state.draft, { name: "B", symbol: "MINE", image: "https://pin.test/b" });
+  assert.equal(moved.work.previous.name, "B");
+
+  const pending = fixture({ name: "A", symbol: "A", image: "" });
+  pending.work.changeNft(pending.io);
+  pending.work.recognize({ name: "A" }, false, pending.io, pending.work.epoch);
+  assert.deepEqual(pending.state.draft, { name: "", symbol: "", image: "" });
+});
+
+test("an NFT identity for a draft that was replaced since is ignored", () => {
+  const { state, work, io } = fixture({ name: "A", symbol: "A", image: "" });
+  const at = work.epoch;
+  work.replace({}, io);
+  work.recognize({ name: "A" }, false, io, at);
+  work.recognize({ name: "A" }, true, io, at);
+  work.changeNft(io);
+  assert.deepEqual(state.draft, { name: "A", symbol: "A", image: "" });
 });
 
 test("a failed manual upload releases priority for a later NFT image", async () => {

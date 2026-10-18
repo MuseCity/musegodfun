@@ -43,19 +43,20 @@ test.before(() => {
 });
 test.beforeEach(() => store.clear());
 
-/** The create page with its NFT step. `saved`: a draft stored before the page opened. `refuse`: token ids whose live check says no. */
-async function launchForm(t: TestContext, options: { saved?: Record<string, unknown>; refuse?: string[] } = {}) {
+/** The create page with its NFT step. `saved`: a draft stored before the page opened. `refuse`: token ids whose live check says no.
+ * `hold`: token ids whose status read waits until the test releases it with `answer`. `names`: Muse names that differ from `museNames`. */
+async function launchForm(t: TestContext, options: { saved?: Record<string, unknown>; refuse?: string[]; hold?: string[]; names?: Record<string, string> } = {}) {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   if (options.saved) store.set(launchDraftKey(config), JSON.stringify(options.saved));
-  let Create: any, Step: any;
-  const parent = hookRuntime(() => Create({ stocks: null, stockError: "", config, refresh() {} }));
-  const stepProps = () => find(parent.output(), (element) => element.type === NftLaunchStep)?.props;
-  const child = hookRuntime(() => Step(stepProps()));
+  const held = new Map<string, () => void>();
   const status = async (_config: unknown, nft: { contract: string; tokenId: string }): Promise<NftStatus> => {
+    if (options.hold?.includes(nft.tokenId)) await new Promise<void>((resolve) => held.set(nft.tokenId, resolve));
     const free = nft.contract.toLowerCase() === MUSES.contract.toLowerCase();
     return { erc721: true, controls: !options.refuse?.includes(nft.tokenId), alreadyLaunched: false, free,
-      ...(free && museNames[nft.tokenId] ? { name: museNames[nft.tokenId] } : {}) } as NftStatus;
+      ...(free && (options.names ?? museNames)[nft.tokenId] ? { name: (options.names ?? museNames)[nft.tokenId] } : {}) } as NftStatus;
   };
+  let Create: any;
+  const parent = hookRuntime(() => Create({ stocks: null, stockError: "", config, refresh() {} }));
   ({ CreatePage: Create } = await importFresh("src/App.tsx", {
     react: { file: import.meta.resolve("react"), bindings: parent.hooks },
     "./lib/wallet": { file: import.meta.resolve("../src/lib/wallet.tsx"), bindings: { useWallet: () => wallet } },
@@ -67,13 +68,28 @@ async function launchForm(t: TestContext, options: { saved?: Record<string, unkn
       } } },
     "./lib/image-upload": { file: import.meta.resolve("../src/lib/image-upload.ts"), bindings: { prepareTokenImageFromUrl: async (url: string) => url } },
   }, ["CreatePage"]));
-  ({ NftLaunchStep: Step } = await importFresh("src/components/NftLaunchStep.tsx", {
-    react: { file: import.meta.resolve("react"), bindings: child.hooks },
-    "../lib/nft-client": { file: import.meta.resolve("../src/lib/nft-client.ts"), bindings: { readNftStatus: status } },
-    "../lib/use-launch-fee": { file: import.meta.resolve("../src/lib/use-launch-fee.ts"), bindings: { useLaunchFee: () => ({ state: "none", record: null }) } },
-  }));
+  // The step mounts, remounts (a new `key`) and unmounts with the page's element, as React does.
+  const stepElement = () => find(parent.output(), (element) => element.type === NftLaunchStep);
+  let step: ReturnType<typeof hookRuntime> | null = null, stepKey: string | null = null;
+  async function syncStep() {
+    const element = stepElement(), key = element ? String(element.key) : null;
+    if (key !== stepKey) {
+      step?.unmount(); step = null; stepKey = key;
+      if (element) {
+        let View: any;
+        const runtime = hookRuntime(() => View(stepElement().props));
+        ({ NftLaunchStep: View } = await importFresh("src/components/NftLaunchStep.tsx", {
+          react: { file: import.meta.resolve("react"), bindings: runtime.hooks },
+          "../lib/nft-client": { file: import.meta.resolve("../src/lib/nft-client.ts"), bindings: { readNftStatus: status } },
+          "../lib/use-launch-fee": { file: import.meta.resolve("../src/lib/use-launch-fee.ts"), bindings: { useLaunchFee: () => ({ state: "none", record: null }) } },
+        }));
+        step = runtime;
+      }
+    }
+    step?.render();
+  }
   /** React re-renders the step with the page; here both render until nothing changes. */
-  const flush = async () => { for (let i = 0; i < 8; i++) { await settle(); parent.render(); if (stepProps()) child.render(); } };
+  const flush = async () => { for (let i = 0; i < 8; i++) { await settle(); parent.render(); await syncStep(); } };
   const input = (name: string) => find(parent.output(), (element) => element.type === "input" && element.props.name === name);
   const form = {
     /** The identity fields as the Identity step shows them. */
@@ -83,13 +99,15 @@ async function launchForm(t: TestContext, options: { saved?: Record<string, unkn
     type: async (name: string, value: string) => { input(name).props.onChange({ target: { value } }); await flush(); },
     /** Picks an NFT from the wallet list, opening the list first when an NFT is already chosen. */
     async pick(contract: string, tokenId: string, name?: string) {
-      const change = find(child.output(), (element) => element.type === "button" && textOf(element) === "Change");
+      const change = find(step!.output(), (element) => element.type === "button" && textOf(element) === "Change");
       if (change) { change.props.onClick(); await flush(); }
-      find(child.output(), (element) => element.type === NftPicker).props.onPick({ contract, tokenId, name, image: `https://img.test/${tokenId}` });
+      find(step!.output(), (element) => element.type === NftPicker).props.onPick({ contract, tokenId, name, image: `https://img.test/${tokenId}` });
       await flush();
     },
     /** Lets the step's live check (400 ms after the last change) run and answer. */
     async check() { t.mock.timers.tick(400); await flush(); },
+    /** Releases a held status read. */
+    async answer(tokenId: string) { held.get(tokenId)!(); await flush(); },
     async nftMode(next: boolean) {
       find(parent.output(), (element) => typeof element.props?.onChange === "function" && "nftMode" in element.props).props.onChange(next);
       await flush();
@@ -97,10 +115,14 @@ async function launchForm(t: TestContext, options: { saved?: Record<string, unkn
     /** The draft as the autosave (250 ms after the last change) stores it. */
     async saved() { t.mock.timers.tick(250); await flush(); return JSON.parse(store.get(launchDraftKey(config)) ?? "null"); },
   };
-  t.after(() => { child.unmount(); parent.unmount(); });
+  t.after(() => { step?.unmount(); parent.unmount(); });
   parent.render(); await flush();
   return form;
 }
+/** A draft saved with Muse #1's prefilled name and symbol; `nftPrefill` is the ownership record (absent before 2026-10-15). */
+const bardDraft = (extra: Record<string, unknown> = {}) => ({ name: "Bard", symbol: "BARD", description: "", image: "", website: "", twitter: "",
+  telegram: "", quoteAddress: "0x0379E228F6887c6F18bf394042ECAF81B308cb2e", tradingFeeBps: 100, nft: { chainId: 4663, contract: MUSES.contract, tokenId: "1" },
+  nftMode: true, step: 1, ...extra });
 const muse = (tokenId: string) => [MUSES.contract, tokenId] as const;
 
 test("switching the NFT moves name, symbol and image to the new NFT", async (t) => {
@@ -134,20 +156,52 @@ test("a field the person typed over keeps their value; the fields still holding 
 
 test("a draft saved before prefill ownership was recorded follows the next NFT", async (t) => {
   // NFT mode went live on 2026-10-14 with a Muse name prefill that recorded no ownership; such a draft holds the Muse's values only.
-  const form = await launchForm(t, { saved: { name: "Bard", symbol: "BARD", description: "", image: "", website: "", twitter: "", telegram: "",
-    quoteAddress: "0x0379E228F6887c6F18bf394042ECAF81B308cb2e", tradingFeeBps: 100, nft: { chainId: 4663, contract: MUSES.contract, tokenId: "1" },
-    nftMode: true, step: 1 } });
+  const form = await launchForm(t, { saved: bardDraft() });
   await form.check();
   assert.deepEqual(form.fields(), { name: "Bard", symbol: "BARD", image: "" }, "the restored NFT's re-check changes nothing");
   await form.pick(...muse("2"), "Cadenza"); await form.check();
   assert.deepEqual(form.fields(), { name: "Cadenza", symbol: "CADENZA", image: pinned("https://img.test/2") });
 });
 
+test("a draft without a prefill record follows the next NFT even when its own NFT's check says no", async (t) => {
+  const form = await launchForm(t, { saved: bardDraft(), refuse: ["1"] });
+  await form.check();
+  assert.deepEqual(form.fields(), { name: "Bard", symbol: "BARD", image: "" });
+  await form.pick(...muse("2"), "Cadenza"); await form.check();
+  assert.deepEqual(form.fields(), { name: "Cadenza", symbol: "CADENZA", image: pinned("https://img.test/2") });
+});
+
+for (const order of ["before", "after"] as const)
+  test(`a draft without a prefill record follows an NFT picked before its own NFT's check answered (it answers ${order} the new NFT passes)`, async (t) => {
+    const form = await launchForm(t, { saved: bardDraft(), hold: ["1"] });
+    await form.pick(...muse("2"), "Cadenza");
+    if (order === "before") { await form.answer("1"); assert.deepEqual(form.fields(), { name: "", symbol: "", image: "" }); }
+    await form.check();
+    if (order === "after") await form.answer("1");
+    assert.deepEqual(form.fields(), { name: "Cadenza", symbol: "CADENZA", image: pinned("https://img.test/2") });
+    assert.deepEqual((await form.saved()).nftPrefill, form.fields());
+  });
+
+test("a draft without a prefill record clears its NFT's values when the person chooses Normal before the check answered", async (t) => {
+  const form = await launchForm(t, { saved: bardDraft({ symbol: "MINE" }), hold: ["1"] });
+  await form.nftMode(false);
+  await form.answer("1");
+  assert.deepEqual(form.fields(), { name: "", symbol: "MINE", image: "" }, "only the NFT's own value clears");
+});
+
+for (const typed of [false, true])
+  test(`an NFT renamed since its prefill was saved: ${typed ? "its current name, typed back, follows" : "the saved values follow"} the next NFT`, async (t) => {
+    const form = await launchForm(t, { saved: bardDraft({ nftPrefill: { name: "Bard", symbol: "BARD" } }), names: { ...museNames, "1": "Renamed" } });
+    await form.check();
+    assert.deepEqual(form.fields(), { name: "Bard", symbol: "BARD", image: "" }, "the saved prefill stays on the re-check");
+    if (typed) { await form.type("name", "Renamed"); await form.type("symbol", "RENAMED"); }
+    await form.pick(...muse("3"), "Moonlet"); await form.check();
+    assert.deepEqual(form.fields(), { name: "Moonlet", symbol: "MOONLET", image: pinned("https://img.test/3") });
+  });
+
 test("a restored draft keeps its recorded prefill, which follows the next NFT", async (t) => {
   const image = pinned("https://img.test/1");
-  const form = await launchForm(t, { saved: { name: "Bard", symbol: "BARD", description: "", image, website: "", twitter: "", telegram: "",
-    quoteAddress: "0x0379E228F6887c6F18bf394042ECAF81B308cb2e", tradingFeeBps: 100, nft: { chainId: 4663, contract: MUSES.contract, tokenId: "1" },
-    nftMode: true, step: 1, nftPrefill: { name: "Bard", symbol: "BARD", image } } });
+  const form = await launchForm(t, { saved: bardDraft({ image, nftPrefill: { name: "Bard", symbol: "BARD", image } }) });
   await form.check();
   assert.deepEqual(form.fields(), { name: "Bard", symbol: "BARD", image });
   assert.equal(form.nftImageNotice(), true);
@@ -167,9 +221,7 @@ test("an NFT whose check says no leaves no values of the previous NFT behind", a
 
 test("a restored NFT the check drops keeps its values until the person picks another NFT, which clears them", async (t) => {
   const image = pinned("https://img.test/1");
-  const form = await launchForm(t, { refuse: ["1", "9"], saved: { name: "Bard", symbol: "BARD", description: "", image, website: "", twitter: "",
-    telegram: "", quoteAddress: "0x0379E228F6887c6F18bf394042ECAF81B308cb2e", tradingFeeBps: 100, nft: { chainId: 4663, contract: MUSES.contract, tokenId: "1" },
-    nftMode: true, step: 1, nftPrefill: { name: "Bard", symbol: "BARD", image } } });
+  const form = await launchForm(t, { refuse: ["1", "9"], saved: bardDraft({ image, nftPrefill: { name: "Bard", symbol: "BARD", image } }) });
   await form.check();
   assert.deepEqual(form.fields(), { name: "Bard", symbol: "BARD", image }, "an automatic drop is not the person's change");
   await form.pick(hood, "9", "Not Mine #9");

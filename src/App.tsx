@@ -2188,6 +2188,8 @@ function CreatePage({
   const buying = Number(firstBuy.amount || "0") > 0;
   const lockLabel = firstBuy.lockDays === 0 ? "No lock" : firstBuy.lockDays === 365 ? "1 year" : `${firstBuy.lockDays} days`;
   const uploadedSrc = tokenImageSrc({ image: draft.image }), imageSrc = uploadedSrc !== brokenImage ? uploadedSrc : "";
+  // The draft this render shows: an NFT identity that arrives after the draft is replaced belongs to the old one.
+  const prefillEpoch = imagePrefill.epoch;
   return (
     <>
       <div className="page-heading">
@@ -2239,7 +2241,8 @@ function CreatePage({
                 onCheck={() => { if (invalidField === "nft") { setInvalidField(""); setError(""); } }}
                 onFee={(fee) => { update("launchFee", fee, true); setNftFeeRejected(null); if (fee && invalidField === "nft") { setInvalidField(""); setError(""); } }}
                 onStatus={setNftStep}
-                onNftPassed={(nft, restored) => void imagePrefill.prefill(nft, imageWork(), restored)} />
+                onNftPassed={(nft, restored) => void imagePrefill.prefill(nft, imageWork(), restored)}
+                onNftIdentity={(nft, chosen) => imagePrefill.recognize(nft, chosen, imageWork(), prefillEpoch)} />
             </section>
           </div>}
           <div className="wizard-panel" hidden={step !== 1}>

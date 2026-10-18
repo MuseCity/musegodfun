@@ -55,11 +55,14 @@ function TxHash({ hash, config }: { hash: Hex; config: RuntimeConfig }) {
 /** Step one of an NFT launch: the NFT, its live check, and the wallet's $10 fee. `onChange` reports a confirmed NFT, and `undefined` when
  * the person changes the NFT or the check says no (not ERC-721, not controlled, already launched); `user`: the person changed the NFT.
  * The NFT the draft already holds (a reload, another tab, a draft link) stays while it is checked again, and through a check that could
- * not run (the error shows with Retry); `checked` in the status tells review whether the check passed, so review never proceeds on it. */
-export function NftLaunchStep({ config, account, draft, connecting, onConnect, error = "", feeRejected, onChange, onCheck, onFee, onNftPassed, onStatus }: {
+ * not run (the error shows with Retry); `checked` in the status tells review whether the check passed, so review never proceeds on it.
+ * `onNftIdentity` reports that NFT's identity from its first status read, whatever the answer, even after the person moved on or left
+ * NFT mode (`chosen`: it is still their choice), so name and symbol a draft carries without a prefill record are recognized (§3.2). */
+export function NftLaunchStep({ config, account, draft, connecting, onConnect, error = "", feeRejected, onChange, onCheck, onFee, onNftPassed, onNftIdentity, onStatus }: {
   config: RuntimeConfig; account: Address | null; draft: LaunchInput; connecting: boolean; onConnect: () => void; error?: string; feeRejected?: NftFeeRejection | null;
   onChange: (nft: NftRef | undefined, user: boolean) => void; onCheck: () => void; onFee: (fee: DraftLaunchFee | undefined) => void;
   onNftPassed?: (nft: { name?: string; image?: string }, restored: boolean) => void; onStatus: (status: NftStepStatus) => void;
+  onNftIdentity?: (nft: { name?: string }, chosen: boolean) => void;
 }) {
   const nft = draft.nft;
   const [contract, setContract] = useState<string>(nft?.contract ?? MUSES.contract);
@@ -98,8 +101,11 @@ export function NftLaunchStep({ config, account, draft, connecting, onConnect, e
   const [status, setStatus] = useState<NftStatus | null>(null), [statusFor, setStatusFor] = useState("");
   const [checkError, setCheckError] = useState(""), [attempt, setAttempt] = useState(0);
   // Parent callbacks are read through a ref, so a new callback identity never re-runs the check.
-  const latest = useRef({ onChange, onCheck, onFee, onNftPassed, onStatus });
-  latest.current = { onChange, onCheck, onFee, onNftPassed, onStatus };
+  const latest = useRef({ onChange, onCheck, onFee, onNftPassed, onNftIdentity, onStatus });
+  latest.current = { onChange, onCheck, onFee, onNftPassed, onNftIdentity, onStatus };
+  // The NFT the draft held when the step opened, until its identity is reported; whether the step is still shown.
+  const opened = useRef(nft ? nftKey(nft) : ""), shown = useRef(true);
+  useEffect(() => { shown.current = true; return () => { shown.current = false; }; }, []);
   // The NFT the parent holds; a report that would not change it is skipped, so the step's own checks never send `undefined` twice in a
   // row. The person's own change is always sent: it also clears the identity values of the NFT they moved away from (§3.2 prefill).
   const reported = useRef("");
@@ -119,6 +125,8 @@ export function NftLaunchStep({ config, account, draft, connecting, onConnect, e
   };
   const parsed = nftRefSchema.safeParse({ chainId: deploymentChain(config), contract, tokenId });
   const candidate = parsed.success ? parsed.data : null, candidateKey = candidate ? nftKey(candidate) : "";
+  const shownKey = useRef(candidateKey);
+  shownKey.current = candidateKey;
   const choosing = !manual && picking && !nft;
   // The check a result belongs to: a result for an earlier NFT, account or attempt never counts for the current one.
   const run = `${candidateKey}|${account ?? ""}|${config.chainId}|${config.deploymentChainId}|${attempt}`;
@@ -138,8 +146,14 @@ export function NftLaunchStep({ config, account, draft, connecting, onConnect, e
     setStatus(null); setCheckError("");
     if (!account || !candidate || choosing) return;
     let active = true;
-    const timer = setTimeout(() => {
+    // The opened NFT is read at once, and its first answer reports its identity even when the person has moved on meanwhile.
+    const identify = !!opened.current && opened.current === candidateKey;
+    const read = () => {
       readNftStatus(config, candidate, account).then((result) => {
+        if (identify && opened.current) {
+          opened.current = "";
+          latest.current.onNftIdentity?.({ name: result.free ? result.name : undefined }, shown.current && shownKey.current === candidateKey);
+        }
         if (!active) return;
         setStatus(result); setStatusFor(run);
         if (!result.erc721 || !result.controls || result.alreadyLaunched) { report(undefined, user); return; }
@@ -150,7 +164,9 @@ export function NftLaunchStep({ config, account, draft, connecting, onConnect, e
           latest.current.onNftPassed?.({ name: result.free ? result.name : pick?.name, image: pick?.image }, !user && !pick && !!nft && nftKey(nft) === candidateKey);
         }
       }, (cause: unknown) => { if (active) setCheckError(errorMessage(cause)); });
-    }, 400);
+    };
+    const timer = identify ? undefined : setTimeout(read, 400);
+    if (identify) read();
     return () => { active = false; clearTimeout(timer); };
   }, [candidateKey, account, config.chainId, config.deploymentChainId, attempt, choosing]);
   const current = statusFor === run ? status : null;

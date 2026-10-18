@@ -100,7 +100,8 @@ Facts checked on 2026-10-15 with a real Muse holder on Robinhood:
   - When the person changes the NFT (picks another one, edits the manual entry, or chooses Normal), the fields still holding the previous NFT's values are cleared at once. The new NFT's values fill them when its check passes. So the old NFT's values never show while the new one is checked, and an NFT whose check says no leaves nothing behind.
   - If the new NFT provides no value (for example manual entry, which has no list image), the field stays empty.
   - When the check drops an NFT on its own (for example after a wallet switch to an account that does not hold it), its values stay. They come back with it, or are cleared when the person picks another NFT.
-  - A name or symbol equal to the checked NFT's own value counts as its prefill, however it got there. Examples: a draft saved on NFT mode's first day (2026-10-14, before ownership was recorded), a draft link, or the person typing the value back.
+  - A name or symbol equal to the NFT's own value counts as its prefill, however it got there. Examples: a draft saved on NFT mode's first day (2026-10-14, before ownership was recorded), a draft link, or the person typing the value back, including the current name of an NFT renamed since its prefill was saved.
+  - The NFT a draft holds when the page opens is checked at once. Its first status answer gives its own name, whether the check passes or not, and even if the person has already picked another NFT or chosen Normal; fields still showing that name then take the current NFT's values or clear. An answer that arrives after the draft was replaced (another tab, Clear draft) is ignored.
   - Any other value the person typed or uploaded is never replaced or cleared.
 - **Notice:** while the image is the prefilled one, the Identity step shows "Using your NFT's image. You can replace it." next to it.
 
