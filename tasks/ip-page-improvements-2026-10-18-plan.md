@@ -79,3 +79,5 @@ Change: the hero's headline figure is "Creator fee", the creator's cut of every 
 
 Acceptance: the hero shows "Creator fee 0.665%" for a 1% coin on the 66.5% policy and no "Buyback share"; the fallback renders without a trading fee. Tests in `tests/token-ip-page.test.ts`.
 
+Released on the owner's "Release now" as `746c3f9` (with the `04badb1` record): CI run 39090951236, `build-39090951236-1`, Worker version `6c01f3a2`; rollback point Worker `6f126af3` (`c1aad4a`). Both chain Durable Objects restarted after the deploy. Live check: MVADER (Robinhood) and MUSEGOD (Base) both show "Creator fee 0.665% · of every trade · fixed at launch" with key facts Trading fee, Opening valuation, Supply, Channels and Age, and no "Buyback share" in the hero.
+
