@@ -127,7 +127,7 @@ The vault is the Doppler creator-fee beneficiary of every coin bound to that NFT
 - **Prepare**, before RPC, next to `launchAssetsFor` (`server/service.ts:401-402`):
   - flag on
   - NFT chain equals the coin chain (v1)
-  - for Muses: MUSEGOD quote by ticker
+  - the pair: any eligible launch asset, for Muses too (no Muse pair rule since 2026-10-18; MUSEGOD is only the form's default)
   - D8 names
 - **Prepare**, in parallel with the existing reads (`server/service.ts:435-438`, which today run one after another):
   - `supportsInterface(0x80ac58cd)` and `ownerOf(tokenId)`
@@ -143,7 +143,7 @@ The vault is the Doppler creator-fee beneficiary of every coin bound to that NFT
   - Persist `nftVerification {status: verified|rejected|unverified, reason, block}`.
   - **RPC failure:** retryable 422 while the receipt block (time from `server/service.ts:798`) is under about 10 minutes old, then `unverified`. `reconcile()` also calls register (`:920`), so the same rule applies there.
   - A record with `nft` but no status counts as `unverified`. Records without `nft` are never touched.
-  - Register never blocks on the flag, D5's pair rule or D8; those only affect the badge.
+  - Register never blocks on the flag or D8; those only affect the badge. The pair never does (D5, 2026-10-18).
 - **Mutexes:** the per-NFT and per-payment mutexes live at the Durable Object level (one per chain, `worker/index.ts:32`), because `refreshRuntime` rebuilds the service (`:38-53`).
 - **Database guards (2026-10-14, residual R1):** across processes, partial unique indexes on the token records refuse a second spent `launchFee` hash and a second `verified` coin per NFT, in SQLite and in Supabase (migration `20261014120000_nft_single_use_indexes.sql`, applied before the flag-off publish). A refused registration settles `rejected: fee` or `rejected: already_launched`; a refused `nft:reverify` write prints `CONFLICT` and exits non-zero. Without the guards NFT mode fails closed: the runtime reports it off and `nft:reverify` refuses to run.
 - **Operator CLI:** `scripts/nft-reverify.ts` upgrades only records whose `nftVerification.status` is `unverified`, or absent with `nft` present. It uses a new compare-and-swap store method following `server/store.ts:357`. PostgREST `not.in` skips NULLs, so filter explicitly. Cover the new store methods in `scripts/verify-database.ts:96-109`.
