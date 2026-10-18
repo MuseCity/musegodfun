@@ -1,5 +1,6 @@
 import type { Hex } from "viem";
 import { packPlan, unpackPlan } from "./plan-storage";
+import { withDeadline } from "./deadline";
 import { defaultRuntimeControl, type RuntimeControl, type BudgetName, type BudgetResult } from "./runtime-policy";
 import type { TokenRecord } from "../src/lib/config";
 import { assertBuybackBatchId, assertBuybackAuditRecord, assertLaunchClaim, postgresTokenConflict, provenanceUpgrade, type LaunchClaimOptions, type Store, type LaunchPlan, type BuybackBatchRecord, type BuybackBatchPageRecord } from "./store";
@@ -29,31 +30,34 @@ export class SupabaseStore implements StoreBackend {
     body?: unknown,
     prefer = "return=minimal",
   ): Promise<T> {
-    const response = await fetch(`${this.url}/rest/v1/${path}`, {
-      method,
-      redirect: "manual",
-      headers: {
-        apikey: this.key,
-        ...(this.key.startsWith("eyJ")
-          ? { Authorization: `Bearer ${this.key}` }
-          : {}),
-        "Content-Type": "application/json",
-        Prefer: prefer,
-      },
-      body: body === undefined ? undefined : JSON.stringify(body),
-      signal: AbortSignal.timeout(15000),
+    // Every maintenance alarm makes these calls, so the deadline timer must not outlive the answer (server/deadline.ts).
+    return withDeadline(15_000, async (signal) => {
+      const response = await fetch(`${this.url}/rest/v1/${path}`, {
+        method,
+        redirect: "manual",
+        headers: {
+          apikey: this.key,
+          ...(this.key.startsWith("eyJ")
+            ? { Authorization: `Bearer ${this.key}` }
+            : {}),
+          "Content-Type": "application/json",
+          Prefer: prefer,
+        },
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal,
+      });
+      if (!response.ok) {
+        // PostgREST answers a unique violation with 409 and Postgres code 23505. Only the NFT-mode guard indexes, named in the message, are
+        // a domain outcome (TokenUniqueConflict); every other failure, including the (scope,address) and (scope,tx_hash) keys, stays generic.
+        const conflict = response.status === 409 ? postgresTokenConflict(await response.text().catch(() => "")) : null;
+        if (conflict) throw conflict;
+        throw new Error(
+          `Database request failed (${response.status}). Check the server configuration and migrations.`,
+        );
+      }
+      const raw = await response.text();
+      return (raw ? JSON.parse(raw) : undefined) as T;
     });
-    if (!response.ok) {
-      // PostgREST answers a unique violation with 409 and Postgres code 23505. Only the NFT-mode guard indexes, named in the message, are
-      // a domain outcome (TokenUniqueConflict); every other failure, including the (scope,address) and (scope,tx_hash) keys, stays generic.
-      const conflict = response.status === 409 ? postgresTokenConflict(await response.text().catch(() => "")) : null;
-      if (conflict) throw conflict;
-      throw new Error(
-        `Database request failed (${response.status}). Check the server configuration and migrations.`,
-      );
-    }
-    const raw = await response.text();
-    return (raw ? JSON.parse(raw) : undefined) as T;
   }
   private where(extra = "") {
     return `scope=eq.${this.scope}${extra ? "&" + extra : ""}`;

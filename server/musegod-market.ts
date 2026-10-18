@@ -1,5 +1,6 @@
 import { HISTORY_TTL, parseBefore } from "../src/lib/candle-history";
 import { z } from "zod";
+import { withDeadline } from "./deadline";
 import { sameAddress, type RuntimeConfig } from "../src/lib/config";
 import { MUSEGOD } from "../src/lib/musegod";
 import type {
@@ -192,16 +193,18 @@ export class MusegodMarketReader {
         new Date(this.now() + MUSEGOD_MARKET_TTL).toISOString(), "Bankr",
       );
   }
-  private async json(path: string) {
-    const response = await (this.options.fetch ?? fetch)(`${API_ROOT}${path}`, {
-      method: "GET",
-      headers: { accept: "application/json" },
-      signal: AbortSignal.timeout(15_000),
-      // Workerd supports manual/follow only. A 3xx fails response.ok below.
-      redirect: "manual",
+  private json(path: string) {
+    return withDeadline(15_000, async (signal) => {
+      const response = await (this.options.fetch ?? fetch)(`${API_ROOT}${path}`, {
+        method: "GET",
+        headers: { accept: "application/json" },
+        signal,
+        // Workerd supports manual/follow only. A 3xx fails response.ok below.
+        redirect: "manual",
+      });
+      if (!response.ok) throw new Error("The Bankr market provider is unavailable.");
+      return response.json();
     });
-    if (!response.ok) throw new Error("The Bankr market provider is unavailable.");
-    return response.json();
   }
   private cached<T extends { fetchedAt: string }>(section: string, read: () => Promise<T>, ttl = MUSEGOD_MARKET_TTL) {
     return this.snapshots.get(`${KEY}:${section}`, "Bankr", read, ttl);

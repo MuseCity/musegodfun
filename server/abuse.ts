@@ -1,5 +1,6 @@
 import { isIP } from "node:net";
 import { BudgetUnavailable } from "./runtime-policy";
+import { withDeadline } from "./deadline";
 
 export function clientBucket(raw: string): string {
   const value = raw.replace(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i, "$1");
@@ -127,10 +128,11 @@ export class RiskChallenge {
     for(const [k,expires] of this.passed) if(expires<=now)this.passed.delete(k);
     if (!secret || !token || token.length > 2048) return false;
     try {
-      const response=await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {method:"POST",redirect:"manual",headers:{"content-type":"application/json"},body:JSON.stringify({secret,response:token,remoteip:ip}),signal:AbortSignal.timeout(10_000)});
-      if(!response.ok)return false;
-      const result=await response.json() as {success?:boolean;hostname?:string;action?:string};
-      if(result.success!==true || result.hostname!==hostname || result.action!=="expensive_request")return false;
+      const result=await withDeadline(10_000,async signal=>{
+        const response=await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {method:"POST",redirect:"manual",headers:{"content-type":"application/json"},body:JSON.stringify({secret,response:token,remoteip:ip}),signal});
+        return response.ok ? await response.json() as {success?:boolean;hostname?:string;action?:string} : null;
+      });
+      if(!result || result.success!==true || result.hostname!==hostname || result.action!=="expensive_request")return false;
       if(this.passed.size>=10_000)this.passed.delete(this.passed.keys().next().value!);
       this.passed.set(key,now+300_000);return true;
     } catch {return false;}

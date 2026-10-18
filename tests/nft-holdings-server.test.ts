@@ -207,7 +207,9 @@ test("OpenSea lookup and page errors become a fixed unavailable message, never c
 
 test("each provider call uses an eight-second timeout and maps aborts to NFT_LIST_UNAVAILABLE", async (t) => {
   const deadlines: number[] = [];
-  t.mock.method(AbortSignal, "timeout", (ms: number) => { deadlines.push(ms); return AbortSignal.abort(new DOMException("timeout", "TimeoutError")); });
+  // Each deadline fires as soon as it is armed (server/deadline.ts), so every call starts with an aborted signal.
+  t.mock.method(globalThis, "setTimeout", (callback: () => void, ms: number) => { deadlines.push(ms); callback(); return {}; });
+  t.mock.method(globalThis, "clearTimeout", () => {});
   const fetch = (async (_url: unknown, init?: RequestInit) => { init!.signal!.throwIfAborted(); assert.fail("must abort"); }) as typeof globalThis.fetch;
   const holdings = new NftHoldings({ alchemyKey: "a", openSeaKey: "o", fetch });
   await failsUnavailable(() => holdings.collections(owner, isFree));

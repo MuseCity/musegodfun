@@ -23,6 +23,7 @@ import {
   type Hex,
 } from "viem";
 import { base, robinhood } from "viem/chains";
+import { withDeadline } from "./deadline";
 import {
   contractsFor,
   assetsFor,
@@ -180,19 +181,21 @@ export class LaunchpadService {
   async rpcRequest(method: string, params: unknown[]) {
     if (this.runtime.config.mode !== "fork" && this.runtime.environment?.NODE_ENV === "production")
       return this.client.request({ method, params } as any);
-    const response = await fetch(this.runtime.rpcUrl, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-      signal: AbortSignal.timeout(30_000),
+    const body = await withDeadline(30_000, async (signal) => {
+      const response = await fetch(this.runtime.rpcUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+        signal,
+      });
+      if (!response.ok)
+        throw new Error(
+          response.status === 403
+            ? "Alchemy denied access. Check the application network and access policy."
+            : "Chain RPC is temporarily unavailable",
+        );
+      return await response.json() as { error?: { message?: string }; result?: unknown };
     });
-    if (!response.ok)
-      throw new Error(
-        response.status === 403
-          ? "Alchemy denied access. Check the application network and access policy."
-          : "Chain RPC is temporarily unavailable",
-      );
-    const body = await response.json() as { error?: { message?: string }; result?: unknown };
     if (body.error) throw new Error(body.error.message || "RPC request failed");
     return body.result;
   }

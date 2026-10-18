@@ -1,5 +1,6 @@
 import { getAddress, type Address } from "viem";
 import { z } from "zod";
+import { withDeadline } from "./deadline";
 import { shortAddress } from "../src/lib/config";
 import { HOLDINGS_MAX_PAGES, httpsImage, sortCollections, type OwnedCollection } from "../src/lib/nft-holdings";
 import { NftLaunchError } from "./nft-launch";
@@ -123,9 +124,11 @@ export class NftHoldings {
       while (calls.length && calls[0]! <= now - TTL_MS) calls.shift();
       if (calls.length >= MAX_CALLS_PER_MINUTE) throw unavailable();
       calls.push(now);
-      const response = await this.fetcher(url, { headers, redirect: "manual", signal: AbortSignal.timeout(TIMEOUT_MS) });
-      if (!response.ok) throw unavailable();
-      return read(await response.json());
+      return await withDeadline(TIMEOUT_MS, async (signal) => {
+        const response = await this.fetcher(url, { headers, redirect: "manual", signal });
+        if (!response.ok) throw unavailable();
+        return read(await response.json());
+      });
     } catch { throw unavailable(); }
   }
 

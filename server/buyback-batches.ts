@@ -3,6 +3,7 @@ import {
   decodeEventLog, keccak256, parseAbi, recoverTypedDataAddress, hashTypedData, type Address, type Hex, type PublicClient,
 } from "viem";
 import { robinhood } from "viem/chains";
+import { withDeadline } from "./deadline";
 import { CONTRACTS, sameAddress, stockByAddress, type RuntimeConfig } from "../src/lib/config";
 import { MUSEGOD_BUYBACK } from "../src/lib/fee-policy";
 import { RELAY_APPROVAL_PROXY, buybackAuthorizationTypedData, type BuybackAuthorization, type BuybackPrepareInput,
@@ -339,9 +340,11 @@ export class BuybackBatchService {
       }
       batch.status = "bridging"; batch.nextStep = null;
       if (!batch.destinationHash) {
-        const response = await this.fetcher(`https://api.relay.link/intents/status/v3?requestId=${encodeURIComponent(batch.quote.requestId)}`, { signal: AbortSignal.timeout(10_000) });
-        if (!response.ok) throw new Error();
-        const state = await response.json() as any;
+        const state = await withDeadline(10_000, async (signal) => {
+          const response = await this.fetcher(`https://api.relay.link/intents/status/v3?requestId=${encodeURIComponent(batch.quote.requestId)}`, { signal });
+          if (!response.ok) throw new Error();
+          return await response.json() as any;
+        });
         if (state.originChainId !== 8453 || state.destinationChainId !== 4663 ||
           !Array.isArray(state.inTxHashes) || !state.inTxHashes.some((h: string) => h.toLowerCase() === batch.hashes.deposit)) throw new Error();
         if (state.status === "refund") { batch.status = "refunded"; batch.error = "Relay reports a refund. Verify the refunded amount in the treasury; it does not count as burned."; await this.save(batch); return; }

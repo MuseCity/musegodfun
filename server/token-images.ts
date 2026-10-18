@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { Buffer } from "node:buffer";
 import { z } from "zod";
+import { withDeadline } from "./deadline";
 import type { StoreBackend } from "./supabase-store";
 import { BudgetUnavailable } from "./runtime-policy";
 import { MAX_TOKEN_IMAGE_BYTES, TOKEN_IMAGE_SIZE } from "../src/lib/token-image";
@@ -76,12 +77,13 @@ export class TokenImages {
     form.append("name", key);
     form.append("cid_version", "v1");
     try {
-      const response = await fetch("https://uploads.pinata.cloud/v3/files", {
-        method: "POST", redirect: "manual", headers: { Authorization: `Bearer ${jwt}` },
-        body: form, signal: AbortSignal.timeout(15_000),
+      const { data } = await withDeadline(15_000, async (signal) => {
+        const response = await fetch("https://uploads.pinata.cloud/v3/files", {
+          method: "POST", redirect: "manual", headers: { Authorization: `Bearer ${jwt}` }, body: form, signal,
+        });
+        if (!response.ok) throw new Error("Pinata upload rejected");
+        return pinataResponse.parse(await response.json());
       });
-      if (!response.ok) throw new Error("Pinata upload rejected");
-      const { data } = pinataResponse.parse(await response.json());
       const result={ image: `https://gateway.pinata.cloud/ipfs/${data.cid}` };
       await this.store?.saveSnapshot(`pinata:${key}`,result,Date.now());
       return result;

@@ -2,6 +2,8 @@
 
 Current task (2026-10-17): [Base ETH-pay plan](base-eth-pay-plan.md) adds "Pay with ETH" coin buys on Base; codex implements, claude reviews.
 
+Current task (2026-10-18): [Durable Object idle duration](do-idle-duration-plan.md) clears fetch deadline timers so idle chain Durable Objects hibernate instead of staying billable.
+
 Current task (2026-10-17): [Daily improvements plan](daily-improvements-2026-10-17-plan.md) covers live resync, the stale-snapshot guard, home market status, empty-state recovery and maintenance metrics.
 
 Spec and owner decisions: [nft-mode.md](nft-mode.md). Implementation plans for Codex: [Robinhood](nft-mode-robinhood-plan.md) first, then [Base](nft-mode-base-plan.md). Earlier task records follow.

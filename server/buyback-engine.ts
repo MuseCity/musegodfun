@@ -1,6 +1,7 @@
 import { verifyBuybackActivation, verifyRecordedBuybackActivation, type BuybackActivation, type GovernorControlProof, type FinalizedBuybackActivation } from "./buyback-activation";
 import { decodeEventLog, decodeFunctionData, encodeAbiParameters, encodeFunctionData, erc20Abi, getAddress, keccak256, parseAbi, parseAbiParameters, type Address, type Hex, type PublicClient, type TransactionReceipt } from "viem";
 import deployment from "../contracts/artifacts/buyback-v2-deployment.json";
+import { withDeadline } from "./deadline";
 import buybackConfig from "../contracts/buyback.config.json";
 import { contractIdentityOnce, type ContractIdentityStore } from "./contract-identity";
 import { BUYBACK_WETH, BUYBACK_FORWARDER_ALLOWANCE_CAP, LEGACY_FEE_ENGINE, buybackVaultAbi, assetFeedOracleAbi, buybackExecutorAbi, engineTransaction, feeEngineAbi, wethForwarderAbi, type BuybackEngineStatus, type FeedProposalStatus, type EngineAssetStatus, type EngineConversionQuote, type EngineClaimPreview } from "../src/lib/buyback-engine";
@@ -437,7 +438,8 @@ export class BuybackEngineReader {
     const minimum = (reference * 9900n + 9999n) / 10_000n;
     const query = new URLSearchParams({ tokenIn: token, tokenOut: BUYBACK_WETH, amountIn: rawAmount, excludeRFQSources: "true" });
     const headers = { "x-client-id": "musegodfun", "content-type": "application/json" };
-    const routeResponse = await kyberResponse(await fetch(`https://aggregator-api.kyberswap.com/robinhood/api/v1/routes?${query}`, { headers, redirect: "manual", signal: AbortSignal.timeout(15_000) }));
+    const routeResponse = await withDeadline(15_000, async (signal) =>
+      kyberResponse(await fetch(`https://aggregator-api.kyberswap.com/robinhood/api/v1/routes?${query}`, { headers, redirect: "manual", signal })));
     const summary = routeResponse.routeSummary as Record<string, unknown> | undefined;
     if (typeof routeResponse.routerAddress !== "string" || !sameAddress(routeResponse.routerAddress, buybackConfig.constants.router) || !summary ||
       summary.amountIn !== rawAmount || typeof summary.tokenIn !== "string" || !sameAddress(summary.tokenIn, token) ||
@@ -447,10 +449,10 @@ export class BuybackEngineReader {
     if (quoted < minimum) throw new Error("The route cannot satisfy the 99% reference-price floor. Fees remain in the engine.");
     const slippageTolerance = conversionSlippageBps(quoted, minimum);
     const deadline = Math.floor(Date.now() / 1000) + 120;
-    const encoded = await kyberResponse(await fetch("https://aggregator-api.kyberswap.com/robinhood/api/v1/route/build", {
-      method: "POST", headers, redirect: "manual", signal: AbortSignal.timeout(15_000),
+    const encoded = await withDeadline(15_000, async (signal) => kyberResponse(await fetch("https://aggregator-api.kyberswap.com/robinhood/api/v1/route/build", {
+      method: "POST", headers, redirect: "manual", signal,
       body: JSON.stringify({ routeSummary: summary, sender: graph.engine, recipient: graph.engine, origin: caller, deadline, slippageTolerance, ignoreCappedSlippage: slippageTolerance > 2000, source: "musegodfun", enableGasEstimation: false }),
-    }));
+    })));
     if (encoded.amountIn !== rawAmount || encoded.transactionValue !== "0" || typeof encoded.routerAddress !== "string" ||
       !sameAddress(encoded.routerAddress, buybackConfig.constants.router) || typeof encoded.data !== "string" || !/^0x(?:[0-9a-fA-F]{2}){4,100000}$/.test(encoded.data))
       throw new Error("The encoded conversion transaction is invalid");

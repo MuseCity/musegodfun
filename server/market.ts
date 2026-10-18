@@ -1,6 +1,7 @@
 import { HISTORY_TTL, parseBefore } from "../src/lib/candle-history";
 import { marketSnapshotKey } from "../src/lib/market";
 import type { StoreBackend } from "./supabase-store";
+import { withDeadline } from "./deadline";
 import { MarketFailure, marketFailure, MarketUnavailable, Snapshots } from "./snapshots";
 import { z } from "zod";
 import { quoteAsset, sameAddress, type TokenRecord } from "../src/lib/config";
@@ -270,24 +271,26 @@ export class MarketReader {
       if (this.geckoCalls.length >= 30) throw new MarketFailure("backoff", source, undefined, now + 60_000);
       this.geckoCalls.push(now);
     }
-    let response: Response;
-    try {
-      response = await (this.options.fetch || fetch)(url, {
-        method: "GET", headers: { accept: "application/json", ...(isMarket ? { "x-cg-demo-api-key": this.options.apiKey! } : {}) },
-        signal: AbortSignal.timeout(15_000), redirect: "manual",
-      });
-    } catch { throw new MarketFailure("upstream_transport", source); }
-    let retry: number | undefined;
-    const header = response.headers.get("retry-after");
-    if (response.status === 429 || response.status === 503 && header !== null) {
-      retry = Math.max(now + (source === "GeckoTerminal" ? 15 * 60_000 : 60_000),
-        header && /^\d+$/.test(header) ? now + Number(header) * 1000 : Date.parse(header ?? "") || 0);
-      this.backoff.set(host, retry);
-    }
-    if (!response.ok)
-      throw new MarketFailure(response.status === 404 ? "not_indexed" : response.status === 429 ? "rate_limited" : "upstream_http", source, response.status, retry);
-    try { return await response.json(); }
-    catch { throw new MarketFailure("invalid_schema", source); }
+    return withDeadline(15_000, async (signal) => {
+      let response: Response;
+      try {
+        response = await (this.options.fetch || fetch)(url, {
+          method: "GET", headers: { accept: "application/json", ...(isMarket ? { "x-cg-demo-api-key": this.options.apiKey! } : {}) },
+          signal, redirect: "manual",
+        });
+      } catch { throw new MarketFailure("upstream_transport", source); }
+      let retry: number | undefined;
+      const header = response.headers.get("retry-after");
+      if (response.status === 429 || response.status === 503 && header !== null) {
+        retry = Math.max(now + (source === "GeckoTerminal" ? 15 * 60_000 : 60_000),
+          header && /^\d+$/.test(header) ? now + Number(header) * 1000 : Date.parse(header ?? "") || 0);
+        this.backoff.set(host, retry);
+      }
+      if (!response.ok)
+        throw new MarketFailure(response.status === 404 ? "not_indexed" : response.status === 429 ? "rate_limited" : "upstream_http", source, response.status, retry);
+      try { return await response.json(); }
+      catch { throw new MarketFailure("invalid_schema", source); }
+    });
   }
   private pool(token: TokenRecord) {
     return `https://api.coingecko.com/api/v3/onchain/networks/${token.mode === "robinhood" ? "robinhood" : "base"}/pools/${token.poolId}`;

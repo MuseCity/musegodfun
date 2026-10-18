@@ -23,6 +23,7 @@ import { validTreasury } from "../src/lib/validation";
 import type { RuntimeEnvironment } from "./config";
 import { robinhood } from "viem/chains";
 import { alchemyRpcTransport } from "./alchemy-rpc";
+import { withDeadline } from "./deadline";
 import { BASE_BUYBACK_RH_WETH, BASE_BUYBACK_TREASURY, BASE_BUYBACK_VAULT, type RobinhoodBuybackSummary } from "../src/lib/base-buyback";
 import { buybackVaultAbi } from "../src/lib/buyback-engine";
 import { BUYBACK_SUMMARY_CACHE_MS } from "./base-buyback";
@@ -101,35 +102,37 @@ export class BuybackReader {
     this.environment = options.environment;
   }
 
-  private async request(url: string, body: unknown): Promise<unknown> {
-    let response: Response;
-    try {
-      response = await this.fetcher(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(this.timeoutMs),
-      });
-    } catch (error) {
-      if (error instanceof Error && ["TimeoutError", "AbortError"].includes(error.name))
-        throw new BuybackError("TIMEOUT", "The buyback data request timed out. Try again later.");
-      throw new BuybackError("UPSTREAM_UNAVAILABLE", "The buyback data provider is unavailable");
-    }
-    if (response.status === 429)
-      throw new BuybackError("RATE_LIMITED", "The buyback data provider is rate limiting requests. Try again later.");
-    if (response.status === 400 || response.status === 404)
-      throw new BuybackError("NO_ROUTE", "No buyback route is available for this asset or amount");
-    if (response.status === 401 || response.status === 403)
-      throw new BuybackError("UPSTREAM_AUTH", "The buyback data provider denied access. Check the server configuration.");
-    if (!response.ok)
-      throw new BuybackError("UPSTREAM_UNAVAILABLE", "The buyback data provider is unavailable");
-    try {
-      const text = await response.text();
-      if (text.length > 1_000_000) invalid();
-      return JSON.parse(text);
-    } catch {
-      throw new BuybackError("INVALID_RESPONSE", "The buyback data provider returned invalid data");
-    }
+  private request(url: string, body: unknown): Promise<unknown> {
+    return withDeadline(this.timeoutMs, async (signal) => {
+      let response: Response;
+      try {
+        response = await this.fetcher(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+          signal,
+        });
+      } catch (error) {
+        if (error instanceof Error && ["TimeoutError", "AbortError"].includes(error.name))
+          throw new BuybackError("TIMEOUT", "The buyback data request timed out. Try again later.");
+        throw new BuybackError("UPSTREAM_UNAVAILABLE", "The buyback data provider is unavailable");
+      }
+      if (response.status === 429)
+        throw new BuybackError("RATE_LIMITED", "The buyback data provider is rate limiting requests. Try again later.");
+      if (response.status === 400 || response.status === 404)
+        throw new BuybackError("NO_ROUTE", "No buyback route is available for this asset or amount");
+      if (response.status === 401 || response.status === 403)
+        throw new BuybackError("UPSTREAM_AUTH", "The buyback data provider denied access. Check the server configuration.");
+      if (!response.ok)
+        throw new BuybackError("UPSTREAM_UNAVAILABLE", "The buyback data provider is unavailable");
+      try {
+        const text = await response.text();
+        if (text.length > 1_000_000) invalid();
+        return JSON.parse(text);
+      } catch {
+        throw new BuybackError("INVALID_RESPONSE", "The buyback data provider returned invalid data");
+      }
+    });
   }
 
   async quote(input: BuybackQuoteInput): Promise<BuybackQuote> {
