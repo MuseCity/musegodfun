@@ -55,7 +55,9 @@ Claude implements; codex (gpt-6.1-sol, xhigh) reviews; findings are fixed and re
 
 ## 7. Status, 2026-10-18
 
-Implemented and reviewed; not yet released.
+Released on the owner's "Release now" as `c1aad4a`: CI run 39088312763, `build-39088312763-1`, Worker version `6f126af3` on both domains (deployed 02:00:29Z). Rollback point: Worker `38a0bf93` (`build-39083527095-1`, `3b1f1fd`). Both chain Durable Objects restarted after the deploy (`/readyz` `maintenance.since` 02:01:40Z on Base and 02:01:48Z on Robinhood), so no immediate-mode redeploy was needed.
+
+Live QA (codex in Chrome, read-only, 10:03–10:05 UTC+8) passed all checks on MVADER (Robinhood) and MUSEGOD (Base): at 1180×757 two columns with the tabs at y = 431 (MVADER) and 521 (MUSEGOD, below the operator-hidden notice), the hero Trade button hidden and no horizontal scroll; DOM and Tab-key order hero → tabs → trade card; `?tab=` written on clicks without adding history entries, and a chain-less `?tab=onchain` link opened On-chain; at 375×812 the hero Trade button jumped to and focused the trade card; Channels showed the saved or launch links with no unavailable or stale notice; the pool quote showed its read time and "Refresh pool quote", and a refresh updated the time; no product console errors (only the known Cloudflare Insights CSP block). Evidence (report and screenshots) is archived outside the repo in `.superpowers/archive/musegod-ip-page-improvements-71906f/`.
 
 | Item | State | Evidence |
 |---|---|---|
