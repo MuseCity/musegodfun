@@ -100,7 +100,8 @@ export function NftLaunchStep({ config, account, draft, connecting, onConnect, e
   // Parent callbacks are read through a ref, so a new callback identity never re-runs the check.
   const latest = useRef({ onChange, onCheck, onFee, onNftPassed, onStatus });
   latest.current = { onChange, onCheck, onFee, onNftPassed, onStatus };
-  // The NFT the parent holds; a report that would not change it is skipped, so `undefined` is never sent twice in a row.
+  // The NFT the parent holds; a report that would not change it is skipped, so the step's own checks never send `undefined` twice in a
+  // row. The person's own change is always sent: it also clears the identity values of the NFT they moved away from (§3.2 prefill).
   const reported = useRef("");
   reported.current = nft ? nftKey(nft) : "";
   const report = (next: NftRef | undefined, user: boolean) => {
@@ -128,7 +129,8 @@ export function NftLaunchStep({ config, account, draft, connecting, onConnect, e
     if (prefilled.current !== candidateKey) prefilled.current = "";
     latest.current.onCheck();
     // The NFT the draft already holds is checked again without being dropped; any other NFT is not in the draft until it passes.
-    if (user || !candidate || reported.current !== candidateKey) report(undefined, user);
+    if (user) { reported.current = ""; latest.current.onChange(undefined, true); }
+    else if (!candidate || reported.current !== candidateKey) report(undefined, false);
   }, [candidateKey, account, config.chainId, config.deploymentChainId, attempt]);
   // Returning to the list cancels only the live check, without repeating draft changes or clearing the parent's error.
   useEffect(() => {

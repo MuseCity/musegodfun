@@ -114,12 +114,16 @@ export function savedNftMode(raw: string | null): boolean {
 }
 export type NftIdentity = Pick<LaunchInput, "name" | "symbol" | "image">;
 export type NftPrefill = Partial<NftIdentity>;
+/** The identity an NFT gives its coin: the name cut to 32 characters, the symbol from its letters, and the listed image. A reserved
+ * name or symbol (D8) is empty. */
+export function nftValues(nft: { name?: string; image?: string }): NftIdentity {
+  const name = (nft.name ?? "").trim().slice(0, 32).trim(), symbol = name.replace(/[^A-Za-z]/g, "").slice(0, 10).toUpperCase();
+  return { name: reservedLaunchName(name, "") ? "" : name, symbol: reservedLaunchName("", symbol) ? "" : symbol, image: nft.image ?? "" };
+}
 /** Only empty fields and values the previous prefill still owns follow the NFT. Missing or reserved values clear an owned field.
  * Image decisions can be made before conversion, but only the pinned result is applied to the draft. */
 export function nftPrefill(draft: NftIdentity, nft: { name?: string; image?: string }, previous: NftPrefill = {}): NftPrefill {
-  const name = (nft.name ?? "").trim().slice(0, 32).trim(), symbol = name.replace(/[^A-Za-z]/g, "").slice(0, 10).toUpperCase();
-  const values = { name: reservedLaunchName(name, "") ? "" : name,
-    symbol: reservedLaunchName("", symbol) ? "" : symbol, image: nft.image ?? "" };
+  const values = nftValues(nft);
   const changes: NftPrefill = {};
   for (const field of ["name", "symbol", "image"] as const) {
     const owned = previous[field] !== undefined && draft[field] === previous[field];

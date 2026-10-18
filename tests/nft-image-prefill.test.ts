@@ -161,16 +161,49 @@ test("a restored NFT recheck preserves exact owned fields and notice without pin
   assert.deepEqual(state.draft, { name: "B", symbol: "B", image: "https://pin.test/b" });
 });
 
-test("failed manual uploads keep the existing prefill and error, and manual edits release exact ownership", async () => {
+test("failed manual uploads keep the existing prefill and error, and typed values are the person's", async () => {
   const initial = { name: "A", symbol: "A", image: "https://pin.test/a" };
   const { state, work, io } = fixture(initial, initial);
   io.convertFile = async () => { throw new Error("manual validation failed"); };
   await work.upload(file, io);
   assert.deepEqual(state.draft, initial); assert.deepEqual(work.previous, initial);
   assert.equal(state.error, "manual validation failed"); assert.equal(state.busy, false);
-  for (const field of ["name", "symbol", "image"] as const) work.edit(field, io);
+  const typed = { name: "Mine", symbol: "MINE", image: "https://mine.test/typed" };
+  for (const field of ["name", "symbol", "image"] as const) { work.edit(field, io); state.draft = { ...state.draft, [field]: typed[field] }; }
   await work.prefill(b, io);
-  assert.deepEqual(state.draft, initial); assert.deepEqual(work.previous, {}); assert.deepEqual(state.pins, []);
+  assert.deepEqual(state.draft, typed); assert.deepEqual(state.pins, []);
+});
+
+test("ownership is by value: a field typed back to the NFT's value follows the next NFT, and an NFT change clears only the NFT's values", async () => {
+  const { state, work, io } = fixture();
+  await work.prefill(a, io);
+  work.edit("name", io); state.draft.name = "Mine";
+  work.edit("name", io); state.draft.name = "A";
+  work.edit("symbol", io); state.draft.symbol = "MINE";
+  work.changeNft(io);
+  assert.deepEqual(state.draft, { name: "", symbol: "MINE", image: "" });
+  assert.deepEqual(work.previous, {});
+  await work.prefill(b, io);
+  assert.deepEqual(state.draft, { name: "B", symbol: "MINE", image: "https://pin.test/b" });
+});
+
+test("a draft holding an NFT's name and symbol without recorded ownership is that NFT's prefill once its check passes", async () => {
+  const { state, work, io } = fixture({ name: "A", symbol: "A", image: "https://mine.test/own" });
+  await work.prefill({ name: "A" }, io, true);
+  assert.deepEqual(state.draft, { name: "A", symbol: "A", image: "https://mine.test/own" }, "the re-check changes nothing");
+  assert.deepEqual(work.previous, { name: "A", symbol: "A" });
+  work.changeNft(io);
+  await work.prefill(b, io);
+  assert.deepEqual(state.draft, { name: "B", symbol: "B", image: "https://mine.test/own" }, "an image that is not the NFT's stays");
+});
+
+test("a recorded prefill stays owned when the NFT's name has since changed", async () => {
+  const owned = { name: "A", symbol: "A" };
+  const { state, work, io } = fixture({ ...owned, image: "" }, owned);
+  await work.prefill({ name: "Renamed" }, io, true);
+  assert.deepEqual(state.draft, { name: "A", symbol: "A", image: "" }); assert.deepEqual(work.previous, owned);
+  work.changeNft(io);
+  assert.deepEqual(state.draft, { name: "", symbol: "", image: "" });
 });
 
 test("a failed manual upload releases priority for a later NFT image", async () => {

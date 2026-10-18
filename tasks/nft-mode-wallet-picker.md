@@ -96,9 +96,12 @@ Facts checked on 2026-10-15 with a real Muse holder on Robinhood:
     - a picture too detailed to fit;
     - an upload error.
   - Manual entry and draft links have no list image, so the person uploads one as today.
-- **Which fields are filled:** a field is filled when it is empty, or when it still holds exactly the value the previous NFT's prefill put there.
-  - So choosing another NFT replaces prefilled values with the new NFT's. If the new NFT provides no value (for example manual entry, which has no list image), the previous NFT's prefilled value is cleared rather than left behind.
-  - A value the person typed or uploaded is never replaced.
+- **Which fields are filled:** a field belongs to the NFT while it is empty or holds exactly the NFT's value. Ownership is decided by the value alone, never by what was typed in between (owner bug report, 2026-10-18: after changing the NFT, name and symbol kept the first NFT's values).
+  - When the person changes the NFT (picks another one, edits the manual entry, or chooses Normal), the fields still holding the previous NFT's values are cleared at once. The new NFT's values fill them when its check passes. So the old NFT's values never show while the new one is checked, and an NFT whose check says no leaves nothing behind.
+  - If the new NFT provides no value (for example manual entry, which has no list image), the field stays empty.
+  - When the check drops an NFT on its own (for example after a wallet switch to an account that does not hold it), its values stay. They come back with it, or are cleared when the person picks another NFT.
+  - A name or symbol equal to the checked NFT's own value counts as its prefill, however it got there. Examples: a draft saved on NFT mode's first day (2026-10-14, before ownership was recorded), a draft link, or the person typing the value back.
+  - Any other value the person typed or uploaded is never replaced or cleared.
 - **Notice:** while the image is the prefilled one, the Identity step shows "Using your NFT's image. You can replace it." next to it.
 
 **Other behaviour:**
@@ -108,7 +111,7 @@ Facts checked on 2026-10-15 with a real Muse holder on Robinhood:
 
 ### 3.3 Drafts and draft links
 
-- Autosaved drafts also keep the applied NFT prefill values for name, symbol and image. On reload or adoption, only exact matches retain ownership and the image notice. Old drafts and draft links have no prefill ownership.
+- Autosaved drafts also keep the applied NFT prefill values for name, symbol and image. On reload or adoption, only exact matches retain ownership and the image notice. Old drafts and draft links carry no prefill record; their name and symbol become the NFT's when they equal its value at the check (§3.2).
 - A draft keeps `nftMode`, `nft` and its step. The saved step numbers are:
   - `0`: the NFT step, which exists in NFT mode only;
   - `1`: Identity;
@@ -209,7 +212,7 @@ There are two new read endpoints. They sit next to `nft-status` and are served u
    - the rest by NFTs held.
    Search filters by name or address.
 3. Opening a collection lists the wallet's NFTs in it. Already launched NFTs cannot be selected.
-4. Selecting an NFT runs the existing check and fee flow. Continue, and the step bar, move on only when `nftReviewBlocker` would pass; otherwise the step says why. Name, symbol and, for wallet picks, the image prefill empty or still-prefilled fields and follow NFT changes (§3.2, §3.3), never with a reserved name.
+4. Selecting an NFT runs the existing check and fee flow. Continue, and the step bar, move on only when `nftReviewBlocker` would pass; otherwise the step says why. Name, symbol and, for wallet picks, the image prefill empty or still-prefilled fields and follow NFT changes; a change of NFT clears the previous NFT's values at once (§3.2, §3.3), never with a reserved name.
 5. Manual entry works, and it is offered when the list is empty or fails.
 6. The endpoints return the §4 shapes and codes: 400, 422 (including Base), 503 `NFT_LIST_UNAVAILABLE`. They respect the 300 caps with `truncated`, cache for 60 s, and never expose a provider key.
 7. Drafts restore their step as §3.3 says. A draft link with `nft` opens on the NFT step with that NFT selected. Two tabs on one draft never move each other's step unless the saved step itself changed.

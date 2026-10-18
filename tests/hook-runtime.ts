@@ -37,6 +37,11 @@ export function hookRuntime<T>(component: () => T) {
       }] as const;
     },
     useRef<R>(initial: R) { return (refs[cursor.ref++] ??= { current: initial }) as { current: R }; },
+    useCallback<F>(run: F, deps?: readonly unknown[]) {
+      const slot = hooks.useRef<{ run: F; deps?: readonly unknown[] } | null>(null);
+      if (!slot.current || !unchanged(slot.current.deps, deps)) slot.current = { run, deps };
+      return slot.current.run;
+    },
     useEffect(run: () => Cleanup, deps?: readonly unknown[]) { queued.push({ index: cursor.effect++, run, deps }); },
   };
   return { hooks, render, output: () => latest, unmount() { closed = true; for (const slot of slots) slot?.cleanup?.(); } };

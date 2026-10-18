@@ -1516,7 +1516,8 @@ function CreatePage({
   // `quiet` keeps the page's notices and errors: the NFT step's own checks and the stored fee change the draft without the user.
   function update<K extends keyof LaunchInput>(key: K, value: LaunchInput[K], quiet = false) {
     if (draft[key] !== value) currentPlan.current = null;
-    if (key === "nft" && !value) imagePrefill.clearNft(imageStatus());
+    // The person's own NFT change also clears the old NFT's values; the step's automatic drops keep them (`createNftImagePrefill`).
+    if (key === "nft" && !value) { if (quiet) imagePrefill.clearNft(imageStatus()); else imagePrefill.changeNft(imageWork()); }
     if (!quiet && (key === "name" || key === "symbol" || key === "image")) imagePrefill.edit(key, imageStatus());
     generation.current++;
     latestDraft.current = { ...latestDraft.current, [key]: value };
