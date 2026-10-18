@@ -104,6 +104,7 @@ Facts checked on 2026-10-15 with a real Muse holder on Robinhood:
   - The NFT a draft holds when the page opens is checked at once. Its first status answer gives its own name, whether the check passes or not, and even if the person has already picked another NFT or chosen Normal; fields still showing that name then take the current NFT's values or clear. An answer that arrives after the draft was replaced (another tab, Clear draft) is ignored.
   - Any other value the person typed or uploaded is never replaced or cleared.
 - **Notice:** while the image is the prefilled one, the Identity step shows "Using your NFT's image. You can replace it." next to it.
+- **Release (2026-10-18):** the value-based rule above shipped on the owner's word as `6a2ceda` + `5218ad2` (codex review: 2 P2 fixed, then ACCEPT): CI run 39103739133, `build-39103739133-1`, Worker version `751ca9ae`; rollback point Worker `0b3bd65b` (`9a0ac72`). Live check on musegod.fun with a read-only mock wallet for a Muse holder (non-GET requests refused, nothing signed or pinned): picking Bard then Cadenza moves Token name and symbol from Bard/BARD to Cadenza/CADENZA, and a draft saved without a prefill record (Bard/BARD) now follows the switch to Cadenza.
 
 **Other behaviour:**
 - **Wallet change:** the list reloads for the new account. A selected NFT is checked again (as today); if the new account does not control it, the check reports so.
