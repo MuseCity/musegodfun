@@ -68,7 +68,7 @@ test("a plain coin's review states each fact once and keeps what is fixed, the f
     "Platform income allocation (platform income = 100%)", "Network / protocol", "Asset issuer", "Supply", "Opening price reference"]);
   assert.equal(rows(byClass(dialog, "review-facts"))[0][1], "Creator 66.5% · Buyback 22.8% · Operations 5.7% · Doppler 5%");
   assert.deepEqual(rows(byClass(dialog, "review-facts"))[7], ["Opening price reference", "LI.FI buy/sell quotes; no independent price feed for WETH"]);
-  assert.equal(byClass(dialog, "info-tip"), null);
+  assert.equal(find(dialog, (element) => element.type === InfoTip), null, "a plain coin has no NFT info tips");
   assert.equal(count(text, /five minutes|5-minute/), 1, "the signing window is stated once");
   assert.match(text, /You have five minutes to confirm in your wallet once the preview is ready\./);
   for (const gone of ["READY TO LAUNCH", "Permanent after launch", "Quote asset", "Parameter check", "Wallet confirmation", "Set using LI.FI",

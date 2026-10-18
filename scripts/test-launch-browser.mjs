@@ -1605,7 +1605,9 @@ async function nftCase(page, state) {
     assert.equal(request.draft.quoteAddress.toLowerCase(), wethAsset.address.toLowerCase());
     assert.equal('launchFee' in request.draft, false);
     const dialog = page.getByRole('dialog');
-    for (const text of ['Bound NFT', 'Verified', 'Creator fees']) await dialog.getByText(text, { exact: true }).waitFor();
+    for (const text of ['Bound NFT', 'Verified']) await dialog.getByText(text, { exact: true }).waitFor();
+    // The Collection and Creator fees terms carry info tips, so their text is matched from the start.
+    await dialog.locator('dt', { hasText: /^Creator fees/ }).waitFor();
     assert.equal(await dialog.getByText('Launch fee', { exact: true }).count(), 0);
     // The disclaimer is the Collection tile's info tip: in the page as the button's description, shown on hover, focus or tap.
     const disclaimer = dialog.getByRole('button', { name: 'About NFT collections', exact: true });
@@ -1695,7 +1697,8 @@ async function nftCase(page, state) {
       ? { asset: 'native', txHash: state.sends[0].hash, wei: feeWei, expiresAt: request.draft.launchFee.expiresAt, mac: '0x' + '11'.repeat(32) }
       : { asset: 'stable', txHash: state.sends[0].hash });
     const dialog = page.getByRole('dialog');
-    for (const text of ['Unverified collection', '$10, paid, non-refundable', 'Creator fees']) await dialog.getByText(text, { exact: true }).waitFor();
+    for (const text of ['Unverified collection', '$10, paid, non-refundable']) await dialog.getByText(text, { exact: true }).waitFor();
+    await dialog.locator('dt', { hasText: /^Creator fees/ }).waitFor();
     await nftEarnCopy(page, dialog, true);
     assert.equal(state.sends.length, 1, 'one fee payment, never two');
     state.nftChecks = { modeSwitch: true, feeCardBeforeReview: true, feeKeptAcrossNftChange: true, feePayments: 1, earnCopyIsNftTreasury: true, launchCostNamesFee: true,

@@ -6,7 +6,7 @@ Status: In progress. Owner request 2026-10-18 (translated from Chinese): "Put th
 
 - The NFT disclaimer moves from its own paragraph under the NFT tiles into an info icon on the **Collection** tile (it is about collections and imitations).
 - For an NFT coin, the band "The NFT's treasury earns X% of every trade" moves into an info icon on the **Creator fees** tile, which already says the fees go to the NFT's treasury. A plain coin keeps its "You earn X% of every trade" band.
-- The icon is a real button: it shows its text on hover, on keyboard focus and on tap (touch screens have no hover), closes on Escape or a second tap, and links the text to the button with `aria-describedby`, so screen readers read it. The NFT step on the form keeps its visible disclaimer.
+- The icon is a real button. Its text shows while a mouse is over the icon or the text itself, while the icon has keyboard focus, or after a tap (touch screens have no hover) until a second tap or a tap elsewhere. While it shows, the first Escape hides it and does not close the dialog. The text is linked with `aria-describedby`, so screen readers read it, and takes no space while hidden. The NFT step on the form keeps its visible disclaimer.
 
 ## Part 2: the opening price reference warning
 
@@ -20,7 +20,7 @@ Observed facts (2026-10-18, read-only `eth_call` through `https://musegod.fun/ap
 Fix (advisory reference only; signing, pricing and the immutable oracle are unchanged):
 - WETH: compare with the oracle's ETH/USD feed.
 - MUSEGOD: compare with the oracle's MUSEGOD/WETH 30-minute TWAP times ETH/USD (`source: "TWAP"`).
-- Mapped stock feeds (those that check the token's `oraclePaused`): while the market is closed, compare with the last close for up to four days (`marketClosed: true`); the divergence message then says "last market close". Other feeds get a one-hour heartbeat grace over `maxAge`.
+- Mapped stock feeds (those that check the token's `oraclePaused`): a feed older than its `maxAge` is still the last close (`marketClosed: true`, and the divergence message says "last market close") when the market was open for at most `maxAge` since its update, counted over the 24/5 week (Sunday 20:00 to Friday 20:00 New York time, from Robinhood's "Stock feeds update 24/5, following market hours"), and the update is under four days old. A feed that stops while the market is open still warns. US market holidays are not modelled. Other feeds get a one-hour heartbeat grace over `maxAge`.
 - No source for the asset (Base, unmapped stocks): no warning. The review's "Opening price reference" row says the price comes from LI.FI buy/sell quotes with no independent feed for that asset. The buy/sell spread check (`opening_spread`) is unchanged.
 - A source that exists but cannot be read fresh (stale beyond its window, paused token oracle, changed oracle code, failed or slow reads) still warns. The read limit rises from 2 to 3 seconds.
 - After a preview, the review's "Opening price reference" row names the reference and its distance from the opening price.

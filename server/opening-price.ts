@@ -81,8 +81,26 @@ const referenceAbi = parseAbi([
   "function latestRoundData() view returns (uint80 roundId,int256 answer,uint256 startedAt,uint256 updatedAt,uint80 answeredInRound)",
   "function decimals() view returns (uint8)", "function oraclePaused() view returns (bool)",
 ]);
-/** Stock feeds stop at the market close: compare with the last close for up to four days (a weekend and a holiday). */
+/** Stock feeds stop while the market is closed: compare with the last close for up to four days. */
 export const MARKET_CLOSED_MAX_AGE = 4 * 86_400;
+const newYork = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", hour: "numeric", hourCycle: "h23" });
+/** Whether Robinhood's stock feeds trade at this instant: 24/5, Sunday 20:00 to Friday 20:00 New York time. US market holidays are not
+ * modelled, so a holiday that stops a feed for longer than its maxAge still warns. */
+export function stockFeedMarketOpen(seconds: number): boolean {
+  const parts = newYork.formatToParts(new Date(seconds * 1000));
+  const weekday = parts.find((part) => part.type === "weekday")!.value, hour = Number(parts.find((part) => part.type === "hour")!.value);
+  return !(weekday === "Sat" || (weekday === "Fri" && hour >= 20) || (weekday === "Sun" && hour < 20));
+}
+/** Seconds of open market in (from, to]. Sessions change on whole New York hours, which are whole UTC hours. */
+export function stockFeedOpenSeconds(from: number, to: number): number {
+  let open = 0;
+  for (let start = from; start < to;) {
+    const end = Math.min(to, (Math.floor(start / 3_600) + 1) * 3_600);
+    if (stockFeedMarketOpen(start)) open += end - start;
+    start = end;
+  }
+  return open;
+}
 /** Other feeds update on a heartbeat equal to their maxAge; allow one late update. */
 export const FEED_HEARTBEAT_GRACE = 3_600;
 const REFERENCE_TIMEOUT = 3_000;
@@ -138,12 +156,15 @@ export async function independentReference(client: ReferenceClient, stock: Stock
         const [feed, maxAge, tokenDecimals, feedDecimals, checkPaused] = mapped;
         if (sameAddress(feed, zeroAddress)) return none;
         if (tokenDecimals !== stock.decimals || maxAge <= 0) return unavailable;
-        // Feeds that check the token's oraclePaused are stock feeds, which stop updating while the market is closed.
+        // Feeds that check the token's oraclePaused are stock feeds, which stop updating while the market is closed. One older than its
+        // maxAge is still the last close when the market was open for at most maxAge since its update; otherwise the feed has failed.
         const window = checkPaused ? BigInt(Math.max(maxAge, MARKET_CLOSED_MAX_AGE)) : BigInt(maxAge) + BigInt(FEED_HEARTBEAT_GRACE);
         const [price, paused] = await Promise.all([feedPrice(feed, feedDecimals, window),
           checkPaused ? read<boolean>(stock.address, "oraclePaused") : Promise.resolve(false)]);
         if (paused || !price) return unavailable;
-        reference = { source: "Chainlink", feed, wad: price.wad, updatedAt: price.updatedAt, ...(checkPaused && price.age > BigInt(maxAge) ? { marketClosed: true as const } : {}) };
+        const closed = checkPaused && price.age > BigInt(maxAge);
+        if (closed && stockFeedOpenSeconds(Number(price.updatedAt), Number(nowSeconds)) > maxAge) return unavailable;
+        reference = { source: "Chainlink", feed, wad: price.wad, updatedAt: price.updatedAt, ...(closed ? { marketClosed: true as const } : {}) };
       }
       if (reference.wad <= 0n) return unavailable;
       const midWad = parseUnits(midpoint, 18);
@@ -159,16 +180,17 @@ export async function independentReference(client: ReferenceClient, stock: Stock
   finally { clearTimeout(timer); }
 }
 
-/** A recovered preview's price snapshot is unsigned caller JSON. Bind it to a
- * canonical block no later than the creation receipt, and return the
- * divergence from the immutable oracle's independent feed at that block, if
- * one is mapped. The comparison is advisory: an unsigned valuation's
- * provenance comes from the platform attestation, not from a price bound. */
 /** Chain evidence contradicts a recovered preview. Retrying cannot change
  * the verdict once block `finalAt` is finalized, or at all when it is unset. */
 export class RecoveryEvidenceError extends Error {
   constructor(message: string, readonly finalAt?: bigint) { super(message); }
 }
+/** A recovered preview's price snapshot is unsigned caller JSON. Bind it to a
+ * canonical block no later than the creation receipt, and return the
+ * divergence from the independent reference at that block (`independentReference`,
+ * with the block's timestamp as the time), if the asset has one. The comparison is
+ * advisory: an unsigned valuation's provenance comes from the platform
+ * attestation, not from a price bound. */
 export async function assertRecoveredOpeningValuation(client: Pick<PublicClient<Transport, any>, "getBlock" | "getCode" | "readContract">,
   valuation: OpeningValuation, receiptBlock: bigint, chainId: 8453 | 4663): Promise<{ divergenceBps: number } | null> {
   const blockNumber = BigInt(valuation.blockNumber);
