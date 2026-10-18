@@ -91,6 +91,7 @@ import {
   type LaunchInput,
 } from "./lib/validation";
 import { ApiError, api, chainApi, type ApiOptions } from "./lib/api";
+import InfoTip from "./components/InfoTip";
 import { LaunchModeSwitch, NftLaunchStep, NFT_DISCLAIMER, NFT_ERROR_ID, NFT_FEE_ID, NFT_TOKEN_ID, type NftFeeRejection, type NftStepStatus } from "./components/NftLaunchStep";
 import { forgetLaunchFee, launchFeeStorageKey, nftCheckPassed, nftLaunchFeeCost, nftReviewBlocker, prepareDraft, readNftStatus, rewardsShareCopy, savedNftMode } from "./lib/nft-client";
 import { SAVED_LAUNCHES_NOTE, decodeDraftFragment, importDraftLink, isPristineDraft, type DraftFragment } from "./lib/draft-link";
@@ -106,6 +107,7 @@ import { resolveFirstBuyPayment, sameFirstBuyPayment, paymentMatchesLaunch, regi
 import {
   OPENING_CAP_USD,
   assertOpeningValuation,
+  openingReferenceText,
 } from "./lib/opening-valuation";
 import { createNftImagePrefill } from "./lib/nft-image-prefill";
 import { TOKEN_IMAGE_ACCEPT } from "./lib/token-image";
@@ -2778,14 +2780,13 @@ function CreatePage({
           </dl>
           {draft.nft && <dl className="review-tiles nft-review-tiles">
             <div className="tile wide"><dt>Bound NFT</dt><dd>{chainName} · <span title={draft.nft.contract}>{shortAddress(draft.nft.contract)}</span> · #{draft.nft.tokenId}</dd></div>
-            <div className="tile"><dt>Collection</dt><dd>{isMuse(draft.nft) ? "Verified" : "Unverified collection"}</dd></div>
+            <div className="tile"><dt>Collection<InfoTip id="review-nft-disclaimer" label="About NFT collections" text={NFT_DISCLAIMER} /></dt><dd>{isMuse(draft.nft) ? "Verified" : "Unverified collection"}</dd></div>
             {!isMuse(draft.nft) && draft.launchFee && <div className="tile"><dt>Launch fee</dt><dd>$10, paid, non-refundable</dd></div>}
-            <div className="tile wide"><dt>Creator fees</dt><dd className="sans">To the NFT's treasury; they follow the NFT when it is sold. The current holder can withdraw at any time, including before a sale.</dd></div>
+            <div className="tile wide"><dt>Creator fees<InfoTip id="review-nft-earnings" label="The NFT's treasury share" text={`The NFT's treasury earns ${creatorCut} of every trade`} /></dt><dd className="sans">To the NFT's treasury; they follow the NFT when it is sold. The current holder can withdraw at any time, including before a sale.</dd></div>
           </dl>}
-          {draft.nft && <p className="nft-warning">{NFT_DISCLAIMER}</p>}
-          <div className="review-earn">
-            <span>{nftCoin ? "The NFT's treasury earns" : "You earn"} <b className="mono">{creatorCut}</b> of every trade</span>
-          </div>
+          {!nftCoin && <div className="review-earn">
+            <span>You earn <b className="mono">{creatorCut}</b> of every trade</span>
+          </div>}
           <details className="disclosure">
             <summary>Fee policy, treasuries and price references</summary>
             <dl className="rows review-facts">
@@ -2827,7 +2828,8 @@ function CreatePage({
               </div>
               <div>
                 <dt>Opening price reference</dt>
-                <dd className="sans">Fresh LI.FI buy/sell quotes when the preview is prepared; a first buy moves the price above {openingCapUsdLabel}</dd>
+                <dd className="sans">{plan?.openingValuation ? openingReferenceText(plan.openingValuation, stock.symbol)
+                  : `Fresh LI.FI buy/sell quotes when the preview is prepared; a first buy moves the price above ${openingCapUsdLabel}`}</dd>
               </div>
             </dl>
           </details>

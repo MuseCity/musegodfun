@@ -966,8 +966,12 @@ function recoveryService(f: ReturnType<typeof ordinaryFixture> | ReturnType<type
         reads.push(`${functionName}:${blockNumber ?? "latest"}`);
         // What the chain would report as the Airlock owner at any block.
         if (functionName === "owner") return options.owner ?? treasury;
-        // The immutable oracle's mapped feed for the paired asset, 8 decimals.
-        if (options.referencePrice !== undefined && functionName === "assetFeeds") return [guard, 86_400, quote.decimals, 8, false];
+        // The immutable oracle prices the paired WETH with its own ETH/USD feed (assetFeeds maps no WETH feed), 8 decimals.
+        if (options.referencePrice !== undefined) {
+          const oracle: Record<string, unknown> = { assetFeeds: [zeroAddress, 0, 0, 0, false], weth: quote.address, musegod: treasury, museWethPool: treasury,
+            ethUsdFeed: guard, ethMaxAge: 86_400, ethFeedDecimals: 8 };
+          if (functionName in oracle) return oracle[functionName];
+        }
         if (options.referencePrice !== undefined && functionName === "latestRoundData") return [1n, options.referencePrice, 0n, nowSeconds - 10n, 1n];
         if (options.referencePrice !== undefined && functionName === "decimals") return 8;
         throw new Error("No independent reference in this fixture");

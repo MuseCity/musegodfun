@@ -828,11 +828,12 @@ async function lockedWalletCase(page, state) {
 async function launchCostRow(scope) {
   return scope.locator('dl.rows > div', { has: scope.page().locator('dt', { hasText: /^Launch cost$/ }) }).locator('dd').textContent();
 }
-/** An NFT draft's review and summary credit the NFT's treasury, never the launcher. The review names gas once in its intro and the paid
- * $10 only in its NFT block, never again as a "Launch cost" row. */
+/** An NFT draft's review and summary credit the NFT's treasury, never the launcher; in the review that share is the Creator fees tile's
+ * info tip. The review names gas once in its intro and the paid $10 only in its NFT block, never again as a "Launch cost" row. */
 async function nftEarnCopy(page, dialog, paid) {
-  await dialog.locator('.review-earn', { hasText: "The NFT's treasury earns" }).waitFor();
-  assert.match((await dialog.locator('.review-earn > span').first().textContent()).trim(), /^The NFT's treasury earns \d+(?:\.\d+)?% of every trade$/);
+  assert.equal(await dialog.locator('.review-earn').count(), 0);
+  await dialog.getByRole('button', { name: "The NFT's treasury share", exact: true }).hover();
+  assert.match((await dialog.getByRole('tooltip').filter({ hasText: "The NFT's treasury earns" }).textContent()).trim(), /^The NFT's treasury earns \d+(?:\.\d+)?% of every trade$/);
   assert.equal(await dialog.getByText(/\byou earn\b/i).count(), 0, 'nothing tells the launcher they earn the creator share');
   await dialog.getByText('Fee policy, treasuries and price references', { exact: true }).click();
   assert.equal(await dialog.locator('dt', { hasText: /^Launch cost$/ }).count(), 0);
@@ -1606,7 +1607,10 @@ async function nftCase(page, state) {
     const dialog = page.getByRole('dialog');
     for (const text of ['Bound NFT', 'Verified', 'Creator fees']) await dialog.getByText(text, { exact: true }).waitFor();
     assert.equal(await dialog.getByText('Launch fee', { exact: true }).count(), 0);
-    await dialog.getByText(/Not investment advice\. musegod\.fun does not endorse NFT collections/).waitFor();
+    // The disclaimer is the Collection tile's info tip: in the page as the button's description, shown on hover, focus or tap.
+    const disclaimer = dialog.getByRole('button', { name: 'About NFT collections', exact: true });
+    await disclaimer.hover();
+    await dialog.getByRole('tooltip').filter({ hasText: /^Not investment advice\. musegod\.fun does not endorse NFT collections/ }).waitFor();
     await nftEarnCopy(page, dialog, false);
     state.nftChecks = { modeSwitch: true, museDefaultPair: true, musePairChangeable: true, prefillOnce: true, freeWithoutFee: true, earnCopyIsNftTreasury: true };
   } else if (mode === 'nft_paid_usdg' || mode === 'nft_fee_sending_reload' || mode === 'nft_paid_eth') {

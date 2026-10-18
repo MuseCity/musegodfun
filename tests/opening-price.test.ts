@@ -93,7 +93,8 @@ test("Base uses USDC/B20/WETH with executable shared USD reference and RH retain
     assert.equal(result.quotedAt, NOW); assert.equal(result.sourceUpdatedAt, NOW); assert.equal(result.expiresAt, NOW + LAUNCH_PRICE_TTL);
     assert.equal(result.blockNumber, String(BLOCK)); assert.equal(result.blockHash, HASH); assert.equal(f.requests.length, stock.chainId === 8453 ? 3 : 2);
     assert(!JSON.stringify(result).includes("transactionRequest")); assert(!JSON.stringify(result).includes("gasCosts"));
-    assert(f.rpc.every((name) => ["getBlock", "getCode", "symbol", "decimals", "assetFeeds"].includes(name)), "independent reference stays advisory");
+    assert(f.rpc.every((name) => ["getBlock", "getCode", "symbol", "decimals", "assetFeeds", "weth", "musegod", "museWethPool", "ethUsdFeed", "ethMaxAge",
+      "ethFeedDecimals"].includes(name)), "independent reference stays advisory");
   }
 });
 

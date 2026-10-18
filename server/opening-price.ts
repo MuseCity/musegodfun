@@ -1,4 +1,4 @@
-import { erc20Abi, formatUnits, getAddress, isAddress, keccak256, parseAbi, parseUnits, zeroAddress, type Address, type PublicClient, type Transport } from "viem";
+import { erc20Abi, formatUnits, getAddress, isAddress, keccak256, parseAbi, parseUnits, zeroAddress, type Address, type Hex, type PublicClient, type Transport } from "viem";
 import { ROBINHOOD_STOCKS, STOCKS, sameAddress, stockByAddress, type Stock } from "../src/lib/config";
 import { FirstBuyPaymentReader, LifiNoRouteError } from "./lifi";
 import { firstBuyPaymentAssets, wrappedEther, type FirstBuyPaymentAsset } from "../src/lib/first-buy-payment";
@@ -75,42 +75,86 @@ async function identityRead<T>(work: () => Promise<T>): Promise<T> {
 
 const referenceAbi = parseAbi([
   "function assetFeeds(address asset) view returns (address feed,uint32 maxAge,uint8 tokenDecimals,uint8 feedDecimals,bool checkOraclePaused)",
+  "function weth() view returns (address)", "function musegod() view returns (address)", "function museWethPool() view returns (address)",
+  "function ethUsdFeed() view returns (address)", "function ethMaxAge() view returns (uint32)", "function ethFeedDecimals() view returns (uint8)",
+  "function quoteWethToMuse(uint256 amount) view returns (uint256)",
   "function latestRoundData() view returns (uint80 roundId,int256 answer,uint256 startedAt,uint256 updatedAt,uint80 answeredInRound)",
   "function decimals() view returns (uint8)", "function oraclePaused() view returns (bool)",
 ]);
-/** Advisory only. The deployed immutable oracle pins official feed mappings.
- * RH feeds already incorporate uiMultiplier; never multiply their price again. */
-async function independentReference(client: PublicClient<Transport, any>, stock: Stock, blockNumber: bigint,
-  midpoint: string, now: number): Promise<Pick<LifiOpeningValuation, "reference" | "warnings">> {
-  const unavailable = { warnings: [{ code: "reference_price_unavailable" as const,
+/** Stock feeds stop at the market close: compare with the last close for up to four days (a weekend and a holiday). */
+export const MARKET_CLOSED_MAX_AGE = 4 * 86_400;
+/** Other feeds update on a heartbeat equal to their maxAge; allow one late update. */
+export const FEED_HEARTBEAT_GRACE = 3_600;
+const REFERENCE_TIMEOUT = 3_000;
+type IndependentReference = Pick<LifiOpeningValuation, "reference" | "warnings">;
+/** The two reads the reference needs, at one block (a viem PublicClient, or a test double). */
+type ReferenceClient = { getCode(parameters: { address: Address; blockNumber: bigint }): Promise<Hex | undefined>; readContract(parameters: never): Promise<unknown> };
+/** Advisory only. The deployed immutable oracle pins official feed mappings, its ETH/USD feed and its MUSEGOD/WETH TWAP; WETH and
+ * MUSEGOD are priced from those, since `assetFeeds` maps neither. RH feeds already incorporate uiMultiplier; never multiply their
+ * price again. An asset the oracle has no source for gets no reference and no warning (the LI.FI spread check still applies); a source
+ * that exists but cannot be read fresh is reported as unavailable. */
+export async function independentReference(client: ReferenceClient, stock: Stock,
+  blockNumber: bigint, midpoint: string, now: number,
+  oracle: { address: string; runtimeHash: string } = buybackDeployment.contracts.oracle): Promise<IndependentReference> {
+  const none: IndependentReference = {};
+  const unavailable: IndependentReference = { warnings: [{ code: "reference_price_unavailable",
     message: "An independent fresh price reference is unavailable. Review the opening price and minimum received before continuing." }] };
-  if (stock.chainId !== 4663) return unavailable;
+  if (stock.chainId !== 4663) return none;
+  const nowSeconds = BigInt(Math.floor(now / 1000));
+  const read = <T,>(address: Address, functionName: string, args?: readonly unknown[]) =>
+    client.readContract({ address, abi: referenceAbi, functionName, ...(args ? { args } : {}), blockNumber } as never) as Promise<T>;
+  /** A feed's USD price as a WAD and its update time, or null when it is invalid or older than `window` seconds. */
+  const feedPrice = async (feed: Address, expectedDecimals: number, window: bigint) => {
+    if (sameAddress(feed, zeroAddress) || expectedDecimals > 18) return null;
+    const [[roundId, answer, , updatedAt, answeredInRound], decimals] = await Promise.all([
+      read<readonly [bigint, bigint, bigint, bigint, bigint]>(feed, "latestRoundData"), read<number>(feed, "decimals")]);
+    if (decimals !== expectedDecimals || answer <= 0n || updatedAt <= 0n || updatedAt > nowSeconds ||
+      nowSeconds - updatedAt > window || answeredInRound < roundId) return null;
+    return { wad: answer * 10n ** BigInt(18 - decimals), updatedAt, age: nowSeconds - updatedAt };
+  };
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    return await Promise.race([(async () => {
-      const oracle = buybackDeployment.contracts.oracle;
-      const [code, config] = await Promise.all([
-        client.getCode({ address: oracle.address as Address, blockNumber }),
-        client.readContract({ address: oracle.address as Address, abi: referenceAbi, functionName: "assetFeeds", args: [stock.address], blockNumber }),
+    return await Promise.race([(async (): Promise<IndependentReference> => {
+      const address = oracle.address as Address;
+      const [code, mapped, weth, musegod, pool, ethFeed, ethMaxAge, ethDecimals] = await Promise.all([
+        client.getCode({ address, blockNumber }),
+        read<readonly [Address, number, number, number, boolean]>(address, "assetFeeds", [stock.address]),
+        read<Address>(address, "weth"), read<Address>(address, "musegod"), read<Address>(address, "museWethPool"),
+        read<Address>(address, "ethUsdFeed"), read<number>(address, "ethMaxAge"), read<number>(address, "ethFeedDecimals"),
       ]);
       if (!code || keccak256(code) !== oracle.runtimeHash) return unavailable;
-      const [feed, maxAge, tokenDecimals, feedDecimals, checkPaused] = config;
-      if (sameAddress(feed, zeroAddress) || tokenDecimals !== stock.decimals || maxAge <= 0 || feedDecimals > 18) return unavailable;
-      const [round, decimals, paused] = await Promise.all([
-        client.readContract({ address: feed, abi: referenceAbi, functionName: "latestRoundData", blockNumber }),
-        client.readContract({ address: feed, abi: referenceAbi, functionName: "decimals", blockNumber }),
-        checkPaused ? client.readContract({ address: stock.address, abi: referenceAbi, functionName: "oraclePaused", blockNumber }) : Promise.resolve(false),
-      ]);
-      const [roundId, answer, , updatedAt, answeredInRound] = round, nowSeconds = BigInt(Math.floor(now / 1000));
-      if (paused || decimals !== feedDecimals || answer <= 0n || updatedAt <= 0n || updatedAt > nowSeconds ||
-        nowSeconds - updatedAt > BigInt(maxAge) || answeredInRound < roundId) return unavailable;
-      const referenceWad = answer * 10n ** BigInt(18 - decimals), midWad = parseUnits(midpoint, 18);
-      const difference = midWad > referenceWad ? midWad - referenceWad : referenceWad - midWad;
-      const divergenceBps = Number((difference * 10_000n + referenceWad - 1n) / referenceWad);
-      return { reference: { source: "Chainlink" as const, feed, priceUsd: formatUnits(referenceWad, 18), updatedAt: Number(updatedAt) * 1000, divergenceBps },
-        warnings: divergenceBps > 500 ? [{ code: "reference_price_divergence" as const, divergenceBps,
-          message: `The opening price differs from its independent reference by ${(divergenceBps / 100).toFixed(2)}%. Review this difference before continuing.` }] : [] };
-    })(), new Promise<typeof unavailable>((resolve) => { timer = setTimeout(() => resolve(unavailable), 2_000); })]);
+      const ethWindow = BigInt(ethMaxAge) + BigInt(FEED_HEARTBEAT_GRACE);
+      let reference: { source: "Chainlink" | "TWAP"; feed: Address; wad: bigint; updatedAt: bigint; marketClosed?: true };
+      if (sameAddress(stock.address, weth)) {
+        const eth = await feedPrice(ethFeed, ethDecimals, ethWindow);
+        if (!eth) return unavailable;
+        reference = { source: "Chainlink", feed: ethFeed, wad: eth.wad, updatedAt: eth.updatedAt };
+      } else if (sameAddress(stock.address, musegod)) {
+        // MUSEGOD units per WETH over the pool's last 30 minutes, then ETH/USD: USD per whole MUSEGOD.
+        const [eth, musePerWeth] = await Promise.all([feedPrice(ethFeed, ethDecimals, ethWindow), read<bigint>(address, "quoteWethToMuse", [10n ** 18n])]);
+        if (!eth || musePerWeth <= 0n) return unavailable;
+        reference = { source: "TWAP", feed: pool, wad: eth.wad * 10n ** BigInt(stock.decimals) / musePerWeth, updatedAt: eth.updatedAt };
+      } else {
+        const [feed, maxAge, tokenDecimals, feedDecimals, checkPaused] = mapped;
+        if (sameAddress(feed, zeroAddress)) return none;
+        if (tokenDecimals !== stock.decimals || maxAge <= 0) return unavailable;
+        // Feeds that check the token's oraclePaused are stock feeds, which stop updating while the market is closed.
+        const window = checkPaused ? BigInt(Math.max(maxAge, MARKET_CLOSED_MAX_AGE)) : BigInt(maxAge) + BigInt(FEED_HEARTBEAT_GRACE);
+        const [price, paused] = await Promise.all([feedPrice(feed, feedDecimals, window),
+          checkPaused ? read<boolean>(stock.address, "oraclePaused") : Promise.resolve(false)]);
+        if (paused || !price) return unavailable;
+        reference = { source: "Chainlink", feed, wad: price.wad, updatedAt: price.updatedAt, ...(checkPaused && price.age > BigInt(maxAge) ? { marketClosed: true as const } : {}) };
+      }
+      if (reference.wad <= 0n) return unavailable;
+      const midWad = parseUnits(midpoint, 18);
+      const difference = midWad > reference.wad ? midWad - reference.wad : reference.wad - midWad;
+      const divergenceBps = Number((difference * 10_000n + reference.wad - 1n) / reference.wad);
+      const label = reference.marketClosed ? "the last market-close reference" : "its independent reference";
+      return { reference: { source: reference.source, feed: reference.feed, priceUsd: formatUnits(reference.wad, 18),
+          updatedAt: Number(reference.updatedAt) * 1000, divergenceBps, ...(reference.marketClosed ? { marketClosed: true as const } : {}) },
+        warnings: divergenceBps > 500 ? [{ code: "reference_price_divergence", divergenceBps,
+          message: `The opening price differs from ${label} by ${(divergenceBps / 100).toFixed(2)}%. Review this difference before continuing.` }] : [] };
+    })(), new Promise<IndependentReference>((resolve) => { timer = setTimeout(() => resolve(unavailable), REFERENCE_TIMEOUT); })]);
   } catch { return unavailable; }
   finally { clearTimeout(timer); }
 }
@@ -132,7 +176,7 @@ export async function assertRecoveredOpeningValuation(client: Pick<PublicClient<
   const block = await client.getBlock({ blockNumber });
   if (!block.hash || block.hash.toLowerCase() !== valuation.blockHash.toLowerCase())
     throw new RecoveryEvidenceError("The recovered opening valuation is not anchored to a canonical block.", blockNumber);
-  const checked = await independentReference(client as PublicClient<Transport, any>, stockByAddress(valuation.quoteAddress, chainId),
+  const checked = await independentReference(client, stockByAddress(valuation.quoteAddress, chainId),
     blockNumber, valuation.quotePriceUsd, Number(block.timestamp) * 1000);
   return checked.reference ? { divergenceBps: checked.reference.divergenceBps } : null;
 }

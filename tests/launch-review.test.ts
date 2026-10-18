@@ -6,6 +6,7 @@ import { FEE_POLICY } from "../src/lib/fee-policy";
 import { firstBuyPaymentAssets } from "../src/lib/first-buy-payment";
 import { CURVE_POLICY } from "../src/lib/launch-curve";
 import { NFT_DISCLAIMER } from "../src/components/NftLaunchStep";
+import InfoTip from "../src/components/InfoTip";
 import { find, holder, installGlobals, launchForm, muse, nodes, store, textOf, wallet } from "./launch-form";
 
 // Owner, 2026-10-18: the launch review dialog repeated itself. Each fact a person needs before signing is stated once; nothing the
@@ -66,6 +67,8 @@ test("a plain coin's review states each fact once and keeps what is fixed, the f
   assert.deepEqual(terms(byClass(dialog, "review-facts")), ["Trading fee split", "Buyback target / recipient", "Robinhood Chain platform treasury",
     "Platform income allocation (platform income = 100%)", "Network / protocol", "Asset issuer", "Supply", "Opening price reference"]);
   assert.equal(rows(byClass(dialog, "review-facts"))[0][1], "Creator 66.5% · Buyback 22.8% · Operations 5.7% · Doppler 5%");
+  assert.deepEqual(rows(byClass(dialog, "review-facts"))[7], ["Opening price reference", "LI.FI buy/sell quotes; no independent price feed for WETH"]);
+  assert.equal(byClass(dialog, "info-tip"), null);
   assert.equal(count(text, /five minutes|5-minute/), 1, "the signing window is stated once");
   assert.match(text, /You have five minutes to confirm in your wallet once the preview is ready\./);
   for (const gone of ["READY TO LAUNCH", "Permanent after launch", "Quote asset", "Parameter check", "Wallet confirmation", "Set using LI.FI",
@@ -195,7 +198,7 @@ test("the preview refuses a conversion quote for another account, so the one rec
   assert.equal(byLabel(dialog, "First buy preview"), null);
 });
 
-test("a Muse coin's review keeps the whole NFT block: the NFT, its collection, the fee rules, the treasury, the vault and the disclaimer", async (t) => {
+test("a Muse coin's review keeps the whole NFT block; the disclaimer and the treasury's share sit in info tips on their tiles", async (t) => {
   const vaultFactory = "0x5555555555555555555555555555555555555556";
   const form = await launchForm(t, { config: { ...preview, nftMode: { enabled: true, vaultFactory, launchFeeUsd: 10, freeCollections: [], verifiedCollections: [] } },
     api: { "/launch/prepare": prepare } });
@@ -208,10 +211,33 @@ test("a Muse coin's review keeps the whole NFT block: the NFT, its collection, t
   assert.deepEqual(terms(byClass(dialog, "nft-review-tiles")), ["Bound NFT", "Collection", "Creator fees"], "a Muse pays no launch fee");
   assert.deepEqual(rows(byClass(dialog, "nft-review-tiles")).slice(1), [["Collection", "Verified"],
     ["Creator fees", "To the NFT's treasury; they follow the NFT when it is sold. The current holder can withdraw at any time, including before a sale."]]);
-  assert(text.includes(NFT_DISCLAIMER));
-  assert.equal(textOf(byClass(dialog, "review-earn")), "The NFT's treasury earns 0.665% of every trade");
+  // Owner, 2026-10-18: the disclaimer and the treasury's share show on hover, from info icons on the tiles they explain.
+  const tip = (term: string) => find(nodes(byClass(dialog, "nft-review-tiles")).find((element) => element.type === "dt" && textOf(element) === term),
+    (element) => element.type === InfoTip)?.props;
+  assert.deepEqual(tip("Collection"), { id: "review-nft-disclaimer", label: "About NFT collections", text: NFT_DISCLAIMER });
+  assert.deepEqual(tip("Creator fees"), { id: "review-nft-earnings", label: "The NFT's treasury share", text: "The NFT's treasury earns 0.665% of every trade" });
+  assert.equal(text.includes(NFT_DISCLAIMER) || text.includes("treasury earns"), false, "neither line is shown on its own any more");
+  assert.equal(byClass(dialog, "review-earn"), null);
+  assert.equal(byClass(dialog, "nft-warning"), null);
   const facts = rows(byClass(dialog, "review-facts"));
   assert.equal(facts[0][1], "NFT treasury 66.5% · Buyback 22.8% · Operations 5.7% · Doppler 5%");
   for (const term of ["NFT treasury (Tokenbound account)", "NFT fee vault"]) assert(facts.some(([name, value]) => name === term && /^0x[\da-fA-F]{40}$/.test(value)), term);
   assert.equal(count(text, /five minutes|5-minute/), 1);
 });
+
+test("after a preview the reference row names the price the opening was compared with; only an unreadable reference warns", async (t) => {
+  const reference = { source: "Chainlink", feed: "0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9", priceUsd: "2000", updatedAt: Date.now(), divergenceBps: 8 };
+  const unavailable = { code: "reference_price_unavailable", message: "An independent fresh price reference is unavailable. Review the opening price and minimum received before continuing." };
+  for (const [name, openingValuation, row, warned] of [["a fresh Chainlink reference", { reference, warnings: [] }, "LI.FI buy/sell quotes, 0.08% from Chainlink", false],
+    ["an unreadable reference", { warnings: [unavailable] }, "LI.FI buy/sell quotes; the independent reference could not be read", true]] as const)
+    await t.test(name, async (st) => {
+      store.clear();
+      const form = await launchForm(st, { config: preview, api: { "/launch/prepare": (body) => ({ ...prepare(body), openingValuation }) } });
+      await form.type("name", "Preview Cat"); await form.type("symbol", "PCAT");
+      await form.submit(); await form.submit();
+      const dialog = form.dialog();
+      assert.deepEqual(rows(byClass(dialog, "review-facts"))[7], ["Opening price reference", row]);
+      assert.equal(nodes(dialog).some((element) => element.props?.kind === "warning" && textOf(element) === unavailable.message), warned);
+    });
+});
+

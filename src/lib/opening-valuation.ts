@@ -67,7 +67,9 @@ export type LifiOpeningValuation = OpeningSnapshot & {
   source: "LI.FI";
   lifi: LifiOpeningEvidence | BaseLifiOpeningEvidence;
   warnings?: LaunchWarning[];
-  reference?: { source: "Chainlink"; feed: Address; priceUsd: string; updatedAt: number; divergenceBps: number };
+  // Advisory: a Chainlink feed (`marketClosed`: a stock feed's last close), or for MUSEGOD the oracle's 30-minute MUSEGOD/WETH TWAP
+  // (`feed` is the pool) times Chainlink ETH/USD. Absent when the asset has no independent source.
+  reference?: { source: "Chainlink" | "TWAP"; feed: Address; priceUsd: string; updatedAt: number; divergenceBps: number; marketClosed?: true };
 };
 export type HistoricalOpeningValuation = OpeningSnapshot & {
   policy: "fixed-usd-5000-v1";
@@ -189,6 +191,19 @@ function assertDerived(value: LifiOpeningValuation, calculated: ReturnType<typeo
     value.quotePriceUsd !== calculated.aggregateMid) return invalidEvidence();
 }
 
+/** The launch review's "Opening price reference" after a preview: the independent reference the opening price was compared with, or why
+ * there is none. Only a reference that exists but could not be read is also a warning. */
+export function openingReferenceText(valuation: OpeningValuation, symbol: string): string {
+  const reference = "reference" in valuation ? valuation.reference : undefined;
+  if (reference) {
+    const source = reference.source === "TWAP" ? "the 30-minute MUSEGOD/WETH pool average"
+      : reference.marketClosed ? "Chainlink's last market close" : "Chainlink";
+    return `LI.FI buy/sell quotes, ${(reference.divergenceBps / 100).toFixed(2)}% from ${source}`;
+  }
+  if ("warnings" in valuation && valuation.warnings?.some((warning) => warning.code === "reference_price_unavailable"))
+    return "LI.FI buy/sell quotes; the independent reference could not be read";
+  return `LI.FI buy/sell quotes; no independent price feed for ${symbol}`;
+}
 export function openingValuationWarnings(snapshot: LifiOpeningValuation): LaunchWarning[] {
   return snapshot.lifi.divergenceBps > LIFI_OPENING_MAX_DIVERGENCE_BPS ? [{ code: "opening_spread",
     divergenceBps: snapshot.lifi.divergenceBps,
