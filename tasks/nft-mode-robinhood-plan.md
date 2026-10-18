@@ -1,5 +1,7 @@
 # NFT Mode — Robinhood Implementation Plan
 
+> **Superseded in part (owner, 2026-10-18):** Muse coins are no longer locked to MUSEGOD. They may pair with any eligible asset; picking a Muse selects MUSEGOD as the default pair, and a Muse launches free whatever the pair. The `NFT_MUSE_PAIR_REQUIRED` prepare refusal, the `rejected: pair` registration status and the "Muse pair lock" UI below are historical and must not be rebuilt. Current rules: `tasks/nft-mode.md` D5 and its UI section, and `docs/SPEC.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship the agentic NFT meme mode on Robinhood Chain (4663). Any ERC-721 on Robinhood can launch exactly one coin. Muses launch free; other NFTs pay $10. The coin's creator fees go to a fee vault that only forwards to the NFT's ERC-6551 treasury, so fees follow the NFT when it is sold.
@@ -1830,7 +1832,7 @@ git commit -m "feat: expose NFT coin and treasury APIs with a committed hide lis
 
 ---
 
-### Task 9: Create page — NFT step, Muse pair lock and launch-fee payment
+### Task 9: Create page — NFT step, Muse pair lock (historical, see the note at the top) and launch-fee payment
 
 **Files:**
 - Create: `src/components/NftLaunchStep.tsx`
@@ -1996,7 +1998,7 @@ export function NftLaunchStep(props: { config: RuntimeConfig; account: Address |
 
 - **Mode switch.** In the Identity panel (the `<section>` rendering step 1, around the name and symbol inputs), add a two-option radio group "Normal" / "NFT". Show it only when `config.nftMode?.enabled`. Choosing "NFT" renders `<NftLaunchStep config={config} account={wallet.account} nft={draft.nft} onChange={(nft) => update("nft", nft)} />` above the identity fields. Choosing "Normal" calls `update("nft", undefined)`.
 - **`update`.** `update` is typed on draft keys. Extend its key union to include `nft` and `launchFee`, and when `key === "nft"`, also clear `launchFee`.
-- **Muse pair lock.**
+- **Muse pair lock** (historical; superseded on 2026-10-18 by the MUSEGOD default pair, see the note at the top).
   - In the unsupported-asset effect (the effect that resets `quoteAddress` when the asset is unsupported), add: if `draft.nft && isMuse(draft.nft)`, set `quoteAddress` to MUSEGOD and return.
   - Disable the asset picker buttons when `draft.nft && isMuse(draft.nft)`, and render a note "Muse coins pair with MUSEGOD."
   - "Use paired asset directly" must not change the pair in that state.

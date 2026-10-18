@@ -43,3 +43,25 @@ test("a restored Muse draft keeps the pair it was saved with, through its re-che
   assert.equal(form.pairs().find((pair) => pair.selected)?.address ?? weth, weth);
   assert(form.pairs().every((pair) => pair.enabled));
 });
+
+test("a Muse picked by the person keeps its MUSEGOD default when its check first fails and Retry passes", async (t) => {
+  const form = await launchForm(t, { fail: ["1"] });
+  await form.nftMode(true);
+  const start = form.pairs().find((pair) => !pair.selected && pair.address !== musegod)!;
+  await start.choose();
+  await form.pick(...muse("1"), "Bard"); await form.check();
+  assert.match(form.stepText(), /could not be read/);
+  assert.equal(form.pairs().find((pair) => pair.selected)?.address, start.address);
+  await form.retry(); await form.check();
+  assert.match(form.stepText(), /Muse launches are free\./);
+  assert.equal(form.pairs().find((pair) => pair.selected)?.address, musegod);
+  assert.deepEqual({ name: form.fields().name, symbol: form.fields().symbol }, { name: "Bard", symbol: "BARD" });
+});
+
+test("a restored Muse draft keeps its saved pair when its re-check first fails and Retry passes", async (t) => {
+  const form = await launchForm(t, { saved: bardDraft({ quoteAddress: weth }), fail: ["1"] });
+  await form.check();
+  await form.retry(); await form.check();
+  assert.match(form.stepText(), /Muse launches are free\./);
+  assert.equal((await form.saved()).quoteAddress, weth);
+});

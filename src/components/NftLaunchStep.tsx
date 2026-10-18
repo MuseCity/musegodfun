@@ -117,6 +117,9 @@ export function NftLaunchStep({ config, account, draft, connecting, onConnect, e
     latest.current.onChange(next, user);
   };
   const edited = useRef(false), checkEdited = useRef(false), prefilled = useRef("");
+  // The NFT the person chose that has not passed its check yet: it stays their choice through a failed check and Retry, or an account
+  // switch, so its pass is reported as theirs (the Muse default pair, a fresh prefill). Restored NFTs are never in it.
+  const chosen = useRef("");
   const edit = (nextContract: string, nextTokenId: string) => {
     const next = nftRefSchema.safeParse({ chainId: deploymentChain(config), contract: nextContract, tokenId: nextTokenId });
     // Invalid input has no key; only a different NFT or a change in validity is a user edit.
@@ -132,8 +135,9 @@ export function NftLaunchStep({ config, account, draft, connecting, onConnect, e
   const run = `${candidateKey}|${account ?? ""}|${config.chainId}|${config.deploymentChainId}|${attempt}`;
   useEffect(() => {
     const user = edited.current;
-    checkEdited.current = user;
     edited.current = false;
+    if (user || chosen.current !== candidateKey) chosen.current = user ? candidateKey : "";
+    checkEdited.current = !!candidateKey && chosen.current === candidateKey;
     if (prefilled.current !== candidateKey) prefilled.current = "";
     latest.current.onCheck();
     // The NFT the draft already holds is checked again without being dropped; any other NFT is not in the draft until it passes.
@@ -158,6 +162,7 @@ export function NftLaunchStep({ config, account, draft, connecting, onConnect, e
         setStatus(result); setStatusFor(run);
         if (!result.erc721 || !result.controls || result.alreadyLaunched) { report(undefined, user); return; }
         report(candidate, user);
+        if (user) chosen.current = "";
         const pick = picked.current.get(candidateKey);
         if (prefilled.current !== candidateKey) {
           prefilled.current = candidateKey;

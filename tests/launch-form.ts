@@ -44,13 +44,15 @@ export function installGlobals() {
 }
 
 /** The create page with its NFT step. `saved`: a draft stored before the page opened. `refuse`: token ids whose live check says no.
- * `hold`: token ids whose status read waits until the test releases it with `answer`. `names`: Muse names that differ from `museNames`. */
-export async function launchForm(t: TestContext, options: { saved?: Record<string, unknown>; refuse?: string[]; hold?: string[]; names?: Record<string, string> } = {}) {
+ * `hold`: token ids whose status read waits until the test releases it with `answer`. `names`: Muse names that differ from `museNames`.
+ * `fail`: token ids whose first status read fails (the step then offers Retry). */
+export async function launchForm(t: TestContext, options: { saved?: Record<string, unknown>; refuse?: string[]; hold?: string[]; names?: Record<string, string>; fail?: string[] } = {}) {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   if (options.saved) store.set(launchDraftKey(config), JSON.stringify(options.saved));
-  const held = new Map<string, () => void>();
+  const held = new Map<string, () => void>(), failed = new Set<string>();
   const status = async (_config: unknown, nft: { contract: string; tokenId: string }): Promise<NftStatus> => {
     if (options.hold?.includes(nft.tokenId)) await new Promise<void>((resolve) => held.set(nft.tokenId, resolve));
+    if (options.fail?.includes(nft.tokenId) && !failed.has(nft.tokenId)) { failed.add(nft.tokenId); throw new Error("The NFT status could not be read."); }
     const free = nft.contract.toLowerCase() === MUSES.contract.toLowerCase();
     return { erc721: true, controls: !options.refuse?.includes(nft.tokenId), alreadyLaunched: false, free,
       ...(free && (options.names ?? museNames)[nft.tokenId] ? { name: (options.names ?? museNames)[nft.tokenId] } : {}) } as NftStatus;
@@ -106,6 +108,11 @@ export async function launchForm(t: TestContext, options: { saved?: Record<strin
     },
     /** Lets the step's live check (400 ms after the last change) run and answer. */
     async check() { t.mock.timers.tick(400); await flush(); },
+    /** Presses the step's Retry button after a failed check. */
+    async retry() {
+      find(step!.output(), (element) => element.type === "button" && textOf(element) === "Retry").props.onClick();
+      await flush();
+    },
     /** Releases a held status read. */
     async answer(tokenId: string) { held.get(tokenId)!(); await flush(); },
     async nftMode(next: boolean) {
@@ -132,4 +139,3 @@ export const bardDraft = (extra: Record<string, unknown> = {}) => ({ name: "Bard
   telegram: "", quoteAddress: "0x0379E228F6887c6F18bf394042ECAF81B308cb2e", tradingFeeBps: 100, nft: { chainId: 4663, contract: MUSES.contract, tokenId: "1" },
   nftMode: true, step: 1, ...extra });
 export const muse = (tokenId: string) => [MUSES.contract, tokenId] as const;
-

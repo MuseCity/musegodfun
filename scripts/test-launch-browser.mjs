@@ -34,7 +34,7 @@ const nftModes = new Set(['nft_reload_keeps_nft', 'nft_muse_free', 'nft_paid_usd
 const requestedCases = process.env.BROWSER_CASES?.split(',');
 const feeWei = '3333333333333334';
 const muses = '0x13Ea3072b7215d4C9c2Ec4f498A08c5825129836', paidCollection = '0x9999999999999999999999999999999999999999';
-const usdg = '0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168', musegodAsset = ROBINHOOD_STOCKS.find(x => x.symbol === 'MUSEGOD');
+const usdg = '0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168', wethAsset = ROBINHOOD_STOCKS.find(x => x.symbol === 'WETH');
 const nftRejections = { nft_not_controlled: { tokenId: '8', code: 'NFT_NOT_CONTROLLED', error: 'Connect the wallet that holds this NFT, or one it delegated to.' },
   nft_already_launched: { tokenId: '10', code: 'NFT_ALREADY_LAUNCHED', error: 'This NFT already has its coin.' } };
 const sdk = new DopplerSDK({ chainId: 4663, publicClient: createPublicClient({ transport: http('http://127.0.0.1:1') }) });
@@ -1591,18 +1591,21 @@ async function nftCase(page, state) {
     await page.getByText('MUSEGOD is the default pair for Muse coins. You can choose any asset.', { exact: true }).waitFor();
     assert.match(await grid.locator('button[aria-pressed="true"]').innerText(), /MUSEGOD/);
     assert.equal(await grid.locator('button[disabled]').count(), 0, 'the pair picker stays open for Muses');
+    // MUSEGOD is only the default: another eligible asset reaches prepare, still without a launch fee.
+    await grid.locator('button', { hasText: 'WETH' }).first().click();
+    assert.match(await grid.locator('button[aria-pressed="true"]').innerText(), /WETH/);
     await reviewAndContinue.click();
     await page.getByRole('button', { name: 'Confirm launch · Sign in wallet', exact: true }).waitFor();
     const request = state.prepareRequests[0];
     assert.deepEqual(request.draft.nft, { chainId: 4663, contract: muses, tokenId: '2' });
-    assert.equal(request.draft.quoteAddress.toLowerCase(), musegodAsset.address.toLowerCase());
+    assert.equal(request.draft.quoteAddress.toLowerCase(), wethAsset.address.toLowerCase());
     assert.equal('launchFee' in request.draft, false);
     const dialog = page.getByRole('dialog');
     for (const text of ['Bound NFT', 'Verified', 'Creator fees']) await dialog.getByText(text, { exact: true }).waitFor();
     assert.equal(await dialog.getByText('Launch fee', { exact: true }).count(), 0);
     await dialog.getByText(/Not investment advice\. musegod\.fun does not endorse NFT collections/).waitFor();
     await nftEarnCopy(page, dialog, 'Network gas only');
-    state.nftChecks = { modeSwitch: true, musePairLocked: true, prefillOnce: true, freeWithoutFee: true, earnCopyIsNftTreasury: true };
+    state.nftChecks = { modeSwitch: true, museDefaultPair: true, musePairChangeable: true, prefillOnce: true, freeWithoutFee: true, earnCopyIsNftTreasury: true };
   } else if (mode === 'nft_paid_usdg' || mode === 'nft_fee_sending_reload' || mode === 'nft_paid_eth') {
     await page.getByLabel('Collection contract', { exact: true }).fill(paidCollection);
     await tokenInput.fill('5');
