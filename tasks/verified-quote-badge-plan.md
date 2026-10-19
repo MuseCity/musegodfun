@@ -39,3 +39,22 @@ Release:
 
 - 2026-10-19, on the owner's word: "Release b621092 to production: push to master, verify the live page, record the release and clean up the branch." Master fast-forwarded `4d7729b` → `b621092` (carrying the first release record `8726857`); CI run 39199789294, `build-39199789294-1`, Worker version `7edc6d12`, deployed 04:32:54 UTC; rollback point Worker `ce1c832a` (`4d7729b`). `build-info.json` on musegod.fun reports commit `b621092`. Frontend only, so no Durable Object probe.
 - Live check on musegod.fun (built-in browser, no wallet) on the Phial page: overline "Muse #610 · Phial · Robinhood Chain", badges "Paired with COIN" (green, check), "Liquidity locked" and "Muse #610" all 24 px with the same top, no "COIN pair" and no agent badge in the hero; the meta reads "by 0xc8b1…056b", the copy button (title "Copy contract address 0x808C07de6dB60091b44D2Ed0e0f19FC2644A884a"), "launched Oct 19, 2026" and the fee. A real clipboard write could not be exercised in the built-in browser, which denies `clipboard-write`.
+
+## Correction: the contract address is the hero's first line
+
+Owner correction 2026-10-19 after the second release (translated from Chinese): "That was wrong: no copy icon after 'by 0xc8b1…056b'. Change the top line 'Muse #610 · Phial · Robinhood Chain' to the token contract address, followed by a copy icon."
+
+Change (`fa8a3df`):
+- `HeroContract` (`src/components/TokenHero.tsx`, replacing `CopyContractButton`) renders the hero's first line for every coin: the contract address in mono at full contrast, then the copy icon. On a narrow line the address shortens from the middle (the part before the last four characters ellipsizes), so the button never wraps; the DOM, the title and the copy always carry the full address. A refused clipboard now says "Copy failed. Select the address and copy it manually."
+- The creator in the meta line has no copy button. The launch date, previously in the overline for coins without an NFT, is in the meta line for every coin.
+- The old overline content leaves the hero: the chain label (`chainLabel` removed) and, for an NFT coin, "Muse #<id> · <name>". The Muse name stays in About and the On-chain NFT rows; the "Muse #<id>" badge stays on the title line.
+
+Verification:
+- `tests/token-ip-page.test.ts`: the identity column starts with the contract line and its copy button; the hero has no chain, pair or Muse-name text; the meta line is "by <creator>" then "launched <date>" with no button; the NFT coin's first line is its contract and About still names "Muse #931 · Jubilee"; the copy test now targets `HeroContract`.
+- `npm run typecheck` passed; `npm test` 1866/1866.
+- Read-only preview against production data: at desktop width Phial's first line is the full `0x808C07de6dB60091b44D2Ed0e0f19FC2644A884a` with the icon, and the hero has one copy button; with a stand-in clipboard one click copied the full address and showed a check. At 375 px the line stays one 16 px row, the address ellipsizes in the middle ending "884a", and the page has no horizontal overflow.
+
+Release:
+
+- 2026-10-19, on the owner's word: "Release fa8a3df to production: push to master, verify the live page, record the release and clean up the branch." Master fast-forwarded `b621092` → `fa8a3df` (carrying the second release record `0e83076`); CI run 39203140278, `build-39203140278-1`, Worker version `e955610d`, deployed 05:13:48 UTC; rollback point Worker `7edc6d12` (`b621092`). `build-info.json` on musegod.fun reports commit `fa8a3df`. Frontend only, so no Durable Object probe.
+- Live check on musegod.fun (built-in browser, no wallet) on the Phial page: the identity column starts with the contract line `0x808C07de6dB60091b44D2Ed0e0f19FC2644A884a` and its copy icon, the hero has exactly one copy button and none in the meta line, the meta reads "by 0xc8b1…056b", "launched Oct 19, 2026" and the fee, the old "Muse #610 · Phial · Robinhood Chain" line is gone, and About still says "Whoever holds Muse #610 · Phial". A real clipboard write could not be exercised in the built-in browser, which denies `clipboard-write`.
