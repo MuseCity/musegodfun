@@ -164,6 +164,8 @@ async function casePage(mode, viewport = { width: 1440, height: 1000 }) {
     const approval = tx.to.toLowerCase() === quote.address.toLowerCase() && tx.data.startsWith('0x095ea7b3');
     const fee = tx.to.toLowerCase() === usdg.toLowerCase() || tx.to.toLowerCase() === treasury && (tx.data ?? '0x') === '0x';
     if (approval && mode === 'reject_approval') return { reject: true };
+    // A case that only checks what Confirm prepares refuses the launch itself (never an approval, wrap or fee payment).
+    if (state.refuseLaunchSend && !approval && !wrap && !fee) return { reject: true };
     const hash = keccak256(toHex(`browser-send-${mode}-${state.sends.length}`)); state.sends.push({ ...tx, data: tx.data ?? '0x', hash, approval, wrap, fee });
     // The wallet broadcast the fee but its answer never reaches the page (a mobile wallet reload): only the nonce can tell.
     if (fee && mode === 'nft_fee_sending_reload') return new Promise(() => {});
@@ -500,13 +502,26 @@ async function historyTrackBackoff(page, state) {
   assert.equal(state.sends.length, 0); state.historyBackoff = true;
 }
 async function quietPlainReview(page, state) {
+  // A launch without a first buy prepares on Confirm only: never when its review opens, never in the background.
   await page.clock.runFor(301_000);
-  assert.equal(state.plans,1); assert.equal(state.sends.length,0);
+  assert.equal(state.plans,0); assert.equal(state.sends.length,0);
   const prices=state.priceRequests;
   await page.clock.runFor(180_000);
-  assert.equal(state.plans,1); assert.equal(state.priceRequests,prices);
+  assert.equal(state.plans,0); assert.equal(state.priceRequests,prices);
   assert.equal(await page.getByRole('button',{name:'Confirm launch · Sign in wallet',exact:true}).isEnabled(),true);
   state.quietBackground=true;
+}
+/** Confirm on a launch without a first buy prepares, checks and opens the wallet in one click; the fixture wallet refuses the launch,
+ * so a case can check the prepare request without launching. Returns that request. */
+async function confirmAndRefuse(page, state) {
+  const before = state.prepareRequests.length, sends = state.sends.length;
+  state.refuseLaunchSend = true;
+  await page.getByRole('button', { name: 'Confirm launch · Sign in wallet', exact: true }).click();
+  await waitForFixture(() => state.prepareRequests.length === before + 1, 'the one prepare request of Confirm');
+  await page.getByRole('dialog').getByText(/cancelled the wallet request|User rejected the request/).first().waitFor();
+  state.refuseLaunchSend = false;
+  assert.equal(state.sends.length, sends, 'the refused launch sent nothing');
+  return state.prepareRequests.at(-1);
 }
 async function assertLateHashSaved(page, marker, sent, action) {
   await page.waitForFunction(({ key, intentId, hash, action }) => {
@@ -968,9 +983,9 @@ async function nftReloadCase(page, state) {
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.getByRole('button', { name: 'Review and continue', exact: true }).click();
-  await waitForFixture(() => state.prepareRequests.length > 0, 'the NFT prepare request');
-  assert.deepEqual(state.prepareRequests[0].draft.nft, muse1);
   await page.getByRole('button', { name: 'Confirm launch · Sign in wallet', exact: true }).waitFor();
+  assert.equal(state.prepareRequests.length, 0, 'opening the review prepares nothing');
+  assert.deepEqual((await confirmAndRefuse(page, state)).draft.nft, muse1);
   // The unedited second tab followed the first tab to Economics; its focus moved to that step's heading, not a removed field.
   await second.waitForFunction(() => document.activeElement?.id === 'quote-heading');
   // A check that cannot run keeps the NFT, says why and offers Retry; review stays blocked until it passes.
@@ -1573,8 +1588,11 @@ async function nftCase(page, state) {
     if (await page.getByRole('heading', { name: 'Choose your NFT', exact: true }).isVisible())
       await page.getByRole('button', { name: 'Continue', exact: true }).click();
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    const prepared = state.prepareRequests.length;
     await reviewAndContinue.click();
-    await waitForFixture(() => state.prepareRequests.length > 0, 'the NFT prepare request');
+    // A launch without a first buy prepares on Confirm, never when its review opens.
+    await page.getByRole('button', { name: 'Confirm launch · Sign in wallet', exact: true }).waitFor();
+    assert.equal(state.prepareRequests.length, prepared, 'opening the review prepares nothing');
   };
   if (mode === 'nft_muse_free') {
     await tokenInput.fill('1');
@@ -1600,10 +1618,7 @@ async function nftCase(page, state) {
     assert.match(await grid.locator('button[aria-pressed="true"]').innerText(), /WETH/);
     await reviewAndContinue.click();
     await page.getByRole('button', { name: 'Confirm launch · Sign in wallet', exact: true }).waitFor();
-    const request = state.prepareRequests[0];
-    assert.deepEqual(request.draft.nft, { chainId: 4663, contract: muses, tokenId: '2' });
-    assert.equal(request.draft.quoteAddress.toLowerCase(), wethAsset.address.toLowerCase());
-    assert.equal('launchFee' in request.draft, false);
+    assert.equal(state.prepareRequests.length, 0, 'opening the review prepares nothing');
     const dialog = page.getByRole('dialog');
     for (const text of ['Bound NFT', 'Verified']) await dialog.getByText(text, { exact: true }).waitFor();
     // The Collection and Creator fees terms carry info tips, so their text is matched from the start.
@@ -1614,6 +1629,10 @@ async function nftCase(page, state) {
     await disclaimer.hover();
     await dialog.getByRole('tooltip').filter({ hasText: /^Not investment advice\. musegod\.fun does not endorse NFT collections/ }).waitFor();
     await nftEarnCopy(page, dialog, false);
+    const request = await confirmAndRefuse(page, state);
+    assert.deepEqual(request.draft.nft, { chainId: 4663, contract: muses, tokenId: '2' });
+    assert.equal(request.draft.quoteAddress.toLowerCase(), wethAsset.address.toLowerCase());
+    assert.equal('launchFee' in request.draft, false);
     state.nftChecks = { modeSwitch: true, museDefaultPair: true, musePairChangeable: true, prefillOnce: true, freeWithoutFee: true, earnCopyIsNftTreasury: true };
   } else if (mode === 'nft_paid_usdg' || mode === 'nft_fee_sending_reload' || mode === 'nft_paid_eth') {
     await page.getByLabel('Collection contract', { exact: true }).fill(paidCollection);
@@ -1690,17 +1709,16 @@ async function nftCase(page, state) {
     await page.getByLabel('Token name', { exact: true }).fill('Paid NFT coin');
     await page.getByLabel('Token symbol', { exact: true }).fill('PAID');
     await review();
-    await page.getByRole('button', { name: 'Confirm launch · Sign in wallet', exact: true }).waitFor();
-    const request = state.prepareRequests.at(-1);
-    assert.deepEqual(request.draft.nft, { chainId: 4663, contract: paidCollection, tokenId: '6' });
-    assert.deepEqual(request.draft.launchFee, mode === 'nft_paid_eth'
-      ? { asset: 'native', txHash: state.sends[0].hash, wei: feeWei, expiresAt: request.draft.launchFee.expiresAt, mac: '0x' + '11'.repeat(32) }
-      : { asset: 'stable', txHash: state.sends[0].hash });
     const dialog = page.getByRole('dialog');
     for (const text of ['Unverified collection', '$10, paid, non-refundable']) await dialog.getByText(text, { exact: true }).waitFor();
     await dialog.locator('dt', { hasText: /^Creator fees/ }).waitFor();
     await nftEarnCopy(page, dialog, true);
     assert.equal(state.sends.length, 1, 'one fee payment, never two');
+    const request = await confirmAndRefuse(page, state);
+    assert.deepEqual(request.draft.nft, { chainId: 4663, contract: paidCollection, tokenId: '6' });
+    assert.deepEqual(request.draft.launchFee, mode === 'nft_paid_eth'
+      ? { asset: 'native', txHash: state.sends[0].hash, wei: feeWei, expiresAt: request.draft.launchFee.expiresAt, mac: '0x' + '11'.repeat(32) }
+      : { asset: 'stable', txHash: state.sends[0].hash });
     state.nftChecks = { modeSwitch: true, feeCardBeforeReview: true, feeKeptAcrossNftChange: true, feePayments: 1, earnCopyIsNftTreasury: true, launchCostNamesFee: true,
       ...(mode === 'nft_paid_usdg' ? { pendingFeeSurvivedReload: true, reviewSaysStillConfirming: true } : {}),
       ...(mode === 'nft_fee_sending_reload' ? { sendingSurvivedReloadWithoutHash: true, noPayButtonAfterReload: true, adoptedByNonce: true } : {}),
@@ -1743,6 +1761,7 @@ async function nftCase(page, state) {
     await page.getByLabel('Token name', { exact: true }).fill('Blocked NFT coin');
     await page.getByLabel('Token symbol', { exact: true }).fill('BLOCK');
     await review();
+    await page.getByRole('button', { name: 'Confirm launch · Sign in wallet', exact: true }).click();
     await page.locator('#nft-launch-error').getByText(rejection.error, { exact: true }).waitFor();
     await focused('nft-launch-token');
     assert.equal(await page.getByRole('dialog').count(), 0);

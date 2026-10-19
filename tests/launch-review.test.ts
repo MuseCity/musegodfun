@@ -58,7 +58,7 @@ test("a plain coin's review states each fact once and keeps what is fixed, the f
   const form = await launchForm(t, { config: preview, api: { "/launch/prepare": prepare } });
   await form.type("name", "Preview Cat"); await form.type("symbol", "PCAT");
   await form.submit(); await form.submit();
-  assert.deepEqual(form.calls, ["/launch/prepare"], "opening review with a wallet previews the launch");
+  assert.deepEqual(form.calls, [], "opening the review prepares nothing: a launch without a first buy prepares on Confirm");
   const dialog = form.dialog(), text = textOf(dialog);
   assert.match(text, /One wallet transaction launches the pool\. You pay network gas\. The name, symbol, pair, trading fee, and fee distribution are fixed after launch\./);
   assert.match(textOf(byClass(dialog, "review-identity")), /\$PCAT · WETH pair · Robinhood Chain/);
@@ -67,15 +67,17 @@ test("a plain coin's review states each fact once and keeps what is fixed, the f
   assert.deepEqual(terms(byClass(dialog, "review-facts")), ["Trading fee split", "Buyback target / recipient", "Robinhood Chain platform treasury",
     "Platform income allocation (platform income = 100%)", "Network / protocol", "Asset issuer", "Supply", "Opening price reference"]);
   assert.equal(rows(byClass(dialog, "review-facts"))[0][1], "Creator 66.5% · Buyback 22.8% · Operations 5.7% · Doppler 5%");
-  assert.deepEqual(rows(byClass(dialog, "review-facts"))[7], ["Opening price reference", "LI.FI buy/sell quotes; no independent price feed for WETH"]);
+  assert.deepEqual(rows(byClass(dialog, "review-facts"))[7], ["Opening price reference",
+    "Fresh LI.FI buy/sell quotes when your launch is prepared; a first buy moves the price above $5,000"]);
   assert.equal(find(dialog, (element) => element.type === InfoTip), null, "a plain coin has no NFT info tips");
   assert.equal(count(text, /five minutes|5-minute/), 1, "the signing window is stated once");
-  assert.match(text, /You have five minutes to confirm in your wallet once the preview is ready\./);
+  assert.match(text, /You have five minutes to confirm once your wallet opens\./);
   for (const gone of ["READY TO LAUNCH", "Permanent after launch", "Quote asset", "Parameter check", "Wallet confirmation", "Set using LI.FI",
     "Initial valuation target", "Nominal total fee", "Net fee distribution", "Total fee allocation", "Launch cost", "Buyback 0.228%"])
     assert.equal(text.includes(gone), false, `${gone} is gone`);
-  assert.deepEqual(success(dialog), [`Simulation passed · Predicted token address${token}`], "one success notice");
+  assert.deepEqual(success(dialog), [], "no preview, so nothing to report as passed");
   assert(find(dialog, (element) => element.type === "button" && textOf(element) === "Confirm launch · Sign in wallet"));
+  assert.equal(text.includes("Simulate launch") || text.includes("Predicted token address"), false);
 });
 
 test("a first buy paid by conversion shows each amount, fee, lock and the recipient once", async (t) => {
@@ -103,7 +105,7 @@ test("a first buy paid by conversion shows each amount, fee, lock and the recipi
   assert.equal(count(text, /A completed conversion stays in your wallet if you cancel or the launch fails\./), 1);
   for (const gone of ["Estimated paired asset", "Quote expires", "Preview expires", "Approval amount", "Slippage tolerance", "Payment and first buy quoted together"])
     assert.equal(text.includes(gone), false, `${gone} is gone`);
-  assert.deepEqual(success(dialog), [`Payment and first buy quoted · Predicted token address${token}`]);
+  assert.deepEqual(success(dialog), ["Payment and first buy quoted"]);
   assert(find(dialog, (element) => element.type === "button" && textOf(element) === "Convert payment and launch"));
 });
 
@@ -124,7 +126,7 @@ test("a locked first buy in the pair asset needs no conversion card and shows it
   assert.match(rows(buy)[4][1], /30 days · releases in full/);
   assert.match(textOf(buy), firstBuyHint, "the first buy's own fee treatment, simulation and revert are stated");
   assert.equal(count(text, /five minutes|5-minute|expires/i), 1);
-  assert.deepEqual(success(dialog), [`First buy quoted · Predicted token address${token}`]);
+  assert.deepEqual(success(dialog), ["First buy quoted"]);
   assert(find(dialog, (element) => element.type === "button" && textOf(element) === "Confirm launch and first buy"));
 });
 
@@ -205,7 +207,7 @@ test("a Muse coin's review keeps the whole NFT block; the disclaimer and the tre
   await form.nftMode(true);
   await form.pick(...muse("1"), "Bard"); await form.check();
   await form.submit(); await form.submit(); await form.submit();
-  assert.deepEqual(form.calls, ["/launch/prepare"]);
+  assert.deepEqual(form.calls, [], "a Muse coin without a first buy prepares on Confirm");
   const dialog = form.dialog(), text = textOf(dialog);
   assert.match(textOf(byClass(dialog, "review-identity")), /\$BARD · MUSEGOD pair · Robinhood Chain/);
   assert.deepEqual(terms(byClass(dialog, "nft-review-tiles")), ["Bound NFT", "Collection", "Creator fees"], "a Muse pays no launch fee");
@@ -234,7 +236,9 @@ test("after a preview the reference row names the price the opening was compared
       store.clear();
       const form = await launchForm(st, { config: preview, api: { "/launch/prepare": (body) => ({ ...prepare(body), openingValuation }) } });
       await form.type("name", "Preview Cat"); await form.type("symbol", "PCAT");
-      await form.submit(); await form.submit();
+      await form.submit();
+      await form.firstBuy({ amount: "0.01", payAddress: weth.address });
+      await form.submit();
       const dialog = form.dialog();
       assert.deepEqual(rows(byClass(dialog, "review-facts"))[7], ["Opening price reference", row]);
       assert.equal(nodes(dialog).some((element) => element.props?.kind === "warning" && textOf(element) === unavailable.message), warned);

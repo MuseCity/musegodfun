@@ -1266,6 +1266,7 @@ function CreatePage({
   const paymentPrices = useResource<FirstBuyPrices>(`/first-buy/prices?pairedAsset=${stock.address}`, priceRevision);
   const paymentPrice = paymentPrices.data && paymentPrices.data.expiresAt > quoteNow(paymentPrices.data)
     ? paymentPrices.data.assets.find((a) => sameAddress(a.address, paymentAsset.address))?.priceUsd ?? null : null;
+  const buying = Number(firstBuy.amount || "0") > 0;
   const converting = !sameAddress(paymentAsset.address, stock.address) && /[1-9]/.test(firstBuy.amount);
   const converted = !!paymentAttempt?.actualOutput && sameAddress(paymentAttempt.quote.toToken.address, stock.address) &&
     sameAddress(paymentAttempt.quote.fromToken.address, paymentAsset.address) &&
@@ -1678,7 +1679,8 @@ function CreatePage({
     setPlan(null);
     setReview(true);
   }
-  async function simulate() {
+  /** Prepares the launch plan (and the payment quote of a conversion), shows it, and returns it while it is still current. */
+  async function simulate(): Promise<LaunchPlan | null> {
     const request = ++generation.current;
     activeSimulation.current = request;
     setError("");
@@ -1697,7 +1699,7 @@ function CreatePage({
         if (paymentAttempt) throw new Error("Check the submitted payment conversion before requesting another quote.");
         const quote = paymentQuote && paymentQuote.expiresAt - quoteNow(paymentQuote) >= 15_000 ? paymentQuote : await api<FirstBuyPaymentQuote>("/first-buy/quote", { account: wallet.account, fromToken: paymentAsset.address,
           toToken: stock.address, amount: firstBuy.amount, slippageBps: firstBuy.slippageBps });
-        if (request !== generation.current) return;
+        if (request !== generation.current) return null;
         assertFirstBuyPaymentQuote(quote);
         // The review shows one recipient, the first buy's: the conversion must pay the same wallet.
         if (!sameAddress(quote.account, wallet.account)) throw new Error("The payment quote is not for the connected wallet. Preview again.");
@@ -1706,7 +1708,7 @@ function CreatePage({
       }
       if (converted) {
         const payment = await api<FirstBuyPaymentVerification>("/first-buy/verify", { quote: paymentAttempt!.quote, hash: paymentAttempt!.hash });
-        if (request !== generation.current) return;
+        if (request !== generation.current) return null;
         if (payment.status !== "success" || !payment.actualOutput) {
           setPaymentAttempt({ ...paymentAttempt!, actualOutput: null });
           throw new Error("The payment confirmation changed. Check the submitted payment before continuing.");
@@ -1729,7 +1731,7 @@ function CreatePage({
         ...(paymentAttempt?.actualOutput ? { paymentRecovery: { quote: paymentAttempt.quote, hash: paymentAttempt.hash } } : {}),
         firstBuy: { amount: requestedAmount, slippageBps: firstBuy.slippageBps, lockDays: firstBuy.lockDays },
       });
-      if (request !== generation.current) return;
+      if (request !== generation.current) return null;
       if (next.draft.tradingFeeBps !== tradingFeeBps)
         throw new Error("The trading fee does not match your selection. Preview again.");
       if (next.feePolicy !== launchFeePolicy(config) || !next.feeTreasury || !config?.treasury || !sameAddress(next.feeTreasury, config.treasury) ||
@@ -1747,6 +1749,7 @@ function CreatePage({
         throw new Error("The first buy preview does not match your requested amount or wallet. Preview again.");
       currentPlan.current = next; saveFrozenLaunch(config!, wallet.account!, next); setPlan(next);
       setPaymentQuote(conversionPreview);
+      return next;
     } catch (e) {
       if (request === generation.current) {
         if (e instanceof ApiError && e.code?.startsWith("NFT_")) showNftRejection(e.code, e.message);
@@ -1758,6 +1761,14 @@ function CreatePage({
         if (request === generation.current) setBusy(false);
       }
     }
+    return null;
+  }
+  /** A launch without a first buy has no separate preview: one click prepares the plan, checks it and opens the wallet (`launch`
+   * re-validates and simulates it again before the wallet prompt). A current plan from an earlier attempt is reused, so each click
+   * prepares at most once, and opening the review prepares nothing. */
+  async function confirmLaunch() {
+    const ready = plan && !planExpired ? plan : await simulate();
+    if (ready) await launch(ready);
   }
   async function recoverPayment() {
     if (!config || !wallet.account || !paymentAttempt) return;
@@ -2132,18 +2143,20 @@ function CreatePage({
       if (request === generation.current) setBusy(false);
     }
   }
+  // Only a first buy is previewed when the review opens and refreshed when its preview expires; a launch without one prepares on
+  // Confirm (`confirmLaunch`), so it never spends a preview it may not use.
   useEffect(() => {
-    if (review && wallet.account && config && activeLaunchIntent(config, wallet.account) === intentId && !busy && !txHash && !submissionUnknown && !plan && !paymentQuote && !paymentAttempt)
+    if (buying && review && wallet.account && config && activeLaunchIntent(config, wallet.account) === intentId && !busy && !txHash && !submissionUnknown && !plan && !paymentQuote && !paymentAttempt)
       void simulate();
   }, [review, wallet.account, intentId]);
   useEffect(() => {
-    if (!backgroundRefreshAllowed || !review || busy || txHash || submissionUnknown || paymentAttempt) return;
+    if (!buying || !backgroundRefreshAllowed || !review || busy || txHash || submissionUnknown || paymentAttempt) return;
     const expired = plan && (plan.signingExpiresAt ?? plan.openingValuation?.expiresAt ?? 0) <= quoteNow(plan) ||
       paymentQuote && paymentQuote.expiresAt <= quoteNow(paymentQuote);
     const key = `${plan?.id}:${plan?.signingExpiresAt ?? plan?.openingValuation?.expiresAt}:${paymentQuote?.id}:${paymentQuote?.expiresAt}`;
     if (!expired || refreshedPreview.current === key) return;
     refreshedPreview.current = key; void simulate();
-  }, [review, busy, txHash, submissionUnknown, paymentAttempt, planExpired, paymentExpired, plan, paymentQuote, backgroundRefreshAllowed]);
+  }, [buying, review, busy, txHash, submissionUnknown, paymentAttempt, planExpired, paymentExpired, plan, paymentQuote, backgroundRefreshAllowed]);
   function resumeIntent(next: string): boolean {
     if (!config || busy) return false;
     // The form is saved under the intent it leaves only where the autosave would write it (never a blank draft over another tab's).
@@ -2187,16 +2200,11 @@ function CreatePage({
   const creatorCut = `${Number((tradingFeeBps * launchShares.creator / 1_000_000).toFixed(4))}%`;
   // An NFT coin's creator share goes to the NFT's treasury, never to the launcher (spec §6.5); a non-Muse NFT also costs $10.
   const nftCoin = !!draft.nft, creatorRole = nftCoin ? "NFT treasury" : "Creator", nftFeeCost = nftLaunchFeeCost(draft);
-  const buying = Number(firstBuy.amount || "0") > 0;
   const lockLabel = firstBuy.lockDays === 0 ? "No lock" : firstBuy.lockDays === 365 ? "1 year" : `${firstBuy.lockDays} days`;
-  // The review's one success notice, above the button that signs the preview, while that preview (and its payment quote) is current.
-  const planResult = plan && !planExpired && !paymentExpired && <div className="notice success plan-result" role="status">
+  // The first buy's one success notice, above the button that signs its preview, while that preview (and its payment quote) is current.
+  const planResult = plan?.firstBuy && !planExpired && !paymentExpired && <div className="notice success plan-result" role="status">
     <CheckCircle2 size={17} aria-hidden="true" />
-    <span>
-      {paymentQuote ? "Payment and first buy quoted" : plan.firstBuy ? "First buy quoted" : "Simulation passed"} · Predicted token address
-      <br />
-      <code className="wrap">{plan.tokenAddress}</code>
-    </span>
+    <span>{paymentQuote ? "Payment and first buy quoted" : "First buy quoted"}</span>
   </div>;
   const uploadedSrc = tokenImageSrc({ image: draft.image }), imageSrc = uploadedSrc !== brokenImage ? uploadedSrc : "";
   // The draft this render shows: an NFT identity that arrives after the draft is replaced belongs to the old one.
@@ -2732,7 +2740,7 @@ function CreatePage({
               </FeeBreakdown>
             </details>
             <p className="hint">
-              Review the parameters, simulate the launch, then confirm in your wallet. You retain control of your funds. Stock Tokens carry issuer, liquidity and jurisdiction risks; <a href="https://docs.robinhood.com/rhj/" target="_blank" rel="noreferrer">review the issuer’s terms</a>. Your meme does not represent company equity.
+              Review the parameters, then confirm in your wallet; the launch is simulated before your wallet opens. You retain control of your funds. Stock Tokens carry issuer, liquidity and jurisdiction risks; <a href="https://docs.robinhood.com/rhj/" target="_blank" rel="noreferrer">review the issuer’s terms</a>. Your meme does not represent company equity.
             </p>
           </section>
         </aside>
@@ -2829,7 +2837,7 @@ function CreatePage({
               <div>
                 <dt>Opening price reference</dt>
                 <dd className="sans">{plan?.openingValuation ? openingReferenceText(plan.openingValuation, stock.symbol)
-                  : `Fresh LI.FI buy/sell quotes when the preview is prepared; a first buy moves the price above ${openingCapUsdLabel}`}</dd>
+                  : `Fresh LI.FI buy/sell quotes when your launch is prepared; a first buy moves the price above ${openingCapUsdLabel}`}</dd>
               </div>
             </dl>
           </details>
@@ -2864,14 +2872,14 @@ function CreatePage({
           {paymentQuote?.warnings?.map((warning) => <Notice key={warning} kind="warning">{warning}</Notice>)}
           {plan?.requiresReconfirmation && plan.firstBuy && <Notice kind="warning">The updated minimum is {formatUnits(BigInt(plan.firstBuy.expectedAmountOut) * BigInt(10_000 - plan.firstBuy.slippageBps) / 10_000n, 18)} {draft.symbol || "tokens"}. Your previous payment and approval are saved.</Notice>}
           {error && <Notice kind="error">{error}</Notice>}
-          {error && !busy && !paymentAttempt && !txHash && !submissionUnknown && /LI\.FI pricing or routing is unavailable|no.*route|liquidity|capacity is temporarily/i.test(error) && <div className="button-row review-actions">
+          {buying && error && !busy && !paymentAttempt && !txHash && !submissionUnknown && /LI\.FI pricing or routing is unavailable|no.*route|liquidity|capacity is temporarily/i.test(error) && <div className="button-row review-actions">
             <button type="button" className="secondary" onClick={() => void simulate()}>Retry preview</button>
             <button type="button" className="secondary" onClick={() => { setReview(false); requestAnimationFrame(() => document.querySelector<HTMLSelectElement>('select[aria-label="Pay with"]')?.focus()); }}>Choose another payment asset</button>
             <button type="button" className="secondary" onClick={() => updateFirstBuy({ ...firstBuy, payAddress: stock.address, amount: "0", lockDays: 0 })}>Use existing {stock.symbol}</button>
             <button type="button" className="secondary" onClick={() => updateFirstBuy({ ...firstBuy, amount: "0", lockDays: 0 })}>Launch without a first buy</button>
           </div>}
           {message && !planExpired && <Notice kind="success">{message}</Notice>}
-          {planExpired && !busy && (
+          {buying && planExpired && !busy && (
             <Notice>This preview has expired. Continuing refreshes it automatically; your inputs, payment and approvals are saved.</Notice>
           )}
           {wallet.error && <Notice kind="error">{wallet.error}</Notice>}
@@ -2898,6 +2906,15 @@ function CreatePage({
             </>
           ) : converting && !converted ? (
             <button className="primary large full" disabled={busy} onClick={() => void simulate()}>Refresh payment and launch preview<RefreshCw size={17} /></button>
+          ) : !buying ? (
+            <button
+              className="primary large full"
+              disabled={busy || !!txHash || !config.treasury || !config.writesEnabled || wallet.chainId !== config.chainId}
+              onClick={() => void confirmLaunch()}
+            >
+              {busy ? <LoaderCircle className="spin" size={17} /> : <Rocket size={17} />}
+              {busy ? plan ? "Waiting for confirmation…" : "Preparing your launch…" : "Confirm launch · Sign in wallet"}
+            </button>
           ) : !plan ? (
             <button
               className="primary large full"
@@ -2909,7 +2926,7 @@ function CreatePage({
               ) : (
                 <ShieldCheck size={17} />
               )}
-              {busy ? "Preparing launch preview…" : planExpired ? "Refresh preview" : buying ? "Preview launch and first buy" : "Simulate launch"}
+              {busy ? "Preparing launch preview…" : planExpired ? "Refresh preview" : "Preview launch and first buy"}
             </button>
           ) : (
             <>
@@ -2924,7 +2941,7 @@ function CreatePage({
                 ) : (
                   <Rocket size={17} />
                 )}
-                {busy ? "Waiting for confirmation…" : plan.firstBuy ? "Confirm launch and first buy" : "Confirm launch · Sign in wallet"}
+                {busy ? "Waiting for confirmation…" : "Confirm launch and first buy"}
               </button>
             </>
           )}
@@ -2939,7 +2956,7 @@ function CreatePage({
           >
             Back to edit
           </button>
-          <p className="launch-caption">You have five minutes to confirm in your wallet once the preview is ready.{converting ? " A completed conversion stays in your wallet if you cancel or the launch fails." : ""}</p>
+          <p className="launch-caption">{buying ? "You have five minutes to confirm in your wallet once the preview is ready." : "You have five minutes to confirm once your wallet opens."}{converting ? " A completed conversion stays in your wallet if you cancel or the launch fails." : ""}</p>
         </dialog>
       )}
     </>

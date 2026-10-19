@@ -48,8 +48,8 @@ export function installGlobals() {
 /** The create page with its NFT step. `saved`: a draft stored before the page opened. `refuse`: token ids whose live check says no.
  * `hold`: token ids whose status read waits until the test releases it with `answer`. `names`: Muse names that differ from `museNames`.
  * `fail`: token ids whose first status read fails (the step then offers Retry). `config`: changes to the page's runtime config.
- * `api`: answers for more API paths (each call is recorded in `calls`); with it, the preview's opening-valuation and payment-quote
- * checks pass, so a test's plan and quote need only the fields the review shows. */
+ * `api`: answers for more API paths (each call is recorded in `calls`); with it, the preview's opening-valuation, payment-quote and
+ * plan-validity checks pass, so a test's plan and quote need only the fields the review and the launch read. */
 export async function launchForm(t: TestContext, options: { saved?: Record<string, unknown>; refuse?: string[]; hold?: string[]; names?: Record<string, string>; fail?: string[];
   config?: Partial<RuntimeConfig>; api?: Record<string, (body: any) => unknown> } = {}) {
   t.mock.timers.enable({ apis: ["setTimeout"] });
@@ -80,6 +80,7 @@ export async function launchForm(t: TestContext, options: { saved?: Record<strin
     ...(options.api ? {
       "./lib/opening-valuation": { file: import.meta.resolve("../src/lib/opening-valuation.ts"), bindings: { assertOpeningValuation: () => {} } },
       "./lib/first-buy-payment": { file: import.meta.resolve("../src/lib/first-buy-payment.ts"), bindings: { assertFirstBuyPaymentQuote: () => {} } },
+      "./lib/launch-plan": { file: import.meta.resolve("../src/lib/launch-plan.ts"), bindings: { assertLaunchPlanValidity: () => {} } },
     } : {}),
   }, ["CreatePage"]));
   // The step mounts, remounts (a new `key`) and unmounts with the page's element, as React does.
