@@ -541,6 +541,14 @@ dialog.modal[open] { display: flex; flex-direction: column; gap: 16px; }
 .token-hero-story { font-size: 14px; line-height: 20px; color: var(--ink-muted); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .token-hero-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; font-size: 12px; line-height: 16px; color: var(--ink-muted); }
 .token-hero-meta .strong, .token-hero-meta .mono { color: var(--ink); }
+.token-hero-creator { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px 4px; }
+.hero-copy { width: 24px; height: 24px; margin: -4px 0; flex: none; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px;
+  color: var(--ink-muted); }
+.hero-copy:hover { background: var(--surface-sunken); color: var(--ink); }
+.hero-copy-error { color: var(--down); font-weight: 500; }
+/* The NFT badge sits on the title line at the chips' height and centre, not the top of the line. */
+.token-hero-title .badge.nft-badge { align-self: center; }
+.token-hero-title .badge.nft-badge:not(.nft-warning) { min-height: 24px; padding: 0 10px; line-height: 24px; }
 .token-hero-links a { max-width: 100%; min-width: 0; }
 .token-hero-links a > span { overflow: hidden; text-overflow: ellipsis; }
 .token-hero-links a > svg { flex-shrink: 0; }

@@ -45,7 +45,10 @@ test.afterEach(() => { account = null; resources = {}; });
 
 test("a visitor sees the coin as an IP: socials first, Doppler and the owner's Fomo invite for trading, no in-page swap", () => {
   const html = render({ token: coin });
-  assert.match(html, /Robinhood Chain · WETH pair · launched/);
+  assert.match(html, /Robinhood Chain · launched/);
+  assert.doesNotMatch(html.slice(0, html.indexOf("</header>")), /WETH pair/, "the pair badge is the hero's only mention of the pair");
+  assert(html.includes(`>0x2222…2222</a><button type="button" class="hero-copy" title="Copy contract address ${coin.address}" aria-label="Copy contract address">`),
+    "the copy button sits right of the creator and copies the coin's contract");
   assert(html.includes(`href="https://app.doppler.lol/tokens/robinhood/${coin.address.toLowerCase()}"`));
   assert.match(html, />Trade on Doppler/);
   assert.match(html, /href="https:\/\/fomo\.family\/r\/musegod"[^>]*>Open Fomo with invite/);
@@ -95,14 +98,51 @@ test("an NFT-bound agent coin names its Muse, links OpenSea, shows the ERC-8004 
   assert.doesNotMatch(render({ token: muse }), /Agent identity|ERC-8004 agent/, "no agent id, no agent card");
 });
 
-test("a verified quote asset badge names the paired asset; unverified or invalid pools show none", () => {
-  const badge = /<span class="chip sm up" title="Verified quote asset: Wrapped Ether \(WETH\)">.*?<span class="visually-hidden">Verified quote asset: <\/span>Wrapped Ether<\/span>/;
-  assert.doesNotMatch(render({ token: coin }), /Verified quote asset/, "no badge before the status loads");
+test("the pair badge reads \"Paired with <symbol>\": green with a check once verified, plain while loading, unverified or invalid", () => {
+  const verified = /<span class="chip sm up" title="Verified quote asset: Wrapped Ether \(WETH\)"><svg[^>]*aria-hidden="true"[^>]*>.*?<\/svg>Paired with WETH<\/span>/;
+  const plain = /<span class="chip sm sunken" title="Quote asset: Wrapped Ether \(WETH\)">Paired with WETH<\/span>/;
+  const check = (html: string, expected: RegExp, why: string) => {
+    assert.match(html, expected, why);
+    assert.doesNotMatch(html.replace(/title="[^"]*"/g, ""), /Verified quote asset|visually-hidden">Verified/, "the claim lives in the title, never in the badge text");
+  };
+  check(render({ token: coin }), plain, "before the status loads");
   resources = { "/stocks": [{ address: MUSEGOD.weth, verified: true }] };
-  assert.match(render({ token: coin }), badge);
-  assert.doesNotMatch(render({ token: coin, stateInvalid: true }), /Verified quote asset/, "a pool that fails the on-chain check gets no badge");
+  check(render({ token: coin }), verified, "a verified quote asset");
+  check(render({ token: coin, stateInvalid: true }), plain, "a pool that fails the on-chain check gets no check mark");
+  check(render({ token: muse }), verified, "an NFT coin too, whose meta keeps only the launch date");
+  assert.match(render({ token: muse }), /<span>launched <span class="mono strong">/);
   resources = { "/stocks": [{ address: MUSEGOD.weth, verified: false }] };
-  assert.doesNotMatch(render({ token: coin }), /Verified quote asset/);
+  check(render({ token: coin }), plain, "an unverified quote asset");
+});
+
+test("the hero copy button copies the contract address, confirms for two seconds and reports a refused clipboard", async (t) => {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  t.after(() => { if (previous) Object.defineProperty(globalThis, "navigator", previous); else Reflect.deleteProperty(globalThis, "navigator"); });
+  const writes: string[] = [];
+  let clipboard: any = { writeText: async (text: string) => { writes.push(text); } };
+  Object.defineProperty(globalThis, "navigator", { configurable: true, get: () => ({ clipboard }) });
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let View: any;
+  const runtime = hookRuntime(() => View({ address: coin.address }));
+  ({ CopyContractButton: View } = await importFresh("src/components/TokenHero.tsx",
+    { react: { file: import.meta.resolve("react"), bindings: runtime.hooks } }));
+  const copy = () => find(runtime.output(), (node) => node.type === "button" && node.props.className === "hero-copy");
+  const alert = () => find(runtime.output(), (node) => node.props?.role === "alert");
+  try {
+    runtime.render();
+    assert.equal(copy().props["aria-label"], "Copy contract address");
+    copy().props.onClick(); await settle(); await settle();
+    assert.deepEqual(writes, [coin.address]);
+    assert.equal(copy().props["aria-label"], "Contract address copied");
+    t.mock.timers.tick(2000); await settle();
+    assert.equal(copy().props["aria-label"], "Copy contract address", "the confirmation clears after two seconds");
+    clipboard = { writeText: async () => { throw new Error("denied"); } };
+    copy().props.onClick(); await settle(); await settle();
+    assert.equal(textOf(alert()), "Copy failed. Copy the address from the On-chain tab.");
+    clipboard = undefined;
+    copy().props.onClick(); await settle(); await settle();
+    assert(alert(), "a page without the Clipboard API reports the failure instead of throwing");
+  } finally { runtime.unmount(); }
 });
 
 test("fork coins and pools that fail the on-chain check never link to a mainnet venue", () => {

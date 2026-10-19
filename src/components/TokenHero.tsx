@@ -1,8 +1,24 @@
-import type { ReactNode } from "react";
-import { ArrowDown, ArrowUpRight, PencilLine, Share2 } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { ArrowDown, ArrowUpRight, Check, Copy, PencilLine, Share2 } from "lucide-react";
 import type { ProfileField } from "../lib/token-profile";
 
 export type HeroStat = { label: string; value: string; hint?: string };
+/** An icon button in the hero meta that copies the coin's contract address. It confirms for two seconds; a refused clipboard says so. */
+export function CopyContractButton({ address }: { address: string }) {
+  const [copied, setCopied] = useState<"" | "done" | "failed">("");
+  useEffect(() => {
+    if (copied !== "done") return;
+    const timer = setTimeout(() => setCopied(""), 2000);
+    return () => clearTimeout(timer);
+  }, [copied]);
+  return <>
+    <button type="button" className="hero-copy" title={`Copy contract address ${address}`} aria-label={copied === "done" ? "Contract address copied" : "Copy contract address"}
+      onClick={() => void Promise.resolve().then(() => navigator.clipboard.writeText(address)).then(() => setCopied("done"), () => setCopied("failed"))}>
+      {copied === "done" ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+    </button>
+    {copied === "failed" && <span className="hero-copy-error" role="alert">Copy failed. Copy the address from the On-chain tab.</span>}
+  </>;
+}
 /** The token page header (tasks/token-ip-detail-plan.md §3): identity, social links and a band of facts the page already holds. */
 export default function TokenHero({ icon, overline, name, symbol, badges, story, meta, links, extraLinks, onShare, onEdit, onTrade, figure, stats }: {
   icon: ReactNode;

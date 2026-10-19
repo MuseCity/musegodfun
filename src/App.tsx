@@ -121,7 +121,7 @@ import LaunchCurve from "./components/LaunchCurve";
 import { pendingLaunchResolution, terminalLaunchIsCanonical, type PendingLaunchResolution } from "./lib/launch-wallet";
 
 import { useLaunchMarket } from "./components/TokenMarket";
-import TokenHero, { type HeroStat } from "./components/TokenHero";
+import TokenHero, { CopyContractButton, type HeroStat } from "./components/TokenHero";
 import TokenVenues from "./components/TokenVenues";
 import TokenActivity from "./components/TokenActivity";
 import TokenContract from "./components/TokenContract";
@@ -3156,20 +3156,23 @@ function TokenDetail({ detail, config, refreshError }: { detail: TokenDetailData
       <div className="token-page">
         <TokenHero
           icon={<TokenIcon name={token.name} image={token.image} size="xl" />}
-          overline={nft ? `${nftLabel} · ${chainLabel}` : `${chainLabel} · ${stock.symbol} pair · launched ${dateLabel(token.createdAt)}`}
+          overline={nft ? `${nftLabel} · ${chainLabel}` : `${chainLabel} · launched ${dateLabel(token.createdAt)}`}
           name={token.name}
           symbol={token.symbol}
           badges={<>
-            {/* The verified badge names the paired asset; the agent id lives in the Agent identity card, not the hero. */}
-            {!stateInvalid && stockStatus?.verified && <span className="chip sm up" title={`Verified quote asset: ${stock.name} (${stock.symbol})`}>
-              <Check size={12} /><span className="visually-hidden">Verified quote asset: </span>{stock.name}</span>}
+            {/* The pair badge is the hero's only mention of the pair: green with a check once the quote asset is verified, plain otherwise.
+                The agent id lives in the Agent identity card, not the hero. */}
+            {!stateInvalid && stockStatus?.verified
+              ? <span className="chip sm up" title={`Verified quote asset: ${stock.name} (${stock.symbol})`}><Check size={12} aria-hidden="true" />Paired with {stock.symbol}</span>
+              : <span className="chip sm sunken" title={`Quote asset: ${stock.name} (${stock.symbol})`}>Paired with {stock.symbol}</span>}
             {!stateInvalid && <span className="chip sm sunken"><LockKeyhole size={12} />Liquidity locked</span>}
             <NftBadge token={token} withContract />
           </>}
           story={token.description}
           meta={<>
-            <span>{creatorLink ? <>by {creatorLink}</> : "Creator not verified"}</span>
-            {nft && <span>{stock.symbol} pair · launched <span className="mono strong">{dateLabel(token.createdAt)}</span></span>}
+            <span className="token-hero-creator">{creatorLink ? <>by {creatorLink}</> : "Creator not verified"}
+              <CopyContractButton key={token.address} address={token.address} /></span>
+            {nft && <span>launched <span className="mono strong">{dateLabel(token.createdAt)}</span></span>}
             {token.tradingFeeBps !== undefined && <span className="mono">{feePercent(token.tradingFeeBps)} + {LP_FEE_PERCENT} LP fee</span>}
           </>}
           links={links}
