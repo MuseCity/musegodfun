@@ -71,7 +71,7 @@ test("a plain coin's review states each fact once and keeps what is fixed, the f
     "Fresh LI.FI buy/sell quotes when your launch is prepared; a first buy moves the price above $5,000"]);
   assert.equal(find(dialog, (element) => element.type === InfoTip), null, "a plain coin has no NFT info tips");
   assert.equal(count(text, /five minutes|5-minute/), 1, "the signing window is stated once");
-  assert.match(text, /You have five minutes to confirm once your wallet opens\./);
+  assert.match(text, /The launch must be confirmed in your wallet within five minutes of being prepared\./);
   for (const gone of ["READY TO LAUNCH", "Permanent after launch", "Quote asset", "Parameter check", "Wallet confirmation", "Set using LI.FI",
     "Initial valuation target", "Nominal total fee", "Net fee distribution", "Total fee allocation", "Launch cost", "Buyback 0.228%"])
     assert.equal(text.includes(gone), false, `${gone} is gone`);

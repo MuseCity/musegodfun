@@ -63,17 +63,17 @@ export async function launchForm(t: TestContext, options: { saved?: Record<strin
       ...(free && (options.names ?? museNames)[nft.tokenId] ? { name: (options.names ?? museNames)[nft.tokenId] } : {}) } as NftStatus;
   };
   let Create: any;
-  const calls: string[] = [], pageConfig = { ...config, ...options.config };
+  const calls: string[] = [], callOptions: unknown[] = [], pageConfig = { ...config, ...options.config };
   const parent = hookRuntime(() => Create({ stocks: null, stockError: "", config: pageConfig, refresh() {} }));
   ({ CreatePage: Create } = await importFresh("src/App.tsx", {
     react: { file: import.meta.resolve("react"), bindings: parent.hooks },
     "./lib/wallet": { file: import.meta.resolve("../src/lib/wallet.tsx"), bindings: { useWallet: () => wallet } },
     "./lib/resource": { file: import.meta.resolve("../src/lib/resource.ts"), bindings: { useResource: () => ({ data: null, error: "", loading: false }) } },
     "./lib/api": { file: import.meta.resolve("../src/lib/api.ts"), bindings: {
-      chainApi: async (_chain: number, path: string, body: any) => {
+      chainApi: async (_chain: number, path: string, body: any, requestOptions?: unknown) => {
         if (path === "/token-images") return { image: pinned(body.image) };
         const answer = options.api?.[path];
-        if (answer) { calls.push(path); return answer(body); }
+        if (answer) { calls.push(path); callOptions.push(requestOptions); return answer(body); }
         throw new Error(`Unexpected API call ${path}`);
       } } },
     "./lib/image-upload": { file: import.meta.resolve("../src/lib/image-upload.ts"), bindings: { prepareTokenImageFromUrl: async (url: string) => url } },
@@ -152,8 +152,8 @@ export async function launchForm(t: TestContext, options: { saved?: Record<strin
     },
     /** The review dialog, or null while it is closed. */
     dialog: () => find(parent.output(), (element) => element.type === "dialog"),
-    /** The API paths answered from `api`, in call order. */
-    calls,
+    /** The API paths answered from `api`, in call order, and the request options each was sent with. */
+    calls, callOptions,
     /** Lets pending work settle and the page and its step re-render, e.g. after a test advanced the mocked clock. */
     flush,
     /** The draft as the autosave (250 ms after the last change) stores it. */

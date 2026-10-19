@@ -435,6 +435,8 @@ async function quietReview(page, state) {
   state.quietBackground = true;
 }
 async function tokenLookup(page, state) {
+  // The fixture's token detail is built from the prepared plan, which a launch without a first buy makes on Confirm.
+  if (!state.plan) await confirmAndRefuse(page, state);
   const tradeQuotes = [];
   page.on('request', request => { if (request.method() === 'POST' && /\/quote$/.test(new URL(request.url()).pathname)) tradeQuotes.push(request.url()); });
   if (state.mode === 'token_detail_unregistered_backup')
@@ -474,6 +476,7 @@ async function tokenLookup(page, state) {
   assert.equal(state.sends.length,0); state.singleTokenLookup = true;
 }
 async function historyTrackBackoff(page, state) {
+  if (!state.plan) await confirmAndRefuse(page, state);
   // A launch sent earlier from this browser is still unconfirmed, and the
   // server answers its queueing request with Retry-After: 60.
   state.trackedHash = '0x' + 'ab'.repeat(32);
@@ -511,14 +514,15 @@ async function quietPlainReview(page, state) {
   assert.equal(await page.getByRole('button',{name:'Confirm launch · Sign in wallet',exact:true}).isEnabled(),true);
   state.quietBackground=true;
 }
-/** Confirm on a launch without a first buy prepares, checks and opens the wallet in one click; the fixture wallet refuses the launch,
- * so a case can check the prepare request without launching. Returns that request. */
+/** Confirm on a launch without a first buy prepares, checks and opens the wallet in one click. The case only needs what Confirm
+ * prepares: the fixture wallet refuses the launch, and NFT fixtures stop earlier, at the wallet's NFT fee calldata check (their plan
+ * is an ordinary launch). Either way the review shows an error and nothing is sent. Returns the prepare request. */
 async function confirmAndRefuse(page, state) {
   const before = state.prepareRequests.length, sends = state.sends.length;
   state.refuseLaunchSend = true;
   await page.getByRole('button', { name: 'Confirm launch · Sign in wallet', exact: true }).click();
   await waitForFixture(() => state.prepareRequests.length === before + 1, 'the one prepare request of Confirm');
-  await page.getByRole('dialog').getByText(/cancelled the wallet request|User rejected the request/).first().waitFor();
+  await page.getByRole('dialog').getByRole('alert').first().waitFor();
   state.refuseLaunchSend = false;
   assert.equal(state.sends.length, sends, 'the refused launch sent nothing');
   return state.prepareRequests.at(-1);
@@ -1854,7 +1858,8 @@ try {
           .map(key => JSON.parse(localStorage.getItem(key) || 'null')?.step));
         assert(launchedSteps.length && launchedSteps.every(step => step === 1), 'A launched draft must reopen on the identity step');
       }
-      if (mode === 'idle_plain') {assert.equal(state.plans,2);assert.equal(state.businessConfirmations,1);}
+      // Nothing prepared while the review idled; Confirm prepared once, so the wallet had no near-expiry plan to refresh.
+      if (mode === 'idle_plain') {assert.equal(state.plans,1);assert.equal(state.businessConfirmations,1);}
       if (mode === 'delayed_config') {
         assert.equal(state.businessConfirmations, 1);
         assert(state.prepareRequests.every(request => request.draft.name === 'Browser delayed_config' &&

@@ -967,7 +967,6 @@ dialog.modal.launch-review { width: min(640px, calc(100vw - 32px)); }
 .step-card h3 { display: flex; align-items: center; gap: 8px; font-size: 14px; line-height: 20px; font-weight: 650; }
 .step-number { width: 22px; height: 22px; border-radius: 999px; background: var(--halo-tint); color: var(--halo-ink); display: inline-flex; align-items: center; justify-content: center;
   font-family: var(--font-mono); font-size: 12px; font-weight: 600; }
-.plan-result code { font-size: 12px; }
 /* Info tips (InfoTip decides when the text shows). Inverted colors in both themes; no layout space while hidden. */
 .info-tip { position: relative; display: inline-flex; vertical-align: middle; margin-left: 2px; }
 .info-tip-button { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; margin: -2px 0; padding: 0;

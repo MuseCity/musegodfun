@@ -3,6 +3,7 @@ import { PaymentPriceChanged } from "./lib/first-buy-wallet";
 import TurnstileGate from "./components/TurnstileGate";
 import LockRecovery from "./components/LockRecovery";
 import { quoteNow } from "./lib/quote-clock";
+import { isUserRejection } from "./lib/send-record";
 import { activeLaunchIntent, intentHasRecords, newIntentId, selectLaunchIntent, savedLaunchIntents, launchIntentStorageKey, restoreLegacyPending, saveFrozenLaunch, withLaunchIntentLock, sentLaunchAwaitingRegistration } from "./lib/launch-intent";
 import { LaunchPriceChanged, assertAcceptedLaunchRefresh, assertLaunchWalletPlan, launchDraftInput } from "./lib/launch-wallet";
 import { assertLaunchPlanValidity } from "./lib/launch-plan";
@@ -108,6 +109,7 @@ import {
   OPENING_CAP_USD,
   assertOpeningValuation,
   openingReferenceText,
+  type LaunchWarning,
 } from "./lib/opening-valuation";
 import { createNftImagePrefill } from "./lib/nft-image-prefill";
 import { TOKEN_IMAGE_ACCEPT } from "./lib/token-image";
@@ -392,6 +394,15 @@ function paymentKey(config: RuntimeConfig, account: Address, intent?: string) {
 function isFeeBeneficiary(token: Pick<TokenRecord, "creator" | "feeTreasury">, account: Address | null | undefined) {
   return !!account && (!!token.creator && sameAddress(token.creator, account) || !!token.feeTreasury && sameAddress(token.feeTreasury, account));
 }
+/** The warnings a review shows for a prepared plan: the asset's and the opening price's (older plans carry only the latter). */
+function launchWarnings(plan: LaunchPlan | null): LaunchWarning[] {
+  if (!plan) return [];
+  return plan.warnings ?? (plan.openingValuation && "warnings" in plan.openingValuation ? plan.openingValuation.warnings ?? [] : []);
+}
+/** A launch without a first buy has no preview step: its errors point to Confirm instead. */
+const plainLaunchCopy = (message: string) => message
+  .replace(/\b(?:Run a new preview|Preview again|Refresh the preview|Refresh and preview again)\./g, "Confirm again.")
+  .replace(/\bbefore previewing\b/g, "before launching");
 function scopedApi(config: RuntimeConfig | null) {
   return <T,>(path: string, body?: unknown, options?: ApiOptions): Promise<T> => config
     ? chainApi<T>(deploymentChain(config), path, body, options)
@@ -1094,6 +1105,7 @@ function CreatePage({
   const api = scopedApi(config);
   const generation = useRef(0);
   const activeSimulation = useRef<number | null>(null);
+  const confirming = useRef(false);
   const formRef = useRef<HTMLFormElement>(null),
     imageInput = useRef<HTMLInputElement>(null),
     reviewDialog = useRef<HTMLDialogElement>(null);
@@ -1691,6 +1703,9 @@ function CreatePage({
       if (!wallet.account) throw new Error("Connect a wallet first");
       if (paymentAttempt && !paymentAttempt.actualOutput) throw new Error("Check the submitted payment conversion before preparing another launch.");
       if (txHash && !confirmed) throw new Error("Recover the submitted launch before preparing another launch.");
+      // A plan prepared now would replace the frozen backup a pending recovery compares its transaction with.
+      if (submissionUnknown || config && localStorage.getItem(launchIntentStorageKey(config, wallet.account, intentId, "submission")))
+        throw new Error("Recover the submitted launch before preparing another launch.");
       if (config?.curvePolicy !== CURVE_POLICY)
         throw new Error("The launch curve policy has changed. Refresh this page before previewing.");
       let requestedAmount = firstBuy.amount;
@@ -1730,7 +1745,8 @@ function CreatePage({
             ...(currentPlan.current.firstBuy ? { acceptedMinAmountOut: currentPlan.current.firstBuy.acceptedMinAmountOut ?? currentPlan.current.firstBuy.minAmountOut } : {}) } : {}) },
         ...(paymentAttempt?.actualOutput ? { paymentRecovery: { quote: paymentAttempt.quote, hash: paymentAttempt.hash } } : {}),
         firstBuy: { amount: requestedAmount, slippageBps: firstBuy.slippageBps, lockDays: firstBuy.lockDays },
-      });
+        // One Confirm click spends at most one prepare: a plain launch asks again by a click, not by automatic retries.
+      }, buying ? undefined : { retry: false });
       if (request !== generation.current) return null;
       if (next.draft.tradingFeeBps !== tradingFeeBps)
         throw new Error("The trading fee does not match your selection. Preview again.");
@@ -1753,7 +1769,7 @@ function CreatePage({
     } catch (e) {
       if (request === generation.current) {
         if (e instanceof ApiError && e.code?.startsWith("NFT_")) showNftRejection(e.code, e.message);
-        else setError(errorMessage(e));
+        else setError(buying ? errorMessage(e) : plainLaunchCopy(errorMessage(e)));
       }
     } finally {
       if (request === activeSimulation.current) {
@@ -1764,11 +1780,18 @@ function CreatePage({
     return null;
   }
   /** A launch without a first buy has no separate preview: one click prepares the plan, checks it and opens the wallet (`launch`
-   * re-validates and simulates it again before the wallet prompt). A current plan from an earlier attempt is reused, so each click
-   * prepares at most once, and opening the review prepares nothing. */
+   * re-validates and simulates it again before the wallet prompt). Each click prepares at most once and opening the review prepares
+   * nothing. A plan the wallet declined is reused while it has time to spare, so the wallet layer never refreshes it. A fresh plan
+   * with warnings stops before the wallet so they can be read ("Review … before continuing"); the next click reuses it. */
   async function confirmLaunch() {
-    const ready = plan && !planExpired ? plan : await simulate();
-    if (ready) await launch(ready);
+    if (confirming.current) return;
+    confirming.current = true;
+    try {
+      const reusable = plan && !planExpired && (plan.signingExpiresAt ?? 0) - quoteNow(plan) > 90_000 ? plan : null;
+      if (reusable) { await launch(reusable); return; }
+      const ready = await simulate();
+      if (ready && !launchWarnings(ready).length) await launch(ready);
+    } finally { confirming.current = false; }
   }
   async function recoverPayment() {
     if (!config || !wallet.account || !paymentAttempt) return;
@@ -2020,9 +2043,14 @@ function CreatePage({
     } catch (e) {
       if (request !== generation.current) return;
       if (e instanceof LaunchPriceChanged) { currentPlan.current = e.plan; setPlan(e.plan); }
-      if (currentPlan.current?.intentId) setSubmissionUnknown(!!localStorage.getItem(launchIntentStorageKey(config, wallet.account, intentId, "submission")));
+      const unresolved = !!localStorage.getItem(launchIntentStorageKey(config, wallet.account, intentId, "submission"));
+      if (currentPlan.current?.intentId) setSubmissionUnknown(unresolved);
       const mined = submittedLaunchInHistory();
-      setError(mined ? "Your launch succeeded on-chain and is syncing to the catalog. Check its saved transaction; no new launch is needed." : errorMessage(e));
+      // A plain launch that failed without sending anything prepares afresh on the next Confirm; one the wallet only declined is reused.
+      const plain = !activePlan.firstBuy;
+      if (plain && !unresolved && !mined && !localStorage.getItem(pendingLaunchKey(config, wallet.account, intentId)) && !isUserRejection(e)) setPlan(null);
+      setError(mined ? "Your launch succeeded on-chain and is syncing to the catalog. Check its saved transaction; no new launch is needed."
+        : plain ? plainLaunchCopy(errorMessage(e)) : errorMessage(e));
     } finally { inFlightIntents.current.delete(intentId); if (request === generation.current) setBusy(false); }
   }
   function submittedLaunchInHistory() {
@@ -2868,7 +2896,7 @@ function CreatePage({
             </dl>
             <p className="hint">Creator and platform fees are waived on this first buy; protocol and LP fees are included in the token amounts. Any required approval comes first, then the complete launch and buy is simulated before you confirm; if the buy fails, the launch reverts too, and a confirmed approval stays in place.</p>
           </section>}
-          {(plan?.openingValuation && "warnings" in plan.openingValuation ? plan.openingValuation.warnings : undefined)?.map((warning) => <Notice key={warning.code} kind="warning">{warning.message}</Notice>)}
+          {launchWarnings(plan).map((warning, index) => <Notice key={`${warning.code}-${index}`} kind="warning">{warning.message}</Notice>)}
           {paymentQuote?.warnings?.map((warning) => <Notice key={warning} kind="warning">{warning}</Notice>)}
           {plan?.requiresReconfirmation && plan.firstBuy && <Notice kind="warning">The updated minimum is {formatUnits(BigInt(plan.firstBuy.expectedAmountOut) * BigInt(10_000 - plan.firstBuy.slippageBps) / 10_000n, 18)} {draft.symbol || "tokens"}. Your previous payment and approval are saved.</Notice>}
           {error && <Notice kind="error">{error}</Notice>}
@@ -2909,7 +2937,7 @@ function CreatePage({
           ) : !buying ? (
             <button
               className="primary large full"
-              disabled={busy || !!txHash || !config.treasury || !config.writesEnabled || wallet.chainId !== config.chainId}
+              disabled={busy || !!txHash || submissionUnknown || !config.treasury || !config.writesEnabled || wallet.chainId !== config.chainId}
               onClick={() => void confirmLaunch()}
             >
               {busy ? <LoaderCircle className="spin" size={17} /> : <Rocket size={17} />}
@@ -2956,7 +2984,7 @@ function CreatePage({
           >
             Back to edit
           </button>
-          <p className="launch-caption">{buying ? "You have five minutes to confirm in your wallet once the preview is ready." : "You have five minutes to confirm once your wallet opens."}{converting ? " A completed conversion stays in your wallet if you cancel or the launch fails." : ""}</p>
+          <p className="launch-caption">{buying ? "You have five minutes to confirm in your wallet once the preview is ready." : "The launch must be confirmed in your wallet within five minutes of being prepared."}{converting ? " A completed conversion stays in your wallet if you cancel or the launch fails." : ""}</p>
         </dialog>
       )}
     </>
