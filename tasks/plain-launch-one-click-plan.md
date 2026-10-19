@@ -1,6 +1,6 @@
 # One-click plain launch plan
 
-Status: Implemented and reviewed (codex ACCEPT, round 3); not released: the owner asked to see the change before releasing. Owner request 2026-10-19, relayed by the IP-page session (translated from Chinese): "for a launch with no first buy and no payment conversion, merge Simulate launch into Confirm launch so one click prepares, checks and opens the wallet; keep the separate preview for first buys and conversions; drop the predicted token address from the success banner." Branch `claude/plain-launch-one-click`, based on master `b9a0302`.
+Status: Released 2026-10-19 on the owner's word after seeing the change (see Release below). Owner request 2026-10-19, relayed by the IP-page session (translated from Chinese): "for a launch with no first buy and no payment conversion, merge Simulate launch into Confirm launch so one click prepares, checks and opens the wallet; keep the separate preview for first buys and conversions; drop the predicted token address from the success banner." Branch `claude/plain-launch-one-click`, based on master `b9a0302`.
 
 ## Why it is safe
 
@@ -31,4 +31,10 @@ Confirm already checks everything before the wallet prompt. `wallet.launch` (`sr
 - Round 2 (codex accept): REJECT, 2 P2 + 1 P3: the wallet layer could still refresh a plain plan delayed near its deadline (a second prepare in one click, past the warning stop), and a security challenge resent the prepare. `64e3ce8`: `executeLaunchPlan` refreshes only a first buy's plan; the API's `once` option keeps a completed check's token for the next click; plain recovery copy.
 - Round 3: codex ACCEPT, no findings. `npm test` 1864/1864, `npm run build` (with typecheck) passed. Reports are in the worktree's ignored `.superpowers/sdd/plain-launch-one-click/`.
 - Read-only preview (mock wallet, writes refused by the preview proxy): opening a plain review sent no request; one Confirm click sent exactly one `/launch/prepare` and no wallet send.
+
+## Release
+
+- 2026-10-19, on the owner's word (translated from Chinese: "Release it: push to master, check the Durable Object and musegod.fun, then delete the merged branch."). Master `e20c019` (`0338129` + `5e9952f` + `64e3ce8` + `93233f0`, with the earlier info-tips release record cherry-picked as `e20c019`); CI run 39187004205, `build-39187004205-1`, Worker version `0b118a25`, deployed 01:51:09 UTC; rollback point Worker `0f0822eb` (`b9a0302`). `build-info.json` on musegod.fun reports commit `e20c019`.
+- Durable Objects: `/api/chains/{4663,8453}/readyz` report `maintenance.since` 01:52:40 and 01:52:42 UTC, after the deploy (01:48:00 and 01:48:02 before the push), so both instances load the new version.
+- Live check on musegod.fun (built-in browser, read-only mock wallet for `0x00A8…8237`, a fetch guard refusing every non-GET request except RPC reads): opening a plain review sent no request and showed one "Confirm launch · Sign in wallet" button with the new caption; one Confirm click attempted exactly one `/launch/prepare` (refused by the guard, shown in the review), and nothing was signed. A 0.001 WETH first buy still previews when its review opens ("Preview launch and first buy", its own caption). The test draft and mock wallet were removed from the browser.
 
