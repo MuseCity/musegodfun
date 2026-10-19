@@ -3,8 +3,10 @@ import { ArrowDown, ArrowUpRight, Check, Copy, PencilLine, Share2 } from "lucide
 import type { ProfileField } from "../lib/token-profile";
 
 export type HeroStat = { label: string; value: string; hint?: string };
-/** An icon button in the hero meta that copies the coin's contract address. It confirms for two seconds; a refused clipboard says so. */
-export function CopyContractButton({ address }: { address: string }) {
+/** The hero's first line: the coin's contract address and a button that copies it. When the line is too narrow the middle of the
+ * address gives way to an ellipsis, keeping its start and last four characters. The copy confirms for two seconds; a refused
+ * clipboard says so. */
+export function HeroContract({ address }: { address: string }) {
   const [copied, setCopied] = useState<"" | "done" | "failed">("");
   useEffect(() => {
     if (copied !== "done") return;
@@ -12,17 +14,21 @@ export function CopyContractButton({ address }: { address: string }) {
     return () => clearTimeout(timer);
   }, [copied]);
   return <>
-    <button type="button" className="hero-copy" title={`Copy contract address ${address}`} aria-label={copied === "done" ? "Contract address copied" : "Copy contract address"}
-      onClick={() => void Promise.resolve().then(() => navigator.clipboard.writeText(address)).then(() => setCopied("done"), () => setCopied("failed"))}>
-      {copied === "done" ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
-    </button>
-    {copied === "failed" && <span className="hero-copy-error" role="alert">Copy failed. Copy the address from the On-chain tab.</span>}
+    <div className="token-hero-contract">
+      <span className="token-hero-address" title={address}><span>{address.slice(0, -4)}</span><span>{address.slice(-4)}</span></span>
+      <button type="button" className="hero-copy" aria-label={copied === "done" ? "Contract address copied" : "Copy contract address"}
+        onClick={() => void Promise.resolve().then(() => navigator.clipboard.writeText(address)).then(() => setCopied("done"), () => setCopied("failed"))}>
+        {copied === "done" ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+      </button>
+    </div>
+    {copied === "failed" && <span className="hero-copy-error" role="alert">Copy failed. Select the address and copy it manually.</span>}
   </>;
 }
 /** The token page header (tasks/token-ip-detail-plan.md §3): identity, social links and a band of facts the page already holds. */
-export default function TokenHero({ icon, overline, name, symbol, badges, story, meta, links, extraLinks, onShare, onEdit, onTrade, figure, stats }: {
+export default function TokenHero({ icon, address, name, symbol, badges, story, meta, links, extraLinks, onShare, onEdit, onTrade, figure, stats }: {
   icon: ReactNode;
-  overline: string;
+  /** The coin's contract address, the hero's first line. */
+  address: string;
   name: string;
   symbol: string;
   badges: ReactNode;
@@ -44,7 +50,7 @@ export default function TokenHero({ icon, overline, name, symbol, badges, story,
       <div className="token-hero-main">
         {icon}
         <div className="token-hero-identity">
-          <span className="eyebrow">{overline}</span>
+          <HeroContract key={address} address={address} />
           <div className="token-hero-title">
             <h1 id="token-title">{name}</h1>
             <span className="mono token-hero-symbol">${symbol}</span>

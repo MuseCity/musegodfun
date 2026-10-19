@@ -45,10 +45,12 @@ test.afterEach(() => { account = null; resources = {}; });
 
 test("a visitor sees the coin as an IP: socials first, Doppler and the owner's Fomo invite for trading, no in-page swap", () => {
   const html = render({ token: coin });
-  assert.match(html, /Robinhood Chain · launched/);
-  assert.doesNotMatch(html.slice(0, html.indexOf("</header>")), /WETH pair/, "the pair badge is the hero's only mention of the pair");
-  assert(html.includes(`>0x2222…2222</a><button type="button" class="hero-copy" title="Copy contract address ${coin.address}" aria-label="Copy contract address">`),
-    "the copy button sits right of the creator and copies the coin's contract");
+  const hero = html.slice(0, html.indexOf("</header>"));
+  assert(hero.includes(`<div class="token-hero-identity"><div class="token-hero-contract"><span class="token-hero-address" title="${coin.address}"><span>${coin.address.slice(0, -4)}</span><span>${coin.address.slice(-4)}</span></span><button type="button" class="hero-copy" aria-label="Copy contract address">`),
+    "the hero's first line is the coin's contract address with its copy button");
+  assert.doesNotMatch(hero, /Robinhood Chain|WETH pair/, "no chain or pair line: the pair badge is the hero's only mention of the pair");
+  assert.match(hero, /<div class="token-hero-meta"><span>by <a class="mono"[^>]*>0x2222…2222<\/a><\/span><span>launched <span class="mono strong">/,
+    "the creator has no copy button, and the launch date moved to the meta line");
   assert(html.includes(`href="https://app.doppler.lol/tokens/robinhood/${coin.address.toLowerCase()}"`));
   assert.match(html, />Trade on Doppler/);
   assert.match(html, /href="https:\/\/fomo\.family\/r\/musegod"[^>]*>Open Fomo with invite/);
@@ -88,7 +90,9 @@ test("an owner with no links gets a prompt; a visitor sees no empty channels car
 test("an NFT-bound agent coin names its Muse, links OpenSea, shows the ERC-8004 identity and leaves editing to the holder", () => {
   account = creator;
   const html = render({ token: muse, nftProfile: { name: "Jubilee", agentId: "42" } });
-  assert.match(html, /Muse #931 · Jubilee · Robinhood Chain/);
+  assert(html.includes(`<div class="token-hero-contract"><span class="token-hero-address" title="${muse.address}">`), "an NFT coin's first line is its contract too");
+  assert.doesNotMatch(html.slice(0, html.indexOf("</header>")), /Jubilee|Robinhood Chain/);
+  assert.match(html, /Whoever holds Muse #931 · Jubilee controls its treasury/, "the Muse's name stays in About");
   assert(html.includes(`href="https://opensea.io/item/robinhood/${MUSES.contract.toLowerCase()}/931"`));
   assert.doesNotMatch(html, /ERC-8004 agent #42/, "the agent id is not a hero badge");
   assert.match(html, /Agent identity · ERC-8004/);
@@ -110,12 +114,11 @@ test("the pair badge reads \"Paired with <symbol>\": green with a check once ver
   check(render({ token: coin }), verified, "a verified quote asset");
   check(render({ token: coin, stateInvalid: true }), plain, "a pool that fails the on-chain check gets no check mark");
   check(render({ token: muse }), verified, "an NFT coin too, whose meta keeps only the launch date");
-  assert.match(render({ token: muse }), /<span>launched <span class="mono strong">/);
   resources = { "/stocks": [{ address: MUSEGOD.weth, verified: false }] };
   check(render({ token: coin }), plain, "an unverified quote asset");
 });
 
-test("the hero copy button copies the contract address, confirms for two seconds and reports a refused clipboard", async (t) => {
+test("the hero contract line copies the address, confirms for two seconds and reports a refused clipboard", async (t) => {
   const previous = Object.getOwnPropertyDescriptor(globalThis, "navigator");
   t.after(() => { if (previous) Object.defineProperty(globalThis, "navigator", previous); else Reflect.deleteProperty(globalThis, "navigator"); });
   const writes: string[] = [];
@@ -124,7 +127,7 @@ test("the hero copy button copies the contract address, confirms for two seconds
   t.mock.timers.enable({ apis: ["setTimeout"] });
   let View: any;
   const runtime = hookRuntime(() => View({ address: coin.address }));
-  ({ CopyContractButton: View } = await importFresh("src/components/TokenHero.tsx",
+  ({ HeroContract: View } = await importFresh("src/components/TokenHero.tsx",
     { react: { file: import.meta.resolve("react"), bindings: runtime.hooks } }));
   const copy = () => find(runtime.output(), (node) => node.type === "button" && node.props.className === "hero-copy");
   const alert = () => find(runtime.output(), (node) => node.props?.role === "alert");
@@ -138,7 +141,7 @@ test("the hero copy button copies the contract address, confirms for two seconds
     assert.equal(copy().props["aria-label"], "Copy contract address", "the confirmation clears after two seconds");
     clipboard = { writeText: async () => { throw new Error("denied"); } };
     copy().props.onClick(); await settle(); await settle();
-    assert.equal(textOf(alert()), "Copy failed. Copy the address from the On-chain tab.");
+    assert.equal(textOf(alert()), "Copy failed. Select the address and copy it manually.");
     clipboard = undefined;
     copy().props.onClick(); await settle(); await settle();
     assert(alert(), "a page without the Clipboard API reports the failure instead of throwing");

@@ -121,7 +121,7 @@ import LaunchCurve from "./components/LaunchCurve";
 import { pendingLaunchResolution, terminalLaunchIsCanonical, type PendingLaunchResolution } from "./lib/launch-wallet";
 
 import { useLaunchMarket } from "./components/TokenMarket";
-import TokenHero, { CopyContractButton, type HeroStat } from "./components/TokenHero";
+import TokenHero, { type HeroStat } from "./components/TokenHero";
 import TokenVenues from "./components/TokenVenues";
 import TokenActivity from "./components/TokenActivity";
 import TokenContract from "./components/TokenContract";
@@ -3129,7 +3129,6 @@ function TokenDetail({ detail, config, refreshError }: { detail: TokenDetailData
   }, [editing, profileStatus]);
   // The headline is the creator fee per trade; the buyback and operating shares stay in the fee details (About, On-chain).
   const shares = feeShares(token), creatorFee = creatorFeePercent(token), feeTier = tokenFeeCardTier(token, wallet.account);
-  const chainLabel = token.mode === "fork" ? "Fork test asset" : token.mode === "robinhood" ? "Robinhood Chain" : "Base";
   const nftLabel = nft ? `${isMuse(nft) ? "Muse" : "NFT"} #${nft.tokenId}${nftProfile?.name ? ` · ${nftProfile.name}` : ""}` : "";
   const canonicalUrl = `${location.origin}${tokenPath(token)}`;
   const creatorLink = token.creator ? explorer && token.mode !== "fork"
@@ -3156,7 +3155,7 @@ function TokenDetail({ detail, config, refreshError }: { detail: TokenDetailData
       <div className="token-page">
         <TokenHero
           icon={<TokenIcon name={token.name} image={token.image} size="xl" />}
-          overline={nft ? `${nftLabel} · ${chainLabel}` : `${chainLabel} · launched ${dateLabel(token.createdAt)}`}
+          address={token.address}
           name={token.name}
           symbol={token.symbol}
           badges={<>
@@ -3170,9 +3169,8 @@ function TokenDetail({ detail, config, refreshError }: { detail: TokenDetailData
           </>}
           story={token.description}
           meta={<>
-            <span className="token-hero-creator">{creatorLink ? <>by {creatorLink}</> : "Creator not verified"}
-              <CopyContractButton key={token.address} address={token.address} /></span>
-            {nft && <span>launched <span className="mono strong">{dateLabel(token.createdAt)}</span></span>}
+            <span>{creatorLink ? <>by {creatorLink}</> : "Creator not verified"}</span>
+            <span>launched <span className="mono strong">{dateLabel(token.createdAt)}</span></span>
             {token.tradingFeeBps !== undefined && <span className="mono">{feePercent(token.tradingFeeBps)} + {LP_FEE_PERCENT} LP fee</span>}
           </>}
           links={links}
