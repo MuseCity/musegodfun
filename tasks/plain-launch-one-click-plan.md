@@ -1,6 +1,6 @@
 # One-click plain launch plan
 
-Status: Implemented, in review; not released (the owner asked to see the change before releasing). Owner request 2026-10-19, relayed by the IP-page session (translated from Chinese): "for a launch with no first buy and no payment conversion, merge Simulate launch into Confirm launch so one click prepares, checks and opens the wallet; keep the separate preview for first buys and conversions; drop the predicted token address from the success banner." Branch `claude/plain-launch-one-click`, based on master `b9a0302`.
+Status: Implemented and reviewed (codex ACCEPT, round 3); not released: the owner asked to see the change before releasing. Owner request 2026-10-19, relayed by the IP-page session (translated from Chinese): "for a launch with no first buy and no payment conversion, merge Simulate launch into Confirm launch so one click prepares, checks and opens the wallet; keep the separate preview for first buys and conversions; drop the predicted token address from the success banner." Branch `claude/plain-launch-one-click`, based on master `b9a0302`.
 
 ## Why it is safe
 
@@ -24,3 +24,11 @@ Confirm already checks everything before the wallet prompt. `wallet.launch` (`sr
 - `tests/launch-review.test.ts` updated: plain and Muse reviews prepare nothing on open; first-buy notices without the address.
 - `scripts/test-launch-browser.mjs` (not runnable: Playwright is not a dependency) updated where plain and NFT cases waited for a prepare on opening.
 - `docs/SPEC.md` updated; `npm test`, `npm run typecheck`, `npm run build`; codex cross-review accepts; the owner sees the change before any release.
+
+## Review
+
+- Round 1 on `0338129`: codex (gpt-6.1-sol, xhigh) 3 P2 + 3 P3; claude reviewer (xhigh) 2 P2 + 6 P3, overlapping. P2s: warnings returned by the prepare were hidden behind the wallet; after an unknown wallet answer, an expired plan could be prepared over the frozen backup recovery compares with; the API helper's 429/503 retries could send up to three prepare requests for one click; the browser script's NFT, token-lookup, history and idle cases no longer matched the flow. `5e9952f` fixed them (the claude reviewer's findings by claude in the same round, then verified by codex), with the P3s: plain errors point to Confirm, a failed plan is dropped unless the wallet only declined it, a double-click guard, the caption, dead CSS.
+- Round 2 (codex accept): REJECT, 2 P2 + 1 P3: the wallet layer could still refresh a plain plan delayed near its deadline (a second prepare in one click, past the warning stop), and a security challenge resent the prepare. `64e3ce8`: `executeLaunchPlan` refreshes only a first buy's plan; the API's `once` option keeps a completed check's token for the next click; plain recovery copy.
+- Round 3: codex ACCEPT, no findings. `npm test` 1864/1864, `npm run build` (with typecheck) passed. Reports are in the worktree's ignored `.superpowers/sdd/plain-launch-one-click/`.
+- Read-only preview (mock wallet, writes refused by the preview proxy): opening a plain review sent no request; one Confirm click sent exactly one `/launch/prepare` and no wallet send.
+
