@@ -19,3 +19,23 @@ Status: Released 2026-10-19 on the owner's word (see Release below). Owner reque
 - 2026-10-19, on the owner's word: "Release 4d7729b to production: merge into master, push, then verify the live page and record the release." Master fast-forwarded `e20c019` → `4d7729b` (carrying the earlier plain-launch release record `342f89c`); CI run 39195788965, `build-39195788965-1`, Worker version `ce1c832a`, deployed 03:43:41 UTC; rollback point Worker `0b118a25` (`e20c019`). `build-info.json` on musegod.fun reports commit `4d7729b`.
 - Frontend-only change, so no Durable Object behavior probe. `/api/chains/{4663,8453}/readyz` report `ready` with `maintenance.since` 03:44:31 and 03:44:40 UTC.
 - Live check on musegod.fun (built-in browser, no wallet) on the Phial page: the hero shows "✓ Coinbase" with the title "Verified quote asset: Coinbase (COIN)", no `ERC-8004 agent` badge, and the Agent identity card still shows Agent ID `#7201`.
+
+## Follow-up: pair badge text, contract copy, NFT badge height
+
+Owner request 2026-10-19 after the first release (translated from Chinese): "'Verified quote asset: Coinbase' should become 'Paired with COIN', and the 'COIN pair' below should go. Right of 'by 0xc8b1…056b' add a copy icon that copies on click. 'Muse #610' sits noticeably higher than 'Liquidity locked'." Asked what the icon copies, the owner chose the token contract address.
+
+Change (`b621092`):
+- The pair badge reads `Paired with <symbol>` and is the hero's only mention of the pair. It is green with a check mark and the hover title "Verified quote asset: <name> (<symbol>)" once `/stocks` reports the asset verified and the pool passes the on-chain check, and a plain sunken chip otherwise (loading, unverified, invalid pool), so the pair never disappears. The visually hidden "Verified quote asset:" prefix is gone, so assistive technology reads the visible text.
+- "<symbol> pair" leaves the overline (`<chain> · launched <date>`) and the NFT coin's meta line (`launched <date>`). The trade card's "<symbol> pair" pill is unchanged.
+- `CopyContractButton` (`src/components/TokenHero.tsx`): a 24 px icon button right of the creator that copies the coin's contract address, shows a check for two seconds, and shows "Copy failed. Copy the address from the On-chain tab." when the clipboard refuses or is missing.
+- On the title line the NFT badge is centred and 24 px tall with 10 px padding, matching `.chip.sm`; the unverified-collection warning variant keeps its own padding.
+
+Verification:
+- `tests/token-ip-page.test.ts`: the overline and hero have no "WETH pair"; the copy button follows the creator link with the contract in its title; the pair badge is plain before the status loads, unverified or invalid, and green for verified coins and NFT coins; the copy button copies the address, clears its confirmation after two seconds (mocked timers), and reports a rejected or missing clipboard.
+- `npm run typecheck` passed; `npm test` 1866/1866.
+- Read-only preview against production data: on Phial the three badges measure 24 px with the same top, and the meta row stays 16 px tall; MuseVader (a non-NFT coin) reads "Robinhood Chain · Launched Oct 13, 2026" with "Paired with MUSEGOD"; the 375 px layout wraps cleanly. The preview pane denies `clipboard-write` to every page (the live Fomo copy button fails there too), so the success path was checked with an in-page stand-in clipboard: it received `0x808C07de6dB60091b44D2Ed0e0f19FC2644A884a`, the icon became a check and the label returned after two seconds.
+
+Release:
+
+- 2026-10-19, on the owner's word: "Release b621092 to production: push to master, verify the live page, record the release and clean up the branch." Master fast-forwarded `4d7729b` → `b621092` (carrying the first release record `8726857`); CI run 39199789294, `build-39199789294-1`, Worker version `7edc6d12`, deployed 04:32:54 UTC; rollback point Worker `ce1c832a` (`4d7729b`). `build-info.json` on musegod.fun reports commit `b621092`. Frontend only, so no Durable Object probe.
+- Live check on musegod.fun (built-in browser, no wallet) on the Phial page: overline "Muse #610 · Phial · Robinhood Chain", badges "Paired with COIN" (green, check), "Liquidity locked" and "Muse #610" all 24 px with the same top, no "COIN pair" and no agent badge in the hero; the meta reads "by 0xc8b1…056b", the copy button (title "Copy contract address 0x808C07de6dB60091b44D2Ed0e0f19FC2644A884a"), "launched Oct 19, 2026" and the fee. A real clipboard write could not be exercised in the built-in browser, which denies `clipboard-write`.
