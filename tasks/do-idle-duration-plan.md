@@ -1,6 +1,25 @@
 # Durable Object idle duration, 2026-10-18: clear fetch deadline timers
 
-Status: released 2026-10-18 on the owner's approval, fast-forwarded to master from branch `claude/fervent-lamport-3e9549` (based on `608ff14`; rollback point Worker `9072c850`). Cross-reviewed (codex review → claude fix → codex accept). The before/after duration comparison below is measured after release.
+Status: released 2026-10-18 on the owner's approval, fast-forwarded to master from branch `claude/fervent-lamport-3e9549` (based on `608ff14`; rollback point Worker `9072c850`). Cross-reviewed (codex review → claude fix → codex accept). Effect confirmed on 2026-10-19: daily Durable Object duration fell from ≈96% to ≈5–7.5% of the Free plan limit (see Result).
+
+## Result (measured 2026-10-19 07:12 UTC)
+
+Source: Cloudflare GraphQL `durableObjectsPeriodicGroups` (query below), hourly rows from 2026-10-15 00:00 to 2026-10-19 07:00 UTC, both chain objects (`a855bb8f…` Robinhood, `bc4deca0…` Base; namespace `c8a77d91…`; no other objects). Fix commit `3b1f1fd`, Worker `38a0bf93`, both objects restarted on the new code by the immediate-mode redeploy at 00:43 UTC on 2026-10-18. Later releases up to `fa8a3df` kept the low share; the timers they added in `server/opening-price.ts` and `server/service.ts` are cleared in `finally`.
+
+| UTC day | Active s (both objects) | GB-s | Share of 13,000 GB-s | CPU s |
+| --- | ---: | ---: | ---: | ---: |
+| 2026-10-15 | 97,764 | 12,221 | 94.0% | 112 |
+| 2026-10-16 | 97,899 | 12,237 | 94.1% | 94 |
+| 2026-10-17 | 100,312 | 12,539 | 96.5% | 103 |
+| 2026-10-18 (first full day; 00:00–00:43 still on the old code) | 7,779 | 972 | 7.5% | 75 |
+| 2026-10-19 00:00–07:00 (partial) | 1,680 | 210 | 1.6% | 35 |
+
+- 2026-10-17 is now final at 100,312 active s; the 99,884 s quoted under Evidence was read before the day's last rows arrived.
+- Hour 00 of 2026-10-18 alone was 3,210 active s (44.6% share). From 01:00 every hour sits at 2.4–4.5% active share (≈57% before); the highest hours were 4.3% (2026-10-18 12:00) and 4.5% (2026-10-19 03:00), both with more Robinhood CPU, i.e. request load.
+- Clean post-fix window (2026-10-18 01:00 to 2026-10-19 07:00, 30 hours): 6,211 active s → ≈4,970 active s ≈ 621 GB-s per day (4.8% of the limit). The pre-release projection was ≈540 GB-s; the difference is request handling on top of the alarm floor.
+- The quiet Base object is active 0.72 s per 30 s alarm cycle (15.2 s before); `/api/chains/8453/readyz` shows the idle alarm itself at 0.57 s.
+- CPU time did not change (≈85–103 s per day), which confirms the saving is idle billable time, not work.
+- Quota risk: closed for current traffic. Reaching the 90% alert again would need ≈12× today's peak-hour active share sustained for a whole day. No change to the 30 s alarm interval or the plan is needed now.
 
 ## Problem
 
@@ -49,7 +68,7 @@ query DurableObjectDuration($account: String!, $since: Time!, $until: Time!) {
 
 - `activeTime` and `cpuTime` are in microseconds: active seconds = sum(`activeTime`) ÷ 1,000,000 (CPU seconds likewise).
 - Active share per hour = active seconds of both objects ÷ (2 × 3,600 s). GB-s = active seconds × 0.125 GB. The daily limit equals 104,000 active seconds across both objects.
-- Before: ≈57% active share, ≈12,486 GB-s per day. Expected after: a few percent. The alarm floor is ≈0.6 s per 30 s per object (≈2%, ≈3,500 active seconds ≈ 430 GB-s per day for both), plus request handling time.
+- Before: ≈57% active share, ≈12,486 GB-s per day. Expected after: a few percent (measured: see Result). The alarm floor is ≈0.6 s per 30 s per object (≈2%, ≈3,500 active seconds ≈ 430 GB-s per day for both), plus request handling time.
 - The quiet Base object is the cleanest signal: it should fall from ≈15.2 s to about 1 s of every 30 s cycle.
 
 ## If the share does not fall
