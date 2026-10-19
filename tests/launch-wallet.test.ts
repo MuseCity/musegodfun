@@ -139,6 +139,22 @@ test("approval taking over sixty seconds refreshes within the accepted floor and
   assert.deepEqual(calls, ["approve", "refresh", "replace-preview", "simulate", "launch"], "refresh adds no second approval or business-confirmation stage");
 });
 
+test("a plan without a first buy is never refreshed near its deadline: it is signed within what is left, with no second prepare", async (t) => {
+  const value = v2Plan(false);
+  let now = value.signingExpiresAt! - 30_000;
+  resetQuoteClock(); t.after(resetQuoteClock); t.mock.method(Date, "now", () => now);
+  const calls: string[] = [];
+  assert.equal(await executeLaunchPlan(value, config, account, {
+    validate: async () => { calls.push("validate"); }, balance: async () => 0n, allowance: async () => 0n,
+    approve: async () => { throw new Error("No approval without a first buy"); },
+    refresh: async () => { calls.push("refresh"); return v2Plan(false); },
+    simulate: async () => { calls.push("simulate"); return { valid: true, gas: "1000000", amountOut: null, simulatedAt: now }; },
+    submit: async (_transaction, _gas, fresh) => { calls.push("launch"); assert.equal(fresh.id, value.id); return hash; }, progress: () => {},
+  }), hash);
+  assert.equal(calls.includes("refresh"), false);
+  assert.equal(calls.filter((call) => call === "launch").length, 1);
+});
+
 test("first-buy execution accepts simulated output from the frozen minimum through the expected amount", async () => {
   const value = v2Plan(), minimum = BigInt(value.firstBuy!.minAmountOut), expected = BigInt(value.firstBuy!.expectedAmountOut);
   for (const amountOut of [minimum, (minimum + expected) / 2n, expected, expected + 1n]) {

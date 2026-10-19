@@ -2,7 +2,11 @@ import type { MarketReason } from "./market";
 import { observeServerTime, quoteNow } from "./quote-clock";
 
 export type ChallengeRequest = { siteKey: string; action: string; resolve: (token: string) => void; reject: (error: Error) => void };
-export type ApiOptions = { challenge?: boolean; retry?: boolean; signal?: AbortSignal };
+/** `once`: send at most one request. No automatic retries, and a security check the server asks for is completed but not resent: its
+ * token is kept for the next call to the same path (within four minutes), and the call fails with CHALLENGE_COMPLETED. */
+export type ApiOptions = { challenge?: boolean; retry?: boolean; once?: boolean; signal?: AbortSignal };
+const keptChallenges = new Map<string, { token: string; until: number }>();
+const KEPT_CHALLENGE_MS = 240_000;
 export class ApiError extends Error {
   // Seconds the server asked the caller to wait before retrying, if any.
   constructor(message: string, public status: number, public code?: string, public retryAfter?: number, public reason?: MarketReason) { super(message); }
@@ -22,6 +26,11 @@ function anySignal(signals: AbortSignal[]): AbortSignal {
 }
 export async function api<T>(path: string, body?: unknown, options: ApiOptions = {}): Promise<T> {
   let challengeToken: string | undefined;
+  if (options.once) {
+    const kept = keptChallenges.get(path);
+    keptChallenges.delete(path);
+    if (kept && kept.until > Date.now()) challengeToken = kept.token;
+  }
   const requestId = crypto.randomUUID();
   const retryable = body === undefined || /\/(prepare|validate|simulate|quote|verify|register|track)$/.test(path);
   for (let attempt = 0; ; attempt++) {
@@ -42,14 +51,18 @@ export async function api<T>(path: string, body?: unknown, options: ApiOptions =
   const result = await response.json();
   observeServerTime(response.headers.get("date"), result?.serverTime, started);
   if (result && typeof result === "object") quoteNow(result);
-  if (!response.ok && result.code === "CHALLENGE_REQUIRED" && options.challenge !== false && !challengeToken && typeof window !== "undefined") {
+  if (!response.ok && result.code === "CHALLENGE_REQUIRED" && options.challenge !== false && (!challengeToken || options.once) && typeof window !== "undefined") {
     challengeToken = await new Promise<string>((resolve, reject) => {
       window.dispatchEvent(new CustomEvent<ChallengeRequest>("musegod:challenge", { detail: { siteKey: result.siteKey, action: result.action, resolve, reject } }));
     });
+    if (options.once) {
+      keptChallenges.set(path, { token: challengeToken, until: Date.now() + KEPT_CHALLENGE_MS });
+      throw new ApiError("Security check complete. Confirm again to continue.", 403, "CHALLENGE_COMPLETED");
+    }
     continue;
   }
   const header = response.headers.get("retry-after"), retryAfter = header !== null && Number.isFinite(Number(header)) ? Math.max(0, Number(header)) : undefined;
-  if (!response.ok && options.retry !== false && retryable && attempt < 2 && [429, 503].includes(response.status) && result.code !== "CHALLENGE_REQUIRED" && result.code !== "NFT_LIST_UNAVAILABLE" &&
+  if (!response.ok && options.retry !== false && !options.once && retryable && attempt < 2 && [429, 503].includes(response.status) && result.code !== "CHALLENGE_REQUIRED" && result.code !== "NFT_LIST_UNAVAILABLE" &&
     (retryAfter ?? 1) <= AUTOMATIC_RETRY_SECONDS) {
     await new Promise((resolve) => setTimeout(resolve, Math.max(500, (retryAfter ?? 1) * 1000)));
     continue;

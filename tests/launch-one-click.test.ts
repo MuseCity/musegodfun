@@ -64,7 +64,7 @@ test("one Confirm prepares once, without automatic retries, and opens the wallet
   assert.deepEqual([textOf(confirm(form.dialog())), confirm(form.dialog()).props.disabled], ["Preparing your launch…", true], "the click prepares first");
   assert.deepEqual(form.calls, ["/launch/prepare"], "a second click in the same moment adds nothing");
   release(); await form.flush();
-  assert.deepEqual(form.callOptions, [{ retry: false }], "the prepare asks once: no automatic retries");
+  assert.deepEqual(form.callOptions, [{ once: true }], "the prepare asks once: no automatic retries, no resend after a security check");
   assert.deepEqual(launches, [planId(1)], "then opens the wallet with the plan it prepared, in the same click");
   assert.deepEqual(errors(form.dialog()), [declined]);
   assert.equal(nodes(form.dialog()).some((element) => String(element.props?.className ?? "").includes("plan-result")), false, "no preview to report");
@@ -85,6 +85,16 @@ test("one Confirm prepares once, without automatic retries, and opens the wallet
   await click(form);
   assert.equal(form.calls.length, 3, "the next click prepares a fresh plan");
   assert.equal(launches.at(-1), planId(3));
+});
+
+test("a plain plan is always checked before the wallet, even with under a minute left, since nothing refreshes it later", async (t) => {
+  const launches: string[] = [];
+  wallet.launch = async (plan: { id: string }) => { launches.push(plan.id); throw decline(); };
+  t.after(() => { delete wallet.launch; });
+  const form = await openPlainReview(t, { "/launch/prepare": (body) => prepare(body, { signingExpiresAt: Date.now() + 50_000 }) });
+  await click(form);
+  assert.deepEqual(form.validityChecks, [planId(1)]);
+  assert.deepEqual(launches, [planId(1)]);
 });
 
 test("a fresh plan with warnings stops before the wallet so they can be read; the next click launches that plan", async (t) => {

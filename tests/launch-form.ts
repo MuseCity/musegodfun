@@ -63,7 +63,7 @@ export async function launchForm(t: TestContext, options: { saved?: Record<strin
       ...(free && (options.names ?? museNames)[nft.tokenId] ? { name: (options.names ?? museNames)[nft.tokenId] } : {}) } as NftStatus;
   };
   let Create: any;
-  const calls: string[] = [], callOptions: unknown[] = [], pageConfig = { ...config, ...options.config };
+  const calls: string[] = [], callOptions: unknown[] = [], validityChecks: string[] = [], pageConfig = { ...config, ...options.config };
   const parent = hookRuntime(() => Create({ stocks: null, stockError: "", config: pageConfig, refresh() {} }));
   ({ CreatePage: Create } = await importFresh("src/App.tsx", {
     react: { file: import.meta.resolve("react"), bindings: parent.hooks },
@@ -80,7 +80,7 @@ export async function launchForm(t: TestContext, options: { saved?: Record<strin
     ...(options.api ? {
       "./lib/opening-valuation": { file: import.meta.resolve("../src/lib/opening-valuation.ts"), bindings: { assertOpeningValuation: () => {} } },
       "./lib/first-buy-payment": { file: import.meta.resolve("../src/lib/first-buy-payment.ts"), bindings: { assertFirstBuyPaymentQuote: () => {} } },
-      "./lib/launch-plan": { file: import.meta.resolve("../src/lib/launch-plan.ts"), bindings: { assertLaunchPlanValidity: () => {} } },
+      "./lib/launch-plan": { file: import.meta.resolve("../src/lib/launch-plan.ts"), bindings: { assertLaunchPlanValidity: (plan: { id: string }) => { validityChecks.push(plan.id); } } },
     } : {}),
   }, ["CreatePage"]));
   // The step mounts, remounts (a new `key`) and unmounts with the page's element, as React does.
@@ -154,6 +154,8 @@ export async function launchForm(t: TestContext, options: { saved?: Record<strin
     dialog: () => find(parent.output(), (element) => element.type === "dialog"),
     /** The API paths answered from `api`, in call order, and the request options each was sent with. */
     calls, callOptions,
+    /** The plans the page checked for validity before opening the wallet (the check itself passes in this harness). */
+    validityChecks,
     /** Lets pending work settle and the page and its step re-render, e.g. after a test advanced the mocked clock. */
     flush,
     /** The draft as the autosave (250 ms after the last change) stores it. */

@@ -177,7 +177,9 @@ export async function executeLaunchPlan(plan: LaunchPlan, config: RuntimeConfig,
     assertLaunchWalletPlan(frozen, config, account);
     await deps.validate(frozen);
   };
-  if (deps.refresh && frozen.validityVersion === 2 && frozen.signingExpiresAt! - quoteNow(frozen) < 60_000) {
+  // Only a first buy's nearly expired plan is refreshed. A launch without one prepares on its own Confirm click, at most once per click,
+  // so its plan is signed within what is left of its window or fails, and the next click prepares a new one.
+  if (deps.refresh && frozen.firstBuy && frozen.validityVersion === 2 && frozen.signingExpiresAt! - quoteNow(frozen) < 60_000) {
     const refreshed = freezeLaunchPlan(await deps.refresh(frozen));
     assertAcceptedLaunchRefresh(frozen, refreshed); frozen = refreshed; deps.onPlan?.(frozen);
   }

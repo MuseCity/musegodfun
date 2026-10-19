@@ -1745,8 +1745,8 @@ function CreatePage({
             ...(currentPlan.current.firstBuy ? { acceptedMinAmountOut: currentPlan.current.firstBuy.acceptedMinAmountOut ?? currentPlan.current.firstBuy.minAmountOut } : {}) } : {}) },
         ...(paymentAttempt?.actualOutput ? { paymentRecovery: { quote: paymentAttempt.quote, hash: paymentAttempt.hash } } : {}),
         firstBuy: { amount: requestedAmount, slippageBps: firstBuy.slippageBps, lockDays: firstBuy.lockDays },
-        // One Confirm click spends at most one prepare: a plain launch asks again by a click, not by automatic retries.
-      }, buying ? undefined : { retry: false });
+        // One Confirm click sends at most one prepare: a plain launch asks again by a click, not by retries or a resend after a check.
+      }, buying ? undefined : { once: true });
       if (request !== generation.current) return null;
       if (next.draft.tradingFeeBps !== tradingFeeBps)
         throw new Error("The trading fee does not match your selection. Preview again.");
@@ -1973,7 +1973,8 @@ function CreatePage({
         throw new Error("Complete and verify your selected payment conversion before launching. Your preview is saved.");
       if (flowPayment && !flowPayment.actualOutput) throw new Error("Check the submitted payment conversion before confirming another launch.");
       if (txHash && !confirmed) throw new Error("Recover the submitted launch before confirming another launch.");
-      if ((activePlan.signingExpiresAt ?? activePlan.openingValuation?.expiresAt ?? 0) - quoteNow(activePlan) >= 60_000)
+      // A first buy's nearly expired plan is refreshed by the wallet layer; a plain plan never is, so it must still be valid here.
+      if (!activePlan.firstBuy || (activePlan.signingExpiresAt ?? activePlan.openingValuation?.expiresAt ?? 0) - quoteNow(activePlan) >= 60_000)
         assertLaunchPlanValidity(activePlan, deploymentChain(config), quoteNow(activePlan));
       if (activePlan.draft.tradingFeeBps !== tradingFeeBps)
         throw new Error("The trading fee changed. Preview again.");
@@ -2148,7 +2149,7 @@ function CreatePage({
         if (request !== generation.current) return;
         setSubmissionUnknown(false);
         setTxHash(null); setPlan(null);
-        setMessage("The launch did not complete on-chain. You can prepare a new preview.");
+        setMessage(`The launch did not complete on-chain. ${buying ? "You can prepare a new preview." : "You can confirm a new launch."}`);
         return;
       }
       unchanged();
