@@ -25,7 +25,7 @@ const muse = { ...coin, nft: { chainId: 4663, contract: MUSES.contract, tokenId:
 const market = { summary: { data: null, loading: false, error: "" }, trades: { data: null, loading: false, error: "" }, stats: null, tradeData: null,
   currentLive: null, liveNode: null, refresh() {} };
 
-let TokenDetail: any, account: string | null = null;
+let TokenDetail: any, account: string | null = null, resources: Record<string, unknown> = {};
 const render = (detail: Record<string, unknown>, runtime: RuntimeConfig | null = config) =>
   renderToStaticMarkup(createElement(TokenDetail, { detail: { state: { poolKey: {} }, ...detail }, config: runtime, refreshError: "" }));
 
@@ -36,12 +36,12 @@ test.before(async () => {
     if (!(name in globalThis)) Object.defineProperty(globalThis, name, { configurable: true, value });
   ({ TokenDetail } = await importFresh("src/App.tsx", {
     "./lib/wallet": { file: import.meta.resolve("../src/lib/wallet.tsx"), bindings: { useWallet: () => ({ account }) } },
-    "./lib/resource": { file: import.meta.resolve("../src/lib/resource.ts"), bindings: { useResource: () => ({ data: null, error: "", loading: false }) } },
+    "./lib/resource": { file: import.meta.resolve("../src/lib/resource.ts"), bindings: { useResource: (path: string) => ({ data: resources[path] ?? null, error: "", loading: false }) } },
     "./components/TokenMarket": { file: import.meta.resolve("../src/components/TokenMarket.tsx"), bindings: { useLaunchMarket: () => market } },
     "./lib/nft-client": { file: import.meta.resolve("../src/lib/nft-client.ts"), bindings: { readNftStatus: async () => ({ controls: true }) } },
   }, ["TokenDetail"]));
 });
-test.afterEach(() => { account = null; });
+test.afterEach(() => { account = null; resources = {}; });
 
 test("a visitor sees the coin as an IP: socials first, Doppler and the owner's Fomo invite for trading, no in-page swap", () => {
   const html = render({ token: coin });
@@ -87,11 +87,22 @@ test("an NFT-bound agent coin names its Muse, links OpenSea, shows the ERC-8004 
   const html = render({ token: muse, nftProfile: { name: "Jubilee", agentId: "42" } });
   assert.match(html, /Muse #931 · Jubilee · Robinhood Chain/);
   assert(html.includes(`href="https://opensea.io/item/robinhood/${MUSES.contract.toLowerCase()}/931"`));
-  assert.match(html, /ERC-8004 agent #42/);
+  assert.doesNotMatch(html, /ERC-8004 agent #42/, "the agent id is not a hero badge");
   assert.match(html, /Agent identity · ERC-8004/);
+  assert.match(html, /<dt>Agent ID<\/dt><dd>#42<\/dd>/, "the Agent identity card keeps the id");
   assert.match(html, /<span class="eyebrow muted">Creator fee<\/span><span class="mono">0.665%<\/span><span class="hint">of every trade · to the NFT treasury · fixed at launch<\/span>/);
   assert.doesNotMatch(html, /Edit profile/, "the launcher of an NFT coin is not its owner until the holder check passes");
   assert.doesNotMatch(render({ token: muse }), /Agent identity|ERC-8004 agent/, "no agent id, no agent card");
+});
+
+test("a verified quote asset badge names the paired asset; unverified or invalid pools show none", () => {
+  const badge = /<span class="chip sm up" title="Verified quote asset: Wrapped Ether \(WETH\)">.*?<span class="visually-hidden">Verified quote asset: <\/span>Wrapped Ether<\/span>/;
+  assert.doesNotMatch(render({ token: coin }), /Verified quote asset/, "no badge before the status loads");
+  resources = { "/stocks": [{ address: MUSEGOD.weth, verified: true }] };
+  assert.match(render({ token: coin }), badge);
+  assert.doesNotMatch(render({ token: coin, stateInvalid: true }), /Verified quote asset/, "a pool that fails the on-chain check gets no badge");
+  resources = { "/stocks": [{ address: MUSEGOD.weth, verified: false }] };
+  assert.doesNotMatch(render({ token: coin }), /Verified quote asset/);
 });
 
 test("fork coins and pools that fail the on-chain check never link to a mainnet venue", () => {

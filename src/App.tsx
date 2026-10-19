@@ -3160,9 +3160,10 @@ function TokenDetail({ detail, config, refreshError }: { detail: TokenDetailData
           name={token.name}
           symbol={token.symbol}
           badges={<>
-            {!stateInvalid && stockStatus?.verified && <span className="chip sm up"><Check size={12} />Verified quote asset</span>}
+            {/* The verified badge names the paired asset; the agent id lives in the Agent identity card, not the hero. */}
+            {!stateInvalid && stockStatus?.verified && <span className="chip sm up" title={`Verified quote asset: ${stock.name} (${stock.symbol})`}>
+              <Check size={12} /><span className="visually-hidden">Verified quote asset: </span>{stock.name}</span>}
             {!stateInvalid && <span className="chip sm sunken"><LockKeyhole size={12} />Liquidity locked</span>}
-            {nftProfile?.agentId && <span className="chip sm halo">ERC-8004 agent #{nftProfile.agentId}</span>}
             <NftBadge token={token} withContract />
           </>}
           story={token.description}
