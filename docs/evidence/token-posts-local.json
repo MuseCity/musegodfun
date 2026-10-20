@@ -2,11 +2,11 @@
   "date": "2026-10-20",
   "sourceBase": "c89fb720f166f348225cde680e7d5c9803029171",
   "scope": "Local implementation and acceptance; no production migration, deployment or public publishing",
-  "applicationTests": { "command": "npm test", "total": 1899, "passed": 1898, "failed": 0, "skipped": 1 },
+  "applicationTests": { "command": "npm test", "total": 1913, "passed": 1912, "failed": 0, "skipped": 1 },
   "postgres": {
     "command": "POSTS_TEST_POSTGRES=1 npx tsx --test tests/token-post-store-postgres.test.ts",
     "result": "passed separately in isolated PostgreSQL 17; this opt-in test is skipped in the default suite",
-    "checks": ["all eight migrations apply", "SQLite/RPC parity", "RLS and service-role-only RPC", "concurrent token quota", "cross-chain image quota", "restored keys revoked"],
+    "checks": ["all eight migrations apply", "SQLite/RPC parity", "RLS and service-role-only RPC", "concurrent token quota", "cross-chain image quota", "restored keys revoked", "image release refunds token and shared day slots", "verify-scope cleanup keeps the live shared counter", "shared counter backup merges by maximum on restore"],
     "productionAccess": false
   },
   "build": { "command": "npm run build", "result": "passed including app and Worker TypeScript checks", "warning": "Vite reports a client chunk over 500 kB" },
@@ -22,6 +22,7 @@
     "mobilePreview": "token-posts-mobile.png"
   },
   "review": { "p1": 0, "p2Fixed": "Existing NFT Posts management remains available while NFT launches are disabled; profile launch-mode restrictions remain intact" },
+  "crossReview": { "models": ["codex gpt-6.1-sol xhigh", "Claude"], "codexFindings": ["C1 P1 verify-scope cleanup erased the live shared image counter", "C2 P2 percent-encoded addresses bypassed admission", "C3 P2 Pinata budget refusal returned 503 and spent image slots", "C4 P2 backups dropped the shared image counter", "C3-R1 P2 SQLite refund commit order allowed a double refund"], "claudeFindings": ["L1 P3 owner key routes lacked the risk challenge", "L2 P3 agent docs omitted terminal errors", "L3 P3 database verifier skipped image release"], "result": "all fixed with regression tests and accepted by the other side" },
   "notRun": ["production database migration", "deployment", "real-wallet acceptance", "live NFT RPC ownership", "real Pinata upload", "public Post creation"],
   "rollback": "Source baseline is sourceBase. For a future release rollback, revert the application to its verified previous build and preserve additive Posts tables, revocation records and tombstones; do not restore old credentials. No production rollback is needed for this local-only run."
 }
