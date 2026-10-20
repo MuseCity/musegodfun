@@ -72,7 +72,7 @@ export class IngressLimiter {
     if (kind === "recovery") row.recovery++;
     const normalized = admissionPath(path);
     // A profile save may cost RPC reads (contract-wallet signature, NFT holder): the same cap and challenge as a quote.
-    const workflow = /\/(?:launch\/(?:prepare|simulate)|first-buy\/quote|tokens\/0x[0-9a-f]{40}\/profile)$/.test(normalized);
+    const workflow = /\/(?:launch\/(?:prepare|simulate)|first-buy\/quote|tokens\/0x[0-9a-f]{40}\/(?:profile|post-api-keys(?:\/list|\/[0-9a-f-]{36}\/revoke)?))$/.test(normalized);
     const upload = normalized.endsWith("/token-images");
     row.riskTimes = row.riskTimes.filter((time) => time > now - 300_000);
     row.uploadTimes = row.uploadTimes.filter((time) => time > now - 300_000);

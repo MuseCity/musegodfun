@@ -41,6 +41,13 @@ export async function assertTokenPostsDatabaseMigration(store: SupabaseStore) {
   assert.equal((await store.postAction({ ...command, requestHash: "c".repeat(64) })).error?.status, 409);
   await store.postAction({ action: "postDelete", token, postId: post.id, now });
   assert.equal((await store.postAction(command)).post?.deletedAt, now, "A deleted post is never recreated by retry");
+  const imageId = "d".repeat(64), leaseId = randomUUID(), day = Math.floor(now / 86_400_000);
+  assert.equal((await store.postAction({ action: "mediaReserve", token, keyId: id, id: imageId, leaseId, now })).media?.state, "pending");
+  assert.equal((await store.postAction({ action: "mediaRelease", token, id: imageId, leaseId, now })).media?.state, "failed", "A released image is marked failed");
+  assert.equal((await store.postAction({ action: "mediaGet", token, id: imageId })).media?.state, "failed", "A released image is marked failed in storage");
+  const rateKeys = [`images:${token}:${day}`, `images-global:${day}`];
+  const rates = await store.request<{ key: string; count: number }[]>(`musegod_post_rates?scope=eq.${store.scope}&key=in.(${rateKeys.join(",")})&select=key,count`);
+  for (const rateKey of rateKeys) assert.equal(rates.find(row => row.key === rateKey)?.count, 0, `Released media refunds ${rateKey}`);
   await store.postAction({ action: "keyRevoke", token, id, now });
   assert.equal((await store.postAction(command)).error?.status, 401, "Idempotency cannot bypass revocation");
   return { token, keyId: id, postId: post.id };

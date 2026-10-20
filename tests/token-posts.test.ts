@@ -223,3 +223,21 @@ test("Posts admission classifies percent-encoded routes the way Express matches 
   for (let i = 0; i < 21; i++) { const admission = limiter.admit("203.0.113.9", `/api/tokens/${address}/post-api-keys/list`, START, "POST"); statuses.push(admission.status); admission.release(); }
   assert.deepEqual(statuses.slice(0, 20), Array(20).fill(undefined)); assert.equal(statuses[20], 429, "encoded owner requests share the expensive cap");
 });
+
+test("Posts admission challenges owner key routes while bearer routes keep machine quotas", () => {
+  const id = randomUUID();
+  for (const root of ["/api", "/api/chains/8453", "/api/chains/4663"]) for (const address of [`0x${"ab".repeat(20)}`, `%30x${"ab".repeat(20)}`]) {
+    for (const [suffix, owner] of [["/post-api-keys", true], ["/post-api-keys/list", true], [`/post-api-keys/${id}/revoke`, true],
+      ["/posts", false], ["/posts/images", false], [`/posts/${id}/delete`, false], ["/post-api-keys/unknown", false]] as const) {
+      const path = `${root}/tokens/${address}${suffix}/?fixture=1`, burst = new IngressLimiter(), sustained = new IngressLimiter();
+      for (let i = 0; i < 17; i++) {
+        const admission = burst.admit("203.0.113.10", path, START, "POST"); admission.release();
+        assert.equal(admission.status, undefined, path); assert.equal(admission.challenge, owner && i === 16, `burst ${path}`);
+      }
+      for (let i = 0; i < 41; i++) {
+        const admission = sustained.admit("203.0.113.10", path, START + Math.floor(i / 10) * 60_000, "POST"); admission.release();
+        assert.equal(admission.status, undefined, path); assert.equal(admission.challenge, owner && i === 40, `sustained ${path}`);
+      }
+    }
+  }
+});
