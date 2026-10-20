@@ -919,5 +919,78 @@
         "restore cannot overwrite a scope containing only buyback batches"
       ]
     }
+  },
+  "tokenPostsMigration": {
+    "authorizedBy": "owner, 2026-10-20 ('release and clean up' after the codex/Claude cross review)",
+    "path": "supabase/migrations/20261020032752_token_posts.sql",
+    "sha256": "aa186b102be8e8af279e8505bf9a37d2a8c69edd4e52fe134753d58f310e6c3b",
+    "appliedAt": "2026-10-20T06:32:37Z",
+    "method": "psql 18 via the project's IPv4 session pooler (the direct host is IPv6-only); credentials passed only through the child process environment, never recorded",
+    "backups": "db:backup of scopes robinhood and base taken first (local, mode 600, not committed)",
+    "preflight": {
+      "postgres": "17.11",
+      "postsTablesPresent": 0,
+      "postActionPresent": false,
+      "replacedFunctionsMatchBase": {
+        "musegod_backup": true,
+        "musegod_restore": true,
+        "musegod_cleanup": true
+      },
+      "roles": "anon, authenticated, service_role"
+    },
+    "applied": "single transaction BEGIN...COMMIT, no errors",
+    "postcheck": {
+      "postsTablesWithRls": 4,
+      "postActionSecurityDefiner": false,
+      "postActionSearchPath": "empty",
+      "anonExecutePostAction": false,
+      "authenticatedExecutePostAction": false,
+      "serviceRoleExecutePostAction": true,
+      "anonOrAuthenticatedReadPostsOrKeys": false,
+      "cleanupGatesSharedCounterToProductionScopes": true,
+      "backupCarriesSharedImageCounter": true,
+      "restoreMergesSharedImageCounter": true,
+      "serviceRoleEmptyScopeRead": "{\"posts\": []}"
+    },
+    "residue": "no rows in any Posts table after verification",
+    "verifyDatabase": "npm run verify:database PASS at 2026-10-20T06:33:54.579Z (includes the Posts key, idempotency, deletion, image release refund and restore revocation assertions; the script rewrites this file, so its output is merged here under verifyDatabaseRun)",
+    "neverReapply": "The migration is not idempotent; do not apply it again.",
+    "verifyDatabaseRun": {
+      "observedAt": "2026-10-20T06:33:54.579Z",
+      "backend": "Supabase",
+      "project": "vrhzgmulcyqqzkkforsl",
+      "scope": "isolated verification rows only",
+      "checks": [
+        "health",
+        "native internal-audit CAS RPC exists and rejects stale expectations",
+        "legacy unbounded ledger RPCs are absent from the server Data API",
+        "atomic concurrent quota",
+        "quota survives reconnect",
+        "snapshot readback",
+        "consistent backup / empty target restore",
+        "restore preserves quota",
+        "nonempty restore rejected",
+        "launch plan and pending hash survive reconnect",
+        "fee policy and original treasury survive reconnect and backup restore",
+        "idempotent token registration and replacement status",
+        "NFT verification compare-and-swap settles only unverified or absent statuses and never touches non-NFT records",
+        "NFT verification compare-and-swap matches the provenance it read and never downgrades it",
+        "launch-fee single use excludes only the coin itself",
+        "musegod_nft_guards_ready() reports both NFT single-use guard indexes and the launch claim",
+        "the pre-sign launch claim is granted when free, refused to another owner while live and freed by release",
+        "the launch-fee guard index refuses a second coin spending one payment, in any case",
+        "the verified-NFT guard index refuses a second verified coin (insert or compare-and-swap) and allows rejected and unverified ones",
+        "backup restores token and canonical receipt identity",
+        "orphan token removal",
+        "buyback batch amounts and receipt history survive reconnect and upsert",
+        "buyback batch scope isolation and 24-hour cleanup retention",
+        "version-3 backup preserves runtime control revision and transaction history",
+        "legacy ledger data is preserved by the unchanged database backup / restore functions",
+        "unknown Base source submission nonce, original hash, gas and replacement evidence survive backup restore",
+        "source batch keyset pages preserve independent historical rows",
+        "version-1 backup without buyback batches restores successfully",
+        "restore cannot overwrite a scope containing only buyback batches"
+      ]
+    }
   }
 }
