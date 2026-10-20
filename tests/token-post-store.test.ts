@@ -94,3 +94,29 @@ test("SQLite shared image counter survives simulated-time cleanup and merges by 
     finally { budget.close(); }
   } finally { store.close(); first.close(); second.close(); rmSync(source, { recursive: true, force: true }); rmSync(target, { recursive: true, force: true }); }
 });
+
+test("SQLite refund commits never let an interrupted release refund twice", () => {
+  const f = fixture(), budget = (f.store as unknown as { budgetDb: DatabaseSync }).budgetDb;
+  try {
+    const at = Date.now(), media = "e".repeat(64);
+    const shared = () => (budget.prepare("SELECT count FROM post_global_rates WHERE key=?").get(`images-global:${Math.floor(at / 86_400_000)}`) as { count: number }).count;
+    for (const token of [`0x${"a".repeat(40)}`, `0x${"b".repeat(40)}`]) {
+      const key = keyRecord(`refund-${token.slice(2, 4)}`, token, at); f.store.postAction({ action: "keyCreate", row: key });
+      assert.equal(f.store.postAction({ action: "mediaReserve", token, keyId: key.id, id: media, leaseId: `lease-${token.slice(2, 4)}`, now: at }).error, undefined);
+    }
+    assert.equal(shared(), 2);
+    // Interrupt one COMMIT of a release, then replay the same lease, as a retry after a crash would.
+    const interrupt = (connection: DatabaseSync, run: () => void) => {
+      const original = connection.exec.bind(connection);
+      connection.exec = (sql: string) => { if (sql === "COMMIT") { connection.exec = original; throw new Error("interrupted commit"); } return original(sql); };
+      try { assert.throws(run, /interrupted commit/); } finally { connection.exec = original; }
+    };
+    const release = (token: string, leaseId: string) => f.store.postAction({ action: "mediaRelease", token, id: media, leaseId, now: at });
+    interrupt(f.store.db, () => release(`0x${"a".repeat(40)}`, "lease-aa"));
+    assert.equal(release(`0x${"a".repeat(40)}`, "lease-aa").media?.state, "failed");
+    assert.equal(shared(), 1, "a failed token-database commit refunds nothing; the replay refunds once");
+    interrupt(budget, () => release(`0x${"b".repeat(40)}`, "lease-bb"));
+    assert.equal(release(`0x${"b".repeat(40)}`, "lease-bb").media?.state, "failed");
+    assert.equal(shared(), 1, "an interrupted shared commit keeps the slot and the replay finds nothing to refund");
+  } finally { f.close(); }
+});

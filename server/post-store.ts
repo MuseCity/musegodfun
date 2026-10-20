@@ -159,8 +159,13 @@ export function sqlitePostAction(db: DatabaseSync, globalDb: DatabaseSync, comma
     };
     const result = run();
     if (result.error) { db.exec("ROLLBACK"); if (globalOpen) globalDb.exec("ROLLBACK"); }
-    else {
-      // The shared image budget commits first. A crash between commits may conservatively spend an extra slot, never exceed the cap.
+    else if (command.action === "mediaRelease") {
+      // A refund is conservative in the opposite order: the token database first persists the lease as released, so an
+      // interrupted shared commit keeps the slot and a replayed release finds nothing pending to refund twice.
+      db.exec("COMMIT");
+      if (globalOpen) globalDb.exec("COMMIT");
+    } else {
+      // A charge commits the shared image budget first. A crash between commits may conservatively spend an extra slot, never exceed the cap.
       if (globalOpen) globalDb.exec("COMMIT");
       db.exec("COMMIT");
     }
