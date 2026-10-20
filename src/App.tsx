@@ -45,6 +45,7 @@ import {
 import {
   encodeFunctionData,
   formatUnits,
+  parseAbi,
   type Address,
   type Hex,
 } from "viem";
@@ -124,6 +125,7 @@ import { useLaunchMarket } from "./components/TokenMarket";
 import TokenHero, { type HeroStat } from "./components/TokenHero";
 import TokenVenues from "./components/TokenVenues";
 import TokenActivity from "./components/TokenActivity";
+import TokenPosts from "./components/TokenPosts";
 import TokenContract from "./components/TokenContract";
 import ProfileEditor from "./components/ProfileEditor";
 import { displayedProfileLinks, effectiveProfileLinks, profileLinkList, PROFILE_FIELD_LABELS, type ProfileStatus, type TokenProfile } from "./lib/token-profile";
@@ -3055,7 +3057,7 @@ function TokenPage({
   return <TokenDetail key={detail.token.address} detail={detail} config={config} refreshError={resource.error} />;
 }
 
-const TOKEN_TABS: { id: TokenTab; label: string }[] = [{ id: "overview", label: "Overview" }, { id: "activity", label: "Activity" }, { id: "onchain", label: "On-chain" }];
+const TOKEN_TABS: { id: TokenTab; label: string }[] = [{ id: "overview", label: "Overview" }, { id: "posts", label: "Posts" }, { id: "activity", label: "Activity" }, { id: "onchain", label: "On-chain" }];
 
 /** The token page (tasks/token-ip-detail-plan.md): the coin as an IP. Trading happens on Doppler or Fomo; nothing on this page signs a
  * transaction. The owner (creator, or the bound NFT's holder) can sign its social links. */
@@ -3066,7 +3068,7 @@ function TokenDetail({ detail, config, refreshError }: { detail: TokenDetailData
   const market = useLaunchMarket(token, config);
   // The selected tab lives in the URL (`?tab=`), so a copied link opens it; switching replaces the entry rather than adding one.
   const [tab, setTab] = useState<TokenTab>(() => tokenTabFromSearch(location.search));
-  const [visited, setVisited] = useState({ activity: tab === "activity", onchain: tab === "onchain" });
+  const [visited, setVisited] = useState({ posts: tab === "posts", activity: tab === "activity", onchain: tab === "onchain" });
   useEffect(() => {
     const follow = () => {
       const next = tokenTabFromSearch(location.search);
@@ -3086,20 +3088,27 @@ function TokenDetail({ detail, config, refreshError }: { detail: TokenDetailData
   const [editorBlocked, setEditorBlocked] = useState(false);
   const [savedProfile, setSavedProfile] = useState<TokenProfile | null>(null);
   // Whether the connected wallet controls the bound NFT (holder or delegate), keyed so another account never inherits the answer.
-  const [nftControl, setNftControl] = useState<{ key: string; controls: boolean } | null>(null);
+  const [nftControl, setNftControl] = useState<{ key: string; controls: boolean; owner: Address | null } | null>(null);
   const nft = token.nft, controlKey = nft && wallet.account ? `${nftKey(nft)}:${wallet.account.toLowerCase()}` : "";
   // The config may load after the wallet and the token, so its arrival (or a network change) runs the check again.
   const configKey = config ? `${config.mode}:${config.chainId}:${config.nftMode?.enabled === true}` : "";
   useEffect(() => {
     let active = true;
     setNftControl(null);
-    if (!nft || !wallet.account || !config || config.nftMode?.enabled !== true || token.mode === "fork") return;
+    if (!nft || !wallet.account || !config || token.mode === "fork") return;
     const account = wallet.account;
     async function checkOwner() {
       for (let attempt = 0; attempt < 2 && active; attempt++) {
         try {
-          const status = await readNftStatus(config!, nft!, account);
-          if (active) setNftControl({ key: controlKey, controls: status.controls });
+          // Existing Posts remain manageable when new NFT launches are paused. The profile editor keeps its own launch-mode gate.
+          const status = config!.nftMode?.enabled === true ? await readNftStatus(config!, nft!, account) : await (async () => {
+            const client = transactionClient(deploymentChain(token));
+            const blockNumber = await client.getBlockNumber({ cacheTime: 0 });
+            const owner = await client.readContract({ address: nft!.contract, abi: parseAbi(["function ownerOf(uint256) view returns (address)"]),
+              functionName: "ownerOf", args: [BigInt(nft!.tokenId)], blockNumber });
+            return { owner, controls: false };
+          })();
+          if (active) setNftControl({ key: controlKey, controls: status.controls, owner: status.owner });
           return;
         } catch { /* Retry one failed owner read; a failed check never grants editing. */ }
       }
@@ -3121,6 +3130,9 @@ function TokenDetail({ detail, config, refreshError }: { detail: TokenDetailData
   const staleNote = checkedAt !== undefined ? <p className="feed-note" role="status">Links last confirmed <time dateTime={new Date(checkedAt).toISOString()}>
     {new Date(checkedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}</time>. Refreshing automatically.</p> : null;
   const owner = !!wallet.account && token.mode !== "fork" && (nft ? config?.nftMode?.enabled === true && nftControl?.key === controlKey && nftControl.controls
+    : !!token.creator && sameAddress(token.creator, wallet.account));
+  // Posts keys follow the actual NFT holder. A delegate's existing profile editing authority does not grant Posts authority.
+  const postsOwner = !!wallet.account && token.mode !== "fork" && (nft ? nftControl?.key === controlKey && !!nftControl.owner && sameAddress(nftControl.owner, wallet.account)
     : !!token.creator && sameAddress(token.creator, wallet.account));
   useEffect(() => { if (!owner) setEditing(false); }, [owner]);
   useEffect(() => {
@@ -3238,6 +3250,7 @@ function TokenDetail({ detail, config, refreshError }: { detail: TokenDetailData
                 <p className="hint">The binding is immutable; Adapter8004, which decides who controls the agent, is an upgradeable contract.</p>
               </section>}
             </div>
+            <div {...panelProps("posts")}>{visited.posts && <TokenPosts token={token} owner={postsOwner} />}</div>
             <div {...panelProps("activity")}>{visited.activity && <TokenActivity token={token} market={market} />}</div>
             <div {...panelProps("onchain")} className="tab-stack">
               {visited.onchain && <>

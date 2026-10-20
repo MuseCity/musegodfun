@@ -1,0 +1,27 @@
+{
+  "date": "2026-10-20",
+  "sourceBase": "c89fb720f166f348225cde680e7d5c9803029171",
+  "scope": "Local implementation and acceptance; no production migration, deployment or public publishing",
+  "applicationTests": { "command": "npm test", "total": 1899, "passed": 1898, "failed": 0, "skipped": 1 },
+  "postgres": {
+    "command": "POSTS_TEST_POSTGRES=1 npx tsx --test tests/token-post-store-postgres.test.ts",
+    "result": "passed separately in isolated PostgreSQL 17; this opt-in test is skipped in the default suite",
+    "checks": ["all eight migrations apply", "SQLite/RPC parity", "RLS and service-role-only RPC", "concurrent token quota", "cross-chain image quota", "restored keys revoked"],
+    "productionAccess": false
+  },
+  "build": { "command": "npm run build", "result": "passed including app and Worker TypeScript checks", "warning": "Vite reports a client chunk over 500 kB" },
+  "worker": "Real Miniflare Worker, Express adapter and both chain Durable Objects; synthetic Supabase, RPC and Pinata upstreams",
+  "node": "Real loopback HTTP with SQLite; financial signing paused; owner key creation, publishing, idempotency, Origin checks and machine ingress limits passed",
+  "browser": {
+    "application": "Real App, TokenPosts and local SQLite; public synthetic test account signs only through a loopback fixture",
+    "syntheticInputs": ["token records", "market data", "RPC ownership", "media", "wallet"],
+    "viewports": [{ "width": 1280, "height": 900 }, { "width": 390, "height": 844 }],
+    "checks": ["ordinary and NFT owner key creation and revocation", "copy and one-time key display", "20 to 24 posts pagination", "visited-tab state retained", "owner deletion", "read failure retains content and Retry recovers", "mobile dialog fits without overflow", "images loaded with original aspect ratios", "video uses a link with zero players or iframes", "visitor reads Posts with no key or delete controls"],
+    "observedActions": { "signatures": 8, "creates": 2, "lists": 3, "revokes": 2, "deletes": 1, "pages": 9 },
+    "externalNetworkRequests": 0,
+    "mobilePreview": "token-posts-mobile.png"
+  },
+  "review": { "p1": 0, "p2Fixed": "Existing NFT Posts management remains available while NFT launches are disabled; profile launch-mode restrictions remain intact" },
+  "notRun": ["production database migration", "deployment", "real-wallet acceptance", "live NFT RPC ownership", "real Pinata upload", "public Post creation"],
+  "rollback": "Source baseline is sourceBase. For a future release rollback, revert the application to its verified previous build and preserve additive Posts tables, revocation records and tombstones; do not restore old credentials. No production rollback is needed for this local-only run."
+}

@@ -11,7 +11,11 @@ export function clientBucket(raw: string): string {
   return words.slice(0, 4).map(word => parseInt(word, 16).toString(16)).join(":") + "::/64";
 }
 // A profile save may verify a contract-wallet signature and read the NFT holder over RPC, so it counts as expensive.
-export const expensiveRoute = (path: string) => /\/(?:launch\/(?:prepare|simulate)|launch-fee-quote|first-buy\/(?:prices|quote)|token-images|tokens\/0x[0-9a-f]{40}\/profile)$/.test(path.split("?")[0].replace(/\/+$/, "").toLowerCase());
+export const expensiveRoute = (path: string, method = "GET") => {
+  const normalized = path.split("?")[0].replace(/\/+$/, "").toLowerCase();
+  return /\/(?:launch\/(?:prepare|simulate)|launch-fee-quote|first-buy\/(?:prices|quote)|token-images|tokens\/0x[0-9a-f]{40}\/profile)$/.test(normalized) ||
+    method !== "GET" && /\/tokens\/0x[0-9a-f]{40}\/(?:posts(?:\/images|\/[0-9a-f-]{36}\/delete)?|post-api-keys(?:\/list|\/[0-9a-f-]{36}\/revoke)?)$/.test(normalized);
+};
 export type IngressClass = "read" | "workflow" | "recovery" | "upload";
 /** Separate pools keep long-running or abusive work from starving short page
  * reads or receipt recovery: every pool needs several sources to fill, and a
@@ -28,9 +32,11 @@ export const INGRESS_CONCURRENCY = Object.values(INGRESS_CLASSES).reduce((sum, e
 // seconds (8 a minute per launch); expensive verification is also bounded
 // per transaction by the service.
 export const RECOVERY_PER_MINUTE = 120;
-export function ingressClass(path: string): IngressClass {
+export function ingressClass(path: string, method = "GET"): IngressClass {
   const normalized = path.split("?")[0].replace(/\/+$/, "").toLowerCase().replace(/^\/api\/chains\/(?:8453|4663)(?=\/)/, "/api");
   if (normalized.endsWith("/token-images")) return "upload";
+  if (/\/tokens\/0x[0-9a-f]{40}\/posts\/images$/.test(normalized)) return "upload";
+  if (method !== "GET" && /\/tokens\/0x[0-9a-f]{40}\/(?:posts(?:\/[0-9a-f-]{36}\/delete)?|post-api-keys(?:\/list|\/[0-9a-f-]{36}\/revoke)?)$/.test(normalized)) return "workflow";
   if (/\/(?:launch\/(?:register|track)|first-buy\/verify|buyback\/batches\/[^/]+\/(?:track|reconcile))$/.test(normalized)) return "recovery";
   if (/\/(?:launch\/(?:prepare|simulate|validate)|launch-fee-quote|first-buy\/(?:prices|quote)|quote|buyback\/(?:engine\/)?quote|buyback\/batches|tokens\/0x[0-9a-f]{40}\/profile)$/.test(normalized)) return "workflow";
   return "read";
@@ -42,7 +48,7 @@ export class IngressLimiter {
   // Only positive counts are stored, bounded by shared concurrency.
   private readonly activeSources = new Map<string, number>();
   private readonly activeClasses = new Map<IngressClass, number>();
-  admit(ip: string, path: string, now = Date.now()): { status?: number; challenge: boolean; release(): void } {
+  admit(ip: string, path: string, now = Date.now(), method = "GET"): { status?: number; challenge: boolean; release(): void } {
     const key = clientBucket(ip);
     let row = this.rows.get(key);
     if (!row || now-row.at >= 60_000) row = {at:now,count:0,expensive:0,recovery:0,
@@ -53,9 +59,9 @@ export class IngressLimiter {
       if (oldest === key) break;
       this.rows.delete(oldest);
     }
-    const kind = ingressClass(path), limits = INGRESS_CLASSES[kind], sourceKey = `${kind}:${key}`;
+    const kind = ingressClass(path, method), limits = INGRESS_CLASSES[kind], sourceKey = `${kind}:${key}`;
     row.count++;
-    if (expensiveRoute(path)) row.expensive++;
+    if (expensiveRoute(path, method)) row.expensive++;
     if (kind === "recovery") row.recovery++;
     const normalized = path.split("?")[0].replace(/\/+$/, "").toLowerCase();
     // A profile save may cost RPC reads (contract-wallet signature, NFT holder): the same cap and challenge as a quote.

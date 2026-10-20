@@ -11,7 +11,7 @@ import { firstBuyPaymentInput, FIRST_BUY_SLIPPAGE_BPS } from "../src/lib/first-b
 import { securityHeaders, requestBodyLimitForPath, BODY_READ_DEADLINE_MS, webhookKindForPath } from "./http-security";
 import { TokenImages } from "./token-images";
 import { z } from "zod";
-import { createPublicClient, http, parseUnits, type Address, type Hex } from "viem";
+import { createPublicClient, http, parseAbi, parseUnits, type Address, type Hex } from "viem";
 import { robinhood } from "viem/chains";
 import { alchemyRpcTransport } from "./alchemy-rpc";
 import baseCollectorDeployment from "../contracts/artifacts/base-collector-deployment.json";
@@ -28,6 +28,7 @@ import { CHART_INTERVALS } from "../src/lib/market";
 import { BuybackReader, BuybackError, RobinhoodBuybackSummaryReader } from "./buyback";
 import { NftLaunchError, isBoundNftCoin } from "./nft-launch";
 import { ProfileError } from "./token-profile";
+import { PostError, TokenPosts } from "./token-posts";
 import { BuybackBatchService } from "./buyback-batches";
 import { BuybackEngineReader } from "./buyback-engine";
 import { BaseFeeQuoteReader, readTrustedBaseRecoveryAssets, unavailableBaseCollectorStatus } from "./base-buyback";
@@ -89,6 +90,22 @@ export function createApp(
 const app = express(),
   service = new LaunchpadService(runtime);
 const images = new TokenImages(runtime.secrets?.pinataJwt, service.store);
+const posts = new TokenPosts({
+  chainId: deploymentChain(runtime.config), store: service.store,
+  token: address => service.token(address), uploadImage: body => images.upload(body),
+  nftOwner: async token => {
+    await service.assertNetwork();
+    const blockNumber = await service.client.getBlockNumber({ cacheTime: 0 });
+    return service.client.readContract({ address: token.nft!.contract, abi: parseAbi(["function ownerOf(uint256) view returns (address)"]),
+      functionName: "ownerOf", args: [BigInt(token.nft!.tokenId)], blockNumber });
+  },
+  verifyContractSignature: async (signer, typedData, signature) => {
+    await service.assertNetwork();
+    const code = await service.client.getCode({ address: signer });
+    if ((!code || code === "0x") && !signature.toLowerCase().endsWith("6492".repeat(16))) return false;
+    return service.client.verifyTypedData({ address: signer, ...typedData, signature });
+  },
+});
 const market = new MarketReader({
   store: service.store,
   apiKey: runtime.secrets?.coingeckoApiKey,
@@ -163,7 +180,7 @@ const previews = shared.previews ?? new PreviewQueue();
 const uploadRate = new Map<string,{at:number;count:number}>();
 app.use("/api", (req,res,next)=>{
   res.setHeader("Cache-Control","no-store");
-  const admission=shared.ingressManaged ? null : ingress.admit(req.ip || "unknown",req.originalUrl);
+  const admission=shared.ingressManaged ? null : ingress.admit(req.ip || "unknown",req.originalUrl,undefined,req.method);
   if(admission?.status) {res.setHeader("Retry-After","60");res.status(admission.status).json({error:"Service capacity is temporarily limited. Try again shortly."});return;}
   if(admission) {res.once("finish",admission.release);res.once("close",admission.release);}
   const risky=shared.ingressManaged ? req.headers["x-runtime-risk"] === "challenge" : admission?.challenge;
@@ -418,6 +435,17 @@ app.get(
 // The coin owner's social links, saved by signing typed data (tasks/token-ip-detail-plan.md §5); no transaction, no gas.
 app.post("/api/tokens/:address/profile", route(async (req, res) => res.json(await service.saveTokenProfile(req.params.address, req.body))));
 
+app.get("/api/tokens/:address/posts", route(async (req, res) => res.json(await posts.list(req.params.address, req.query))));
+app.post("/api/tokens/:address/posts", route(async (req, res) => {
+  const result = await posts.publish(req.params.address, req.body, req.headers.authorization, req.headers["idempotency-key"]);
+  res.status(result.duplicate ? 200 : 201).json(result);
+}));
+app.post("/api/tokens/:address/posts/images", route(async (req, res) => res.json(await posts.upload(req.params.address, req.body, req.headers.authorization))));
+app.post("/api/tokens/:address/posts/:id/delete", route(async (req, res) => res.json(await posts.delete(req.params.address, req.params.id, req.body, req.headers.authorization))));
+app.post("/api/tokens/:address/post-api-keys", route(async (req, res) => res.status(201).json(await posts.createKey(req.params.address, req.body, req.headers.authorization))));
+app.post("/api/tokens/:address/post-api-keys/list", route(async (req, res) => res.json(await posts.listKeys(req.params.address, req.body, req.headers.authorization))));
+app.post("/api/tokens/:address/post-api-keys/:id/revoke", route(async (req, res) => res.json(await posts.revokeKey(req.params.address, req.params.id, req.body, req.headers.authorization))));
+
 app.get("/api/nft-treasury", route(async (req, res) => res.json(await service.nftTreasury(req.query.nft))));
 // The create form's NFT check (holder or delegate, one coin per NFT, free tier); prepare re-checks everything.
 app.get("/api/nft-status", route(async (req, res) => res.json(await service.nftStatus(req.query.nft, req.query.account))));
@@ -605,6 +633,7 @@ app.use(
     }
     if(error instanceof BudgetUnavailable){res.setHeader("Retry-After",String(error.retryAfter));res.status(429).json({error:error.message,code:"CAPACITY_LIMITED"});return;}
     if(error instanceof ProfileError){res.status(error.status).json({error:error.message,code:error.code});return;}
+    if(error instanceof PostError){if(error.retryAfter)res.setHeader("Retry-After",String(error.retryAfter));res.status(error.status).json({error:error.message,code:error.code});return;}
     const status =
       error instanceof MarketUnavailable || (error instanceof NftLaunchError && error.code === "NFT_LIST_UNAVAILABLE")
         ? 503

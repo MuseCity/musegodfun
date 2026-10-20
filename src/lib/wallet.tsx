@@ -63,8 +63,9 @@ import { executeMusegodTrade } from "./musegod-trade";
 import type { LaunchPlan, LaunchTransaction } from "./launch-plan";
 import { assertLaunchRequest, assertLaunchWalletPlan, bufferedLaunchGas, executeLaunchPlan, launchDraftInput, type LaunchSimulation } from "./launch-wallet";
 import { engineTransaction, type EngineAction } from "./buyback-engine";
-import { isTransactionSend, profileSigningRequest, signingRequest, walletRefusedUnsent, type BeforeSend, type ProfileSignature, type WalletRequest } from "./wallet-signing";
+import { isTransactionSend, postOwnerSigningRequest, profileSigningRequest, signingRequest, walletRefusedUnsent, type BeforeSend, type PostOwnerSignature, type ProfileSignature, type WalletRequest } from "./wallet-signing";
 import { profileTypedData, type ProfileLinks } from "./token-profile";
+import { postOwnerTypedData, type PostOwnerAction } from "./token-posts";
 declare global {
   interface Window {
     ethereum?: Provider;
@@ -225,8 +226,10 @@ type WalletState = {
   claimFirstBuy: (token: Address, config: RuntimeConfig, onHash?: (hash: Hash) => void) => Promise<Hash>;
   tradeMusegod: (quote: MusegodQuote, config: RuntimeConfig, progress: (message: string) => void,
     onHash?: (hash: Hash) => void) => Promise<Hash>;
-  /** Signs a coin's TokenProfile typed data with the connected account on `chainId` (the app's only signature; no transaction). */
+  /** Signs exactly a coin's TokenProfile typed data with the connected account on `chainId`; no transaction. */
   signProfile: (token: Address, links: ProfileLinks, chainId: 8453 | 4663, issuedAt: number) => Promise<{ signer: Address; signature: Hex }>;
+  /** Signs one Posts management action; its separate transport refuses all other signatures and transactions. */
+  signPostAction: (token: Address, action: PostOwnerAction, targetId: string, name: string, chainId: 8453 | 4663, issuedAt: number) => Promise<{ signer: Address; signature: Hex }>;
 };
 // Preserve context identity when Vite updates the provider and its consumers
 // in the same batch. Production has no hot module data.
@@ -895,6 +898,18 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     });
     return { signer: account, signature: await client.signTypedData({ account, ...typedData }) };
   }
+  async function signPostAction(token: Address, action: PostOwnerAction, targetId: string, name: string, chainId: 8453 | 4663, issuedAt: number) {
+    const p = controller.current?.selected?.provider, account = controller.current?.state.account;
+    if (!p || !account) throw new Error("Connect your wallet first");
+    const typedData = postOwnerTypedData(chainId, token, action, targetId, name, issuedAt);
+    const expected: PostOwnerSignature = { account, domain: typedData.domain, types: typedData.types, primaryType: typedData.primaryType,
+      message: { ...typedData.message, issuedAt: typedData.message.issuedAt.toString() } };
+    const validate = async () => { await controller.current!.validate(account, chainId, p); };
+    await validate();
+    const client = createWalletClient({ account, chain: chainId === 4663 ? robinhood : base,
+      transport: custom({ request: postOwnerSigningRequest({ request: (request) => p.request(request as Parameters<Provider["request"]>[0]) }, expected, validate) }, { retryCount: 0 }) });
+    return { signer: account, signature: await client.signTypedData({ account, ...typedData }) };
+  }
   async function tradeMusegod(quote: MusegodQuote, config: RuntimeConfig,
     progress: (message: string) => void, onHash?: (hash: Hash) => void) {
     const publicClient = transactionClient(config.chainId, config);
@@ -991,6 +1006,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         balanceNative,
         tradeMusegod: (...args) => exclusive(() => tradeMusegod(...args)),
         signProfile: (...args) => exclusive(() => signProfile(...args)),
+        signPostAction: (...args) => exclusive(() => signPostAction(...args)),
       }}
     >
       {children}

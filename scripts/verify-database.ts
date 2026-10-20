@@ -8,6 +8,7 @@ import { loadEnvironment } from "../server/config";
 import { STOCKS, type TokenRecord } from "../src/lib/config";
 import { TokenUniqueConflict, type LaunchPlan, type TokenUniqueKind } from "../server/store";
 import { FEE_POLICY } from "../src/lib/fee-policy";
+import type { PostKeyRecord, PostRecord } from "../server/post-store";
 import { BASE_BUYBACK_PROTOCOL, BASE_BUYBACK_VAULT, BASE_BUYBACK_RH_WETH, BASE_BUYBACK_WETH, type BaseFeeBatch } from "../src/lib/base-buyback";
 /** Disposable scopes only; the legacy probes use invalid commits and cannot mutate financial rows. */
 export async function assertNativeAuditDatabaseMigration(store: SupabaseStore, url: string, key: string) {
@@ -24,6 +25,25 @@ export async function assertNativeAuditDatabaseMigration(store: SupabaseStore, u
     if (response.status !== 404 || error?.code !== "PGRST202")
       throw new Error("Legacy unbounded ledger RPC remains exposed or its absence could not be verified");
   }
+}
+
+/** All mutations stay inside a disposable verification scope; no live token, credential or shared upload budget is touched. */
+export async function assertTokenPostsDatabaseMigration(store: SupabaseStore) {
+  if (!/^verify-[a-z0-9-]+$/.test(store.scope)) throw new Error("Posts verification requires an isolated verify scope");
+  const now = Date.now(), token = "0x0000000000000000000000000000000000000099", id = randomUUID();
+  const key: PostKeyRecord = { id, token, issuer: token, name: "Database fixture", hash: "a".repeat(64), prefix: "fixture", createdAt: now, expiresAt: now + 86_400_000, revokedAt: null };
+  assert.equal((await store.postAction({ action: "keyCreate", row: key })).key?.id, id);
+  assert.equal((await store.postAction({ action: "keyCreate", row: key })).error?.code, "POST_KEY_EXISTS");
+  const post: PostRecord = { id: randomUUID(), token, keyId: id, text: "Database fixture", imageIds: [], images: [], videoUrl: null, createdAt: now, deletedAt: null };
+  const command = { action: "postCreate" as const, token, keyId: id, post, idempotencyKey: randomUUID(), requestHash: "b".repeat(64), now };
+  const saved = await Promise.all([store.postAction(command), store.postAction(command)]);
+  assert.equal(saved.filter(result => result.duplicate).length, 1, "Concurrent post retries insert exactly once");
+  assert.equal((await store.postAction({ ...command, requestHash: "c".repeat(64) })).error?.status, 409);
+  await store.postAction({ action: "postDelete", token, postId: post.id, now });
+  assert.equal((await store.postAction(command)).post?.deletedAt, now, "A deleted post is never recreated by retry");
+  await store.postAction({ action: "keyRevoke", token, id, now });
+  assert.equal((await store.postAction(command)).error?.status, 401, "Idempotency cannot bypass revocation");
+  return { token, keyId: id, postId: post.id };
 }
 
 export async function runDatabaseVerification() {
@@ -49,6 +69,7 @@ try {
   await store.request(`musegod_buyback_batches?scope=eq.${scope}&select=sequence&limit=0`);
   connected = true;
   await assertNativeAuditDatabaseMigration(store, process.env.SUPABASE_URL || "", process.env.SUPABASE_SECRET_KEY || "");
+  const postsFixture = await assertTokenPostsDatabaseMigration(store);
   const now = Date.now();
   const reserved = await Promise.all(
     Array.from({ length: 6 }, () => store.reserveMarketCall(now, 1, 2)),
@@ -201,9 +222,11 @@ try {
   assert.deepEqual(await restore.getBuybackBatch(batch.id), confirmedBatch);
   assert.deepEqual(await restore.getBuybackBatch(sourceBatch.id), sourceBatch, "Source unknown/reserved submissions cannot lose their original broadcast evidence during restore");
   assert.deepEqual(await restore.runtimeControl(), await store.runtimeControl(), "Runtime pause and CAS revision survive an isolated restore");
+  assert.notEqual((await restore.postAction({ action: "keyGet", token: postsFixture.token, id: postsFixture.keyId })).key?.revokedAt, null, "Restored post API keys never regain bearer authority");
+  assert.equal((await restore.postAction({ action: "postsList", token: postsFixture.token, limit: 20 })).posts?.length, 0, "Deleted post tombstones survive restore");
   const historicalBackup: Record<string, unknown> = { ...backup, version: 1 };
   for (const field of ["buyback_batches", "runtime_controls", "vault_ledger_state", "vault_ledger_blocks", "vault_ledger_events",
-    "custody_ledger_state", "custody_ledger_blocks", "custody_ledger_events"]) delete historicalBackup[field];
+    "custody_ledger_state", "custody_ledger_blocks", "custody_ledger_events", "post_api_keys", "posts", "post_media", "post_rates"]) delete historicalBackup[field];
   await legacy.restore(historicalBackup);
   assert.deepEqual(await legacy.token(token.address), token, "Historical version-1 backups remain readable");
   assert.deepEqual(await legacy.listBuybackBatches(), [], "Absent legacy batch field restores as empty");
@@ -280,6 +303,10 @@ try {
       "buyback_batches",
       "runtime_controls",
       "launch_claims",
+      "post_api_keys",
+      "posts",
+      "post_media",
+      "post_rates",
     ]) {
       try { await db.request(`musegod_${table}?scope=eq.${db.scope}`, "DELETE"); }
       catch (error) {

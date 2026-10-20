@@ -3,6 +3,7 @@ import { packPlan, unpackPlan } from "./plan-storage";
 import { withDeadline } from "./deadline";
 import { defaultRuntimeControl, type RuntimeControl, type BudgetName, type BudgetResult } from "./runtime-policy";
 import type { TokenRecord } from "../src/lib/config";
+import type { PostCommand, PostResult } from "./post-store";
 import { assertBuybackBatchId, assertBuybackAuditRecord, assertLaunchClaim, postgresTokenConflict, provenanceUpgrade, type LaunchClaimOptions, type Store, type LaunchPlan, type BuybackBatchRecord, type BuybackBatchPageRecord } from "./store";
 function assertSequence(value: unknown): asserts value is string {
   if (typeof value !== "string" || !/^(?:0|[1-9]\d*)$/.test(value) || BigInt(value) >= 2n ** 256n) throw new Error("Invalid history sequence");
@@ -70,6 +71,9 @@ export class SupabaseStore implements StoreBackend {
     ]);
   }
   close() {}
+  postAction(command: PostCommand): Promise<PostResult> {
+    return this.request("rpc/musegod_post_action", "POST", { p_scope: this.scope, p_command: command });
+  }
   async runtimeControl(): Promise<RuntimeControl> {
     const rows = await this.request<{paused:boolean;revision:number;updated_at:number;reason:string}[]>(`musegod_runtime_controls?${this.where()}&limit=1`);
     return rows[0] ? { paused: rows[0].paused, revision: rows[0].revision, updatedAt: rows[0].updated_at, reason: rows[0].reason } : defaultRuntimeControl();

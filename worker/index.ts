@@ -125,7 +125,7 @@ export class LaunchpadRuntime extends DurableObject<Env> {
         return Response.json({accepted:result.status===200},{status:result.status});
       }finally{admission.release();}
     }
-    const admission = this.ingress.admit(request.headers.get("x-forwarded-for") || "unknown", new URL(request.url).pathname);
+    const admission = this.ingress.admit(request.headers.get("x-forwarded-for") || "unknown", new URL(request.url).pathname, undefined, request.method);
     if (admission.status) return Response.json({error:"Service capacity is temporarily limited. Try again shortly."},{status:admission.status,headers:{"Retry-After":"60"}});
     try {
       this.refreshRuntime();

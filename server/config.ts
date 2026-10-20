@@ -124,5 +124,5 @@ export function redact(value: unknown, environment: RuntimeEnvironment = process
     for (const secret of name === "PLAN_ATTESTATION_PREVIOUS_KEYS" ? (environment[name] ?? "").split(",") : [environment[name]])
       if (secret?.trim()) message = message.replace(new RegExp(secret.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), "[redacted]");
   }
-  return message.replace(/https?:\/\/[^\s"'<>]+/gi, "[upstream]").slice(0, 500);
+  return message.replace(/mgp_[0-9a-f-]{36}\.[A-Za-z0-9_-]{43}/g, "[redacted]").replace(/https?:\/\/[^\s"'<>]+/gi, "[upstream]").slice(0, 500);
 }

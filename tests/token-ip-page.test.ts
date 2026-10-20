@@ -61,7 +61,8 @@ test("a visitor sees the coin as an IP: socials first, Doppler and the owner's F
   assert.match(html, /<span class="eyebrow muted">Creator fee<\/span><span class="mono">0.665%<\/span><span class="hint">of every trade · fixed at launch<\/span>/,
     "the headline is the creator fee per trade (1% trading fee × 66.5% creator share)");
   assert.doesNotMatch(html, /Buyback share/, "the buyback share is a fee detail, not a headline fact");
-  assert.doesNotMatch(html, /Edit profile|Talk to it|not linked|Posts|Pay with ETH|Slippage|OpenSea|Agent identity/);
+  assert.doesNotMatch(html, /Edit profile|Talk to it|not linked|Pay with ETH|Slippage|OpenSea|Agent identity/);
+  assert.match(html, /role="tab"[^>]*>Posts</);
   assert.doesNotMatch(html, /<input/, "the page has no amount field: trading happens on the venues");
   assert.doesNotMatch(render({ token: coin }, { ...config, fomoInvite: null }), /fomo\.family/, "Fomo shows only with the owner's invite handle");
 });
@@ -210,13 +211,14 @@ const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : 
 const textOf = (node: any): string => Array.isArray(node) ? node.map(textOf).join("") : node && typeof node === "object" ? textOf(node.props?.children) : String(node ?? "");
 const button = (tree: any, label: string) => find(tree, (element) => element.type === "button" && textOf(element) === label);
 
-async function detailRuntime(options: { token?: TokenRecord; runtime?: RuntimeConfig | null; status?: (...args: any[]) => Promise<any>; wallet?: any } = {}) {
+async function detailRuntime(options: { token?: TokenRecord; runtime?: RuntimeConfig | null; status?: (...args: any[]) => Promise<any>; wallet?: any; postHolder?: () => Promise<string> } = {}) {
   let View: any;
   const props = { detail: { token: options.token ?? coin, state: { poolKey: {} } }, config: options.runtime === undefined ? config : options.runtime, refreshError: "" };
   const runtime = hookRuntime(() => View(props));
   ({ TokenDetail: View } = await importFresh("src/App.tsx", {
     react: { file: import.meta.resolve("react"), bindings: runtime.hooks },
-    "./lib/wallet": { file: import.meta.resolve("../src/lib/wallet.tsx"), bindings: { useWallet: () => options.wallet ?? { account } } },
+    "./lib/wallet": { file: import.meta.resolve("../src/lib/wallet.tsx"), bindings: { useWallet: () => options.wallet ?? { account },
+      transactionClient: () => ({ getBlockNumber: async () => 1n, readContract: options.postHolder ?? (async () => "0x0000000000000000000000000000000000000000") }) } },
     "./lib/resource": { file: import.meta.resolve("../src/lib/resource.ts"), bindings: { useResource: () => ({ data: null, error: "", loading: false }) } },
     "./components/TokenMarket": { file: import.meta.resolve("../src/components/TokenMarket.tsx"), bindings: { useLaunchMarket: () => market } },
     "./lib/nft-client": { file: import.meta.resolve("../src/lib/nft-client.ts"), bindings: { readNftStatus: options.status ?? (async () => ({ controls: true })) } },
@@ -265,7 +267,7 @@ test("an unverified NFT collection keeps its contract hint in the hero; long web
   assert.match(html, /class="secondary small-button" href="https:\/\/example.org\/[^\"]+"[^>]*><span>example.org\/[^<]+<\/span>/);
 });
 
-test("NFT mode off skips owner reads and closes editing; enabling it retries one failure and recognizes a delegate", async () => {
+test("NFT mode off skips launch-control reads and closes profile editing; enabling it retries one failure and recognizes a delegate", async () => {
   account = creator;
   let reads = 0;
   const runtime = await detailRuntime({ token: muse, runtime: { ...config, nftMode: { ...config.nftMode!, enabled: false } },
@@ -280,6 +282,31 @@ test("NFT mode off skips owner reads and closes editing; enabling it retries one
     runtime.props.config = { ...config, nftMode: { ...config.nftMode!, enabled: false } }; runtime.render(); await settle();
     assert.equal(hero().props.onEdit, undefined); assert.equal(find(runtime.output(), (node) => node.type?.name === "ProfileEditor"), null);
   } finally { runtime.unmount(); }
+});
+
+test("Posts management belongs to a normal coin's creator or the NFT's actual holder, never its delegate", async () => {
+  const holder = "0x5555555555555555555555555555555555555555";
+  for (const [wallet, expectedOwner] of [[creator, true], [holder, false]] as const) {
+    account = wallet;
+    const runtime = await detailRuntime();
+    try {
+      runtime.render();
+      find(runtime.output(), (node) => node.props?.id === "token-tab-posts").props.onClick(); await settle();
+      assert.equal(find(runtime.output(), (node) => node.type?.name === "TokenPosts").props.owner, expectedOwner);
+    } finally { runtime.unmount(); }
+  }
+  account = creator;
+  const nft = await detailRuntime({ token: muse, status: async () => ({ controls: true, owner: holder }) });
+  try {
+    nft.render(); await settle();
+    assert.equal(typeof find(nft.output(), (node) => node.type?.name === "TokenHero").props.onEdit, "function", "the delegate retains profile editing");
+    find(nft.output(), (node) => node.props?.id === "token-tab-posts").props.onClick(); await settle();
+    assert.equal(find(nft.output(), (node) => node.type?.name === "TokenPosts").props.owner, false, "controls=true alone never grants Posts authority");
+    account = holder; nft.render(); await settle();
+    assert.equal(find(nft.output(), (node) => node.type?.name === "TokenPosts").props.owner, true);
+    nft.props.config = { ...config, nftMode: { ...config.nftMode!, enabled: false } }; nft.render(); await settle();
+    assert.equal(find(nft.output(), (node) => node.type?.name === "TokenPosts").props.owner, false);
+  } finally { nft.unmount(); }
 });
 
 test("two failed owner reads grant no edit; switching accounts discards a late holder answer", async () => {
@@ -403,6 +430,23 @@ test("the tabs follow the hero and precede the trade aside, so reading and keybo
   assert.doesNotMatch(render({ token: coin, stateInvalid: true }), /token-hero-trade/, "no jump to trading links that are hidden");
 });
 
+test("NFT Posts management stays available when new NFT launches are disabled", async () => {
+  account = creator;
+  let holder = creator, reads = 0;
+  const runtime = await detailRuntime({ token: muse, runtime: { ...config, nftMode: { ...config.nftMode!, enabled: false } },
+    status: async () => { throw Error("Launch-mode endpoint must not be called"); }, postHolder: async () => { reads++; return holder; } });
+  try {
+    runtime.render(); await settle();
+    find(runtime.output(), node => node.props?.id === "token-tab-posts").props.onClick(); await settle();
+    assert.equal(find(runtime.output(), node => node.type?.name === "TokenPosts").props.owner, true);
+    assert.equal(find(runtime.output(), node => node.type?.name === "TokenHero").props.onEdit, undefined, "profile launch gate stays intact");
+    assert.equal(reads, 1);
+    holder = "0x3333333333333333333333333333333333333333"; account = holder; runtime.render(); await settle();
+    assert.equal(find(runtime.output(), node => node.type?.name === "TokenPosts").props.owner, true, "wallet changes reread the holder");
+    assert.equal(reads, 2);
+  } finally { runtime.unmount(); }
+});
+
 test("the selected tab lives in the URL: a copied link opens it, and switching rewrites only the tab parameter", async (t) => {
   const saved = ["location", "history"].map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)] as const), writes: string[] = [];
   const place = { origin: "https://musegod.fun", pathname: `/token/robinhood/${coin.address}`, search: "?ref=x&tab=onchain", hash: "#top" };
@@ -437,8 +481,19 @@ test("the selected tab lives in the URL: a copied link opens it, and switching r
     assert(find(overview.output(), (node) => node.type?.name === "TokenActivity"), "history mounts a previously unvisited Activity panel");
     assert.equal(writes.length, 2, "following history never rewrites it");
   } finally { overview.unmount(); }
+  place.search = "?ref=x&tab=posts";
+  const posts = await detailRuntime();
+  try {
+    posts.render();
+    assert.equal(find(posts.output(), (node) => node.props?.id === "token-tab-posts").props["aria-selected"], true);
+    const feed = find(posts.output(), (node) => node.type?.name === "TokenPosts");
+    assert(feed, "a Posts deep link mounts the feed on the first render");
+    find(posts.output(), (node) => node.props?.id === "token-tab-overview").props.onClick(); await settle();
+    assert(find(posts.output(), (node) => node.type?.name === "TokenPosts"), "a visited feed stays mounted while hidden");
+    assert.equal(find(posts.output(), (node) => node.props?.id === "token-panel-posts").props.hidden, true);
+  } finally { posts.unmount(); }
   const { tokenTabFromSearch, searchWithTokenTab } = await import("../src/lib/token-detail");
-  assert.deepEqual(["", "?tab=activity", "?tab=onchain", "?tab=posts", "?tab=ACTIVITY"].map(tokenTabFromSearch), ["overview", "activity", "onchain", "overview", "overview"]);
+  assert.deepEqual(["", "?tab=activity", "?tab=onchain", "?tab=posts", "?tab=ACTIVITY"].map(tokenTabFromSearch), ["overview", "activity", "onchain", "posts", "overview"]);
   assert.equal(searchWithTokenTab("?tab=activity", "overview"), "");
 });
 

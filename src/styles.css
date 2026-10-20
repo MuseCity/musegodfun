@@ -586,6 +586,41 @@ dialog.modal[open] { display: flex; flex-direction: column; gap: 16px; }
 .token-tabs button.active { color: var(--ink); border-bottom-color: var(--halo); }
 .tab-stack { display: flex; flex-direction: column; gap: 16px; }
 .tab-stack[hidden] { display: none; }
+.posts-heading { gap: 12px; }
+.posts-heading > p { margin: 0; }
+.post-entry { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.token-post { gap: 16px; min-width: 0; }
+.post-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.post-author { display: flex; flex: 1; flex-direction: column; gap: 3px; min-width: 0; }
+.post-author > div { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.post-author b { overflow-wrap: anywhere; }
+.post-author time { font-size: 11px; line-height: 16px; color: var(--ink-muted); }
+.post-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 22px; }
+.post-images { display: grid; gap: 8px; }
+.post-images.multiple { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.post-image { display: flex; align-items: center; justify-content: center; min-width: 0; border-radius: 12px; overflow: hidden; background: var(--surface-sunken); }
+.post-image img { display: block; max-width: 100%; width: auto; height: auto; max-height: 560px; object-fit: contain; }
+.post-image-error { padding: 20px; text-align: center; border-radius: 12px; background: var(--surface-sunken); }
+.post-video { display: flex; align-items: center; gap: 12px; padding: 14px; border-radius: 12px; background: var(--surface-sunken); color: var(--ink); text-decoration: none; }
+.post-video > span { display: flex; flex: 1; flex-direction: column; min-width: 0; gap: 4px; }
+.post-video small { color: var(--ink-muted); overflow-wrap: anywhere; }
+.post-video:hover { background: var(--line); }
+.post-delete { flex: none; }
+.post-delete-confirm { gap: 12px; }
+.post-delete-confirm p { margin: 0; font-size: 13px; line-height: 18px; }
+.posts-more { align-self: center; }
+.post-keys-dialog { max-height: calc(100dvh - 48px); overflow-y: auto; }
+.post-keys-dialog h3 { margin: 0; font-size: 14px; line-height: 20px; }
+.post-key-secret, .post-key-create, .post-key-list { display: flex; flex-direction: column; gap: 12px; }
+.post-key-secret { padding: 14px; border-radius: 14px; background: var(--warning-tint); }
+.post-key-secret .secondary, .post-key-create > button { align-self: flex-start; }
+.post-key-row { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding: 12px 0; border-top: 1px solid var(--line); }
+.post-key-row > div:first-child { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.post-key-row b, .post-key-row code { overflow-wrap: anywhere; }
+.post-key-row small { color: var(--ink-muted); font-size: 11px; line-height: 16px; }
+.post-key-confirm { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 12px; }
+.post-agent-instructions pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; line-height: 17px; }
+.post-agent-instructions > a { display: inline-flex; align-items: center; gap: 4px; margin-top: 12px; font-size: 12px; }
 .venue-card { gap: 12px; }
 .venue-price { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: 14px; background: var(--surface-sunken); container-type: inline-size; }
 .venue-price-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }

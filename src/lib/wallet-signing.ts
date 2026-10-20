@@ -1,4 +1,5 @@
 import { InvalidParamsRpcError, MethodNotFoundRpcError, MethodNotSupportedRpcError } from "viem";
+import type { PostOwnerTypedData } from "./token-posts";
 /** One EIP-1193 request, as the signing transport and every flow guard see it. */
 export type WalletRequest = { method: string; params?: unknown };
 /**
@@ -115,7 +116,7 @@ export function signingRequest(provider: { request: (request: WalletRequest) => 
   };
 }
 
-/** The only signature this app requests: a coin owner's `TokenProfile` typed data (tasks/token-ip-detail-plan.md §5). `expected` is
+/** A coin owner's `TokenProfile` typed data (tasks/token-ip-detail-plan.md §5). `expected` is
  * exactly what the editor built; the domain names musegod.fun with no verifying contract, so no token contract can read the signature
  * as an approval. Every other flow keeps refusing every signature (POLICY above). */
 export type ProfileSignature = {
@@ -159,6 +160,39 @@ export function profileSigningRequest(provider: { request: (request: WalletReque
     try {
       await validate();
     } catch (error) { state = "ready"; throw error; }
+    try { return await provider.request(forward()); } finally { state = "used"; }
+  };
+}
+
+/** Posts management has its own exact signature capability. It never admits a profile signature, approval or transaction. */
+export type PostOwnerSignature = {
+  account: string;
+  domain: PostOwnerTypedData["domain"];
+  types: PostOwnerTypedData["types"];
+  primaryType: PostOwnerTypedData["primaryType"];
+  message: Omit<PostOwnerTypedData["message"], "issuedAt"> & { issuedAt: string };
+};
+export function assertPostOwnerSignRequest(request: WalletRequest, expected: PostOwnerSignature) {
+  if (request.method !== "eth_signTypedData_v4") throw new Error(`The wallet request ${request.method || "(unnamed)"} is not allowed`);
+  const params = request.params;
+  if (!Array.isArray(params) || params.length !== 2 || typeof params[0] !== "string" || params[0].toLowerCase() !== expected.account.toLowerCase())
+    throw new Error("The Posts signature request does not match the connected account");
+  let data: unknown;
+  try { data = typeof params[1] === "string" ? JSON.parse(params[1]) : undefined; } catch { data = undefined; }
+  const want = { domain: expected.domain, message: expected.message, primaryType: expected.primaryType,
+    types: { EIP712Domain: [...PROFILE_DOMAIN_TYPES, { name: "verifyingContract", type: "address" }], ...expected.types } };
+  if (!data || canonical(data) !== canonical(want)) throw new Error("The Posts signature request does not match the action being confirmed");
+}
+export function postOwnerSigningRequest(provider: { request: (request: WalletRequest) => Promise<unknown> }, expected: PostOwnerSignature,
+  validate: () => Promise<void>) {
+  let state: "ready" | "open" | "used" = "ready";
+  return async (input: unknown) => {
+    const { request, forward } = snapshot(input);
+    if (walletMethodPolicy(request.method) === "read") return provider.request(forward());
+    assertPostOwnerSignRequest(request, expected);
+    if (state !== "ready") throw new Error(state === "open" ? "A wallet request is already open. Check your wallet." : "This Posts action was already signed. Confirm again to sign once more.");
+    state = "open";
+    try { await validate(); } catch (error) { state = "ready"; throw error; }
     try { return await provider.request(forward()); } finally { state = "used"; }
   };
 }

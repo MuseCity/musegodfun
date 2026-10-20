@@ -7,8 +7,8 @@ import { assertNativeAuditDatabaseMigration } from "../scripts/verify-database";
 test("verification cleanup includes launch claims even when a probe throws before releasing them", () => {
   const source = readFileSync(new URL("../scripts/verify-database.ts", import.meta.url), "utf8");
   const cleanup = source.slice(source.lastIndexOf("} finally {"));
-  assert.match(cleanup, /for \(const table of \[[\s\S]*?"runtime_controls",\s*"launch_claims",\s*\]\)/,
-    "the optional migration table is cleaned last in every scope");
+  assert.match(cleanup, /for \(const table of \[[\s\S]*?"runtime_controls",\s*"launch_claims",\s*"post_api_keys",\s*"posts",\s*"post_media",\s*"post_rates",\s*\]\)/,
+    "launch claims and Posts records are cleaned in every disposable scope");
   assert.match(cleanup, /assert\(\/\^\(verify\|restore\)-\/\.test\(db\.scope\)\)/, "cleanup retains its disposable-scope guard");
   assert.match(cleanup, /table === "launch_claims" && error instanceof Error &&\s*error\.message === "Database request failed \(404\)\. Check the server configuration and migrations\."\) continue/,
     "only a 404 for launch_claims is tolerated, so absent migration cleanup continues to the next scope");

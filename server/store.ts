@@ -7,6 +7,7 @@ import { BUDGETS, defaultRuntimeControl, type RuntimeControl, type BudgetName, t
 import type { Address, Hex } from "viem";
 import type { TokenRecord } from "../src/lib/config";
 import type { LaunchPlan } from "../src/lib/launch-plan";
+import { POST_TABLES, POST_SCHEMA, POST_GLOBAL_SCHEMA, sqlitePostAction, type PostCommand, type PostResult } from "./post-store";
 function assertSequence(value: unknown): asserts value is string {
   if (typeof value !== "string" || !/^(?:0|[1-9]\d*)$/.test(value) || BigInt(value) >= 2n ** 256n) throw new Error("Invalid history sequence");
 }
@@ -96,6 +97,8 @@ export class Store {
     this.db = new DatabaseSync(join(directory, "launchpad.sqlite"));
     this.budgetDb = new DatabaseSync(join(chainId === 31337 ? directory : dirname(directory), "runtime-budgets.sqlite"));
     this.budgetDb.exec("PRAGMA busy_timeout=5000; CREATE TABLE IF NOT EXISTS runtime_budget (name TEXT NOT NULL,bucket INTEGER NOT NULL,count INTEGER NOT NULL,PRIMARY KEY(name,bucket)); CREATE TABLE IF NOT EXISTS runtime_circuit (name TEXT PRIMARY KEY,until_at INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS prepare_slots (owner TEXT PRIMARY KEY,expires_at INTEGER NOT NULL);");
+    this.budgetDb.exec(POST_GLOBAL_SCHEMA);
+    this.db.exec(POST_SCHEMA);
     this.db.exec(
       "PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS plans (id TEXT PRIMARY KEY, creator TEXT NOT NULL, data TEXT NOT NULL, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS tokens (address TEXT PRIMARY KEY, tx_hash TEXT UNIQUE NOT NULL, created_at INTEGER NOT NULL, payload TEXT NOT NULL);",
     );
@@ -294,7 +297,7 @@ export class Store {
   }
   backup(): Record<string, unknown> {
     // SQLite backups include runtime controls and the complete journal, with no display-list caps.
-    const tables = ["metadata", "plans", "tokens", "snapshots", "quota", "pending_launches", "buyback_batches", "protected_plans", "runtime_control", "vault_ledger_state", "vault_ledger_blocks", "vault_ledger_events", "custody_ledger_state", "custody_ledger_blocks", "custody_ledger_events"];
+    const tables = ["metadata", "plans", "tokens", "snapshots", "quota", "pending_launches", "buyback_batches", "protected_plans", "runtime_control", "vault_ledger_state", "vault_ledger_blocks", "vault_ledger_events", "custody_ledger_state", "custody_ledger_blocks", "custody_ledger_events", ...POST_TABLES];
     this.db.exec("BEGIN");
     try {
       const existing = new Set((this.db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as {name:string}[]).map(row=>row.name));
@@ -305,7 +308,7 @@ export class Store {
   restore(backup: unknown) {
     const value = backup as { version?: number; sqlite?: boolean; tables?: Record<string, Record<string, unknown>[]> };
     if (!value || value.version !== 3 || !value.sqlite || !value.tables || !Array.isArray(value.tables.metadata)) throw new Error("Unsupported SQLite backup");
-    const tables = ["plans", "tokens", "snapshots", "quota", "pending_launches", "buyback_batches", "protected_plans", "runtime_control", "vault_ledger_state", "vault_ledger_blocks", "vault_ledger_events", "custody_ledger_state", "custody_ledger_blocks", "custody_ledger_events"];
+    const tables = ["plans", "tokens", "snapshots", "quota", "pending_launches", "buyback_batches", "protected_plans", "runtime_control", "vault_ledger_state", "vault_ledger_blocks", "vault_ledger_events", "custody_ledger_state", "custody_ledger_blocks", "custody_ledger_events", ...POST_TABLES];
     const sourceChain = value.tables.metadata.find(row => row.key === "chainId")?.value;
     const targetChain = (this.db.prepare("SELECT value FROM metadata WHERE key='chainId'").get() as { value: string }).value;
     if (sourceChain !== targetChain) throw new Error("Backup network does not match restore target");
@@ -324,7 +327,13 @@ export class Store {
         for (const row of value.tables[table] || []) {
           const keys=table === "buyback_batches" && row.sequence !== undefined ? ["rowid",...columns] : columns;
           if(keys[0] === "rowid")assertSequence(row.sequence);
-          this.db.prepare(`INSERT INTO ${table}(${keys.join(",")}) VALUES(${keys.map(() => "?").join(",")})`).run(...keys.map(column => column === "rowid" ? BigInt(row.sequence as string) : row[column] as string | number | null));
+          this.db.prepare(`INSERT INTO ${table}(${keys.join(",")}) VALUES(${keys.map(() => "?").join(",")})`).run(...keys.map(column => {
+            if (column === "rowid") return BigInt(row.sequence as string);
+            if (table === "post_api_keys" && column === "payload") {
+              const key = JSON.parse(row.payload as string); key.revokedAt ??= Date.now(); return JSON.stringify(key);
+            }
+            return row[column] as string | number | null;
+          }));
         }
       }
       this.db.exec("COMMIT");
@@ -336,6 +345,7 @@ export class Store {
       .get(key) as { payload: string } | undefined;
     return row ? JSON.parse(row.payload) : null;
   }
+  postAction(command: PostCommand): PostResult { return sqlitePostAction(this.db, this.budgetDb, command); }
   saveSnapshot(key: string, data: unknown, at: number) {
     this.db
       .prepare("INSERT OR REPLACE INTO snapshots VALUES(?,?,?)")
@@ -380,6 +390,8 @@ export class Store {
     }
   }
   cleanup(now = Date.now()) {
+    this.db.prepare("DELETE FROM post_rates WHERE expires_at<=?").run(now);
+    this.budgetDb.prepare("DELETE FROM post_global_rates WHERE expires_at<=?").run(now);
     // pinata:, buyback:index: and profile: rows are records, not caches (profile: since migration 20261017120000_profile_snapshots.sql).
     this.db.prepare("DELETE FROM snapshots WHERE at < ? AND key NOT LIKE 'pinata:%' AND key NOT LIKE 'buyback:index:%' AND key NOT LIKE 'profile:%'").run(now - 86400000);
     this.db
