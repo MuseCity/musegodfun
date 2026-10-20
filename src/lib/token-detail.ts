@@ -18,11 +18,12 @@ export function tokenFeeCardTier(token: Pick<TokenRecord, "nft" | "creator" | "f
 }
 
 /** The token page's tabs. The selected one is the `tab` query parameter (none for Overview), so a copied link opens it
- * (tasks/ip-page-improvements-2026-10-18-plan.md §4). */
-export type TokenTab = "overview" | "posts" | "activity" | "onchain";
+ * (tasks/ip-page-improvements-2026-10-18-plan.md §4). Since 2026-10-20 Posts lead Overview and On-chain is About
+ * (tasks/token-ip-detail-plan.md §11): shared `tab=onchain` links open About and `tab=posts` links open Overview. */
+export type TokenTab = "overview" | "activity" | "about";
 export function tokenTabFromSearch(search: string): TokenTab {
   const tab = new URLSearchParams(search).get("tab");
-  return tab === "posts" || tab === "activity" || tab === "onchain" ? tab : "overview";
+  return tab === "activity" || tab === "about" ? tab : tab === "onchain" ? "about" : "overview";
 }
 /** `search` with the tab parameter for `tab` (removed for Overview); other parameters stay as they are. */
 export function searchWithTokenTab(search: string, tab: TokenTab): string {

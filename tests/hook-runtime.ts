@@ -60,8 +60,9 @@ export async function importFresh(path: string, replace: Record<string, { file: 
     resolve(specifier, context, next) {
       const target = replace[specifier];
       if (context.parentURL !== entry.href || !target) return next(specifier, context);
-      const names = Object.keys(target.bindings).join(",");
-      const source = `export * from ${JSON.stringify(target.file)};export const {${names}}=globalThis[${JSON.stringify(key)}][${JSON.stringify(specifier)}].bindings;`;
+      // `export *` never re-exports a default, so a `default` binding becomes the module's own default export.
+      const bindings = `globalThis[${JSON.stringify(key)}][${JSON.stringify(specifier)}].bindings`, names = Object.keys(target.bindings).filter((name) => name !== "default").join(",");
+      const source = `export * from ${JSON.stringify(target.file)};${names ? `export const {${names}}=${bindings};` : ""}${"default" in target.bindings ? `export default ${bindings}.default;` : ""}`;
       return { shortCircuit: true, url: `data:text/javascript,${encodeURIComponent(source)}` };
     },
     load(url, context, next) {

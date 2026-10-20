@@ -3,7 +3,7 @@ import { ArrowUpRight } from "lucide-react";
 import { explorerFor, shortAddress, type Stock, type TokenRecord } from "../lib/config";
 import { feeShares } from "../lib/token-detail";
 
-/** The On-chain tab's record of the launch: contract, pair, pool, creator and the fixed fee beneficiaries. `children` adds the fee
+/** The About tab's record of the launch: contract, pair, pool, creator and the fixed fee beneficiaries. `children` adds the fee
  * disclosure and the launch curve. */
 export default function TokenContract({ token, stock, children }: { token: TokenRecord; stock: Stock; children?: ReactNode }) {
   const explorer = explorerFor(token), live = token.mode !== "fork" && explorer;

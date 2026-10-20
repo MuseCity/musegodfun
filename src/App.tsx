@@ -3057,7 +3057,7 @@ function TokenPage({
   return <TokenDetail key={detail.token.address} detail={detail} config={config} refreshError={resource.error} />;
 }
 
-const TOKEN_TABS: { id: TokenTab; label: string }[] = [{ id: "overview", label: "Overview" }, { id: "posts", label: "Posts" }, { id: "activity", label: "Activity" }, { id: "onchain", label: "On-chain" }];
+const TOKEN_TABS: { id: TokenTab; label: string }[] = [{ id: "overview", label: "Overview" }, { id: "activity", label: "Activity" }, { id: "about", label: "About" }];
 
 /** The token page (tasks/token-ip-detail-plan.md): the coin as an IP. Trading happens on Doppler or Fomo; nothing on this page signs a
  * transaction. The owner (creator, or the bound NFT's holder) can sign its social links. */
@@ -3068,7 +3068,7 @@ function TokenDetail({ detail, config, refreshError }: { detail: TokenDetailData
   const market = useLaunchMarket(token, config);
   // The selected tab lives in the URL (`?tab=`), so a copied link opens it; switching replaces the entry rather than adding one.
   const [tab, setTab] = useState<TokenTab>(() => tokenTabFromSearch(location.search));
-  const [visited, setVisited] = useState({ posts: tab === "posts", activity: tab === "activity", onchain: tab === "onchain" });
+  const [visited, setVisited] = useState({ activity: tab === "activity", about: tab === "about" });
   useEffect(() => {
     const follow = () => {
       const next = tokenTabFromSearch(location.search);
@@ -3139,7 +3139,7 @@ function TokenDetail({ detail, config, refreshError }: { detail: TokenDetailData
     if (!editing) setEditorBlocked(false);
     else if (profileStatus) setEditorBlocked(true);
   }, [editing, profileStatus]);
-  // The headline is the creator fee per trade; the buyback and operating shares stay in the fee details (About, On-chain).
+  // The headline is the creator fee per trade; the buyback and operating shares stay in the fee details (Overview's About card and the About tab).
   const shares = feeShares(token), creatorFee = creatorFeePercent(token), feeTier = tokenFeeCardTier(token, wallet.account);
   const nftLabel = nft ? `${isMuse(nft) ? "Muse" : "NFT"} #${nft.tokenId}${nftProfile?.name ? ` · ${nftProfile.name}` : ""}` : "";
   const canonicalUrl = `${location.origin}${tokenPath(token)}`;
@@ -3210,7 +3210,9 @@ function TokenDetail({ detail, config, refreshError }: { detail: TokenDetailData
                   selectTab(next); document.getElementById(`token-tab-${next}`)?.focus();
                 }}>{entry.label}</button>)}
             </div>
+            {/* Overview leads with the coin's Posts, then its About card and Channels (tasks/token-ip-detail-plan.md §11). */}
             <div {...panelProps("overview")} className="tab-stack">
+              <TokenPosts token={token} owner={postsOwner} />
               {(token.description || shares) && <section className="card" aria-labelledby="about-title">
                 <h2 id="about-title" className="card-title">About {token.name}</h2>
                 {token.description && <p className="body-copy">{token.description}</p>}
@@ -3239,23 +3241,22 @@ function TokenDetail({ detail, config, refreshError }: { detail: TokenDetailData
                 <p className="hint">Link X, YouTube, TikTok, Telegram or a website so buyers can find this coin's community.</p>
                 <button type="button" className="secondary" onClick={() => setEditing(true)}>Edit profile</button>
               </section>}
-              {nftProfile?.agentId && <section className="card" aria-labelledby="agent-title">
-                <h2 id="agent-title" className="card-title">Agent identity · ERC-8004</h2>
-                <dl className="rows">
-                  <div><dt>Agent ID</dt><dd>#{nftProfile.agentId}</dd></div>
-                  <div><dt>Identity registry</dt><dd>{explorer ? <a href={`${explorer}/address/${ERC8004_IDENTITY_REGISTRY}`} target="_blank" rel="noreferrer">{shortAddress(ERC8004_IDENTITY_REGISTRY)}</a> : shortAddress(ERC8004_IDENTITY_REGISTRY)}</dd></div>
-                  <div><dt>Binding (ERC-8217)</dt><dd className="sans">{nftLabel} via Adapter8004 {shortAddress(ADAPTER_8004)}</dd></div>
-                  <div><dt>Controller</dt><dd className="sans">The NFT's holder</dd></div>
-                </dl>
-                <p className="hint">The binding is immutable; Adapter8004, which decides who controls the agent, is an upgradeable contract.</p>
-              </section>}
             </div>
-            <div {...panelProps("posts")}>{visited.posts && <TokenPosts token={token} owner={postsOwner} />}</div>
             <div {...panelProps("activity")}>{visited.activity && <TokenActivity token={token} market={market} />}</div>
-            <div {...panelProps("onchain")} className="tab-stack">
-              {visited.onchain && <>
+            <div {...panelProps("about")} className="tab-stack">
+              {visited.about && <>
                 <FirstBuyLock token={token} config={config} hideWhenEmpty />
                 <NftCoinCard token={token} config={config} navigate={navigate} />
+                {nftProfile?.agentId && <section className="card" aria-labelledby="agent-title">
+                  <h2 id="agent-title" className="card-title">Agent identity · ERC-8004</h2>
+                  <dl className="rows">
+                    <div><dt>Agent ID</dt><dd>#{nftProfile.agentId}</dd></div>
+                    <div><dt>Identity registry</dt><dd>{explorer ? <a href={`${explorer}/address/${ERC8004_IDENTITY_REGISTRY}`} target="_blank" rel="noreferrer">{shortAddress(ERC8004_IDENTITY_REGISTRY)}</a> : shortAddress(ERC8004_IDENTITY_REGISTRY)}</dd></div>
+                    <div><dt>Binding (ERC-8217)</dt><dd className="sans">{nftLabel} via Adapter8004 {shortAddress(ADAPTER_8004)}</dd></div>
+                    <div><dt>Controller</dt><dd className="sans">The NFT's holder</dd></div>
+                  </dl>
+                  <p className="hint">The binding is immutable; Adapter8004, which decides who controls the agent, is an upgradeable contract.</p>
+                </section>}
                 {feeTier && <FeeCard token={token} config={config} variant={feeTier} />}
                 <TokenContract token={token} stock={stock}>
                   <TokenFeeDisclosure token={token}>
@@ -3292,8 +3293,8 @@ function TokenDetail({ detail, config, refreshError }: { detail: TokenDetailData
               <p className="hint">{nft ? "Whoever holds the NFT controls its treasury and every future fee. Selling the NFT hands all of it over."
                 : "Fees stay on-chain until the creator claims them."}</p>
               <button type="button" className="secondary" onClick={() => {
-                selectTab("onchain");
-                const target = document.getElementById("token-tab-onchain");
+                selectTab("about");
+                const target = document.getElementById("token-tab-about");
                 target?.focus(); target?.scrollIntoView({ block: "nearest" });
               }}>{nft ? "Treasury and sweep" : feeTier ? "Check fees" : "On-chain details"}</button>
             </section>
