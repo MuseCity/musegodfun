@@ -9,6 +9,7 @@ import { MAX_TOKEN_IMAGE_BYTES } from "../src/lib/token-image";
 import { addressSchema } from "../src/lib/validation";
 import type { PostCommand, PostKeyRecord, PostRecord, PostResult } from "./post-store";
 import { validateTokenImage } from "./token-images";
+import { BudgetUnavailable } from "./runtime-policy";
 
 export class PostError extends Error {
   constructor(readonly code: string, message: string, readonly status = 400, readonly retryAfter?: number) { super(message); this.name = "PostError"; }
@@ -171,6 +172,11 @@ export class TokenPosts {
       await this.run({ action: "mediaComplete", token: tokenAddress, keyId: key.id, id, leaseId, url: uploaded.image, now: this.now() });
       return { id, url: uploaded.image };
     } catch (error) {
+      if (error instanceof BudgetUnavailable) {
+        // Pinata's shared budget refused before any upload: give the daily slots back and report the real wait as 429.
+        await this.run({ action: "mediaRelease", token: tokenAddress, id, leaseId, now: this.now() }).catch(() => {});
+        throw error;
+      }
       await this.run({ action: "mediaFail", token: tokenAddress, id, leaseId }).catch(() => {});
       if (error instanceof PostError) throw error;
       throw new PostError("POST_IMAGE_UNAVAILABLE", "The image could not be saved. Retry shortly.", 503, 5);

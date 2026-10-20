@@ -53,4 +53,13 @@ export async function exercisePostStore(run:(c:PostCommand)=>PostResult|Promise<
   await run({action:"mediaFail",token:retryToken,id,leaseId:String(i)});
  }
  assert.equal((await run({action:"mediaReserve",token:retryToken,keyId:retryKey.id,id,leaseId:"last",now:NOW+11*60_000})).error?.status,429);
+ // A refusal known to precede any upload releases its token and shared day slots: 55 cycles pass both the 10 and 50 caps.
+ const releaseToken=`0x${"5".repeat(40)}`,releaseKey=keyRecord("release-key",releaseToken);await run({action:"keyCreate",row:releaseKey});
+ for(let i=0;i<55;i++){
+  const at=NOW+i*60_000;
+  assert.equal((await run({action:"mediaReserve",token:releaseToken,keyId:releaseKey.id,id,leaseId:`r${i}`,now:at})).error,undefined,`release cycle ${i}`);
+  assert.equal((await run({action:"mediaRelease",token:releaseToken,id,leaseId:"other",now:at})).media?.state,"pending","another lease cannot release");
+  assert.equal((await run({action:"mediaRelease",token:releaseToken,id,leaseId:`r${i}`,now:at})).media?.state,"failed");
+  assert.equal((await run({action:"mediaRelease",token:releaseToken,id,leaseId:`r${i}`,now:at})).media?.state,"failed","a second release refunds nothing");
+ }
 }

@@ -5,7 +5,7 @@ export type PostKeyRecord = { id: string; token: string; issuer: string; name: s
 export type PostRecord = { id: string; token: string; keyId: string; text: string; imageIds: string[]; images: { id: string; url: string }[]; videoUrl: string | null;
   createdAt: number; deletedAt: number | null };
 export type PostMediaRecord = { id: string; token: string; url: string | null; state: "pending" | "ready" | "failed";
-  pendingUntil?: number; leaseId?: string };
+  pendingUntil?: number; leaseId?: string; reservedAt?: number };
 export type PostCursor = { createdAt: number; id: string };
 export type PostCommand =
   | { action: "keysList"; token: string }
@@ -18,7 +18,8 @@ export type PostCommand =
   | { action: "mediaGet"; token: string; id: string }
   | { action: "mediaReserve"; token: string; keyId: string; id: string; leaseId: string; now: number }
   | { action: "mediaComplete"; token: string; keyId: string; id: string; leaseId: string; url: string; now: number }
-  | { action: "mediaFail"; token: string; id: string; leaseId: string };
+  | { action: "mediaFail"; token: string; id: string; leaseId: string }
+  | { action: "mediaRelease"; token: string; id: string; leaseId: string; now: number };
 export type PostResult = { key?: PostKeyRecord; keys?: PostKeyRecord[]; posts?: PostRecord[]; post?: PostRecord;
   media?: PostMediaRecord; duplicate?: boolean; deleted?: boolean;
   error?: { code: string; message: string; status: number; retryAfter?: number } };
@@ -123,7 +124,7 @@ export function sqlitePostAction(db: DatabaseSync, globalDb: DatabaseSync, comma
           if (row?.state === "ready") return { media: row, duplicate: true };
           if (row?.state === "pending" && (row.pendingUntil ?? 0) > now) return refused("POST_MEDIA_PENDING", "The image upload is already running. Retry shortly.", 409, Math.max(1, Math.ceil((row.pendingUntil! - now) / 1000)));
           const denied = reserve([keyCharge(command.keyId), charge(`images:${token}`, DAY, 10), charge("images-global", DAY, 50, true)]); if (denied) return denied;
-          const next: PostMediaRecord = { id: command.id, token, state: "pending", url: null, leaseId: command.leaseId, pendingUntil: now + 120_000 };
+          const next: PostMediaRecord = { id: command.id, token, state: "pending", url: null, leaseId: command.leaseId, pendingUntil: now + 120_000, reservedAt: now };
           db.prepare("INSERT INTO post_media VALUES(?,?,?) ON CONFLICT(token,id) DO UPDATE SET payload=excluded.payload").run(token, command.id, JSON.stringify(next)); return { media: next };
         }
         case "mediaComplete": {
@@ -140,6 +141,19 @@ export function sqlitePostAction(db: DatabaseSync, globalDb: DatabaseSync, comma
             db.prepare("UPDATE post_media SET payload=? WHERE token=? AND id=?").run(JSON.stringify(next), token, row.id); return { media: next };
           }
           return row ? { media: row } : {};
+        }
+        case "mediaRelease": {
+          const row = media(command.id);
+          if (row?.state !== "pending" || row.leaseId !== command.leaseId) return row ? { media: row } : {};
+          // A refusal known to precede any upload returns this reservation's daily image slots; the per-key minute charge stays.
+          if (row.reservedAt !== undefined) {
+            const bucket = Math.floor(row.reservedAt / DAY);
+            db.prepare("UPDATE post_rates SET count=count-1 WHERE key=? AND count>0").run(`images:${token}:${bucket}`);
+            if (!globalOpen) { globalDb.exec("BEGIN IMMEDIATE"); globalOpen = true; }
+            globalDb.prepare("UPDATE post_global_rates SET count=count-1 WHERE key=? AND count>0").run(`images-global:${bucket}`);
+          }
+          const next: PostMediaRecord = { id: row.id, token, state: "failed", url: null };
+          db.prepare("UPDATE post_media SET payload=? WHERE token=? AND id=?").run(JSON.stringify(next), token, row.id); return { media: next };
         }
       }
     };

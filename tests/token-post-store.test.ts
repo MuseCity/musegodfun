@@ -3,8 +3,10 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { Store } from "../server/store";
 import { SupabaseStore } from "../server/supabase-store";
+import { randomUUID } from "node:crypto";
 import { exercisePostStore, keyRecord, postRecord, TOKEN, NOW } from "./helpers/post-store-scenarios";
 
 function fixture() {
@@ -67,4 +69,28 @@ test("SQLite daily create, per-key mutation and owner deletion limits reset only
   assert.equal(publish(61,NOW+86_400_000).error,undefined);
   assert.equal(f.store.postAction({action:"postDelete",token,keyId:key.id,postId:"daily-61",now:key.expiresAt}).error?.status,401,"expiry is exclusive");
  }finally{f.close();}
+});
+
+test("SQLite shared image counter survives simulated-time cleanup and merges by maximum on restore", () => {
+  const live = Date.now(), source = mkdtempSync(join(tmpdir(), "musegod-post-global-")), target = mkdtempSync(join(tmpdir(), "musegod-post-global-"));
+  const store = new Store(join(source, "base"), 8453), first = new Store(join(target, "base"), 8453), second = new Store(join(target, "restore"), 8453);
+  const fill = (s: Store, n: number) => { for (let t = 0; t < n; t++) {
+    const token = `0x${String(200 + t).padStart(40, "0")}`, key = keyRecord(`fill-${t}`, token, live); s.postAction({ action: "keyCreate", row: key });
+    for (let i = 0; i < 10; i++) assert.equal(s.postAction({ action: "mediaReserve", token, keyId: key.id, id: String(i).padStart(64, "0"), leaseId: `l${i}`, now: live }).error, undefined);
+  } };
+  const refused = (s: Store) => { const token = `0x${"9".repeat(40)}`, key = keyRecord(`probe-${randomUUID()}`, token, live); s.postAction({ action: "keyCreate", row: key });
+    return s.postAction({ action: "mediaReserve", token, keyId: key.id, id: "f".repeat(64), leaseId: randomUUID(), now: live }).error?.status === 429; };
+  try {
+    fill(store, 5);
+    assert(refused(store));
+    store.cleanup(live + 25 * 3_600_000);
+    assert(refused(store), "a simulated future cleanup keeps the live shared window");
+    const backup = store.backup();
+    first.restore(backup);
+    assert(refused(first), "a fresh restore keeps the shared cap");
+    second.restore(backup);
+    const budget = new DatabaseSync(join(target, "runtime-budgets.sqlite"));
+    try { assert.deepEqual(budget.prepare("SELECT count FROM post_global_rates WHERE key LIKE 'images-global:%'").all().map(row => row.count), [50], "two restores count the day once"); }
+    finally { budget.close(); }
+  } finally { store.close(); first.close(); second.close(); rmSync(source, { recursive: true, force: true }); rmSync(target, { recursive: true, force: true }); }
 });

@@ -64,6 +64,20 @@ BEGIN
    UPDATE public.musegod_post_media SET payload=media_row WHERE scope=p_scope AND musegod_post_media.token=v_token AND id=item_id;
   END IF;
   RETURN CASE WHEN media_row IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('media',media_row) END;
+ ELSIF action='mediaRelease' THEN
+  SELECT payload INTO media_row FROM public.musegod_post_media WHERE scope=p_scope AND musegod_post_media.token=v_token AND id=item_id;
+  IF media_row->>'state'='pending' AND media_row->>'leaseId'=p_command->>'leaseId' THEN
+   -- A refusal known to precede any upload returns this reservation's daily image slots; the per-key minute charge stays.
+   IF media_row ? 'reservedAt' THEN
+    bucket:=(media_row->>'reservedAt')::bigint/86400000;
+    PERFORM pg_advisory_xact_lock(hashtextextended('musegod_post_global_images',0));
+    UPDATE public.musegod_post_rates SET count=count-1 WHERE scope=p_scope AND key='images:'||v_token||':'||bucket AND count>0;
+    UPDATE public.musegod_post_rates SET count=count-1 WHERE scope=CASE WHEN p_scope IN ('base','robinhood') THEN 'global' ELSE p_scope END AND key='images-global:'||bucket AND count>0;
+   END IF;
+   media_row:=jsonb_build_object('id',item_id,'token',v_token,'state','failed','url',null);
+   UPDATE public.musegod_post_media SET payload=media_row WHERE scope=p_scope AND musegod_post_media.token=v_token AND id=item_id;
+  END IF;
+  RETURN CASE WHEN media_row IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('media',media_row) END;
  END IF;
  IF action NOT IN ('postCreate','postDelete','mediaReserve','mediaComplete') THEN RAISE EXCEPTION 'Unknown Posts command'; END IF;
  IF action<>'postDelete' OR key_id IS NOT NULL THEN
@@ -120,7 +134,7 @@ BEGIN
  ELSIF action='postDelete' THEN
   post_row:=post_row||jsonb_build_object('deletedAt',now_ms);UPDATE public.musegod_posts SET payload=post_row WHERE scope=p_scope AND musegod_posts.token=v_token AND id=p_command->>'postId';RETURN jsonb_build_object('post',post_row,'deleted',true);
  ELSE
-  media_row:=jsonb_build_object('id',item_id,'token',v_token,'state','pending','url',null,'leaseId',p_command->>'leaseId','pendingUntil',now_ms+120000);
+  media_row:=jsonb_build_object('id',item_id,'token',v_token,'state','pending','url',null,'leaseId',p_command->>'leaseId','pendingUntil',now_ms+120000,'reservedAt',now_ms);
   INSERT INTO public.musegod_post_media VALUES(p_scope,v_token,item_id,media_row) ON CONFLICT(scope,token,id) DO UPDATE SET payload=excluded.payload;RETURN jsonb_build_object('media',media_row);
  END IF;
 END $$;
@@ -134,6 +148,8 @@ RETURNS jsonb LANGUAGE sql SECURITY INVOKER SET search_path='' AS $$
  'posts',(select coalesce(jsonb_agg(to_jsonb(t)),'[]') from public.musegod_posts t where scope=p_scope),
  'post_media',(select coalesce(jsonb_agg(to_jsonb(t)),'[]') from public.musegod_post_media t where scope=p_scope),
  'post_rates',(select coalesce(jsonb_agg(to_jsonb(t)),'[]') from public.musegod_post_rates t where scope=p_scope),
+ -- A production scope also carries the shared cross-chain image counter; restore merges it by maximum.
+ 'post_global_rates',CASE WHEN p_scope IN ('base','robinhood') THEN (select coalesce(jsonb_agg(to_jsonb(t)),'[]') from public.musegod_post_rates t where scope='global') ELSE '[]'::jsonb END,
  'plans',(select coalesce(jsonb_agg(to_jsonb(t)),'[]') from public.musegod_plans t where scope=p_scope),
  'tokens',(select coalesce(jsonb_agg(to_jsonb(t)),'[]') from public.musegod_tokens t where scope=p_scope),
  'snapshots',(select coalesce(jsonb_agg(to_jsonb(t)),'[]') from public.musegod_snapshots t where scope=p_scope),
@@ -183,12 +199,23 @@ BEGIN
  INSERT INTO public.musegod_posts SELECT p_scope,id,token,created_at,idempotency_key,request_hash,payload FROM jsonb_populate_recordset(null::public.musegod_posts,coalesce(p_backup->'posts','[]'));
  INSERT INTO public.musegod_post_media SELECT p_scope,token,id,payload FROM jsonb_populate_recordset(null::public.musegod_post_media,coalesce(p_backup->'post_media','[]'));
  INSERT INTO public.musegod_post_rates SELECT p_scope,key,count,expires_at FROM jsonb_populate_recordset(null::public.musegod_post_rates,coalesce(p_backup->'post_rates','[]'));
+ -- The shared image counter merges by maximum: idempotent, never lowers a live window, and two chain backups count each day once.
+ -- An isolated restore scope keeps the counter inside its own scope, away from live global state.
+ PERFORM pg_advisory_xact_lock(hashtextextended('musegod_post_global_images',0));
+ INSERT INTO public.musegod_post_rates SELECT CASE WHEN p_scope IN ('base','robinhood') THEN 'global' ELSE p_scope END,key,count,expires_at
+  FROM jsonb_populate_recordset(null::public.musegod_post_rates,coalesce(p_backup->'post_global_rates','[]'))
+  ON CONFLICT(scope,key) DO UPDATE SET count=greatest(musegod_post_rates.count,excluded.count),expires_at=greatest(musegod_post_rates.expires_at,excluded.expires_at);
 PERFORM pg_catalog.setval('public.musegod_buyback_batches_sequence_seq',greatest((SELECT last_value FROM public.musegod_buyback_batches_sequence_seq),(SELECT coalesce(max(sequence),1) FROM public.musegod_buyback_batches)));
 END $$;
 CREATE OR REPLACE FUNCTION public.musegod_cleanup(p_scope text,p_now bigint)
 RETURNS void LANGUAGE plpgsql SECURITY INVOKER SET search_path='' AS $$
 BEGIN
- DELETE FROM public.musegod_post_rates WHERE (scope=p_scope OR scope='global') AND expires_at<=p_now;
+ DELETE FROM public.musegod_post_rates WHERE scope=p_scope AND expires_at<=p_now;
+ -- Only a production scope clears the shared cross-chain image counter, and never ahead of the database clock, so a
+ -- verify/restore scope's simulated time cannot reopen the live cap.
+ IF p_scope IN ('base','robinhood') THEN
+  DELETE FROM public.musegod_post_rates WHERE scope='global' AND expires_at<=least(p_now,floor(extract(epoch from clock_timestamp())*1000)::bigint);
+ END IF;
  DELETE FROM public.musegod_snapshots WHERE scope=p_scope AND at<p_now-86400000 AND key NOT LIKE 'pinata:%' AND key NOT LIKE 'buyback:index:%' AND key NOT LIKE 'profile:%';
  DELETE FROM public.musegod_quota WHERE scope=p_scope AND key<to_char(to_timestamp((p_now-8640000000)/1000.0) at time zone 'UTC','YYYY-MM');
  DELETE FROM public.musegod_pending_launches WHERE scope=p_scope AND status IN ('failed','replaced') AND updated_at<p_now-2592000000;

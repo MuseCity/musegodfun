@@ -14,6 +14,8 @@ import { redact } from "../server/config";
 import { runtimeFromEnv } from "../server/config";
 import { createApp } from "../server/app";
 import { MUSEGOD } from "../src/lib/musegod";
+import { BudgetUnavailable } from "../server/runtime-policy";
+import { IngressLimiter, expensiveRoute, ingressClass } from "../server/abuse";
 
 const alice = privateKeyToAccount(`0x${"11".repeat(32)}`), bob = privateKeyToAccount(`0x${"22".repeat(32)}`);
 const START = 1_800_000_000_000;
@@ -188,4 +190,36 @@ test("Node HTTP Posts works while financial signing is paused and keeps machine 
   assert(limited, "machine requests retain the source hard limit");
   const publicRead = await fetch(`${root}/posts`, { headers: { "x-forwarded-for": "192.0.2.55" } });
   assert.equal(publicRead.status, 200); assert.equal((await publicRead.json() as { items: unknown[] }).items.length, 1);
+});
+
+test("A Pinata budget refusal reports its real wait and spends no Posts image slot", async t => {
+  const f = fixture(t), key = await f.create(), bearer = `Bearer ${key.apiKey}`;
+  const bytes = Buffer.alloc(26); bytes.write("RIFF"); bytes.writeUInt32LE(18, 4); bytes.write("WEBP", 8); bytes.write("VP8L", 12); bytes.writeUInt32LE(5, 16); bytes[20] = 0x2f;
+  const image = `data:image/webp;base64,${bytes.toString("base64")}`;
+  let attempts = 0;
+  f.deps.uploadImage = async () => { attempts++; throw new BudgetUnavailable(3_600); };
+  for (let i = 0; i < 12; i++) {
+    f.advance(61_000);
+    await assert.rejects(f.service.upload(f.token.address, { image }, bearer), error => error instanceof BudgetUnavailable && error.retryAfter === 3_600);
+  }
+  assert.equal(attempts, 12, "every refusal reached the budget, none was rate-limited by its own earlier refusals");
+  f.deps.uploadImage = async () => ({ image: "https://gateway.pinata.cloud/ipfs/bafkreiexg36mudbth2ete6lyz5pqfejop3k3fgbtlpt6izcka3yraykb6e" });
+  f.advance(61_000);
+  assert.equal((await f.service.upload(f.token.address, { image }, bearer)).id.length, 64, "the token keeps its whole daily image allowance");
+});
+
+test("Posts admission classifies percent-encoded routes the way Express matches them", () => {
+  const address = `%30x${"ab".repeat(20)}`, plain = `0x${"ab".repeat(20)}`, id = randomUUID();
+  for (const route of [`/post-api-keys/list`, `/post-api-keys/${id}/revoke`, `/posts`, `/posts/${id}/delete`]) {
+    assert.equal(ingressClass(`/api/tokens/${address}${route}`, "POST"), ingressClass(`/api/tokens/${plain}${route}`, "POST"), route);
+    assert.equal(ingressClass(`/api/tokens/${address}${route}`, "POST"), "workflow", route);
+    assert.equal(expensiveRoute(`/api/chains/4663/tokens/${address}${route}`, "POST"), true, route);
+  }
+  assert.equal(ingressClass(`/api/chains/8453/tokens/${address}/posts/images`, "POST"), "upload");
+  assert.equal(ingressClass(`/api/tokens/${address}/profile`, "POST"), "workflow");
+  assert.equal(ingressClass(`/api/tokens/${address}/posts`, "GET"), "read");
+  assert.equal(ingressClass("/api/tokens/%E0%A4%A/posts", "POST"), "read", "a malformed escape is left for Express to reject");
+  const limiter = new IngressLimiter(), statuses: (number | undefined)[] = [];
+  for (let i = 0; i < 21; i++) { const admission = limiter.admit("203.0.113.9", `/api/tokens/${address}/post-api-keys/list`, START, "POST"); statuses.push(admission.status); admission.release(); }
+  assert.deepEqual(statuses.slice(0, 20), Array(20).fill(undefined)); assert.equal(statuses[20], 429, "encoded owner requests share the expensive cap");
 });

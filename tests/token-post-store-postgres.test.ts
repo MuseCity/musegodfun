@@ -50,5 +50,27 @@ test("Posts migration and RPC run against isolated PostgreSQL with parity, RLS a
     assert.equal(result.error?.status,t<5?undefined:429);
    }
   }
+  const probe=(s:string)=>{const token=`0x${"9".repeat(40)}`,key=keyRecord(`probe-${randomUUID()}`,token);run({action:"keyCreate",row:key},s);
+   return run({action:"mediaReserve",token,keyId:key.id,id:"f".repeat(64),leaseId:randomUUID(),now:NOW},s).error?.status;};
+  const globalCount=()=>sql("SELECT coalesce(string_agg(count::text,','),'') FROM public.musegod_post_rates WHERE scope='global';");
+  // Cleanup in a disposable scope, or a production scope ahead of the database clock, never reopens the live shared cap.
+  sql(`SET ROLE service_role;SELECT public.musegod_cleanup(${quote(scope)},${NOW+25*3_600_000});SELECT public.musegod_cleanup('base',${NOW+25*3_600_000});`);
+  assert.equal(globalCount(),"50");assert.equal(probe("robinhood"),429);
+  sql("INSERT INTO public.musegod_post_rates VALUES('global','images-global:1',3,1);");
+  sql("SET ROLE service_role;SELECT public.musegod_cleanup('robinhood',2);");
+  assert.equal(sql("SELECT count(*) FROM public.musegod_post_rates WHERE scope='global' AND key='images-global:1';"),"0","production cleanup still clears expired shared windows");
+  // A production backup carries the shared counter; restore merges it by maximum and an isolated scope stays isolated.
+  const shared=JSON.parse(sql("SET ROLE service_role;SELECT public.musegod_backup('base');"));
+  assert.deepEqual(shared.post_global_rates.map((row:{count:number})=>row.count),[50]);
+  const isolated=`restore-posts-${randomUUID()}`;
+  sql(`SET ROLE service_role;SELECT public.musegod_restore(${quote(isolated)},${quote(JSON.stringify(shared))}::jsonb);`);
+  assert.equal(globalCount(),"50");assert.equal(sql(`SELECT count FROM public.musegod_post_rates WHERE scope=${quote(isolated)} AND key LIKE 'images-global:%';`),"50");
+  const restoreBase=(count:number)=>{
+   sql(`UPDATE public.musegod_post_rates SET count=${count} WHERE scope='global';`);
+   for(const table of ["post_api_keys","posts","post_media","post_rates"])sql(`DELETE FROM public.musegod_${table} WHERE scope='base';`);
+   sql(`SET ROLE service_role;SELECT public.musegod_restore('base',${quote(JSON.stringify(shared))}::jsonb);`);return globalCount();
+  };
+  assert.equal(restoreBase(7),"50","restore raises a lower live counter");
+  assert.equal(restoreBase(60),"60","restore never lowers a higher live counter");
  }finally{if(!provided)execFileSync("docker",["rm","-f",container],{stdio:"pipe"});}
 });

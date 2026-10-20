@@ -10,9 +10,16 @@ export function clientBucket(raw: string): string {
   const words = [...a, ...Array(Math.max(0, 8-a.length-b.length)).fill("0"), ...b];
   return words.slice(0, 4).map(word => parseInt(word, 16).toString(16)).join(":") + "::/64";
 }
+/** Express matches decoded route parameters (`/tokens/%30x…` is the route `/tokens/0x…`), so admission classifies the decoded
+ * path. Decoding can only reveal a costlier route, never hide one; a malformed escape keeps its raw spelling and Express rejects it. */
+function admissionPath(path: string) {
+  let value = path.split("?")[0];
+  try { value = decodeURIComponent(value); } catch { /* raw spelling */ }
+  return value.replace(/\/+$/, "").toLowerCase();
+}
 // A profile save may verify a contract-wallet signature and read the NFT holder over RPC, so it counts as expensive.
 export const expensiveRoute = (path: string, method = "GET") => {
-  const normalized = path.split("?")[0].replace(/\/+$/, "").toLowerCase();
+  const normalized = admissionPath(path);
   return /\/(?:launch\/(?:prepare|simulate)|launch-fee-quote|first-buy\/(?:prices|quote)|token-images|tokens\/0x[0-9a-f]{40}\/profile)$/.test(normalized) ||
     method !== "GET" && /\/tokens\/0x[0-9a-f]{40}\/(?:posts(?:\/images|\/[0-9a-f-]{36}\/delete)?|post-api-keys(?:\/list|\/[0-9a-f-]{36}\/revoke)?)$/.test(normalized);
 };
@@ -33,7 +40,7 @@ export const INGRESS_CONCURRENCY = Object.values(INGRESS_CLASSES).reduce((sum, e
 // per transaction by the service.
 export const RECOVERY_PER_MINUTE = 120;
 export function ingressClass(path: string, method = "GET"): IngressClass {
-  const normalized = path.split("?")[0].replace(/\/+$/, "").toLowerCase().replace(/^\/api\/chains\/(?:8453|4663)(?=\/)/, "/api");
+  const normalized = admissionPath(path).replace(/^\/api\/chains\/(?:8453|4663)(?=\/)/, "/api");
   if (normalized.endsWith("/token-images")) return "upload";
   if (/\/tokens\/0x[0-9a-f]{40}\/posts\/images$/.test(normalized)) return "upload";
   if (method !== "GET" && /\/tokens\/0x[0-9a-f]{40}\/(?:posts(?:\/[0-9a-f-]{36}\/delete)?|post-api-keys(?:\/list|\/[0-9a-f-]{36}\/revoke)?)$/.test(normalized)) return "workflow";
@@ -63,7 +70,7 @@ export class IngressLimiter {
     row.count++;
     if (expensiveRoute(path, method)) row.expensive++;
     if (kind === "recovery") row.recovery++;
-    const normalized = path.split("?")[0].replace(/\/+$/, "").toLowerCase();
+    const normalized = admissionPath(path);
     // A profile save may cost RPC reads (contract-wallet signature, NFT holder): the same cap and challenge as a quote.
     const workflow = /\/(?:launch\/(?:prepare|simulate)|first-buy\/quote|tokens\/0x[0-9a-f]{40}\/profile)$/.test(normalized);
     const upload = normalized.endsWith("/token-images");

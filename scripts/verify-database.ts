@@ -226,7 +226,7 @@ try {
   assert.equal((await restore.postAction({ action: "postsList", token: postsFixture.token, limit: 20 })).posts?.length, 0, "Deleted post tombstones survive restore");
   const historicalBackup: Record<string, unknown> = { ...backup, version: 1 };
   for (const field of ["buyback_batches", "runtime_controls", "vault_ledger_state", "vault_ledger_blocks", "vault_ledger_events",
-    "custody_ledger_state", "custody_ledger_blocks", "custody_ledger_events", "post_api_keys", "posts", "post_media", "post_rates"]) delete historicalBackup[field];
+    "custody_ledger_state", "custody_ledger_blocks", "custody_ledger_events", "post_api_keys", "posts", "post_media", "post_rates", "post_global_rates"]) delete historicalBackup[field];
   await legacy.restore(historicalBackup);
   assert.deepEqual(await legacy.token(token.address), token, "Historical version-1 backups remain readable");
   assert.deepEqual(await legacy.listBuybackBatches(), [], "Absent legacy batch field restores as empty");

@@ -302,6 +302,8 @@ export class Store {
     try {
       const existing = new Set((this.db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as {name:string}[]).map(row=>row.name));
       const backup = { version: 3, sqlite: true, tables: Object.fromEntries(tables.filter(table=>existing.has(table)).map(table => [table, this.db.prepare(table === "buyback_batches" ? "SELECT *,CAST(rowid AS TEXT) AS sequence FROM buyback_batches" : `SELECT * FROM ${table}`).all()])) };
+      // The cross-chain Posts image counter lives in the shared budget database; restore merges it by maximum.
+      backup.tables.post_global_rates = this.budgetDb.prepare("SELECT * FROM post_global_rates").all();
       this.db.exec("COMMIT"); return backup;
     } catch (error) { this.db.exec("ROLLBACK"); throw error; }
   }
@@ -336,8 +338,20 @@ export class Store {
           }));
         }
       }
+      // Merging the shared image counter by maximum is idempotent and never lowers a live window, so two chain backups
+      // restored into one budget database count each day once. It precedes COMMIT: a failed restore can only keep it higher.
+      const shared = value.tables.post_global_rates ?? [];
+      this.budgetDb.exec("BEGIN IMMEDIATE");
+      try {
+        for (const row of shared) {
+          if (typeof row.key !== "string" || !Number.isSafeInteger(row.count) || !Number.isSafeInteger(row.expires_at)) throw new Error("Invalid Posts image budget backup");
+          this.budgetDb.prepare("INSERT INTO post_global_rates VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET count=max(count,excluded.count),expires_at=max(expires_at,excluded.expires_at)")
+            .run(row.key, row.count as number, row.expires_at as number);
+        }
+        this.budgetDb.exec("COMMIT");
+      } catch (error) { this.budgetDb.exec("ROLLBACK"); throw error; }
       this.db.exec("COMMIT");
-    } catch (error) { this.db.exec("ROLLBACK"); throw error; }
+    } catch (error) { if (this.db.isTransaction) this.db.exec("ROLLBACK"); throw error; }
   }
   snapshot(key: string): { at: number; data: unknown } | null {
     const row = this.db
@@ -391,7 +405,8 @@ export class Store {
   }
   cleanup(now = Date.now()) {
     this.db.prepare("DELETE FROM post_rates WHERE expires_at<=?").run(now);
-    this.budgetDb.prepare("DELETE FROM post_global_rates WHERE expires_at<=?").run(now);
+    // The image counter is shared by every chain store: a simulated future time never clears another store's live window.
+    this.budgetDb.prepare("DELETE FROM post_global_rates WHERE expires_at<=?").run(Math.min(now, Date.now()));
     // pinata:, buyback:index: and profile: rows are records, not caches (profile: since migration 20261017120000_profile_snapshots.sql).
     this.db.prepare("DELETE FROM snapshots WHERE at < ? AND key NOT LIKE 'pinata:%' AND key NOT LIKE 'buyback:index:%' AND key NOT LIKE 'profile:%'").run(now - 86400000);
     this.db
