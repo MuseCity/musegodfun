@@ -36,7 +36,8 @@ for (const kind of ["musegod", "launch"] as const) test(`${kind} polls only whil
   const module = await importFresh("src/components/TokenMarket.tsx", { react: { file: import.meta.resolve("react"), bindings: runtime.hooks } });
   View = kind === "musegod" ? module.default : module.useLaunchMarket;
   try {
-    runtime.render(); await settle(); const reads = kind === "musegod" ? 3 : 2; assert.equal(calls.length, reads);
+    runtime.render(); await settle(); const reads = kind === "musegod" ? 3 : 1; assert.equal(calls.length, reads);
+    if (kind === "launch") assert(calls.every(path => path.endsWith("/market/summary")), `the token page reads only the summary, never the trade list: ${calls}`);
     const interval = kind === "musegod" ? 15_000 : 15 * 60_000;
     t.mock.timers.tick(interval - 1); await settle(); assert.equal(calls.length, reads);
     t.mock.timers.tick(1); await settle(); assert.equal(calls.length, reads * 2);

@@ -120,7 +120,7 @@ Released 2026-10-20 on the owner's "release and clean up". The migration was app
 
 Owner request after the Posts release: Overview should show Posts first and then "About <coin>", the On-chain tab is renamed About, and the Agent identity card leaves Overview for that tab.
 
-- Tabs are Overview, Activity and About (`?tab=about`). There is no separate Posts tab. A `tab=onchain` link opens About and a `tab=posts` link opens Overview, so links shared before the change still land on the same content; switching tabs writes the new name.
+- Tabs are Overview, Activity and About (`?tab=about`); Activity was removed by §13. There is no separate Posts tab. A `tab=onchain` link opens About and a `tab=posts` link opens Overview, so links shared before the change still land on the same content; switching tabs writes the new name.
 - Overview: the Posts feed (unchanged component, including owner key management and deletion), then the About card (story and owner sentence), then Channels. The feed loads with the page instead of on a first tab visit, which adds one public `GET /posts` per token page view.
 - About (formerly On-chain): first-buy lock, NFT coin card, then the Agent identity · ERC-8004 card for agent coins, then the fee card, contract and launch record, fee disclosure and launch curve. It still mounts on its first visit. Trimmed by §12.
 - The beneficiary card's button opens About; its label is unchanged.
@@ -146,3 +146,12 @@ Owner request: reduce the remaining redundancy in the About tab. Rule: each fact
 The record card is renamed "On-chain record" and keeps the fee engine and operations addresses with their shares, pool ID and launch transaction, then the fee disclosure (buyback share kept, per the 2026-10-18 headline ruling) and the launch curve. The connected-wallet fee card for ordinary coins is unchanged (2026-10-15 owner ruling).
 
 Acceptance: tests cover the trimmed record, the disclosure without the second gross table, the fee card tiers, the token-page treasury card versus the NFT page card, the Agent identity card without Controller and the beneficiary card's treasury link; each fails on the previous code. `npm test`, `npm run typecheck` and `npm run build` pass; a read-only preview of Phial (NFT, agent) and GOD (ordinary) shows the trimmed About tab.
+
+## 13. No Activity tab, 2026-10-20
+
+Owner question: why does the page have an Activity tab? It was kept by the IP redesign (§3) to show buy/sell flow and the latest trades after trading moved to Doppler and Fomo. On 2026-10-20 every registered coin's trade index was empty except one trade on GOD, so the tab showed only "No indexed trades in this snapshot.", while each token page view still fetched the trade list for it. The owner chose to remove it.
+
+- Tabs are Overview and About. `tab=activity` links open Overview. `TokenActivity` is deleted; its CSS classes stay because the MUSEGOD page's market card uses them.
+- `useLaunchMarket` reads only the summary, so a token page makes one market request per refresh instead of two. The live swap stream stays for the trade card's price: on the token page it runs in summary-only mode, keeping candles and trades null and re-reading only the summary after a gap, reorg or resume. The MUSEGOD page's chart stream is unchanged.
+- A compact list of recent trades can return inside the trade card once coins trade enough to fill it.
+- Acceptance: page tests cover the two tabs, legacy `tab=activity` links and the About panel's state across tab switches; the refresh test proves the token page reads only `/market/summary`; the stream test proves summary-only pushes and recovery; both fail on the previous code. `npm test`, `npm run typecheck` and `npm run build` pass; a read-only preview shows Overview and About only, with the live trade card.

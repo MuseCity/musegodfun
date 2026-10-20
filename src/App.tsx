@@ -124,7 +124,6 @@ import { pendingLaunchResolution, terminalLaunchIsCanonical, type PendingLaunchR
 import { useLaunchMarket } from "./components/TokenMarket";
 import TokenHero, { type HeroStat } from "./components/TokenHero";
 import TokenVenues from "./components/TokenVenues";
-import TokenActivity from "./components/TokenActivity";
 import TokenPosts from "./components/TokenPosts";
 import TokenContract from "./components/TokenContract";
 import ProfileEditor from "./components/ProfileEditor";
@@ -3057,7 +3056,7 @@ function TokenPage({
   return <TokenDetail key={detail.token.address} detail={detail} config={config} refreshError={resource.error} />;
 }
 
-const TOKEN_TABS: { id: TokenTab; label: string }[] = [{ id: "overview", label: "Overview" }, { id: "activity", label: "Activity" }, { id: "about", label: "About" }];
+const TOKEN_TABS: { id: TokenTab; label: string }[] = [{ id: "overview", label: "Overview" }, { id: "about", label: "About" }];
 
 /** The token page (tasks/token-ip-detail-plan.md): the coin as an IP. Trading happens on Doppler or Fomo; nothing on this page signs a
  * transaction. The owner (creator, or the bound NFT's holder) can sign its social links. */
@@ -3068,7 +3067,7 @@ function TokenDetail({ detail, config, refreshError }: { detail: TokenDetailData
   const market = useLaunchMarket(token, config);
   // The selected tab lives in the URL (`?tab=`), so a copied link opens it; switching replaces the entry rather than adding one.
   const [tab, setTab] = useState<TokenTab>(() => tokenTabFromSearch(location.search));
-  const [visited, setVisited] = useState({ activity: tab === "activity", about: tab === "about" });
+  const [visited, setVisited] = useState({ about: tab === "about" });
   useEffect(() => {
     const follow = () => {
       const next = tokenTabFromSearch(location.search);
@@ -3242,7 +3241,6 @@ function TokenDetail({ detail, config, refreshError }: { detail: TokenDetailData
                 <button type="button" className="secondary" onClick={() => setEditing(true)}>Edit profile</button>
               </section>}
             </div>
-            <div {...panelProps("activity")}>{visited.activity && <TokenActivity token={token} market={market} />}</div>
             <div {...panelProps("about")} className="tab-stack">
               {visited.about && <>
                 <FirstBuyLock token={token} config={config} hideWhenEmpty />

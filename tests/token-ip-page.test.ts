@@ -59,13 +59,13 @@ test("a visitor sees the coin as an IP: socials first, Doppler and the owner's F
   assert.match(html, /href="https:\/\/fomo\.family\/r\/musegod"[^>]*>Open Fomo with invite/);
   assert.match(html, /href="https:\/\/x\.com\/musegod_rh"/);
   assert.match(html, /Channels · 1 linked/);
-  assert.match(html, /role="tab"[^>]*>Overview<.*role="tab"[^>]*>Activity<.*role="tab"[^>]*>About</);
+  assert.match(html, /role="tab"[^>]*>Overview<.*role="tab"[^>]*>About</);
   assert.match(html, /Pool fee on any venue, per \$100/);
   assert.match(html, /<span class="eyebrow muted">Creator fee<\/span><span class="mono">0.665%<\/span><span class="hint">of every trade · fixed at launch<\/span>/,
     "the headline is the creator fee per trade (1% trading fee × 66.5% creator share)");
   assert.doesNotMatch(html, /Buyback share/, "the buyback share is a fee detail, not a headline fact");
   assert.doesNotMatch(html, /Edit profile|Talk to it|not linked|Pay with ETH|Slippage|OpenSea|Agent identity/);
-  assert.doesNotMatch(html, /role="tab"[^>]*>(?:Posts|On-chain)</, "Posts moved into Overview and On-chain is now About");
+  assert.doesNotMatch(html, /role="tab"[^>]*>(?:Posts|On-chain|Activity)</, "Posts moved into Overview, On-chain is now About and Activity is gone");
   const [panel, feed, about, channels] = ['id="token-panel-overview"', "data-posts-feed", 'id="about-title"', 'id="channels-title"'].map((marker) => html.indexOf(marker));
   assert(panel >= 0 && panel < feed && feed < about && about < channels, `Overview leads with Posts, then About and Channels (${[panel, feed, about, channels]})`);
   assert.doesNotMatch(html, /<input/, "the page has no amount field: trading happens on the venues");
@@ -213,15 +213,6 @@ test("the trade card offers the pool quote whenever no price is indexed, and sti
   assert.doesNotMatch(html, /class="market-price"/, "no price line without a price");
 });
 
-test("Activity scopes an empty list to the index and never claims there were no trades", async () => {
-  const { default: TokenActivity } = await import("../src/components/TokenActivity");
-  const empty = (extra: object) => renderToStaticMarkup(createElement(TokenActivity, { token: coin, market: { ...market,
-    trades: { data: { fetchedAt: "2026-10-17T00:00:00.000Z", status: "fresh", trades: [], ...extra }, loading: false, error: "" },
-    tradeData: { fetchedAt: "2026-10-17T00:00:00.000Z", status: "fresh", trades: [], ...extra } } as any }));
-  assert.match(empty({}), /No indexed trades in this snapshot\./);
-  assert.match(empty({ reason: "not_indexed" }), /Market records are not indexed for this pool yet\./);
-  for (const html of [empty({}), empty({ reason: "not_indexed" })]) assert.doesNotMatch(html, /No trades yet|seconds after/);
-});
 
 const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : node && typeof node === "object"
   ? [node, ...nodes(node.props?.children)] : [];
@@ -373,7 +364,7 @@ test("tabs support keyboard wrapping and beneficiary navigation focuses and scro
   } finally { runtime.unmount(); }
 });
 
-test("visited panels retain an actual claim's hash and error and Activity choices while hidden", async () => {
+test("a visited About panel retains an actual claim's hash and error while hidden", async () => {
   account = creator;
   let rejectClaim: (error: Error) => void = () => {};
   const hash = `0x${"ab".repeat(32)}`;
@@ -382,34 +373,27 @@ test("visited panels retain an actual claim's hash and error and Activity choice
   } };
   const parent = await detailRuntime({ wallet });
   const feeNode = () => find(parent.output(), (node) => node.type?.name === "FeeCard");
-  const activityNode = () => find(parent.output(), (node) => node.type?.name === "TokenActivity");
-  let Fee: any, Activity: any;
+  let Fee: any;
   const fee = hookRuntime(() => Fee(feeNode().props));
-  const activity = hookRuntime(() => Activity({ ...activityNode().props, market: { ...market,
-    stats: { periods: { h24: { buys: 1 }, h1: { buys: 2 } } }, tradeData: { trades: [{ id: "a", side: "buy", amount: 1, at: new Date().toISOString(), hash }] } } }));
   ({ FeeCard: Fee } = await importFresh("src/App.tsx", {
     react: { file: import.meta.resolve("react"), bindings: fee.hooks },
     "./lib/wallet": { file: import.meta.resolve("../src/lib/wallet.tsx"), bindings: { useWallet: () => wallet } },
     "./lib/api": { file: import.meta.resolve("../src/lib/api.ts"), bindings: { chainApi: async () => ({ trade: { fees0: "1", fees1: "0" }, lp: { fees0: "0", fees1: "0" }, poolKey: { currency0: coin.address, currency1: MUSEGOD.weth } }) } },
   }));
-  ({ default: Activity } = await importFresh("src/components/TokenActivity.tsx", { react: { file: import.meta.resolve("react"), bindings: activity.hooks } }));
   const select = async (id: string) => { find(parent.output(), (node) => node.props?.id === `token-tab-${id}`).props.onClick(); await settle(); };
   try {
-    parent.render(); assert.equal(feeNode(), null); assert.equal(activityNode(), null, "no reads before the first visit");
+    parent.render(); assert.equal(feeNode(), null, "no reads before the first visit");
     await select("about"); const feeType = feeNode().type; fee.render(); button(fee.output(), "Check fees").props.onClick(); await settle();
     assert.equal(button(fee.output(), "Claim trading fee").props.disabled, false);
     button(fee.output(), "Claim trading fee").props.onClick(); await settle();
     assert.equal(button(fee.output(), "Claim trading fee").props.disabled, true);
-    await select("activity"); assert.equal(feeNode().type, feeType, "the same component stays mounted");
+    await select("overview"); assert.equal(feeNode().type, feeType, "the same component stays mounted");
     assert.equal(find(parent.output(), (node) => node.props?.id === "token-panel-about").props.hidden, true);
-    activity.render(); button(activity.output(), "1h").props.onClick(); button(activity.output(), "Sell").props.onClick(); await settle();
     rejectClaim(new Error("Claim failed after wallet confirmation")); await settle();
     await select("about"); fee.render();
     assert(nodes(fee.output()).some((node) => node.props?.hash === hash));
     assert.match(textOf(fee.output()), /Claim failed after wallet confirmation/);
-    await select("activity"); activity.render();
-    assert.equal(button(activity.output(), "1h").props["aria-pressed"], true); assert.equal(button(activity.output(), "Sell").props["aria-pressed"], true);
-  } finally { parent.unmount(); fee.unmount(); activity.unmount(); }
+  } finally { parent.unmount(); fee.unmount(); }
 });
 
 test("a non-fork pool quote is gated by state, shows its average fill price, and exposes read errors", async () => {
@@ -475,26 +459,33 @@ test("the selected tab lives in the URL: a copied link opens it, and switching r
     runtime.render();
     assert.equal(tab("about").props["aria-selected"], true, "a shared link to the former On-chain tab opens About");
     assert(find(runtime.output(), (node) => node.type?.name === "TokenContract"), "and renders its panel on load");
-    tab("activity").props.onClick(); await settle();
     tab("overview").props.onClick(); await settle();
     tab("overview").props.onClick(); await settle();
-    assert.deepEqual(writes, [`${place.pathname}?ref=x&tab=activity#top`, `${place.pathname}?ref=x#top`], "Overview drops the parameter; no rewrite when unchanged");
-    place.search = "?tab=about"; window.dispatchEvent(new Event("popstate")); await settle();
-    assert.equal(tab("about").props["aria-selected"], true, "history moving to another tab's URL selects that tab");
+    tab("about").props.onClick(); await settle();
+    assert.deepEqual(writes, [`${place.pathname}?ref=x#top`, `${place.pathname}?ref=x&tab=about#top`], "Overview drops the parameter; no rewrite when unchanged");
+    place.search = "?ref=x"; window.dispatchEvent(new Event("popstate")); await settle();
+    assert.equal(tab("overview").props["aria-selected"], true, "history moving to another tab's URL selects that tab");
     assert.equal(writes.length, 2, "following history never rewrites it");
   } finally { runtime.unmount(); }
-  // Start a fresh page on Overview so Activity has never mounted before the history navigation.
+  // Start a fresh page on Overview so About has never mounted before the history navigation.
   place.search = "?ref=x";
   const overview = await detailRuntime();
   try {
     overview.render();
     assert.equal(find(overview.output(), (node) => node.props?.id === "token-tab-overview").props["aria-selected"], true);
-    assert.equal(find(overview.output(), (node) => node.type?.name === "TokenActivity"), null);
-    place.search = "?ref=x&tab=activity"; window.dispatchEvent(new Event("popstate")); await settle();
-    assert.equal(find(overview.output(), (node) => node.props?.id === "token-tab-activity").props["aria-selected"], true);
-    assert(find(overview.output(), (node) => node.type?.name === "TokenActivity"), "history mounts a previously unvisited Activity panel");
+    assert.equal(find(overview.output(), (node) => node.type?.name === "TokenContract"), null);
+    place.search = "?ref=x&tab=about"; window.dispatchEvent(new Event("popstate")); await settle();
+    assert.equal(find(overview.output(), (node) => node.props?.id === "token-tab-about").props["aria-selected"], true);
+    assert(find(overview.output(), (node) => node.type?.name === "TokenContract"), "history mounts a previously unvisited About panel");
     assert.equal(writes.length, 2, "following history never rewrites it");
   } finally { overview.unmount(); }
+  place.search = "?ref=x&tab=activity";
+  const activity = await detailRuntime();
+  try {
+    activity.render();
+    assert.equal(find(activity.output(), (node) => node.props?.id === "token-tab-overview").props["aria-selected"], true, "a shared Activity link opens Overview");
+    assert.equal(find(activity.output(), (node) => node.props?.id === "token-tab-activity"), null, "there is no Activity tab");
+  } finally { activity.unmount(); }
   place.search = "?ref=x&tab=posts";
   const posts = await detailRuntime();
   try {
@@ -504,8 +495,8 @@ test("the selected tab lives in the URL: a copied link opens it, and switching r
     assert.equal(find(posts.output(), (node) => node.props?.id === "token-tab-posts"), null, "there is no separate Posts tab");
   } finally { posts.unmount(); }
   const { tokenTabFromSearch, searchWithTokenTab } = await import("../src/lib/token-detail");
-  assert.deepEqual(["", "?tab=activity", "?tab=about", "?tab=onchain", "?tab=posts", "?tab=ACTIVITY"].map(tokenTabFromSearch), ["overview", "activity", "about", "about", "overview", "overview"]);
-  assert.equal(searchWithTokenTab("?tab=activity", "overview"), "");
+  assert.deepEqual(["", "?tab=activity", "?tab=about", "?tab=onchain", "?tab=posts", "?tab=ABOUT"].map(tokenTabFromSearch), ["overview", "overview", "about", "about", "overview", "overview"]);
+  assert.equal(searchWithTokenTab("?tab=about", "overview"), "");
   assert.equal(searchWithTokenTab("?ref=x&tab=onchain", "about"), "?ref=x&tab=about", "switching writes the current tab name");
 });
 

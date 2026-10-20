@@ -124,9 +124,9 @@ function useMarket<
   },[result.data?.fetchedAt]);
   return previousPath.current === key ? result : { data: null, error: "", loading: true };
 }
-/** A launch coin's market summary and trades for the token page (tasks/token-ip-detail-plan.md §3): no candles, since the page has no
- * chart. One instance owns the data and the live swap stream; the trade card shows the summary and the Activity tab the trades.
- * `live` is the stream's status element, rendered once by the caller. */
+/** A launch coin's market summary for the token page's trade card (tasks/token-ip-detail-plan.md §3, §13): no candles or trades, since
+ * the page has no chart or trade list. One instance owns the summary and the live swap stream, which keeps the price current and
+ * re-reads only the summary after a gap. `liveNode` is the stream's status element, rendered once by the caller. */
 export function useLaunchMarket(token: MarketToken, config: import("../lib/config").RuntimeConfig | null) {
   const [live, setLive] = useState<LiveProjection | null>(null);
   const [revision, setRevision] = useState(0);
@@ -135,21 +135,18 @@ export function useLaunchMarket(token: MarketToken, config: import("../lib/confi
     return () => clearInterval(timer);
   }, []);
   const summary = useMarket<MarketSummary>(token, "launch", "summary", revision);
-  const trades = useMarket<TradeData>(token, "launch", "trades", revision);
   const liveEnabled = !!config && config.mode !== "fork" && token.mode !== "fork" && config.chainId === deploymentChain(token) && !!token.poolId;
   const currentLive = liveEnabled && live?.basis.summary === summary.data && live?.basis.candles === null &&
-    live?.basis.trades === trades.data && live?.basis.info === null ? live : null;
+    live?.basis.trades === null && live?.basis.info === null ? live : null;
   const stats = currentLive?.summary || summary.data;
-  const tradeData = currentLive?.trades || trades.data;
   const liveNode = liveEnabled ? <Suspense fallback={null}><SwapLive chainId={deploymentChain(token)} pool={token.poolId!.toLowerCase()}
-    path={`/tokens/${token.address}/market`} summary={summary.data} candles={null} trades={trades.data} interval="1h" info={null} onUpdate={setLive} /></Suspense> : null;
-  return { summary, trades, stats, tradeData, currentLive, liveNode, refresh: () => setRevision((n) => n + 1) };
+    path={`/tokens/${token.address}/market`} summary={summary.data} candles={null} trades={null} summaryOnly interval="1h" info={null} onUpdate={setLive} /></Suspense> : null;
+  return { summary, stats, currentLive, liveNode, refresh: () => setRevision((n) => n + 1) };
 }
 export type LaunchMarket = ReturnType<typeof useLaunchMarket>;
 export const formatUsd = (n: number | null | undefined, precise = false) => usd(n, precise);
-export const formatCount = count;
 // A stale snapshot with no rows keeps its empty statement beside the stale note, like the summary does.
-export function emptyText(data: { status?: string; warning?: string } | null, error: string, empty: string, fallback: string) {
+function emptyText(data: { status?: string; warning?: string } | null, error: string, empty: string, fallback: string) {
   return data?.status === "stale" ? `${empty} ${error || data.warning || fallback}` : error || empty;
 }
 function Message({ loading, text }: { loading: boolean; text: string }) {

@@ -14,9 +14,9 @@ test('C1-2: explicit reorg/gap signals debounce with jitter and refresh at most 
  const {createGapRefresh}=await import('../src/lib/swap-live');let now=0,calls=0;const jobs:{at:number;run:()=>void}[]=[];const refresh=createGapRefresh(async()=>{calls++;},{now:()=>now,random:()=>0.5,schedule:(run,ms)=>{const job={at:now+ms,run};jobs.push(job);return()=>{jobs.splice(jobs.indexOf(job),1);};}});
  for(let n=0;n<100;n++)refresh.request();assert.equal(jobs.length,1);assert(jobs[0].at>=5000&&jobs[0].at<10000);now=jobs[0].at;jobs.shift()!.run();await settle();assert.equal(calls,1);for(let n=0;n<100;n++)refresh.request();assert.equal(jobs.length,1);assert(jobs[0].at>=now+30000);refresh.stop();
 });
-async function liveFixture(options:{read:(path:string)=>Promise<any>;initialResumed?:boolean}){
+async function liveFixture(options:{read:(path:string)=>Promise<any>;initialResumed?:boolean;summaryOnly?:boolean}){
  let listener:any,output:any,bridge:any,requested=0;const reads:string[]=[];const trade=decodeDelivery(JSON.stringify(fixtures.deliveries.v3),{id:'wh_test_v3',network:'ROBINHOOD_MAINNET',kind:'v3' as const},registeredPools(4663,[])).trades[0];
- const props:any={summary:null,candles:null,trades:null,chainId:4663,pool:trade.pool,path:'/musegod/market',interval:'1h',info:null,onUpdate:(v:any)=>{output=v;}};
+ const props:any={summary:null,candles:null,trades:null,chainId:4663,pool:trade.pool,path:'/musegod/market',interval:'1h',info:null,summaryOnly:options.summaryOnly,onUpdate:(v:any)=>{output=v;}};
  const runtime=hookRuntime(()=>bridge(props));({default:bridge}=await importFresh('src/components/SwapLive.tsx',{
   react:{file:import.meta.resolve('react'),bindings:runtime.hooks},
   '../lib/api':{file:import.meta.resolve('../src/lib/api.ts'),bindings:{chainApi:async(_chain:number,path:string)=>{reads.push(path);return options.read(path);}}},
@@ -124,4 +124,11 @@ test('C2 recoveries that complete out of order never let an older snapshot overw
  rest.resolve(0,applySwapPush(empty,f.message(f.trade) as any,'1h'));await settle();await settle();await settle();
  assert.equal(f.output.trades.trades.length,2,'the older first recovery is discarded');
  assert.equal(f.output.summary.priceQuote,f.later.priceQuote);
+});
+test('a summary-only consumer (the token page) keeps the live price but builds no trade list or candles and recovers only the summary',async t=>{
+ const f=await liveFixture({read:async()=>null,summaryOnly:true});t.after(()=>f.runtime.unmount());
+ assert.equal(await f.listener.event(f.message(f.trade)),true);await settle();
+ assert.equal(f.output.summary.priceQuote,f.trade.priceQuote);assert.equal(f.output.trades,null);assert.equal(f.output.candles,null);
+ f.listener.status({connected:true,receiving:false,receivedAt:null,resumed:true});await settle();
+ assert.deepEqual(f.reads,['/musegod/market/summary'],'a recovery re-reads only the summary');
 });

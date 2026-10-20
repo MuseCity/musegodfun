@@ -39,7 +39,7 @@ Change:
 - DOM order becomes hero → main (tabs and panels) → aside (trade card, beneficiary card), so reading and keyboard order match the layout in both modes (the old CSS `order` swap is removed).
 - Two columns from a content width of 820 px (main 480 px basis, aside 320 px), which covers desktop windows from 1132 px, or 1147 px with a 15 px classic scrollbar.
 - In the stacked layout (phones, tablets, narrow desktop windows) the tabs follow the hero; a "Trade" button in the hero, shown only while stacked, scrolls to and focuses the trade card. This supersedes acceptance item 9 of `tasks/token-ip-detail-plan.md` ("the aside stacks above the tabs").
-- The selected tab is `?tab=activity` or `?tab=onchain` (Overview has no parameter; since 2026-10-20 `?tab=about`, see `tasks/token-ip-detail-plan.md` §11), written with `history.replaceState` (tab switches do not add history entries) and read on load and on `popstate`. The chain-less token redirect keeps the query and hash.
+- The selected tab is `?tab=activity` or `?tab=onchain` (Overview has no parameter; since 2026-10-20 `?tab=about` with no Activity tab, see `tasks/token-ip-detail-plan.md` §11 and §13), written with `history.replaceState` (tab switches do not add history entries) and read on load and on `popstate`. The chain-less token redirect keeps the query and hash.
 
 Acceptance: at 1180×757 the tabs are in the first viewport; opening a copied `?tab=activity` or `?tab=onchain` link shows that panel; Tab key order follows the visual order.
 

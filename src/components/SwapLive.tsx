@@ -9,7 +9,8 @@ export type SupplyInfo=Pick<MusegodInfo,"address"|"poolAddress"|"quoteAddress"|"
 type Rest=SwapSections;
 export type LiveProjection=Rest&{basis:Rest&{interval:ChartInterval;info:SupplyInfo|null};priceAt:string|null;candlesAt:string|null;tradesAt:string|null};
 export function liveValuesChanged(a:Rest,b:Rest){const values=(r:Rest)=>[r.summary?.priceUsd,r.summary?.priceQuote,r.candles?.candles,r.trades?.trades];return JSON.stringify(values(a))!==JSON.stringify(values(b));}
-export default function SwapLive(props:Rest&{chainId:4663|8453;pool:string;path:string;interval:ChartInterval;info:SupplyInfo|null;onUpdate(value:LiveProjection|null):void}){
+// `summaryOnly`: a consumer with no chart or trade list (the token page) keeps candles and trades null, and a recovery re-reads only the summary.
+export default function SwapLive(props:Rest&{chainId:4663|8453;pool:string;path:string;interval:ChartInterval;info:SupplyInfo|null;summaryOnly?:boolean;onUpdate(value:LiveProjection|null):void}){
  const current=useRef(props);current.current=props;const displayed=useRef<LiveProjection|null>(null);
  const [status,setStatus]=useState<LiveStatus>({connected:false,receiving:false,receivedAt:null});
  useEffect(()=>{
@@ -24,7 +25,8 @@ export default function SwapLive(props:Rest&{chainId:4663|8453;pool:string;path:
   const recovery=createGapRefresh(async()=>{
    const p=current.current,replay:SwapMessage[]=[],seq=++sequence,gen=generation;replays.add(replay);
    try{
-    const [summary,candles,trades]=await Promise.all([chainApi<Rest['summary']>(p.chainId,`${p.path}/summary`,undefined,{retry:false,signal:abort.signal}),chainApi<Rest['candles']>(p.chainId,`${p.path}/candles?interval=${p.interval}`,undefined,{retry:false,signal:abort.signal}),chainApi<Rest['trades']>(p.chainId,`${p.path}/trades`,undefined,{retry:false,signal:abort.signal})]);
+    const read=<T,>(section:string)=>chainApi<T>(p.chainId,`${p.path}/${section}`,undefined,{retry:false,signal:abort.signal});
+    const [summary,candles,trades]=await Promise.all([read<Rest['summary']>('summary'),p.summaryOnly?null:read<Rest['candles']>(`candles?interval=${p.interval}`),p.summaryOnly?null:read<Rest['trades']>('trades')]);
     if(!active||p.interval!==current.current.interval||gen!==generation||seq<published)return;
     let next:Rest={summary,candles,trades};for(const message of replay)next=applySwapPush(next,message,p.interval);
     published=seq;publish(next);
@@ -38,7 +40,7 @@ export default function SwapLive(props:Rest&{chainId:4663|8453;pool:string;path:
    if(message.reorg||message.gap){recovery.request();return false;}
    for(const replay of replays)replay.push(message);
    const c=current.current,previous=displayed.current,b=previous?.basis,visible=previous&&b?.summary===c.summary&&b.candles===c.candles&&b.trades===c.trades&&b.interval===c.interval?previous:c;
-   const next=applySwapPush(visible,message,c.interval);const changed=liveValuesChanged(visible,next);if(changed&&active)publish(next);return changed;
+   const pushed=applySwapPush(visible,message,c.interval),next=c.summaryOnly?{...pushed,candles:null,trades:null}:pushed;const changed=liveValuesChanged(visible,next);if(changed&&active)publish(next);return changed;
   }});
   ready=true;
   return()=>{active=false;abort.abort();recovery.stop();off();displayed.current=null;current.current.onUpdate(null);};
