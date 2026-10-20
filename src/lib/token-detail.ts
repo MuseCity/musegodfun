@@ -12,7 +12,8 @@ export function stockStatusFailure(stock: Stock) {
 }
 export function tokenFeeCardTier(token: Pick<TokenRecord, "nft" | "creator" | "feeTreasury">, account: string | null | undefined): "token" | "compact" | null {
   const treasury = !!account && !!token.feeTreasury && sameAddress(token.feeTreasury, account);
-  if (token.nft && !treasury) return "token";
+  // An NFT coin's creator fees are swept on its treasury card, so only the platform treasury needs a fee card (plan §12).
+  if (token.nft) return treasury ? "token" : null;
   if (!account) return null;
   return treasury || !!token.creator && sameAddress(token.creator, account) ? "token" : "compact";
 }

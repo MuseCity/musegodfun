@@ -3253,12 +3253,11 @@ function TokenDetail({ detail, config, refreshError }: { detail: TokenDetailData
                     <div><dt>Agent ID</dt><dd>#{nftProfile.agentId}</dd></div>
                     <div><dt>Identity registry</dt><dd>{explorer ? <a href={`${explorer}/address/${ERC8004_IDENTITY_REGISTRY}`} target="_blank" rel="noreferrer">{shortAddress(ERC8004_IDENTITY_REGISTRY)}</a> : shortAddress(ERC8004_IDENTITY_REGISTRY)}</dd></div>
                     <div><dt>Binding (ERC-8217)</dt><dd className="sans">{nftLabel} via Adapter8004 {shortAddress(ADAPTER_8004)}</dd></div>
-                    <div><dt>Controller</dt><dd className="sans">The NFT's holder</dd></div>
                   </dl>
                   <p className="hint">The binding is immutable; Adapter8004, which decides who controls the agent, is an upgradeable contract.</p>
                 </section>}
                 {feeTier && <FeeCard token={token} config={config} variant={feeTier} />}
-                <TokenContract token={token} stock={stock}>
+                <TokenContract token={token}>
                   <TokenFeeDisclosure token={token}>
                     <Link href="/buyback" className="mechanism-link">View the buyback policy and status <ArrowUpRight size={14} /></Link>
                   </TokenFeeDisclosure>
@@ -3283,8 +3282,8 @@ function TokenDetail({ detail, config, refreshError }: { detail: TokenDetailData
               {nft ? <dl className="rows">
                 <div><dt>NFT</dt><dd className="sans">{nftLabel}</dd></div>
                 <div><dt>Collection</dt><dd>{explorer && token.mode !== "fork" ? <a href={`${explorer}/address/${nft.contract}`} target="_blank" rel="noreferrer">{shortAddress(nft.contract)}</a> : shortAddress(nft.contract)}</dd></div>
-                {factory && <div><dt>Fee vault</dt><dd>{shortAddress(vaultFor(nft, factory))}</dd></div>}
-                <div><dt>Treasury (ERC-6551)</dt><dd>{shortAddress(treasuryFor(nft))}</dd></div>
+                {factory && <div><dt>Fee vault</dt><dd>{explorer && token.mode !== "fork" ? <a href={`${explorer}/address/${vaultFor(nft, factory)}`} target="_blank" rel="noreferrer">{shortAddress(vaultFor(nft, factory))}</a> : shortAddress(vaultFor(nft, factory))}</dd></div>}
+                <div><dt>Treasury (ERC-6551)</dt><dd>{explorer && token.mode !== "fork" ? <a href={`${explorer}/address/${treasuryFor(nft)}`} target="_blank" rel="noreferrer">{shortAddress(treasuryFor(nft))}</a> : shortAddress(treasuryFor(nft))}</dd></div>
                 {shares && <div><dt>Share of every trading fee</dt><dd>{shares.creator}%</dd></div>}
               </dl> : <dl className="rows">
                 <div><dt>Creator wallet</dt><dd>{creatorLink ?? "Not verified"}</dd></div>

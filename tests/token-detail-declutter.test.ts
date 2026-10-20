@@ -31,9 +31,9 @@ test("D3 every connected beneficiary can reach fee checks, including catalog mis
   assert.equal(tokenFeeCardTier(token, token.feeTreasury?.toUpperCase()), "token");
   assert.equal(tokenFeeCardTier(token, other), "compact");
   const nft = { ...token, nft: { chainId: 4663 as const, contract: token.address, tokenId: "1" } };
-  assert.equal(tokenFeeCardTier(nft, null), "token");
-  assert.equal(tokenFeeCardTier(nft, other), "token");
-  assert.equal(tokenFeeCardTier(nft, token.feeTreasury), "token");
+  assert.equal(tokenFeeCardTier(nft, null), null, "an NFT coin's creator fees are swept on its treasury card");
+  assert.equal(tokenFeeCardTier(nft, other), null);
+  assert.equal(tokenFeeCardTier(nft, token.feeTreasury), "token", "the platform treasury still claims its share");
 });
 
 test("D6 the fee split is inside the collapsed token disclosure, retaining its policy link", () => {
@@ -42,19 +42,22 @@ test("D6 the fee split is inside the collapsed token disclosure, retaining its p
   assert.match(html, /href="\/buyback"/);
 });
 
-test("C1-5 the On-chain contract card lists the launch record, links mainnet addresses only, and keeps the fee split collapsed", async () => {
+test("C1-5 the About tab's on-chain record lists only facts the page shows nowhere else, links mainnet addresses only, and keeps the fee split collapsed", async () => {
   const { default: TokenContract } = await import("../src/components/TokenContract");
   for (const mode of ["base", "fork"] as const) {
     const token = syntheticToken({ mode, tradingFeeBps: 100, feePolicy: "creator-70-musegod-v2", openingValuationUnverified: true,
       feeTreasury: "0x3333333333333333333333333333333333333333" });
-    const html = renderToStaticMarkup(createElement(TokenContract, { token, stock: STOCKS[0], children: createElement(TokenFeeDisclosure, { token, children: createElement("a", { href: "/buyback" }, "View the buyback policy and status") }) }));
-    assert.match(html, /Contract and launch record/);
-    assert.match(html, /Token contract.*Quote asset.*Creator.*Operations · 5.7%.*Pool ID.*Supply.*1,000,000,000.*Opening valuation.*Unverified.*Created/);
+    const html = renderToStaticMarkup(createElement(TokenContract, { token, children: createElement(TokenFeeDisclosure, { token, children: createElement("a", { href: "/buyback" }, "View the buyback policy and status") }) }));
+    assert.match(html, /On-chain record/);
+    assert.match(html, /Operations · 5.7%.*Pool ID.*Launch transaction/);
+    assert.doesNotMatch(html.replace(/<details[\s\S]*<\/details>/g, ""), /Token contract|Quote asset|<dt>Creator|<dt>Supply|Opening valuation|<dt>Created/,
+      "the hero, notice and beneficiary card already show the contract, pair, creator, supply, valuation and date");
+    assert.doesNotMatch(html, /Equivalent share of total fees/, "the split bar already shows the gross shares");
     assert(html.includes(token.poolId));
     assert.equal((html.match(/href="\/buyback"/g) ?? []).length, 1);
     const outsideDetails = html.replace(/<details[\s\S]*<\/details>/g, "");
     assert.doesNotMatch(outsideDetails, /fee-split/);
-    if (mode === "base") assert.match(html, /https:\/\/basescan.org\/token\//);
+    if (mode === "base") assert.match(html, /https:\/\/basescan.org\/address\/.*https:\/\/basescan.org\/tx\//);
     else assert.doesNotMatch(html, /https:/);
   }
 });
@@ -86,4 +89,23 @@ test("D3 compact fee UI keeps both claims and allocation but omits catalog ident
     const rewards = renderToStaticMarkup(createElement(NetworkProvider, { children: createElement(FeeCard, { token, config }) }));
     assert.match(rewards, /fee-identity/); assert.match(rewards, /Synthetic Meme/); assert.match(rewards, / pair/); assert.match(rewards, /no second 80\/20 split/);
   } finally { hooks.deregister(); Reflect.deleteProperty(globalThis, key); Reflect.deleteProperty(globalThis, "__BUILD_IDENTITY__"); }
+});
+
+test("on the token page the NFT treasury card keeps treasury state and actions; the NFT page keeps its identity rows", async () => {
+  const { importFresh } = await import("./hook-runtime");
+  const { MUSES } = await import("../src/lib/nft-mode");
+  const { NftTreasuryCard } = await importFresh("src/components/NftCoinCard.tsx", {
+    "../lib/wallet": { file: import.meta.resolve("../src/lib/wallet.tsx"), bindings: { useWallet: () => ({ account: null, connecting: false, connect() {} }) } },
+  });
+  const nft = { chainId: 4663 as const, contract: MUSES.contract, tokenId: "931" };
+  const coin = syntheticToken({ mode: "robinhood", deploymentChainId: 4663, nft });
+  const config = { mode: "robinhood", chainId: 4663, deploymentChainId: 4663, treasury: null, writesEnabled: true, blockReason: null,
+    nftMode: { enabled: true, vaultFactory: "0x4444444444444444444444444444444444444444", launchFeeUsd: 10, freeCollections: [], verifiedCollections: [] } };
+  const render = (onTokenPage: boolean) => renderToStaticMarkup(createElement(NftTreasuryCard, { config, nft, coins: [coin], coin, onTokenPage }));
+  const page = render(false), tokenPage = render(true);
+  for (const row of ["Bound NFT", "Fee vault", "<dt>Treasury</dt>"]) {
+    assert(page.includes(row), `the NFT page shows ${row}`);
+    assert(!tokenPage.includes(row), `the token page leaves ${row} to the hero and the beneficiary card`);
+  }
+  for (const row of ["Collection", "Coin status", "Holder", "Treasury lock", "Sweep fees to the treasury"]) assert(tokenPage.includes(row), `the token page keeps ${row}`);
 });

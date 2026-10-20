@@ -53,7 +53,7 @@ Everything else moves into one collapsed `<details>` ("Trading details"): router
 ### D3 Fee card tiers on the token page
 
 Extract the decision into a tested pure function.
-- NFT coin, not treasury: unchanged (where creator fees go is buyer-relevant).
+- NFT coin, not treasury: unchanged (where creator fees go is buyer-relevant). Superseded 2026-10-20 by `tasks/token-ip-detail-plan.md` §12: the NFT treasury card directly above says where creator fees go and carries the sweep, so this card is hidden for everyone but the platform treasury.
 - No wallet connected: no fee card (the header connect button remains).
 - Connected wallet that is a catalog beneficiary: unchanged `token` variant.
 - Connected wallet that is not a catalog beneficiary: a compact card — heading and one short hint that it is for on-chain fee beneficiaries, Check fees, the two claim amounts and claim buttons, allocation reference, errors and tx link. No identity row (icon, name, pair, fee) and no policy note.

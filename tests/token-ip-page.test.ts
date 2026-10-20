@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { RuntimeConfig, TokenRecord } from "../src/lib/config";
+import { explorerFor, type RuntimeConfig, type TokenRecord } from "../src/lib/config";
 import { MUSEGOD } from "../src/lib/musegod";
-import { MUSES } from "../src/lib/nft-mode";
+import { MUSES, treasuryFor } from "../src/lib/nft-mode";
 import { EMPTY_PROFILE_LINKS } from "../src/lib/token-profile";
 import { syntheticToken } from "./fixtures";
 import { hookRuntime, importFresh, settle } from "./hook-runtime";
@@ -102,6 +102,8 @@ test("an NFT-bound agent coin names its Muse, links OpenSea, shows the ERC-8004 
   assert(html.includes(`href="https://opensea.io/item/robinhood/${MUSES.contract.toLowerCase()}/931"`));
   assert.doesNotMatch(html, /ERC-8004 agent #42/, "the agent id is not a hero badge");
   assert.doesNotMatch(html, /Agent identity/, "the identity card moved from Overview to the About tab");
+  assert(html.includes(`<dt>Treasury (ERC-6551)</dt><dd><a href="${explorerFor(muse)}/address/${treasuryFor(muse.nft!)}"`),
+    "the beneficiary card links the treasury now that the About tab's treasury card leaves it out");
   assert.match(html, /<span class="eyebrow muted">Creator fee<\/span><span class="mono">0.665%<\/span><span class="hint">of every trade · to the NFT treasury · fixed at launch<\/span>/);
   assert.doesNotMatch(html, /Edit profile/, "the launcher of an NFT coin is not its owner until the holder check passes");
   assert.doesNotMatch(render({ token: muse }), /Agent identity|ERC-8004 agent/, "no agent id, no agent card");
@@ -112,6 +114,7 @@ test("an NFT-bound agent coin names its Muse, links OpenSea, shows the ERC-8004 
     find(runtime.output(), (node) => node.props?.id === "token-tab-about").props.onClick(); await settle();
     const panel = find(runtime.output(), (node) => node.props?.id === "token-panel-about"), card = find(panel, (node) => node.props?.["aria-labelledby"] === "agent-title");
     assert.match(textOf(card), /Agent identity · ERC-8004.*Agent ID#42/, "the About tab carries the identity card and its id");
+    assert.doesNotMatch(textOf(card), /Controller/, "Overview's About card already says the holder controls the agent");
     const children = [panel.props.children.props.children].flat(3).filter(Boolean), at = (match: (node: any) => boolean) => children.findIndex(match);
     assert(at((node) => node.type?.name === "NftCoinCard") < at((node) => node === card), "the identity follows the NFT card");
   } finally { runtime.unmount(); }

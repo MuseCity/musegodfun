@@ -5,11 +5,13 @@ import { LP_FEE_PPM, TRADING_FEE_BPS } from "../lib/trading-fee";
 
 const percent = (bps: number) => `${bps / 100}%`;
 
-// `creatorLabel`: an NFT coin's creator share goes to the NFT's treasury, so it is never labelled "Creator".
-export default function FeeBreakdown({ policy, tradingFeeBps, creatorLabel = "Creator", children }: {
+// `creatorLabel`: an NFT coin's creator share goes to the NFT's treasury, so it is never labelled "Creator". `gross` is off where a
+// FeeSplitBar above already shows the same gross shares.
+export default function FeeBreakdown({ policy, tradingFeeBps, creatorLabel = "Creator", gross: showGross = true, children }: {
   policy: string | undefined;
   tradingFeeBps?: number;
   creatorLabel?: string;
+  gross?: boolean;
   children?: ReactNode;
 }) {
   const shares = feePolicyFor(policy);
@@ -55,11 +57,11 @@ export default function FeeBreakdown({ policy, tradingFeeBps, creatorLabel = "Cr
       </dl>
     </section>
     <p>{policy === BASE_AUTOMATION_FEE_POLICY ? "The isolated buyback share goes to the Base fee adapter, then to a dedicated Splits Automation account. Native Automation converts paired-asset and launched-token fees and uses Relay to send canonical WETH to the Robinhood treasury, which forwards verified receipts to the shared buyback vault. Small balances or unavailable routes remain pending. Automation is controlled by its account owner and authorized signer; collection or bridging does not prove a completed buyback." : policy === BASE_COLLECTOR_FEE_POLICY ? "The buyback share goes directly to the Base Collector; the operating share goes to the treasury. Supported B20 fees are converted to WETH and bridged to the shared Robinhood vault for guarded MUSEGOD buybacks. Meme-side fees can remain pending. Bridging is not a completed burn." : policy === ENGINE_FEE_POLICY ? "The buyback share goes directly to the public fee engine; the operating share goes to the treasury. Anyone can process supported fees through WETH and execute a MUSEGOD buyback. Buyback fees without a configured price source go to an operator-controlled Splits Automation account for external processing. Collected or forwarded fees are not completed burns." : "The treasury wallet allocates funds manually by batch. A budget does not represent a completed buyback or burn."}</p>
-    <details className="fee-gross">
+    {showGross && <details className="fee-gross">
       <summary>Equivalent share of total fees</summary>
       <p>The percentages below use total fees before Doppler as the 100% basis and express the same two-stage policy.</p>
       <dl>{gross.map((item) => <div key={item.label}><dt>{item.label}</dt><dd>{percent(item.share)}</dd></div>)}</dl>
-    </details>
+    </details>}
     {feeRate}
     {children}
   </div>;
@@ -96,6 +98,6 @@ export function TokenFeeDisclosure({ token, children }: { token: Pick<TokenRecor
   return <details className="disclosure boxed">
     <summary>How fees are distributed</summary>
     <FeeSplitBar policy={token.feePolicy} tradingFeeBps={token.tradingFeeBps} creatorLabel={creatorLabel} />
-    <FeeBreakdown policy={token.feePolicy} tradingFeeBps={token.tradingFeeBps} creatorLabel={creatorLabel}>{children}</FeeBreakdown>
+    <FeeBreakdown policy={token.feePolicy} tradingFeeBps={token.tradingFeeBps} creatorLabel={creatorLabel} gross={false}>{children}</FeeBreakdown>
   </details>;
 }

@@ -122,8 +122,27 @@ Owner request after the Posts release: Overview should show Posts first and then
 
 - Tabs are Overview, Activity and About (`?tab=about`). There is no separate Posts tab. A `tab=onchain` link opens About and a `tab=posts` link opens Overview, so links shared before the change still land on the same content; switching tabs writes the new name.
 - Overview: the Posts feed (unchanged component, including owner key management and deletion), then the About card (story and owner sentence), then Channels. The feed loads with the page instead of on a first tab visit, which adds one public `GET /posts` per token page view.
-- About (formerly On-chain): first-buy lock, NFT coin card, then the Agent identity · ERC-8004 card for agent coins, then the fee card, contract and launch record, fee disclosure and launch curve. It still mounts on its first visit.
+- About (formerly On-chain): first-buy lock, NFT coin card, then the Agent identity · ERC-8004 card for agent coins, then the fee card, contract and launch record, fee disclosure and launch curve. It still mounts on its first visit. Trimmed by §12.
 - The beneficiary card's button opens About; its label is unchanged.
 - Acceptance: page tests cover the tab order, Posts before About and Channels in Overview, the identity card only in About (after the NFT card), Posts ownership without a tab click, keyboard wrapping across three tabs and the legacy `tab=onchain` / `tab=posts` links; `npm test`, `npm run typecheck` and `npm run build` pass; a read-only preview at desktop and phone width shows the new order.
 
 Released 2026-10-20 on the owner's request: master `40d17c8` through CI run 39410169334 as `build-39410169334-1`, Worker version `b49766dd`; rollback point Worker `8fc23c3b` (`aa90f87`). Live checks: Robinhood Phial and Base MUSEGOD show the tabs Overview, Activity and About; Overview reads Posts ("No Posts yet.") then About and, for MUSEGOD, Channels; a `tab=onchain` link opens About; Phial's About tab carries the Agent identity card and Overview does not; no horizontal overflow at 1280 px or 375 px; both `readyz` checks operational and the Posts API unchanged. No database or Worker secret change. The live Agent Posts release (§10) is unaffected.
+
+## 12. About tab without repeated facts, 2026-10-20
+
+Owner request: reduce the remaining redundancy in the About tab. Rule: each fact appears once on the token page; About keeps only what the hero, the Overview and the always-visible beneficiary card do not show, plus every action and explorer link.
+
+| Fact | Kept in | Removed from About |
+| --- | --- | --- |
+| Token contract, pair, creator, supply, launch date | Hero (contract with copy, pair badge, "by", stats, "launched") | On-chain record rows |
+| Unverified opening valuation | Page notice and hero stat hint | On-chain record row |
+| Creator share and its recipient | Beneficiary card, Overview About card, fee split | "Creator share recipient" row |
+| Gross fee shares | Fee split bar in "How fees are distributed" | The second "Equivalent share of total fees" table in the same disclosure (token page only; the launch and buyback pages keep it) |
+| NFT, fee vault, treasury | Hero NFT badge, beneficiary card (vault and treasury now link to the explorer) | Treasury card head badge and its Bound NFT, Fee vault and Treasury rows (the NFT page keeps them) |
+| Agent id | Agent identity card | Treasury card "Agent" row |
+| The holder controls the agent | Overview About card | Agent identity "Controller" row |
+| Where an NFT coin's creator fees go | NFT treasury card (with the sweep) | The NFT fee card, now shown only to the platform treasury, which claims there (supersedes `tasks/detail-page-declutter-plan.md` D3's NFT line) |
+
+The record card is renamed "On-chain record" and keeps the fee engine and operations addresses with their shares, pool ID and launch transaction, then the fee disclosure (buyback share kept, per the 2026-10-18 headline ruling) and the launch curve. The connected-wallet fee card for ordinary coins is unchanged (2026-10-15 owner ruling).
+
+Acceptance: tests cover the trimmed record, the disclosure without the second gross table, the fee card tiers, the token-page treasury card versus the NFT page card, the Agent identity card without Controller and the beneficiary card's treasury link; each fails on the previous code. `npm test`, `npm run typecheck` and `npm run build` pass; a read-only preview of Phial (NFT, agent) and GOD (ordinary) shows the trimmed About tab.

@@ -50,8 +50,10 @@ export function NftModeUnavailable() {
 
 /** The bound NFT, its fee vault and Tokenbound treasury, and the treasury actions. `coin`: the token page's coin (its verification and
  * hidden state); `coins`: the listed coins (deposit assets and names). The sweep batches bound pools with pending fees. */
-export function NftTreasuryCard({ config, nft, coins, coin, navigate }: {
-  config: RuntimeConfig; nft: NftRef; coins: TokenRecord[]; coin?: TokenRecord; navigate?: (path: string) => void;
+/** `onTokenPage`: the token page's hero, beneficiary card and Agent identity card already show the NFT, its fee vault, treasury and
+ * agent, so the card keeps only treasury state and actions there (tasks/token-ip-detail-plan.md §12). */
+export function NftTreasuryCard({ config, nft, coins, coin, navigate, onTokenPage = false }: {
+  config: RuntimeConfig; nft: NftRef; coins: TokenRecord[]; coin?: TokenRecord; navigate?: (path: string) => void; onTokenPage?: boolean;
 }) {
   const wallet = useWallet(), account = wallet.account;
   const factory = config.nftMode?.vaultFactory ?? null, treasury = treasuryFor(nft), vault = factory ? vaultFor(nft, factory) : null;
@@ -171,7 +173,7 @@ export function NftTreasuryCard({ config, nft, coins, coin, navigate }: {
       <div className="card-head">
         <h2 id={`nft-card-${key}`} className="card-title"><Gem size={18} aria-hidden="true" />{muse ? `Muse #${nft.tokenId}` : `NFT #${nft.tokenId}`}</h2>
         <span className="button-row">
-          {coin && <NftBadge token={coin} />}
+          {coin && !onTokenPage && <NftBadge token={coin} />}
           <button type="button" className="text-button" disabled={!!busy} onClick={() => setRevision((n) => n + 1)}><RefreshCw size={14} aria-hidden="true" />Refresh</button>
         </span>
       </div>
@@ -180,18 +182,18 @@ export function NftTreasuryCard({ config, nft, coins, coin, navigate }: {
         {muse && <a className="nft-art" href={`${MUSE_SITE}/${nft.tokenId}`} target="_blank" rel="noreferrer">
           <img src={`${MUSE_SITE}/art/480/${nft.tokenId}.jpg`} alt={`Muse #${nft.tokenId}`} loading="lazy" referrerPolicy="no-referrer" width={96} height={96} /></a>}
         <dl className="rows">
-          <div><dt>Bound NFT</dt><dd>{networkName(config)} · <span title={nft.contract}>{shortAddress(nft.contract)}</span> · {muse
-            ? <a href={`${MUSE_SITE}/${nft.tokenId}`} target="_blank" rel="noreferrer">#{nft.tokenId} ↗</a> : `#${nft.tokenId}`}</dd></div>
+          {!onTokenPage && <div><dt>Bound NFT</dt><dd>{networkName(config)} · <span title={nft.contract}>{shortAddress(nft.contract)}</span> · {muse
+            ? <a href={`${MUSE_SITE}/${nft.tokenId}`} target="_blank" rel="noreferrer">#{nft.tokenId} ↗</a> : `#${nft.tokenId}`}</dd></div>}
           <div><dt>Collection</dt><dd className="sans">{verified ? "Verified collection" : <span className="nft-warning">Unverified collection</span>}</dd></div>
           {coin && <div><dt>Coin status</dt><dd className="sans">{coin.nftVerification?.status === "rejected"
             ? <span className="nft-warning">Rejected: {coin.nftVerification.reason || "no reason recorded"}</span>
             : coin.nftVerification?.status === "verified" ? "Verified" : "Unverified"}</dd></div>}
-          {muse && status?.agentId && <div><dt>Agent</dt><dd className="sans">
+          {muse && status?.agentId && !onTokenPage && <div><dt>Agent</dt><dd className="sans">
             <a href={`${MUSE_SITE}/${nft.tokenId}.json`} target="_blank" rel="noreferrer">Agent #{status.agentId} (ERC-8004) ↗</a></dd></div>}
           <div><dt>Holder</dt><dd>{status?.owner ? <AddressLink address={status.owner} config={config} /> : statusError ? "Unavailable" : status ? "None"
             : account ? "Reading…" : "Connect a wallet to check"}</dd></div>
-          <div><dt>Fee vault</dt><dd>{vault ? <AddressLink address={vault} config={config} /> : "Not deployed"}</dd></div>
-          <div><dt>Treasury</dt><dd><AddressLink address={treasury} config={config} /></dd></div>
+          {!onTokenPage && <div><dt>Fee vault</dt><dd>{vault ? <AddressLink address={vault} config={config} /> : "Not deployed"}</dd></div>}
+          {!onTokenPage && <div><dt>Treasury</dt><dd><AddressLink address={treasury} config={config} /></dd></div>}
           <div><dt>Treasury lock</dt><dd className="sans">{locked ? <span className="nft-warning">{lockText}</span> : lockText}</dd></div>
         </dl>
       </div>
@@ -294,5 +296,5 @@ export default function NftCoinCard({ token, config, navigate }: { token: TokenR
     <h2 id={`nft-card-${nftKey(token.nft)}`} className="card-title"><Gem size={18} aria-hidden="true" />Bound NFT</h2>
     <NftModeUnavailable />
   </section>;
-  return <NftTreasuryCard config={config} nft={token.nft} coins={[token]} coin={token} navigate={navigate} />;
+  return <NftTreasuryCard config={config} nft={token.nft} coins={[token]} coin={token} navigate={navigate} onTokenPage />;
 }
