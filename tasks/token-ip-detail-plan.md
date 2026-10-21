@@ -221,3 +221,14 @@ codex accepted both. Local acceptance: `npm test` (1,925 tests, no failures, one
 - one quote request on load, under React StrictMode too;
 - automatic refreshes about every 61 s with updated read times, and none while the browser pane was hidden;
 - no quote buttons, and no horizontal overflow at 1280 px or 390 px.
+
+Released §16 and §17 together on 2026-10-21, at the owner's request: master `3d32328` through CI run 39566884501 as `build-39566884501-1`, Worker version `1c69d362`. The rollback point is Worker `528c9384` (`fb83ab1`). The §15 record commit `5f01c9d` went out with it.
+
+Live checks without a wallet:
+- Phial read its pool quote 4 s after load with no click, showed no quote button, and read again at 65 s with an updated read time.
+- Phial made one summary request and none for trades or candles.
+- GOD, which has an indexed price, made no quote request.
+- There was no horizontal overflow at 1280 px or 390 px.
+- Both chains' `readyz` reported ready, with the Durable Objects restarted after the deploy, and the summary and Posts APIs returned 200.
+
+No database or Worker secret changed. The summary's failure retries were not exercised live, because production answered fresh; tests cover them.
