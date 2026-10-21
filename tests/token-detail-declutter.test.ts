@@ -107,5 +107,5 @@ test("on the token page the NFT treasury card keeps treasury state and actions; 
     assert(page.includes(row), `the NFT page shows ${row}`);
     assert(!tokenPage.includes(row), `the token page leaves ${row} to the hero and the beneficiary card`);
   }
-  for (const row of ["Collection", "Coin status", "Holder", "Treasury lock", "Sweep fees to the treasury"]) assert(tokenPage.includes(row), `the token page keeps ${row}`);
+  for (const row of ["Collection", "Official coin", "Current holder", "Treasury status", "Withdrawal lock", "Sweep fees to the treasury"]) assert(tokenPage.includes(row), `the token page keeps ${row}`);
 });

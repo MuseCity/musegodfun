@@ -1,4 +1,4 @@
-import { decodeFunctionData, encodeFunctionData, erc20Abi, erc721Abi, pad, parseAbi, type Abi, type Address, type EncodeFunctionDataParameters, type Hex,
+import { decodeFunctionData, decodeFunctionResult, encodeFunctionData, erc20Abi, erc721Abi, pad, parseAbi, type Abi, type Address, type EncodeFunctionDataParameters, type Hex,
   type PublicClient } from "viem";
 import { robinhood } from "viem/chains";
 import { deploymentChain, sameAddress, shortAddress, type RuntimeConfig, type TokenRecord } from "./config";
@@ -119,6 +119,21 @@ export async function readTreasuryLock(client: MulticallReader, nft: NftRef): Pr
   if (until?.status !== "success" || locked?.status !== "success") throw new Error("The treasury lock could not be read.");
   return { lockedUntil: Number(until.result), locked: locked.result === true };
 }
+// Multicall3's aggregate3, declared view as in viem's own ABI so it can be read with eth_call.
+const aggregate3Abi = parseAbi(["struct Call3 { address target; bool allowFailure; bytes callData; }", "struct Result { bool success; bytes returnData; }",
+  "function aggregate3(Call3[] calls) view returns (Result[] returnData)"]);
+/** The NFT's current holder for any visitor, read through the RPC proxy. `ownerOf` runs inside one aggregate3 call so the chain's own answer
+ * is told apart from a failed read (viem's multicall reports both as a failed entry): null when `ownerOf` reverts or answers nothing usable
+ * (a burned token, a non-ERC-721); throws when the chain cannot be read. */
+export async function readNftHolder(client: Pick<PublicClient, "readContract">, nft: NftRef): Promise<Address | null> {
+  const [answer] = await client.readContract({ address: MULTICALL3, abi: aggregate3Abi, functionName: "aggregate3", args: [[{ target: nft.contract, allowFailure: true,
+    callData: encodeFunctionData({ abi: erc721Abi, functionName: "ownerOf", args: [BigInt(nft.tokenId)] }) }]] });
+  if (!answer?.success || answer.returnData === "0x") return null;
+  try {
+    const owner = decodeFunctionResult({ abi: erc721Abi, functionName: "ownerOf", data: answer.returnData });
+    return BigInt(owner) === 0n ? null : owner;
+  } catch { return null; }
+}
 export const LOCK_PRESET_DAYS = [1, 7, 30] as const;
 /** The lock's end, from the latest block's timestamp. */
 export const lockTarget = (blockTimestamp: bigint, days: number) => Number(blockTimestamp) + days * 86_400;
@@ -155,3 +170,49 @@ export function nftBadge(token: Pick<TokenRecord, "nft" | "nftVerification">, { 
 /** An NFT coin as Explore lists it: bound, not rejected and not hidden. */
 export const listedNftCoin = (token: Pick<TokenRecord, "nft" | "nftVerification" | "hidden">) =>
   !!token.nft && token.nftVerification?.status !== "rejected" && !token.hidden;
+
+/** A treasury card row's value and, where the value alone does not say what it means, a one-line note (tasks/token-ip-detail-plan.md §14). */
+export type CardRow = { value: string; note?: string; warning?: boolean };
+/** The Collection row: the allowlist decides it, as for the badge (D7). */
+export function collectionRow(nft: NftRef, verified: boolean): CardRow {
+  if (isMuse(nft)) return { value: "Muses · verified", note: "The official Muses contract, on musegod.fun's verified list." };
+  if (verified) return { value: "Verified", note: "This NFT contract is on musegod.fun's verified list." };
+  return { value: "Unverified", warning: true, note: "Not on musegod.fun's verified list. Anyone can deploy a look-alike collection, so check the contract address." };
+}
+const REJECTED_REASONS = new Map([
+  ["already_launched", "Another coin was verified for this NFT first."],
+  ["not_controller", "The wallet that launched it did not control the NFT."],
+  ["not_erc721", "The bound contract is not an ERC-721 NFT."],
+  ["fee", "The launch fee was not paid."],
+  ["pair", "Its pair was not allowed when it launched."],
+]);
+const UNCONFIRMED_REASONS = new Map([
+  ["rpc", "The chain could not be read at launch, so the holder check did not finish."],
+  ["fee_unconfirmed", "The launch fee payment is not confirmed yet."],
+]);
+/** The Official coin row: the coin's registration status, with the stored reason in words. A rejected coin still pays the NFT's vault. */
+export function officialCoinRow(verification: TokenRecord["nftVerification"]): CardRow {
+  const reason = verification?.reason ?? "";
+  if (verification?.status === "verified") return { value: "Yes", note: "This NFT's one verified coin, launched by its holder or the holder's delegate. Each NFT gets one." };
+  if (verification?.status === "rejected") return { value: "No", warning: true,
+    note: `${REJECTED_REASONS.get(reason) ?? (reason ? `Reason: ${reason}.` : "No reason was recorded.")} Its creator fees still go to this NFT's vault.` };
+  return { value: "Not confirmed yet", note: UNCONFIRMED_REASONS.get(reason) ?? "musegod.fun has not confirmed that the NFT's holder launched it." };
+}
+/** Where the treasury account stands; "reading" until the treasury view or a confirmed action reports it. */
+export type TreasuryState = "reading" | "unavailable" | "not_deployed" | "not_initialized" | "active";
+export function treasuryStatusRow(state: TreasuryState): CardRow {
+  switch (state) {
+    case "reading": return { value: "Reading…" };
+    case "unavailable": return { value: "Unavailable" };
+    case "not_deployed": return { value: "Not activated yet", note: "Swept fees still arrive at its address. It needs one activation before the holder can withdraw." };
+    case "not_initialized": return { value: "Activation not finished", note: "Withdraw and Lock open once the activation finishes." };
+    case "active": return { value: "Active" };
+  }
+}
+export const LOCK_NOTE = "While on, the treasury cannot send anything until the date, even for its holder; holders use it while selling the NFT. Approvals it gave earlier still work.";
+/** The Withdrawal lock row. An account that is not activated cannot be locked, so its lock is off. */
+export function withdrawalLockRow(state: TreasuryState, lock: { lockedUntil: number; locked: boolean } | null, lockError: string, date: (seconds: number) => string): CardRow {
+  const value = state === "reading" ? "Reading…" : state === "unavailable" ? "Unavailable" : state !== "active" ? "Off"
+    : lockError ? "Unavailable" : !lock ? "Reading…" : lock.locked ? `On until ${date(lock.lockedUntil)}` : "Off";
+  return { value, note: LOCK_NOTE, warning: state === "active" && !!lock?.locked && !lockError };
+}
