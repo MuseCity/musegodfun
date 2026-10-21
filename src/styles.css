@@ -275,9 +275,6 @@ a.secondary:hover { color: var(--ink); }
 .rows dd { margin: 0; text-align: right; font-family: var(--font-mono); font-size: 12px; font-weight: 500; overflow-wrap: anywhere; min-width: 0; }
 .rows dd.sans { font-family: var(--font-sans); font-size: 13px; }
 .rows.boxed { padding: 4px 14px; border-radius: 14px; border: 1px solid var(--line); }
-/* A row with a note: label and value on the first line, the note on its own line below (tasks/token-ip-detail-plan.md §14). */
-.rows > div.has-note { flex-wrap: wrap; row-gap: 2px; }
-.rows dd.row-note { flex-basis: 100%; text-align: left; font-family: var(--font-sans); font-size: 12px; line-height: 16px; font-weight: 400; color: var(--ink-muted); }
 
 /* ── Notices ────────────────────────────────────────────────────────────── */
 .notice { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; border-radius: 14px;

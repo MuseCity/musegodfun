@@ -6,10 +6,11 @@ import { deploymentChain, explorerFor, networkName, sameAddress, shortAddress, s
 import { isMuse, nftKey, treasuryFor, vaultFor, type NftRef, type NftStatus } from "../lib/nft-mode";
 import { readNftStatus } from "../lib/nft-client";
 import { LOCK_PRESET_DAYS, activateTreasuryTxs, collectionRow, depositTx, deployVaultTx, finishActivationTx, lockTarget, lockTx, officialCoinRow, pendingSweepTxs,
-  readNftHolder, readTreasuryLock, treasuryStatusRow, withdrawTx, withdrawalLockRow, type CardRow, type NftTreasuryView, type TreasuryState } from "../lib/nft-treasury";
+  readNftPublic, readTreasuryLock, treasuryStatusRow, withdrawTx, withdrawalLockRow, type CardRow, type NftTreasuryView, type TreasuryState } from "../lib/nft-treasury";
 import { nftPath } from "../lib/network";
 import { errorMessage, parseAmount } from "../lib/validation";
 import { transactionClient, useWallet } from "../lib/wallet";
+import InfoTip from "./InfoTip";
 import { NftBadge } from "./TokenCard";
 
 type Tx = { to: Address; data: Hex };
@@ -42,11 +43,11 @@ function AddressLink({ address, config }: { address: Address; config: RuntimeCon
   return explorer ? <a className="mono" href={`${explorer}/address/${address}`} target="_blank" rel="noreferrer" title={address}>{shortAddress(address)} ↗</a>
     : <code title={address}>{shortAddress(address)}</code>;
 }
-/** A row's value on the right and its note, when there is one, on its own line below (tasks/token-ip-detail-plan.md §14). */
-function NoteRow({ label, row }: { label: string; row: CardRow }) {
-  return <div className={row.note ? "has-note" : undefined}><dt>{label}</dt>
-    <dd className="sans">{row.warning ? <span className="nft-warning">{row.value}</span> : row.value}</dd>
-    {row.note && <dd className="row-note">{row.note}</dd>}</div>;
+/** A row with its explanation, when there is one, in an info tip after the label (tasks/token-ip-detail-plan.md §15). `tipId` keeps the
+ * tip's id unique on the page. */
+function TipRow({ label, row, tipId }: { label: string; row: CardRow; tipId: string }) {
+  return <div><dt>{label}{row.tip && <InfoTip id={tipId} label={`About ${label.toLowerCase()}`} text={row.tip} />}</dt>
+    <dd className="sans">{row.warning ? <span className="nft-warning">{row.value}</span> : row.value}</dd></div>;
 }
 
 export const NFT_MODE_UNAVAILABLE = "NFT mode is not available on this network.";
@@ -68,7 +69,7 @@ export function NftTreasuryCard({ config, nft, coins, coin, navigate, onTokenPag
   const [revision, setRevision] = useState(0);
   const [view, setView] = useState<NftTreasuryView | null>(null), [viewError, setViewError] = useState("");
   const [status, setStatus] = useState<NftStatus | null>(null), [statusError, setStatusError] = useState("");
-  const [publicHolder, setPublicHolder] = useState<{ owner: Address | null } | null>(null), [publicHolderError, setPublicHolderError] = useState("");
+  const [publicInfo, setPublicInfo] = useState<{ holder: Address | null; collection: string | null } | null>(null), [publicError, setPublicError] = useState("");
   const [lock, setLock] = useState<{ lockedUntil: number; locked: boolean } | null>(null), [lockError, setLockError] = useState("");
   const [busy, setBusy] = useState(""), [progress, setProgress] = useState(""), [error, setError] = useState("");
   const [hash, setHash] = useState<Hex | null>(null);
@@ -99,13 +100,13 @@ export function NftTreasuryCard({ config, nft, coins, coin, navigate, onTokenPag
       .then((next) => { if (active) setStatus(next); }, (cause) => { if (active) setStatusError(errorMessage(cause)); });
     return () => { active = false; };
   }, [key, account, revision]);
-  // A visitor without a wallet still sees who holds the NFT: one public ownerOf read, which never enables an action.
+  // Every viewer sees the collection's name, and a visitor without a wallet also who holds the NFT: one public read, which never enables an action.
+  // A wallet change reads again, so a disconnect never shows a holder read before the NFT moved.
   useEffect(() => {
     let active = true;
-    setPublicHolder(null); setPublicHolderError("");
-    if (account) return;
-    readNftHolder(transactionClient(config.chainId, config), nft)
-      .then((owner) => { if (active) setPublicHolder({ owner }); }, (cause) => { if (active) setPublicHolderError(errorMessage(cause)); });
+    setPublicInfo(null); setPublicError("");
+    readNftPublic(transactionClient(config.chainId, config), nft)
+      .then((next) => { if (active) setPublicInfo(next); }, (cause) => { if (active) setPublicError(errorMessage(cause)); });
     return () => { active = false; };
   }, [key, account, revision]);
   const vaultDeployed = !!view?.vaultDeployed || onChain.vault;
@@ -123,8 +124,10 @@ export function NftTreasuryCard({ config, nft, coins, coin, navigate, onTokenPag
 
   const owner = !!account && !!status?.owner && sameAddress(status.owner, account);
   // Tokens sent to the treasury of a burned token or a non-ERC-721 could never be withdrawn.
-  const usable = !!status?.erc721 && !!status.owner, holderless = account ? !!status && !usable : publicHolder?.owner === null;
-  const holder = account ? (status ? { owner: status.owner } : null) : publicHolder, holderError = account ? statusError : publicHolderError;
+  const usable = !!status?.erc721 && !!status.owner, holderless = account ? !!status && !usable : publicInfo?.holder === null;
+  const holder = account ? (status ? { owner: status.owner } : null) : publicInfo && { owner: publicInfo.holder }, holderError = account ? statusError : publicError;
+  // A failed read shows the short contract address in place of the name.
+  const collection = publicInfo ? publicInfo.collection : publicError ? null : undefined, tipId = `nft-tip-${key.replace(/[^a-z0-9]/gi, "-")}`;
   // Withdraw and Lock wait for a successful lock read.
   const locked = !!lock?.locked, lockKnown = lock !== null;
   const signBlock = !account ? "" : !config.writesEnabled ? config.blockReason || "Transactions are currently disabled."
@@ -201,16 +204,16 @@ export function NftTreasuryCard({ config, nft, coins, coin, navigate, onTokenPag
         <dl className="rows">
           {!onTokenPage && <div><dt>Bound NFT</dt><dd>{networkName(config)} · <span title={nft.contract}>{shortAddress(nft.contract)}</span> · {muse
             ? <a href={`${MUSE_SITE}/${nft.tokenId}`} target="_blank" rel="noreferrer">#{nft.tokenId} ↗</a> : `#${nft.tokenId}`}</dd></div>}
-          <NoteRow label="Collection" row={collectionRow(nft, verified)} />
-          {coin && <NoteRow label="Official coin" row={officialCoinRow(coin.nftVerification)} />}
+          <TipRow label="Collection" row={collectionRow(nft, verified, collection)} tipId={`${tipId}-collection`} />
+          {coin && <TipRow label="Official coin" row={officialCoinRow(coin.nftVerification)} tipId={`${tipId}-coin`} />}
           {muse && status?.agentId && !onTokenPage && <div><dt>Agent</dt><dd className="sans">
             <a href={`${MUSE_SITE}/${nft.tokenId}.json`} target="_blank" rel="noreferrer">Agent #{status.agentId} (ERC-8004) ↗</a></dd></div>}
           <div><dt>Current holder</dt><dd>{holder?.owner ? <><AddressLink address={holder.owner} config={config} />{owner && <span className="sans"> (you)</span>}</>
             : holderError ? "Unavailable" : holder ? "None" : "Reading…"}</dd></div>
           {!onTokenPage && <div><dt>Fee vault</dt><dd>{vault ? <AddressLink address={vault} config={config} /> : "Not deployed"}</dd></div>}
           {!onTokenPage && <div><dt>Treasury</dt><dd><AddressLink address={treasury} config={config} /></dd></div>}
-          <NoteRow label="Treasury status" row={treasuryStatusRow(treasuryState)} />
-          <NoteRow label="Withdrawal lock" row={withdrawalLockRow(treasuryState, lock, lockError, dateText)} />
+          <TipRow label="Treasury status" row={treasuryStatusRow(treasuryState)} tipId={`${tipId}-treasury`} />
+          <TipRow label="Withdrawal lock" row={withdrawalLockRow(treasuryState, lock, lockError, dateText)} tipId={`${tipId}-lock`} />
         </dl>
       </div>
       <p className="nft-warning">Creator fees go to this NFT's treasury, and whoever holds the NFT controls it. {OWNERSHIP_CYCLE}</p>
