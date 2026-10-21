@@ -1,14 +1,14 @@
-import { useEffect, useState, type CSSProperties } from "react";
-import { ArrowDownRight, ArrowUpRight, Check, Copy, RefreshCw } from "lucide-react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { ArrowDownRight, ArrowUpRight, Check, Copy } from "lucide-react";
 import { formatUnits } from "viem";
 import type { Stock, TokenRecord } from "../lib/config";
 import { changeClass, feePercent } from "../lib/format";
 import { summaryHasValues } from "../lib/market";
 import { dopplerUrl, fomoInviteUrl, LP_FEE_PERCENT, ownershipDisclaimer, poolFeeOn100 } from "../lib/token-detail";
 import { errorMessage } from "../lib/validation";
-import { formatUsd, MarketProvenance, type LaunchMarket } from "./TokenMarket";
+import { formatUsd, MarketProvenance, pageVisible, type LaunchMarket } from "./TokenMarket";
 
-/** A pool quote older than this is labelled expired; it is never refreshed automatically. */
+/** A pool quote older than this is labelled expired and read again while the page is visible (tasks/token-ip-detail-plan.md §16). */
 export const POOL_QUOTE_TTL_MS = 60_000;
 const clock = (at: number) => new Date(at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
@@ -20,7 +20,7 @@ export default function TokenVenues({ token, stock, market, fomoHandle, stateUna
   fomoHandle: string | null | undefined;
   /** The server could not read the pool state just now: no pool quote until it can (the page retries on its own). */
   stateUnavailable?: boolean;
-  /** One on-chain quote buying with 1 unit of the pair asset; asked for only when the user presses the button. */
+  /** One on-chain quote buying with 1 unit of the pair asset; read automatically while the card shows the pool quote. */
   quoteProbe: () => Promise<{ amountOut: string }>;
 }) {
   const doppler = dopplerUrl(token), fomo = fomoInviteUrl(token, fomoHandle);
@@ -37,21 +37,45 @@ export default function TokenVenues({ token, stock, market, fomoHandle, stateUna
     return () => clearTimeout(timer);
   }, [probe.quote?.at]);
   const { stats, summary } = market;
-  // Metrics show whenever the summary holds any value; the price line needs a price, otherwise the pool quote fallback is offered.
+  // Metrics show whenever the summary holds any value; the price line needs a price, otherwise the pool quote fallback is shown.
   const hasValues = summaryHasValues(stats), hasPrice = stats?.priceUsd != null || !!stats?.priceQuote;
+  const probeShown = !hasPrice && token.mode !== "fork" && !summary.loading && !stateUnavailable;
+  // The quote is read at once, then again when it expires, only while the page is visible: a hidden tab waits and reads on return. `dueAt`
+  // is when the next read may start; one read at a time, and an answer after unmount is dropped. A read keeps running if the tab hides.
+  const [visible, setVisible] = useState(pageVisible), [dueAt, setDueAt] = useState(0);
+  const mounted = useRef(true), reading = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    if (typeof document === "undefined") return () => { mounted.current = false; };
+    const update = () => setVisible(pageVisible());
+    document.addEventListener("visibilitychange", update);
+    return () => { mounted.current = false; document.removeEventListener("visibilitychange", update); };
+  }, []);
+  useEffect(() => {
+    if (!probeShown || !visible) return;
+    const timer = setTimeout(() => { if (pageVisible()) void readProbe(); }, Math.max(0, dueAt - Date.now()));
+    return () => clearTimeout(timer);
+  }, [probeShown, visible, dueAt]);
   const change = stats?.periods.h24?.change, changeKind = changeClass(change);
   const priceText = stats?.priceUsd != null ? formatUsd(stats.priceUsd, true)
     : stats?.priceQuote ? Number(stats.priceQuote).toLocaleString("en-US", { maximumSignificantDigits: 6 }) : "—";
   const poolFee = poolFeeOn100(token), disclaimer = ownershipDisclaimer(token.symbol, stock);
   async function readProbe() {
-    setProbe((current) => ({ ...current, busy: true, error: "" }));
+    if (reading.current) return;
+    reading.current = true;
+    setProbe((current) => ({ ...current, busy: true }));
+    let next: (current: typeof probe) => typeof probe;
     try {
       const tokens = Number(formatUnits(BigInt((await quoteProbe()).amountOut), 18));
       if (!(tokens > 0)) throw new Error("The pool returned no tokens for this amount.");
-      setProbe({ busy: false, quote: { price: (1 / tokens).toLocaleString("en-US", { maximumSignificantDigits: 6 }), at: Date.now() }, error: "" });
+      const quote = { price: (1 / tokens).toLocaleString("en-US", { maximumSignificantDigits: 6 }), at: Date.now() };
+      next = () => ({ busy: false, quote, error: "" });
     } catch (cause) {
-      setProbe((current) => ({ busy: false, quote: current.quote && { ...current.quote, failed: true }, error: errorMessage(cause) }));
+      next = (current) => ({ busy: false, quote: current.quote && { ...current.quote, failed: true }, error: errorMessage(cause) });
     }
+    reading.current = false;
+    if (!mounted.current) return;
+    setProbe(next); setDueAt(Date.now() + POOL_QUOTE_TTL_MS);
   }
   const quote = probe.quote, expired = !!quote && expiredAt === quote.at, quoteCurrent = !!quote && !expired && !quote.failed;
   return (
@@ -76,17 +100,17 @@ export default function TokenVenues({ token, stock, market, fomoHandle, stateUna
           </span>
         </div> : <div className="venue-probe">
           <p className="hint" role="status">{summary.loading ? "Loading price…" : summary.error || stats?.status === "stale" || stats?.status === "unavailable"
-            ? "Market data temporarily unavailable" : "No market price yet"}</p>
+            ? "Market data temporarily unavailable. Retrying automatically." : "No market price yet"}</p>
           {stateUnavailable && <p className="hint" role="status">On-chain pool state is unavailable, so the pool quote is paused. Retrying automatically.</p>}
-          {token.mode !== "fork" && !summary.loading && !stateUnavailable && <>
+          {probeShown && <>
             {/* Mounted before the result arrives, so screen readers announce it. */}
-            <div role="status">{quote && <p className={`venue-probe-result${quoteCurrent ? "" : " stale"}`}>Average price: <span className="mono">≈ {quote.price}</span> {stock.symbol} per {token.symbol}
+            <div role="status">{quote ? <p className={`venue-probe-result${quoteCurrent ? "" : " stale"}`}>Average price: <span className="mono">≈ {quote.price}</span> {stock.symbol} per {token.symbol}
               <small className="hint"> · average for a 1-unit buy with 1 {stock.symbol}, fees included</small>
               <small className="hint venue-probe-time">{quote.failed ? "Previous quote, read" : "Read"} at <time dateTime={new Date(quote.at).toISOString()}>{clock(quote.at)}</time>
-                {quote.failed ? " · not current" : expired ? " · expired, refresh for a current quote" : ""}</small></p>}</div>
-            <button type="button" className="secondary" disabled={probe.busy} onClick={() => void readProbe()}>
-              <RefreshCw size={14} className={probe.busy ? "spin" : undefined} />{probe.busy ? "Reading the pool…" : quote ? "Refresh pool quote" : "Get pool quote"}</button>
-            {probe.error && <p className="field-error" role="alert">{probe.error}</p>}
+                {quote.failed ? " · not current" : expired ? " · expired" : ""}</small></p>
+              : !probe.error && <p className="hint">Reading the pool…</p>}
+              {/* Automatic reads repeat every minute, so a failure is announced politely in this region, not as an alert. */}
+              {probe.error && <p className="field-error">{probe.error}</p>}</div>
           </>}
         </div>}
         {hasValues && <dl className="stat-grid venue-metrics">
@@ -95,7 +119,7 @@ export default function TokenVenues({ token, stock, market, fomoHandle, stateUna
           <div><dt>24h volume</dt><dd>{formatUsd(stats?.periods.h24?.volume)}</dd></div>
         </dl>}
         {(summary.error || stats?.status === "stale") && hasValues && <p className="market-warning" role="status">
-          {summary.error || stats?.warning || "Previous snapshot. Refresh to update."}</p>}
+          {summary.error || stats?.warning || "Previous snapshot."} Retrying automatically.</p>}
       </div>
       {doppler ? <div className="venue">
         <div className="venue-head"><b>Doppler</b><span className="hint">Your own wallet · pool fee only · network gas extra</span></div>

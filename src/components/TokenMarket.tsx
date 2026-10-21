@@ -124,24 +124,49 @@ function useMarket<
   },[result.data?.fetchedAt]);
   return previousPath.current === key ? result : { data: null, error: "", loading: true };
 }
+/** The token page's regular summary cadence (tasks/token-ip-detail-plan.md §13, §17). */
+const SUMMARY_CADENCE_MS = 15 * 60_000;
+/** Whether the page is in view; outside a browser (tests, server rendering) it counts as visible. */
+export const pageVisible = () => typeof document === "undefined" || document.visibilityState === "visible";
 /** A launch coin's market summary for the token page's trade card (tasks/token-ip-detail-plan.md §3, §13): no candles or trades, since
  * the page has no chart or trade list. One instance owns the summary and the live swap stream, which keeps the price current and
  * re-reads only the summary after a gap. `liveNode` is the stream's status element, rendered once by the caller. */
 export function useLaunchMarket(token: MarketToken, config: import("../lib/config").RuntimeConfig | null) {
   const [live, setLive] = useState<LiveProjection | null>(null);
-  const [revision, setRevision] = useState(0);
-  useEffect(() => {
-    const timer = setInterval(() => { if (document.visibilityState === "visible") setRevision((n) => n + 1); }, 15 * 60_000);
-    return () => clearInterval(timer);
-  }, []);
+  const [revision, setRevision] = useState(0), [visible, setVisible] = useState(pageVisible);
   const summary = useMarket<MarketSummary>(token, "launch", "summary", revision);
+  // One schedule (tasks/token-ip-detail-plan.md §17): after a fresh answer the next read is due in 15 minutes; after a failed, stale or
+  // unavailable one in 1, 2, 4 and 8 minutes, then every 15 again. Reads run only while the page is visible, and a hidden tab reads on
+  // return once one is due. A read that never answers, the first one included, is followed by another after 15 minutes.
+  const [next, setNext] = useState<{ retries: number; dueAt: number | null }>(() =>
+    ({ retries: 0, dueAt: token.mode === "fork" ? null : Date.now() + SUMMARY_CADENCE_MS }));
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const update = () => setVisible(pageVisible());
+    document.addEventListener("visibilitychange", update);
+    return () => document.removeEventListener("visibilitychange", update);
+  }, []);
+  useEffect(() => {
+    if (summary.loading || token.mode === "fork") return;
+    const recovering = !!summary.error || summary.data?.status === "stale" || summary.data?.status === "unavailable";
+    setNext((current) => recovering ? { retries: current.retries + 1, dueAt: Date.now() + Math.min(60_000 * 2 ** current.retries, SUMMARY_CADENCE_MS) }
+      : { retries: 0, dueAt: Date.now() + SUMMARY_CADENCE_MS });
+  }, [summary]);
+  useEffect(() => {
+    if (next.dueAt === null || !visible) return;
+    const timer = setTimeout(() => {
+      if (!pageVisible()) return;
+      setNext((current) => ({ ...current, dueAt: Date.now() + SUMMARY_CADENCE_MS })); setRevision((n) => n + 1);
+    }, Math.max(0, next.dueAt - Date.now()));
+    return () => clearTimeout(timer);
+  }, [next.dueAt, visible]);
   const liveEnabled = !!config && config.mode !== "fork" && token.mode !== "fork" && config.chainId === deploymentChain(token) && !!token.poolId;
   const currentLive = liveEnabled && live?.basis.summary === summary.data && live?.basis.candles === null &&
     live?.basis.trades === null && live?.basis.info === null ? live : null;
   const stats = currentLive?.summary || summary.data;
   const liveNode = liveEnabled ? <Suspense fallback={null}><SwapLive chainId={deploymentChain(token)} pool={token.poolId!.toLowerCase()}
     path={`/tokens/${token.address}/market`} summary={summary.data} candles={null} trades={null} summaryOnly interval="1h" info={null} onUpdate={setLive} /></Suspense> : null;
-  return { summary, stats, currentLive, liveNode, refresh: () => setRevision((n) => n + 1) };
+  return { summary, stats, currentLive, liveNode };
 }
 export type LaunchMarket = ReturnType<typeof useLaunchMarket>;
 export const formatUsd = (n: number | null | undefined, precise = false) => usd(n, precise);

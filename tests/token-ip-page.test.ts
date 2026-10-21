@@ -23,7 +23,7 @@ const coin = syntheticToken({ mode: "robinhood", deploymentChainId: 4663, quoteA
   feePolicy: "creator-70-musegod-v2", twitter: "https://x.com/musegod_rh", description: "A coin about cakes." });
 const muse = { ...coin, nft: { chainId: 4663, contract: MUSES.contract, tokenId: "931" } } as TokenRecord;
 const market = { summary: { data: null, loading: false, error: "" }, trades: { data: null, loading: false, error: "" }, stats: null, tradeData: null,
-  currentLive: null, liveNode: null, refresh() {} };
+  currentLive: null, liveNode: null };
 
 let TokenDetail: any, account: string | null = null, resources: Record<string, unknown> = {};
 const render = (detail: Record<string, unknown>, runtime: RuntimeConfig | null = config) =>
@@ -201,14 +201,16 @@ test("an NFT holder gets Edit profile even when the runtime config loads after t
   } finally { runtime.unmount(); }
 });
 
-test("the trade card offers the pool quote whenever no price is indexed, and still shows the metrics it has", async () => {
+test("the trade card reads the pool quote whenever no price is indexed, with no button, and still shows the metrics it has", async () => {
   const { default: TokenVenues } = await import("../src/components/TokenVenues");
   const { quoteAsset } = await import("../src/lib/config");
   const summary = { fetchedAt: "2026-10-17T00:00:00.000Z", status: "fresh", source: "CoinGecko", priceUsd: null, fdvUsd: null, marketCapUsd: null,
     liquidityUsd: null, periods: { h24: { change: null, volume: 0, buys: 0, sells: 0 } } };
   const html = renderToStaticMarkup(createElement(TokenVenues, { token: coin, stock: quoteAsset(coin), fomoHandle: null, quoteProbe: async () => ({ amountOut: "1" }),
     market: { ...market, summary: { data: summary, loading: false, error: "" }, stats: summary } as any }));
-  assert.match(html, /Get pool quote/);
+  assert.match(html, /Reading the pool…/);
+  assert.doesNotMatch(html, /<button[^>]*>[^<]*(?:<[^>]+>)*(?:Get|Refresh) pool quote/, "no quote button");
+  assert.doesNotMatch(html, /pool quote<\/button>/);
   assert.match(html, /24h volume/, "a real zero volume still shows");
   assert.doesNotMatch(html, /class="market-price"/, "no price line without a price");
 });
@@ -396,18 +398,45 @@ test("a visited About panel retains an actual claim's hash and error while hidde
   } finally { parent.unmount(); fee.unmount(); }
 });
 
-test("a non-fork pool quote is gated by state, shows its average fill price, and exposes read errors", async () => {
+/** The real trade card with hooks, its quote reads counted (tasks/token-ip-detail-plan.md §16). */
+async function venuesRuntime(props: Record<string, unknown>, probe: () => Promise<{ amountOut: string }>) {
   const { quoteAsset } = await import("../src/lib/config");
-  const baseProps = { token: coin, stock: quoteAsset(coin), market, fomoHandle: null, quoteProbe: async () => ({ amountOut: (2n * 10n ** 18n).toString() }) };
-  const { default: RealVenues } = await import("../src/components/TokenVenues");
-  assert.doesNotMatch(renderToStaticMarkup(createElement(RealVenues, { ...baseProps, stateUnavailable: true })), /Get pool quote/);
-  let View: any, fail = false;
-  const runtime = hookRuntime(() => View({ ...baseProps, quoteProbe: async () => { if (fail) throw new Error("Pool read failed"); return baseProps.quoteProbe(); } }));
+  let View: any, calls = 0;
+  const runtime = hookRuntime(() => View({ token: coin, stock: quoteAsset(coin), market, fomoHandle: null, ...props, quoteProbe: () => { calls++; return probe(); } }));
   ({ default: View } = await importFresh("src/components/TokenVenues.tsx", { react: { file: import.meta.resolve("react"), bindings: runtime.hooks } }));
+  return { ...runtime, calls: () => calls };
+}
+const quoteButtons = (tree: any) => nodes(tree).filter((node) => node.type === "button" && /pool quote/i.test(textOf(node)));
+
+test("the pool quote reads itself only when it is shown, shows its average fill price, and reports failures politely", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: Date.UTC(2026, 9, 21, 6) });
+  let fail = true;
+  const probe = async () => { if (fail) throw new Error("Pool read failed"); return { amountOut: (2n * 10n ** 18n).toString() }; };
+  const priced = { ...market, stats: { status: "fresh", priceUsd: 0.5, periods: {} } };
+  for (const [why, props] of [["the pool state is unavailable", { stateUnavailable: true }], ["a fork coin", { token: { ...coin, mode: "fork" } }],
+    ["the summary is loading", { market: { ...market, summary: { data: null, loading: true, error: "" } } }], ["a price is indexed", { market: priced }]] as const) {
+    const gated = await venuesRuntime(props, probe);
+    try {
+      gated.render(); t.mock.timers.tick(5 * 60_000); await settle();
+      assert.equal(gated.calls(), 0, `no quote read when ${why}`);
+      assert.doesNotMatch(textOf(gated.output()), /Reading the pool/);
+    } finally { gated.unmount(); }
+  }
+  const runtime = await venuesRuntime({}, probe);
   try {
-    runtime.render(); fail = true; button(runtime.output(), "Get pool quote").props.onClick(); await settle();
-    assert.match(textOf(runtime.output()), /Pool read failed/);
-    fail = false; button(runtime.output(), "Get pool quote").props.onClick(); await settle();
+    runtime.render(); assert.match(textOf(runtime.output()), /Reading the pool…/, "the first read is announced before it answers");
+    const region = (tree: any) => nodes(tree).find((node) => node.props?.role === "status" && node.type === "div");
+    const before = region(runtime.output());
+    t.mock.timers.tick(0); await settle();
+    assert.equal(runtime.calls(), 1, "the quote is read at once, without a click");
+    assert.equal(quoteButtons(runtime.output()).length, 0, "no Get or Refresh pool quote button");
+    const failure = find(runtime.output(), (node) => node.props?.className === "field-error");
+    assert.equal(textOf(failure), "Pool read failed"); assert.equal(failure.props.role, undefined, "a failure that can repeat each minute is not an alert");
+    assert(before && region(runtime.output()) && find(region(runtime.output()), (node) => node === failure),
+      "the failure lands in the status region that was mounted before the read answered");
+    assert.equal(nodes(runtime.output()).filter((node) => node.props?.role === "alert").length, 0);
+    fail = false; t.mock.timers.tick(59_999); await settle(); assert.equal(runtime.calls(), 1);
+    t.mock.timers.tick(1); await settle(); assert.equal(runtime.calls(), 2, "a failed read is tried again a minute later");
     assert.match(textOf(runtime.output()), /Average price: ≈ 0.5 WETH per .*average for a 1-unit buy with 1 WETH, fees included/);
     assert.match(textOf(find(runtime.output(), (element) => element.props?.role === "status" && /Average price/.test(textOf(element)))), /Average price/,
       "the result lands in a status region that was already mounted");
@@ -596,35 +625,43 @@ test("after a save on this page, the newer profile wins and a later stale or una
   }
 });
 
-test("a pool quote keeps its read time and a refresh button, expires after a minute, and a failed refresh never passes as new", async (t) => {
+test("the pool quote refreshes itself each minute while the page is visible, waits while hidden, and a failed refresh never passes as new", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: Date.UTC(2026, 9, 18, 6) });
-  const { quoteAsset } = await import("../src/lib/config");
-  let amount = 2n * 10n ** 18n, fail = false, quoteSlow: Promise<{ amountOut: string }> | null = null, View: any;
-  const runtime = hookRuntime(() => View({ token: coin, stock: quoteAsset(coin), market, fomoHandle: null,
-    quoteProbe: async () => { if (fail) throw new Error("Pool read failed"); if (quoteSlow) return quoteSlow; return { amountOut: amount.toString() }; } }));
-  ({ default: View } = await importFresh("src/components/TokenVenues.tsx", { react: { file: import.meta.resolve("react"), bindings: runtime.hooks } }));
+  const previous = Object.getOwnPropertyDescriptor(globalThis, "document"), listeners = new Set<() => void>();
+  const document = { visibilityState: "visible", addEventListener: (_: string, run: () => void) => listeners.add(run),
+    removeEventListener: (_: string, run: () => void) => listeners.delete(run) };
+  Object.defineProperty(globalThis, "document", { configurable: true, value: document });
+  const show = async (state: "visible" | "hidden") => { document.visibilityState = state; listeners.forEach((run) => run()); await settle(); t.mock.timers.tick(0); await settle(); };
+  let amount = 2n * 10n ** 18n, fail = false, quoteSlow: Promise<{ amountOut: string }> | null = null;
+  const runtime = await venuesRuntime({}, async () => { if (fail) throw new Error("Pool read failed"); if (quoteSlow) return quoteSlow; return { amountOut: amount.toString() }; });
   const text = () => textOf(runtime.output()), time = () => find(runtime.output(), (node) => node.type === "time")?.props.dateTime;
+  const minute = async () => { t.mock.timers.tick(60_000); await settle(); };
   try {
-    runtime.render(); button(runtime.output(), "Get pool quote").props.onClick(); await settle();
+    runtime.render(); t.mock.timers.tick(0); await settle();
     assert.match(text(), /≈ 0.5 WETH per SYN.*Read at /); assert.equal(time(), "2026-10-18T06:00:00.000Z");
-    assert.doesNotMatch(text(), /expired/);
-    t.mock.timers.tick(60_000); await settle();
-    assert.match(text(), /expired, refresh for a current quote/, "an old figure is labelled, never refreshed on its own");
-    amount = 4n * 10n ** 18n; button(runtime.output(), "Refresh pool quote").props.onClick(); await settle();
+    assert.doesNotMatch(text(), /expired/); assert.equal(runtime.calls(), 1);
+    amount = 4n * 10n ** 18n; await minute();
+    assert.equal(runtime.calls(), 2, "an expired quote is read again on its own");
     assert.match(text(), /≈ 0.25 WETH/); assert.equal(time(), "2026-10-18T06:01:00.000Z"); assert.doesNotMatch(text(), /expired|not current/);
-    fail = true; button(runtime.output(), "Refresh pool quote").props.onClick(); await settle();
-    assert.match(text(), /≈ 0.25 WETH.*Previous quote, read at .* · not current/); assert.equal(time(), "2026-10-18T06:01:00.000Z");
-    assert.match(text(), /Pool read failed/);
-    assert(button(runtime.output(), "Refresh pool quote"), "the refresh stays available after a failure");
+    await show("hidden"); await minute(); await minute();
+    assert.equal(runtime.calls(), 2, "a hidden tab does not read"); assert.match(text(), /≈ 0.25 WETH.*Read at .* · expired/);
+    await show("visible");
+    assert.equal(runtime.calls(), 3, "returning to the tab reads the expired quote at once"); assert.equal(time(), "2026-10-18T06:03:00.000Z");
+    fail = true; await minute();
+    assert.match(text(), /≈ 0.25 WETH.*Previous quote, read at .* · not current/); assert.equal(time(), "2026-10-18T06:03:00.000Z");
+    assert.match(text(), /Pool read failed/); assert.equal(quoteButtons(runtime.output()).length, 0);
     let answer!: (value: { amountOut: string }) => void;
-    fail = false; const slow = new Promise<{ amountOut: string }>((resolve) => { answer = resolve; });
-    quoteSlow = slow;
-    button(runtime.output(), "Refresh pool quote").props.onClick(); await settle();
-    assert.match(text(), /Reading the pool…/);
+    fail = false; quoteSlow = new Promise<{ amountOut: string }>((resolve) => { answer = resolve; });
+    await minute(); assert.equal(runtime.calls(), 5);
     assert.match(text(), /≈ 0.25 WETH.*Previous quote, read at .* · not current/, "a pending retry does not make the failed figure look current");
+    await show("hidden"); await show("visible"); await minute();
+    assert.equal(runtime.calls(), 5, "one read at a time, also across visibility changes");
     answer({ amountOut: (5n * 10n ** 18n).toString() }); await settle();
     assert.match(text(), /≈ 0.2 WETH/); assert.doesNotMatch(text(), /not current|Pool read failed/);
-  } finally { runtime.unmount(); }
+  } finally {
+    runtime.unmount();
+    if (previous) Object.defineProperty(globalThis, "document", previous); else Reflect.deleteProperty(globalThis, "document");
+  }
 });
 
 test("an unanswered profile refreshes the detail with backoff, and repeated failed refreshes keep the 15 s state retry going", async (t) => {
