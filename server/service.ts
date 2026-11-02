@@ -64,7 +64,7 @@ import { launchGuardAbi } from "../src/lib/launch-guard";
 import { assertLaunchPlanValidity, LAUNCH_SIGNING_TTL, restorePrepared, serializePrepared, type FirstBuyLockStatus, type LaunchPrepareOptions } from "../src/lib/launch-plan";
 import { chainLaunchDependencies, LaunchGuardMismatch, verifyLaunchGuard, verifyLaunchGuardIdentity } from "./launch-guard";
 import { assertLaunchTradingFee, assertPlanIntegrity, assertRecoveryPlan, verifiedFirstBuyLock, verifyCreationAccounting, verifyGuardedReceipt } from "./launch-verification";
-import { verifyFeeEngine } from "./buyback-engine";
+import { verifyFeeEngine, feePreviewFailure, FeePreviewReadError } from "./buyback-engine";
 import { alchemyRpcTransport } from "./alchemy-rpc";
 import { BASE_COLLECTOR_MANIFEST, baseCollectorGraphFingerprint, verifyBaseCollector } from "./base-collector";
 import { hasBaseLaunchActivationRecord } from "./base-activation-record";
@@ -1603,16 +1603,20 @@ export class LaunchpadService {
   }
 
   async engineClaimPreview(address: Address, engine: Address): Promise<EngineClaimPreview> {
-    const { token, state } = await this.state(address);
+    const { token, state } = await this.state(address).catch(error=>{throw new FeePreviewReadError("Pool state",error);});
     if (!isEngineFeePolicy(token.feePolicy) || !token.feeEngine || !sameAddress(token.feeEngine, engine))
       throw new Error("This pool does not use the selected fee engine");
-    const pool = await this.sdk.getMulticurvePool(address);
-    const hook = await this.sdk.getRehypeDopplerHookInitializer(this.contracts.rehype);
-    const [lp, trade] = await Promise.allSettled([pool.getPendingFees(engine), hook.getPendingFees(token.poolId, engine)]);
+    // Keep the healthy side when either SDK setup or its actual fee read fails.
+    const [lp, trade] = await Promise.allSettled([
+      this.sdk.getMulticurvePool(address).then(pool=>pool.getPendingFees(engine)),
+      this.sdk.getRehypeDopplerHookInitializer(this.contracts.rehype).then(hook=>hook.getPendingFees(token.poolId, engine)),
+    ]);
     return [state.poolKey.currency0, state.poolKey.currency1].map((currency, index) => ({
       ...poolCurrency(currency, token),
       lp: lp.status === "fulfilled" ? String(index ? lp.value.fees1 : lp.value.fees0) : null,
       hook: trade.status === "fulfilled" ? String(index ? trade.value.fees1 : trade.value.fees0) : null,
+      ...(lp.status === "rejected" ? {lpError:feePreviewFailure(lp.reason,"LP preview")} : {}),
+      ...(trade.status === "rejected" ? {hookError:feePreviewFailure(trade.reason,"Hook preview")} : {}),
     }));
   }
 }

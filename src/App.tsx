@@ -413,10 +413,22 @@ function scopedApi(config: RuntimeConfig | null) {
 export function App() {
   const network = useNetwork();
   const helpDialog = useRef<HTMLDialogElement>(null);
+  const helpTrigger = useRef<HTMLButtonElement | null>(null);
   const { theme, toggle: toggleTheme } = useTheme();
   const [path, setPath] = useState(location.pathname),
     [version, setVersion] = useState(0),
     [showHelp, setHelp] = useState(false);
+  function openHelp(event: ReactMouseEvent<HTMLButtonElement>) {
+    helpTrigger.current = event.currentTarget;
+    setHelp(true);
+  }
+  function closeHelp() {
+    setHelp(false);
+    const trigger = helpTrigger.current;
+    helpTrigger.current = null;
+    // The native close event runs after the dialog has left modal mode.
+    if (trigger?.isConnected) trigger.focus({ preventScroll: true });
+  }
   useEffect(() => {
     const fn = () => setPath(location.pathname);
     window.addEventListener("popstate", fn);
@@ -506,7 +518,7 @@ export function App() {
             ))}
           </div>
         </div>
-        <button type="button" className="sidebar-help" onClick={() => setHelp(true)}>
+        <button type="button" className="sidebar-help" onClick={openHelp}>
           <CircleHelp size={17} />
           How it works
         </button>
@@ -625,7 +637,7 @@ export function App() {
               loadMore={tokens.loadMore}
               refresh={() => setVersion((v) => v + 1)}
               account={wallet.account}
-              onHelp={() => setHelp(true)}
+              onHelp={openHelp}
             />
           )}
         </main>
@@ -634,7 +646,7 @@ export function App() {
             <div className="footer-top">
               <span className="footer-brand">musegod<span>.fun</span></span>
               <nav className="footer-links" aria-label="Resources">
-                <button type="button" onClick={() => setHelp(true)}>How it works</button>
+                <button type="button" onClick={openHelp}>How it works</button>
                 <a href="https://docs.doppler.lol/" target="_blank" rel="noreferrer">Protocol docs ↗</a>
                 {explorer && <a href={explorer} target="_blank" rel="noreferrer">Explorer ↗</a>}
                 {buildIdentity.source === "github-actions" ? <>
@@ -658,8 +670,7 @@ export function App() {
           ref={helpDialog}
           className="modal narrow"
           aria-labelledby="help-title"
-          onCancel={() => setHelp(false)}
-          onClose={() => setHelp(false)}
+          onClose={closeHelp}
         >
           <div className="modal-head">
             <div>
@@ -669,7 +680,7 @@ export function App() {
             <button
               className="close-button"
               aria-label="Close help"
-              onClick={() => setHelp(false)}
+              onClick={() => helpDialog.current?.close()}
             >
               <X size={20} />
             </button>
@@ -694,7 +705,7 @@ export function App() {
           <Notice>
             Paired assets follow their issuer’s transfer, redemption, and regional rules. The meme token itself does not represent company stock.
           </Notice>
-          <button className="primary large full" onClick={() => setHelp(false)}>
+          <button className="primary large full" onClick={() => helpDialog.current?.close()}>
             Got it
           </button>
         </dialog>
@@ -785,7 +796,7 @@ export function Explore({
   loadMore?: () => void;
   refresh: () => void;
   account?: Address | null;
-  onHelp?: () => void;
+  onHelp?: (event: ReactMouseEvent<HTMLButtonElement>) => void;
 }) {
   // Resource refreshes temporarily clear their data. Keep the confirmed
   // directory visible, without carrying entries into another deployment.

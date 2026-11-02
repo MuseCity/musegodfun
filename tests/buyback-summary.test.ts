@@ -8,7 +8,7 @@ import { MUSEGOD_BUYBACK } from "../src/lib/fee-policy";
 function fixture() {
   let calls=0,headers=0;
   const amounts=[1n,2n,1000000000000000000123456789n,26652000000000000000000n,30000000000000000000000n,1000000000000000000000000n];
-  const client={getBlockNumber:async()=>{headers++;return 99n;},multicall:async({contracts,blockNumber,batchSize}:any)=>{
+  const client={getBlockNumber:async(parameters:any)=>{assert.equal(parameters.cacheTime,0);headers++;return 99n;},multicall:async({contracts,blockNumber,batchSize}:any)=>{
     calls++;assert.equal(blockNumber,99n);assert(batchSize>=65536);assert.equal(contracts.length,6);
     assert.equal(contracts[0].args[0],BASE_BUYBACK_TREASURY);assert.equal(contracts[2].address,BASE_BUYBACK_VAULT);
     assert.equal(contracts[2].functionName,"totalSpent");assert.equal(contracts[3].functionName,"totalBurned");

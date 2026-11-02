@@ -335,7 +335,7 @@ export class RobinhoodBuybackSummaryReader {
       treasury:BASE_BUYBACK_TREASURY,vault:BASE_BUYBACK_VAULT,tokenAddress:MUSEGOD_BUYBACK.tokenAddress,burnAddress:MUSEGOD_BUYBACK.burnAddress,
       treasuryWeth:null,vaultWeth:null,vaultSpentWeth:null,vaultMuseToDead:null,deadTotalMuse:null,totalSupply:null };
     try {
-      const blockNumber = await this.client.getBlockNumber();
+      const blockNumber = await this.client.getBlockNumber({cacheTime:0});
       const contracts = [
         {address:BASE_BUYBACK_RH_WETH,abi:erc20Abi,functionName:"balanceOf",args:[BASE_BUYBACK_TREASURY]},
         {address:BASE_BUYBACK_RH_WETH,abi:erc20Abi,functionName:"balanceOf",args:[BASE_BUYBACK_VAULT]},

@@ -1,0 +1,54 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { getAddress } from "viem";
+import { LaunchpadService, PoolIdentityError } from "../server/service";
+import { BuybackEngineReader, FeePreviewReadError, feePreviewFailure } from "../server/buyback-engine";
+import { ROBINHOOD_STOCKS } from "../src/lib/config";
+import { ENGINE_FEE_POLICY } from "../src/lib/fee-policy";
+
+const coin=getAddress("0x1111111111111111111111111111111111111111"),engine=getAddress("0x2222222222222222222222222222222222222222");
+const quote=ROBINHOOD_STOCKS.find(asset=>asset.symbol==="WETH")!;
+function previewFixture() {
+  const token={address:coin,symbol:"MV2C",quoteAddress:quote.address,poolId:`0x${"ab".repeat(32)}`,feePolicy:ENGINE_FEE_POLICY,feeEngine:engine};
+  return {
+    state:async()=>({token,state:{poolKey:{currency0:coin,currency1:quote.address}}}),
+    contracts:{rehype:engine},
+    sdk:{getMulticurvePool:async()=>({getPendingFees:async()=>({fees0:0n,fees1:12n})}),
+      getRehypeDopplerHookInitializer:async()=>({getPendingFees:async()=>({fees0:0n,fees1:0n})})},
+  };
+}
+test("pending preview keeps true hook zero and reports an LP failure instead of fabricating LP zero",async()=>{
+  const service=previewFixture();
+  service.sdk.getMulticurvePool=async()=>{throw Object.assign(new Error("HTTP request failed https://private.invalid/secret"),{cause:new Error("429 rate limited")});};
+  const rows=await LaunchpadService.prototype.engineClaimPreview.call(service as any,coin,engine);
+  assert.equal(rows.length,2);
+  for(const row of rows){assert.equal(row.lp,null);assert.equal(row.hook,"0");assert.match(row.lpError!,/LP preview unavailable: RPC rate limit/);assert.equal(row.hookError,undefined);}
+  assert.doesNotMatch(JSON.stringify(rows),/private.invalid|secret/);
+});
+test("pending preview preserves usable LP values when hook setup fails",async()=>{
+  const service=previewFixture();service.sdk.getRehypeDopplerHookInitializer=async()=>{throw new Error("request timed out");};
+  const rows=await LaunchpadService.prototype.engineClaimPreview.call(service as any,coin,engine);
+  assert.deepEqual(rows.map(row=>row.lp),["0","12"]);
+  for(const row of rows){assert.equal(row.hook,null);assert.match(row.hookError!,/Hook preview unavailable: RPC timeout/);assert.equal(row.lpError,undefined);}
+});
+test("pool identity and unavailable state remain failed previews with safe diagnostic stages",async()=>{
+  const service=previewFixture();service.state=async()=>{throw new PoolIdentityError("The pool identity or locked state is invalid");};
+  await assert.rejects(()=>LaunchpadService.prototype.engineClaimPreview.call(service as any,coin,engine),error=>{
+    assert(error instanceof FeePreviewReadError);assert.match(error.message,/Pool state unavailable: pool identity/);return true;
+  });
+  const safe=feePreviewFailure(new FeePreviewReadError("Pool state",new Error("timeout with key=secret")),"Pending-fee preview");
+  assert.match(safe,/^Pool state unavailable: RPC timeout/);assert.doesNotMatch(safe,/secret/);
+  assert.match(feePreviewFailure({cause:{code:-32005}},"LP preview"),/rate limit/);
+});
+test("engine cache retains its sample time and failures never inherit a successful checkedAt or zero balances",async t=>{
+  let now=1000,reads=0,failure=false;t.mock.method(Date,"now",()=>now);
+  const reader=new BuybackEngineReader({} as any,async()=>({} as any),async()=>[],async()=>[]);
+  // Isolate status caching from contract-graph verification, covered by buyback-engine.test.ts.
+  (reader as any).readFresh=async()=>{reads++;if(failure)throw new Error("private RPC URL");return {available:true,blockNumber:String(reads),assets:[],pools:[]};};
+  const first=await reader.read();assert.equal(first.checkedAt,1000);assert.equal(first.cacheExpiresAt,121000);
+  now+=119999;assert.equal((await reader.read()).checkedAt,1000);assert.equal(reads,1);
+  now++;const next=await reader.read();assert.equal(next.blockNumber,"2");assert.equal(next.checkedAt,121000);
+  now+=120000;failure=true;const failed=await reader.read();
+  assert.equal(failed.available,false);assert.equal(failed.checkedAt,undefined);assert.equal(failed.blockNumber,null);assert.equal(failed.vaultWeth,undefined);
+  assert.equal(failed.sourceWeth,null);assert.equal(failed.swapperWeth,null);assert.equal(failed.cacheExpiresAt,301000);
+});

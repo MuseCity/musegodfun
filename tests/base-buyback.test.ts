@@ -11,7 +11,7 @@ function log(event:string,args:any,index:number) {const abi=parseAbiItem(event) 
 const fixedGraph = {collector,automationReceiver:automation,paused:false,runtimeHash:hash(3),manifestFingerprint:hash(4),initialDeploymentBlock:1n};
 function counterClient(values: Record<string,bigint|boolean> = {},fail?: Address) {
  let headers=0,calls=0;
- return {getBlockNumber:async()=>{headers++;return 1n;},multicall:async({contracts,blockNumber,batchSize}:any)=>{
+ return {getBlockNumber:async(parameters:any)=>{assert.equal(parameters.cacheTime,0);headers++;return 1n;},multicall:async({contracts,blockNumber,batchSize}:any)=>{
   calls++;assert.equal(blockNumber,1n);assert(batchSize>=65536);
   return contracts.map((contract:any)=>fail&&contract.args?.[0]===fail?{status:"failure",error:Error("asset unavailable")}:
    {status:"success",result:values[contract.functionName]??(contract.functionName==="paused"?false:contract.functionName==="verifiedAssets"?true:3n)});

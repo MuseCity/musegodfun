@@ -124,17 +124,18 @@ export type EngineAssetStatus = {
   shortfall?: string;
 };
 export type EngineBurn = { hash: Hex; blockNumber: string; amount: string; source: "swapper" | "engine" };
-export type EngineClaimPreview = { address: Address; symbol: string; decimals: number; lp: string | null; hook: string | null }[];
+export type EngineClaimPreview = { address: Address; symbol: string; decimals: number; lp: string | null; hook: string | null; lpError?: string | null; hookError?: string | null }[];
 export type FeedProposalStatus = { token: Address; symbol: string; currentFeed: Address; proposedFeed: Address; executableAt: string };
 export type BuybackEngineStatus = {
   available: boolean; reason: string | null; blockNumber: string | null;
+  checkedAt?: number; cacheExpiresAt?: number; countersCacheMs?: number;
   engine: Address | null; swapper: Address | null; executor: Address | null;
   operationsTreasury: Address | null; automationReceiver: Address | null;
   automationTreasury: Address | null; wethForwarder: Address | null;
   sourceDeployed: boolean; sourceWeth: string | null; sourceAllowance: string | null;
   sourceForwarded: string | null; sourceAvailable: string | null; sourceAuthorizationError?: string | null;
   assets: EngineAssetStatus[];
-  pools: { address: Address; poolId: Hex; symbol: string; claimable: EngineClaimPreview | null; currencies?: Address[] | null }[];
+  pools: { address: Address; poolId: Hex; symbol: string; claimable: EngineClaimPreview | null; claimableError?: string | null; currencies?: Address[] | null }[];
   swapperWeth: string | null; directBurned: string | null; convertedWeth: string | null;
   burns: EngineBurn[]; burnScanFrom: string | null;
   vault?: string | null; assetOracle?: string | null; vaultWeth?: string | null; vaultAvailable?: string | null;

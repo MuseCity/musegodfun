@@ -22,18 +22,28 @@ const whole = (value: number, digits = 2) => value.toLocaleString("en-US", { min
 export default function BuybackPage({ config }: { config: RuntimeConfig | null }) {
   const [revision, setRevision] = useState(0);
   const [summary,setSummary] = useState<RobinhoodBuybackSummary|null>(null),[summaryError,setSummaryError] = useState("");
-  useEffect(()=>{let active=true;const read=()=>chainApi<RobinhoodBuybackSummary>(4663,"/buyback/summary")
-    .then(next=>{if(active){setSummary(next);setSummaryError(next.error??"");}})
-    .catch(()=>{if(active)setSummaryError("Robinhood buyback totals are delayed. Previous values may be stale.");});
+  useEffect(()=>{let active=true,reading=false;const read=async()=>{
+    if(reading)return;reading=true;
+    try {const next=await chainApi<RobinhoodBuybackSummary>(4663,"/buyback/summary");if(active){setSummary(next);setSummaryError(next.error??"");}}
+    catch {if(active)setSummaryError("Robinhood buyback totals are delayed. Previous values may be stale.");}
+    finally {reading=false;}
+  };
     void read();const timer=setInterval(()=>void read(),300_000);return()=>{active=false;clearInterval(timer);};},[revision]);
-  const [price, setPrice] = useState<{ usd: number; stale: boolean } | null>(null);
+  const [market, setMarket] = useState<MarketSummary | null>(null);
+  const [priceError, setPriceError] = useState(false);
   useEffect(() => {
-    let active = true;
-    chainApi<MarketSummary>(4663, "/musegod/market/summary")
-      .then((summary) => { if (active) setPrice(summary.status === "unavailable" || summary.priceUsd == null ? null : { usd: summary.priceUsd, stale: summary.status === "stale" }); })
-      .catch(() => { if (active) setPrice(null); });
-    return () => { active = false; };
+    let active = true, reading = false;
+    const read = async () => {
+      if (reading) return; reading = true;
+      try { const next = await chainApi<MarketSummary>(4663, "/musegod/market/summary"); if (active) { setMarket(next); setPriceError(false); } }
+      catch { if (active) setPriceError(true); }
+      finally { reading = false; }
+    };
+    void read(); const timer = window.setInterval(() => void read(), 30_000);
+    return () => { active = false; window.clearInterval(timer); };
   }, [revision]);
+  const price = market?.status !== "unavailable" && market?.priceUsd != null
+    ? { usd: market.priceUsd, stale: priceError || market.status === "stale" } : null;
   const shares = feePolicyFor(launchFeePolicy(config)) ?? FEE_SHARES;
   const robinhoodExplorer = explorerFor({ mode: "robinhood" });
   const data = summary?.deadTotalMuse != null && summary.totalSupply != null && summary.blockNumber != null
@@ -61,11 +71,13 @@ export default function BuybackPage({ config }: { config: RuntimeConfig | null }
           {data ? <>Total burned = MUSEGOD held by <a href={`${robinhoodExplorer}/address/${MUSEGOD_BUYBACK.burnAddress}`} target="_blank" rel="noreferrer" className="mono">{shortAddress(MUSEGOD_BUYBACK.burnAddress)}</a>, read on-chain at block <span className="mono">{data.blockNumber.toLocaleString("en-US")}</span></>
             : summaryError ? <>The dead-address balance could not be read. <button type="button" onClick={() => setRevision((value) => value + 1)}>Retry</button></> : "Reading the dead-address balance on Robinhood Chain…"}
         </p>
+        {summary?.blockNumber != null && summary.checkedAt > 0 && <p className="hint">Totals snapshot · <time dateTime={new Date(summary.checkedAt).toISOString()}>{new Date(summary.checkedAt).toLocaleString()}</time>{summary.stale || summaryError ? " · delayed; previous values" : " · five-minute server cache"}</p>}
       </div>
       <dl className="burn-stats">
         <div><dt>Share of supply</dt><dd>{share === null ? "—" : `${share.toFixed(2)}%`}</dd><dd className="sub">of <span className="mono">{supply === null ? "—" : supply.toLocaleString("en-US")}</span></dd></div>
         <div><dt>Value burned</dt><dd>{burned !== null && price !== null ? `≈ $${(burned * price.usd).toLocaleString("en-US", { notation: "compact", maximumFractionDigits: 1 })}` : "—"}</dd>
-          <dd className="sub">{price !== null ? <>at <span className="mono">${price.usd.toLocaleString("en-US", { maximumSignificantDigits: 3 })}</span> per MUSEGOD{price.stale ? " · previous snapshot" : ""}</> : "MUSEGOD price unavailable"}</dd></div>
+          <dd className="sub">{price !== null ? <>at <span className="mono">${price.usd.toLocaleString("en-US", { maximumSignificantDigits: 3 })}</span> per MUSEGOD{price.stale ? " · previous snapshot" : ""}</> : "MUSEGOD price unavailable"}</dd>
+          {market?.fetchedAt && <dd className="sub">Price snapshot · <time dateTime={market.fetchedAt}>{new Date(market.fetchedAt).toLocaleString()}</time></dd>}</div>
         <div><dt>Circulating supply</dt><dd>{burned !== null && supply !== null ? whole(supply - burned) : "—"}</dd><dd className="sub">total supply − burned</dd></div>
       </dl>
       {summaryError && <p className="hint" role="status">{summaryError}</p>}

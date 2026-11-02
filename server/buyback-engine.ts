@@ -409,6 +409,29 @@ function emptyEngineStatus(reason:string):BuybackEngineStatus {
   return {available:false,reason,blockNumber:null,engine:null,swapper:null,executor:null,operationsTreasury:null,automationReceiver:null,automationTreasury:null,wethForwarder:null,sourceDeployed:false,sourceWeth:null,sourceAllowance:null,sourceForwarded:null,sourceAvailable:null,assets:[],pools:[],swapperWeth:null,directBurned:null,convertedWeth:null,burns:[],burnScanFrom:null};
 }
 
+type FeePreviewStage = "Pool state" | "LP preview" | "Hook preview" | "Pending-fee preview";
+/** Only fixed diagnostic categories leave the server; RPC errors may contain credentials and request URLs. */
+export function feePreviewFailure(error: unknown, stage: FeePreviewStage): string {
+  if (error instanceof FeePreviewReadError) return error.message;
+  const details: string[] = [];
+  let current = error;
+  for (let depth = 0; depth < 6 && current && typeof current === "object"; depth++) {
+    const item = current as { name?: unknown; message?: unknown; shortMessage?: unknown; code?: unknown; cause?: unknown };
+    details.push(String(item.name ?? ""), String(item.message ?? ""), String(item.shortMessage ?? ""), String(item.code ?? ""));
+    current = item.cause;
+  }
+  const evidence = details.join(" ");
+  const reason = /429|rate.?limit|quota|compute units|-32005\b/i.test(evidence) ? "RPC rate limit or quota rejection"
+    : /timeout|timed out|abort/i.test(evidence) ? "RPC timeout"
+    : /PoolIdentityError|pool identity|locked state is invalid/i.test(evidence) ? "pool identity or locked-state mismatch"
+    : /revert|ContractFunctionZeroDataError|returned no data/i.test(evidence) ? "contract read rejected or returned no usable data"
+    : "upstream read unavailable";
+  return `${stage} unavailable: ${reason}. No zero balance is assumed.`;
+}
+export class FeePreviewReadError extends Error {
+  constructor(stage: FeePreviewStage, cause: unknown) { super(feePreviewFailure(cause, stage)); this.name = "FeePreviewReadError"; }
+}
+
 export class BuybackEngineReader {
   private cached?: {at:number;ttl:number;status:BuybackEngineStatus};
   private failures=0;
@@ -469,11 +492,14 @@ export class BuybackEngineReader {
     if(this.cached&&Date.now()-this.cached.at<this.cached.ttl)return structuredClone(this.cached.status);
     if(this.inFlight)return structuredClone(await this.inFlight);
     this.inFlight=this.readFresh().then(status=>{
-      this.failures=0;this.cached={at:Date.now(),ttl:120_000,status};return status;
+      const at=Date.now();
+      status={...status,...(status.blockNumber?{checkedAt:at}:{}),cacheExpiresAt:at+120_000,countersCacheMs:300_000};
+      this.failures=0;this.cached={at,ttl:120_000,status};return status;
     },()=>{
       this.failures++;
-      const status=emptyEngineStatus("Buyback status is temporarily unavailable. Funds remain held; retry after the bounded status backoff.");
-      this.cached={at:Date.now(),ttl:engineFailureDelay(this.failures),status};return status;
+      const at=Date.now(),ttl=engineFailureDelay(this.failures);
+      const status={...emptyEngineStatus("Buyback status is temporarily unavailable. Funds remain held; retry after the bounded status backoff."),cacheExpiresAt:at+ttl};
+      this.cached={at,ttl,status};return status;
     }).finally(()=>{this.inFlight=undefined;});
     return structuredClone(await this.inFlight);
   }
@@ -521,10 +547,10 @@ export class BuybackEngineReader {
     const poolStatus: BuybackEngineStatus["pools"] = [];
     for (let i = 0; i < pools.length; i += 4) poolStatus.push(...await Promise.all(pools.slice(i, i + 4).map(async ({ address, poolId, symbol }) => {
       const [preview, currencies] = await Promise.all([
-        this.claimPreview(address, graph.engine).catch(() => null),
+        this.claimPreview(address, graph.engine).then(claimable=>({claimable,claimableError:null}),error=>({claimable:null,claimableError:feePreviewFailure(error,"Pending-fee preview")})),
         readFeePoolCurrencies(this.client, graph, poolId),
       ]);
-      return { address, poolId, symbol, claimable: preview, currencies };
+      return { address, poolId, symbol, ...preview, currencies };
     })));
     return { available, reason, sourceAuthorizationError: graph.sourceAuthorizationError, feedProposals, vault: graph.vault, assetOracle: graph.assetOracle, vaultWeth: String(vaultWeth), vaultAvailable: String(priceReady ? vaultAvailable : 0n), vaultSpent: String(vaultSpent), vaultBurned: null, buybackWaitReason: !priceReady ? "Buybacks are waiting for available history and spot/5-minute/30-minute prices within 2%. Fees remain held; token trading is unaffected." : vaultAvailable === 0n && vaultWeth > 0n ? "Buybacks are waiting for the shared 0.01 WETH rolling five-minute budget." : null, blockNumber: String(graph.blockNumber), engine: graph.engine, swapper: graph.swapper, executor: graph.executor, operationsTreasury: graph.operationsTreasury, automationReceiver: graph.automationReceiver, automationTreasury: graph.automationTreasury, wethForwarder: graph.forwarder, sourceDeployed: graph.sourceDeployed, sourceWeth: graph.sourceWeth, sourceAllowance: graph.sourceAllowance, sourceForwarded: graph.sourceForwarded, sourceAvailable: graph.sourceAvailable, assets, pools: poolStatus, swapperWeth: String(swapperWeth), directBurned: null, convertedWeth: null, burns: [], burnScanFrom: null, burnScanTo: null, burnIndexCaughtUp: false };
   }

@@ -17,6 +17,7 @@ const quantity = (amount: string | null, decimals = 18) => amount === null ? "Un
 export default function BuybackEngine({ config, onRefresh, summary }: { config: RuntimeConfig | null; onRefresh?: () => void; summary?: RobinhoodBuybackSummary | null }) {
   const wallet = useWallet();
   const [status, setStatus] = useState<BuybackEngineStatus | null>(null);
+  const [readError, setReadError] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -37,17 +38,19 @@ export default function BuybackEngine({ config, onRefresh, summary }: { config: 
     return () => { generation.current++; };
   }, [wallet.revision, config?.chainId, config?.feeEngine, config?.buybackExecutor, config?.buybackVault, config?.assetFeedOracle, config?.treasury, config?.automationReceiver, config?.automationTreasury, config?.wethForwarder]);
   useEffect(() => {
-    let cancelled = false;
-    setStatus(null);
+    let cancelled = false, reading = false;
+    setStatus(null); setReadError("");
     const load = async () => {
-      try { const next = await chainApi<BuybackEngineStatus>(4663, "/buyback/engine"); if (!cancelled) setStatus(next); }
-      catch (failure) { if (!cancelled) setError(errorMessage(failure)); }
+      if (reading) return; reading = true;
+      try { const next = await chainApi<BuybackEngineStatus>(4663, "/buyback/engine"); if (!cancelled) { setStatus(next); setReadError(""); } }
+      catch { if (!cancelled) setReadError("Buyback engine updates are delayed. Previous values may be stale; refresh before processing."); }
+      finally { reading = false; }
     };
     void load();
     const timer = window.setInterval(() => void load(), 120_000);
     return () => { cancelled = true; window.clearInterval(timer); };
   }, [config?.chainId, config?.feeEngine, config?.buybackVault, config?.assetFeedOracle, config?.treasury, config?.automationReceiver, config?.automationTreasury, config?.wethForwarder, refresh]);
-  const enabled = !!config?.writesEnabled && !!config.feeEngine && !!status?.available &&
+  const enabled = !readError && !!config?.writesEnabled && !!config.feeEngine && !!status?.available &&
     !!status.vault && !!config.buybackVault && sameAddress(status.vault, config.buybackVault) && !!status.engine && sameAddress(status.engine, config.feeEngine) && status.executor === config.buybackExecutor &&
     !!status.operationsTreasury && !!config.treasury && sameAddress(status.operationsTreasury, config.treasury) &&
     !!status.automationReceiver && !!config.automationReceiver && sameAddress(status.automationReceiver, config.automationReceiver) &&
@@ -130,11 +133,13 @@ export default function BuybackEngine({ config, onRefresh, summary }: { config: 
       <div className="activity-head">
         <h2 id="buyback-engine-title" className="card-title">Public buyback engine</h2>
         <div className="activity-status">
-          {status?.blockNumber && <span>Read at block <span className="mono">{Number(status.blockNumber).toLocaleString("en-US")}</span></span>}
+          {status?.blockNumber && <span>Balances at block <span className="mono">{Number(status.blockNumber).toLocaleString("en-US")}</span></span>}
           <button type="button" className="round-button small" aria-label="Refresh buyback engine balances" disabled={busy} onClick={refreshAll}><RefreshCw size={16} /></button>
         </div>
       </div>
-      {!status ? error ? null : <p role="status" className="loading"><RefreshCw size={16} className="spin" />Reading on-chain engine balances…</p> : !status.engine ? <p className="notice"><Info size={17} aria-hidden="true" /><span>{status.reason}</span></p> : <>
+      {!!status?.checkedAt && <p className="hint">Engine read completed · <time dateTime={new Date(status.checkedAt).toISOString()}>{new Date(status.checkedAt).toLocaleString()}</time>{readError ? " · delayed; previous values" : " · two-minute server cache"}. Cumulative asset counters may use a five-minute snapshot; pool fee previews are separate reads.</p>}
+      {readError && <p className="notice error" role="status"><CircleAlert size={17} aria-hidden="true" /><span>{readError}</span></p>}
+      {!status ? readError ? null : <p role="status" className="loading"><RefreshCw size={16} className="spin" />Reading on-chain engine balances…</p> : !status.engine ? <p className="notice"><Info size={17} aria-hidden="true" /><span>{status.reason}</span></p> : <>
         {status.reason && <p className="notice warning" role="status"><TriangleAlert size={17} aria-hidden="true" /><span>{status.reason}</span></p>}
         <dl className="engine-stats">
           <div className="card halo"><dt>Shared Vault sent to dead</dt><dd>{amount(summary?.vaultMuseToDead ?? null)}</dd><dd className="sub">MUSEGOD from all sources</dd></div>
@@ -179,8 +184,10 @@ export default function BuybackEngine({ config, onRefresh, summary }: { config: 
           <span className="hint">LP and hook fees waiting for collection</span>
           {status.pools.map((pool) => <div className="stage-item" key={pool.poolId}>
             <span className="mono">{pool.symbol} · {shortAddress(pool.address)}</span>
-            {pool.claimable ? pool.claimable.map((asset) => <span key={asset.address} className="hint mono">{asset.symbol} LP {quantity(asset.lp, asset.decimals)} · Hook {quantity(asset.hook, asset.decimals)}</span>)
-              : <span className="hint">Pending amounts unavailable; no zero balance is assumed.</span>}
+            {pool.claimable ? pool.claimable.map((asset) => <span key={asset.address} className="hint mono">{asset.symbol} LP {quantity(asset.lp, asset.decimals)} · Hook {quantity(asset.hook, asset.decimals)}
+              {asset.lpError && <span className="hint">{asset.lpError}</span>}{asset.hookError && <span className="hint">{asset.hookError}</span>}</span>)
+              : <span className="hint">Pending amounts unavailable; no zero balance is assumed. {pool.claimableError}</span>}
+            {pool.claimable?.some((asset) => asset.lp === null || asset.hook === null) && <span className="hint">Some pending amounts are unavailable; no zero balance is assumed.</span>}
             <span className="button-row">
               <button type="button" className="secondary" disabled={!enabled || busy} onClick={() => void run({ kind: "claim", poolId: pool.poolId })}>Collect</button>
               <button type="button" className="secondary" disabled={!enabled || busy} onClick={() => void run({ kind: "sync", poolId: pool.poolId })}>Sync received</button>

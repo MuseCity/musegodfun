@@ -65,7 +65,7 @@ export class BaseFeeQuoteReader {
   private async readFresh(): Promise<BaseCollectorStatus> {
     const empty = unavailableBaseCollectorStatus(this.collector);
     try {
-      const graph = this.deps.verifiedGraph, blockNumber = await this.client.getBlockNumber();
+      const graph = this.deps.verifiedGraph, blockNumber = await this.client.getBlockNumber({cacheTime:0});
       const assets = new Map(BASE_RECOVERY_FIXED_ASSETS.map(asset => [asset.address.toLowerCase(),asset] as [string,BaseFeeAsset]));
       let assetsComplete = true;
       for (const asset of await this.deps.assets?.() ?? []) {
