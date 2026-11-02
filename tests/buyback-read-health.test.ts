@@ -40,6 +40,26 @@ test("pool identity and unavailable state remain failed previews with safe diagn
   assert.match(safe,/^Pool state unavailable: RPC timeout/);assert.doesNotMatch(safe,/secret/);
   assert.match(feePreviewFailure({cause:{code:-32005}},"LP preview"),/rate limit/);
 });
+test("runtime request-budget and I/O-context failures have distinct fixed safe categories",()=>{
+  for(const message of ["Too many subrequests.","Too many API requests by single worker invocation."]){
+    const error=new Error("HTTP request failed at https://private.invalid/secret",{cause:new Error(message)});
+    assert.equal(feePreviewFailure(error,"LP preview"),"LP preview unavailable: runtime request budget exceeded. No zero balance is assumed.");
+  }
+  for(const message of ["Cannot perform I/O on behalf of a different request.","I/O objects from a different Durable Object cannot be used here."]){
+    assert.equal(feePreviewFailure(new Error(message+" https://private.invalid/secret"),"LP preview"),"LP preview unavailable: runtime I/O context mismatch. No zero balance is assumed.");
+  }
+});
+test("SDK pending-fee subcall, checkpoint and aggregate failures remain distinguishable without raw diagnostics",()=>{
+  for(const name of ["collectFees","getShares","getCumulatedFees0","getCumulatedFees1","getLastCumulatedFees0","getLastCumulatedFees1"]){
+    const error=new Error("Provider failed https://private.invalid/secret",{cause:new Error(`${name} call failed`)});
+    assert.equal(feePreviewFailure(error,"LP preview"),`LP preview unavailable: ${name} fee-preview subcall failed. No zero balance is assumed.`);
+  }
+  assert.equal(feePreviewFailure(new Error("Accumulated fees are below beneficiary checkpoint"),"LP preview"),"LP preview unavailable: pending-fee counters below beneficiary checkpoint. No zero balance is assumed.");
+  for(const result of ["pool result","initializer discovery result","pending fee breakdown result"]){
+    assert.equal(feePreviewFailure(new Error(`Multicall3 aggregate3 returned an incomplete ${result}`),"LP preview"),"LP preview unavailable: incomplete fee-preview aggregate response. No zero balance is assumed.");
+  }
+  assert.equal(feePreviewFailure(new Error("unknownFunction call failed https://private.invalid/secret"),"LP preview"),"LP preview unavailable: upstream read unavailable. No zero balance is assumed.");
+});
 test("engine cache retains its sample time and failures never inherit a successful checkedAt or zero balances",async t=>{
   let now=1000,reads=0,failure=false;t.mock.method(Date,"now",()=>now);
   const reader=new BuybackEngineReader({} as any,async()=>({} as any),async()=>[],async()=>[]);

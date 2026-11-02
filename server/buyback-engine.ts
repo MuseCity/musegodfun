@@ -421,7 +421,13 @@ export function feePreviewFailure(error: unknown, stage: FeePreviewStage): strin
     current = item.cause;
   }
   const evidence = details.join(" ");
-  const reason = /429|rate.?limit|quota|compute units|-32005\b/i.test(evidence) ? "RPC rate limit or quota rejection"
+  const failedSubcall = /\b(collectFees|getShares|getCumulatedFees[01]|getLastCumulatedFees[01]) call failed\b/.exec(evidence);
+  const reason = /Too many subrequests\b|Too many API requests by single worker invocation\b/i.test(evidence) ? "runtime request budget exceeded"
+    : /Cannot perform I\/O on behalf of a different request|I\/O[^\n]*(?:different|another) (?:request|Durable Object)\b/i.test(evidence) ? "runtime I/O context mismatch"
+    : failedSubcall ? `${failedSubcall[1]} fee-preview subcall failed`
+    : /Accumulated fees are below beneficiary checkpoint/.test(evidence) ? "pending-fee counters below beneficiary checkpoint"
+    : /Multicall3 aggregate3 returned an incomplete (?:pool result|initializer discovery result|pending fee breakdown result)/.test(evidence) ? "incomplete fee-preview aggregate response"
+    : /429|rate.?limit|quota|compute units|-32005\b/i.test(evidence) ? "RPC rate limit or quota rejection"
     : /timeout|timed out|abort/i.test(evidence) ? "RPC timeout"
     : /PoolIdentityError|pool identity|locked state is invalid/i.test(evidence) ? "pool identity or locked-state mismatch"
     : /revert|ContractFunctionZeroDataError|returned no data/i.test(evidence) ? "contract read rejected or returned no usable data"
