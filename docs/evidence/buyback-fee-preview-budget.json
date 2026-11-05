@@ -1,0 +1,142 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-11-05",
+  "status": "locally_verified_not_deployed",
+  "goal": "Investigate intermittent MV2C LP runtime request budget failures, reduce unnecessary read work, and verify partial failure and automatic recovery.",
+  "rootCause": "Not confirmed. The observed production error did not recur in this sampling window; inefficient reads are verified contributors to request consumption, not proof of the failing invocation.",
+  "changes": [
+    "Reuse the SDK pool entity from state validation for LP fee preview; retain its Airlock initializer binding, discovery behavior, SDK math, and the original public state() result shape.",
+    "Increase bounded feed-proposal read groups from 8 to the existing transport batch ceiling of 20.",
+    "Log partial preview failures once per pool/status refresh using block, public addresses and fixed safe diagnostic categories; never raw RPC exceptions or URLs."
+  ],
+  "productionObservation": {
+    "origin": "https://musegod.fun",
+    "sourceCommit": "e862c75f651c04eab8d3cbd9d268cd19fb81e563",
+    "buildId": "build-41402529249-1",
+    "workerVersion": "971cc2ed-26cf-4609-a3c1-ccc8abe621aa",
+    "tailWindowShanghai": [
+      "2026-11-05T15:35:41+08:00",
+      "2026-11-05T15:43:34+08:00"
+    ],
+    "tailEvents": 51,
+    "engineDurableObjectInvocations": 5,
+    "uncaughtExceptions": 0,
+    "engineWallTimeMs": [
+      3055,
+      2890,
+      2596,
+      3064,
+      3264
+    ],
+    "mv2cApiSamples": [
+      {
+        "blockNumber": "106566557",
+        "checkedAt": 1793864071407,
+        "currencies": [
+          {
+            "symbol": "COST",
+            "lp": "0",
+            "hook": "0",
+            "lpError": null,
+            "hookError": null
+          },
+          {
+            "symbol": "MV2C",
+            "lp": "0",
+            "hook": "0",
+            "lpError": null,
+            "hookError": null
+          }
+        ]
+      },
+      {
+        "blockNumber": "106568100",
+        "checkedAt": 1793864228734,
+        "currencies": [
+          {
+            "symbol": "COST",
+            "lp": "0",
+            "hook": "0",
+            "lpError": null,
+            "hookError": null
+          },
+          {
+            "symbol": "MV2C",
+            "lp": "0",
+            "hook": "0",
+            "lpError": null,
+            "hookError": null
+          }
+        ]
+      }
+    ],
+    "limits": "Live tail only, not historical log search. Existing source catches preview errors without logging them, so outcome=ok and no exceptions alone do not prove healthy previews or establish failure frequency."
+  },
+  "liveRpcMeasurement": {
+    "scope": "Actual Robinhood RPC reads in local Node; public config/token metadata snapshot; excludes display config/store HTTP and Cloudflare execution",
+    "poolCount": 5,
+    "chainId": 4663,
+    "before": {
+      "measuredAt": "2026-11-05T07:37:43.630Z",
+      "http": 25,
+      "rpc": 51,
+      "blockNumber": "106568388"
+    },
+    "after": {
+      "measuredAt": "2026-11-05T07:43:33.209Z",
+      "http": 22,
+      "rpc": 46,
+      "blockNumber": "106571794"
+    },
+    "results": "Both runs returned LP and Hook zero for all five pools. HTTP count fell 25 to 22 and method count 51 to 46 in these runs.",
+    "limits": "Actual read-only mainnet RPC in local Node using the same public metadata snapshot. Excludes config/store HTTP, Cloudflare invocation overhead, concurrent users, and retry storms. Measurements are not a per-invocation production budget guarantee."
+  },
+  "validation": {
+    "unitTests": {
+      "total": 1935,
+      "passed": 1934,
+      "failed": 0,
+      "skipped": 1
+    },
+    "unitTestSkip": "Pre-existing optional isolated PostgreSQL integration test was not enabled.",
+    "nodeAndWorkerTypecheck": "passed",
+    "productionBuild": "passed; existing >500 kB chunk warning",
+    "workerVersionUpload": "dry-run passed; no upload or activation",
+    "browser": {
+      "checks": 41,
+      "environment": "Local production build, fixed API fixtures and simulated time; external requests blocked; no wallet.",
+      "covered": [
+        "COST and MV2C LP unavailable with Hook zero retained",
+        "HTTP refresh failure retains previous values and sample time",
+        "next automatic poll restores nonzero LP values and clears errors",
+        "Collect/Sync disabled in the existing no-wallet/read-only fixture"
+      ]
+    },
+    "transportFixture": {
+      "tests": 3,
+      "covered": [
+        "LP state-to-preview 5 to 4 fetches, same nonzero payouts and integer rounding",
+        "synthetic four-fetch remainder rejects repeated factory path but permits reused entity",
+        "all 38 configured proposal entries read in two HTTP fetches"
+      ]
+    },
+    "boundaries": [
+      "Synthetic budget fixture is not Cloudflare runtime reproduction.",
+      "The concurrent full preview may not save an HTTP fetch from entity reuse alone; the combined live measurement includes feed grouping.",
+      "Disabled button assertions do not establish that partial preview failure itself disables operations."
+    ],
+    "diffCheck": "passed"
+  },
+  "unchanged": [
+    "No deployment, commit, push, production migration, runtime permission change, wallet connection, signature, transaction, keeper restart, paid service or request-limit increase.",
+    "Existing partial-result null-versus-zero behavior and status cache/backoff/polling policy retained."
+  ],
+  "remaining": "Deploy the reviewed read-only changes through the existing release pipeline when authorized, then correlate buyback_fee_preview_failure events with fresh API snapshots. A later healthy sample alone cannot establish that the intermittent root cause is eliminated.",
+  "sourceSha256": {
+    "server/service.ts": "b1e022567c60d077614ac57d3ee87502335c4ebb91b768d109bd1abe9a1f4c43",
+    "server/buyback-engine.ts": "c82d16ca71763e2613fe44604ab99d444510cdf3f89bd181811d34f7342fabb9",
+    "tests/buyback-read-health.test.ts": "059c1de90d4cdd6cb9df809805683cdaf6abcdbc3d394fa5db0118ee8280843e",
+    "tests/buyback-fee-budget.test.ts": "83302f854a47149f027a1d278761f41eea901aaa549c154cd4d87000c3dd2c8e",
+    "scripts/test-buyback-freshness-browser.mjs": "02aa807af4416c7b28a4c5eabbc6706af5a0f1418a0340a3c0d091e9e1f9e28c"
+  }
+}

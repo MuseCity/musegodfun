@@ -1244,16 +1244,21 @@ export class LaunchpadService {
     }
   }
   async state(address: Address, record?: TokenRecord) {
+    const { token, state } = await this.poolState(address, record);
+    return { token, state };
+  }
+  private async poolState(address: Address, record?: TokenRecord) {
     await this.assertNetwork();
     const token = record ?? await this.token(address);
-    const state = await (await this.sdk.getMulticurvePool(address)).getState();
+    const pool = await this.sdk.getMulticurvePool(address);
+    const state = await pool.getState();
     if (
       state.status !== 2 ||
       !sameAddress(state.numeraire, token.quoteAddress) ||
       computePoolId(state.poolKey) !== token.poolId
     )
       throw new PoolIdentityError("The pool identity or locked state is invalid");
-    return { token, state };
+    return { token, state, pool };
   }
   /** One pool state read per token at a time. A token page read abandoned at
    * its deadline keeps running, so later viewers and retries share it rather
@@ -1603,12 +1608,14 @@ export class LaunchpadService {
   }
 
   async engineClaimPreview(address: Address, engine: Address): Promise<EngineClaimPreview> {
-    const { token, state } = await this.state(address).catch(error=>{throw new FeePreviewReadError("Pool state",error);});
+    const { token, state, pool } = await this.poolState(address).catch(error=>{throw new FeePreviewReadError("Pool state",error);});
     if (!isEngineFeePolicy(token.feePolicy) || !token.feeEngine || !sameAddress(token.feeEngine, engine))
       throw new Error("This pool does not use the selected fee engine");
     // Keep the healthy side when either SDK setup or its actual fee read fails.
     const [lp, trade] = await Promise.allSettled([
-      this.sdk.getMulticurvePool(address).then(pool=>pool.getPendingFees(engine)),
+      // Reuse the entity whose state was verified above, including its Airlock
+      // initializer binding, rather than performing a second factory lookup.
+      pool.getPendingFees(engine),
       this.sdk.getRehypeDopplerHookInitializer(this.contracts.rehype).then(hook=>hook.getPendingFees(token.poolId, engine)),
     ]);
     return [state.poolKey.currency0, state.poolKey.currency1].map((currency, index) => ({

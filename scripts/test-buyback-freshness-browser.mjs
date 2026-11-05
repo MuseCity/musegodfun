@@ -23,7 +23,9 @@ const baseEngine = {
   pools: [
     { address: address('c'), poolId: `0x${'1'.repeat(64)}`, symbol: 'MV2C',
       claimable: [{ address: address('d'), symbol: 'COST', decimals: 18, lp: null, hook: '0',
-        lpError: 'LP preview unavailable: RPC rate limit or quota rejection. No zero balance is assumed.' }] },
+        lpError: 'LP preview unavailable: runtime request budget exceeded. No zero balance is assumed.' },
+      { address: address('c'), symbol: 'MV2C', decimals: 18, lp: null, hook: '0',
+        lpError: 'LP preview unavailable: runtime request budget exceeded. No zero balance is assumed.' }] },
     { address: address('e'), poolId: `0x${'2'.repeat(64)}`, symbol: 'WHOLE', claimable: null,
       claimableError: 'Pool state unavailable: RPC timeout. No zero balance is assumed.' },
   ],
@@ -54,7 +56,9 @@ try {
     } else if (url.pathname.endsWith('/buyback/engine')) {
       const read = ++reads.engine;
       if (read === 2) { status = 500; body = { error: 'Engine fixture temporarily unavailable' }; }
-      else body = read === 1 ? baseEngine : { ...baseEngine, checkedAt: startedAt + 240000, blockNumber: '102' };
+      else body = read === 1 ? baseEngine : { ...baseEngine, checkedAt: startedAt + 240000, blockNumber: '102',
+        pools: baseEngine.pools.map((pool, index) => index ? pool : { ...pool,
+          claimable: pool.claimable.map(({ lpError, ...asset }, assetIndex) => ({ ...asset, lp: assetIndex ? '2000000000000000000' : '1000000000000000000' })) }) };
     } else if (url.pathname.endsWith('/buyback/summary')) {
       const read = ++reads.summary;
       if (unavailableSummary) body = { ...baseSummary, available: false, checkedAt: startedAt,
@@ -110,8 +114,12 @@ try {
   await textIncludes(price, /at \$2 per MUSEGOD/, 'initial price');
   const partialPool = page.locator('.stage-item').filter({ hasText: 'MV2C' });
   await textIncludes(partialPool, /COST LP Unavailable · Hook 0/, 'unavailable LP and genuine zero Hook stay distinct');
-  await textIncludes(partialPool, /LP preview unavailable: RPC rate limit or quota rejection/, 'LP failure cause');
+  await textIncludes(partialPool, /MV2C LP Unavailable · Hook 0/, 'both failed LP currencies retain their healthy Hook side');
+  await textIncludes(partialPool, /LP preview unavailable: runtime request budget exceeded/, 'LP request-budget failure cause');
   await textIncludes(partialPool, /Some pending amounts are unavailable; no zero balance is assumed/, 'partial preview warning');
+  for (const name of ['Collect', 'Sync received']) {
+    assert.equal(await partialPool.getByRole('button', { name, exact: true }).isDisabled(), true, `${name} remains disabled without a wallet`); checks++;
+  }
   await textIncludes(page.locator('.stage-item').filter({ hasText: 'WHOLE' }), /Pending amounts unavailable; no zero balance is assumed\. Pool state unavailable: RPC timeout/, 'whole preview failure cause');
 
   await advance(30000, { price: 2, engine: 1, summary: 1 });
@@ -129,10 +137,18 @@ try {
   await textIncludes(engine, /Balances at block 100/, 'failed engine poll retains the prior block');
   await textIncludes(engine, /delayed; previous values/, 'failed engine poll labels retained values');
   await timestamp(engineTime, baseEngine.checkedAt, 'failure does not advance engine sample time');
+  await textIncludes(partialPool, /COST LP Unavailable · Hook 0/, 'failed refresh retains the healthy COST Hook side');
+  await textIncludes(partialPool, /MV2C LP Unavailable · Hook 0/, 'failed refresh retains the healthy MV2C Hook side');
   await advance(120000, { price: 9, engine: 3, summary: 1 });
   await textIncludes(engine, /Balances at block 102/, 'engine recovers on the next poll');
   await delayedEngine.waitFor({ state: 'detached' });
   await timestamp(engineTime, startedAt + 240000, 'recovered engine sample time');
+  await textIncludes(partialPool, /COST LP 1 · Hook 0/, 'automatic retry restores the COST LP amount and preserves true Hook zero');
+  await textIncludes(partialPool, /MV2C LP 2 · Hook 0/, 'automatic retry restores the MV2C LP amount and preserves true Hook zero');
+  assert.doesNotMatch(await partialPool.innerText(), /Unavailable|unavailable|runtime request budget exceeded/, 'recovered fee previews clear failure diagnostics'); checks++;
+  for (const name of ['Collect', 'Sync received']) {
+    assert.equal(await partialPool.getByRole('button', { name, exact: true }).isDisabled(), true, `${name} remains disabled without a wallet after recovery`); checks++;
+  }
 
   await advance(60000, { price: 11, engine: 3, summary: 2 });
   await timestamp(totalsTime, baseSummary.checkedAt, 'cached totals keep their original sample time');

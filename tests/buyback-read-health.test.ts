@@ -11,19 +11,37 @@ const quote=ROBINHOOD_STOCKS.find(asset=>asset.symbol==="WETH")!;
 function previewFixture() {
   const token={address:coin,symbol:"MV2C",quoteAddress:quote.address,poolId:`0x${"ab".repeat(32)}`,feePolicy:ENGINE_FEE_POLICY,feeEngine:engine};
   return {
-    state:async()=>({token,state:{poolKey:{currency0:coin,currency1:quote.address}}}),
+    poolState:async()=>({token,state:{poolKey:{currency0:coin,currency1:quote.address}},pool:{getPendingFees:async()=>({fees0:0n,fees1:12n})}}),
     contracts:{rehype:engine},
-    sdk:{getMulticurvePool:async()=>({getPendingFees:async()=>({fees0:0n,fees1:12n})}),
+    sdk:{getMulticurvePool:async()=>{throw new Error("The verified pool must be reused");},
       getRehypeDopplerHookInitializer:async()=>({getPendingFees:async()=>({fees0:0n,fees1:0n})})},
   };
 }
 test("pending preview keeps true hook zero and reports an LP failure instead of fabricating LP zero",async()=>{
   const service=previewFixture();
-  service.sdk.getMulticurvePool=async()=>{throw Object.assign(new Error("HTTP request failed https://private.invalid/secret"),{cause:new Error("429 rate limited")});};
+  const state=service.poolState;
+  service.poolState=async()=>({...await state(),pool:{getPendingFees:async()=>{throw Object.assign(new Error("HTTP request failed https://private.invalid/secret"),{cause:new Error("429 rate limited")});}}});
   const rows=await LaunchpadService.prototype.engineClaimPreview.call(service as any,coin,engine);
   assert.equal(rows.length,2);
   for(const row of rows){assert.equal(row.lp,null);assert.equal(row.hook,"0");assert.match(row.lpError!,/LP preview unavailable: RPC rate limit/);assert.equal(row.hookError,undefined);}
   assert.doesNotMatch(JSON.stringify(rows),/private.invalid|secret/);
+});
+test("a budget-failed LP preview retries with the verified pool and clears its errors after recovery",async()=>{
+  const service=previewFixture(), state=service.poolState;
+  let failures=true,reads=0;
+  service.poolState=async()=>({...await state(),pool:{getPendingFees:async()=>{
+    reads++;if(failures)throw new Error("Too many API requests by single worker invocation.");
+    return {fees0:7n,fees1:11n};
+  }}});
+  const failed=await LaunchpadService.prototype.engineClaimPreview.call(service as any,coin,engine);
+  assert.deepEqual(failed.map(row=>row.lp),[null,null]);
+  assert.deepEqual(failed.map(row=>row.hook),["0","0"]);
+  assert(failed.every(row=>row.lpError?.includes("runtime request budget exceeded")));
+  failures=false;
+  const recovered=await LaunchpadService.prototype.engineClaimPreview.call(service as any,coin,engine);
+  assert.equal(reads,2);assert.deepEqual(recovered.map(row=>row.lp),["7","11"]);
+  assert.deepEqual(recovered.map(row=>row.hook),["0","0"]);
+  assert(recovered.every(row=>row.lpError===undefined&&row.hookError===undefined));
 });
 test("pending preview preserves usable LP values when hook setup fails",async()=>{
   const service=previewFixture();service.sdk.getRehypeDopplerHookInitializer=async()=>{throw new Error("request timed out");};
@@ -32,7 +50,7 @@ test("pending preview preserves usable LP values when hook setup fails",async()=
   for(const row of rows){assert.equal(row.hook,null);assert.match(row.hookError!,/Hook preview unavailable: RPC timeout/);assert.equal(row.lpError,undefined);}
 });
 test("pool identity and unavailable state remain failed previews with safe diagnostic stages",async()=>{
-  const service=previewFixture();service.state=async()=>{throw new PoolIdentityError("The pool identity or locked state is invalid");};
+  const service=previewFixture();service.poolState=async()=>{throw new PoolIdentityError("The pool identity or locked state is invalid");};
   await assert.rejects(()=>LaunchpadService.prototype.engineClaimPreview.call(service as any,coin,engine),error=>{
     assert(error instanceof FeePreviewReadError);assert.match(error.message,/Pool state unavailable: pool identity/);return true;
   });

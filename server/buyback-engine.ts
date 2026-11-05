@@ -293,7 +293,9 @@ async function verifyLiveAssetFeeds(client: Pick<EngineClient,"readContract">, o
 export async function readFeeFeedProposals(client: Pick<EngineClient, "readContract">, graph: { assetOracle: Address; blockNumber: bigint }, manifest: BuybackDeployment = deployment): Promise<FeedProposalStatus[]> {
   const result: FeedProposalStatus[] = [], assets = assetsFor({ mode: "robinhood" });
   const tokens = [manifest.constants.weth, ...buybackConfig.feeds.map((feed) => feed.token)];
-  for (let i = 0; i < tokens.length; i += 8) await Promise.all(tokens.slice(i, i + 8).map(async (raw) => {
+  // Match the transport's bounded 20-method HTTP batch. Smaller serial groups
+  // spend extra Worker fetches before the pending-fee previews even begin.
+  for (let i = 0; i < tokens.length; i += 20) await Promise.all(tokens.slice(i, i + 20).map(async (raw) => {
     const token = getAddress(raw);
     const proposal = await client.readContract({ address: graph.assetOracle, abi: assetFeedOracleAbi, functionName: "proposals", args: [token], blockNumber: graph.blockNumber });
     if (proposal[0] === "0x0000000000000000000000000000000000000000") return;
@@ -556,6 +558,12 @@ export class BuybackEngineReader {
         this.claimPreview(address, graph.engine).then(claimable=>({claimable,claimableError:null}),error=>({claimable:null,claimableError:feePreviewFailure(error,"Pending-fee preview")})),
         readFeePoolCurrencies(this.client, graph, poolId),
       ]);
+      const lpErrors = [...new Set(preview.claimable?.flatMap(row => row.lpError ? [row.lpError] : []) ?? [])];
+      const hookErrors = [...new Set(preview.claimable?.flatMap(row => row.hookError ? [row.hookError] : []) ?? [])];
+      if (preview.claimableError || lpErrors.length || hookErrors.length) console.warn(JSON.stringify({
+        event: "buyback_fee_preview_failure", blockNumber: String(graph.blockNumber), address, poolId,
+        error: preview.claimableError, lpErrors, hookErrors,
+      }));
       return { address, poolId, symbol, ...preview, currencies };
     })));
     return { available, reason, sourceAuthorizationError: graph.sourceAuthorizationError, feedProposals, vault: graph.vault, assetOracle: graph.assetOracle, vaultWeth: String(vaultWeth), vaultAvailable: String(priceReady ? vaultAvailable : 0n), vaultSpent: String(vaultSpent), vaultBurned: null, buybackWaitReason: !priceReady ? "Buybacks are waiting for available history and spot/5-minute/30-minute prices within 2%. Fees remain held; token trading is unaffected." : vaultAvailable === 0n && vaultWeth > 0n ? "Buybacks are waiting for the shared 0.01 WETH rolling five-minute budget." : null, blockNumber: String(graph.blockNumber), engine: graph.engine, swapper: graph.swapper, executor: graph.executor, operationsTreasury: graph.operationsTreasury, automationReceiver: graph.automationReceiver, automationTreasury: graph.automationTreasury, wethForwarder: graph.forwarder, sourceDeployed: graph.sourceDeployed, sourceWeth: graph.sourceWeth, sourceAllowance: graph.sourceAllowance, sourceForwarded: graph.sourceForwarded, sourceAvailable: graph.sourceAvailable, assets, pools: poolStatus, swapperWeth: String(swapperWeth), directBurned: null, convertedWeth: null, burns: [], burnScanFrom: null, burnScanTo: null, burnIndexCaughtUp: false };
