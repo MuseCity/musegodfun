@@ -127,6 +127,7 @@ export type EngineBurn = { hash: Hex; blockNumber: string; amount: string; sourc
 export type EngineClaimPreview = { address: Address; symbol: string; decimals: number; lp: string | null; hook: string | null; lpError?: string | null; hookError?: string | null }[];
 export type FeedProposalStatus = { token: Address; symbol: string; currentFeed: Address; proposedFeed: Address; executableAt: string };
 export type BuybackEngineStatus = {
+  readId?: string;
   available: boolean; reason: string | null; blockNumber: string | null;
   checkedAt?: number; cacheExpiresAt?: number; countersCacheMs?: number;
   engine: Address | null; swapper: Address | null; executor: Address | null;

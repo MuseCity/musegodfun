@@ -5,6 +5,7 @@ import { LaunchpadService, PoolIdentityError } from "../server/service";
 import { BuybackEngineReader, FeePreviewReadError, feePreviewFailure } from "../server/buyback-engine";
 import { ROBINHOOD_STOCKS } from "../src/lib/config";
 import { ENGINE_FEE_POLICY } from "../src/lib/fee-policy";
+import { computePoolId } from "@whetstone-research/doppler-sdk/evm";
 
 const coin=getAddress("0x1111111111111111111111111111111111111111"),engine=getAddress("0x2222222222222222222222222222222222222222");
 const quote=ROBINHOOD_STOCKS.find(asset=>asset.symbol==="WETH")!;
@@ -49,6 +50,23 @@ test("pending preview preserves usable LP values when hook setup fails",async()=
   assert.deepEqual(rows.map(row=>row.lp),["0","12"]);
   for(const row of rows){assert.equal(row.hook,null);assert.match(row.hookError!,/Hook preview unavailable: RPC timeout/);assert.equal(row.lpError,undefined);}
 });
+test("catalog records remove the duplicate store read without skipping live pool identity checks",async()=>{
+  const state={status:2,numeraire:quote.address,poolKey:{currency0:coin,currency1:quote.address,fee:0x800000,tickSpacing:10,hooks:engine}};
+  const record={address:coin,symbol:"MV2C",mode:"robinhood",transactionHash:`0x${"11".repeat(32)}`,quoteAddress:quote.address,poolId:computePoolId(state.poolKey),feePolicy:ENGINE_FEE_POLICY,feeEngine:engine};
+  let storeReads=0,stateReads=0;
+  const fixture:any={runtime:{config:{mode:"robinhood",chainId:4663}},assertNetwork:async()=>{},
+    token:async()=>{storeReads++;return record;},contracts:{rehype:engine},
+    sdk:{getMulticurvePool:async()=>({getState:async()=>{stateReads++;return state;},getPendingFees:async()=>({fees0:7n,fees1:11n})}),
+      getRehypeDopplerHookInitializer:async()=>({getPendingFees:async()=>({fees0:0n,fees1:0n})})}};
+  fixture.poolState=(address:any,token:any)=>(LaunchpadService.prototype as any).poolState.call(fixture,address,token);
+  const optimized=await LaunchpadService.prototype.engineClaimPreview.call(fixture,coin,engine,record as any);
+  assert.equal(storeReads,0);assert.equal(stateReads,1);
+  const ordinary=await LaunchpadService.prototype.engineClaimPreview.call(fixture,coin,engine);
+  assert.equal(storeReads,1);assert.equal(stateReads,2);assert.deepEqual(optimized,ordinary);
+  await assert.rejects(()=>LaunchpadService.prototype.engineClaimPreview.call(fixture,coin,engine,{...record,mode:"base"} as any),PoolIdentityError);
+  await assert.rejects(()=>LaunchpadService.prototype.engineClaimPreview.call(fixture,coin,engine,{...record,poolId:`0x${"ab".repeat(32)}`} as any),FeePreviewReadError);
+  assert.equal(storeReads,1);assert.equal(stateReads,3);
+});
 test("pool identity and unavailable state remain failed previews with safe diagnostic stages",async()=>{
   const service=previewFixture();service.poolState=async()=>{throw new PoolIdentityError("The pool identity or locked state is invalid");};
   await assert.rejects(()=>LaunchpadService.prototype.engineClaimPreview.call(service as any,coin,engine),error=>{
@@ -84,9 +102,22 @@ test("engine cache retains its sample time and failures never inherit a successf
   // Isolate status caching from contract-graph verification, covered by buyback-engine.test.ts.
   (reader as any).readFresh=async()=>{reads++;if(failure)throw new Error("private RPC URL");return {available:true,blockNumber:String(reads),assets:[],pools:[]};};
   const first=await reader.read();assert.equal(first.checkedAt,1000);assert.equal(first.cacheExpiresAt,121000);
+  assert.match(first.readId!,/^[a-f0-9-]{36}$/);
   now+=119999;assert.equal((await reader.read()).checkedAt,1000);assert.equal(reads,1);
+  assert.equal((await reader.read()).readId,first.readId);
   now++;const next=await reader.read();assert.equal(next.blockNumber,"2");assert.equal(next.checkedAt,121000);
+  assert.notEqual(next.readId,first.readId);
   now+=120000;failure=true;const failed=await reader.read();
   assert.equal(failed.available,false);assert.equal(failed.checkedAt,undefined);assert.equal(failed.blockNumber,null);assert.equal(failed.vaultWeth,undefined);
+  assert.match(failed.readId!,/^[a-f0-9-]{36}$/);assert.notEqual(failed.readId,next.readId);
   assert.equal(failed.sourceWeth,null);assert.equal(failed.swapperWeth,null);assert.equal(failed.cacheExpiresAt,301000);
+});
+test("concurrent readers share the diagnostic id of the same in-flight snapshot",async()=>{
+  let release!:()=>void,reads=0;
+  const pending=new Promise<void>(resolve=>{release=resolve;});
+  const reader=new BuybackEngineReader({} as any,async()=>({} as any),async()=>[],async()=>[]);
+  (reader as any).readFresh=async()=>{reads++;await pending;return {available:true,blockNumber:"7",assets:[],pools:[]};};
+  const first=reader.read(),second=reader.read();release();
+  const [a,b]=await Promise.all([first,second]);assert.equal(reads,1);assert.equal(a.readId,b.readId);
+  assert.equal((await reader.read()).readId,a.readId);
 });

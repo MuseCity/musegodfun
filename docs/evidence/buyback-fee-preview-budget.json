@@ -138,5 +138,84 @@
     "tests/buyback-read-health.test.ts": "059c1de90d4cdd6cb9df809805683cdaf6abcdbc3d394fa5db0118ee8280843e",
     "tests/buyback-fee-budget.test.ts": "83302f854a47149f027a1d278761f41eea901aaa549c154cd4d87000c3dd2c8e",
     "scripts/test-buyback-freshness-browser.mjs": "02aa807af4416c7b28a4c5eabbc6706af5a0f1418a0340a3c0d091e9e1f9e28c"
+  },
+  "followup20261106": {
+    "status": "verified_ready_for_existing_authorized_release",
+    "parentCommit": "8381592040d919ec86e88df838fb315d57732f8f",
+    "newObservation": "Owner reports 08:01 automatic refresh: MV2C COST and MV2C both LP and Hook runtime budget failures; other pools healthy; ordinary refresh later recovers. Original failing response and exact block were not captured by this investigation.",
+    "historicalLogAccess": {
+      "httpStatus": 403,
+      "windowShanghai": [
+        "2026-11-06T07:58:00+08:00",
+        "2026-11-06T08:06:00+08:00"
+      ],
+      "result": "Existing OAuth token cannot query historical observability; no scopes or security controls changed. Dashboard was behind security verification; no bypass attempted."
+    },
+    "confirmedFindings": [
+      "Previous local measurement excluded config/store fetches. Five pools independently queried store.token despite an already filtered catalog snapshot.",
+      "Separate storage waits prevent some SDK reads from sharing HTTP batches, so removing catalog re-reads can also reduce RPC fetches.",
+      "Partial snapshots retain the existing 120-second server TTL; ordinary reload does not itself invalidate that cache. Recovery must be compared by readId, checkedAt, cacheExpiresAt and blockNumber.",
+      "Manual refresh previously cleared every pool before its request completed."
+    ],
+    "changes": [
+      "Pass the already filtered catalog TokenRecord to preview while retaining chain, locked state, quote asset, pool ID and fee-engine checks.",
+      "Give each fresh engine read a readId; preserve it on cache/inFlight/failure and expose X-Buyback-Read-Id for correlation.",
+      "Log RPC/storage fetch attempts, method attempts/retries, 429/budget rejections, phase and concurrency counts with the same readId and snapshot block.",
+      "Log late I/O separately with the original readId after fail-fast completion, without waiting or changing retries.",
+      "Keep healthy values and source time during ordinary manual refresh; preserve the existing no-processing gate until replacement finishes."
+    ],
+    "measurement": {
+      "scope": "Actual mainnet RPC and production storage GETs from local Node. Full fresh reader/config/catalog/pool path; only GET and the existing read-only nft guard introspection RPC allowed; all other non-GET calls blocked before I/O. Not Cloudflare quota measurement.",
+      "runs": [
+        {
+          "reuseCatalogRecord": false,
+          "blockNumber": "107220325",
+          "allFivePoolsHealthy": true,
+          "rejectedWrites": 0,
+          "rpcFetches": 39,
+          "storageFetches": 10,
+          "rpcAttempts": 43,
+          "rpcRetries": 0,
+          "maxActiveFetches": 5
+        },
+        {
+          "reuseCatalogRecord": true,
+          "blockNumber": "107220458",
+          "allFivePoolsHealthy": true,
+          "rejectedWrites": 0,
+          "rpcFetches": 22,
+          "storageFetches": 5,
+          "rpcAttempts": 34,
+          "rpcRetries": 0,
+          "maxActiveFetches": 2
+        }
+      ]
+    },
+    "diagnosticBoundary": "Application dispatches within one fresh read, not Cloudflare internal quota or all simultaneous DO events. HTTP batches belong to the dispatch context; method attempts belong to the initiating context. Shared external work can belong to another scope. Completion counts exclude later dispatches, which are separate late_io logs. No raw URL, header, body, key or raw error is logged.",
+    "validation": {
+      "unitPassed": 1942,
+      "unitFailed": 0,
+      "unitSkipped": 1,
+      "browserFixtureChecks": 62,
+      "nodeAndWorkerTypes": "passed",
+      "productionBuild": "passed",
+      "workerUploadDryRun": "passed",
+      "workerd": "Real workerd validated ALS across two DO requests, parallel read scopes and nested phases with mocked upstream; Node tests also cover fail-fast late I/O. Does not reproduce a live quota limit.",
+      "review": "Independent read-only review found no blocker; no permissions, signing, transaction or cache-TTL change."
+    },
+    "remainingUncertainty": "Root cause and long-term frequency remain unconfirmed. Full-path Node measurements are not evidence of the production limit or the 08:01 invocation. New live logs must correlate a recurrence before asserting causality.",
+    "sourceSha256": {
+      "server/buyback-read-diagnostics.ts": "7e81d3826ed13a752bc86d6ebf48ecb060765070a658c9a13e1cd67aacf4f716",
+      "server/alchemy-rpc.ts": "6767b53cfdf85f745d76a1fec7804e4a3866d0897d7c3928d8f690142c76642c",
+      "server/supabase-store.ts": "9a10031bdd0dea3b679e671a828ed4f19b3ac3bf3ff12d8d3921fe6f7e60b2a8",
+      "server/buyback-engine.ts": "dcfa0d4644a71ecec6019d90b0024036bea6f77622d4f79868d197ab6d0996c6",
+      "server/service.ts": "141495495279bcfb9374ec37876d7eabb0d9593c02d277a91ee3917b13f719d2",
+      "server/app.ts": "c72eb1b7c766b7bc6b811f18462dc0a2aab3efd6fcf90c3499242ccbd4d88d91",
+      "src/lib/buyback-engine.ts": "bdba2626fea2bbf85f444837611956f10e261e08c741453a1fc72291f4754597",
+      "src/components/BuybackEngine.tsx": "4b59f52aefbb07cf6f5a45ed8f3f53c4964043bc51b1a07749dd649b23a96a1e",
+      "tests/buyback-read-diagnostics.test.ts": "2e7e5d962b711fc27fdf39b87bf61a7a5fed6e4b261655a21fc69e6192806697",
+      "tests/buyback-read-health.test.ts": "d993781c9e73a754bdbdc4e7c4132df64b7b7d653d092ccedd67cdebf3de3daa",
+      "scripts/test-buyback-freshness-browser.mjs": "c613f134590c6e8b8699992afb6a2f7382cd67da6ee1e79994336e6692507afd"
+    }
   }
 }

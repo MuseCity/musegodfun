@@ -7,6 +7,7 @@ import { contractIdentityOnce, type ContractIdentityStore } from "./contract-ide
 import { BUYBACK_WETH, BUYBACK_FORWARDER_ALLOWANCE_CAP, LEGACY_FEE_ENGINE, buybackVaultAbi, assetFeedOracleAbi, buybackExecutorAbi, engineTransaction, feeEngineAbi, wethForwarderAbi, type BuybackEngineStatus, type FeedProposalStatus, type EngineAssetStatus, type EngineConversionQuote, type EngineClaimPreview } from "../src/lib/buyback-engine";
 import { assetsFor, deploymentChain, listedTokens, sameAddress, type RuntimeConfig, type TokenRecord } from "../src/lib/config";
 import { ENGINE_FEE_POLICY, MUSEGOD_BUYBACK } from "../src/lib/fee-policy";
+import { currentBuybackReadDiagnostics, runBuybackReadDiagnostics, withBuybackReadPhase } from "./buyback-read-diagnostics";
 
 export type BuybackDeployment = {
   schemaVersion: number; chainId: number; status: string;
@@ -444,7 +445,7 @@ export class BuybackEngineReader {
   private cached?: {at:number;ttl:number;status:BuybackEngineStatus};
   private failures=0;
   private inFlight?: Promise<BuybackEngineStatus>;
-  constructor(private readonly client: EngineClient, private readonly config: (fresh?:boolean) => Promise<RuntimeConfig>, private readonly tokens: () => Promise<TokenRecord[]>, private readonly claimPreview: (address: Address, engine: Address) => Promise<EngineClaimPreview>, private readonly identityStore?: ContractIdentityStore) {}
+  constructor(private readonly client: EngineClient, private readonly config: (fresh?:boolean) => Promise<RuntimeConfig>, private readonly tokens: () => Promise<TokenRecord[]>, private readonly claimPreview: (address: Address, engine: Address, record: TokenRecord) => Promise<EngineClaimPreview>, private readonly identityStore?: ContractIdentityStore) {}
   async conversionQuote(token: Address, rawAmount: string, caller: Address): Promise<EngineConversionQuote> {
     const config = await this.config(true);
     if (!config.feeEngine || config.feePolicy !== ENGINE_FEE_POLICY || !assetsFor(config).some((asset) => sameAddress(asset.address, token)) || sameAddress(token, BUYBACK_WETH))
@@ -499,27 +500,35 @@ export class BuybackEngineReader {
   async read(): Promise<BuybackEngineStatus> {
     if(this.cached&&Date.now()-this.cached.at<this.cached.ttl)return structuredClone(this.cached.status);
     if(this.inFlight)return structuredClone(await this.inFlight);
-    this.inFlight=this.readFresh().then(status=>{
+    let observed: BuybackEngineStatus | undefined, readId: string | undefined;
+    this.inFlight=runBuybackReadDiagnostics(async()=>{
+      observed=await this.readFresh(); return observed;
+    }, diagnostics=>{
+      readId=diagnostics.readId;
+      const partial=observed?.pools.some(pool=>pool.claimableError || pool.claimable?.some(row=>row.lp===null || row.hook===null));
+      console.log(JSON.stringify({event:"buyback_engine_read",blockNumber:observed?.blockNumber??null,
+        outcome:!observed?"failed":!observed.blockNumber?"unavailable":partial?"partial":"complete",...diagnostics}));
+    }).then(({value:status,diagnostics})=>{
       const at=Date.now();
-      status={...status,...(status.blockNumber?{checkedAt:at}:{}),cacheExpiresAt:at+120_000,countersCacheMs:300_000};
+      status={...status,readId:diagnostics.readId,...(status.blockNumber?{checkedAt:at}:{}),cacheExpiresAt:at+120_000,countersCacheMs:300_000};
       this.failures=0;this.cached={at,ttl:120_000,status};return status;
     },()=>{
       this.failures++;
       const at=Date.now(),ttl=engineFailureDelay(this.failures);
-      const status={...emptyEngineStatus("Buyback status is temporarily unavailable. Funds remain held; retry after the bounded status backoff."),cacheExpiresAt:at+ttl};
+      const status={...emptyEngineStatus("Buyback status is temporarily unavailable. Funds remain held; retry after the bounded status backoff."),readId,cacheExpiresAt:at+ttl};
       this.cached={at,ttl,status};return status;
     }).finally(()=>{this.inFlight=undefined;});
     return structuredClone(await this.inFlight);
   }
   private async readFresh(): Promise<BuybackEngineStatus> {
-    const config = await this.config();
+    const config = await withBuybackReadPhase("config",()=>this.config());
     const unavailable=emptyEngineStatus(config.feePolicy === ENGINE_FEE_POLICY && deployment.automation.status !== "configured" ? "Awaiting Splits Automation deployment, its WETH-to-source-treasury rule and WETH forwarding authorization." : "The public buyback engine is not currently configured or its deployment could not be verified.");
     if (deploymentChain(config) !== 4663 || config.feePolicy !== ENGINE_FEE_POLICY) return unavailable;
     const candidate = config.feeEngine ?? deployment.contracts.engine.address;
     if (!candidate) return unavailable;
     // The reviewed manifest fixes this read-only candidate even while signing
     // is withheld. Revoking allowance must not hide balances or burn history.
-    const graph = await verifyFeeEngineRuntime(this.client, getAddress(candidate),undefined,{identityStore:this.identityStore,fresh:false});
+    const graph = await withBuybackReadPhase("graph",()=>verifyFeeEngineRuntime(this.client, getAddress(candidate),undefined,{identityStore:this.identityStore,fresh:false}));
     if (!config.treasury || !sameAddress(config.treasury, graph.operationsTreasury))
       return { ...unavailable, reason: "The operations treasury does not match the verified deployment." };
     const available = !!config.buybackVault && sameAddress(config.buybackVault, graph.vault) && !!config.assetFeedOracle && sameAddress(config.assetFeedOracle, graph.assetOracle) && !!config.feeEngine && !!config.buybackExecutor && sameAddress(config.buybackExecutor, graph.executor) &&
@@ -527,8 +536,8 @@ export class BuybackEngineReader {
       !!config.automationTreasury && sameAddress(config.automationTreasury, graph.automationTreasury) &&
       !!config.wethForwarder && sameAddress(config.wethForwarder, graph.forwarder) && graph.sourceDeployed;
     const reason = engineStatusReason({ sourceDeployed: graph.sourceDeployed, sourceAllowance: graph.sourceAllowance, activated: available });
-    const block = await this.client.getBlock({ blockNumber: graph.blockNumber });
-    const pools = listedTokens(await this.tokens(), config.mode, config.deploymentChainId).filter((token) => token.feePolicy === ENGINE_FEE_POLICY && token.feeEngine && sameAddress(token.feeEngine, graph.engine));
+    const block = await withBuybackReadPhase("block",()=>this.client.getBlock({ blockNumber: graph.blockNumber }));
+    const pools = listedTokens(await withBuybackReadPhase("catalog",()=>this.tokens()), config.mode, config.deploymentChainId).filter((token) => token.feePolicy === ENGINE_FEE_POLICY && token.feeEngine && sameAddress(token.feeEngine, graph.engine));
     const tracked = new Map<string, { address: Address; symbol: string; decimals: number }>([
       [BUYBACK_WETH.toLowerCase(), { address: BUYBACK_WETH, symbol: "WETH", decimals: 18 }],
       [MUSEGOD_BUYBACK.tokenAddress.toLowerCase(), { address: MUSEGOD_BUYBACK.tokenAddress, symbol: "MUSEGOD", decimals: 18 }],
@@ -541,31 +550,32 @@ export class BuybackEngineReader {
     const assets: EngineAssetStatus[] = [];
     const assetList = [...tracked.values()];
     for (let i = 0; i < assetList.length; i += 6) {
-      const rows = await Promise.all(assetList.slice(i, i + 6).map((asset) => readFeeAssetStatus(this.client, graph, asset, block.timestamp)));
+      const rows = await withBuybackReadPhase("assets",()=>Promise.all(assetList.slice(i, i + 6).map((asset) => readFeeAssetStatus(this.client, graph, asset, block.timestamp))));
       assets.push(...rows);
     }
-    const [swapperWeth, vaultWeth, vaultAvailable, vaultSpent, priceReady, feedProposals] = await Promise.all([
+    const [swapperWeth, vaultWeth, vaultAvailable, vaultSpent, priceReady, feedProposals] = await withBuybackReadPhase("vault-and-feeds",()=>Promise.all([
       this.client.readContract({ address: BUYBACK_WETH, abi: erc20Abi, functionName: "balanceOf", args: [graph.swapper], blockNumber: graph.blockNumber }),
       this.client.readContract({ address: BUYBACK_WETH, abi: erc20Abi, functionName: "balanceOf", args: [graph.vault], blockNumber: graph.blockNumber }),
       this.client.readContract({ address: graph.vault, abi: buybackVaultAbi, functionName: "available", blockNumber: graph.blockNumber }),
       this.client.readContract({ address: graph.vault, abi: buybackVaultAbi, functionName: "rollingSpent", blockNumber: graph.blockNumber }),
       this.client.readContract({ address: graph.vault, abi: buybackVaultAbi, functionName: "checkPrices", blockNumber: graph.blockNumber }).then(() => true, () => false),
       readFeeFeedProposals(this.client, graph),
-    ]);
+    ]));
     const poolStatus: BuybackEngineStatus["pools"] = [];
-    for (let i = 0; i < pools.length; i += 4) poolStatus.push(...await Promise.all(pools.slice(i, i + 4).map(async ({ address, poolId, symbol }) => {
+    for (let i = 0; i < pools.length; i += 4) poolStatus.push(...await Promise.all(pools.slice(i, i + 4).map(record=>withBuybackReadPhase(`pool:${record.poolId}`,async()=>{
+      const {address,poolId,symbol}=record;
       const [preview, currencies] = await Promise.all([
-        this.claimPreview(address, graph.engine).then(claimable=>({claimable,claimableError:null}),error=>({claimable:null,claimableError:feePreviewFailure(error,"Pending-fee preview")})),
+        this.claimPreview(address, graph.engine, record).then(claimable=>({claimable,claimableError:null}),error=>({claimable:null,claimableError:feePreviewFailure(error,"Pending-fee preview")})),
         readFeePoolCurrencies(this.client, graph, poolId),
       ]);
       const lpErrors = [...new Set(preview.claimable?.flatMap(row => row.lpError ? [row.lpError] : []) ?? [])];
       const hookErrors = [...new Set(preview.claimable?.flatMap(row => row.hookError ? [row.hookError] : []) ?? [])];
       if (preview.claimableError || lpErrors.length || hookErrors.length) console.warn(JSON.stringify({
-        event: "buyback_fee_preview_failure", blockNumber: String(graph.blockNumber), address, poolId,
+        event: "buyback_fee_preview_failure", readId:currentBuybackReadDiagnostics()?.readId, blockNumber: String(graph.blockNumber), address, poolId,
         error: preview.claimableError, lpErrors, hookErrors,
       }));
       return { address, poolId, symbol, ...preview, currencies };
-    })));
+    }))));
     return { available, reason, sourceAuthorizationError: graph.sourceAuthorizationError, feedProposals, vault: graph.vault, assetOracle: graph.assetOracle, vaultWeth: String(vaultWeth), vaultAvailable: String(priceReady ? vaultAvailable : 0n), vaultSpent: String(vaultSpent), vaultBurned: null, buybackWaitReason: !priceReady ? "Buybacks are waiting for available history and spot/5-minute/30-minute prices within 2%. Fees remain held; token trading is unaffected." : vaultAvailable === 0n && vaultWeth > 0n ? "Buybacks are waiting for the shared 0.01 WETH rolling five-minute budget." : null, blockNumber: String(graph.blockNumber), engine: graph.engine, swapper: graph.swapper, executor: graph.executor, operationsTreasury: graph.operationsTreasury, automationReceiver: graph.automationReceiver, automationTreasury: graph.automationTreasury, wethForwarder: graph.forwarder, sourceDeployed: graph.sourceDeployed, sourceWeth: graph.sourceWeth, sourceAllowance: graph.sourceAllowance, sourceForwarded: graph.sourceForwarded, sourceAvailable: graph.sourceAvailable, assets, pools: poolStatus, swapperWeth: String(swapperWeth), directBurned: null, convertedWeth: null, burns: [], burnScanFrom: null, burnScanTo: null, burnIndexCaughtUp: false };
   }
 }

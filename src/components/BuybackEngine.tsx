@@ -18,6 +18,7 @@ export default function BuybackEngine({ config, onRefresh, summary }: { config: 
   const wallet = useWallet();
   const [status, setStatus] = useState<BuybackEngineStatus | null>(null);
   const [readError, setReadError] = useState("");
+  const [reloading, setReloading] = useState(true);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -38,19 +39,24 @@ export default function BuybackEngine({ config, onRefresh, summary }: { config: 
     return () => { generation.current++; };
   }, [wallet.revision, config?.chainId, config?.feeEngine, config?.buybackExecutor, config?.buybackVault, config?.assetFeedOracle, config?.treasury, config?.automationReceiver, config?.automationTreasury, config?.wethForwarder]);
   useEffect(() => {
-    let cancelled = false, reading = false;
     setStatus(null); setReadError("");
+  }, [config?.chainId, config?.feeEngine, config?.buybackVault, config?.assetFeedOracle, config?.treasury, config?.automationReceiver, config?.automationTreasury, config?.wethForwarder]);
+  useEffect(() => {
+    let cancelled = false, reading = false;
+    // Keep the prior sample visible during an ordinary refresh. As before,
+    // processing stays disabled until that replacement read has completed.
+    setReloading(true);
     const load = async () => {
       if (reading) return; reading = true;
       try { const next = await chainApi<BuybackEngineStatus>(4663, "/buyback/engine"); if (!cancelled) { setStatus(next); setReadError(""); } }
       catch { if (!cancelled) setReadError("Buyback engine updates are delayed. Previous values may be stale; refresh before processing."); }
-      finally { reading = false; }
+      finally { reading = false; if (!cancelled) setReloading(false); }
     };
     void load();
     const timer = window.setInterval(() => void load(), 120_000);
     return () => { cancelled = true; window.clearInterval(timer); };
   }, [config?.chainId, config?.feeEngine, config?.buybackVault, config?.assetFeedOracle, config?.treasury, config?.automationReceiver, config?.automationTreasury, config?.wethForwarder, refresh]);
-  const enabled = !readError && !!config?.writesEnabled && !!config.feeEngine && !!status?.available &&
+  const enabled = !reloading && !readError && !!config?.writesEnabled && !!config.feeEngine && !!status?.available &&
     !!status.vault && !!config.buybackVault && sameAddress(status.vault, config.buybackVault) && !!status.engine && sameAddress(status.engine, config.feeEngine) && status.executor === config.buybackExecutor &&
     !!status.operationsTreasury && !!config.treasury && sameAddress(status.operationsTreasury, config.treasury) &&
     !!status.automationReceiver && !!config.automationReceiver && sameAddress(status.automationReceiver, config.automationReceiver) &&

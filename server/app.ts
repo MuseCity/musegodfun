@@ -120,7 +120,7 @@ const buybackBatches = new BuybackBatchService(buyback, service.store, service.c
   environment: runtime.environment, robinhoodClient: robinhoodDisplayClient,
   destinationConfig: () => shared.chainConfig?.(4663) ?? Promise.reject(new BuybackError("SIGNING_DISABLED", "The explicit Robinhood recovery runtime is unavailable.")),
 });
-const buybackEngine = new BuybackEngineReader(service.client, (fresh = false) => service.config(fresh), () => service.tokens(), (address, engine) => service.engineClaimPreview(address, engine), service.store);
+const buybackEngine = new BuybackEngineReader(service.client, (fresh = false) => service.config(fresh), () => service.tokens(), (address, engine, record) => service.engineClaimPreview(address, engine, record), service.store);
 const baseCollector = deploymentChain(runtime.config) === 8453 && runtime.config.feeEngine && baseCollectorDeployment.constants.automationReceiver &&
   sameAddress(runtime.config.feeEngine,baseCollectorDeployment.collector.address ?? "") ? new BaseFeeQuoteReader({
   client:service.client,collector:runtime.config.feeEngine,verifiedGraph:{collector:runtime.config.feeEngine,
@@ -302,7 +302,11 @@ app.get("/api/first-buy-lock/:address", route(async (req, res) =>
   res.json(await service.firstBuyLock(addressSchema.parse(req.params.address))),
 ));
 app.get("/api/buyback/engine", route(async (_req, res) => {
-  if (deploymentChain(runtime.config) === 4663) { res.json(await buybackEngine.read()); return; }
+  if (deploymentChain(runtime.config) === 4663) {
+    const status = await buybackEngine.read();
+    if (status.readId) res.setHeader("X-Buyback-Read-Id", status.readId);
+    res.json(status); return;
+  }
   res.json(baseCollector ? await baseCollector.status() : unavailableBaseCollectorStatus());
 }));
 app.get("/api/buyback/summary", route(async (_req,res) => {

@@ -66,6 +66,7 @@ import { chainLaunchDependencies, LaunchGuardMismatch, verifyLaunchGuard, verify
 import { assertLaunchTradingFee, assertPlanIntegrity, assertRecoveryPlan, verifiedFirstBuyLock, verifyCreationAccounting, verifyGuardedReceipt } from "./launch-verification";
 import { verifyFeeEngine, feePreviewFailure, FeePreviewReadError } from "./buyback-engine";
 import { alchemyRpcTransport } from "./alchemy-rpc";
+import { withBuybackReadPhase } from "./buyback-read-diagnostics";
 import { BASE_COLLECTOR_MANIFEST, baseCollectorGraphFingerprint, verifyBaseCollector } from "./base-collector";
 import { hasBaseLaunchActivationRecord } from "./base-activation-record";
 import { assertTrustedLaunchPolicy, engineLaunchCutover, ENGINE_MANIFEST, trustedLaunchPolicies, type EngineLaunchCutover } from "./launch-policy-registry";
@@ -1607,16 +1608,18 @@ export class LaunchpadService {
       decimals: decimals?.status === "fulfilled" && Number.isInteger(decimals.value) && decimals.value >= 0 && decimals.value <= 36 ? decimals.value : token ? 18 : undefined };
   }
 
-  async engineClaimPreview(address: Address, engine: Address): Promise<EngineClaimPreview> {
-    const { token, state, pool } = await this.poolState(address).catch(error=>{throw new FeePreviewReadError("Pool state",error);});
+  async engineClaimPreview(address: Address, engine: Address, record?: TokenRecord): Promise<EngineClaimPreview> {
+    if (record && (!sameAddress(record.address, address) || !listedTokens([record], this.runtime.config.mode, deploymentChain(this.runtime.config)).length))
+      throw new PoolIdentityError("The pool identity or locked state is invalid");
+    const { token, state, pool } = await withBuybackReadPhase("pool-state", () => this.poolState(address, record)).catch(error=>{throw new FeePreviewReadError("Pool state",error);});
     if (!isEngineFeePolicy(token.feePolicy) || !token.feeEngine || !sameAddress(token.feeEngine, engine))
       throw new Error("This pool does not use the selected fee engine");
     // Keep the healthy side when either SDK setup or its actual fee read fails.
     const [lp, trade] = await Promise.allSettled([
       // Reuse the entity whose state was verified above, including its Airlock
       // initializer binding, rather than performing a second factory lookup.
-      pool.getPendingFees(engine),
-      this.sdk.getRehypeDopplerHookInitializer(this.contracts.rehype).then(hook=>hook.getPendingFees(token.poolId, engine)),
+      withBuybackReadPhase("LP", () => pool.getPendingFees(engine)),
+      withBuybackReadPhase("Hook", () => this.sdk.getRehypeDopplerHookInitializer(this.contracts.rehype).then(hook=>hook.getPendingFees(token.poolId, engine))),
     ]);
     return [state.poolKey.currency0, state.poolKey.currency1].map((currency, index) => ({
       ...poolCurrency(currency, token),

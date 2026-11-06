@@ -173,6 +173,60 @@ try {
   assert.equal(await unavailableTotals.locator('time').count(), 0, 'a failed first read is not presented as a source sample'); checks++;
   assert.doesNotMatch(await unavailableTotals.innerText(), /Totals snapshot/, 'no snapshot label without a successful block read'); checks++;
   await unavailablePage.close();
+
+  // The ordinary refresh button must retain other pools even while its request
+  // is pending, then keep automatic polling active after a partial failure.
+  const recoveryPage = await context.newPage();
+  recoveryPage.on('pageerror', (error) => errors.push(error.message));
+  let recoveryReads = 0, releaseManual;
+  const manualReply = new Promise((resolve) => { releaseManual = resolve; });
+  let manualStarted;
+  const manualRequest = new Promise((resolve) => { manualStarted = resolve; });
+  const healthyPool = { address: address('f'), poolId: `0x${'3'.repeat(64)}`, symbol: 'HEALTHY',
+    claimable: [{ address: address('f'), symbol: 'SAFE', decimals: 18, lp: '3000000000000000000', hook: '4000000000000000000' }] };
+  await recoveryPage.route('**/api/chains/4663/buyback/engine', async (route) => {
+    const read = ++recoveryReads;
+    if (read === 3) { manualStarted(); await manualReply; }
+    const failed = read === 2;
+    return route.fulfill({ json: { ...baseEngine, checkedAt: startedAt + (read - 1) * 120000, blockNumber: String(300 + read),
+      pools: [{ ...baseEngine.pools[0], claimable: baseEngine.pools[0].claimable.map(({ lpError, ...asset }, index) => failed
+        ? { ...asset, lp: null, hook: null, lpError, hookError: 'Hook preview unavailable: runtime request budget exceeded. No zero balance is assumed.' }
+        : { ...asset, lp: String(BigInt(read + index) * 10n ** 18n), hook: '0' }) }, healthyPool] } });
+  });
+  await recoveryPage.clock.install({ time: new Date(startedAt) });
+  await recoveryPage.goto(`${origin}/buyback?chainId=4663`);
+  const recoveringPool = recoveryPage.locator('.stage-item').filter({ hasText: 'MV2C' });
+  const retainedPool = recoveryPage.locator('.stage-item').filter({ hasText: 'HEALTHY' });
+  const recoveringEngine = recoveryPage.locator('.engine-activity');
+  await textIncludes(recoveringPool, /COST LP 1 · Hook 0/, 'recovery fixture starts with an available MV2C fee preview');
+  await textIncludes(retainedPool, /SAFE LP 3 · Hook 4/, 'recovery fixture includes an independent healthy pool');
+  await recoveryPage.clock.runFor(120000);
+  await textIncludes(recoveringPool, /COST LP Unavailable · Hook Unavailable/, 'automatic refresh preserves COST unknown amounts when both sides fail');
+  await textIncludes(recoveringPool, /MV2C LP Unavailable · Hook Unavailable/, 'automatic refresh preserves MV2C unknown amounts when both sides fail');
+  await textIncludes(recoveringPool, /Hook preview unavailable: runtime request budget exceeded/, 'automatic refresh exposes the Hook budget failure');
+  await textIncludes(retainedPool, /SAFE LP 3 · Hook 4/, 'automatic partial failure retains the other healthy pool');
+  assert.equal(recoveryReads, 2, 'automatic poll produces the partial failure'); checks++;
+  await recoveryPage.getByRole('button', { name: 'Refresh buyback engine balances', exact: true }).click();
+  await manualRequest;
+  try {
+    await textIncludes(retainedPool, /SAFE LP 3 · Hook 4/, 'ordinary manual refresh retains healthy values while its response is pending');
+    await textIncludes(recoveringPool, /COST LP Unavailable · Hook Unavailable/, 'ordinary manual refresh retains the failed side until a successful replacement');
+    await timestamp(recoveringEngine.locator('time'), startedAt + 120000, 'pending manual refresh retains the prior source sample time');
+    assert.equal(await recoveryPage.getByText('Reading on-chain engine balances…', { exact: true }).count(), 0, 'ordinary refresh does not replace prior values with a loading screen'); checks++;
+    for (const name of ['Collect', 'Sync received']) {
+      assert.equal(await retainedPool.getByRole('button', { name, exact: true }).isDisabled(), true, `${name} stays disabled while an ordinary refresh is pending without a wallet`); checks++;
+    }
+  } finally { releaseManual(); }
+  await textIncludes(recoveringPool, /COST LP 3 · Hook 0/, 'ordinary manual refresh restores COST fees');
+  await textIncludes(recoveringPool, /MV2C LP 4 · Hook 0/, 'ordinary manual refresh restores MV2C fees');
+  assert.doesNotMatch(await recoveringPool.innerText(), /Unavailable|unavailable|runtime request budget exceeded/, 'manual recovery clears both LP and Hook failure diagnostics'); checks++;
+  await textIncludes(retainedPool, /SAFE LP 3 · Hook 4/, 'manual recovery preserves the healthy pool');
+  await recoveryPage.clock.runFor(120000);
+  await textIncludes(recoveringPool, /COST LP 4 · Hook 0/, 'automatic polling continues after ordinary manual recovery');
+  await textIncludes(recoveringPool, /MV2C LP 5 · Hook 0/, 'next automatic sample updates both MV2C currencies');
+  assert.equal(recoveryReads, 4, 'manual refresh leaves exactly one automatic polling timer'); checks++;
+  await textIncludes(retainedPool, /SAFE LP 3 · Hook 4/, 'the next automatic sample still retains the healthy pool');
+  await recoveryPage.close();
   assert.deepEqual(errors, [], 'no browser runtime errors');
   console.log(`Passed ${checks} buyback freshness checks in local Chromium (${JSON.stringify(reads)}; fixture API and simulated time; no wallet or external requests).`);
 } finally {

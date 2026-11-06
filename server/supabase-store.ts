@@ -1,6 +1,7 @@
 import type { Hex } from "viem";
 import { packPlan, unpackPlan } from "./plan-storage";
 import { withDeadline } from "./deadline";
+import { countedBuybackFetch } from "./buyback-read-diagnostics";
 import { defaultRuntimeControl, type RuntimeControl, type BudgetName, type BudgetResult } from "./runtime-policy";
 import type { TokenRecord } from "../src/lib/config";
 import type { PostCommand, PostResult } from "./post-store";
@@ -33,7 +34,7 @@ export class SupabaseStore implements StoreBackend {
   ): Promise<T> {
     // Every maintenance alarm makes these calls, so the deadline timer must not outlive the answer (server/deadline.ts).
     return withDeadline(15_000, async (signal) => {
-      const response = await fetch(`${this.url}/rest/v1/${path}`, {
+      const response = await countedBuybackFetch("storage")(`${this.url}/rest/v1/${path}`, {
         method,
         redirect: "manual",
         headers: {

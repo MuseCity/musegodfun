@@ -1,5 +1,6 @@
 import { http, type Transport } from "viem";
 import { mainnetRpcUrl, type RuntimeEnvironment, type DeploymentChainId } from "./config";
+import { countedBuybackFetch, recordBuybackRpcAttempt } from "./buyback-read-diagnostics";
 
 // Alchemy's published standard JSON-RPC CU schedule, checked 2026-10-12.
 // Each method inside an HTTP batch is billed individually; multicall is eth_call.
@@ -51,7 +52,7 @@ export function alchemyRpcTransport(chainId: DeploymentChainId, environment: Run
   const url = requireAlchemyRpc(chainId, environment), retries = options.maxRetries ?? 3;
   if (!Number.isInteger(retries) || retries < 0 || retries > 3) throw new Error("Alchemy retry ceiling is at most three");
   const base = http(url, { batch: { batchSize: 20, wait: 0 }, timeout: options.timeout ?? 15000, retryCount: 0,
-    fetchFn: fetch.bind(globalThis) });
+    fetchFn: countedBuybackFetch("rpc") });
   const sleep = options.sleep ?? (ms => new Promise(resolve => setTimeout(resolve, ms))), random = options.random ?? Math.random;
   return parameters => {
     const transport = base(parameters); let chain: Promise<unknown> | undefined;
@@ -63,6 +64,7 @@ export function alchemyRpcTransport(chainId: DeploymentChainId, environment: Run
       }
       for (let attempt = 0;; attempt++) {
         options.metrics?.record(args.method, attempt > 0);
+        recordBuybackRpcAttempt(args.method, attempt > 0);
         try { return await transport.request(args as any, requestOptions as any); }
         catch (error) {
           if (!limited(error) || attempt >= retries || args.method === "eth_sendRawTransaction") { chain = undefined; throw error; }
