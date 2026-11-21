@@ -30,18 +30,31 @@ export default function BuybackPage({ config }: { config: RuntimeConfig | null }
   };
     void read();const timer=setInterval(()=>void read(),300_000);return()=>{active=false;clearInterval(timer);};},[revision]);
   const [market, setMarket] = useState<MarketSummary | null>(null);
+  const [priceLoading, setPriceLoading] = useState(true);
   const [priceError, setPriceError] = useState(false);
+  const [priceRevision, setPriceRevision] = useState(0);
   useEffect(() => {
     let active = true, reading = false;
     const read = async () => {
-      if (reading) return; reading = true;
-      try { const next = await chainApi<MarketSummary>(4663, "/musegod/market/summary"); if (active) { setMarket(next); setPriceError(false); } }
-      catch { if (active) setPriceError(true); }
-      finally { reading = false; }
+      if (reading) return;
+      reading = true;
+      setPriceLoading(true);
+      try {
+        const next = await chainApi<MarketSummary>(4663, "/musegod/market/summary");
+        if (active) {
+          setMarket(next);
+          setPriceError(false);
+        }
+      } catch {
+        if (active) setPriceError(true);
+      } finally {
+        reading = false;
+        if (active) setPriceLoading(false);
+      }
     };
     void read(); const timer = window.setInterval(() => void read(), 30_000);
     return () => { active = false; window.clearInterval(timer); };
-  }, [revision]);
+  }, [revision, priceRevision]);
   const price = market?.status !== "unavailable" && market?.priceUsd != null
     ? { usd: market.priceUsd, stale: priceError || market.status === "stale" } : null;
   const shares = feePolicyFor(launchFeePolicy(config)) ?? FEE_SHARES;
@@ -76,8 +89,12 @@ export default function BuybackPage({ config }: { config: RuntimeConfig | null }
       <dl className="burn-stats">
         <div><dt>Share of supply</dt><dd>{share === null ? "—" : `${share.toFixed(2)}%`}</dd><dd className="sub">of <span className="mono">{supply === null ? "—" : supply.toLocaleString("en-US")}</span></dd></div>
         <div><dt>Value burned</dt><dd>{burned !== null && price !== null ? `≈ $${(burned * price.usd).toLocaleString("en-US", { notation: "compact", maximumFractionDigits: 1 })}` : "—"}</dd>
-          <dd className="sub">{price !== null ? <>at <span className="mono">${price.usd.toLocaleString("en-US", { maximumSignificantDigits: 3 })}</span> per MUSEGOD{price.stale ? " · previous snapshot" : ""}</> : "MUSEGOD price unavailable"}</dd>
-          {market?.fetchedAt && <dd className="sub">Price snapshot · <time dateTime={market.fetchedAt}>{new Date(market.fetchedAt).toLocaleString()}</time></dd>}</div>
+          <dd className="sub" aria-live="polite">
+            {price !== null ? <>at <span className="mono">${price.usd.toLocaleString("en-US", { maximumSignificantDigits: 3 })}</span> per MUSEGOD{price.stale ? " · previous snapshot" : ""}</>
+              : priceLoading ? "Loading MUSEGOD price…"
+              : <>MUSEGOD price unavailable. <button type="button" aria-label="Retry MUSEGOD price" onClick={() => setPriceRevision((value) => value + 1)}>Retry</button></>}
+          </dd>
+          {price !== null && market?.fetchedAt && <dd className="sub">Price snapshot · <time dateTime={market.fetchedAt}>{new Date(market.fetchedAt).toLocaleString()}</time></dd>}</div>
         <div><dt>Circulating supply</dt><dd>{burned !== null && supply !== null ? whole(supply - burned) : "—"}</dd><dd className="sub">total supply − burned</dd></div>
       </dl>
       {summaryError && <p className="hint" role="status">{summaryError}</p>}

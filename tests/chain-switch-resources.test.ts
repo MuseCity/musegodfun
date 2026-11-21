@@ -1,19 +1,21 @@
 import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
+import { ApiError } from "../src/lib/api";
 
 // Run the real hooks with deterministic React hooks and a controlled network/API, no DOM or network.
 async function loadHook(t: TestContext, entry: string, exportName: string, fixtureKey: string) {
   const { build } = await import("esbuild");
   const slots: any[] = []; let cursor = 0; const pending: (() => void)[] = [];
-  const responses: { chain: number; path: string; resolve: (value: unknown) => void }[] = [];
+  const responses: { chain: number; path: string; resolve: (value: unknown) => void; reject: (error: Error) => void }[] = [];
   const fixture = {
     chainId: 4663,
+    ApiError,
     hooks: {
       useState(initial: any) { const index = cursor++; slots[index] ??= { value: typeof initial === "function" ? initial() : initial }; return [slots[index].value, (value: any) => { slots[index].value = typeof value === "function" ? value(slots[index].value) : value; }]; },
       useRef(initial: any) { const index = cursor++; return slots[index] ??= { current: initial }; },
       useEffect(fn: () => any, deps: any[]) { const index = cursor++, old = slots[index]; if (!old || deps.some((v, i) => !Object.is(v, old.deps[i]))) pending.push(() => { old?.cleanup?.(); slots[index] = { deps, cleanup: fn() }; }); },
     },
-    read: (chain: number, path: string) => new Promise((resolve) => responses.push({ chain, path, resolve })),
+    read: (chain: number, path: string) => new Promise((resolve, reject) => responses.push({ chain, path, resolve, reject })),
   };
   Object.defineProperty(globalThis, fixtureKey, { configurable: true, value: fixture });
   t.after(() => { for (const slot of slots) slot?.cleanup?.(); Reflect.deleteProperty(globalThis, fixtureKey); });
@@ -24,7 +26,7 @@ async function loadHook(t: TestContext, entry: string, exportName: string, fixtu
       build.onLoad({ filter: /.*/, namespace: "fixture" }, ({ path }) => ({ contents: path === "react"
         ? `export const {useState,useRef,useEffect} = globalThis.${fixtureKey}.hooks;`
         : path === "network" ? `export const useNetwork = () => ({ chainId: globalThis.${fixtureKey}.chainId, selectChain() {} });`
-          : `export const chainApi = (...args) => globalThis.${fixtureKey}.read(...args);` }));
+          : `export const ApiError = globalThis.${fixtureKey}.ApiError; export const chainApi = (...args) => globalThis.${fixtureKey}.read(...args);` }));
     } }] });
   const hook = (await import(`data:text/javascript;base64,${Buffer.from(outputFiles[0].text).toString("base64")}`))[exportName];
   // Returns what the component sees during this render, before its effects run.
@@ -62,6 +64,34 @@ test("useResource keeps the current chain's data during a same-scope refresh", a
   responses.shift()!.resolve(["AAPL", "NVDA"]);
   await settle();
   assert.deepEqual(render("/stocks", 1).data, ["AAPL", "NVDA"]);
+});
+
+test("configuration recovery respects Retry-After and cancels a pending retry when the chain changes", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  const { fixture, responses, render, settle } = await loadHook(t, "src/lib/resource.ts", "useResource", "__configRecovery");
+  const options = { retryOnFailure: true };
+  render("/config", 0, options);
+  responses.shift()!.reject(new ApiError("Capacity limited", 429, undefined, 60));
+  await settle();
+  assert.equal(render("/config", 0, options).error, "Capacity limited");
+  t.mock.timers.tick(59_999);
+  assert.equal(responses.length, 0, "the server's requested wait is not shortened");
+  t.mock.timers.tick(1);
+  const retry = responses.shift()!;
+  assert.equal(retry.chain, 4663);
+  assert.equal(render("/config", 0, options).loading, true);
+  retry.reject(new ApiError("Service unavailable", 503));
+  await settle();
+
+  fixture.chainId = 8453;
+  assert.equal(render("/config", 0, options).error, "", "the new chain does not inherit the prior failure");
+  const base = responses.shift()!;
+  assert.equal(base.chain, 8453);
+  base.resolve({ chainId: 8453, mode: "base" });
+  await settle();
+  t.mock.timers.tick(60_000);
+  assert.equal(responses.length, 0, "the old chain stops retrying and the new chain has recovered");
+  assert.deepEqual(render("/config", 0, options).data, { chainId: 8453, mode: "base" });
 });
 
 test("useTokenCatalog never returns the previous chain's tokens or cursor after a chain switch", async (t) => {

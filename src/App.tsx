@@ -437,7 +437,7 @@ export function App() {
   useEffect(() => {
     if (showHelp) helpDialog.current?.showModal();
   }, [showHelp]);
-  const config = useResource<RuntimeConfig>("/config", version),
+  const config = useResource<RuntimeConfig>("/config", version, { retryOnFailure: true }),
     stocks = useResource<StockStatus[]>("/stocks", version),
     tokens = useTokenCatalog(version),
     wallet = useWallet();
@@ -3284,7 +3284,7 @@ function TokenDetail({ detail, config, refreshError }: { detail: TokenDetailData
           <aside className="token-aside" aria-label="Trade and beneficiary">
             {stateInvalid ? <section className="card"><Notice kind="error">The on-chain pool does not match this listing, so trading links are hidden.</Notice></section>
               : <TokenVenues token={token} stock={stock} market={market} fomoHandle={config?.fomoInvite} stateUnavailable={!detail.state}
-                quoteProbe={() => api<{ amountOut: string }>("/quote", { address: token.address, side: "buy", amount: "1", slippageBps: 100 })} />}
+                quoteProbe={config ? () => api<{ amountOut: string }>("/quote", { address: token.address, side: "buy", amount: "1", slippageBps: 100 }) : null} />}
             {stockResource.error && <Notice kind="error">{stockStatusFailure(stock)} {stockResource.error}</Notice>}
             <section className="card beneficiary-card" aria-labelledby="beneficiary-title">
               <h2 id="beneficiary-title" className="card-title">{nft ? "Bound NFT · fee beneficiary" : "Creator · fee beneficiary"}</h2>

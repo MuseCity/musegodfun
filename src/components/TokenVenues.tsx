@@ -20,8 +20,8 @@ export default function TokenVenues({ token, stock, market, fomoHandle, stateUna
   fomoHandle: string | null | undefined;
   /** The server could not read the pool state just now: no pool quote until it can (the page retries on its own). */
   stateUnavailable?: boolean;
-  /** One on-chain quote buying with 1 unit of the pair asset; read automatically while the card shows the pool quote. */
-  quoteProbe: () => Promise<{ amountOut: string }>;
+  /** One on-chain quote buying with 1 unit of the pair asset; null while the network configuration is unavailable. */
+  quoteProbe: (() => Promise<{ amountOut: string }>) | null;
 }) {
   const doppler = dopplerUrl(token), fomo = fomoInviteUrl(token, fomoHandle);
   const [copied, setCopied] = useState<"" | "done" | "failed">("");
@@ -40,6 +40,7 @@ export default function TokenVenues({ token, stock, market, fomoHandle, stateUna
   // Metrics show whenever the summary holds any value; the price line needs a price, otherwise the pool quote fallback is shown.
   const hasValues = summaryHasValues(stats), hasPrice = stats?.priceUsd != null || !!stats?.priceQuote;
   const probeShown = !hasPrice && token.mode !== "fork" && !summary.loading && !stateUnavailable;
+  const quoteReady = quoteProbe !== null;
   // The quote is read at once, then again when it expires, only while the page is visible: a hidden tab waits and reads on return. `dueAt`
   // is when the next read may start; one read at a time, and an answer after unmount is dropped. A read keeps running if the tab hides.
   const [visible, setVisible] = useState(pageVisible), [dueAt, setDueAt] = useState(0);
@@ -52,16 +53,16 @@ export default function TokenVenues({ token, stock, market, fomoHandle, stateUna
     return () => { mounted.current = false; document.removeEventListener("visibilitychange", update); };
   }, []);
   useEffect(() => {
-    if (!probeShown || !visible) return;
+    if (!probeShown || !quoteReady || !visible) return;
     const timer = setTimeout(() => { if (pageVisible()) void readProbe(); }, Math.max(0, dueAt - Date.now()));
     return () => clearTimeout(timer);
-  }, [probeShown, visible, dueAt]);
+  }, [probeShown, quoteReady, visible, dueAt]);
   const change = stats?.periods.h24?.change, changeKind = changeClass(change);
   const priceText = stats?.priceUsd != null ? formatUsd(stats.priceUsd, true)
     : stats?.priceQuote ? Number(stats.priceQuote).toLocaleString("en-US", { maximumSignificantDigits: 6 }) : "—";
   const poolFee = poolFeeOn100(token), disclaimer = ownershipDisclaimer(token.symbol, stock);
   async function readProbe() {
-    if (reading.current) return;
+    if (!quoteProbe || reading.current) return;
     reading.current = true;
     setProbe((current) => ({ ...current, busy: true }));
     let next: (current: typeof probe) => typeof probe;
@@ -108,7 +109,7 @@ export default function TokenVenues({ token, stock, market, fomoHandle, stateUna
               <small className="hint"> · average for a 1-unit buy with 1 {stock.symbol}, fees included</small>
               <small className="hint venue-probe-time">{quote.failed ? "Previous quote, read" : "Read"} at <time dateTime={new Date(quote.at).toISOString()}>{clock(quote.at)}</time>
                 {quote.failed ? " · not current" : expired ? " · expired" : ""}</small></p>
-              : !probe.error && <p className="hint">Reading the pool…</p>}
+              : !probe.error && <p className="hint">{quoteReady ? "Reading the pool…" : "Waiting for network configuration…"}</p>}
               {/* Automatic reads repeat every minute, so a failure is announced politely in this region, not as an alert. */}
               {probe.error && <p className="field-error">{probe.error}</p>}</div>
           </>}

@@ -34,6 +34,8 @@ const config = { mode: 'robinhood', chainId: 4663, deploymentChainId: 4663,
   treasury: address('1'), writesEnabled: false, blockReason: null, feeEngine: address('5') };
 const reads = { price: 0, engine: 0, summary: 0 };
 let unavailableSummary = false;
+let releaseFirstPrice;
+const firstPriceResponse = new Promise((resolve) => { releaseFirstPrice = resolve; });
 const browser = await chromium.launch({ headless: true });
 try {
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
@@ -49,6 +51,7 @@ try {
     else if (url.pathname.endsWith('/stocks')) body = [];
     else if (url.pathname.endsWith('/musegod/market/summary')) {
       const read = ++reads.price;
+      if (read === 1) await firstPriceResponse;
       if (read === 3) { status = 500; body = { error: 'Price fixture temporarily unavailable' }; }
       else body = { status: 'fresh', source: 'Bankr', priceUsd: read === 1 ? 2 : read === 2 ? 3 : 4,
         fetchedAt: new Date(read === 1 ? startedAt - 7000 : read === 2 ? startedAt + 30000 : startedAt + 90000).toISOString(),
@@ -107,11 +110,16 @@ try {
     for (const [key, count] of Object.entries(expected)) assert.equal(reads[key], count, `${key} polling count`);
   }
   await textIncludes(hero.locator('.burn-caption'), /block 200/, 'totals source block');
+  try {
+    await textIncludes(price, /Loading MUSEGOD price…/, 'slow first price request displays loading');
+    assert.doesNotMatch(await price.innerText(), /unavailable|Retry/, 'a pending first request does not show failure'); checks++;
+  } finally { releaseFirstPrice(); }
   await textIncludes(engine, /Balances at block 100/, 'engine source block');
   await timestamp(totalsTime, baseSummary.checkedAt, 'totals source sample time');
   await timestamp(priceTime, startedAt - 7000, 'price source sample time');
   await timestamp(engineTime, baseEngine.checkedAt, 'engine source sample time');
   await textIncludes(price, /at \$2 per MUSEGOD/, 'initial price');
+  await textIncludes(price, /≈ \$200/, 'first price automatically displays the burn estimate');
   const partialPool = page.locator('.stage-item').filter({ hasText: 'MV2C' });
   await textIncludes(partialPool, /COST LP Unavailable · Hook 0/, 'unavailable LP and genuine zero Hook stay distinct');
   await textIncludes(partialPool, /MV2C LP Unavailable · Hook 0/, 'both failed LP currencies retain their healthy Hook side');
@@ -173,6 +181,40 @@ try {
   assert.equal(await unavailableTotals.locator('time').count(), 0, 'a failed first read is not presented as a source sample'); checks++;
   assert.doesNotMatch(await unavailableTotals.innerText(), /Totals snapshot/, 'no snapshot label without a successful block read'); checks++;
   await unavailablePage.close();
+
+  const failedPricePage = await context.newPage();
+  failedPricePage.on('pageerror', (error) => errors.push(error.message));
+  let priceAttempts = 0, totalsAttempts = 0, releasePriceRetry;
+  const priceRetryResponse = new Promise((resolve) => { releasePriceRetry = resolve; });
+  await failedPricePage.route('**/api/chains/4663/buyback/summary', async (route) => {
+    totalsAttempts++;
+    return route.fulfill({ json: baseSummary });
+  });
+  await failedPricePage.route('**/api/chains/4663/musegod/market/summary', async (route) => {
+    const attempt = ++priceAttempts;
+    if (attempt === 1) return route.fulfill({ status: 500, json: { error: 'Price fixture failed' } });
+    if (attempt === 2) await priceRetryResponse;
+    return route.fulfill({ json: { status: attempt === 2 ? 'unavailable' : 'fresh',
+      priceUsd: attempt === 2 ? null : 2, fetchedAt: new Date(startedAt).toISOString(), periods: {} } });
+  });
+  await failedPricePage.clock.install({ time: new Date(startedAt) });
+  await failedPricePage.goto(`${origin}/buyback?chainId=4663`);
+  const failedPrice = failedPricePage.locator('.burn-stats > div').nth(1);
+  const retryPrice = failedPrice.getByRole('button', { name: 'Retry MUSEGOD price' });
+  await textIncludes(failedPrice, /MUSEGOD price unavailable/, 'a failed first price read displays failure');
+  await retryPrice.click();
+  try {
+    await textIncludes(failedPrice, /Loading MUSEGOD price…/, 'retry immediately returns to loading');
+    assert.doesNotMatch(await failedPrice.innerText(), /unavailable|Retry/, 'a pending retry does not show failure'); checks++;
+  } finally { releasePriceRetry(); }
+  await textIncludes(failedPrice, /MUSEGOD price unavailable/, 'a response with no usable price displays failure');
+  assert.equal(await failedPrice.locator('time').count(), 0, 'an unavailable response is not presented as a price sample'); checks++;
+  await failedPricePage.clock.runFor(30_000);
+  await textIncludes(failedPrice, /≈ \$200/, 'the next poll restores the estimate without reloading');
+  assert.equal(priceAttempts, 3, 'manual retry leaves one automatic price poll'); checks++;
+  assert.equal(totalsAttempts, 1, 'retrying only the price leaves the totals request alone'); checks++;
+  assert.equal(await retryPrice.count(), 0, 'a successful price clears the retry action'); checks++;
+  await failedPricePage.close();
 
   // The ordinary refresh button must retain other pools even while its request
   // is pending, then keep automatic polling active after a partial failure.

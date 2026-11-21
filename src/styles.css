@@ -1058,7 +1058,7 @@ dialog.modal.launch-review { width: min(640px, calc(100vw - 32px)); }
 .burn-number .unit { margin-left: 12px; font-size: 20px; line-height: 28px; font-weight: 600; letter-spacing: 0; opacity: 0.8; }
 .burn-caption { font-size: 12px; line-height: 16px; opacity: 0.75; }
 .burn-caption a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
-.burn-caption button { color: #ffc933; font-weight: 600; text-decoration: underline; }
+.burn-caption button, .burn-stats dd.sub button { color: #ffc933; font-weight: 600; text-decoration: underline; }
 .burn-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; padding-top: 16px; border-top: 1px solid rgba(251, 247, 238, 0.18); }
 .burn-stats > div { display: flex; flex-direction: column; gap: 2px; padding: 0 20px; border-left: 1px solid rgba(251, 247, 238, 0.18); min-width: 0; }
 .burn-stats > div:first-child { padding-left: 0; border-left: 0; }
