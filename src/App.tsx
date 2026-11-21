@@ -932,6 +932,7 @@ export function Explore({
             <span className="visually-hidden">Filter by quote asset</span>
             <select
               aria-label="Filter by quote asset"
+              aria-describedby="explore-quote-scope"
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
             >
@@ -971,6 +972,7 @@ export function Explore({
             <RefreshCw size={16} />
           </button>
         </div>
+        <p className="hint" id="explore-quote-scope">Includes historical pairs. See Create for assets available for new launches.</p>
         <div className="quick-filters" role="group" aria-label="Quick filters">
           <button type="button" className="filter-chip" aria-pressed={activeQuick === "all"} onClick={() => setQuick("all")} ref={allChip}>All launches</button>
           <button type="button" className="filter-chip" aria-pressed={activeQuick === "new"} onClick={() => setQuick("new")}>New in 24h <span className="count">{newCount}</span></button>
